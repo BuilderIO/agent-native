@@ -4467,6 +4467,14 @@ test("selects the release workflow test when the publish workflow changes", () =
   ]);
 });
 
+test("selects the feedback proof workflow test when its workflow changes", () => {
+  const scope = classifyChangedPaths([
+    ".github/workflows/feedback-fix-proof.yml",
+  ]);
+
+  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
+});
+
 test("runs the change-scope test when the selector or its test changes", () => {
   for (const path of [
     "scripts/ci-change-scope.ts",
@@ -4708,6 +4716,7 @@ test(
         "scripts/guard-no-unbounded-table-reads.test.ts",
         "scripts/deploy-alerts-workflow.test.ts",
         "scripts/package-release-workflow.test.ts",
+        "scripts/feedback-fix-proof.test.ts",
         "scripts/qa-deploy-paths-lib.ts",
         "scripts/design-e2e-regression-pins.ts",
         "scripts/design-e2e-spec-selection.ts",

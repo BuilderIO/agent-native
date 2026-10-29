@@ -438,29 +438,53 @@ describe("govern-factory-pull-request final check evidence", () => {
     },
   );
 
-  it("does not reclaim an ambiguous approval when the item already needs manual disposition", async () => {
+  it("does not start a new approval while the Factory item is on manual hold", async () => {
     await seedInternalApprovalPath(false, "needs_manual");
-    const firstAttempt = governanceGitHub({
-      internalMember: true,
-      passingChecks: true,
-      changedFiles: ["src/change.ts"],
-      approvalError: new GitHubRequestError("approval timed out", true),
-    });
-
-    await expect(
-      runGovernance(firstAttempt, DEFAULT_FACTORY_ID, true),
-    ).rejects.toThrow("approval timed out");
-
-    const retry = governanceGitHub({
+    const github = governanceGitHub({
       internalMember: true,
       passingChecks: true,
       changedFiles: ["src/change.ts"],
     });
-    await expect(
-      runGovernance(retry, DEFAULT_FACTORY_ID, true),
-    ).rejects.toThrow(
-      "A pull-request approval intent already exists; reconcile the provider result before retrying.",
-    );
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decisions = await db
+      .select({ outcome: triageDecisions.outcome })
+      .from(triageDecisions)
+      .where(eq(triageDecisions.itemId, "item-1"));
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: "needs_manual",
+      reason: expect.stringContaining("manual hold"),
+    });
+    expect(item.status).toBe("needs_manual");
+    expect(decisions).toEqual([]);
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not reclaim an ambiguous approval when the item already needs manual disposition", async () => {
+    await seedInternalApprovalPath(true, "needs_manual");
+    await db
+      .update(triageDecisions)
+      .set({
+        outcome: "needs_manual",
+        reason:
+          "GitHub approval request outcome is ambiguous; reconciliation is required before retrying.",
+      })
+      .where(eq(triageDecisions.id, governanceDecisionId()));
+    const github = governanceGitHub({
+      internalMember: true,
+      passingChecks: true,
+      changedFiles: ["src/change.ts"],
+    });
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
 
     const item = (
       await db
@@ -479,13 +503,13 @@ describe("govern-factory-pull-request final check evidence", () => {
     )[0];
 
     expect(item.status).toBe("needs_manual");
+    expect(result).toMatchObject({ ok: true, action: "needs_manual" });
     expect(decision).toEqual({
       outcome: "needs_manual",
       reason:
         "GitHub approval request outcome is ambiguous; reconciliation is required before retrying.",
     });
-    expect(firstAttempt.approvePullRequest).toHaveBeenCalledTimes(1);
-    expect(retry.approvePullRequest).not.toHaveBeenCalled();
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
   });
 
   it("preserves a manual hold when a non-approval run updates the item", async () => {
@@ -1661,6 +1685,66 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(item.status).toBe("pr_observed");
   });
 
+  it.each([
+    [
+      "after the approval claim",
+      {
+        revalidatedSummary: {
+          assignees: [{ id: 456, login: "builder-assignee" }],
+        },
+      },
+    ],
+    [
+      "at the final approval check",
+      {
+        finalPreApprovalSummary: {
+          assignees: [{ id: 456, login: "builder-assignee" }],
+        },
+      },
+    ],
+  ])(
+    "does not approve a fork assigned to a BuilderIO member %s",
+    async (_timing, summary) => {
+      await seedInternalApprovalPath();
+      const github = governanceGitHub({
+        headRepository: "contributor/fork",
+        internalMember: true,
+        passingChecks: true,
+        changedFiles: ["src/change.ts"],
+        assigneeMember: true,
+        ...summary,
+      });
+
+      const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+      const item = (
+        await db
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(eq(triageItems.id, "item-1"))
+      )[0];
+      const decision = (
+        await db
+          .select({ outcome: triageDecisions.outcome })
+          .from(triageDecisions)
+          .where(eq(triageDecisions.id, governanceDecisionId()))
+      )[0];
+
+      expect(result).toMatchObject({
+        ok: true,
+        action: "needs_manual",
+        reason: expect.stringContaining("assigned to this fork"),
+      });
+      expect(item.status).toBe("reconciliation_required");
+      expect(decision.outcome).toBe("needs_manual");
+      expect(github.checkOrganizationMemberById).toHaveBeenCalledWith(
+        "BuilderIO",
+        456,
+        "builder-assignee",
+      );
+      expect(github.approvePullRequest).not.toHaveBeenCalled();
+    },
+  );
+
   it("rechecks author membership before recording a no-approval disposition", async () => {
     await seedItem("pr_observed");
     const github = governanceGitHub({
@@ -1818,7 +1902,7 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(github.approvePullRequest).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["merged", "reconciliation_required"] as const)(
+  it.each(["merged", "reconciliation_required", "needs_manual"] as const)(
     "does not post an approval when the item becomes %s during final evidence checks",
     async (status) => {
       await seedInternalApprovalPath();
@@ -1996,10 +2080,10 @@ describe("govern-factory-pull-request final check evidence", () => {
       passingChecks: true,
       changedFiles: ["src/change.ts"],
     });
-    await expect(
-      runGovernance(retryWithoutVisibleApproval, DEFAULT_FACTORY_ID, true),
-    ).rejects.toThrow(
-      "A pull-request approval intent already exists; reconcile the provider result before retrying.",
+    const retryResult = await runGovernance(
+      retryWithoutVisibleApproval,
+      DEFAULT_FACTORY_ID,
+      true,
     );
 
     const lateApproval = governanceGitHub({
@@ -2034,6 +2118,10 @@ describe("govern-factory-pull-request final check evidence", () => {
     )[0];
 
     expect(firstResult).toMatchObject({ ok: true, action: "needs_manual" });
+    expect(retryResult).toMatchObject({ ok: true, action: "needs_manual" });
+    expect(
+      retryWithoutVisibleApproval.approvePullRequest,
+    ).not.toHaveBeenCalled();
     expect(recoveredResult).toMatchObject({ ok: true, action: "skipped" });
     expect(item.status).toBe("needs_manual");
     expect(decision.outcome).toBe("auto_approve");

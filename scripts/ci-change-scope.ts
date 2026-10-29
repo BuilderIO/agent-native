@@ -71,6 +71,10 @@ const RELATED_SCRIPT_TESTS = new Map([
     ".github/workflows/auto-publish.yml",
     "scripts/package-release-workflow.test.ts",
   ],
+  [
+    ".github/workflows/feedback-fix-proof.yml",
+    "scripts/feedback-fix-proof.test.ts",
+  ],
 ]);
 const GUARD_SCOPE_FILES = new Set([
   "scripts/serverless-function-baseline.json",

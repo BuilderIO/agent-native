@@ -1,0 +1,48 @@
+name: Feedback fix proof
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+concurrency:
+  group: feedback-fix-proof-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Feedback fix proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Detect feedback reports
+        id: reports
+        env:
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+        run: >-
+          node --experimental-strip-types --no-warnings
+          scripts/feedback-fix-proof.ts --has-reports >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/setup-pnpm
+        if: steps.reports.outputs.has_reports == 'true'
+
+      - name: Verify feedback proof
+        if: steps.reports.outputs.has_reports == 'true'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: >-
+          node --experimental-strip-types --no-warnings
+          scripts/feedback-fix-proof.ts

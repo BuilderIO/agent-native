@@ -32,8 +32,8 @@ designated Factory workflow may merge a Builder PR after its merge gate. Outside
 Factory governance, merge only when Steve explicitly requests the merge for that
 PR, using the applicable merge path below. Factory governance records a manual
 disposition for confirmed external authors through its action and never
-approves them. Every invocation stands down on an outside fork PR assigned to
-a verified BuilderIO member, as required by `community-prs`. Other invocations
+approves them. Every invocation stands down on a fork PR assigned to a
+verified BuilderIO member, as required by `community-prs`. Other invocations
 apply the external-contribution gate below; external authors are never eligible
 for an approval review. Surface external work that needs a major product call
 or a new framework API for Steve's explicit approval before a full review or
@@ -62,11 +62,11 @@ author and draft state:
 
  - Verify each remaining human author's current BuilderIO membership using the
    organization membership API below before applying any existing-approval
-   filter. For a confirmed nonmember's PR from a fork, check assignees before
-   any other gate: if any assignee is a verified current BuilderIO member,
-   ignore the PR completely, like a draft. That member owns it under
-   `community-prs`. Take no review, reply, action, or merge action, and leave it
-   out of the recap. This exclusion applies in Factory governance too.
+   filter. For a PR from a fork, check assignees before any other gate: if any
+   assignee is a verified current BuilderIO member, ignore the PR completely,
+   like a draft. That member owns it under `community-prs`. Take no review,
+   reply, action, or merge action, and leave it out of the recap. This exclusion
+   applies in Factory governance too.
 
  - For every other confirmed external PR in Factory governance, call
    `govern-factory-pull-request` so the action records a manual disposition,
@@ -693,7 +693,7 @@ non-auto-approved external PR that needs an update or screenshot, include its
 draft reply in a separate section, or mark it waiting on the contributor with
 a link to Steve's outstanding request. For internal PRs, report the needed
 update or screenshot without drafting an author-facing reply. Do not add rows
-for bots, `steve8708`, drafts, or external PRs assigned to a BuilderIO member;
+for bots, `steve8708`, drafts, or fork PRs assigned to a BuilderIO member;
 those are ignored completely.
 
 If Steve asks only which PRs are ready to merge, return only the candidate list

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, describe, it } from "node:test";
@@ -155,6 +155,31 @@ describe("parseReports", () => {
 });
 
 describe("feedback-fix-proof", () => {
+  it("runs from read-only pull-request CI with the live body and base SHA", () => {
+    const workflow = readFileSync(
+      ".github/workflows/feedback-fix-proof.yml",
+      "utf8",
+    );
+
+    assert.match(workflow, /pull_request:\s*\n\s+types:.*edited/);
+    assert.match(workflow, /permissions:\s*\n\s+contents: read/);
+    assert.match(workflow, /persist-credentials: false/);
+    assert.match(
+      workflow,
+      /PR_BODY: \$\{\{ github\.event\.pull_request\.body \|\| '' \}\}/,
+    );
+    assert.match(
+      workflow,
+      /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/,
+    );
+    assert.match(workflow, /scripts\/feedback-fix-proof\.ts --has-reports/);
+    assert.match(
+      workflow,
+      /if: steps\.reports\.outputs\.has_reports == 'true'[\s\S]*?scripts\/feedback-fix-proof\.ts/,
+    );
+    assert.doesNotMatch(workflow, /pull_request_target|secrets\.|GITHUB_TOKEN/);
+  });
+
   it("passes when every report's proof holds on re-run", () => {
     const r = gate(
       `## Reports\n- https://app.slack.com/a\n${proven("grep -q fixed app.txt")}`,
