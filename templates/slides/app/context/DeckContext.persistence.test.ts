@@ -120,6 +120,7 @@ function setupFetch(options?: {
   serverFaithfulClientWrites?: boolean;
   failDeckList?: boolean;
   deleteDeckNotFound?: boolean;
+  lightDeckList?: boolean;
   deferredDelete?: boolean;
   deferredDuplicate?: boolean;
   patchFailures?: { deckId: string; count: number };
@@ -432,7 +433,10 @@ function setupFetch(options?: {
           new Response("Gateway timeout", { status: 504 }),
         );
       }
-      const decks = accessibleDeck ? [accessibleDeck] : [];
+      const listRow = options?.lightDeckList
+        ? { ...accessibleDeck, slides: [] }
+        : accessibleDeck;
+      const decks = listRow ? [listRow] : [];
       const response = new Response(
         JSON.stringify({ count: decks.length, decks }),
         { status: 200 },
@@ -8810,6 +8814,37 @@ describe("DeckContext deck creation persistence", () => {
       result.current.undo(deckId);
     });
     expect(result.current.getDeck(deckId)?.title).toBe("Disposable");
+  });
+
+  it("restores the server deck slides on undo when the delete started from a light list row", async () => {
+    window.history.pushState({}, "", "/");
+    const fullDeck: Deck = {
+      id: "light-row-deck",
+      title: "Full Deck",
+      createdAt: "2026-10-29T00:00:00.000Z",
+      updatedAt: "2026-10-29T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        { id: "slide-2", content: "<h1>Two</h1>", notes: "", layout: "title" },
+      ],
+    };
+    const { fetchMock, setAccessibleDeck } = setupFetch({
+      lightDeckList: true,
+    });
+    setAccessibleDeck(fullDeck);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.deleteDeck(fullDeck.id));
+    await waitFor(() => expect(deletedDeck(fetchMock, fullDeck.id)).toBe(true));
+    await waitFor(() =>
+      expect(result.current.undoAvailability[fullDeck.id]?.canUndo).toBe(true),
+    );
+
+    act(() => {
+      result.current.undo(fullDeck.id);
+    });
+    expect(result.current.getDeck(fullDeck.id)?.slides).toHaveLength(2);
   });
 
   it("does not continue a preview-backed duplicate after switching organizations", async () => {

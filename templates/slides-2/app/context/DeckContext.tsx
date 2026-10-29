@@ -6464,14 +6464,15 @@ export function DeckProvider({
   const deleteDeck = useCallback(
     (id: string): Promise<DeckDeletionResult> => {
       const scopeGeneration = deckScopeGenerationRef.current;
-      if (deferredCreateDecksRef.current.delete(id)) {
+      const wasDeferredCreate = deferredCreateDecksRef.current.delete(id);
+      if (wasDeferredCreate) {
         deferredCreateMethodsRef.current.delete(id);
         pendingCreateIdsRef.current.delete(id);
       }
       const beforeDeck = decksRef.current.find((deck) => deck.id === id);
       const beforeIndex = decksRef.current.findIndex((deck) => deck.id === id);
       discardPendingDeckOps(id);
-      const deletion = deleteDeckAfterPendingCreate(id, () => {
+      const restoreRow = () => {
         if (scopeGeneration !== deckScopeGenerationRef.current || !beforeDeck) {
           return;
         }
@@ -6485,23 +6486,44 @@ export function DeckProvider({
           );
           return next;
         });
-      });
+      };
       setDecksLocal((prev) => prev.filter((d) => d.id !== id));
-      if (beforeDeck) {
-        undoControllerForDeck(id).push({
-          undo: [
-            {
-              op: "restore-deck",
-              deckId: id,
-              deck: beforeDeck,
-              index: beforeIndex,
-            },
-          ],
-          redo: [{ op: "delete-deck", deckId: id }],
-          label: "Delete deck",
-        });
-      }
-      return deletion;
+      const finishDelete = (deck: Deck | undefined) => {
+        if (deck) {
+          undoControllerForDeck(id).push({
+            undo: [
+              {
+                op: "restore-deck",
+                deckId: id,
+                deck,
+                index: beforeIndex,
+              },
+            ],
+            redo: [{ op: "delete-deck", deckId: id }],
+            label: "Delete deck",
+          });
+        }
+        return deleteDeckAfterPendingCreate(id, restoreRow);
+      };
+      // The Home list row is a light projection, and delete-deck hard-deletes the
+      // deck and its versions, so the undo snapshot must come from the server first.
+      const localOnly =
+        wasDeferredCreate || pendingCreatePromisesRef.current.has(id);
+      if (localOnly || !beforeDeck) return finishDelete(beforeDeck);
+      return readDeckFromAPI(id).then((read): Promise<DeckDeletionResult> => {
+        if (scopeGeneration !== deckScopeGenerationRef.current) {
+          return Promise.resolve({ status: "scope-changed" });
+        }
+        if (read.status !== "ok") {
+          console.error(
+            `Failed to read deck ${id} before deleting it:`,
+            read.error,
+          );
+          restoreRow();
+          return Promise.resolve({ status: "failed" });
+        }
+        return finishDelete(read.deck);
+      });
     },
     [deleteDeckAfterPendingCreate, setDecksLocal, undoControllerForDeck],
   );
