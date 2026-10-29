@@ -230,6 +230,7 @@ TL;DR: declare the vocabulary once with `defineAppRoles({ appId, roles, defaultR
 - **actions** — How to create actions with `defineAction` and the `http` option (area 2 in detail)
 - **build-an-app** — Start a complete app from a vague domain prompt
 - **storing-data** — Where to store the feature's data
+- **soft-delete** — Delete features stamp `deletedAt` and offer restore instead of removing rows
 - **real-time-sync** — How the UI stays in sync when the agent writes data
 - **performance** — Query/load cost and expensive startup work
 - **agent-native-docs** — Find current docs for roles, external agents, or localization

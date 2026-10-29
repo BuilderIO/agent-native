@@ -16,6 +16,7 @@ export const STANDALONE_APP_SKILLS = [
   "client-side-routing",
   "reliable-mutations",
   "performance",
+  "soft-delete",
 ] as const;
 
 export const BUILD_AN_APP_SKILL = "build-an-app" as const;
