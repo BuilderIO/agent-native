@@ -109,7 +109,10 @@ recipe:
 2. Delete action stamps instead of deleting; cascade code moves into the purge
    path unchanged.
 3. Restore action, callable by the agent.
-4. `deletedAtColumn` on the share registration.
+4. `deletedAtColumn` on the share registration, plus `includeDeleted` on every
+   access call the restore, Trash, and purge paths make, including app
+   `authorize` helpers that call `resolveAccess` (Forms'
+   `requireFormsPermission` denies restore otherwise).
 5. Reads that skip the access check filter stamped rows: public/SSR and embed
    routes, counts, exports, search, jobs, view-screen, agent context, A2A.
    Resources not registered for sharing (Tasks, Factory, Analytics monitors)
