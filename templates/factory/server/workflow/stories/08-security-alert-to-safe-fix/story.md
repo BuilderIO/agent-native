@@ -48,7 +48,7 @@ flowchart LR
 
 ## Not in this version
 
-- A safe fix does not yet reach story 2. Story 2 reads the Builder task from `item.extras.builderTaskId`, `projectId`, `branchName` and `repository` on the inbox row, and nothing records them when `handed` sets `automation_started`. The End needs to record the Builder task on the row. See the todo in `proofs.spec.ts`.
+- The hand-off to story 2 has only run in memory. The `handed` End writes `builderTaskId`, `projectId`, `branchName` and `repository` onto the alert's row (`expect.json` asserts them under `recorded`, and `server/workflow/stories/handoff.spec.ts` runs story 2 on them). Nothing has run that hand-off on Beta.
 - An alert handed to Builder is listed by GitHub again until its fix merges, and `automation_started` does not count as handled, so it is assessed again every hour (a model call each time; its Builder start is found already done). A model that then changed its mind could move it to `needs_manual`.
 - Code scanning alerts: only Dependabot alerts are read.
 - A refusal by the gate is not announced: the alert goes to a person without a message.

@@ -812,17 +812,12 @@ function WorkflowEditorSurface({
 
   const setRunParam = useCallback(
     (runId: string | null) => {
-      setSearchParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          if (runId) next.set("run", runId);
-          else next.delete("run");
-          return next;
-        },
-        { replace: true },
-      );
+      writeUrlParams((next) => {
+        if (runId) next.set("run", runId);
+        else next.delete("run");
+      });
     },
-    [setSearchParams],
+    [writeUrlParams],
   );
 
   // The scheduler's id for a run it has not started yet, which has no steps to read until it does.
@@ -1280,14 +1275,9 @@ function WorkflowEditorSurface({
         onOpenChange={(open) => {
           setVersionsOpen(open);
           if (open || versionParam === null) return;
-          setSearchParams(
-            (current) => {
-              const next = new URLSearchParams(current);
-              next.delete("version");
-              return next;
-            },
-            { replace: true },
-          );
+          writeUrlParams((next) => {
+            next.delete("version");
+          });
         }}
         highlightVersion={versionParam}
         dirty={dirty}

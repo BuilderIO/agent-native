@@ -4,7 +4,10 @@ import type {
   AiTurnRequest,
   AiTurnResult,
 } from "../adapter.js";
-import type { ResultField } from "../contract.js";
+import {
+  STEP_CREDENTIAL_PROVIDER_FIELD,
+  type ResultField,
+} from "../contract.js";
 import { resultFieldFor, validateAiFields } from "./ai-fields.js";
 import type { AiBinding } from "./bindings.js";
 import type { StepBuilder } from "./step-builder.js";
@@ -59,6 +62,9 @@ export async function invokeAi(
     step.problem("usageRecordError", result.usageRecordError);
   }
   if (result.ok && result.inputTruncated) step.inputTruncated();
+  if (!result.ok && result.provider !== undefined) {
+    step.field(STEP_CREDENTIAL_PROVIDER_FIELD, result.provider);
+  }
   if (!result.ok && result.code === "budget") {
     return { kind: "stop", stop: modelCapStop(ctx) };
   }

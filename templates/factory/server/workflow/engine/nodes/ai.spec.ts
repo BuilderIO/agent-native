@@ -225,6 +225,18 @@ describe("an AI node per item", () => {
     },
   );
 
+  it("says whose credential the model lacked on the step, so a tool's provider is not blamed", async () => {
+    const { test, id } = await setup(assess({ tools: ["test.read"] }));
+    test.operations.script("test.items", items(2));
+    test.ai.respond(aiFailed("credentials", "Sign in again", "builder"));
+
+    const result = await ran(test, id);
+
+    const step = stepOf(result, "assess");
+    expect(step.error).toMatchObject({ code: "credential_missing" });
+    expect(step.fields).toMatchObject({ credentialProvider: "builder" });
+  });
+
   it("fails the batch when the runner answers for the whole list instead", async () => {
     const { test, id } = await setup();
     test.operations.script("test.items", items(1));

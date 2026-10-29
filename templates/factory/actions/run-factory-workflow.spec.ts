@@ -380,6 +380,69 @@ describe("run-factory-workflow", () => {
     });
   });
 
+  describe("needsConnection when a step fails for a credential", () => {
+    // The post step reads the digest's text from the model and sends it to Slack.
+    const credentialFailure = (
+      nodeId: string,
+      fields: Record<string, unknown> | null,
+    ) => ({
+      nodeId,
+      nodeName: nodeId,
+      nodeKind: "action",
+      status: "failed",
+      fields,
+      error: { code: "credential_missing", message: "no credential" },
+    });
+
+    async function finishedWith(steps: unknown[]) {
+      const created = await runSave(
+        {
+          factoryId: kit.FACTORY_ID,
+          name: "Digest",
+          graph: STORY_GRAPHS["morning-digest"],
+        },
+        kit.context,
+      );
+      getRunMock.mockResolvedValueOnce(null).mockResolvedValue({
+        run: {
+          id: "run-9",
+          mode: "dry",
+          status: "failed",
+          graphVersion: 1,
+          counts: { itemFailures: 0 },
+        },
+        steps,
+        stepsTruncated: false,
+      });
+      return request(created.workflowId, { waitSeconds: 5 });
+    }
+
+    it("names the model's provider, not the step's own, when the AI turn that writes its argument has no credential", async () => {
+      const result = await finishedWith([
+        credentialFailure("post", { credentialProvider: "builder" }),
+      ]);
+
+      expect(result).toMatchObject({ needsConnection: ["builder"] });
+    });
+
+    it("still names the step's own provider when its operation had no credential", async () => {
+      const result = await finishedWith([
+        credentialFailure("post", { operation: "slack.postMessage" }),
+      ]);
+
+      expect(result).toMatchObject({ needsConnection: ["slack"] });
+    });
+
+    it("names both when one step lacked the model's credential and another its own", async () => {
+      const result = await finishedWith([
+        credentialFailure("commits", null),
+        credentialFailure("post", { credentialProvider: "builder" }),
+      ]);
+
+      expect(result).toMatchObject({ needsConnection: ["github", "builder"] });
+    });
+  });
+
   it("with waitSeconds, answers still_running with both ids when the run does not end in time", async () => {
     const created = await createWorkflow();
     getRunMock.mockResolvedValue({

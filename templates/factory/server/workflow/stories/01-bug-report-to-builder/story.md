@@ -59,7 +59,7 @@ flowchart LR
 
 - A report related to a task Builder already has joining that task with a "this looks related" reply. The model sees the open tasks (`openTasks`), but nothing routes on what it says.
 - A Slack message to the triage owner when a start fails. A report whose start is refused lands in `needs_manual` at once with the reason, visible in Items, and no message is sent; a failure that may pass (Slack down on the reply) is set aside and tried again after 5 and then 10 minutes, and the third failure hands the report to a person.
-- The task id handed to story 2. Handing a report off sets `automation_started` only. Story 2 reads the Builder task from `item.extras.builderTaskId`, `projectId`, `branchName` and `repository`, which nothing records yet: the host must write those four fields on each report's row when it sets `automation_started` (here: `projectId` and `branchName` from the start's answer, `builderTaskId` as `projectId:branchName`, `repository` from the workflow settings).
+- The recorded Builder task has only run in memory. Handing a report off sets `automation_started` and, through the `handed` End's `record`, writes four fields on the report's row: `builderTaskId` as `projectId:branchName`, `projectId` from the `builderProjectId` setting, `branchName` from the start's `externalRef`, and `repository` from the workflow settings. `expect.json` asserts all four under `recorded`, and `server/workflow/stories/handoff.spec.ts` builds story 2's input from them. Nothing has run a real hand-off on Beta.
 
 ## Scenarios
 

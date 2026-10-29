@@ -920,6 +920,8 @@ export type AiTurnResult =
       ok: false;
       code: AiFailureCode;
       reason: string;
+      /** For `credentials`: the provider of the model credential that failed, as the connections list names it. */
+      provider?: string;
       usage: AiUsage;
       threadId?: string;
     } & AiTurnSaveFailures);

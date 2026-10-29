@@ -4,7 +4,7 @@
 
 **Goal.** Work handed to Builder gets finished: Builder is not forgotten or stuck, its pull request reaches a merge, and the reporters hear about it.
 
-**Input.** Reports in `automation_started`: every report story 1 handed off and every item another story handed to Builder (story 8). Each carries its Builder task in `extras`: `builderTaskId`, `projectId`, `branchName` and `repository`. Nothing writes those four fields yet, so a real handed-off report cannot be read by this story until the host records them when it sets `automation_started` (see "Not in this version").
+**Input.** Reports in `automation_started`: every report story 1 handed off and every item another story handed to Builder (story 8). Each carries its Builder task in `extras`: `builderTaskId`, `projectId`, `branchName` and `repository`. Stories 1 and 8 write those four fields when their `handed` End sets `automation_started` (asserted in memory by their `expect.json` files and by `server/workflow/stories/handoff.spec.ts`); no real hand-off has run on Beta (see "Not in this version").
 
 **Output.** The pull request is merged and each report is told, in its own Slack thread (or in the findings channel when it did not start in Slack), with the link. A report whose pull request is merged becomes `merged`. If anything blocks that (a failing rule of the merge gate, such as no approving review), the triage owner is told with the reason, and the report ends `needs_manual`.
 
@@ -29,7 +29,7 @@
    - **Merged by someone else:** straight to step 7.
    - **Closed unmerged:** `person` tells the triage owner and End `manual`.
    - **Pending checks:** End `keep`.
-   - **Failing checks:** `builderIdle` skips the follow-up while Builder is working. Otherwise `byHead` groups the task by its head commit and `askedForHead` checks whether that commit was already sent back: if so End `keep`; if not `fix` sends Builder a model-written message naming the failing checks (a follow-up) and End `keep`.
+   - **Failing checks:** `builderIdle` skips the follow-up while Builder is working. Otherwise `byHead` groups the task by its head commit and `askedForHead` checks whether that commit was already sent back: if so End `keep`; if not `fix` sends Builder a model-written message naming the failing checks (a follow-up). Then `roundCap` reads `item.rounds`, the count of earlier fix rounds that ended released: at 4 or less End `keep`; above 4, which is the sixth follow-up, `capAlert` tells the triage owner and `roundsExhausted` ends each report `needs_manual`.
    - **Green** (every check passing, complete coverage): `gate` (`factory.mergeGate`) and `eligible`. Eligible: `merge` (`github.mergePullRequest`). Not eligible: `refused` tells the triage owner every reason and End `manual`. A green pull request nobody has approved is not eligible, so it goes to a person at once rather than waiting for the approval.
    - **Otherwise** (no checks, partial coverage): `person`, End `manual`.
 7. **`reports` (Split):** the task back into its reports. **`inSlack` (Filter):** a report that came from Slack gets `tellReports`, a reply in its own thread; any other report gets `tellFindings`, a message in the findings channel. End `done` sets each report `merged`.
@@ -68,8 +68,8 @@ flowchart LR
 
 ## Not in this version
 
-- **The Builder task is not recorded when a report is handed off.** Stories 1 and 8 set `automation_started` and nothing else, so no row carries `builderTaskId`, `projectId`, `branchName` or `repository`, and this story fails on a real handed-off report at `byTask` (the path has no value). The host must write four fields on each report's row at handoff: `projectId` and `branchName` from the start's answer, `builderTaskId` as `<projectId>:<branchName>`, and `repository` from the workflow settings. The fixtures here carry them as if it did.
-- **A cap of six fix rounds**, then a person. The follow-up counter is per head commit, so a task whose every new head fails is sent back for each one without end. The merge gate and a person still stand between a green pull request and the base branch.
+- **No real hand-off has run on Beta.** Stories 1 and 8 record `builderTaskId`, `projectId`, `branchName` and `repository` through their `handed` End, and `server/workflow/stories/handoff.spec.ts` runs this story on rows built from what story 1 recorded, but only in memory; this story has not yet been shown to read a real handed-off report.
+- **The six-round cap has only run in memory.** `proofs.spec.ts` proves it in "hands a task to a person after six fix rounds, one follow-up per head commit"; no real pull request that keeps failing has met it. The merge gate and a person still stand between a green pull request and the base branch.
 
 ## Scenarios
 

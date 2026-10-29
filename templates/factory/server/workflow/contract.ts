@@ -752,6 +752,14 @@ export const itemEventSchema = z
   });
 export type ItemEvent = z.infer<typeof itemEventSchema>;
 
+/**
+ * The `fields` key of a step whose model turn could not use its credential:
+ * the provider that credential belongs to. A step's error keeps only a code
+ * and a message, so without it a reader can only guess from the node's own
+ * operations, and the model's credential is none of them.
+ */
+export const STEP_CREDENTIAL_PROVIDER_FIELD = "credentialProvider";
+
 export const stepRecordSchema = z.strictObject({
   runId: z.string().min(1).max(200),
   nodeId: slugSchema,

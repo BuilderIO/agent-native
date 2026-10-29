@@ -32,7 +32,10 @@ import { getWorkflowReadModels } from "../server/workflow-host/factory-read-mode
 import type { RunDetail } from "../server/workflow-host/read-models/runs.js";
 import { WORKFLOW_STORE_LIMITS } from "../server/workflow/adapter.js";
 import { OPERATION_CATALOG } from "../server/workflow/catalog/index.js";
-import type { WorkflowGraph } from "../server/workflow/contract.js";
+import {
+  STEP_CREDENTIAL_PROVIDER_FIELD,
+  type WorkflowGraph,
+} from "../server/workflow/contract.js";
 import { providerUsesOfGraph } from "../server/workflow/graph-providers.js";
 
 const MAX_WAIT_SECONDS = 25;
@@ -165,25 +168,29 @@ function finishedRun(
   detail: RunDetail,
   graph: WorkflowGraph,
 ) {
-  const failedSteps = detail.steps
-    .filter((step) => step.status === "failed" || step.status === "needs_check")
-    .map((step) => ({
-      nodeId: step.nodeId,
-      nodeName: step.nodeName,
-      nodeKind: step.nodeKind,
-      status: step.status,
-      error: step.error,
-    }));
-  const missingConnection = new Set(
-    failedSteps
-      .filter((step) => step.error?.code === "credential_missing")
-      .map((step) => step.nodeId),
+  const failed = detail.steps.filter(
+    (step) => step.status === "failed" || step.status === "needs_check",
   );
+  const failedSteps = failed.map((step) => ({
+    nodeId: step.nodeId,
+    nodeName: step.nodeName,
+    nodeKind: step.nodeKind,
+    status: step.status,
+    error: step.error,
+  }));
+  const uses = providerUsesOfGraph(graph, OPERATION_CATALOG);
   const needsConnection = [
     ...new Set(
-      providerUsesOfGraph(graph, OPERATION_CATALOG)
-        .filter((use) => missingConnection.has(use.nodeId))
-        .map((use) => use.provider),
+      failed
+        .filter((step) => step.error?.code === "credential_missing")
+        .flatMap((step) => {
+          const named = step.fields?.[STEP_CREDENTIAL_PROVIDER_FIELD];
+          return typeof named === "string"
+            ? [named]
+            : uses
+                .filter((use) => use.nodeId === step.nodeId)
+                .map((use) => use.provider);
+        }),
     ),
   ];
   return {
