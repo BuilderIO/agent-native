@@ -148,7 +148,7 @@ scope out of active `fixedScopes[]` and add a `historicalReactionMarks[]` entry
 with `emoji`, `scope`, `reason`, and the exact prior `previousStatus`. If the
 owner withdraws an accepted action tracked by `🎫`, preserve the exact earlier
 accepted `handoff` and owner `withdrawalReply`, then update the internal record.
-The checker validates these records against the captured thread; never remove
+Keep these records consistent with the captured thread; never remove
 or clean up a reaction.
 Add `🎫` for each distinct unfinished team or engineering action that another
 person or team must perform outside this workflow, whether or not a named
@@ -227,7 +227,7 @@ permalink and **Clustered** in the internal inventory; do not send a status
 reply solely to report clustering. For a late duplicate that already has `👀`,
 recheck ownership. If this task still owns it, keep the eye and record its
 owner permalink; do not send a second owner update. If another task owns it or
-ownership is unclear, preserve the eye, record the source in the ledger, and
+ownership is unclear, preserve the eye, record the source in your run notes, and
 stop. Keep
 distinct scopes and their status clear.
 
@@ -238,7 +238,7 @@ one root `🎫` whenever at least one distinct unfinished action
 requires another person to act; it covers the actions listed in `handoffs[]`
 and active requests in `reporterRequests[]`. Handoffs include unassigned
 actions and completed actions whose evidence and `status: "completed"` remain
-in the ledger; reporter requests stay active only while the requested input is
+in your run notes; reporter requests stay active only while the requested input is
 outstanding.
 Do not add duplicate copies of either reaction for additional scopes. Link an
 external tracker ticket if there is one. Record a person's Slack ID and exact reply
@@ -261,9 +261,8 @@ IDs for those workflow emoji; record `"none"` with `{}` when none appears and
 omit unrelated emoji. These reads are separate from the root read-back. Do not
 add new workflow reactions to replies. Preserve any legacy reply-level mark and
 record its exact message timestamp and owner; then audit the report root
-independently. A reply mark never checks off the root scope, and the inventory
-checker requires the reply mark to be attributed without requiring it to be
-moved or removed.
+independently. A reply mark never checks off the root scope. Keep it attributed; never move
+or remove it.
 
 Read back the reaction and any reply through the same connector, and verify
 their actor IDs match the recorded sweep identity before recording the item as
