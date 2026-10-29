@@ -771,7 +771,13 @@ export async function processChanges(
 
   // The cursor has moved past these changes, so a document whose check
   // fails is recorded and checked again on later polls.
-  const retries = await getCommentCheckRetries();
+  const retries = await getCommentCheckRetries().catch((err) => {
+    console.error(
+      "[google-docs] Could not read documents to check again:",
+      err,
+    );
+    return new Map<string, number>();
+  });
   const docFileIds = new Set<string>(retries.keys());
   for (const change of changes) {
     if (change.removed) continue;

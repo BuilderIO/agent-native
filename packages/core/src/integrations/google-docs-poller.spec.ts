@@ -258,6 +258,24 @@ describe("Google Docs change processing", () => {
     expect(saved.get("comment-retry:doc-2")).toEqual({ attempts: 2 });
   });
 
+  it("still checks new changes when the retry rows can't be read", async () => {
+    useConfig({ "page-token": { pageToken: "token-1" } });
+    vi.spyOn(configStore, "listIntegrationConfigs").mockRejectedValue(
+      new Error("database unavailable"),
+    );
+    vi.spyOn(googleDocs, "listChanges").mockResolvedValue({
+      changes: [docChange],
+      nextPageToken: "token-2",
+    });
+    const listComments = vi
+      .spyOn(googleDocs, "listDocComments")
+      .mockResolvedValue([]);
+
+    await processChanges(pollerOptions);
+
+    expect(listComments).toHaveBeenCalledOnce();
+  });
+
   it("keeps a failure another poll records while this one runs", async () => {
     const saved = useConfig({
       "page-token": { pageToken: "token-1" },
