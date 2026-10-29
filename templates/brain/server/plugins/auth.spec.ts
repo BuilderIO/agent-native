@@ -80,6 +80,7 @@ describe("Brain queue sweep authentication", () => {
     vi.stubEnv("AUTH_DISABLED", "");
     vi.stubEnv("ACCESS_TOKEN", "");
     vi.stubEnv("BRAIN_JOBS_SECRET", "");
+    vi.stubEnv("NETLIFY", undefined);
     globalThis.__AGENT_NATIVE_BRAIN_SCHEDULED_RUNTIME__ = undefined;
   });
 
@@ -101,16 +102,20 @@ describe("Brain queue sweep authentication", () => {
     expect(sweep.expire).toHaveBeenCalledOnce();
   });
 
-  it("rejects public calls when no scheduler secret is configured", async () => {
-    const app = await queueApp();
+  it.each(["production", "development", "test"])(
+    "rejects public calls without a scheduler secret in %s",
+    async (environment) => {
+      vi.stubEnv("NODE_ENV", environment);
+      const app = await queueApp();
 
-    const response = await app.request(queueRequest());
+      const response = await app.request(queueRequest());
 
-    expect(response.status).toBe(503);
-    expect(sweep.sync).not.toHaveBeenCalled();
-    expect(sweep.queue).not.toHaveBeenCalled();
-    expect(sweep.expire).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(503);
+      expect(sweep.sync).not.toHaveBeenCalled();
+      expect(sweep.queue).not.toHaveBeenCalled();
+      expect(sweep.expire).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([undefined, "Bearer wrong-secret", "Bearer test-scheduler-secrex"])(
     "rejects an untrusted scheduler call with authorization %s",
