@@ -47,18 +47,18 @@ why in one clause:
 
 ## Recipe
 
-Reference implementation: Forms (`templates/forms/actions/delete-form.ts`,
-`restore-form.ts`, `list-forms.ts`). Clips shows the same shape with a
-separate permanent action (`trash-recording`, `restore-recording`,
+In the agent-native repo, Forms is the reference implementation
+(`delete-form`, `restore-form`, `list-forms`), and Clips shows the same shape
+with a separate permanent action (`trash-recording`, `restore-recording`,
 `delete-recording-permanent`).
 
 1. **Schema.** Add a nullable `deletedAt: text("deleted_at")` column. This is
    additive and old rows read as not deleted, so no backfill. Keep an existing
    `trashedAt` column where an app already has one; do not add a second.
 2. **Delete action.** Set `deletedAt` (and `updatedAt`) to now and return
-   `deletedAt`. Keep the same access check the hard delete had. Do not touch
-   the children: they stay reachable only through the parent, so restoring the
-   parent brings back all of them exactly as they were.
+   `deletedAt`. Keep the same access check the hard delete had. Leave the
+   children unstamped, so restoring the parent brings back all of them exactly
+   as they were; step 4 is what hides them meanwhile.
 3. **Restore action.** `restore-<thing>` sets `deletedAt` back to null after
    the same access check. The agent needs it as much as the UI does: undo is
    how it recovers from its own mistake.
@@ -67,8 +67,14 @@ separate permanent action (`trash-recording`, `restore-recording`,
    Missing one is the main bug this pattern causes: a deleted deck that still
    renders from its public link, or a deleted comment the agent still quotes.
    A get of a deleted row returns not-found, except the restore action and the
-   trash list. Child reads filter on their own `deletedAt` when children can be
-   deleted on their own, and on the parent's when they go through a join.
+   trash list. Children filter on their own `deletedAt` when they can be
+   deleted on their own.
+   **Children are not hidden by the parent's stamp.** Child actions usually
+   call `assertAccess("deck", deckId)` and then query comments by `deckId`,
+   and `assertAccess` still passes for a stamped deck (step 5). Put one
+   app-level helper in front of the parent's access check that also rejects a
+   stamped parent, and route every action that takes a parent id through it:
+   reads and writes, so nobody can add a comment to a trashed deck either.
 5. **Share links.** If the resource is registered with
    `registerShareableResource`, add
    `availability: { columns: ["deletedAt"], isAvailable: (r) => !r.deletedAt }`
@@ -95,6 +101,7 @@ separate permanent action (`trash-recording`, `restore-recording`,
 - [ ] Delete action stamps instead of deleting; children untouched
 - [ ] Restore action exists and the agent can call it
 - [ ] Every read path filters stamped rows, including public and agent reads
+- [ ] Actions that take a parent id reject a stamped parent (reads and writes)
 - [ ] Share registration has an `availability` rule, if shareable
 - [ ] Unique slugs/names don't block a new row or a restore
 - [ ] UI: optimistic delete with Undo; Trash view for top-level artifacts

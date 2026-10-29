@@ -39,11 +39,14 @@ is only stamped.
 | 1 | Slides | `delete-deck` | versions, slide comments |
 | 1 | Slides | `delete-slide-comment` | — |
 | 1 | Slides 2 | `delete-deck`, `delete-slide-comment`, `delete-asset` | shares, share links, events, versions, uploaded assets, comments |
+| 1 | Slides, Slides 2 | `delete-design-system` | shares |
 | 2 | Design | `delete-design`, `delete-file`, `delete-design-template` | 10 tables: shares, files, versions, state, review snapshots, motion timelines, component index, … |
+| 2 | Design | `delete-design-system`, `remove-motion-timeline` | shares |
 | 3 | Content | `delete-content-space` | every document in the space, recursively |
 | 3 | Content | `delete-comment` | reactions |
+| 3 | Content | `delete-document-property` | that property's values on every row of the database |
 | 4 | Analytics | `delete-explorer-dashboard`, `delete-sql-dashboard`, `delete-analysis` | revisions, shares |
-| 4 | Analytics | `delete-monitor`, `delete-status-page`, `delete-data-note`, `delete-key-date(-set)`, `delete-dashboard-view` | check results, incidents, key dates |
+| 4 | Analytics | `delete-monitor`, `delete-status-page`, `delete-data-note`, `delete-key-date(-set)`, `delete-dashboard-view`, `delete-explorer-config` | check results, incidents, key dates |
 | 5 | Tasks | `delete-task`, `bulk-delete-tasks`, `delete-inbox-item`, `bulk-delete-inbox-items`, `delete-custom-field` | custom field values |
 | 6 | Factory | `delete-factory`, `delete-factory-workflow` | versions, runs, steps, item state/events, receipts, cursors |
 | 7 | Assets | `delete-asset(s)`, `delete-folder`, `delete-library`, `delete-template` | library contents |
@@ -92,9 +95,13 @@ Per the skill's exemptions; each action's description should say why:
    adds the predicate inside `accessFilter` and makes `resolveAccess` return
    null for stamped rows would remove most of that per-app surface. Restore and
    trash-list actions would read through an explicit `includeDeleted` path.
-   This touches every ownable read, so it needs its own design review before
-   app migrations start; apps migrated before it lands keep their explicit
-   filters, which stay correct afterward.
+   It would also close the child-row gap for free: child actions call
+   `assertAccess` on the parent id and then query children by that id, so
+   today a stamped deck still serves its comments and accepts new ones unless
+   each app adds its own stamped-parent check (the skill's step 4). This
+   touches every ownable read, so it needs its own design review before app
+   migrations start; apps migrated before it lands keep their explicit checks,
+   which stay correct afterward.
 4. **Undo toast.** Check the toolkit organization kit (archive, trash) first.
    If nothing fits, add one shared `toastWithUndo(message, onUndo)` client
    helper so every app's delete reads the same and goes through i18n once.
@@ -111,7 +118,9 @@ recipe:
    path unchanged.
 3. Restore action, callable by the agent.
 4. Every read path filters: list, get, search, counts, exports, public/SSR
-   routes, share links, embeds, view-screen, agent context, A2A.
+   routes, share links, embeds, view-screen, agent context, A2A. Every action
+   that takes a parent id (comments, slides, files, runs) goes through one
+   app helper that rejects a stamped parent, for writes as well as reads.
 5. `availability` on the share registration.
 6. Partial unique indexes where a slug/name is unique (e.g. Calendar
    `booking_links.slug`); audit each app's `.unique()` columns.
@@ -129,10 +138,14 @@ App-specific notes:
   `deck-restored` event so open tabs recover. Public deck links must 404 while
   stamped.
 - **Design**: do not delete blobs for files on soft delete; only purge does.
-- **Content**: documents already have the full trash; `delete-content-space`
-  should stamp the space and rely on its documents being unreachable through
-  it, rather than trashing every document individually (restoring the space
-  must not resurrect documents that were trashed before it).
+- **Content**: documents already have the full trash, and they are their own
+  shareable resource: `resolveDocumentAccess` grants on the document's owner,
+  shares, and public visibility before it ever consults the space. Stamping
+  only the space would leave its public and shared pages open. So
+  `delete-content-space` stamps the space and trashes every live document in
+  it with the same `trashed_at` value; restoring the space restores only the
+  documents whose `trashed_at` matches, so pages trashed before the space stay
+  in the trash.
 - **Tasks**: bulk delete returns the ids it stamped so one Undo restores the
   whole batch.
 - **Factory**: unschedule the workflow's job on soft delete and reschedule on
