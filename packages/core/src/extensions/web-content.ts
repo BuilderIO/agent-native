@@ -243,11 +243,17 @@ export async function processWebContent(
   // Empty extracted text is the raw response body, not the requested
   // text/markdown. Label it `raw` so the save path keeps the original
   // content type instead of writing an empty file under a Markdown/text label.
-  const fullContentFormat = options.saveContentFormat
-    ? savedExtractedText
-      ? options.saveContentFormat
-      : "raw"
-    : undefined;
+  // When markdown was requested but Turndown was missing (so extractedMarkdown
+  // is empty), label the plain-text fallback as "text", not "markdown".
+  const actualSavedFormat: "raw" | "markdown" | "text" | undefined =
+    options.saveContentFormat
+      ? savedExtractedText
+        ? options.saveContentFormat === "markdown" && !extractedMarkdown
+          ? "text"
+          : options.saveContentFormat
+        : "raw"
+      : undefined;
+  const fullContentFormat = actualSavedFormat;
   const result: WebContentResult = {
     mode,
     extract,

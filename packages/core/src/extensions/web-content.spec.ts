@@ -628,6 +628,27 @@ describe("processWebContent", () => {
       true,
     );
   });
+
+  it("labels saved content as text, not markdown, when Turndown is missing and markdown was requested", async () => {
+    vi.doMock("turndown", () => {
+      const error = new Error("Cannot find module 'turndown'");
+      (error as Error & { code: string }).code = "ERR_MODULE_NOT_FOUND";
+      throw error;
+    });
+    const { processWebContent } = await import("./web-content.js");
+
+    const result = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "markdown",
+      saveContentFormat: "markdown",
+    });
+
+    expect(result.fullContentFormat).toBe("text");
+    expect(result.fullContent).toBeTruthy();
+    expect(result.fullContent).not.toContain("# Story title");
+  });
 });
 
 describe("formatWebContentResult", () => {
