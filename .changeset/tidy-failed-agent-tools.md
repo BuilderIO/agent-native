@@ -13,3 +13,5 @@ Keep equivalent-error counts under exact tool names, so colon-containing names c
 Preserve provider error statuses and recovery guidance when computing repeating-error keys; discard only recognized validation argument echoes.
 
 Skip normalization for oversized errors to bound synchronous parsing work while preserving their full diagnosis; the per-tool failure cap still stops varying errors.
+
+Recognize complete terminal JSON validation echoes when no parameter signature is available, while retaining malformed payloads and trailing recovery guidance.

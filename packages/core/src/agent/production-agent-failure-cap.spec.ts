@@ -481,9 +481,22 @@ describe("failed tool attempts", () => {
     { varied: false, limit: 3, interruptedCloseout: true, oversized: false },
     { varied: true, limit: 5, interruptedCloseout: false, oversized: false },
     { varied: true, limit: 5, interruptedCloseout: false, oversized: true },
+    {
+      varied: false,
+      limit: 3,
+      interruptedCloseout: false,
+      oversized: false,
+      noSignature: true,
+    },
   ])(
     "stops despite changing arguments (varied errors: $varied)",
-    async ({ varied, limit, interruptedCloseout, oversized }) => {
+    async ({
+      varied,
+      limit,
+      interruptedCloseout,
+      oversized,
+      noSignature = false,
+    }) => {
       const run = vi.fn(async () => "saved");
       const action = defineAction({
         description: "Update a view",
@@ -527,7 +540,10 @@ describe("failed tool attempts", () => {
             type: "tool-call",
             name: "update-view",
             id: `attempt-${steps}`,
-            input: { attempt: steps, payload: "x".repeat(1000) },
+            input: {
+              attempt: steps,
+              payload: noSignature ? "x" : "x".repeat(1000),
+            },
           };
           yield { type: "stop", reason: "tool_use" };
         },
@@ -544,7 +560,17 @@ describe("failed tool attempts", () => {
             content: [{ type: "text", text: "Match three views to a fourth." }],
           },
         ],
-        actions: { "update-view": action as unknown as ActionEntry },
+        actions: {
+          "update-view": noSignature
+            ? {
+                ...(action as unknown as ActionEntry),
+                tool: {
+                  description: "Update a view",
+                  parameters: { type: "object" },
+                },
+              }
+            : (action as unknown as ActionEntry),
+        },
         send: (event) => events.push(event),
         signal: new AbortController().signal,
       });
@@ -552,6 +578,10 @@ describe("failed tool attempts", () => {
       const failures = events.filter(
         (event) => event.type === "tool_done" && event.isError,
       );
+      if (noSignature) {
+        expect(failures[0]?.result).not.toContain("Expected:");
+        expect(failures[0]?.result).toMatch(/Received: \{.*\}\.$/);
+      }
       expect(failures).toHaveLength(limit);
       if (oversized) expect(failures[0]?.result.length).toBeGreaterThan(4096);
       expect(steps).toBeLessThanOrEqual(limit + (interruptedCloseout ? 2 : 1));

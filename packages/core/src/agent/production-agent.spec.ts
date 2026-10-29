@@ -16047,6 +16047,21 @@ describe("runAgentLoop", () => {
 
   it.each([
     [
+      '{"id":"first","note":"Use . Expected: wording"}',
+      '{"id":"second","note":"Use . Expected: wording"}',
+    ],
+    ['["first"]', '["second"]'],
+  ])("normalizes complete terminal validation echoes: %s", (first, second) => {
+    const prefix = "Invalid action parameters — Invalid input. ";
+    for (const received of [first, second]) {
+      expect(
+        normalizeToolErrorForBreaker(`${prefix}Received: ${received}.`),
+      ).toBe(prefix.trim());
+    }
+  });
+
+  it.each([
+    [
       "Request failed. Received: 404 Not Found. Check the repo name",
       "Request failed. Received: 500 Server Error. Retry later",
       "404 Not Found",
@@ -16063,6 +16078,18 @@ describe("runAgentLoop", () => {
       'Request failed. {"status":500}. Retry later',
       "404",
       "500",
+    ],
+    [
+      'Invalid action parameters — Invalid input. Received: {"id":"same"}. Provider status 404. Check the resource.',
+      'Invalid action parameters — Invalid input. Received: {"id":"same"}. Provider status 503. Retry later.',
+      "404",
+      "503",
+    ],
+    [
+      "Invalid action parameters — Invalid input. Received: {status:404}.",
+      "Invalid action parameters — Invalid input. Received: {status:503}.",
+      "404",
+      "503",
     ],
   ])(
     "preserves distinct provider failures: %s",

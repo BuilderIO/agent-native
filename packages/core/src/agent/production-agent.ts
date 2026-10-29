@@ -5494,7 +5494,7 @@ function repeatedToolFailureStop(
 ): TerminalActionStop {
   return {
     message:
-      `I stopped because ${name} failed ${count} times without a fresh successful execution. ` +
+      `I stopped because ${name} failed ${count} times. ` +
       `Last error: ${clipHead(stopErrorLine(lastError), MAX_STOP_ERROR_LINE_CHARS)}\n\n` +
       "Anything completed before this is saved.",
     errorCode: "repeated_tool_failure",
@@ -6529,6 +6529,18 @@ export function normalizeToolErrorForBreaker(error: string): string {
   if (error.length > MAX_BREAKER_NORMALIZATION_CHARS) return error;
   return (
     stripDiagnosticSnippets(error)
+      // Without an Expected clause, only a complete terminal JSON echo can be dropped.
+      .replace(
+        /(\bInvalid action parameters\b[\s\S]*?)Received:\s*([\s\S]*)\.\s*$/g,
+        (match: string, prefix: string, received: string) => {
+          try {
+            JSON.parse(received);
+            return prefix;
+          } catch {
+            return match;
+          }
+        },
+      )
       // Providers also use "Received:"; only validation argument echoes can be dropped.
       .replace(
         /(\bInvalid action parameters\b[\s\S]*?)Received:\s*(?:[\s\S]*?\.\s(?=Expected:|The tool was not executed)|[\[{][\s\S]*?…\.?\s*$)/g,
