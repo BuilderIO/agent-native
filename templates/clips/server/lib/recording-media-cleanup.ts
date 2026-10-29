@@ -73,8 +73,8 @@ export function recordingMediaUrls(recording: RecordingMediaUrls): string[] {
 function builderAssetUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
-    if (parsed.hostname !== "cdn.builder.io") return null;
-    parsed.search = "";
+    if (parsed.protocol !== "https:" || parsed.hostname !== "cdn.builder.io")
+      return null;
     parsed.hash = "";
     return parsed.toString();
   } catch {
@@ -82,17 +82,11 @@ function builderAssetUrl(url: string): string | null {
   }
 }
 
-/**
- * `"absent"` when the asset was already gone: a retry after a delete whose
- * response was lost. The DELETE's own 404 cannot say that — it is also what a
- * key without rights to the asset gets — so it only counts once the public
- * URL has stopped serving it too.
- */
-async function deleteBuilderAssetByUrl(
+async function requestBuilderAssetDeletion(
   url: string,
-): Promise<"deleted" | "absent" | false> {
+): Promise<"accepted" | "unconfirmed"> {
   const assetUrl = builderAssetUrl(url);
-  if (!assetUrl) return false;
+  if (!assetUrl) throw new Error("Builder media identity is unavailable.");
 
   const authorization = await resolveBuilderRequestAuthorization({
     requiredScope: BUILDER_ASSETS_WRITE_SCOPE,
@@ -101,13 +95,15 @@ async function deleteBuilderAssetByUrl(
     !authorization ||
     (authorization.source === "legacy" && !authorization.legacyPublicKey)
   ) {
-    return false;
+    throw new Error("Builder media credentials are unavailable.");
   }
 
   const deleteUrl = new URL("/api/v1/assets/by-url", "https://cdn.builder.io");
   deleteUrl.searchParams.set("url", assetUrl);
-  if (authorization.legacyPublicKey) {
-    deleteUrl.searchParams.set("apiKey", authorization.legacyPublicKey);
+  const publicKey =
+    authorization.legacyPublicKey ?? authorization.oauthSelectedPublicKey;
+  if (publicKey) {
+    deleteUrl.searchParams.set("apiKey", publicKey);
   }
 
   const res = await fetch(deleteUrl.toString(), {
@@ -120,25 +116,10 @@ async function deleteBuilderAssetByUrl(
     signal: AbortSignal.timeout(15_000),
   });
 
-  if (res.ok) return "deleted";
-  if (res.status === 404) {
-    // The URL as stored, since that is what serves the bytes; a throwaway
-    // query keeps a CDN edge from answering with the copy it cached before
-    // the delete. A probe that fails either way leaves it "not gone".
-    const probeUrl = new URL(url);
-    probeUrl.searchParams.set("deleted-check", String(Date.now()));
-    probeUrl.hash = "";
-    const probe = await fetch(probeUrl.toString(), {
-      method: "HEAD",
-      signal: AbortSignal.timeout(5_000),
-    });
-    return probe.status === 404 || probe.status === 410 ? "absent" : false;
-  }
-
-  const text = await res.text().catch(() => "");
-  throw new Error(
-    `Builder.io asset delete failed (${res.status}): ${text || res.statusText}`,
-  );
+  await res.body?.cancel();
+  if (!res.ok && res.status !== 404)
+    throw new Error(`Builder.io asset delete failed (${res.status}).`);
+  return res.ok ? "accepted" : "unconfirmed";
 }
 
 /**
@@ -262,9 +243,9 @@ export async function deleteSupersededHostedMedia(
  * Redaction needs this: when a screenshot's blurred version replaces the
  * original, the original file has to leave storage, or the unblurred pixels
  * are still one URL away — which is the whole failure mode redaction exists to
- * prevent. Reports whether the object is actually gone so the caller can
- * refuse to claim a redaction that only half happened — including when it was
- * already gone, so a retry can finish.
+ * prevent. This legacy edit path returns the provider's acknowledgement;
+ * Builder acknowledgement alone does not establish physical object removal.
+ * Permanent recording deletion uses the durable cleanup evidence instead.
  */
 export async function deleteStoredMediaUrl(
   url: string,
@@ -281,7 +262,11 @@ export async function deleteStoredMediaUrl(
   if (deletedFromS3) {
     return true;
   }
-  return (await deleteBuilderAssetByUrl(url)) !== false;
+  // Existing synchronous edits consume the request acknowledgement. Permanent
+  // deletion uses the durable worker's separate, stricter storage evidence.
+  if (builderAssetUrl(url))
+    return (await requestBuilderAssetDeletion(url)) === "accepted";
+  return false;
 }
 
 export async function deleteRecordingMediaObjects(
@@ -315,22 +300,32 @@ export async function deleteRecordingMediaObjects(
         if (deleted) {
           result.deleted += 1;
         } else {
-          result.skipped += 1;
+          throw new Error("Storage provider did not confirm media deletion.");
         }
         continue;
       }
       const deletedFromS3 = await deleteS3ObjectByUrl(url);
-      if (deletedFromS3 || (await deleteBuilderAssetByUrl(url)) === "deleted") {
+      if (deletedFromS3) {
         result.deleted += 1;
+      } else if (builderAssetUrl(url)) {
+        await requestBuilderAssetDeletion(url);
+        throw new Error("Storage provider did not confirm media deletion.");
+      } else if (
+        !builderAssetUrl(url) &&
+        (await isUrlInS3Storage(url)) === false
+      ) {
+        result.external += 1;
       } else {
-        result.skipped += 1;
+        throw new Error("Storage provider did not confirm media deletion.");
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      result.errors.push({ url, error: message });
+    } catch {
+      // Provider errors can echo authorization or the tokenized storage URL.
+      const message = "Storage provider did not confirm media deletion.";
+      const origin = URL.canParse(url) ? new URL(url).origin : "invalid-url";
+      result.errors.push({ url: origin, error: message });
       console.warn("[clips] failed to delete recording media object", {
         recordingId: recording.id,
-        url,
+        origin,
         error: message,
       });
     }

@@ -41,6 +41,7 @@ import {
 } from "../server/lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
+import { withRecordingMediaProduction } from "../server/lib/recording-media-lifecycle.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
@@ -354,13 +355,17 @@ export default defineAction({
     // this recording's own folder — the scoping the media routes check before
     // they will serve it. The provider stamps every upload, so this is still a
     // new object at a new URL, and no cache can hand back the old bytes.
-    const uploaded = await uploadFile({
-      data: bytes,
-      mimeType,
-      filename: `${args.recordingId}${IMAGE_EXTENSION_BY_MIME[mimeType]}`,
-      ownerEmail,
-      recordAsset: false,
-    });
+    const uploaded = await withRecordingMediaProduction(
+      { recordingId: args.recordingId, ownerEmail, recordAsset: false },
+      () =>
+        uploadFile({
+          data: bytes,
+          mimeType,
+          filename: `${args.recordingId}${IMAGE_EXTENSION_BY_MIME[mimeType]}`,
+          ownerEmail,
+          recordAsset: false,
+        }),
+    );
     if (!uploaded?.url) {
       failStorageSetupRequired();
     }
@@ -374,13 +379,17 @@ export default defineAction({
         args.baseDataUrl,
         "The redacted base image",
       );
-      const uploadedBase = await uploadFile({
-        data: base.bytes,
-        mimeType: base.mimeType,
-        filename: `${args.recordingId}${IMAGE_EXTENSION_BY_MIME[base.mimeType]}`,
-        ownerEmail,
-        recordAsset: false,
-      });
+      const uploadedBase = await withRecordingMediaProduction(
+        { recordingId: args.recordingId, ownerEmail, recordAsset: false },
+        () =>
+          uploadFile({
+            data: base.bytes,
+            mimeType: base.mimeType,
+            filename: `${args.recordingId}${IMAGE_EXTENSION_BY_MIME[base.mimeType]}`,
+            ownerEmail,
+            recordAsset: false,
+          }),
+      );
       if (!uploadedBase?.url) {
         failStorageSetupRequired();
       }

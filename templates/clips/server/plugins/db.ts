@@ -13,6 +13,7 @@ import { z } from "zod";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
+import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import {
   uploadLeaseExpiry,
   waitingStorageLeaseExpiry,
@@ -201,6 +202,12 @@ function scheduleRecordingOrgIdBackfill(): void {
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v41 incident documented on v41 below.
+const mediaCleanupMigration = {
+  version: 99,
+  name: "recording-durable-media-cleanup",
+  sql: recordingMediaCleanupMigration,
+}; // raw-sql-ok: fixed additive DDL with no runtime interpolation; the shared definition is exercised on PostgreSQL and PGlite.
+
 export const migrations = runMigrations(
   orderMigrationsByVersion([
     {
@@ -1389,6 +1396,7 @@ export const migrations = runMigrations(
       name: "recording-content-binding-upload-start-failed",
       sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_start_failed_at TEXT`,
     },
+    mediaCleanupMigration,
   ]),
   { table: "clips_migrations" },
 );

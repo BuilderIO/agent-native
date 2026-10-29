@@ -119,6 +119,31 @@ registerShareableResource({
 // Share tables are recognized from their shape; these are the rest.
 registerIdentityColumns([
   {
+    table: "recording_media_cleanups",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    orgScope: { column: "org_id" },
+    reason:
+      "Retain deletion intent custody after access removal; offboarded owners block cleanup instead of losing recovery state.",
+  },
+  {
+    table: "recording_media_cleanup_objects",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Encrypted per-object cleanup evidence follows the original deletion owner.",
+  },
+  {
+    table: "recording_media_producers",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Keep in-flight media outputs reachable by their original cleanup intent.",
+  },
+  {
     table: "space_members",
     column: "email",
     emailChange: "rekey",

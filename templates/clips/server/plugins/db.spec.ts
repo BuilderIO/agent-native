@@ -1,13 +1,16 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
+import { getTableName } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
 
+import * as mediaCleanupTables from "../db/media-cleanup-tables.js";
 import * as schema from "../db/schema";
+import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import { getRecordingAccessTokenResourceId } from "../lib/share-password.js";
 
 /**
@@ -66,6 +69,35 @@ describe("clips db migrations cover every schema.ts column", () => {
     if (!isDrizzleTable(exported)) continue;
     const columns = columnsOf(exported as DrizzleTable);
     if (!columns.length) continue;
+
+    // oracle-change: imported cleanup DDL is checked by applying it, not by finding its column names in db.ts.
+    if (Object.values(mediaCleanupTables).some((table) => table === exported)) {
+      it(`migrates every schema.${exportName} column and can apply its DDL repeatedly`, async () => {
+        const database = await PGlite.create("memory://");
+        try {
+          await database.exec(`CREATE TABLE recordings(id TEXT PRIMARY KEY,video_url TEXT,thumbnail_url TEXT,animated_thumbnail_url TEXT,filmstrip_url TEXT,image_url TEXT,base_image_url TEXT,edits_json TEXT DEFAULT '{}');
+            CREATE TABLE recording_agent_frames(recording_id TEXT,storage_url TEXT);
+            CREATE TABLE recording_browser_diagnostics(recording_id TEXT,app_activity_blob_json TEXT);`);
+          await database.exec(recordingMediaCleanupMigration);
+          await database.exec(recordingMediaCleanupMigration);
+          const result = await database.query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1",
+            [getTableName(exported)],
+          );
+          const actual = new Set(
+            result.rows.map((row: { column_name: string }) => row.column_name),
+          );
+          expect(
+            columns
+              .map((column) => column.name)
+              .filter((name) => !actual.has(name)),
+          ).toEqual([]);
+        } finally {
+          await database.close();
+        }
+      });
+      continue;
+    }
 
     it(`every column on schema.${exportName} is mentioned in db.ts migrations`, () => {
       const missing = columns

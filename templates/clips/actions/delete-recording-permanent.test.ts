@@ -1,855 +1,626 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// guard:allow-unscoped — isolated PostgreSQL-compatible fixtures.
+// oracle-change: Approved durable cleanup replaces synchronous deletion; assert row/intent atomicity and eventual worker outcomes in the database.
+import { PGlite } from "@electric-sql/pglite";
+import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
+import { drizzle } from "drizzle-orm/pglite";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockExistingRecording = vi.hoisted(() => ({
-  id: "rec_1",
-  title: "Test recording",
-  ownerEmail: "owner@example.com",
-  videoUrl: "https://cdn.example.com/media/clips/rec_1.mp4",
-  thumbnailUrl: "https://cdn.example.com/media/clips/rec_1.jpg",
-  animatedThumbnailUrl: null as string | null,
-  storageMode: null as "own" | "hosted" | null,
-}));
-const mockHostedAllowance = vi.hoisted(() => ({
-  value: {
-    recordingId: "rec_1",
-    userId: "user_1",
-    status: "consumed" as "reserved" | "consumed" | "released",
-    quotaBytes: 123,
-  },
-}));
+import * as schema from "../server/db/schema.js";
+import { recordingMediaCleanupMigration } from "../server/lib/recording-media-cleanup-schema.js";
 
-const mockDeleteStoredMediaUrl = vi.hoisted(() =>
-  vi.fn(async (_url: string, _options?: unknown) => true),
-);
-const mockDeleteRecordingMediaObjects = vi.hoisted(() =>
-  vi.fn(async () => ({
-    attempted: 2,
-    deleted: 2,
-    skipped: 0,
-    external: 0,
-    errors: [],
-  })),
-);
-const mockRecordingMediaUrls = vi.hoisted(() =>
-  vi.fn(
-    (recording: {
-      videoUrl?: string | null;
-      thumbnailUrl?: string | null;
-      animatedThumbnailUrl?: string | null;
-    }) =>
-      [
-        recording.videoUrl,
-        recording.thumbnailUrl,
-        recording.animatedThumbnailUrl,
-      ].filter((url): url is string => Boolean(url)),
-  ),
-);
-const mockSelectWhere = vi.hoisted(() => vi.fn());
-const mockLockRecording = vi.hoisted(() =>
-  vi.fn(async (_strength: string): Promise<unknown[]> => []),
-);
-const mockContextItemsWhere = vi.hoisted(() => vi.fn());
-const mockContextItemsTable = vi.hoisted(() => ({
-  recordingId: "recordingContextItems.recordingId",
-  mediaRecordingId: "recordingContextItems.mediaRecordingId",
-  pendingMediaRecordingId: "recordingContextItems.pendingMediaRecordingId",
+let client: PGlite;
+let db: ReturnType<typeof drizzle<typeof schema>>;
+const mocks = vi.hoisted(() => ({
+  owner: "owner@example.test",
+  remove: vi.fn(),
+  builder: vi.fn(),
+  adjust: vi.fn(),
+  allowance: vi.fn(),
+  release: vi.fn(),
+  context: vi.fn(),
+  role: vi.fn(),
+  privateBlob: vi.fn(),
 }));
-const mockDiagnosticsTable = vi.hoisted(() => ({
-  recordingId: "recordingBrowserDiagnostics.recordingId",
-  appActivityBlobJson: "recordingBrowserDiagnostics.appActivityBlobJson",
+vi.mock("../server/db/index.js", async () => ({
+  getDb: () => db,
+  schema: await import("../server/db/schema.js"),
 }));
-const mockDiagnosticsWhere = vi.hoisted(() => vi.fn());
-const mockDeleteStoredAgentFrames = vi.hoisted(() => vi.fn());
-const mockDeleteAppActivityBlob = vi.hoisted(() =>
-  vi.fn(
-    async (
-      _blobJson: string,
-      _recordingId: string,
-    ): Promise<{ deleted: true } | { deleted: false; error: string }> => ({
-      deleted: true,
-    }),
-  ),
-);
-const mockTrashContextFootage = vi.hoisted(() =>
-  vi.fn(async (_mediaRecordingIds: Array<string | null>) => undefined),
-);
-const mockDeleteWhere = vi.hoisted(() => vi.fn(async () => undefined));
-const mockDbDelete = vi.hoisted(() =>
-  vi.fn((_table: unknown) => ({ where: mockDeleteWhere })),
-);
-const mockUpdates = vi.hoisted(() => [] as Record<string, unknown>[]);
-const mockClaimMatches = vi.hoisted(() => ({ value: true }));
-const mockDbUpdate = vi.hoisted(() =>
-  vi.fn(() => ({
-    set: (values: Record<string, unknown>) => ({
-      where: () => {
-        const write = async () => {
-          mockUpdates.push(values);
-          return mockClaimMatches.value ? [{ id: "rec_1" }] : [];
-        };
-        return {
-          returning: write,
-          then: (resolve: (rows: unknown) => void, reject: () => void) =>
-            write().then(resolve, reject),
-        };
-      },
-    }),
-  })),
-);
-const mockDb = vi.hoisted(() => ({
-  update: mockDbUpdate,
-  select: vi.fn(() => ({
-    from: vi.fn((table: unknown) => ({
-      where:
-        table === mockContextItemsTable
-          ? mockContextItemsWhere
-          : table === mockDiagnosticsTable
-            ? mockDiagnosticsWhere
-            : (...args: unknown[]) => ({
-                // A plain read resolves through mockSelectWhere; the
-                // transaction's row lock goes to mockLockRecording instead.
-                then: (
-                  resolve: (rows: unknown) => unknown,
-                  reject: (err: unknown) => unknown,
-                ) =>
-                  Promise.resolve(mockSelectWhere(...args)).then(
-                    resolve,
-                    reject,
-                  ),
-                for: (strength: string) => mockLockRecording(strength),
-              }),
-    })),
-  })),
-  delete: mockDbDelete,
-  transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
-    fn(mockDb),
-  ),
+vi.mock("@agent-native/core/secrets", () => ({
+  encryptSecretValue: (value: string) => "encrypted:" + value,
+  decryptSecretValue: (value: string) => value.slice(10),
 }));
-const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
-const mockDeleteAppState = vi.hoisted(() => vi.fn(async () => undefined));
-const mockDeleteAppStateByPrefix = vi.hoisted(() =>
-  vi.fn(async () => undefined),
-);
-const mockGetHostedClipRecordingAllowance = vi.hoisted(() => vi.fn());
-const mockAdjustHostedClipRecordingBytes = vi.hoisted(() => vi.fn());
-const mockReleaseHostedClipRecording = vi.hoisted(() => vi.fn());
-
-vi.mock("@agent-native/core", () => ({
-  defineAction: (options: unknown) => options,
-}));
-
 vi.mock("@agent-native/core/application-state", () => ({
-  writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
-  deleteAppState: (...args: unknown[]) => mockDeleteAppState(...args),
-  deleteAppStateByPrefix: (...args: unknown[]) =>
-    mockDeleteAppStateByPrefix(...args),
+  writeAppState: vi.fn(),
 }));
-
-vi.mock("drizzle-orm", () => ({
-  and: vi.fn((...args: unknown[]) => args),
-  eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
-  inArray: vi.fn((column: unknown, values: unknown[]) => ({ column, values })),
-  ne: vi.fn((column: unknown, value: unknown) => ({
-    column,
-    value,
-    not: true,
-  })),
-  or: vi.fn((...args: unknown[]) => args),
-}));
-
-vi.mock("../server/db/index.js", () => ({
-  getDb: () => mockDb,
-  schema: {
-    recordings: {
-      id: "recordings.id",
-      ownerEmail: "recordings.ownerEmail",
-      videoUrl: "recordings.videoUrl",
-      thumbnailUrl: "recordings.thumbnailUrl",
-      animatedThumbnailUrl: "recordings.animatedThumbnailUrl",
-    },
-    recordingComments: { recordingId: "recordingComments.recordingId" },
-    recordingReactions: { recordingId: "recordingReactions.recordingId" },
-    recordingViews: { recordingId: "recordingViews.recordingId" },
-    recordingPlaybackPositions: {
-      recordingId: "recordingPlaybackPositions.recordingId",
-    },
-    recordingViewers: { recordingId: "recordingViewers.recordingId" },
-    recordingEvents: { recordingId: "recordingEvents.recordingId" },
-    recordingTranscripts: {
-      recordingId: "recordingTranscripts.recordingId",
-    },
-    recordingTranscriptVersions: {
-      recordingId: "recordingTranscriptVersions.recordingId",
-    },
-    recordingBrowserDiagnostics: mockDiagnosticsTable,
-    recordingBugReports: { recordingId: "recordingBugReports.recordingId" },
-    recordingTags: { recordingId: "recordingTags.recordingId" },
-    recordingCtas: { recordingId: "recordingCtas.recordingId" },
-    recordingShares: { resourceId: "recordingShares.resourceId" },
-    recordingContextItems: mockContextItemsTable,
+vi.mock("@agent-native/core/server", () => ({
+  BUILDER_ASSETS_WRITE_SCOPE: "assets:write",
+  resolveBuilderRequestAuthorization: vi.fn(),
+  readOrgMemberRole: (...args: unknown[]) => mocks.role(...args),
+  runWithRequestContext: async (
+    context: unknown,
+    fn: () => Promise<unknown>,
+  ) => {
+    mocks.context(context);
+    return fn();
   },
 }));
-
-vi.mock("../server/lib/agent-frame-store.js", () => ({
-  deleteStoredAgentFrames: (...args: unknown[]) =>
-    mockDeleteStoredAgentFrames(...args),
+vi.mock("@agent-native/core/private-blob", () => ({
+  deletePrivateBlob: (...args: unknown[]) => mocks.privateBlob(...args),
 }));
-
-vi.mock("../server/lib/app-activity.js", () => ({
-  deleteAppActivityBlob: (blobJson: string, recordingId: string) =>
-    mockDeleteAppActivityBlob(blobJson, recordingId),
+vi.mock("../server/lib/recordings.js", async () => {
+  const { sql } = await import("drizzle-orm");
+  return {
+    getCurrentOwnerEmail: () => mocks.owner,
+    ownerEmailMatches: (column: unknown, email: string) =>
+      sql`lower(${column}) = ${email.toLowerCase()}`,
+  };
+});
+vi.mock("../server/lib/recording-media-provider.js", () => ({
+  captureMediaCleanupScope: vi.fn(async () => ({
+    storageFingerprint: "fake-bucket",
+  })),
+  deleteBuilderMediaForCleanup: (...args: unknown[]) => mocks.builder(...args),
 }));
-
-vi.mock("./remove-recording-context.js", () => ({
-  trashRecordingContextFootage: (mediaRecordingIds: Array<string | null>) =>
-    mockTrashContextFootage(mediaRecordingIds),
-}));
-
-vi.mock("../server/lib/recording-media-cleanup.js", () => ({
-  deleteRecordingMediaObjects: (...args: unknown[]) =>
-    mockDeleteRecordingMediaObjects(...args),
-  deleteStoredMediaUrl: (...args: unknown[]) =>
-    mockDeleteStoredMediaUrl(...args),
-  recordingMediaUrls: (...args: Parameters<typeof mockRecordingMediaUrls>) =>
-    mockRecordingMediaUrls(...args),
-}));
-
-vi.mock("../server/lib/recordings.js", () => ({
-  getCurrentOwnerEmail: vi.fn(() => "owner@example.com"),
-  ownerEmailMatches: (column: unknown, email: string) => ({
-    column,
-    email,
-    kind: "ownerEmailMatches",
-  }),
+vi.mock("../server/lib/s3-upload-provider.js", () => ({
+  deleteS3MediaForCleanup: (...args: unknown[]) => mocks.remove(...args),
 }));
 vi.mock("../server/lib/video-storage.js", () => ({
-  adjustHostedClipRecordingBytes: (...args: unknown[]) =>
-    mockAdjustHostedClipRecordingBytes(...args),
+  adjustHostedClipRecordingBytes: (...args: unknown[]) => mocks.adjust(...args),
   getHostedClipRecordingAllowance: (...args: unknown[]) =>
-    mockGetHostedClipRecordingAllowance(...args),
-  releaseHostedClipRecording: (...args: unknown[]) =>
-    mockReleaseHostedClipRecording(...args),
+    mocks.allowance(...args),
+  releaseHostedClipRecording: (...args: unknown[]) => mocks.release(...args),
 }));
 
-import deleteRecordingPermanent from "./delete-recording-permanent";
+const { default: action } = await import("./delete-recording-permanent.js");
+const { default: listCleanups } =
+  await import("./list-recording-media-cleanups.js");
+const { default: retryCleanup } =
+  await import("./retry-recording-media-cleanup.js");
+const { runRecordingMediaCleanup, mediaCleanupSummary } =
+  await import("../server/lib/recording-media-cleanup-worker.js");
+const { beginMediaProduction, finishMediaProduction } =
+  await import("../server/lib/recording-media-lifecycle.js");
+const owner = "owner@example.test";
+const video = "https://s3.example.test/bucket/clips/rec-1/video.mp4";
+const builderVideo =
+  "https://cdn.builder.io/o/assets%2Ffake-space%2F0123456789abcdef0123456789abcdef?token=fake-private";
 
-describe("delete-recording-permanent", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockExistingRecording.storageMode = null;
-    mockHostedAllowance.value.status = "consumed";
-    mockGetHostedClipRecordingAllowance.mockResolvedValue(
-      mockHostedAllowance.value,
-    );
-    mockLockRecording.mockImplementation(async () => [mockExistingRecording]);
-    mockAdjustHostedClipRecordingBytes.mockResolvedValue({ ok: true });
-    mockDeleteStoredAgentFrames.mockResolvedValue(0);
-    mockReleaseHostedClipRecording.mockResolvedValue({ ok: true });
-    // A test that stops before the transaction leaves its reads queued.
-    mockSelectWhere
-      .mockReset()
-      .mockResolvedValueOnce([mockExistingRecording])
-      .mockResolvedValueOnce([]);
-    mockContextItemsWhere.mockResolvedValue([]);
-    mockDiagnosticsWhere.mockResolvedValue([]);
+function createTable(table: PgTable): string {
+  const config = getTableConfig(table);
+  const columns = config.columns.map((column) => {
+    const parts = ['"' + column.name + '" ' + column.getSQLType()];
+    if (column.primary) parts.push("PRIMARY KEY");
+    if (typeof column.default === "string")
+      parts.push("DEFAULT '" + column.default.replace(/'/g, "''") + "'");
+    else if (
+      typeof column.default === "number" ||
+      typeof column.default === "boolean"
+    )
+      parts.push("DEFAULT " + column.default);
+    return parts.join(" ");
   });
-
-  it("deletes stored agent frames after the recording rows", async () => {
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockDeleteStoredAgentFrames).toHaveBeenCalledWith(
-      mockExistingRecording,
-    );
-    expect(mockDb.transaction.mock.invocationCallOrder[0]).toBeLessThan(
-      mockDeleteStoredAgentFrames.mock.invocationCallOrder[0],
-    );
+  return 'CREATE TABLE "' + config.name + '" (' + columns.join(",") + ");";
+}
+async function insertRecording(id = "rec-1", url = video, email = owner) {
+  await client.query(
+    "INSERT INTO recordings (id,owner_email,org_id,workspace_id,video_url,kind,status,edits_json,trashed_at) VALUES ($1,$2,'org-1','workspace-1',$3,'video','ready','{}','2026-10-28T00:00:00Z')",
+    [id, email, url],
+  );
+}
+async function rows(table: string) {
+  return (await client.query('SELECT * FROM "' + table + '"')).rows;
+}
+async function state(key: string, value: unknown) {
+  await client.query("INSERT INTO application_state VALUES ($1,$2,$3,0)", [
+    owner,
+    key,
+    JSON.stringify(value),
+  ]);
+}
+beforeEach(async () => {
+  vi.clearAllMocks();
+  mocks.owner = owner;
+  mocks.role.mockResolvedValue("member");
+  mocks.remove.mockResolvedValue({ phase: "complete", httpStatus: 404 });
+  mocks.builder.mockResolvedValue({
+    phase: "blocked",
+    reason: "needs_provider_recovery",
+    servingStatus: 403,
   });
+  mocks.privateBlob.mockResolvedValue({ deleted: true });
+  mocks.adjust.mockResolvedValue({ ok: true });
+  mocks.allowance.mockResolvedValue({ status: "consumed" });
+  mocks.release.mockResolvedValue({ ok: true });
+  client = new PGlite();
+  db = drizzle(client, { schema });
+  const tables = [
+    schema.recordings,
+    schema.recordingAgentFrames,
+    schema.recordingBrowserDiagnostics,
+    schema.hostedClipAllowances,
+    schema.recordingContextItems,
+    schema.recordingComments,
+    schema.recordingReactions,
+    schema.recordingViews,
+    schema.recordingPlaybackPositions,
+    schema.recordingViewers,
+    schema.recordingEvents,
+    schema.recordingTranscripts,
+    schema.recordingTranscriptVersions,
+    schema.recordingBugReports,
+    schema.recordingTags,
+    schema.recordingCtas,
+    schema.recordingShares,
+    schema.recordingAgentViews,
+    schema.recordingContentBindings,
+  ];
+  for (const table of tables) await client.exec(createTable(table));
+  await client.exec(
+    "CREATE TABLE application_state(session_id TEXT,key TEXT,value TEXT,updated_at BIGINT,PRIMARY KEY(session_id,key))",
+  );
+  await client.exec(recordingMediaCleanupMigration);
+  await insertRecording();
+});
+afterEach(async () => {
+  await client.close();
+});
 
-  it("reports stored agent frames it could not remove instead of hiding them", async () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-    mockDeleteStoredAgentFrames.mockResolvedValueOnce(2);
-
-    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
-
+describe("permanent recording deletion with durable media cleanup", () => {
+  it("removes access but returns pending instead of permanent media success, including an idempotent repeat", async () => {
+    const result = await action.run({ id: "rec-1" });
     expect(result).toMatchObject({
-      success: true,
-      agentFrameCleanup: {
-        deleted: false,
-        error: "2 stored agent frame(s) could not be deleted from storage.",
-      },
+      success: false,
+      recordingRemoved: true,
+      mediaCleanup: { status: "pending", pending: 1, deleted: 0 },
     });
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
+    expect(await rows("recordings")).toEqual([]);
+    expect(await rows("recording_media_cleanups")).toHaveLength(1);
+    expect(await action.run({ id: "rec-1" })).toEqual(result);
+    expect(mocks.remove).not.toHaveBeenCalled();
+    await runRecordingMediaCleanup("rec-1");
+    expect(await action.run({ id: "rec-1" })).toMatchObject({
+      success: true,
+      mediaCleanup: { status: "complete", deleted: 1, pending: 0 },
+    });
+    expect((await rows("recording_media_cleanup_objects"))[0]).toMatchObject({
+      phase: "complete",
+      payload: null,
+    });
   });
-
-  it("reports a stored agent frame cleanup that threw", async () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-    mockDeleteStoredAgentFrames.mockRejectedValueOnce(new Error("db down"));
-
-    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
-
+  it("keeps provider-accepted Builder deletion blocked while variants are unconfirmed", async () => {
+    await client.query("UPDATE recordings SET video_url=$1", [builderVideo]);
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    const result = await action.run({ id: "rec-1" });
     expect(result).toMatchObject({
-      agentFrameCleanup: { deleted: false, error: "db down" },
-    });
-    consoleError.mockRestore();
-  });
-
-  it("keeps hosted bytes counted when the frame cleanup itself threw", async () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-    mockExistingRecording.storageMode = "hosted";
-    mockDeleteStoredAgentFrames.mockRejectedValueOnce(new Error("db down"));
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
-    consoleError.mockRestore();
-  });
-
-  it("keeps hosted bytes counted while a stored agent frame is still in storage", async () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-    mockExistingRecording.storageMode = "hosted";
-    mockDeleteStoredAgentFrames.mockResolvedValueOnce(1);
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
-    consoleError.mockRestore();
-  });
-
-  it("deletes the app activity blob once the recording rows are gone", async () => {
-    mockDiagnosticsWhere.mockResolvedValueOnce([
-      { appActivityBlobJson: '{"id":"blob_1"}' },
-    ]);
-
-    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockDeleteAppActivityBlob).toHaveBeenCalledWith(
-      '{"id":"blob_1"}',
-      "rec_1",
-    );
-    expect(mockDb.transaction.mock.invocationCallOrder[0]).toBeLessThan(
-      mockDeleteAppActivityBlob.mock.invocationCallOrder[0],
-    );
-    expect(result.appActivityCleanup).toEqual({ deleted: true });
-  });
-
-  it("reports an app activity blob it could not delete instead of hiding it", async () => {
-    mockDiagnosticsWhere.mockResolvedValueOnce([
-      { appActivityBlobJson: '{"id":"blob_1"}' },
-    ]);
-    mockDeleteAppActivityBlob.mockResolvedValueOnce({
-      deleted: false,
-      error: "storage unavailable",
-    });
-
-    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(result).toMatchObject({
-      success: true,
-      appActivityCleanup: { deleted: false, error: "storage unavailable" },
-    });
-  });
-
-  it("deletes provider media after permanently deleting recording rows", async () => {
-    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledWith(
-      mockExistingRecording,
-      { protectedUrls: new Set() },
-    );
-    expect(mockDb.transaction).toHaveBeenCalled();
-    // Replaced transcripts go with the recording, never left readable.
-    expect(mockDbDelete).toHaveBeenCalledWith({
-      recordingId: "recordingTranscriptVersions.recordingId",
-    });
-    expect(mockDbDelete.mock.invocationCallOrder[0]).toBeLessThan(
-      mockDeleteRecordingMediaObjects.mock.invocationCallOrder[0],
-    );
-    expect(mockDeleteAppStateByPrefix).toHaveBeenCalledWith(
-      "recording-chunks-rec_1-",
-    );
-    expect(result).toEqual({
-      success: true,
-      id: "rec_1",
+      success: false,
+      recordingRemoved: true,
       mediaCleanup: {
-        attempted: 2,
-        deleted: 2,
-        skipped: 0,
-        external: 0,
-        errors: [],
+        status: "blocked",
+        blocked: 1,
+        deleted: 0,
+        reason: "needs_provider_recovery",
       },
-      appActivityCleanup: null,
-      agentFrameCleanup: { deleted: true },
+    });
+    expect(JSON.stringify(result)).not.toContain("fake-private");
+    expect(
+      (await rows("recording_media_cleanup_objects"))[0]?.payload,
+    ).toContain("fake-private");
+  });
+  it("rolls intent capture and row cleanup back together when a dependent delete fails", async () => {
+    await state("recording-thumbnail-asset-rec-1", {
+      url: video + "/thumbnail",
+    });
+    await client.exec(
+      "CREATE FUNCTION refuse_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'delete refused'; END $$; CREATE TRIGGER refuse_recording_delete BEFORE DELETE ON recordings FOR EACH ROW EXECUTE FUNCTION refuse_delete()",
+    );
+    await expect(action.run({ id: "rec-1" })).rejects.toThrow();
+    expect(await rows("recordings")).toHaveLength(1);
+    expect(await rows("recording_media_cleanups")).toEqual([]);
+    expect(await rows("recording_media_cleanup_objects")).toEqual([]);
+    expect(await rows("application_state")).toHaveLength(1);
+    expect(mocks.remove).not.toHaveBeenCalled();
+  });
+  it("journals frame, activity, screenshot leftovers and app-state-only objects before removing their rows", async () => {
+    await client.query(
+      "UPDATE recordings SET kind='image', image_url=$1,base_image_url=$2,edits_json=$3,video_url=NULL",
+      [
+        video,
+        video + "-base",
+        JSON.stringify({ unreclaimedUrls: [video + "-old"] }),
+      ],
+    );
+    await client.query(
+      "INSERT INTO recording_agent_frames(id,recording_id,storage_url,storage_provider) VALUES ('frame','rec-1',$1,'s3')",
+      [video + "-frame"],
+    );
+    await client.query(
+      "INSERT INTO recording_browser_diagnostics(recording_id,app_activity_blob_json) VALUES ('rec-1',$1)",
+      [JSON.stringify({ provider: "fake-private", id: "fake-activity" })],
+    );
+    await state("recording-thumbnail-asset-rec-1", {
+      url: video + "-thumb",
+      provider: "s3",
+    });
+    const result = await action.run({ id: "rec-1" });
+    expect(result.mediaCleanup.pending).toBe(6);
+    expect(await rows("recording_agent_frames")).toEqual([]);
+    expect(await rows("recording_browser_diagnostics")).toEqual([]);
+    const captured = await rows("recording_media_cleanup_objects");
+    expect(captured.map((r) => r.provider).sort()).toEqual([
+      "private_blob",
+      "s3",
+      "s3",
+      "s3",
+      "s3",
+      "s3",
+    ]);
+    expect(
+      captured.every(
+        (r) =>
+          typeof r.payload === "string" && r.payload.startsWith("encrypted:"),
+      ),
+    ).toBe(true);
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.privateBlob).toHaveBeenCalledWith({
+      provider: "fake-private",
+      id: "fake-activity",
+    });
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      deleted: 5,
+      blocked: 1,
+      status: "blocked",
+      reason: "private_blob_confirmation_unavailable",
     });
   });
-
-  it("clears retained hosted bytes after every hosted object is deleted", async () => {
-    mockExistingRecording.storageMode = "hosted";
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockGetHostedClipRecordingAllowance).toHaveBeenCalledWith({
-      recordingId: "rec_1",
-      ownerEmail: "owner@example.com",
+  it("refuses unreadable screenshot edits without losing either the recording or recovery state", async () => {
+    await client.exec("UPDATE recordings SET kind='image',edits_json='{}'");
+    // The invalid legacy data predates the new media write fence.
+    await client.exec(
+      "ALTER TABLE recordings DISABLE TRIGGER clips_recording_media_fence; UPDATE recordings SET edits_json='not-json'; ALTER TABLE recordings ENABLE TRIGGER clips_recording_media_fence",
+    );
+    await expect(action.run({ id: "rec-1" })).rejects.toThrow(/edits/);
+    expect(await rows("recordings")).toHaveLength(1);
+    expect(await rows("recording_media_cleanups")).toEqual([]);
+  });
+  it("deletes dependent access rows and trashes owned context footage atomically", async () => {
+    await insertRecording("footage", video + "-context");
+    await insertRecording(
+      "other-footage",
+      video + "-other",
+      "other@example.test",
+    );
+    await client.exec(
+      "INSERT INTO recording_context_items(id,recording_id,media_recording_id,pending_media_recording_id) VALUES ('context','rec-1','footage','other-footage')",
+    );
+    for (const name of [
+      "recording_comments",
+      "recording_reactions",
+      "recording_views",
+      "recording_playback_positions",
+      "recording_viewers",
+      "recording_events",
+      "recording_transcripts",
+      "recording_transcript_versions",
+      "recording_bug_reports",
+      "recording_tags",
+      "recording_ctas",
+    ]) {
+      const columns = await client.query<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_name=$1 AND column_name='id'",
+        [name],
+      );
+      await client.query(
+        'INSERT INTO "' +
+          name +
+          '" (' +
+          (columns.rows.length ? "id," : "") +
+          "recording_id) VALUES (" +
+          (columns.rows.length ? "'fake-row'," : "") +
+          "$1)",
+        ["rec-1"],
+      );
+    }
+    await client.exec(
+      "INSERT INTO recording_shares(id,resource_id) VALUES ('fake-share','rec-1')",
+    );
+    await action.run({ id: "rec-1" });
+    for (const name of [
+      "recording_comments",
+      "recording_reactions",
+      "recording_views",
+      "recording_playback_positions",
+      "recording_viewers",
+      "recording_events",
+      "recording_transcripts",
+      "recording_transcript_versions",
+      "recording_bug_reports",
+      "recording_tags",
+      "recording_ctas",
+      "recording_context_items",
+      "recording_shares",
+    ])
+      expect(await rows(name)).toEqual([]);
+    const recordings = await rows("recordings");
+    expect(recordings.find((r) => r.id === "footage")?.trashed_at).not.toBe(
+      "2026-10-28T00:00:00Z",
+    );
+    expect(recordings.find((r) => r.id === "other-footage")?.trashed_at).toBe(
+      "2026-10-28T00:00:00Z",
+    );
+  });
+  it("protects shared aliases, then retries when the final recording reference disappears", async () => {
+    await insertRecording("rec-2", video + "?other-token=fake");
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "retained_shared",
+      retained: 1,
+      deleted: 0,
     });
-    expect(mockAdjustHostedClipRecordingBytes).toHaveBeenCalledWith({
-      recordingId: "rec_1",
-      userId: "user_1",
+    await client.exec("UPDATE recording_media_cleanups SET attempts=12");
+    await client.exec("DELETE FROM recordings WHERE id='rec-2'");
+    await runRecordingMediaCleanup("rec-1");
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "complete",
+      deleted: 1,
+      retained: 0,
+    });
+  });
+  it("retains accounting while a producer is active and journals its late output before final release", async () => {
+    await client.exec(
+      "UPDATE recordings SET storage_mode='hosted'; INSERT INTO clips_hosted_clip_allowances(recording_id,user_id,status,quota_bytes) VALUES ('rec-1','stable-user','consumed',123)",
+    );
+    const producer = await beginMediaProduction({
+      recordingId: "rec-1",
+      ownerEmail: owner,
+    });
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.adjust).not.toHaveBeenCalled();
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "blocked",
+      reason: "producer_unresolved",
+    });
+    await finishMediaProduction(producer, {
+      url: video + "-late",
+      provider: "clips-hosted",
+      storageFingerprint: "fake-bucket",
+    });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.adjust).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      userId: "stable-user",
       retainedBytes: 0,
     });
-    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "complete",
+      deleted: 2,
+    });
+    expect((await rows("recording_media_producers"))[0]).toMatchObject({
+      status: "journaled",
+      payload: null,
+    });
   });
-
-  it("permanently deletes a hosted Loom recording whose thumbnail is external", async () => {
-    mockExistingRecording.storageMode = "hosted";
-    mockDeleteRecordingMediaObjects.mockResolvedValueOnce({
-      attempted: 2,
+  it.each([
+    video.replace("video.mp4", "%76ideo.mp4"),
+    video.replace("video.mp4", "discard/%2e%2e/video.mp4"),
+    video.replace("video.mp4", "discard\\..\\video.mp4"),
+    video.replace("https://", "HTTPS://"),
+    " \n" + video + "\t",
+  ])("retains S3 media referenced through the %s alias", async (alias) => {
+    await insertRecording("rec-2", alias);
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "retained_shared",
+      retained: 1,
+    });
+  });
+  it("never guesses a late upload's bucket from the deletion-time settings", async () => {
+    const producer = await beginMediaProduction({
+      recordingId: "rec-1",
+      ownerEmail: owner,
+    });
+    await client.exec("UPDATE recordings SET video_url=NULL");
+    await action.run({ id: "rec-1" });
+    await finishMediaProduction(producer, { url: video, provider: "s3" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "blocked",
+      deleted: 0,
+    });
+  });
+  it("makes progress beyond ten objects whose previous deletes are capability-blocked", async () => {
+    for (let index = 0; index < 10; index++)
+      await client.query(
+        "INSERT INTO recording_agent_frames(id,recording_id,storage_url,storage_provider) VALUES ($1,'rec-1',$2,'s3')",
+        [`frame-${index}`, video.replace("video.mp4", `frame-${index}.png`)],
+      );
+    mocks.remove.mockImplementation(
+      async (
+        _url: string,
+        _options: unknown,
+        checkpoint: (fingerprint: string) => Promise<void>,
+      ) => {
+        await checkpoint("fake-bucket");
+        return { phase: "blocked", reason: "retained_versions" };
+      },
+    );
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.remove).toHaveBeenCalledTimes(10);
+    await runRecordingMediaCleanup("rec-1");
+    expect(new Set(mocks.remove.mock.calls.map(([url]) => url)).size).toBe(11);
+  });
+  it("retries accounting failure without deleting or refunding an object twice", async () => {
+    await client.exec(
+      "UPDATE recordings SET storage_mode='hosted'; INSERT INTO clips_hosted_clip_allowances(recording_id,user_id,status,quota_bytes) VALUES ('rec-1','stable-user','consumed',123)",
+    );
+    mocks.adjust.mockRejectedValueOnce(new Error("ledger unavailable"));
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "blocked",
       deleted: 1,
-      skipped: 0,
+    });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.remove).toHaveBeenCalledTimes(1);
+    expect(mocks.adjust).toHaveBeenCalledTimes(2);
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "complete",
+      deleted: 1,
+    });
+  });
+  it("keeps reserved hosted quota until cleanup is confirmed", async () => {
+    await client.exec(
+      "UPDATE recordings SET storage_mode='hosted'; INSERT INTO clips_hosted_clip_allowances(recording_id,user_id,status,quota_bytes) VALUES ('rec-1','stable-user','reserved',123)",
+    );
+    mocks.allowance.mockResolvedValue({ status: "reserved" });
+    mocks.remove.mockResolvedValueOnce({
+      phase: "pending",
+      reason: "delete_unconfirmed",
+    });
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.release).not.toHaveBeenCalled();
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.release).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      userId: "stable-user",
+    });
+  });
+  it("does not settle accounting while external compression can still produce media", async () => {
+    await client.exec(
+      "UPDATE recordings SET storage_mode='hosted'; INSERT INTO clips_hosted_clip_allowances(recording_id,user_id,status,quota_bytes) VALUES ('rec-1','stable-user','consumed',123)",
+    );
+    await state("recording-builder-compression-rec-1", {
+      status: "worker-processing",
+      sourceUrl: video,
+    });
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.adjust).not.toHaveBeenCalled();
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "blocked",
+      reason: "producer_unresolved",
+    });
+  });
+  it("restores the fixed owner/org context and blocks removed members before contacting storage", async () => {
+    await action.run({ id: "rec-1" });
+    mocks.owner = "somebody-else@example.test";
+    mocks.role.mockResolvedValue(null);
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.context).toHaveBeenCalledWith({
+      userEmail: owner,
+      orgId: "org-1",
+    });
+    expect(mocks.role).toHaveBeenCalledWith("org-1", owner);
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "blocked",
+      reason: "owner_unavailable",
+    });
+    await expect(action.run({ id: "rec-1" })).rejects.toMatchObject({
+      errorCode: "recording_not_found",
+    });
+  });
+  it("serializes competing worker leases", async () => {
+    let complete: (value: { phase: string }) => void = () => {};
+    const underway = new Promise<{ phase: string }>((resolve) => {
+      complete = resolve;
+    });
+    mocks.remove.mockReturnValue(underway);
+    await action.run({ id: "rec-1" });
+    const first = runRecordingMediaCleanup("rec-1");
+    await vi.waitFor(() => expect(mocks.remove).toHaveBeenCalledTimes(1));
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.remove).toHaveBeenCalledTimes(1);
+    complete({ phase: "complete" });
+    await first;
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "complete",
+    });
+  });
+  it("blocks unknown owned media instead of silently skipping it", async () => {
+    await client.query("UPDATE recordings SET video_url=$1", [
+      "https://unclassified.example.test/fake-video.mp4",
+    ]);
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "blocked",
+      reason: "unclassified_provider",
+      deleted: 0,
+      blocked: 1,
+    });
+    expect(mocks.remove).not.toHaveBeenCalled();
+  });
+  it("does not count third-party embed media as owned storage removed", async () => {
+    await client.query("UPDATE recordings SET thumbnail_url=$1", [
+      "https://cdn.loom.com/sessions/thumbnails/fake-thumbnail.jpg",
+    ]);
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "complete",
+      deleted: 1,
       external: 1,
-      errors: [],
     });
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockDb.transaction).toHaveBeenCalled();
-    expect(mockAdjustHostedClipRecordingBytes).toHaveBeenCalled();
+    expect(mocks.remove).toHaveBeenCalledTimes(1);
   });
-
-  it("keeps the bytes of hosted files it could not delete counted", async () => {
-    mockExistingRecording.storageMode = "hosted";
-    const cleanup = {
-      attempted: 2,
+  it("lists only owned safe status and requeues exhausted objects without overriding an active lease", async () => {
+    await action.run({ id: "rec-1" });
+    await client.query(
+      "UPDATE recording_media_cleanup_objects SET payload=$1",
+      [
+        "encrypted:" +
+          JSON.stringify({
+            urls: [video],
+            storageFingerprint: "original-bucket",
+          }),
+      ],
+    );
+    await client.exec(
+      "UPDATE recording_media_cleanup_objects SET attempts=12, phase='blocked', reason='retry_exhausted'; UPDATE recording_media_cleanups SET status='blocked', reason='retry_exhausted'",
+    );
+    const result = await listCleanups.run({ limit: 100 });
+    expect(result.cleanups).toMatchObject([
+      { recordingId: "rec-1", blocked: 1, deleted: 0 },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("s3.example.test");
+    mocks.owner = "other@example.test";
+    expect((await listCleanups.run({ limit: 100 })).cleanups).toEqual([]);
+    await expect(retryCleanup.run({ id: "rec-1" })).rejects.toMatchObject({
+      errorCode: "media_cleanup_not_found",
+    });
+    mocks.owner = owner;
+    await client.query(
+      "UPDATE recording_media_cleanups SET lease_token='fake-worker', lease_until=$1",
+      [new Date(Date.now() + 120_000).toISOString()],
+    );
+    await retryCleanup.run({ id: "rec-1" });
+    expect((await rows("recording_media_cleanup_objects"))[0].attempts).toBe(
+      12,
+    );
+    await client.exec(
+      "UPDATE recording_media_cleanups SET lease_token=NULL, lease_until=NULL",
+    );
+    expect(await retryCleanup.run({ id: "rec-1" })).toMatchObject({
+      status: "pending",
+    });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.remove).toHaveBeenCalledWith(
+      video,
+      expect.objectContaining({ fingerprint: "original-bucket" }),
+      expect.any(Function),
+    );
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "complete",
       deleted: 1,
-      skipped: 1,
-      external: 0,
-      errors: [],
-    };
-    mockDeleteRecordingMediaObjects.mockResolvedValueOnce(cleanup);
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const result = await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockDb.transaction).toHaveBeenCalled();
-    expect(result).toMatchObject({ success: true, mediaCleanup: cleanup });
-    expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
-    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
-    expect(logged).toHaveBeenCalledWith(
-      expect.stringContaining("1 of its hosted files could not be removed"),
-      [],
-    );
-    logged.mockRestore();
-  });
-
-  it("deletes hosted media after the footage trash and the row", async () => {
-    mockExistingRecording.storageMode = "hosted";
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledTimes(1);
-    expect(mockTrashContextFootage.mock.invocationCallOrder[0]).toBeLessThan(
-      mockDbDelete.mock.invocationCallOrder[0],
-    );
-    expect(mockDbDelete.mock.invocationCallOrder.at(-1)).toBeLessThan(
-      mockDeleteRecordingMediaObjects.mock.invocationCallOrder[0],
-    );
-  });
-
-  it("keeps a hosted Clip and its video when the database delete fails", async () => {
-    mockExistingRecording.storageMode = "hosted";
-    mockDeleteWhere.mockRejectedValueOnce(new Error("delete failed"));
-
-    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
-      "delete failed",
-    );
-
-    expect(mockDeleteRecordingMediaObjects).not.toHaveBeenCalled();
-    expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
-    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
-  });
-
-  it("locks the recording before deleting anything that hangs off it", async () => {
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockLockRecording).toHaveBeenCalledWith("update");
-    expect(mockLockRecording.mock.invocationCallOrder[0]).toBeLessThan(
-      mockDbDelete.mock.invocationCallOrder[0],
-    );
-  });
-
-  it("releases a pending hosted reservation once the row is gone", async () => {
-    mockExistingRecording.storageMode = "hosted";
-    mockHostedAllowance.value.status = "reserved";
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith({
-      recordingId: "rec_1",
-      userId: "user_1",
-    });
-    expect(mockDbDelete.mock.invocationCallOrder.at(-1)).toBeLessThan(
-      mockReleaseHostedClipRecording.mock.invocationCallOrder[0],
-    );
-    expect(mockAdjustHostedClipRecordingBytes).not.toHaveBeenCalled();
-  });
-
-  it("releases a pending hosted reservation even when files are left", async () => {
-    // Nothing else can reach the reservation once the row is gone.
-    mockExistingRecording.storageMode = "hosted";
-    mockHostedAllowance.value.status = "reserved";
-    mockDeleteRecordingMediaObjects.mockResolvedValueOnce({
-      attempted: 2,
-      deleted: 1,
-      skipped: 1,
-      external: 0,
-      errors: [],
-    });
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith({
-      recordingId: "rec_1",
-      userId: "user_1",
-    });
-    expect(logged).toHaveBeenCalled();
-    logged.mockRestore();
-  });
-
-  it("frees the bytes of an upload that finished while the delete ran", async () => {
-    mockExistingRecording.storageMode = "hosted";
-    mockGetHostedClipRecordingAllowance
-      .mockResolvedValueOnce({
-        ...mockHostedAllowance.value,
-        status: "reserved",
-      })
-      .mockResolvedValueOnce({
-        ...mockHostedAllowance.value,
-        status: "consumed",
-      });
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockGetHostedClipRecordingAllowance).toHaveBeenLastCalledWith({
-      recordingId: "rec_1",
-      userId: "user_1",
-    });
-    expect(mockAdjustHostedClipRecordingBytes).toHaveBeenCalledWith({
-      recordingId: "rec_1",
-      userId: "user_1",
-      retainedBytes: 0,
-    });
-    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
-  });
-
-  it("cleans up the media the row holds under the lock, not the first read", async () => {
-    const replaced = {
-      ...mockExistingRecording,
-      videoUrl: "https://cdn.example.com/media/clips/rec_1-v2.mp4",
-    };
-    mockLockRecording.mockResolvedValueOnce([replaced]);
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledWith(replaced, {
-      protectedUrls: new Set(),
-    });
-    expect(mockLockRecording.mock.invocationCallOrder[0]).toBeLessThan(
-      mockSelectWhere.mock.invocationCallOrder[1],
-    );
-  });
-
-  it("deletes granular view rows during permanent cleanup", async () => {
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockDbDelete).toHaveBeenCalledWith({
-      recordingId: "recordingViews.recordingId",
-    });
-  });
-
-  it("deletes the Clip's context rows and trashes their footage before the Clip goes", async () => {
-    mockContextItemsWhere.mockResolvedValueOnce([
-      { mediaRecordingId: "media_1", pendingMediaRecordingId: null },
-      { mediaRecordingId: null, pendingMediaRecordingId: "media_2" },
-    ]);
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    expect(mockTrashContextFootage).toHaveBeenCalledWith([
-      "media_1",
-      null,
-      null,
-      "media_2",
-    ]);
-    const contextDelete = mockDbDelete.mock.calls.findIndex(
-      ([table]) => table === mockContextItemsTable,
-    );
-    expect(contextDelete).toBeGreaterThanOrEqual(0);
-    expect(mockTrashContextFootage.mock.invocationCallOrder[0]).toBeLessThan(
-      mockDbDelete.mock.invocationCallOrder[contextDelete],
-    );
-  });
-
-  it("keeps the Clip and its context when trashing the footage fails", async () => {
-    mockContextItemsWhere.mockResolvedValueOnce([
-      { mediaRecordingId: "media_1", pendingMediaRecordingId: null },
-    ]);
-    mockTrashContextFootage.mockRejectedValueOnce(
-      new Error("trash unavailable"),
-    );
-
-    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
-      "trash unavailable",
-    );
-    expect(mockDb.transaction).not.toHaveBeenCalled();
-    expect(mockDeleteRecordingMediaObjects).not.toHaveBeenCalled();
-  });
-
-  it("keeps hosted media when trashing the footage fails on a hosted Clip", async () => {
-    mockExistingRecording.storageMode = "hosted";
-    mockContextItemsWhere.mockResolvedValueOnce([
-      { mediaRecordingId: "media_1", pendingMediaRecordingId: null },
-    ]);
-    mockTrashContextFootage.mockRejectedValueOnce(
-      new Error("trash unavailable"),
-    );
-
-    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
-      "trash unavailable",
-    );
-    expect(mockDeleteRecordingMediaObjects).not.toHaveBeenCalled();
-  });
-
-  it("skips provider deletion for media still referenced by another recording", async () => {
-    mockSelectWhere
-      .mockReset()
-      .mockResolvedValueOnce([mockExistingRecording])
-      .mockResolvedValueOnce([
-        {
-          videoUrl: null,
-          thumbnailUrl: mockExistingRecording.thumbnailUrl,
-          animatedThumbnailUrl: null,
-        },
-      ]);
-
-    await deleteRecordingPermanent.run({ id: "rec_1" });
-
-    const cleanupOptions = mockDeleteRecordingMediaObjects.mock
-      .calls[0]?.[1] as { protectedUrls?: Set<string> } | undefined;
-    expect([...(cleanupOptions?.protectedUrls ?? [])]).toEqual([
-      mockExistingRecording.thumbnailUrl,
-    ]);
-  });
-
-  it("does not delete provider media when the database delete fails", async () => {
-    mockDeleteWhere.mockRejectedValueOnce(new Error("delete failed"));
-
-    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
-      "delete failed",
-    );
-
-    expect(mockDeleteRecordingMediaObjects).not.toHaveBeenCalled();
-  });
-
-  describe("a screenshot with leftover files", () => {
-    const shot = {
-      ...mockExistingRecording,
-      kind: "image",
-      videoUrl: null,
-      storageMode: "hosted" as const,
-      editsJson: JSON.stringify({
-        unreclaimedUrls: ["https://cdn.example.com/media/clips/copy.png"],
-      }),
-    };
-
-    /** The transaction's re-read: the row as the claim left it. */
-    const claimedRow = async () => [
-      {
-        editsJson: mockUpdates[0]?.editsJson,
-        mediaUpdatedAt: mockUpdates[0]?.mediaUpdatedAt,
-      },
-    ];
-
-    beforeEach(async () => {
-      mockUpdates.length = 0;
-      mockClaimMatches.value = true;
-      mockSelectWhere.mockReset();
-      // Footage a refusal would wrongly trash, if the refusal came after it.
-      mockContextItemsWhere.mockResolvedValue([
-        { mediaRecordingId: "media_1", pendingMediaRecordingId: null },
-      ]);
-      // The row, the references to its unredacted files, the re-read before
-      // any footage is trashed, then the references under the lock.
-      mockSelectWhere
-        .mockResolvedValueOnce([shot])
-        .mockResolvedValueOnce([])
-        .mockImplementationOnce(claimedRow)
-        .mockResolvedValueOnce([]);
-      mockLockRecording.mockImplementation(async () => [
-        { ...shot, ...(await claimedRow())[0] },
-      ]);
-      // What the real list adds for a screenshot: its leftovers, and a
-      // refusal when the edits cannot be read.
-      const { screenshotLeftoverUrls } =
-        await import("../server/lib/screenshot-edits");
-      mockRecordingMediaUrls.mockImplementation(((recording: {
-        thumbnailUrl?: string | null;
-        editsJson?: string | null;
-      }) => {
-        const leftovers = screenshotLeftoverUrls(recording.editsJson);
-        if (!leftovers) throw new Error("edits could not be read");
-        return [recording.thumbnailUrl, ...leftovers].filter(Boolean);
-      }) as never);
-    });
-
-    it("deletes the unredacted leftovers before the row", async () => {
-      await deleteRecordingPermanent.run({ id: "rec_1" });
-      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
-        "https://cdn.example.com/media/clips/copy.png",
-        { storageMode: "hosted", recordingId: "rec_1" },
-      );
-      // The redacted picture goes the ordinary, best-effort way.
-      expect(mockDeleteStoredMediaUrl).not.toHaveBeenCalledWith(
-        "https://cdn.example.com/media/clips/rec_1.jpg",
-      );
-      expect(mockDeleteStoredMediaUrl.mock.invocationCallOrder[0]).toBeLessThan(
-        mockDbDelete.mock.invocationCallOrder[0],
-      );
-      // Claimed first, so no save can land between the deletes and the row.
-      expect(mockDbUpdate.mock.invocationCallOrder[0]).toBeLessThan(
-        mockDeleteStoredMediaUrl.mock.invocationCallOrder[0],
-      );
-      expect(
-        JSON.parse(String(mockUpdates[0].editsJson)).permanentDeleteClaim,
-      ).toBeTruthy();
-    });
-
-    it("deletes nothing when a save changed the row before the claim", async () => {
-      mockClaimMatches.value = false;
-      await expect(
-        deleteRecordingPermanent.run({ id: "rec_1" }),
-      ).rejects.toThrow(/Nothing was deleted/);
-      expect(mockDeleteStoredMediaUrl).not.toHaveBeenCalled();
-      expect(mockDb.transaction).not.toHaveBeenCalled();
-      expect(mockTrashContextFootage).not.toHaveBeenCalled();
-    });
-
-    it("trashes the footage only after the claim re-read passes", async () => {
-      await deleteRecordingPermanent.run({ id: "rec_1" });
-
-      expect(mockTrashContextFootage).toHaveBeenCalledWith(["media_1", null]);
-      // The third recordings read is the re-read; the trash comes after it and
-      // the Clip's rows are deleted after the trash.
-      expect(mockSelectWhere.mock.invocationCallOrder[2]).toBeLessThan(
-        mockTrashContextFootage.mock.invocationCallOrder[0],
-      );
-      expect(mockTrashContextFootage.mock.invocationCallOrder[0]).toBeLessThan(
-        mockDbDelete.mock.invocationCallOrder[0],
-      );
-    });
-
-    it("treats the base as unredacted while boxes are pending", async () => {
-      mockSelectWhere.mockReset();
-      mockSelectWhere
-        .mockResolvedValueOnce([
-          {
-            ...shot,
-            baseImageUrl: "https://cdn.example.com/media/clips/base.png",
-            editsJson: JSON.stringify({
-              overlays: [
-                {
-                  kind: "redact",
-                  id: "r1",
-                  startMs: 0,
-                  endMs: 1,
-                  keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
-                },
-              ],
-            }),
-          },
-        ])
-        .mockResolvedValueOnce([]);
-      mockDeleteStoredMediaUrl.mockResolvedValueOnce(false);
-      await expect(
-        deleteRecordingPermanent.run({ id: "rec_1" }),
-      ).rejects.toThrow(/unredacted copy/);
-      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
-        "https://cdn.example.com/media/clips/base.png",
-        { storageMode: "hosted", recordingId: "rec_1" },
-      );
-      expect(mockDb.transaction).not.toHaveBeenCalled();
-      expect(mockTrashContextFootage).not.toHaveBeenCalled();
-    });
-
-    it("keeps the row when something past the claim changed it", async () => {
-      // A writer that does not honour the claim may have listed new
-      // leftovers; deleting the row now would lose the only record of them.
-      mockSelectWhere.mockReset();
-      mockSelectWhere
-        .mockResolvedValueOnce([shot])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ editsJson: "{}" }]);
-      await expect(
-        deleteRecordingPermanent.run({ id: "rec_1" }),
-      ).rejects.toThrow(/changed while it was being deleted/);
-      expect(mockDbDelete).not.toHaveBeenCalled();
-      expect(mockTrashContextFootage).not.toHaveBeenCalled();
-    });
-
-    it("keeps the row when one is still in storage", async () => {
-      // The row is the only record of that unredacted copy; without it no
-      // retry could ever find it.
-      mockDeleteStoredMediaUrl.mockResolvedValueOnce(false);
-      await expect(
-        deleteRecordingPermanent.run({ id: "rec_1" }),
-      ).rejects.toThrow(
-        /unredacted copy of this screenshot could not be deleted/,
-      );
-      expect(mockDb.transaction).not.toHaveBeenCalled();
-      expect(mockTrashContextFootage).not.toHaveBeenCalled();
-      // And gives the row back, unclaimed, for an edit or a retry.
-      expect(mockUpdates.at(-1)).toEqual({ editsJson: shot.editsJson });
-    });
-
-    it("keeps a claim an earlier, part-way delete left", async () => {
-      // That delete may already have removed the base under pending boxes;
-      // releasing its claim would let the screenshot be restored or saved
-      // over with its base gone.
-      const leftClaimed = {
-        ...shot,
-        editsJson: JSON.stringify({
-          ...JSON.parse(shot.editsJson),
-          permanentDeleteClaim: { at: "2026-09-26T00:00:00Z" },
-        }),
-      };
-      mockSelectWhere.mockReset();
-      mockSelectWhere
-        .mockResolvedValueOnce([leftClaimed])
-        .mockResolvedValueOnce([]);
-      mockDeleteStoredMediaUrl.mockResolvedValueOnce(false);
-      await expect(
-        deleteRecordingPermanent.run({ id: "rec_1" }),
-      ).rejects.toThrow(/unredacted copy/);
-      expect(mockUpdates.at(-1)).toEqual({ editsJson: leftClaimed.editsJson });
-    });
-
-    it("keeps the row when its edits cannot be read", async () => {
-      mockSelectWhere.mockReset();
-      mockSelectWhere
-        .mockResolvedValueOnce([{ ...shot, editsJson: "{not json" }])
-        .mockResolvedValueOnce([]);
-      await expect(
-        deleteRecordingPermanent.run({ id: "rec_1" }),
-      ).rejects.toThrow(/could not be read/);
-      expect(mockDb.transaction).not.toHaveBeenCalled();
     });
   });
 });

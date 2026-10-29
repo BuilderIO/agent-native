@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   cancelS3ResponseBody,
   rfc3986,
@@ -23,6 +25,7 @@ import {
   legacyOrganizationLogoObjectKey,
   ORGANIZATION_LOGO_PURPOSE,
 } from "../../shared/organization-logo.js";
+import { checkpointMediaUpload } from "./recording-media-production-context.js";
 
 interface S3Config {
   region: string;
@@ -194,6 +197,110 @@ function readHostedClipS3Config(): S3Config | null {
 }
 
 type ClipsS3StorageMode = "own" | "hosted";
+
+function cleanupStorageFingerprint(cfg: S3Config): string {
+  return createHash("sha256")
+    .update(`${cfg.endpoint}\n${cfg.bucket}`)
+    .digest("hex");
+}
+
+export async function s3MediaCleanupFingerprint(
+  url: string,
+  mode: ClipsS3StorageMode,
+): Promise<string | null> {
+  const cfg = await readS3ConfigForMode(mode);
+  return cfg && objectKeyFromUrl({ ...cfg, publicBaseUrl: null }, url)
+    ? cleanupStorageFingerprint(cfg)
+    : null;
+}
+
+export async function deleteS3MediaForCleanup(
+  url: string,
+  options: {
+    storageMode: ClipsS3StorageMode;
+    recordingId: string;
+    objectKey: string;
+    fingerprint?: string | null;
+  },
+  checkpoint: (fingerprint: string) => Promise<void>,
+): Promise<{
+  phase: "complete" | "pending" | "blocked";
+  reason?: string;
+  httpStatus?: number;
+}> {
+  const cfg = await readS3ConfigForMode(options.storageMode);
+  if (!cfg) return { phase: "blocked", reason: "credential_unavailable" };
+  if (!options.fingerprint)
+    return { phase: "blocked", reason: "storage_binding_unavailable" };
+  const key = objectKeyFromUrl(cfg, url);
+  if (
+    !key ||
+    options.objectKey !== `s3:${key}` ||
+    !/^clips\/[^/]+(?:\/[^/]+)?$/.test(key) ||
+    !isCompletedClipObjectKey(key) ||
+    !isRecordingObjectKey(key, options.recordingId)
+  )
+    return { phase: "blocked", reason: "object_identity_mismatch" };
+  const fingerprint = cleanupStorageFingerprint(cfg);
+  if (fingerprint !== options.fingerprint)
+    return { phase: "blocked", reason: "credential_space_mismatch" };
+  await checkpoint(fingerprint);
+  const removed = await s3Request(cfg, key, {
+    method: "DELETE",
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
+  await cancelS3ResponseBody(removed);
+  if (!removed.ok && removed.status !== 404)
+    return {
+      phase:
+        removed.status === 401 || removed.status === 403
+          ? "blocked"
+          : "pending",
+      reason: "delete_unconfirmed",
+      httpStatus: removed.status,
+    };
+  const head = await s3Request(cfg, key, {
+    method: "HEAD",
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
+  await cancelS3ResponseBody(head);
+  if (head.status !== 404)
+    return {
+      phase: "pending",
+      reason: head.ok ? "still_stored" : "storage_state_unavailable",
+      httpStatus: head.status,
+    };
+  const endpoint = new URL(cfg.endpoint);
+  // R2 has neither object versions nor a GetBucketVersioning operation.
+  if (
+    endpoint.protocol === "https:" &&
+    endpoint.hostname.endsWith(".r2.cloudflarestorage.com")
+  )
+    return { phase: "complete", httpStatus: head.status };
+  const versions = await s3Request(cfg, "", {
+    method: "GET",
+    query: { versioning: "" },
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
+  if (!versions.ok) {
+    await cancelS3ResponseBody(versions);
+    return {
+      phase: "blocked",
+      reason: "versioning_unconfirmed",
+      httpStatus: versions.status,
+    };
+  }
+  const xml = await versions.text();
+  if (/<(?:[A-Za-z0-9_]+:)?Status>\s*(Enabled|Suspended)\s*</.test(xml))
+    return { phase: "blocked", reason: "retained_versions" };
+  if (
+    !/^<(?:[A-Za-z0-9_]+:)?VersioningConfiguration(?:\s[^>]*)?(?:\s*\/>|>\s*<\/(?:[A-Za-z0-9_]+:)?VersioningConfiguration>)$/.test(
+      xml.trim().replace(/^<\?xml[^>]*\?>\s*/, ""),
+    )
+  )
+    return { phase: "blocked", reason: "versioning_unconfirmed" };
+  return { phase: "complete", httpStatus: head.status };
+}
 
 function readS3ConfigForMode(
   mode: ClipsS3StorageMode,
@@ -840,7 +947,14 @@ function createS3FileUploadProvider(
           ? data
           : new Uint8Array(data as unknown as ArrayBuffer);
 
+      const reference = {
+        url: publicObjectUrl(cfg, objectKey),
+        provider: id,
+        storageFingerprint: cleanupStorageFingerprint(cfg),
+      };
+      await checkpointMediaUpload({ ...reference, uploadConfirmed: false });
       const publicUrl = await putObject(cfg, objectKey, bytes, contentType);
+      await checkpointMediaUpload({ ...reference, uploadConfirmed: true });
       return { url: publicUrl, provider: id };
     },
     resumable: {

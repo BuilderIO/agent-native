@@ -303,6 +303,28 @@ const messages = {
     clipsRestoreFailed: "تعذرت استعادة {{count}} مقاطع",
     clipsPermanentlyDeleted: "تم حذف {{count}} مقاطع نهائيا",
     clipsDeleteFailed: "تعذر حذف {{count}} مقاطع",
+    deletedMediaPending: "تم حذف التسجيل. لا تزال إزالة ملفات الوسائط جارية.",
+    deletedMediaBlocked:
+      "تم حذف التسجيل، لكن تعذرت إزالة ملفات الوسائط الخاصة به.",
+    deletedMediaRetained:
+      "تم حذف التسجيل. تم الاحتفاظ بملفات الوسائط التي لا تزال تسجيلات أخرى تستخدمها.",
+    clipsDeletedMediaPending:
+      "التسجيلات المحذوفة: {{count}}. لا تزال إزالة ملفات الوسائط جارية.",
+    clipsDeletedMediaBlocked:
+      "التسجيلات المحذوفة: {{count}}. تعذرت إزالة ملفات الوسائط.",
+    clipsDeletedMediaRetained:
+      "التسجيلات المحذوفة: {{count}}. تم الاحتفاظ بملفات الوسائط التي لا تزال تسجيلات أخرى تستخدمها.",
+    mediaCleanupListLabel: "إزالة الوسائط",
+    mediaCleanupPending: "جارٍ إزالة ملفات الوسائط من التسجيلات المحذوفة",
+    mediaCleanupBlocked: "تعذرت إزالة ملفات الوسائط من التسجيلات المحذوفة",
+    mediaCleanupReconnect:
+      "أعد ربط التخزين لإزالة ملفات الوسائط من التسجيلات المحذوفة",
+    mediaCleanupRetained:
+      "يتم الاحتفاظ بملفات الوسائط المشتركة من التسجيلات المحذوفة ما دامت تسجيلات أخرى تستخدمها",
+    mediaCleanupRemoved: "تمت إزالة ملفات الوسائط",
+    mediaCleanupStillBlocked: "لا تزال إزالة ملفات الوسائط متعذرة",
+    mediaCleanupRetryFailed: "تعذرت إعادة محاولة إزالة الوسائط",
+    mediaCleanupLoadFailed: "تعذر تحميل حالة إزالة الوسائط",
   },
   recordingRoute: {
     pageTitle: "تسجيل المقطع · Clips",

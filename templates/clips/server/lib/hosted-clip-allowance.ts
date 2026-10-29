@@ -1070,6 +1070,18 @@ export async function releaseOrphanedHostedClipAllowance(input: {
       .limit(1);
     if (recording) return false;
 
+    const cleanup = await tx
+      .select({ id: schema.recordingMediaCleanups.id })
+      .from(schema.recordingMediaCleanups)
+      .where(
+        and(
+          eq(schema.recordingMediaCleanups.id, input.recordingId),
+          eq(schema.recordingMediaCleanups.accountingSettled, false),
+        ),
+      )
+      .limit(1);
+    if (cleanup.length) return false;
+
     const [released] = await tx
       .update(allowanceTable)
       .set({

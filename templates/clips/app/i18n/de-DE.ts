@@ -323,6 +323,33 @@ const messages = {
       "{{count}} Clips konnten nicht wiederhergestellt werden",
     clipsPermanentlyDeleted: "{{count}} Clips endgültig gelöscht",
     clipsDeleteFailed: "{{count}} Clips konnten nicht gelöscht werden",
+    deletedMediaPending:
+      "Aufnahme gelöscht. Die Mediendateien werden noch entfernt.",
+    deletedMediaBlocked:
+      "Aufnahme gelöscht, aber die Mediendateien konnten nicht entfernt werden.",
+    deletedMediaRetained:
+      "Aufnahme gelöscht. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
+    clipsDeletedMediaPending:
+      "Gelöschte Aufnahmen: {{count}}. Die Mediendateien werden noch entfernt.",
+    clipsDeletedMediaBlocked:
+      "Gelöschte Aufnahmen: {{count}}. Die Mediendateien konnten nicht entfernt werden.",
+    clipsDeletedMediaRetained:
+      "Gelöschte Aufnahmen: {{count}}. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
+    mediaCleanupListLabel: "Entfernen von Mediendateien",
+    mediaCleanupPending: "Mediendateien gelöschter Aufnahmen werden entfernt",
+    mediaCleanupBlocked:
+      "Mediendateien gelöschter Aufnahmen konnten nicht entfernt werden",
+    mediaCleanupReconnect:
+      "Verbinde den Speicher erneut, um Mediendateien gelöschter Aufnahmen zu entfernen",
+    mediaCleanupRetained:
+      "Geteilte Mediendateien gelöschter Aufnahmen bleiben erhalten, solange andere Aufnahmen sie verwenden",
+    mediaCleanupRemoved: "Mediendateien entfernt",
+    mediaCleanupStillBlocked:
+      "Mediendateien konnten weiterhin nicht entfernt werden",
+    mediaCleanupRetryFailed:
+      "Mediendateien konnten nicht erneut entfernt werden",
+    mediaCleanupLoadFailed:
+      "Status der Medienentfernung konnte nicht geladen werden",
   },
   recordingRoute: {
     pageTitle: "Clip-Aufnahme · Clips",

@@ -318,6 +318,34 @@ const messages = {
     clipsRestoreFailed: "{{count}} clips no se pudieron restaurar",
     clipsPermanentlyDeleted: "{{count}} clips eliminados permanentemente",
     clipsDeleteFailed: "{{count}} clips no se pudieron eliminar",
+    deletedMediaPending:
+      "Grabación eliminada. Sus archivos multimedia aún se están eliminando.",
+    deletedMediaBlocked:
+      "Grabación eliminada, pero no se pudieron eliminar sus archivos multimedia.",
+    deletedMediaRetained:
+      "Grabación eliminada. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
+    clipsDeletedMediaPending:
+      "Grabaciones eliminadas: {{count}}. Los archivos multimedia aún se están eliminando.",
+    clipsDeletedMediaBlocked:
+      "Grabaciones eliminadas: {{count}}. No se pudieron eliminar los archivos multimedia.",
+    clipsDeletedMediaRetained:
+      "Grabaciones eliminadas: {{count}}. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
+    mediaCleanupListLabel: "Eliminación de archivos multimedia",
+    mediaCleanupPending:
+      "Eliminando archivos multimedia de grabaciones eliminadas",
+    mediaCleanupBlocked:
+      "No se pudieron eliminar los archivos multimedia de grabaciones eliminadas",
+    mediaCleanupReconnect:
+      "Vuelve a conectar el almacenamiento para eliminar los archivos multimedia de grabaciones eliminadas",
+    mediaCleanupRetained:
+      "Los archivos multimedia compartidos de grabaciones eliminadas se conservan mientras otras grabaciones los usen",
+    mediaCleanupRemoved: "Archivos multimedia eliminados",
+    mediaCleanupStillBlocked:
+      "Todavía no se pudieron eliminar los archivos multimedia",
+    mediaCleanupRetryFailed:
+      "No se pudo reintentar la eliminación de archivos multimedia",
+    mediaCleanupLoadFailed:
+      "No se pudo cargar el estado de eliminación de archivos multimedia",
   },
   recordingRoute: {
     pageTitle: "Grabación de clip · Clips",

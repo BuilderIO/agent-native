@@ -39,6 +39,7 @@ import {
 describe("recording-media-cleanup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetch.mockReset();
     vi.stubGlobal("fetch", mockFetch);
     mockDeleteS3ObjectByUrl.mockResolvedValue(false);
     mockObjectSize.mockResolvedValue(null);
@@ -49,15 +50,15 @@ describe("recording-media-cleanup", () => {
       source: "legacy",
       legacyPublicKey: "public-key",
     });
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
+    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => ({
+      ok: init.method !== "HEAD",
+      status: init.method === "HEAD" ? 404 : 200,
       statusText: "OK",
       text: vi.fn(async () => ""),
-    });
+    }));
   });
 
-  it("deletes Builder CDN assets by canonical URL when S3 does not own the URL", async () => {
+  it("deletes Builder CDN assets by their stored URL when S3 does not own the URL", async () => {
     const result = await deleteRecordingMediaObjects({
       id: "rec_1",
       videoUrl:
@@ -68,10 +69,15 @@ describe("recording-media-cleanup", () => {
 
     expect(result).toEqual({
       attempted: 1,
-      deleted: 1,
+      deleted: 0,
       skipped: 0,
       external: 0,
-      errors: [],
+      errors: [
+        {
+          url: "https://cdn.builder.io",
+          error: "Storage provider did not confirm media deletion.",
+        },
+      ],
     });
     expect(mockDeleteS3ObjectByUrl).toHaveBeenCalledWith(
       "https://cdn.builder.io/api/v1/image/assets%2Fvideo.webm?width=1200#preview",
@@ -81,7 +87,7 @@ describe("recording-media-cleanup", () => {
       "https://cdn.builder.io/api/v1/assets/by-url",
     );
     expect(requestUrl.searchParams.get("url")).toBe(
-      "https://cdn.builder.io/api/v1/image/assets%2Fvideo.webm",
+      "https://cdn.builder.io/api/v1/image/assets%2Fvideo.webm?width=1200",
     );
     expect(requestUrl.searchParams.get("apiKey")).toBe("public-key");
     expect(mockFetch.mock.calls[0]?.[1]).toMatchObject({
@@ -109,7 +115,99 @@ describe("recording-media-cleanup", () => {
     });
   });
 
+  it("passes the registered video URL unchanged to Builder's exact-match delete", async () => {
+    const videoUrl =
+      "https://cdn.builder.io/o/assets%2Fexample-space%2Fexample-video?apiKey=example-space&token=example-download-token&alt=media&optimized=true";
+
+    await deleteRecordingMediaObjects({ id: "rec_1", videoUrl });
+
+    const requestUrl = new URL(String(mockFetch.mock.calls[0]?.[0]));
+    expect(requestUrl.searchParams.get("url")).toBe(videoUrl);
+  });
+
+  it.each([200, 404])(
+    "reports Builder DELETE %i while the stored video still serves, without logging its token",
+    async (status) => {
+      const videoUrl =
+        "https://cdn.builder.io/o/assets%2Fexample-space%2Fexample-video?token=example-download-token&alt=media";
+      const warning = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      mockFetch
+        .mockResolvedValueOnce({ ok: status === 200, status })
+        .mockResolvedValueOnce({ ok: true, status: 200 });
+
+      const result = await deleteRecordingMediaObjects({
+        id: "rec_1",
+        videoUrl,
+      });
+
+      expect(result).toMatchObject({ deleted: 0, skipped: 0 });
+      expect(result.errors).toHaveLength(1);
+      expect(warning).toHaveBeenCalled();
+      expect(JSON.stringify(warning.mock.calls)).not.toContain(
+        "example-download-token",
+      );
+      expect(JSON.stringify(result.errors)).not.toContain(
+        "example-download-token",
+      );
+    },
+  );
+
+  it("does not confirm Builder storage deletion from DELETE 200 and CDN 403", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+      .mockResolvedValueOnce({ ok: false, status: 403 });
+
+    const result = await deleteRecordingMediaObjects({
+      id: "rec_1",
+      videoUrl:
+        "https://cdn.builder.io/api/v1/file/assets%2Fexample-video?token=example-download-token",
+    });
+
+    expect(result.deleted).toBe(0);
+    expect(result.errors).toHaveLength(1);
+  });
+
+  it("keeps Builder lookup 404 unconfirmed even after a negative serving check", async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 404 });
+
+    const result = await deleteRecordingMediaObjects({
+      id: "rec_1",
+      videoUrl:
+        "https://cdn.builder.io/o/assets%2Fexample-video?token=example-download-token",
+    });
+
+    expect(result).toMatchObject({ deleted: 0, skipped: 0 });
+    expect(result.errors).toHaveLength(1);
+  });
+
+  it("leaves an externally hosted URL alone when the configured S3 bucket does not own it", async () => {
+    mockIsUrlInS3Storage.mockResolvedValue(false);
+    const result = await deleteRecordingMediaObjects({
+      id: "rec_1",
+      videoUrl: "https://cdn.loom.com/sessions/example.mp4",
+    });
+    expect(result).toMatchObject({ deleted: 0, external: 1, errors: [] });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["hosted", "own"] as const)(
+    "reports a %s provider's unconfirmed delete rather than silently skipping it",
+    async (storageMode) => {
+      const result = await deleteRecordingMediaObjects({
+        id: "rec_1",
+        storageMode,
+        videoUrl: "https://storage.example.com/clips/rec_1/clip.mp4",
+      });
+
+      expect(result).toMatchObject({ deleted: 0, skipped: 0 });
+      expect(result.errors).toHaveLength(1);
+    },
+  );
+
   it("skips protected URLs before calling provider delete APIs", async () => {
+    mockDeleteS3ObjectByUrl.mockResolvedValue(true);
     const result = await deleteRecordingMediaObjects(
       {
         id: "rec_1",
@@ -126,8 +224,8 @@ describe("recording-media-cleanup", () => {
 
     expect(result).toEqual({
       attempted: 2,
-      deleted: 0,
-      skipped: 2,
+      deleted: 1,
+      skipped: 1,
       external: 0,
       errors: [],
     });
@@ -137,7 +235,7 @@ describe("recording-media-cleanup", () => {
     );
   });
 
-  it("skips Builder CDN URLs when request-scoped Builder credentials are missing", async () => {
+  it("reports an error when request-scoped Builder credentials are missing", async () => {
     mockResolveBuilderRequestAuthorization.mockResolvedValue(null);
 
     const result = await deleteRecordingMediaObjects({
@@ -150,9 +248,14 @@ describe("recording-media-cleanup", () => {
     expect(result).toEqual({
       attempted: 1,
       deleted: 0,
-      skipped: 1,
+      skipped: 0,
       external: 0,
-      errors: [],
+      errors: [
+        {
+          url: "https://cdn.builder.io",
+          error: "Storage provider did not confirm media deletion.",
+        },
+      ],
     });
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -325,7 +428,8 @@ describe("recording-media-cleanup", () => {
       videoUrl: "https://storage.example.com/clips/victim/clip.mp4",
     });
 
-    expect(result).toMatchObject({ deleted: 0, skipped: 1, errors: [] });
+    expect(result).toMatchObject({ deleted: 0, skipped: 0 });
+    expect(result.errors).toHaveLength(1);
     expect(mockDeleteS3ObjectByUrl).toHaveBeenCalledWith(
       "https://storage.example.com/clips/victim/clip.mp4",
       { storageMode: "hosted", recordingId: "rec_1" },
@@ -342,18 +446,11 @@ describe("recording-media-cleanup", () => {
       text: vi.fn(async () => ""),
     });
 
-    it("counts an asset that is already gone as deleted", async () => {
-      // A retry after a delete whose response was lost: the object is gone,
-      // and a redaction waiting on it must be able to finish.
+    it("does not equate metadata and serving misses with physical storage absence", async () => {
       mockFetch
         .mockResolvedValueOnce(respond(404))
         .mockResolvedValueOnce(respond(404));
-      await expect(deleteStoredMediaUrl(url)).resolves.toBe(true);
-      expect(mockFetch.mock.calls[1]?.[1]).toMatchObject({ method: "HEAD" });
-      // The URL as stored, not the stripped one the delete API is given.
-      expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
-        "assets%2Fshot.png?deleted-check=",
-      );
+      await expect(deleteStoredMediaUrl(url)).resolves.toBe(false);
     });
 
     it("does not trust a 404 while the asset is still being served", async () => {
