@@ -7164,7 +7164,7 @@ function stripOptionalToolPlaceholders(
     : { value, changed: false };
 }
 
-class AmbiguousToolPlaceholdersError extends ActionInputValidationError {
+class AmbiguousToolPlaceholdersError extends Error {
   readonly errorCode = "ambiguous_tool_placeholders";
 
   constructor() {
