@@ -12,7 +12,8 @@ matching reaction without that evidence is a manual mark: leave it alone. Keep
 the disposition, evidence, scopes, and human actions in the internal inventory.
 Post a reporter reply when this run adds a root reaction, when a newer human reporter
 message needs a direct answer, or when this workflow owns a root from an earlier run
-that has no verified reply in its thread yet. The reply is one short, plain-language
+that has no verified reply in its thread yet, unless a person is already handling the root
+or has asked the workflow to stop. The reply is one short, plain-language
 sentence (about 25 words at most). If the root asks a question, that sentence answers
 it first and also explains only the reaction(s) added in this run. An answer to a newer human message
 answers only that message. Skip the reply when the only reaction added is the merged
@@ -159,8 +160,10 @@ person has accepted it or an external tracker ticket exists. Record each such
 action in `handoffs[]`
 with its exact scope, action, and responsible person/team; when no person owns it, use the team/role
 or `unassigned` as `owner` and set `status: "unassigned"`. Do not invent a
-person, Slack ID, request, or acceptance. Only the person or team the handoff names as responsible can accept it; another person's reply
-does not change its owner. If that named human later accepts,
+person, Slack ID, request, or acceptance. An unassigned handoff gets an owner when a person's explicit first-person commitment to
+the recorded action appears in the thread; record that person's Slack ID and reply, and
+they become the accepting owner. For a named owner, only that person or team can
+accept it; another person's reply does not change its owner. If that named human later accepts,
 record their Slack ID and exact acceptance reply and change the status to
 `"accepted"`; when the accepted action is done, use `status: "completed"` with
 completion evidence. The `🎫` reaction remains as history after completion and
