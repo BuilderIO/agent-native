@@ -424,8 +424,10 @@ function blockText(node: RootContent): string | null {
           row.children.map((cell) => phrasing(cell.children)).join(" | "),
         )
         .join("\n");
-    case "html":
-      return isHtmlComment(node.value) ? null : node.value;
+    case "html": {
+      const text = withoutHtmlComments(node.value).trim();
+      return text || null;
+    }
     case "thematicBreak":
     case "definition":
     case "yaml":
@@ -472,7 +474,7 @@ function phrasingText(node: PhrasingContent): string {
     case "linkReference":
       return phrasing(node.children);
     case "html":
-      return isHtmlComment(node.value) ? "" : node.value;
+      return withoutHtmlComments(node.value);
     case "image":
     case "imageReference":
     case "footnoteReference":
@@ -482,10 +484,10 @@ function phrasingText(node: PhrasingContent): string {
 }
 
 /**
- * Whether raw HTML is a comment, which the renderer hides. Other raw HTML in
- * a comment is usually prose about markup, like `use <Button> here`, so it
- * shows as written.
+ * Raw HTML as the renderer shows it: as written, since in a comment it's
+ * usually prose about markup, like `use <Button> here`, but without its HTML
+ * comments. One left open runs to the end, as the parser reads it.
  */
-function isHtmlComment(html: string): boolean {
-  return html.trimStart().startsWith("<!--");
+function withoutHtmlComments(html: string): string {
+  return html.replace(/<!--(?:-?>|.*?(?:-->|$))/gs, "");
 }

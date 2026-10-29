@@ -90,6 +90,13 @@ describe("commentPlainText", () => {
       "Visible text",
     );
     expect(commentPlainText("a<!-- x -->b and <!-->c")).toBe("ab and c");
+    // Only the comment drops from a block of HTML.
+    expect(commentPlainText("<!-- x -->shown\n\n<!--->too")).toBe(
+      "shown\n\ntoo",
+    );
+    expect(commentPlainText("<div>\n<!-- note -->kept\n</div>")).toBe(
+      "<div>\nkept\n</div>",
+    );
     expect(
       commentPlainText("Before\n<!--\nhidden\n\nstill hidden -->\nAfter"),
     ).toBe("Before\n\nAfter");

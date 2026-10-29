@@ -243,7 +243,8 @@ describe("CommentBody", () => {
       <CommentBody
         body={
           "Array<string> is wrong, use <Button> here<!-- note -->\n\n" +
-          "<div>\n@Sam kept\n</div>\n\n<!--\nhidden\n-->\n\n> <b>quoted</b>"
+          "<div>\n@Sam kept<!-- note -->\n</div>\n\n<!--\nhidden\n-->shown\n\n" +
+          "> <b>quoted</b>"
         }
         mentions={[{ label: "Sam" }]}
       />,
@@ -253,6 +254,8 @@ describe("CommentBody", () => {
     expect(text).toContain("Array<string> is wrong, use <Button> here");
     // A mention inside raw HTML shows as written, like the rest of it.
     expect(text).toContain("<div>\n@Sam kept\n</div>");
+    // Only the comment drops from a block of HTML.
+    expect(text).toContain("shown");
     expect(container.querySelector("blockquote")?.textContent).toBe(
       "<b>quoted</b>",
     );

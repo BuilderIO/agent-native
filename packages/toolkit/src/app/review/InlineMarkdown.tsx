@@ -250,32 +250,36 @@ const FLOW_PARENTS = new Set([
   "root",
 ]);
 
-// Turns raw HTML other than comments into text before `skipHtml` drops it.
+// Turns raw HTML into text, without its comments, before `skipHtml` drops
+// it. HTML that was only comments is left for `skipHtml` to drop.
 function rawHtmlAsText(spans: readonly InlineMarkdownProtectedSpan[]) {
   return () => {
     const visit = (node: MdastNode) => {
       if (!node.children) return;
       node.children = node.children.map((child) => {
-        if (
-          child.type !== "html" ||
-          child.value === undefined ||
-          child.value.trimStart().startsWith("<!--")
-        ) {
+        if (child.type !== "html" || child.value === undefined) {
           visit(child);
           return child;
         }
+        const flow = FLOW_PARENTS.has(node.type);
+        const html = withoutHtmlComments(child.value);
+        if (!html.trim()) return child;
         // A span protected inside the HTML shows its original text.
         const text = {
           type: "text",
-          value: restoreProtectedSpanSource(child.value, spans),
+          value: restoreProtectedSpanSource(flow ? html.trim() : html, spans),
         };
-        return FLOW_PARENTS.has(node.type)
-          ? { type: "paragraph", children: [text] }
-          : text;
+        return flow ? { type: "paragraph", children: [text] } : text;
       });
     };
     return (tree: MdastNode) => visit(tree);
   };
+}
+
+// Strips HTML comments as Core's `commentPlainText` does. One left open runs
+// to the end, as the parser reads it.
+function withoutHtmlComments(html: string): string {
+  return html.replace(/<!--(?:-?>|.*?(?:-->|$))/gs, "");
 }
 
 const PROTECTED_SPAN_PREFIX = "https://inline-markdown-protected.invalid/span/";
