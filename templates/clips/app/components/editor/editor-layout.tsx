@@ -480,6 +480,9 @@ export function EditorLayout({
     viewportX: number;
   } | null>(null);
 
+  // The container only mounts once the loading skeleton is gone.
+  const editorReady = !playerDataQuery.isLoading && resumeState !== "waiting";
+
   useEffect(() => {
     if (!containerRef.current) return;
     const el = containerRef.current;
@@ -490,7 +493,7 @@ export function EditorLayout({
     ro.observe(el);
     setViewportWidth(Math.max(1, Math.floor(contentWidthOf(el))));
     return () => ro.disconnect();
-  }, [activeSurface]);
+  }, [activeSurface, editorReady]);
 
   const totalWidth = useMemo(
     () => getTimelineTotalWidth(viewportWidth, zoom),
@@ -656,7 +659,7 @@ export function EditorLayout({
       el.removeEventListener("gesturechange", handleGestureChange);
       el.removeEventListener("gestureend", handleGestureEnd);
     };
-  }, [scrollLeft, setAnchoredZoom, viewportWidth, zoom]);
+  }, [editorReady, scrollLeft, setAnchoredZoom, viewportWidth, zoom]);
 
   useEffect(() => {
     const v = videoRef.current;
