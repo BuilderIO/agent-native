@@ -5553,8 +5553,13 @@ export const AgentMessageActions = memo(function AgentMessageActions({
       }
       size="compact"
       className="size-6"
-      pending={copyAction.pending}
-      onPress={() => void copyAction.execute().catch(() => undefined)}
+      // Copies stay enabled while they run: disabling the pressed button drops
+      // focus to the page, where Escape can no longer close the toolbar.
+      aria-busy={copyAction.pending || undefined}
+      onPress={() => {
+        if (copyAction.pending) return;
+        void copyAction.execute().catch(() => undefined);
+      }}
     />
   );
   const branchControls =
@@ -5758,10 +5763,11 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                 size="compact"
                 className="size-6"
                 data-message-action="request-id"
-                pending={requestIdAction.pending}
-                onPress={() =>
-                  void requestIdAction.execute().catch(() => undefined)
-                }
+                aria-busy={requestIdAction.pending || undefined}
+                onPress={() => {
+                  if (requestIdAction.pending) return;
+                  void requestIdAction.execute().catch(() => undefined);
+                }}
               />
             ) : null}
           </div>

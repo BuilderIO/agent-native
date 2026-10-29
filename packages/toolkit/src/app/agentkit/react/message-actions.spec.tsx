@@ -520,6 +520,52 @@ describe("assistant reply toolbar", () => {
     expect(more.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("keeps a copy in progress focused and enabled, so Escape still closes the set", async () => {
+    const write = Promise.withResolvers<void>();
+    const writeText = vi.fn(() => write.promise);
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    cleanups.push(async () => {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    });
+    const { toolbar } = await renderChat();
+    const latest = toolbar("assistant-latest");
+    const more = toggle(latest);
+
+    await press(more);
+    const requestId = latest.querySelector<HTMLButtonElement>(
+      'button[data-message-action="request-id"]',
+    )!;
+    await act(async () => {
+      requestId.focus();
+      requestId.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(requestId.disabled).toBe(false);
+    expect(requestId.getAttribute("aria-busy")).toBe("true");
+    expect(document.activeElement).toBe(requestId);
+
+    await press(requestId);
+    expect(writeText).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => {
+      write.resolve();
+      await write.promise;
+    });
+  });
+
   it("submits a thumb immediately with the message trace, ignores the same choice and switches to the other", async () => {
     const { toolbar, submitFeedback } = await renderChat();
     const latest = toolbar("assistant-latest");
