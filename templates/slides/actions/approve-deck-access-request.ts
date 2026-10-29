@@ -25,8 +25,14 @@ import {
   findDeckAccessRequest,
   isGrantedAccessRequest,
   normalizeEmail,
+  requestedRoleOf,
 } from "../server/lib/deck-access-requests.js";
-import { SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX } from "../shared/deck-access.js";
+import {
+  DECK_ACCESS_REQUEST_ROLES,
+  deckRoleCovers,
+  type DeckAccessRequestRole,
+  SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX,
+} from "../shared/deck-access.js";
 import { getDeckUrl } from "./_app-url.js";
 
 function httpError(message: string, statusCode: number): Error {
@@ -46,6 +52,7 @@ async function notifyRequesterOfAccess(input: {
   deckTitle: string;
   requesterEmail: string;
   approverEmail: string;
+  grantedRole: DeckAccessRequestRole;
 }): Promise<boolean | null> {
   if (!(await isEmailConfigured())) return null;
   try {
@@ -54,6 +61,7 @@ async function notifyRequesterOfAccess(input: {
         approverName: getRequestUserName()?.trim() || input.approverEmail,
         deckTitle: input.deckTitle,
         url: getDeckUrl(input.deckId),
+        grantedRole: input.grantedRole,
       }),
       to: input.requesterEmail,
       replyTo: input.approverEmail,
@@ -77,9 +85,22 @@ function deckViewerShareId(deckId: string, requesterEmail: string): string {
   );
 }
 
+function grantedMessage(
+  email: string,
+  role: DeckAccessRequestRole,
+  requesterNotified: boolean | null,
+): string {
+  const can = `${email} can now ${role === "editor" ? "edit" : "view"} the deck.`;
+  return requesterNotified === true
+    ? `Access granted. ${can} We emailed them to let them know.`
+    : requesterNotified === false
+      ? `Access granted. ${can} The email to them could not be sent.`
+      : `Access granted. ${can}`;
+}
+
 export default defineAction({
   description:
-    "Approve a private Slides deck access request and add the requester as a viewer in the deck's standard sharing list.",
+    "Approve a Slides deck access request and add the requester to the deck's standard sharing list as a viewer or editor. Only a deck owner or admin can approve. The role defaults to the one requested; an existing share is only ever raised, never lowered.",
   schema: z.object({
     deckId: z.string().min(1).describe("Deck ID to share."),
     approvalToken: z
@@ -87,9 +108,15 @@ export default defineAction({
       .trim()
       .min(1)
       .describe("Signed approval capability from the deck owner email."),
+    role: z
+      .enum(DECK_ACCESS_REQUEST_ROLES)
+      .optional()
+      .describe(
+        "Role to grant. Omit to grant the role the requester asked for.",
+      ),
   }),
   agentTool: false,
-  run: async ({ deckId, approvalToken }) => {
+  run: async ({ deckId, approvalToken, role: roleInput }) => {
     const approverEmail = getRequestUserEmail();
     if (!approverEmail) {
       throw httpError("Sign in as the deck owner to allow access.", 401);
@@ -103,6 +130,7 @@ export default defineAction({
       throw httpError("This access request is invalid or expired.", 404);
     }
 
+    // Granting any role, editor included, is managing the deck's access.
     const normalizedApproverEmail = normalizeEmail(approverEmail);
     const access = await resolveAccess("deck", deckId, {
       userEmail: normalizedApproverEmail,
@@ -113,16 +141,17 @@ export default defineAction({
     }
 
     const db = getDb();
-    const [deck] = await db
-      .select({
-        id: schema.decks.id,
-        title: schema.decks.title,
-        visibility: schema.decks.visibility,
-      })
-      .from(schema.decks)
-      .where(eq(schema.decks.id, deckId))
-      .limit(1);
-    if (!deck || deck.visibility !== "private") {
+    const deck = (
+      await db
+        .select({
+          id: schema.decks.id,
+          title: schema.decks.title,
+        })
+        .from(schema.decks)
+        .where(eq(schema.decks.id, deckId))
+        .limit(1)
+    ).at(0);
+    if (!deck) {
       throw httpError(`Deck ${deckId} not found`, 404);
     }
 
@@ -135,50 +164,11 @@ export default defineAction({
       throw httpError("This access request is invalid or expired.", 404);
     }
     const requestPayload = request.parsed;
+    const role = roleInput ?? requestedRoleOf(requestPayload);
 
-    const [existingShare] = await db
-      .select({ id: schema.deckShares.id })
-      .from(schema.deckShares)
-      .where(
-        and(
-          eq(schema.deckShares.resourceId, deckId),
-          eq(schema.deckShares.principalType, "user"),
-          sql`lower(${schema.deckShares.principalId}) = ${requesterEmail}`,
-        ),
-      )
-      .limit(1);
-    if (existingShare) {
-      return {
-        ok: true as const,
-        alreadyAllowed: true,
-        requesterEmail,
-        deckId,
-        deckTitle: deck.title,
-        shareId: existingShare.id,
-        message: "Access was already granted to this requester.",
-      };
-    }
-    if (isGrantedAccessRequest(requestPayload)) {
-      throw httpError("This access request is invalid or expired.", 404);
-    }
-
-    const shareId = deckViewerShareId(deckId, requesterEmail);
-    const [insertedShare] = await db
-      .insert(schema.deckShares)
-      .values({
-        id: shareId,
-        resourceId: deckId,
-        principalType: "user",
-        principalId: requesterEmail,
-        role: "viewer",
-        createdBy: normalizedApproverEmail,
-        createdAt: new Date().toISOString(),
-      })
-      .onConflictDoNothing()
-      .returning({ id: schema.deckShares.id });
-    if (!insertedShare) {
-      const [existingShareAfterConflict] = await db
-        .select({ id: schema.deckShares.id })
+    const findShare = async () => {
+      const shares = await db
+        .select({ id: schema.deckShares.id, role: schema.deckShares.role })
         .from(schema.deckShares)
         .where(
           and(
@@ -188,18 +178,79 @@ export default defineAction({
           ),
         )
         .limit(1);
-      if (!existingShareAfterConflict) {
-        throw new Error("Deck access share conflict could not be resolved.");
+      return shares.at(0);
+    };
+    const alreadyAllowed = (share: { id: string; role: string }) => ({
+      ok: true as const,
+      alreadyAllowed: true,
+      requesterEmail,
+      deckId,
+      deckTitle: deck.title,
+      shareId: share.id,
+      role: share.role,
+      message: "Access was already granted to this requester.",
+    });
+
+    const existingShare = await findShare();
+    // A granted request's link never changes the share it made, so a stale
+    // approval cannot raise a role the owner has since lowered.
+    if (
+      existingShare &&
+      (deckRoleCovers(existingShare.role, role) ||
+        isGrantedAccessRequest(requestPayload))
+    ) {
+      return alreadyAllowed(existingShare);
+    }
+    if (isGrantedAccessRequest(requestPayload)) {
+      throw httpError("This access request is invalid or expired.", 404);
+    }
+
+    let grantedShareId: string;
+    if (existingShare) {
+      const raisedShare = (
+        await db
+          .update(schema.deckShares)
+          .set({ role })
+          .where(
+            and(
+              eq(schema.deckShares.id, existingShare.id),
+              eq(schema.deckShares.role, existingShare.role),
+            ),
+          )
+          .returning({ id: schema.deckShares.id })
+      ).at(0);
+      if (!raisedShare) {
+        throw httpError(
+          "This requester's access changed. Reload to see it.",
+          409,
+        );
       }
-      return {
-        ok: true as const,
-        alreadyAllowed: true,
-        requesterEmail,
-        deckId,
-        deckTitle: deck.title,
-        shareId: existingShareAfterConflict.id,
-        message: "Access was already granted to this requester.",
-      };
+      grantedShareId = raisedShare.id;
+    } else {
+      const insertedShare = (
+        await db
+          .insert(schema.deckShares)
+          .values({
+            id: deckViewerShareId(deckId, requesterEmail),
+            resourceId: deckId,
+            principalType: "user",
+            principalId: requesterEmail,
+            role,
+            createdBy: normalizedApproverEmail,
+            createdAt: new Date().toISOString(),
+          })
+          .onConflictDoNothing()
+          .returning({ id: schema.deckShares.id })
+      ).at(0);
+      if (!insertedShare) {
+        const shareAfterConflict = await findShare();
+        if (!shareAfterConflict) {
+          // guard:allow-bare-error — invariant: an insert conflict on a deterministic share id means that share exists.
+          throw new Error("Deck access share conflict could not be resolved.");
+        }
+        return alreadyAllowed(shareAfterConflict);
+      }
+      grantedShareId = insertedShare.id;
     }
     const [markedRequest] = await db
       .update(schema.deckEvents)
@@ -207,7 +258,8 @@ export default defineAction({
         payload: JSON.stringify({
           ...requestPayload,
           accessGrantedAt: new Date().toISOString(),
-          accessShareId: insertedShare.id,
+          accessShareId: grantedShareId,
+          grantedRole: role,
         }),
       })
       .where(
@@ -222,13 +274,14 @@ export default defineAction({
     }
     invalidateCollabAccessCache("deck", deckId);
 
-    // Only the approval that created the share emails, so repeat clicks on
+    // Only the approval that granted the role emails, so repeat clicks on
     // the approval link never notify the requester twice.
     const requesterNotified = await notifyRequesterOfAccess({
       deckId,
       deckTitle: deck.title,
       requesterEmail,
       approverEmail: normalizedApproverEmail,
+      grantedRole: role,
     });
 
     return {
@@ -237,14 +290,10 @@ export default defineAction({
       requesterEmail,
       deckId,
       deckTitle: deck.title,
-      shareId: insertedShare.id,
+      shareId: grantedShareId,
+      role,
       requesterNotified,
-      message:
-        requesterNotified === true
-          ? "Access granted. We emailed the requester to let them know."
-          : requesterNotified === false
-            ? "Access granted, but the email to the requester could not be sent."
-            : "Access granted. This requester can now open the deck.",
+      message: grantedMessage(requesterEmail, role, requesterNotified),
     };
   },
 });

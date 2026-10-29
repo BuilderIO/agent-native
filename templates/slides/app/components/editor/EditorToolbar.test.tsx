@@ -115,6 +115,7 @@ vi.mock("@/context/DeckContext", () => ({
 }));
 
 vi.mock("@/lib/utils", () => ({
+  isMacPlatform: () => false,
   cn: (...classes: unknown[]) =>
     classes
       .flat(Infinity)
@@ -130,6 +131,11 @@ vi.mock("@/lib/prompt-file-uploads", () => ({
   isPromptUploadLimitError: mocks.isPromptUploadLimitError,
   isPromptUploadNetworkError: mocks.isPromptUploadNetworkError,
   isPromptUploadStorageStatusError: mocks.isPromptUploadStorageStatusError,
+}));
+
+// The badge's own request flow is covered in ViewOnlyBadge.test.tsx.
+vi.mock("./ViewOnlyBadge", () => ({
+  ViewOnlyBadge: () => <span>editorToolbar.viewOnly</span>,
 }));
 
 vi.mock("./ExportMenu", () => ({
@@ -265,7 +271,7 @@ async function openAppMenu() {
 
 async function openPresentMenu() {
   fireEvent.pointerDown(
-    screen.getByRole("button", { name: "editorToolbar.present" }),
+    screen.getByRole("button", { name: "editorToolbar.presentOptions" }),
     { button: 0, ctrlKey: false },
   );
   await screen.findByRole("menu");
@@ -364,10 +370,11 @@ describe("<EditorToolbar>", () => {
     expect(title).toHaveProperty("readOnly", false);
     fireEvent.change(title, { target: { value: "Renamed" } });
     expect(onTitleChange).toHaveBeenCalledWith("Renamed");
-    // The title sizes to its text exactly as in the app; it does not give way
-    // to the other controls.
-    expect(title.className).toContain("shrink-0");
-    expect(title.className).not.toContain("truncate");
+    // The title sizes to its text exactly as in the app, and gives way first
+    // when the bar runs out of room.
+    expect(title.className).toContain("shrink");
+    expect(title.className).not.toContain("shrink-0");
+    expect(title.className).toContain("truncate");
 
     expect(mocks.shareButton).toHaveBeenCalled();
     const shareProps = mocks.shareButton.mock.calls.at(-1)![0];
@@ -384,7 +391,7 @@ describe("<EditorToolbar>", () => {
     expect(shareProps.mobileSheet).toBeFalsy();
 
     expect(
-      screen.getByRole("button", { name: "editorToolbar.present" }),
+      screen.getByRole("link", { name: "editorToolbar.present" }),
     ).toBeTruthy();
     // Export needs a write grant the widget does not carry, and the agent
     // connect guidance is the host's.
@@ -733,6 +740,7 @@ describe("<EditorToolbar>", () => {
           onToggleAnimations={onToggleAnimations}
           onToggleLayers={onToggleLayers}
           onChangeSlideTransition={onChangeSlideTransition}
+          onExportPdf={vi.fn()}
         />
       </TooltipProvider>,
     );
@@ -948,8 +956,10 @@ describe("<EditorToolbar>", () => {
     const canvasCommands = (hasObjectSelection: boolean) => ({
       canZoomIn: true,
       canZoomOut: false,
+      canFitToScreen: true,
       zoomIn: vi.fn(),
       zoomOut: vi.fn(),
+      fitToScreen: vi.fn(),
       hasObjectSelection: () => hasObjectSelection,
       duplicateObjects: vi.fn(() => true),
       deleteObjects: vi.fn(() => true),
@@ -1010,6 +1020,25 @@ describe("<EditorToolbar>", () => {
 
       expect(onDeleteSlides).toHaveBeenCalledTimes(1);
       expect(commands.deleteObjects).not.toHaveBeenCalled();
+    });
+
+    it("fits the slide to the screen from the View menu", async () => {
+      const commands = canvasCommands(false);
+      render(toolbar(commands));
+
+      await openAppSubmenu("appMenu.view");
+      const fit = await screen.findByRole("menuitem", {
+        name: "raw.fitToScreen",
+      });
+      const items = screen.getAllByRole("menuitem");
+      expect(items.indexOf(fit)).toBe(
+        items.indexOf(
+          screen.getByRole("menuitem", { name: "appMenu.zoomIn" }),
+        ) - 1,
+      );
+      fireEvent.click(fit);
+
+      expect(commands.fitToScreen).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1248,6 +1277,131 @@ describe("<EditorToolbar>", () => {
         name: /editorToolbar\.presentPresenterView/,
       }),
     ).toBeTruthy();
+  });
+
+  it("lists Full Screen, From Beginning, In This Tab, then Presenter View", async () => {
+    const onPresent = vi.fn();
+    render(presentToolbar({ onPresent, currentSlideIndex: 2 }));
+    await openPresentMenu();
+
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual([
+      "editorToolbar.presentFullScreen",
+      "editorToolbar.presentFromBeginning",
+      "editorToolbar.presentInTab",
+      "editorToolbar.presentPresenterView" +
+        "editorToolbar.presentPresenterViewDescription",
+    ]);
+    const fromBeginning = screen.getByRole("menuitem", {
+      name: "editorToolbar.presentFromBeginning",
+    });
+    expect(fromBeginning.getAttribute("href")).toBe(
+      "/deck/deck-1/present?slide=1",
+    );
+    expect(
+      screen
+        .getByRole("menuitem", { name: "editorToolbar.presentFullScreen" })
+        .getAttribute("href"),
+    ).toBe("/deck/deck-1/present?slide=3");
+
+    fireEvent.click(fromBeginning);
+    expect(onPresent).toHaveBeenCalledWith({
+      mode: "fullscreen",
+      fromBeginning: true,
+    });
+  });
+
+  it("presents full screen from the command list and Ctrl+Enter", () => {
+    const onPresent = vi.fn();
+    render(presentToolbar({ onPresent }));
+
+    const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
+      | (() => ReadonlyArray<{ id: string; run: () => void }>)
+      | undefined;
+    source?.()
+      .find((command) => command.id === "present")
+      ?.run();
+    expect(onPresent).toHaveBeenLastCalledWith({ mode: "fullscreen" });
+
+    const shortcut = new KeyboardEvent("keydown", {
+      key: "Enter",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(shortcut);
+    expect(shortcut.defaultPrevented).toBe(true);
+    expect(onPresent).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves Ctrl+Enter to fields and text being edited", () => {
+    const onPresent = vi.fn();
+    render(presentToolbar({ onPresent }));
+    const field = document.createElement("textarea");
+    const editable = document.createElement("div");
+    editable.setAttribute("contenteditable", "true");
+    document.body.append(field, editable);
+
+    try {
+      const title = screen.getByRole("textbox", {
+        name: "editorToolbar.deckTitle",
+      });
+      for (const target of [field, editable, title]) {
+        const shortcut = new KeyboardEvent("keydown", {
+          key: "Enter",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        });
+        target.dispatchEvent(shortcut);
+        expect(shortcut.defaultPrevented).toBe(false);
+      }
+      expect(onPresent).not.toHaveBeenCalled();
+    } finally {
+      field.remove();
+      editable.remove();
+    }
+  });
+
+  it("offers no PDF export without a PDF handler", () => {
+    render(presentToolbar());
+
+    const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
+      | (() => ReadonlyArray<{ id: string }>)
+      | undefined;
+    expect((source?.() ?? []).map((command) => command.id)).not.toContain(
+      "export-pdf",
+    );
+    expect(mocks.exportMenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ onExportPdf: undefined }),
+    );
+    expect(mocks.exportDropdown.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ showPdf: false }),
+    );
+  });
+
+  it("labels the deck title field", () => {
+    render(presentToolbar());
+
+    expect(
+      screen.getByRole("textbox", { name: "editorToolbar.deckTitle" }),
+    ).toBeTruthy();
+  });
+
+  it("presents full screen from Play without opening the menu", () => {
+    const onPresent = vi.fn();
+    render(presentToolbar({ onPresent }));
+
+    const play = screen.getByRole("link", { name: "editorToolbar.present" });
+    expect(play.getAttribute("href")).toBe("/deck/deck-1/present?slide=1");
+    const event = createEvent.click(play);
+    fireEvent(play, event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onPresent).toHaveBeenCalledTimes(1);
+    expect(onPresent).toHaveBeenCalledWith({ mode: "fullscreen" });
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it.each([

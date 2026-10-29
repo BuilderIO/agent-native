@@ -26,6 +26,7 @@ import {
   lazy,
   Suspense,
   type ComponentType,
+  type ReactNode,
   useState,
   useEffect,
   useCallback,
@@ -167,6 +168,8 @@ interface PromptPopoverProps {
   initialTextKey?: number;
   initialTextOverridesSavedDraft?: boolean;
   onPromptTextChange?: (text: string) => void;
+  /** Row rendered inside the composer frame, above the editor. */
+  composerHeaderSlot?: ReactNode;
   disabled?: boolean;
   submissionDisabled?: boolean;
   showModelSelector?: boolean;
@@ -266,6 +269,7 @@ export default function PromptPopover({
   initialTextKey,
   initialTextOverridesSavedDraft = false,
   onPromptTextChange,
+  composerHeaderSlot,
   disabled = false,
   submissionDisabled = false,
   showModelSelector,
@@ -732,6 +736,7 @@ export default function PromptPopover({
         draftTextRef.current = text;
         onPromptTextChange?.(text);
       }}
+      headerSlot={composerHeaderSlot}
       contextItems={contextItems}
       onRemoveContextItem={onRemoveContextItem}
       onRetryContextItem={onRetryContextItem}

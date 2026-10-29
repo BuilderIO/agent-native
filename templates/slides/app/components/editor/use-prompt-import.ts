@@ -133,9 +133,9 @@ export function usePromptImport({
   );
 
   const importFile = useCallback(
-    async (file: File | undefined, scope?: DeckFileKind) => {
+    async (file: File | undefined) => {
       if (!file || busy.current) return false;
-      const kind = scope ?? deckFileKind(file);
+      const kind = deckFileKind(file);
       if (!kind) {
         setRetrySelection(undefined);
         return fail(t("home.importMenu.invalidFile"));

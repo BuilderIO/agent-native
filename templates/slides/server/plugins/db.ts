@@ -337,6 +337,15 @@ ON uploaded_assets (owner_email, upload_session_id)`,
       name: "slides-uploaded-assets-org-id",
       sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS org_id TEXT`,
     },
+    {
+      version: 35,
+      name: "slides-deck-list-columns-and-version-hash",
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS preview_slide TEXT;
+ALTER TABLE decks ADD COLUMN IF NOT EXISTS preview_too_large BOOLEAN;
+ALTER TABLE decks ADD COLUMN IF NOT EXISTS aspect_ratio TEXT;
+ALTER TABLE decks ADD COLUMN IF NOT EXISTS slide_count INTEGER;
+ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );

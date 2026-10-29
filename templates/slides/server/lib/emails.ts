@@ -44,10 +44,10 @@ export function registerSlidesEmails(): void {
     id: SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID,
     name: "Deck access request",
     trigger:
-      "A signed-in viewer requests access to a private Slides deck. One request is recorded per viewer and deck.",
+      "Someone requests view access to a private Slides deck, or a viewer requests edit access. One request is recorded per requester and deck.",
     recipientLabel: "Deck owner",
     recipient:
-      "The owner of the private deck. The in-app notification is stored even when email delivery is unavailable.",
+      "The owner of the deck. The in-app notification is stored even when email delivery is unavailable.",
     senderLabel: "Agent-Native Slides",
     sender:
       "The configured default sender. This call site sets no custom from or app sender.",
@@ -60,6 +60,7 @@ export function registerSlidesEmails(): void {
         allowAccessUrl:
           "https://example.com/access-request/approve?deckId=deck_sample&token=preview-token",
         note: "I'm putting together the board update and need the Q3 numbers.",
+        requestedRole: "editor",
       }),
   });
 
@@ -67,7 +68,7 @@ export function registerSlidesEmails(): void {
     id: SLIDES_DECK_ACCESS_GRANTED_EMAIL_ID,
     name: "Deck access granted",
     trigger:
-      "A deck owner or admin approves a private deck access request. Sent once, when the share is first created.",
+      "A deck owner or admin approves a deck access request. Sent once, when the share is created or raised to the approved role.",
     recipientLabel: "Requester",
     recipient:
       "The person who requested access. Repeat approvals of an already-shared requester send nothing.",
@@ -79,6 +80,7 @@ export function registerSlidesEmails(): void {
         approverName: "Alex Kim",
         deckTitle: "Quarterly review",
         url: "https://example.com/deck/deck_sample",
+        grantedRole: "editor",
       }),
   });
 }

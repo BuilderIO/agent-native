@@ -441,6 +441,7 @@ export default {
       font: "Fonte",
       baseSize: "Taille du socle",
       size: "Taille",
+      fontSizes: "Tailles de police",
       weight: "Poids",
       color: "Couleur",
       align: "Aligner",
@@ -893,6 +894,10 @@ export default {
       right: "R.",
       bottom: "B",
       left: "L",
+    },
+    fontPicker: {
+      catalogUnavailable:
+        "Impossible de charger la bibliothèque complète de polices.",
     },
     fontFamilies: {
       inherit: "Hériter",
@@ -2912,8 +2917,6 @@ export default {
       dismiss: "Ignorer",
     },
     import: "Importer",
-    importOptions: "Options d’importation",
-    figmaLink: "Lien Figma",
     importFromFigma: "Importer depuis Figma",
     figmaFile: "Fichier Figma (.fig)",
     figmaFileMaxSize: "Jusqu’à {{max}} Go",

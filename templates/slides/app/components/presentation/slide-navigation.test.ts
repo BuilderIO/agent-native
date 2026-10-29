@@ -7,6 +7,7 @@ import {
   canCommand,
   createSlideNavigation,
   reduceSlideNavigation,
+  slideNavigationKeyCommand,
   targetBuildStep,
   type SlideNavigationCommand,
   type SlideNavigationLayout,
@@ -307,6 +308,45 @@ describe("slide navigation", () => {
     );
 
     expect(unchanged).toBe(started);
+  });
+});
+
+describe("first and last commands", () => {
+  it("jumps to either end at once, unbuilt, dropping a flight in progress", () => {
+    const l = layout(
+      ["dissolve", "dissolve", "dissolve", "dissolve"],
+      [0, 2, 0, 3],
+    );
+    const moving = command(createSlideNavigation(1), l, "next", 3);
+    expect(moving.flight).not.toBeNull();
+
+    const last = command(moving, l, "last");
+    expect(last).toMatchObject({
+      displayedIndex: 3,
+      targetIndex: 3,
+      buildStep: 0,
+      flight: null,
+    });
+    expect(canCommand(last, l, "last")).toBe(false);
+    expect(canCommand(last, l, "first")).toBe(true);
+
+    const first = command(last, l, "first");
+    expect(first).toMatchObject({
+      displayedIndex: 0,
+      targetIndex: 0,
+      buildStep: 0,
+      flight: null,
+    });
+    expect(command(first, l, "first")).toBe(first);
+  });
+
+  it("maps clicker and Home/End keys to deck commands", () => {
+    expect(slideNavigationKeyCommand("PageDown")).toBe("next");
+    expect(slideNavigationKeyCommand("PageUp")).toBe("prev");
+    expect(slideNavigationKeyCommand("Home")).toBe("first");
+    expect(slideNavigationKeyCommand("End")).toBe("last");
+    expect(slideNavigationKeyCommand(" ")).toBe("next");
+    expect(slideNavigationKeyCommand("f")).toBeNull();
   });
 });
 

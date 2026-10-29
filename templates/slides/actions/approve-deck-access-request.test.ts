@@ -107,23 +107,38 @@ function createDb(
       };
       return builder;
     }),
+    insertedRows: [] as Array<Record<string, unknown>>,
+    updatedRows: [] as Array<Record<string, unknown>>,
     insert: vi.fn(() => ({
-      values: vi.fn((row: { id: string }) => ({
-        onConflictDoNothing: () => ({
-          returning: async () => (insertConflict ? [] : [{ id: row.id }]),
-        }),
-      })),
+      values: vi.fn((row: { id: string }) => {
+        db.insertedRows.push(row);
+        return {
+          onConflictDoNothing: () => ({
+            returning: async () => (insertConflict ? [] : [{ id: row.id }]),
+          }),
+        };
+      }),
     })),
     update: vi.fn(() => ({
-      set: vi.fn(() => ({
-        where: vi.fn(() => ({
-          returning: async () => [{ id: "request-1" }],
-        })),
-      })),
+      set: vi.fn((row: Record<string, unknown>) => {
+        db.updatedRows.push(row);
+        return {
+          where: vi.fn(() => ({
+            returning: async () => [{ id: "updated-row" }],
+          })),
+        };
+      }),
     })),
   };
   return db;
 }
+
+const runApproval = (args: Record<string, unknown>) =>
+  (
+    approveDeckAccessRequest as unknown as {
+      run: (input: Record<string, unknown>) => Promise<unknown>;
+    }
+  ).run(args);
 
 function privateDeck() {
   return {
@@ -175,7 +190,9 @@ describe("approve-deck-access-request", () => {
       alreadyAllowed: false,
       requesterEmail: "viewer@example.com",
       shareId: expect.stringMatching(/^deck-share-[a-f0-9]{64}$/),
+      role: "viewer",
     });
+    expect(db.insertedRows[0]).toMatchObject({ role: "viewer" });
 
     expect(mocks.resolveAccess).toHaveBeenCalledWith("deck", "deck-1", {
       userEmail: "owner@example.com",
@@ -266,7 +283,7 @@ describe("approve-deck-access-request", () => {
     const db = createDb(
       [privateDeck()],
       [accessRequest()],
-      [{ id: "existing-share" }],
+      [{ id: "existing-share", role: "viewer" }],
     );
     mocks.getDb.mockReturnValue(db);
 
@@ -313,21 +330,125 @@ describe("approve-deck-access-request", () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it("rejects approval after a private deck becomes organization-visible", async () => {
+  it("grants edit access on an organization-visible deck", async () => {
     const db = createDb(
       [{ ...privateDeck(), visibility: "org" }],
-      [accessRequest()],
+      [accessRequest({ requestedRole: "editor" })],
       [],
     );
     mocks.getDb.mockReturnValue(db);
 
     await expect(
-      (approveDeckAccessRequest as any).run({
+      runApproval({
         deckId: "deck-1",
         approvalToken: "approval-token",
       }),
-    ).rejects.toMatchObject({ statusCode: 404 });
+    ).resolves.toMatchObject({ alreadyAllowed: false, role: "editor" });
+    expect(db.insertedRows[0]).toMatchObject({ role: "editor" });
+  });
+
+  it("grants the requested editor role by default", async () => {
+    const db = createDb(
+      [privateDeck()],
+      [accessRequest({ requestedRole: "editor" })],
+      [],
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      runApproval({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).resolves.toMatchObject({
+      role: "editor",
+      message: expect.stringContaining("can now edit the deck"),
+    });
+    expect(db.insertedRows[0]).toMatchObject({ role: "editor" });
+    expect(db.updatedRows[0]).toMatchObject({
+      payload: expect.stringContaining('"grantedRole":"editor"'),
+    });
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "viewer@example.com" }),
+    );
+  });
+
+  it("grants the role the owner picks over the requested one", async () => {
+    const db = createDb(
+      [privateDeck()],
+      [accessRequest({ requestedRole: "editor" })],
+      [],
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      runApproval({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+        role: "viewer",
+      }),
+    ).resolves.toMatchObject({ role: "viewer" });
+    expect(db.insertedRows[0]).toMatchObject({ role: "viewer" });
+  });
+
+  it("raises an existing viewer share to editor", async () => {
+    const db = createDb(
+      [privateDeck()],
+      [accessRequest({ requestedRole: "editor" })],
+      [{ id: "existing-share", role: "viewer" }],
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      runApproval({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).resolves.toMatchObject({ alreadyAllowed: false, role: "editor" });
     expect(db.insert).not.toHaveBeenCalled();
+    expect(db.updatedRows[0]).toEqual({ role: "editor" });
+  });
+
+  it("never lowers a share through a stale approval link", async () => {
+    const db = createDb(
+      [privateDeck()],
+      [
+        accessRequest({
+          requestedRole: "editor",
+          accessGrantedAt: "2026-08-19T18:00:00.000Z",
+        }),
+      ],
+      [{ id: "existing-share", role: "viewer" }],
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      runApproval({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).resolves.toMatchObject({ alreadyAllowed: true, role: "viewer" });
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("does not let a deck editor grant edit access", async () => {
+    const db = createDb(
+      [privateDeck()],
+      [accessRequest({ requestedRole: "editor" })],
+      [],
+    );
+    mocks.getDb.mockReturnValue(db);
+    mocks.resolveAccess.mockResolvedValue({ role: "editor", resource: {} });
+
+    await expect(
+      runApproval({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+        role: "editor",
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
   });
 
   it("does not reuse an approval link after the granted share is revoked", async () => {

@@ -18,6 +18,7 @@ import { z } from "zod";
 import { normalizeSlidePaddingForWrite } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
@@ -650,7 +651,7 @@ export default defineAction({
           );
           const updateResult = await tx
             .update(schema.decks)
-            .set({ data: JSON.stringify(deck), updatedAt: now })
+            .set({ ...deckDataColumns(deck), updatedAt: now })
             .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
           assertDeckWriteApplied(updateResult, deckId, "slide edit");
           if (creativeContext) {

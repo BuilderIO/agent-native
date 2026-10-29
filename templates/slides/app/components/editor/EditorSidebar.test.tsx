@@ -22,14 +22,20 @@ const sortableState = vi.hoisted(() => ({
   } | null,
 }));
 const scrollIntoView = vi.fn();
+const appState = vi.hoisted(() => ({
+  write: vi.fn(() => Promise.resolve(null)),
+  delete: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  deleteClientAppState: appState.delete,
   getBrowserTabId: () => "test-tab",
   useAvatarUrl: () => null,
+  writeClientAppState: appState.write,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -53,8 +59,13 @@ vi.mock("@dnd-kit/sortable", () => ({
   verticalListSortingStrategy: {},
 }));
 
+const thumbnailRenders = vi.hoisted(() => [] as string[]);
+
 vi.mock("@/components/deck/SlideRenderer", () => ({
-  default: () => <div data-testid="slide-renderer" />,
+  default: ({ slide }: { slide: { id: string } }) => {
+    thumbnailRenders.push(slide.id);
+    return <div data-testid="slide-renderer" />;
+  },
 }));
 
 vi.mock("@/components/editor/AiEditingMarker", () => ({
@@ -81,6 +92,7 @@ Element.prototype.scrollIntoView = scrollIntoView;
 import EditorSidebar, {
   getSlideSelection,
   isContiguousSlideSelection,
+  selectionFollowingActiveSlide,
 } from "./EditorSidebar";
 
 afterEach(() => {
@@ -89,6 +101,9 @@ afterEach(() => {
   sortableState.isDragging = false;
   sortableState.transform = null;
   scrollIntoView.mockClear();
+  appState.write.mockClear();
+  appState.delete.mockClear();
+  thumbnailRenders.length = 0;
 });
 
 describe("EditorSidebar slides header", () => {
@@ -694,6 +709,84 @@ describe("EditorSidebar arrow navigation", () => {
     block.remove();
   });
 
+  it.each([
+    [
+      "menu",
+      '<div role="menu"><div role="menuitem" tabindex="-1"></div></div>',
+    ],
+    [
+      "listbox",
+      '<div role="listbox"><div role="option" tabindex="-1"></div></div>',
+    ],
+    ["slider", '<span role="slider" tabindex="0"></span>'],
+    [
+      "tree",
+      '<div role="tree"><div role="treeitem" tabindex="-1"></div></div>',
+    ],
+    ["dialog", '<div role="dialog"><button type="button"></button></div>'],
+    [
+      "radix popper",
+      '<div data-radix-popper-content-wrapper=""><button type="button"></button></div>',
+    ],
+  ])("leaves arrows to a focused %s", (_role, markup) => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+    ];
+    const onSelectSlide = vi.fn();
+    render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={onSelectSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const host = document.createElement("div");
+    host.innerHTML = markup;
+    document.body.append(host);
+    const target = host.querySelector<HTMLElement>("[tabindex], button");
+    if (!target) throw new Error("Expected a focusable widget");
+    target.focus();
+
+    fireEvent.keyDown(target, { key: "ArrowDown" });
+
+    expect(onSelectSlide).not.toHaveBeenCalled();
+    host.remove();
+  });
+
+  it("ignores arrows another handler already consumed", () => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+    ];
+    const onSelectSlide = vi.fn();
+    render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={onSelectSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const button = document.createElement("button");
+    button.addEventListener("keydown", (event) => event.preventDefault());
+    document.body.append(button);
+
+    fireEvent.keyDown(button, { key: "ArrowDown" });
+
+    expect(onSelectSlide).not.toHaveBeenCalled();
+    button.remove();
+  });
+
   it("leaves arrows available for the selected canvas element to nudge", () => {
     const slideOne: Slide = {
       id: "slide-1",
@@ -728,6 +821,33 @@ describe("EditorSidebar arrow navigation", () => {
 
     expect(onSelectSlide).not.toHaveBeenCalled();
     selectedCanvas.remove();
+  });
+});
+
+describe("deck fit state", () => {
+  it("clears this tab's fit checks through application state on unmount", () => {
+    const { unmount } = render(
+      <EditorSidebar
+        slides={[]}
+        activeSlideId=""
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+
+    unmount();
+
+    expect(appState.delete.mock.calls).toEqual([
+      [
+        "deck-fit-checks:test-tab",
+        { keepalive: true, requestSource: "test-tab" },
+      ],
+      ["deck-fit-checks", { keepalive: true, requestSource: "test-tab" }],
+    ]);
   });
 });
 
@@ -833,5 +953,120 @@ describe("slide thumbnail deletion", () => {
     fireEvent.keyDown(thumbnail ?? document, { key: "Delete" });
 
     expect(onDeleteSlide).not.toHaveBeenCalled();
+  });
+});
+
+describe("thumbnail rendering cost", () => {
+  const slides: Slide[] = Array.from({ length: 6 }, (_, index) => ({
+    id: `slide-${index + 1}`,
+    content: `<p>${index + 1}</p>`,
+    notes: "",
+    layout: "content",
+  }));
+
+  function Rail({ deck }: { deck: Slide[] }) {
+    return (
+      <EditorSidebar
+        slides={deck}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        // A new handler every render, as an editor parent passes it.
+        onSelectSlide={(slideId) => void slideId}
+        onCutSlide={() => {}}
+        onDeleteSlide={() => {}}
+        onReorderSlides={() => {}}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />
+    );
+  }
+
+  it("re-renders only the edited slide's thumbnail for a single-slide edit", () => {
+    const { rerender } = render(<Rail deck={slides} />);
+    expect(new Set(thumbnailRenders)).toEqual(
+      new Set(slides.map((slide) => slide.id)),
+    );
+    thumbnailRenders.length = 0;
+
+    const nudged = slides.map((slide) =>
+      slide.id === "slide-3"
+        ? { ...slide, content: '<p style="left: 1px">3</p>' }
+        : slide,
+    );
+    rerender(<Rail deck={nudged} />);
+
+    expect(thumbnailRenders).toEqual(["slide-3"]);
+  });
+
+  it("renders real thumbnails only for slides near the rail's viewport", () => {
+    let report: IntersectionObserverCallback = () => {};
+    const observed: Element[] = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: IntersectionObserverCallback) {
+          report = callback;
+        }
+        observe(element: Element) {
+          observed.push(element);
+        }
+        disconnect() {}
+        unobserve() {}
+        takeRecords() {
+          return [];
+        }
+      },
+    );
+    try {
+      const { container } = render(<Rail deck={slides} />);
+      expect(observed).toHaveLength(slides.length);
+
+      act(() => {
+        report(
+          observed.map((target, index) => ({
+            target,
+            isIntersecting: index === 4,
+          })) as unknown as IntersectionObserverEntry[],
+          {} as IntersectionObserver,
+        );
+      });
+
+      const renderedIds = Array.from(
+        container.querySelectorAll("[data-slide-thumbnail-frame]"),
+      )
+        .filter((frame) =>
+          frame.querySelector('[data-testid="slide-renderer"]'),
+        )
+        .map((frame) => frame.getAttribute("data-slide-thumbnail-frame"));
+      // The fifth slide is near; the active first slide always renders.
+      expect(renderedIds).toEqual(["slide-1", "slide-5"]);
+      // Far thumbnails keep their frame, so the rail's height does not change.
+      expect(
+        container.querySelectorAll("[data-slide-thumbnail-frame]"),
+      ).toHaveLength(slides.length);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve({})),
+      );
+    }
+  });
+});
+
+describe("selectionFollowingActiveSlide", () => {
+  it("selects only the open slide when it is outside the selection", () => {
+    expect(selectionFollowingActiveSlide(["slide-1"], "slide-5")).toEqual([
+      "slide-5",
+    ]);
+  });
+
+  it("keeps a selection that already holds the open slide", () => {
+    expect(
+      selectionFollowingActiveSlide(["slide-1", "slide-5"], "slide-5"),
+    ).toBeNull();
+    expect(selectionFollowingActiveSlide(["slide-1"], null)).toBeNull();
   });
 });

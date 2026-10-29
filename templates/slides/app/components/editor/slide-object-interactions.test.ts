@@ -76,6 +76,11 @@ import {
   isLayoutSpacer,
   planSlideObjectGeometry,
   resolveFitTextBoxResize,
+  roundSlideObjectGeometry,
+  nextSlideGridLine,
+  snapSlideObjectResizeDelta,
+  snapToSlideGrid,
+  SLIDE_GRID_STEP_PX,
   resolveFreeformSizing,
   resolveSelectionIdentity,
   resolveRetainedSlideSelectionNode,
@@ -3479,6 +3484,88 @@ describe("fit text objects", () => {
     });
     expect("height" in planSlideObjectGeometry(fit, geometry)).toBe(false);
     expect(planSlideObjectGeometry(image, geometry)).toEqual(geometry);
+  });
+
+  it("snaps to one slide-wide grid from any containing block", () => {
+    const slide = { step: SLIDE_GRID_STEP_PX, origin: { x: 0, y: 0 } };
+    const nested = { step: SLIDE_GRID_STEP_PX, origin: { x: 5, y: 0 } };
+
+    expect(snapToSlideGrid(13, slide, "x")).toBe(16);
+    expect(snapToSlideGrid(11, slide, "x")).toBe(8);
+    // 5 + 11 = 16 on the slide.
+    expect(snapToSlideGrid(13, nested, "x")).toBe(11);
+  });
+
+  it("steps to the next grid line, never the current one", () => {
+    const grid = { step: 8, origin: { x: 0, y: 0 } };
+
+    expect(nextSlideGridLine(13, 1, grid, "x")).toBe(16);
+    expect(nextSlideGridLine(16, 1, grid, "x")).toBe(24);
+    expect(nextSlideGridLine(13, -1, grid, "x")).toBe(8);
+    expect(nextSlideGridLine(16, -1, grid, "y")).toBe(8);
+  });
+
+  it("lands only the edges a resize handle drives on the grid", () => {
+    const grid = { step: 8, origin: { x: 0, y: 0 } };
+    const start = { x: 13, y: 21, width: 100, height: 50 };
+
+    // Right edge 113 + 10 -> 120, bottom 71 + 4 -> 72.
+    expect(
+      snapSlideObjectResizeDelta(start, "se", { x: 10, y: 4 }, grid),
+    ).toEqual({ x: 7, y: 1 });
+    // Left edge 13 - 4 -> 8; a west handle leaves vertical travel alone.
+    expect(
+      snapSlideObjectResizeDelta(start, "w", { x: -4, y: 3 }, grid),
+    ).toEqual({ x: -5, y: 3 });
+  });
+
+  it("lands a move on the grid except on an axis a guide claimed", () => {
+    const grid = { step: 8, origin: { x: 0, y: 0 } };
+    const moving = { x: 100, y: 100, width: 50, height: 50 };
+    const peer = { x: 203, y: 400, width: 50, height: 50 };
+
+    const snap = snapSlideObjectMove({
+      moving,
+      deltaX: 101,
+      deltaY: 5,
+      peers: [peer],
+      tolerance: 4,
+      grid,
+    });
+
+    expect(moving.x + snap.deltaX).toBe(203);
+    expect(moving.y + snap.deltaY).toBe(104);
+    expect(
+      snapSlideObjectMove({
+        moving,
+        deltaX: 101,
+        deltaY: 5,
+        peers: [peer],
+        tolerance: 4,
+        grid,
+        bypass: true,
+      }),
+    ).toMatchObject({ deltaX: 101, deltaY: 5 });
+  });
+
+  it("lands geometry on whole pixels, keeping positions in a rotated block", () => {
+    const geometry = { x: 10.5, y: 20.4, width: 99.6, height: 40.5 };
+
+    expect(roundSlideObjectGeometry(geometry)).toEqual({
+      x: 11,
+      y: 20,
+      width: 100,
+      height: 41,
+    });
+    expect(roundSlideObjectGeometry(geometry, { keepPosition: true })).toEqual({
+      x: 10.5,
+      y: 20.4,
+      width: 100,
+      height: 41,
+    });
+    expect(
+      "height" in roundSlideObjectGeometry({ x: 0.4, y: 0, width: 5 }),
+    ).toBe(false);
   });
 
   it("moves, aligns, and distributes fit text without a height", () => {

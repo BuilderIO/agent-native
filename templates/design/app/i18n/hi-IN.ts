@@ -430,6 +430,7 @@ export default {
       font: "फ़ॉन्ट",
       baseSize: "आधार आकार",
       size: "आकार",
+      fontSizes: "फ़ॉन्ट आकार",
       weight: "वज़न",
       color: "रंग",
       align: "संरेखित",
@@ -878,6 +879,9 @@ export default {
       right: "आर",
       bottom: "बी",
       left: "एल",
+    },
+    fontPicker: {
+      catalogUnavailable: "पूरी फ़ॉन्ट लाइब्रेरी लोड नहीं हो सकी।",
     },
     fontFamilies: {
       inherit: "इनहेरिट",
@@ -2842,8 +2846,6 @@ export default {
       dismiss: "बंद करें",
     },
     import: "आयात करें",
-    importOptions: "आयात विकल्प",
-    figmaLink: "Figma लिंक",
     importFromFigma: "Figma से आयात करें",
     figmaFile: "Figma फ़ाइल (.fig)",
     figmaFileMaxSize: "अधिकतम {{max}} GB",

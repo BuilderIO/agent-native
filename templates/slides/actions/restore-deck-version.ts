@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
@@ -55,10 +56,13 @@ export default defineAction({
     const title = version.title || data?.title || current.title || "Untitled";
     data.title = title;
 
+    // Snapshots usually don't carry the design system link (it lives on the
+    // deck row), so a snapshot without one keeps the deck's current link
+    // instead of unlinking the deck's brand.
     const designSystemId =
       typeof data.designSystemId === "string" && data.designSystemId
         ? data.designSystemId
-        : null;
+        : (current.designSystemId ?? null);
 
     if (
       current.title === title &&
@@ -103,7 +107,7 @@ export default defineAction({
         .update(schema.decks)
         .set({
           title,
-          data: JSON.stringify(data),
+          ...deckDataColumns(data),
           designSystemId,
           updatedAt: now,
         })

@@ -99,6 +99,7 @@ vi.mock("../server/db/index.js", () => ({
       orgId: "org_id_col",
       data: "data_col",
       updatedAt: "ua_col",
+      slideCount: "slide_count_col",
     },
   },
 }));
@@ -1060,6 +1061,56 @@ describe("get-deck", () => {
         { caller: "tool" },
       ),
     ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("lets frontend reads skip the agent-only design and style context", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.designSystemId = "ds-1";
+
+    const result = (await action.run(
+      { id: "deck-1", agentContext: "false" },
+      { caller: "frontend" },
+    )) as { slides: Array<{ contentHash?: unknown }> };
+
+    expect(mockGetDesignSystemRun).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty("designSystem");
+    expect(result).not.toHaveProperty("deckStyle");
+    expect(result).not.toHaveProperty("representativeSlideId");
+    expect(result.slides.at(0)?.contentHash).toEqual(expect.any(String));
+  });
+
+  it("backfills list columns the first time a legacy deck is read", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.slideCount = null;
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockSet).toHaveBeenCalledWith({
+      previewSlide: JSON.stringify({
+        id: "slide-a",
+        layout: "title",
+        content: "<h1>Opening</h1>",
+      }),
+      previewTooLarge: false,
+      aspectRatio: null,
+      slideCount: 2,
+    });
+    expect(mockWhereUpdate).toHaveBeenCalledWith({
+      conditions: [
+        { left: "id_col", right: "deck-1" },
+        { isNull: "slide_count_col" },
+        { left: "ua_col", right: "2026-05-02T00:00:00.000Z" },
+      ],
+    });
+  });
+
+  it("does not write list columns a deck already has", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.slideCount = 2;
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it("keeps full slide HTML for frontend callers", async () => {

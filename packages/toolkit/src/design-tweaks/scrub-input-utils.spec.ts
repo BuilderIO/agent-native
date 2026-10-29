@@ -38,4 +38,17 @@ describe("parseScrubExpression units", () => {
       }),
     ).toEqual({ value: 160, normalized: "160" });
   });
+
+  it("shows and commits at most two decimals when no precision is set", () => {
+    expect(formatScrubValue(0.5555555556, { unit: "px" })).toBe("0.56px");
+    expect(formatScrubValue(40.80000000000001, { unit: "px" })).toBe("40.8px");
+    expect(formatScrubValue(42, { unit: "px" })).toBe("42px");
+    expect(parseScrubExpression("1.23456", 0, { unit: "px" })).toEqual({
+      value: 1.23,
+      normalized: "1.23px",
+    });
+    expect(formatScrubValue(0.555556, { unit: "px", precision: 0 })).toBe(
+      "1px",
+    );
+  });
 });

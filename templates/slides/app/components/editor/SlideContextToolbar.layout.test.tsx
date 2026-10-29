@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -316,5 +317,100 @@ describe("contextual toolbar object layout", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "200%" }));
 
     expect(onSelect).toHaveBeenCalledWith(200);
+  });
+
+  it("fits the slide to the screen from the top of the zoom menu", () => {
+    const onFit = vi.fn();
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={null}
+          background="#000000"
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+          zoomControls={{
+            value: 80,
+            presets: [50, 100, 200],
+            onSelect: vi.fn(),
+            fitted: true,
+            onFit,
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+    openMenu("Zoom");
+    const fit = screen.getAllByRole("menuitem").at(0);
+    if (!fit) throw new Error("Expected zoom menu items");
+    expect(fit.textContent).toBe("Fit to screen");
+    fireEvent.click(fit);
+
+    expect(onFit).toHaveBeenCalledOnce();
+  });
+
+  it("hands focus back when a toolbar menu closes", async () => {
+    const onReturnFocus = vi.fn();
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={null}
+          background="#000000"
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+          onReturnFocus={onReturnFocus}
+          zoomControls={{ value: 100, presets: [50, 100], onSelect: vi.fn() }}
+        />
+      </TooltipProvider>,
+    );
+
+    openMenu("Zoom");
+    fireEvent.click(screen.getByRole("menuitem", { name: "50%" }));
+
+    await waitFor(() => expect(onReturnFocus).toHaveBeenCalledOnce());
+    expect(document.activeElement).not.toBe(
+      screen.getByRole("button", { name: "Zoom" }),
+    );
+  });
+
+  it("keeps focus where it was when a toolbar button is pressed", () => {
+    render(
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={objectSnapshot()}
+          background="#000000"
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(
+      fireEvent.mouseDown(screen.getByRole("button", { name: "Position" })),
+    ).toBe(false);
+    const width = screen.getAllByRole("textbox", { name: "Width" }).at(0);
+    if (!width) throw new Error("Expected a Width field");
+    expect(fireEvent.mouseDown(width)).toBe(true);
+  });
+
+  it("offers Crop for an image only when it can be cropped", () => {
+    const onCropImage = vi.fn();
+    const toolbar = (crop?: () => void) => (
+      <TooltipProvider>
+        <SlideContextToolbar
+          snapshot={objectSnapshot({ isImage: true, tagName: "IMG" })}
+          background="#000000"
+          onChange={vi.fn()}
+          onBackgroundChange={vi.fn()}
+          {...(crop ? { onCropImage: crop } : {})}
+        />
+      </TooltipProvider>
+    );
+    const view = render(toolbar());
+    expect(screen.queryByRole("button", { name: "Crop image" })).toBeNull();
+
+    view.rerender(toolbar(onCropImage));
+    fireEvent.click(screen.getByRole("button", { name: "Crop image" }));
+
+    expect(onCropImage).toHaveBeenCalledOnce();
   });
 });

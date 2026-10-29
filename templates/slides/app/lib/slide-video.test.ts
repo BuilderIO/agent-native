@@ -54,8 +54,9 @@ describe("slide video helpers", () => {
     expect(video?.hasAttribute("autoplay")).toBe(false);
     expect(video?.getAttribute("data-slide-object-id")).toBe("video-1");
     expect(video?.getAttribute("aria-label")).toBe("clip.mp4");
-    expect(video?.style.left).toBe("340px");
-    expect(video?.style.top).toBe("210px");
+    // Centered on the drop point, then landed on the 8px grid.
+    expect(video?.style.left).toBe("344px");
+    expect(video?.style.top).toBe("208px");
     expect(doc.querySelector<HTMLElement>(".fmd-slide")?.style.position).toBe(
       "relative",
     );

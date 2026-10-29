@@ -430,6 +430,7 @@ export default {
       font: "الخط",
       baseSize: "حجم القاعدة",
       size: "مقاس",
+      fontSizes: "أحجام الخط",
       weight: "وزن",
       color: "لون",
       align: "محاذاة",
@@ -877,6 +878,9 @@ export default {
       right: "ر",
       bottom: "ب",
       left: "ل",
+    },
+    fontPicker: {
+      catalogUnavailable: "تعذّر تحميل مكتبة الخطوط الكاملة.",
     },
     fontFamilies: {
       inherit: "يرث",
@@ -2835,8 +2839,6 @@ export default {
       dismiss: "إغلاق",
     },
     import: "استيراد",
-    importOptions: "خيارات الاستيراد",
-    figmaLink: "رابط Figma",
     importFromFigma: "الاستيراد من Figma",
     figmaFile: "ملف Figma (.fig)",
     figmaFileMaxSize: "حتى {{max}} غيغابايت",

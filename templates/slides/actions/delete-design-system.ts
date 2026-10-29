@@ -9,6 +9,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -53,7 +54,7 @@ function unlinkDeck(
       .update(schema.decks)
       .set({
         designSystemId: null,
-        data: JSON.stringify(data),
+        ...deckDataColumns(data),
         updatedAt: nextDeckRevision(deck.updatedAt),
       })
       .where(deckRevisionWhere(schema.decks, deckId, deck.updatedAt));

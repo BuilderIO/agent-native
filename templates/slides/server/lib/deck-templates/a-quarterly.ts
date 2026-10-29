@@ -25,24 +25,32 @@ const slide = (page: number, body: string) =>
     `<div style="${mono}display:flex;justify-content:space-between;align-items:center;font-size:14px;color:var(--deck-muted);padding-bottom:12px;border-bottom:1px solid var(--qt-grid);"><span style="display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:var(--deck-accent);"></span><span style="color:var(--deck-ink);">QBR / Q0 20XX</span></span><span>SAMPLE DATA</span><span>0${page} / 06</span></div>${body}`,
   );
 
+// data-trend="auto" lets the editor recolor a value from its sign after a
+// text edit; --trend names the current color among the --trend-* palette.
+const trendPalette = (up: boolean, flat?: string) =>
+  `--trend-up:var(--deck-accent);--trend-down:var(--qt-loss);${flat ? `--trend-flat:${flat};` : ""}--trend:var(--trend-${up ? "up" : "down"});`;
+
 const delta = (value: string, up = true) =>
-  `<span style="${mono}display:inline-block;padding:2px 7px;border-radius:4px;font-size:14px;font-weight:700;background:color-mix(in srgb,${up ? "var(--deck-accent)" : "var(--qt-loss)"} 16%,transparent);color:${up ? "var(--deck-accent)" : "var(--qt-loss)"};">${value}</span>`;
+  `<span data-trend="auto" style="${mono}display:inline-block;padding:2px 7px;border-radius:4px;font-size:14px;font-weight:700;${trendPalette(up)}background:color-mix(in srgb,var(--trend) 16%,transparent);color:var(--trend);">${value}</span>`;
 
 function band(points: readonly number[], w: number, h: number, t: number) {
-  const xy = points.map((v, i) => [(i / (points.length - 1)) * w, h - v * h]);
+  const xy = points.map((v, i): [number, number] => [
+    (i / (points.length - 1)) * w,
+    h - v * h,
+  ]);
   const top = xy.map(
-    ([x, y]) => `${x.toFixed(1)}px ${(y - t / 2).toFixed(1)}px`,
+    ([x, y]) => `${Math.round(x)}px ${Math.round(y - t / 2)}px`,
   );
   const bottom = xy
     .reverse()
-    .map(([x, y]) => `${x.toFixed(1)}px ${(y + t / 2).toFixed(1)}px`);
+    .map(([x, y]) => `${Math.round(x)}px ${Math.round(y + t / 2)}px`);
   return `polygon(${[...top, ...bottom].join(",")})`;
 }
 
 function area(points: readonly number[], w: number, h: number) {
   const xy = points.map(
     (v, i) =>
-      `${((i / (points.length - 1)) * w).toFixed(1)}px ${(h - v * h).toFixed(1)}px`,
+      `${Math.round((i / (points.length - 1)) * w)}px ${Math.round(h - v * h)}px`,
   );
   return `polygon(0px ${h}px,${xy.join(",")},${w}px ${h}px)`;
 }
@@ -99,7 +107,7 @@ const segment = (
   mix: number,
   total = false,
 ) =>
-  `<tr style="border-top:1px solid ${total ? "var(--deck-muted)" : "var(--qt-grid)"};${total ? "font-weight:700;" : ""}"><td style="padding:15px 0;font-size:16px;">${name}</td>${cells.map((c) => `<td style="${mono}padding:15px 0 15px 16px;text-align:right;font-size:15px;color:${c.startsWith("+") ? "var(--deck-accent)" : c.startsWith("-") ? "var(--qt-loss)" : "var(--deck-ink)"};">${c}</td>`).join("")}<td style="padding:15px 0 15px 24px;width:170px;"><span style="display:block;height:10px;border-radius:2px;background:var(--qt-grid);"><span style="display:block;height:10px;width:${mix}%;border-radius:2px;background:${total ? "var(--deck-ink)" : "var(--deck-accent)"};"></span></span></td></tr>`;
+  `<tr style="border-top:1px solid ${total ? "var(--deck-muted)" : "var(--qt-grid)"};${total ? "font-weight:700;" : ""}"><td style="padding:15px 0;font-size:16px;">${name}</td>${cells.map((c) => (/^[+-]/.test(c) ? `<td data-trend="auto" style="${mono}padding:15px 0 15px 16px;text-align:right;font-size:15px;${trendPalette(c.startsWith("+"), "var(--deck-ink)")}color:var(--trend);">${c}</td>` : `<td style="${mono}padding:15px 0 15px 16px;text-align:right;font-size:15px;color:var(--deck-ink);">${c}</td>`)).join("")}<td style="padding:15px 0 15px 24px;width:170px;"><span style="display:block;height:10px;border-radius:2px;background:var(--qt-grid);"><span style="display:block;height:10px;width:${mix}%;border-radius:2px;background:${total ? "var(--deck-ink)" : "var(--deck-accent)"};"></span></span></td></tr>`;
 
 const guide = (name: string, lo: number, hi: number, base: number) =>
   `<div style="display:grid;grid-template-columns:120px 1fr;align-items:center;gap:18px;padding:24px 0 20px;border-top:1px solid var(--qt-grid);"><span style="font-size:16px;font-weight:700;">${name}</span><span style="position:relative;height:36px;"><span style="position:absolute;left:0;right:0;top:12px;border-top:1px dashed var(--qt-grid);"></span><span style="position:absolute;left:${lo}%;width:${hi - lo}%;top:6px;height:12px;border-radius:6px;background:color-mix(in srgb,var(--deck-accent) 28%,transparent);"></span><span style="position:absolute;left:${base}%;top:2px;width:4px;height:20px;margin-left:-2px;border-radius:2px;background:var(--deck-accent);"></span><span style="${mono}position:absolute;left:${lo}%;top:22px;font-size:14px;color:var(--deck-muted);">$00.0M</span><span style="${mono}position:absolute;left:${hi}%;top:22px;transform:translateX(-100%);font-size:14px;color:var(--deck-muted);">$00.0M</span></span></div>`;
@@ -125,7 +133,7 @@ export const QUARTERLY_DECK = authoredDeck(
 <div style="position:relative;height:180px;margin-top:22px;">
 <div style="position:absolute;inset:0;clip-path:${area(cover, 382, 180)};background:linear-gradient(180deg,color-mix(in srgb,var(--deck-accent) 34%,transparent),transparent);"></div>
 <div style="position:absolute;inset:0;clip-path:${band(cover, 382, 180, 3)};background:var(--deck-accent);"></div>
-<span style="position:absolute;right:-6px;top:${180 - 0.74 * 180 - 6}px;width:12px;height:12px;border-radius:50%;background:var(--deck-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--deck-accent) 25%,transparent);"></span>
+<span style="position:absolute;right:-6px;top:${Math.round(180 - 0.74 * 180) - 6}px;width:12px;height:12px;border-radius:50%;background:var(--deck-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--deck-accent) 25%,transparent);"></span>
 </div>
 <div style="${mono}display:flex;justify-content:space-between;margin-top:10px;font-size:14px;color:var(--deck-muted);"><span>Q0-7</span><span style="color:var(--deck-ink);font-weight:700;">$00.0M</span></div>
 </div>
@@ -198,9 +206,9 @@ ${gridLines(4, ["$0.0M", "$0.0M", "$0.0M", "$0"])}
 <div style="position:relative;height:250px;margin-top:30px;margin-left:56px;">
 ${gridLines(5, ["000%", "000%", "000%", "000%", "00%"], -56)}
 <div style="position:absolute;inset:0;clip-path:${area(actual, 574, 250)};background:linear-gradient(180deg,color-mix(in srgb,var(--deck-accent) 22%,transparent),transparent);"></div>
-<div style="position:absolute;inset:0;clip-path:${band(target, 574, 250, 2.5)};background:repeating-linear-gradient(90deg,var(--qt-amber) 0 9px,transparent 9px 15px);"></div>
+<div style="position:absolute;inset:0;clip-path:${band(target, 574, 250, 2)};background:repeating-linear-gradient(90deg,var(--qt-amber) 0 9px,transparent 9px 15px);"></div>
 <div style="position:absolute;inset:0;clip-path:${band(actual, 574, 250, 3)};background:var(--deck-accent);"></div>
-<span style="position:absolute;right:-6px;top:${250 - 0.72 * 250 - 6}px;width:12px;height:12px;border-radius:50%;background:var(--deck-accent);"></span>
+<span style="position:absolute;right:-6px;top:${Math.round(250 - 0.72 * 250) - 6}px;width:12px;height:12px;border-radius:50%;background:var(--deck-accent);"></span>
 <div style="${mono}position:absolute;left:0;right:0;bottom:-28px;display:flex;justify-content:space-between;font-size:14px;color:var(--deck-muted);"><span>Q0-7</span><span>Q0-6</span><span>Q0-5</span><span>Q0-4</span><span>Q0-3</span><span>Q0-2</span><span>Q0-1</span><span>Q0</span></div>
 </div>
 </div>

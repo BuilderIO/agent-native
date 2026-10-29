@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   createDeckVersionSnapshot,
   deckVersionContentSignature,
@@ -130,7 +131,7 @@ export default defineAction({
           await db.insert(schema.decks).values({
             id: deckId,
             title,
-            data: JSON.stringify(deck),
+            ...deckDataColumns(deck),
             designSystemId: deckDesignSystemId(deck),
             ...deckClientWriteFields(clientWrite, now),
             ownerEmail,
@@ -195,7 +196,7 @@ export default defineAction({
             .update(schema.decks)
             .set({
               title,
-              data: JSON.stringify(deck),
+              ...deckDataColumns(deck),
               designSystemId: nextDesignSystemId,
               updatedAt,
               ...deckClientWriteFields(clientWrite, updatedAt),

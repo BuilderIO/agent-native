@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -168,6 +174,97 @@ describe("PresentationView keyboard shortcuts", () => {
     );
 
     expect(screen.getByText("2 / 3")).toBeTruthy();
+  });
+
+  it("follows presentation clicker and Home/End keys", () => {
+    const threeSlides = [
+      ...slides,
+      { id: "third-slide", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    render(
+      <MemoryRouter>
+        <PresentationView slides={threeSlides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    fireEvent.keyDown(window, { key: "PageDown" });
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "PageUp" });
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "End" });
+    expect(screen.getByText("3 / 3")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Home" });
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+  });
+
+  it("toggles fullscreen with F and stays in the presentation", async () => {
+    const descriptors = {
+      request: Object.getOwnPropertyDescriptor(
+        document.documentElement,
+        "requestFullscreen",
+      ),
+      exit: Object.getOwnPropertyDescriptor(document, "exitFullscreen"),
+      element: Object.getOwnPropertyDescriptor(document, "fullscreenElement"),
+    };
+    let fullscreenElement: Element | null = null;
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => fullscreenElement,
+    });
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      configurable: true,
+      value: vi.fn(async () => {
+        fullscreenElement = document.documentElement;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      }),
+    });
+    Object.defineProperty(document, "exitFullscreen", {
+      configurable: true,
+      value: vi.fn(async () => {
+        fullscreenElement = null;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      }),
+    });
+    try {
+      render(
+        <MemoryRouter initialEntries={["/presentation"]}>
+          <PresentationView slides={slides} deckId="deck-1" />
+          <CurrentLocation />
+        </MemoryRouter>,
+      );
+      await act(async () => {});
+      expect(fullscreenElement).not.toBeNull();
+
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "f" });
+      });
+      expect(fullscreenElement).toBeNull();
+      expect(screen.getByTestId("current-location").textContent).toBe(
+        "/presentation",
+      );
+
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "f" });
+      });
+      expect(fullscreenElement).not.toBeNull();
+
+      // Escape out of fullscreen still ends a presentation that is fullscreen.
+      await act(async () => {
+        await document.exitFullscreen();
+      });
+      expect(screen.getByTestId("current-location").textContent).toBe(
+        "/deck/deck-1?slide=1",
+      );
+    } finally {
+      for (const [target, name, descriptor] of [
+        [document.documentElement, "requestFullscreen", descriptors.request],
+        [document, "exitFullscreen", descriptors.exit],
+        [document, "fullscreenElement", descriptors.element],
+      ] as const) {
+        if (descriptor) Object.defineProperty(target, name, descriptor);
+        else Reflect.deleteProperty(target, name);
+      }
+    }
   });
 
   it("keeps Space as a deck shortcut after a mouse-focused button", () => {

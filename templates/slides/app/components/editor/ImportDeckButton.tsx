@@ -1,18 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconChevronDown, IconLoader2, IconUpload } from "@tabler/icons-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { IconLoader2, IconUpload } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
 
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverAnchor,
@@ -20,12 +11,9 @@ import {
 } from "@/components/ui/popover";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 
-import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
-import {
-  DECK_FILE_ACCEPT,
-  type DeckFileKind,
-  type usePromptImport,
-} from "./use-prompt-import";
+import { DECK_FILE_ACCEPT, type usePromptImport } from "./use-prompt-import";
+
+const DECK_IMPORT_ACCEPT = Object.values(DECK_FILE_ACCEPT).join(",");
 
 export function ImportDeckButton({
   controller,
@@ -33,36 +21,22 @@ export function ImportDeckButton({
   controller: ReturnType<typeof usePromptImport>;
 }) {
   const t = useT();
-  const urlId = useId();
   const input = useRef<HTMLInputElement>(null);
-  const menuTrigger = useRef<HTMLButtonElement>(null);
-  const openGoogleAfterMenu = useRef(false);
-  const urlInput = useRef<HTMLInputElement>(null);
-  const scope = useRef<DeckFileKind | undefined>(undefined);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [popover, setPopover] = useState<"google" | "error" | "storage" | null>(
-    null,
-  );
-  const [url, setUrl] = useState("");
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [popover, setPopover] = useState<"error" | "storage" | null>(null);
   const busy = controller.importingSource !== null;
   const storageQuery = useSlideFileStorageStatus();
   const fileStorageConfigured =
     storageQuery.isSuccess && storageQuery.data.configured === true;
-  const openPicker = (kind?: DeckFileKind) => {
+  const openPicker = () => {
     if (busy) return;
     if (!fileStorageConfigured) {
-      setMenuOpen(false);
       setPopover("storage");
       return;
     }
     if (!input.current) return;
-    scope.current = kind;
-    input.current.accept = kind
-      ? DECK_FILE_ACCEPT[kind]
-      : Object.values(DECK_FILE_ACCEPT).join(",");
     input.current.value = "";
     controller.clear();
-    setMenuOpen(false);
     setPopover(null);
     input.current.click();
   };
@@ -74,7 +48,7 @@ export function ImportDeckButton({
       setPopover("storage");
       return;
     }
-    void controller.importFile(file, scope.current).then((done) => {
+    void controller.importFile(file).then((done) => {
       if (!done) setPopover("error");
     });
   };
@@ -84,63 +58,31 @@ export function ImportDeckButton({
   }, [fileStorageConfigured, popover]);
   return (
     <Popover
-      open={popover !== null && popover !== "storage"}
+      open={popover === "error"}
       onOpenChange={(open) => !open && !busy && setPopover(null)}
     >
       <PopoverAnchor asChild>
         <div className="inline-flex shrink-0 items-center gap-2">
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                ref={menuTrigger}
-                type="button"
-                size="sm"
-                disabled={busy}
-                aria-busy={busy}
-                aria-label={t(
-                  busy ? "editorToolbar.importing" : "home.importMenu.import",
-                )}
-              >
-                {busy ? (
-                  <IconLoader2 className="motion-safe:animate-spin" />
-                ) : (
-                  <IconUpload />
-                )}
-                <span className="slides-home-import-label">
-                  {t(
-                    busy ? "editorToolbar.importing" : "home.importMenu.import",
-                  )}
-                </span>
-                {!busy && <IconChevronDown />}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              onCloseAutoFocus={(event) => {
-                if (!openGoogleAfterMenu.current) return;
-                event.preventDefault();
-                openGoogleAfterMenu.current = false;
-                setPopover("google");
-              }}
-            >
-              <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={() => openPicker("pdf")}>
-                  PDF
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => {
-                    controller.clear();
-                    openGoogleAfterMenu.current = true;
-                  }}
-                >
-                  {t("home.googleSlidesReferenceTitle")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => openPicker("pptx")}>
-                  PPT
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            ref={trigger}
+            type="button"
+            size="sm"
+            disabled={busy}
+            aria-busy={busy}
+            aria-label={t(
+              busy ? "editorToolbar.importing" : "home.importMenu.import",
+            )}
+            onClick={openPicker}
+          >
+            {busy ? (
+              <IconLoader2 className="motion-safe:animate-spin" />
+            ) : (
+              <IconUpload />
+            )}
+            <span className="slides-home-import-label">
+              {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
+            </span>
+          </Button>
           <span
             className="slides-home-import-status sr-only text-xs text-muted-foreground"
             role="status"
@@ -157,83 +99,38 @@ export function ImportDeckButton({
         hidden
         disabled={busy || !fileStorageConfigured}
         aria-label={t("editorToolbar.importFile")}
-        accept={Object.values(DECK_FILE_ACCEPT).join(",")}
+        accept={DECK_IMPORT_ACCEPT}
         onChange={handleFileChange}
       />
       <PopoverContent
         align="end"
         className="w-[min(28rem,calc(100vw-2rem))]"
-        onOpenAutoFocus={(event) => {
-          if (popover === "google") {
-            event.preventDefault();
-            urlInput.current?.focus();
-          }
-        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
-          menuTrigger.current?.focus();
+          trigger.current?.focus();
         }}
-        aria-label={t(
-          popover === "google"
-            ? "home.googleSlidesReferenceTitle"
-            : "home.importMenu.import",
-        )}
+        aria-label={t("home.importMenu.import")}
       >
-        {popover === "google" ? (
-          <form
-            className="grid gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (url.trim() && !busy)
-                void controller
-                  .runImport({ kind: "google-slides", url: url.trim() })
-                  .then((done) => {
-                    if (done) setPopover(null);
-                  });
-            }}
-          >
-            <GoogleDriveConnectionCta />
-            <Label htmlFor={urlId}>{t("home.googleSlidesReferenceUrl")}</Label>
-            <Input
-              ref={urlInput}
-              id={urlId}
-              type="url"
-              required
-              value={url}
+        <div className="grid gap-3">
+          <p role="alert" className="text-sm text-destructive">
+            {controller.error}
+          </p>
+          {controller.retrySelection && (
+            <Button
               disabled={busy}
-              onChange={(event) => setUrl(event.target.value)}
-            />
-            {controller.error && (
-              <p role="alert" className="text-sm text-destructive">
-                {controller.error}
-              </p>
-            )}
-            <Button type="submit" disabled={busy || !url.trim()}>
-              {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
+              onClick={() => {
+                if (controller.retrySelection)
+                  void controller
+                    .runImport(controller.retrySelection)
+                    .then((done) => {
+                      if (done) setPopover(null);
+                    });
+              }}
+            >
+              {t(busy ? "editorToolbar.importing" : "home.retry")}
             </Button>
-          </form>
-        ) : (
-          <div className="grid gap-3">
-            <p role="alert" className="text-sm text-destructive">
-              {controller.error}
-            </p>
-            {controller.retrySelection && (
-              <Button
-                disabled={busy}
-                onClick={() => {
-                  if (controller.retrySelection)
-                    void controller
-                      .runImport(controller.retrySelection)
-                      .then((done) => {
-                        if (done) setPopover(null);
-                      });
-                }}
-              >
-                {t(busy ? "editorToolbar.importing" : "home.retry")}
-              </Button>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </PopoverContent>
       <UploadStorageGate
         configured={fileStorageConfigured}

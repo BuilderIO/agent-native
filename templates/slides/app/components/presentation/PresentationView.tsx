@@ -52,6 +52,7 @@ import {
   canCommand,
   createSlideNavigation,
   reduceSlideNavigation,
+  slideNavigationKeyCommand,
   targetBuildStep,
   type SlideNavigationAction,
   type SlideNavigationLayout,
@@ -516,24 +517,27 @@ export default function PresentationView({
       // A held key auto-repeats keydown with repeat=true. Each one would step
       // again, so one physical press could advance two or more slides.
       if (e.repeat) return;
+      const command = slideNavigationKeyCommand(e.key);
+      if (command) {
+        e.preventDefault();
+        apply({ type: "command", command });
+        return;
+      }
       switch (e.key) {
-        case "ArrowRight":
-        case "ArrowDown":
-        case " ":
-          e.preventDefault();
-          goNext();
-          break;
-        case "ArrowLeft":
-        case "ArrowUp":
-          e.preventDefault();
-          goPrev();
-          break;
         case "f":
         case "F":
           e.preventDefault();
           if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(() => {});
+            document.documentElement
+              .requestFullscreen()
+              .then(() => {
+                if (!windowed) enteredFullscreenRef.current = true;
+              })
+              .catch(() => {});
           } else {
+            // F only toggles fullscreen. Leaving it here must not read as the
+            // Escape that ends a presentation started in fullscreen.
+            enteredFullscreenRef.current = false;
             document.exitFullscreen().catch(() => {});
           }
           break;
@@ -549,7 +553,7 @@ export default function PresentationView({
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [goNext, goPrev, exit, openPresenterWindow]);
+  }, [apply, exit, openPresenterWindow, windowed]);
 
   const enterFullscreen = useCallback(() => {
     const el = document.documentElement;

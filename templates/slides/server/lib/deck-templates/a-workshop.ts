@@ -21,7 +21,7 @@ const h1 =
 const slide = (body: string) =>
   slideRoot(
     tokens,
-    "font-family:'Nunito',sans-serif;background-image:radial-gradient(var(--ws-dot) 1.3px,transparent 1.7px);background-size:24px 24px;background-position:12px 12px;padding:40px 52px;display:flex;flex-direction:column;",
+    "font-family:'Nunito',sans-serif;background-image:radial-gradient(var(--ws-dot) 1px,transparent 2px);background-size:24px 24px;background-position:12px 12px;padding:40px 52px;display:flex;flex-direction:column;",
     body,
   );
 
@@ -39,7 +39,7 @@ const arrow = (style: string, width = 140, height = 70) =>
   `<span aria-hidden="true" style="position:absolute;width:${width}px;height:${height}px;border:3px solid transparent;border-top-color:var(--deck-accent);border-radius:50%;${style}"><span style="position:absolute;right:-1px;top:${height / 2 - 14}px;width:13px;height:13px;border-right:3px solid var(--deck-accent);border-bottom:3px solid var(--deck-accent);transform:rotate(40deg);"></span></span>`;
 
 const circled = (n: number) =>
-  `<span style="${hand}display:inline-flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;border:2.5px solid var(--deck-accent);border-radius:52% 46% 55% 44%;font-size:24px;font-weight:700;color:var(--deck-accent);">${n}</span>`;
+  `<span style="${hand}display:inline-flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;border:3px solid var(--deck-accent);border-radius:52% 46% 55% 44%;font-size:24px;font-weight:700;color:var(--deck-accent);">${n}</span>`;
 
 const agenda = (time: string, title: string, minutes: string) =>
   `<div style="display:grid;grid-template-columns:64px 1fr auto;align-items:baseline;gap:14px;padding:9px 0;border-bottom:2px dashed color-mix(in srgb,var(--deck-ink) 18%,transparent);"><span style="${hand}font-size:28px;font-weight:700;color:var(--deck-accent);">${time}</span><span style="font-size:19px;font-weight:700;">${title}</span><span style="font-size:15px;color:var(--deck-muted);">${minutes}</span></div>`;
@@ -48,7 +48,7 @@ const cluster = (title: string, notes: readonly [Note, number, string][]) =>
   `<div style="display:flex;flex-direction:column;gap:14px;"><h3 style="${hand}margin:0 0 4px;font-size:34px;font-weight:700;line-height:1;"><span style="${highlight}">${title}</span></h3>${notes.map(([note, tilt, text]) => sticky(note, tilt, `<span style="font-size:17px;line-height:1.3;font-weight:700;">${text}</span>`, "padding:14px 14px 12px;")).join("")}</div>`;
 
 const todo = (text: string, owner: string, done = false) =>
-  `<div style="display:grid;grid-template-columns:26px 1fr;gap:12px;align-items:start;"><span style="position:relative;width:22px;height:22px;margin-top:2px;border:2.5px solid var(--deck-ink);border-radius:4px 6px 3px 5px;">${done ? `<span style="position:absolute;left:5px;top:-3px;width:9px;height:17px;border-right:3px solid var(--deck-accent);border-bottom:3px solid var(--deck-accent);transform:rotate(40deg);"></span>` : ""}</span><span style="font-size:18px;line-height:1.35;font-weight:700;">${text}<span style="${hand}display:block;font-size:22px;font-weight:400;color:var(--deck-muted);">${owner}</span></span></div>`;
+  `<div style="display:grid;grid-template-columns:26px 1fr;gap:12px;align-items:start;"><span style="position:relative;width:22px;height:22px;margin-top:2px;border:3px solid var(--deck-ink);border-radius:4px 6px 3px 5px;">${done ? `<span style="position:absolute;left:5px;top:-3px;width:9px;height:17px;border-right:3px solid var(--deck-accent);border-bottom:3px solid var(--deck-accent);transform:rotate(40deg);"></span>` : ""}</span><span style="font-size:18px;line-height:1.35;font-weight:700;">${text}<span style="${hand}display:block;font-size:22px;font-weight:400;color:var(--deck-muted);">${owner}</span></span></div>`;
 
 export const WORKSHOP_DECK = authoredDeck(
   "starter-workshop-kit",
@@ -127,10 +127,10 @@ ${sticky("mint", 3.5, `<span style="${hand}display:block;font-size:34px;font-wei
 <div style="display:flex;gap:14px;align-items:center;">${circled(2)}<span style="font-size:18px;line-height:1.35;font-weight:700;">In pairs, read them aloud and pick your best two.</span></div>
 <div style="display:flex;gap:14px;align-items:center;">${circled(3)}<span style="font-size:18px;line-height:1.35;font-weight:700;">Post them under the journey stage they belong to.</span></div>
 </div>
-<span style="${hand}display:inline-block;align-self:flex-start;margin-top:22px;padding:2px 14px;border:2.5px solid var(--deck-ink);border-radius:18px 14px 20px 12px;font-size:28px;font-weight:700;">8 minutes, then pairs</span>
+<span style="${hand}display:inline-block;align-self:flex-start;margin-top:22px;padding:2px 14px;border:3px solid var(--deck-ink);border-radius:18px 14px 20px 12px;font-size:28px;font-weight:700;">8 minutes, then pairs</span>
 </div>
 <div style="position:relative;align-self:center;">
-${sticky("surface", 2, `<span style="${hand}display:block;font-size:40px;font-weight:700;line-height:1.3;">How might we <span style="display:inline-block;width:150px;border-bottom:2.5px solid var(--deck-ink);"></span> for <span style="display:inline-block;width:170px;border-bottom:2.5px solid var(--deck-ink);"></span> so that <span style="display:inline-block;width:120px;border-bottom:2.5px solid var(--deck-ink);"></span>?</span>`, "padding:32px 30px 30px;")}
+${sticky("surface", 2, `<span style="${hand}display:block;font-size:40px;font-weight:700;line-height:1.3;">How might we <span style="display:inline-block;width:150px;border-bottom:3px solid var(--deck-ink);"></span> for <span style="display:inline-block;width:170px;border-bottom:3px solid var(--deck-ink);"></span> so that <span style="display:inline-block;width:120px;border-bottom:3px solid var(--deck-ink);"></span>?</span>`, "padding:32px 30px 30px;")}
 <span style="${hand}position:absolute;right:6px;top:-50px;font-size:26px;color:var(--deck-accent);transform:rotate(-3deg);">keep it open, not a solution</span>
 </div>
 </div>

@@ -1,6 +1,7 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
 import {
   buildDeepLink,
+  captureError,
   currentRequestUserIsOrgAdmin,
   getAppConfig,
 } from "@agent-native/core/server";
@@ -15,6 +16,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import {
+  deckDataColumns,
+  deckListColumns,
+} from "../server/lib/deck-list-columns.js";
 import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import {
   sourceImportCoverage,
@@ -130,7 +135,7 @@ async function loadDeckWithUniqueSlideIds(
       await getDb()
         .update(schema.decks)
         .set({
-          data: JSON.stringify(repairedData),
+          ...deckDataColumns(repairedData),
           updatedAt: repairedData.updatedAt,
         })
         .where(
@@ -152,6 +157,43 @@ async function loadDeckWithUniqueSlideIds(
   }
 
   throw new Error(`Could not repair duplicate slide IDs for deck ${deckId}.`);
+}
+
+/**
+ * A deck saved before the list columns existed gets them on its first read,
+ * so list-decks stops parsing its body. The guards leave a concurrent save's
+ * own columns alone.
+ */
+async function backfillDeckListColumns(
+  row: {
+    id: string;
+    data: string;
+    updatedAt: string | null;
+    slideCount?: number | null;
+  },
+  data: unknown,
+): Promise<void> {
+  if (row.slideCount !== null) return;
+  try {
+    await getDb()
+      .update(schema.decks)
+      .set(deckListColumns(data))
+      .where(
+        and(
+          eq(schema.decks.id, row.id),
+          isNull(schema.decks.slideCount),
+          row.updatedAt === null
+            ? isNull(schema.decks.updatedAt)
+            : eq(schema.decks.updatedAt, row.updatedAt),
+        ),
+      );
+  } catch (error) {
+    // The read is still correct; list-decks keeps reading this row's body.
+    captureError(error, {
+      route: "get-deck",
+      extra: { deckId: row.id, backfill: "deck-list-columns" },
+    });
+  }
 }
 
 // Rows can hold legacy transition strings (slide, zoom, instant) and slides
@@ -275,6 +317,12 @@ export default defineAction({
         .min(1)
         .optional()
         .describe("The customer organization shown in this Human Review row."),
+      agentContext: z
+        .enum(["true", "false"])
+        .optional()
+        .describe(
+          "Set to 'false' to omit designSystem, deckStyle, and representativeSlideId when only slide content is needed. Defaults to 'true'.",
+        ),
     })
     .superRefine((args, context) => {
       if (args.slideId !== undefined && args.slideIds !== undefined) {
@@ -336,6 +384,7 @@ export default defineAction({
           args.reviewPreview,
           args.reviewOrgId,
         );
+    if (!args.reviewPreview) await backfillDeckListColumns(row, data);
     // Both the compact and full branches read these; normalize once, here.
     const slides = storedSlides.map(canonicalReadSlide);
     const ownerEmail = getRequestUserEmail();
@@ -394,14 +443,25 @@ export default defineAction({
               getDesignSystem.run(args, ctx),
           }
         : getDesignSystem;
-    const designSystem = await loadAgentDesignSystemContext(
-      linkedDesignSystemId,
-      designSystemReader,
-    );
-    const { deckStyle, representativeSlideId } = summarizeDeckStyle(
-      slides as any,
-      selectedSlideIndex,
-    );
+    const includeAgentContext = args.agentContext !== "false";
+    const designSystem = includeAgentContext
+      ? await loadAgentDesignSystemContext(
+          linkedDesignSystemId,
+          designSystemReader,
+        )
+      : undefined;
+    const styleSummary =
+      includeAgentContext && slides.length > 0
+        ? (({ deckStyle, representativeSlideId }) => ({
+            deckStyle,
+            representativeSlideId,
+          }))(
+            summarizeDeckStyle(
+              slides as Parameters<typeof summarizeDeckStyle>[0],
+              selectedSlideIndex,
+            ),
+          )
+        : null;
 
     if (compact) {
       return {
@@ -410,8 +470,8 @@ export default defineAction({
         visibility: row.visibility,
         ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
         designSystemId: linkedDesignSystemId,
-        designSystem,
-        ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
+        ...(includeAgentContext ? { designSystem } : {}),
+        ...(styleSummary ?? {}),
         generationContext: data?.generationContext ?? null,
         sourceImport: data?.sourceImport
           ? {
@@ -479,8 +539,8 @@ export default defineAction({
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
       ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
       designSystemId: linkedDesignSystemId,
-      designSystem,
-      ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
+      ...(includeAgentContext ? { designSystem } : {}),
+      ...(styleSummary ?? {}),
       sourceCoverage,
       slideCount: slides.length,
       appUrl: getDeckUrl(row.id),

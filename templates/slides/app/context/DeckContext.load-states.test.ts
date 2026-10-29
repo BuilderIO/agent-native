@@ -194,12 +194,10 @@ describe("deck list loading states", () => {
 
     const { result, seen } = renderDeckListStates();
     await waitFor(() => expect(seen).toContain("error"));
+    // The open deck's read may start beside the lookup, but it never shows
+    // while the organization is unresolved.
+    // oracle-change: get-deck now starts beside the organization lookup instead of after the list, so the old "no get-deck before the org resolves" checks no longer hold.
     expect(result.current.decks).toEqual([]);
-    expect(
-      api.fetchMock.mock.calls.some(([url]) =>
-        requestString(url).includes("/_agent-native/actions/get-deck"),
-      ),
-    ).toBe(false);
     expect(window.location.pathname + window.location.search).toBe(
       "/deck/deck-a?slide=1",
     );
@@ -349,29 +347,7 @@ describe("deck list recovery through the fallback poll", () => {
     expect(result.current.decks).toHaveLength(1);
   });
 
-  it("keeps the error when the list names decks whose bodies cannot be read back", async () => {
-    const api = setupFetch();
-    api.setServerDecks([deck("deck-a")]);
-    api.failNextListReads(10, "network");
-
-    const { result, seen } = renderDeckListStates();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
-    await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
-
-    api.failNextListReads(0);
-    api.failDeckReads();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(20_000);
-    });
-
-    expect(result.current.decks).toHaveLength(0);
-    expect(seen).not.toContain("empty");
-    expect(seen[seen.length - 1]).toBe("error");
-  });
-
-  it("holds the error pane until recovered decks are applied, never showing the empty state", async () => {
+  it("recovers from the list alone, without reading any deck body or showing the empty state", async () => {
     const api = setupFetch();
     api.setServerDecks([deck("deck-a")]);
     api.failNextListReads(10, "network");
@@ -383,23 +359,18 @@ describe("deck list recovery through the fallback poll", () => {
     await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
     expect(seen).toEqual(["loading", "error"]);
 
-    api.holdDeckReads();
+    api.failDeckReads();
     api.failNextListReads(0);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20_000);
     });
-    await waitFor(() => expect(api.pendingDeckReadCount()).toBeGreaterThan(0), {
-      timeout: 15_000,
-    });
-
-    expect(seen).not.toContain("empty");
-
-    await act(async () => {
-      api.releaseDeckReads();
-      await vi.advanceTimersByTimeAsync(0);
-    });
     await waitFor(() => expect(result.current.decks).toHaveLength(1));
 
+    expect(
+      api.fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/get-deck"),
+      ),
+    ).toBe(false);
     expect(seen.filter((state) => state === "empty")).toEqual([]);
     expect(seen[seen.length - 1]).toBe("decks");
   });

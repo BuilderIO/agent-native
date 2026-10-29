@@ -440,6 +440,7 @@ export default {
       font: "Fonte",
       baseSize: "Tamanho básico",
       size: "Tamanho",
+      fontSizes: "Tamanhos de fonte",
       weight: "Peso",
       color: "Cor",
       align: "Alinhar",
@@ -890,6 +891,10 @@ export default {
       right: "R",
       bottom: "B",
       left: "eu",
+    },
+    fontPicker: {
+      catalogUnavailable:
+        "Não foi possível carregar a biblioteca completa de fontes.",
     },
     fontFamilies: {
       inherit: "Herdar",
@@ -2888,8 +2893,6 @@ export default {
       dismiss: "Dispensar",
     },
     import: "Importar",
-    importOptions: "Opções de importação",
-    figmaLink: "Link do Figma",
     importFromFigma: "Importar do Figma",
     figmaFile: "Arquivo do Figma (.fig)",
     figmaFileMaxSize: "Até {{max}} GB",

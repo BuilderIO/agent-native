@@ -50,6 +50,7 @@ const anonymousNewDeckDraftKey = getComposerDraftKey(
   "slides-new-deck:anonymous",
 );
 const homeSuggestionSubmit = vi.hoisted(() => ({ invokeSubmit: false }));
+const agentRun = vi.hoisted(() => ({ generating: false }));
 const inactiveHomeQueries = vi.hoisted(() => ({
   workspaceDefaultsEnabled: true,
   templateLibraryEnabled: true,
@@ -334,7 +335,7 @@ vi.mock("@/components/templates/DeckTemplateLibrary", () => ({
 }));
 vi.mock("@/hooks/use-agent-generating", () => ({
   useAgentGenerating: () => ({
-    generating: false,
+    generating: agentRun.generating,
     submitAndConfirm: agentSubmit,
   }),
   clearStartedGenerationAttempt: vi.fn(),
@@ -388,8 +389,24 @@ vi.mock("@/components/design-system/DesignSystemSetup", () => ({
     ),
 }));
 vi.mock("@/components/deck/DeckCard", () => ({
-  default: ({ deck }: { deck: { title: string } }) => (
-    <article>{deck.title}</article>
+  default: ({
+    deck,
+    onDelete,
+    onDuplicate,
+  }: {
+    deck: { id: string; title: string };
+    onDelete?: (id: string) => void;
+    onDuplicate?: (id: string) => void;
+  }) => (
+    <article>
+      {deck.title}
+      <button type="button" onClick={() => onDuplicate?.(deck.id)}>
+        Duplicate {deck.title}
+      </button>
+      <button type="button" onClick={() => onDelete?.(deck.id)}>
+        Delete {deck.title}
+      </button>
+    </article>
   ),
 }));
 vi.mock("@/components/editor/DeckEditorSkeleton", () => ({
@@ -514,6 +531,7 @@ function renderHome(
     createDeck,
     updateDeck,
     catchUpStaleDeckList: vi.fn(),
+    loadDeckPreviews: vi.fn(async () => {}),
     ...overrides,
   });
   const home = () => (
@@ -543,6 +561,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(deckIdFromPathname).mockReset();
   homeSuggestionSubmit.invokeSubmit = false;
+  agentRun.generating = false;
   agentSubmit.mockReset().mockResolvedValue({ delivered: true });
   callAction.mockReset().mockImplementation(async (action: string) => {
     if (action === "get-deck-reference-context") {
@@ -614,6 +633,90 @@ describe("Slides prompt-led home", () => {
     expect(
       document.querySelector('[aria-busy="true"].skeleton-shimmer'),
     ).toBeNull();
+  });
+
+  it("keeps the composer and suggestions usable while an unrelated agent run is active", async () => {
+    agentRun.generating = true;
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    expect(promptProps.mock.lastCall?.[0].loading).toBe(false);
+    const suggestionBar = screen.getByLabelText("home.suggestedPrompts");
+    const suggestions = await within(suggestionBar).findAllByRole("button");
+    expect(
+      suggestions.every((button) => !button.hasAttribute("disabled")),
+    ).toBe(true);
+  });
+
+  it("shows an error when a deck delete fails", async () => {
+    const deleteDeck = vi.fn<(id: string, onFailure?: () => void) => void>();
+    renderHome({ decks: [ownDeck], deleteDeck });
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete My presentation" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "home.delete" }));
+
+    expect(deleteDeck).toHaveBeenCalledWith(ownDeck.id, expect.any(Function));
+    expect(toastError).not.toHaveBeenCalled();
+    const onFailure = deleteDeck.mock.lastCall?.[1];
+    expect(onFailure).toBeDefined();
+    await act(async () => {
+      onFailure?.();
+    });
+    expect(toastError).toHaveBeenCalledWith("home.deleteFailed");
+  });
+
+  it.each([
+    ["pending", false],
+    ["cancelled", false],
+    ["failed", true],
+  ] as const)(
+    "reports a duplicate failure only when the copy failed (%s)",
+    async (status, reportsFailure) => {
+      const duplicateDeck = vi.fn().mockResolvedValue({ status });
+      renderHome({ decks: [ownDeck], duplicateDeck });
+
+      await act(async () => {
+        fireEvent.click(
+          await screen.findByRole("button", {
+            name: "Duplicate My presentation",
+          }),
+        );
+      });
+
+      expect(duplicateDeck).toHaveBeenCalledTimes(1);
+      if (reportsFailure) {
+        expect(toastError).toHaveBeenCalledWith("home.duplicateFailed");
+      } else {
+        expect(toastError).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("links a blank deck to the default design system", async () => {
+    defaultDesignSystems.systems = [
+      { id: "personal-system", title: "Personal system" },
+    ];
+    defaultDesignSystems.personal = { id: "personal-system" };
+    createDeck.mockReturnValue({ id: "blank-deck", slides: [] });
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      promptProps.mock.lastCall?.[0].onSkip?.();
+    });
+    await act(async () => {
+      await referenceProps.mock.lastCall?.[0].onSkip();
+    });
+
+    expect(createDeck).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        designSystemId: "personal-system",
+        creation: { method: "blank" },
+      }),
+    );
   });
 
   it("does not restore home header state while the mounted page is away from home", () => {
@@ -2109,6 +2212,7 @@ describe("Slides prompt-led home", () => {
       reloadDecks,
       createDeck,
       catchUpStaleDeckList: vi.fn(),
+      loadDeckPreviews: vi.fn(async () => {}),
     });
     await act(async () => home.rerenderHome());
 
@@ -2155,6 +2259,7 @@ describe("Slides prompt-led home", () => {
       reloadDecks,
       createDeck,
       catchUpStaleDeckList: vi.fn(),
+      loadDeckPreviews: vi.fn(async () => {}),
     });
     await act(async () => home.rerenderHome());
 

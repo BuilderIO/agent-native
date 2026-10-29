@@ -1,9 +1,12 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import type {
   AttributedRecentEdit,
   CollabUser,
 } from "@agent-native/core/client/collab";
-import { useAvatarUrl } from "@agent-native/core/client/hooks";
+import {
+  deleteClientAppState,
+  useAvatarUrl,
+  writeClientAppState,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
 import { DEFAULT_AGENT_IDENTITY } from "@agent-native/toolkit/collab-ui";
@@ -16,7 +19,15 @@ import { CSS } from "@dnd-kit/utilities";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
 import { IconEyeOff, IconPlus, IconPresentation } from "@tabler/icons-react";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import {
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
@@ -154,6 +165,21 @@ export function getSlideSelection({
   return { selectedSlideIds: nextIds, anchorSlideId: nextAnchor };
 }
 
+/**
+ * The selection once `activeSlideId` is the open slide. Moving to a slide
+ * outside the selection (by URL, keyboard, presenter or agent navigation)
+ * selects just that slide, because slide cut, copy and delete act on the
+ * selection and must not hit a slide the user has left. Null when the
+ * selection already holds the open slide.
+ */
+export function selectionFollowingActiveSlide(
+  selectedSlideIds: string[],
+  activeSlideId: string | null,
+): string[] | null {
+  if (!activeSlideId || selectedSlideIds.includes(activeSlideId)) return null;
+  return [activeSlideId];
+}
+
 export function isContiguousSlideSelection(
   slideIds: string[],
   selectedSlideIds: string[],
@@ -165,6 +191,33 @@ export function isContiguousSlideSelection(
   }, []);
   return indexes.every(
     (index, offset) => offset === 0 || index === indexes[offset - 1]! + 1,
+  );
+}
+
+// Arrow keys inside these widgets move focus within the widget; the document
+// shortcut must not also change the active slide underneath it.
+const ARROW_KEY_OWNER_SELECTOR = [
+  '[role="menu"]',
+  '[role="menubar"]',
+  '[role="listbox"]',
+  '[role="combobox"]',
+  '[role="slider"]',
+  '[role="spinbutton"]',
+  '[role="radiogroup"]',
+  '[role="tablist"]',
+  '[role="tree"]',
+  '[role="treegrid"]',
+  '[role="grid"]',
+  '[role="dialog"]',
+  '[role="alertdialog"]',
+  "[data-radix-popper-content-wrapper]",
+  "select",
+].join(", ");
+
+function isArrowKeyOwnedByWidget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(ARROW_KEY_OWNER_SELECTOR) !== null
   );
 }
 
@@ -289,18 +342,31 @@ function PresenceAvatarTip({
   );
 }
 
-function SortableSlideThumb({
+const NO_PRESENCE: CollabUser[] = [];
+const NO_SLIDE_IDS: string[] = [];
+// Slides within this distance of the rail's viewport render real thumbnails;
+// the rest keep their frame (and height) with nothing inside.
+const THUMBNAIL_RENDER_MARGIN = "600px 0px";
+// Before the observer's first report, this many leading thumbnails render.
+const INITIAL_RENDERED_THUMBNAILS = 12;
+
+/**
+ * Memoized, and every callback it gets is keyed by slide id and stable, so an
+ * edit to one slide re-renders that slide's thumbnail and no other.
+ */
+const SortableSlideThumb = memo(function SortableSlideThumb({
   slide,
   index,
   slideCount,
   isActive,
   isSelected,
-  selectedSlideIds = [],
+  selectedSlideIds = NO_SLIDE_IDS,
+  renderContent,
   onSelect,
   onFilmstripNavigate,
   onMoveSlide,
   registerButtonRef,
-  presenceUsers = [],
+  presenceUsers = NO_PRESENCE,
   aspectRatio,
   designSystem,
   onOverflowChange,
@@ -324,22 +390,31 @@ function SortableSlideThumb({
   isActive: boolean;
   isSelected: boolean;
   selectedSlideIds?: string[];
-  onSelect: (options?: SlideSelectionOptions) => void;
+  /** False while the thumbnail is far from the rail's viewport. */
+  renderContent: boolean;
+  onSelect: (slideId: string, options?: SlideSelectionOptions) => void;
   onFilmstripNavigate: (
+    slideId: string,
     key: SlideRailNavigationKey,
     extendSelection?: boolean,
   ) => void;
-  onMoveSlide?: (key: "ArrowUp" | "ArrowDown", toBoundary: boolean) => void;
+  onMoveSlide?:
+    | ((
+        slideId: string,
+        key: "ArrowUp" | "ArrowDown",
+        toBoundary: boolean,
+      ) => void)
+    | undefined;
   readOnly?: boolean;
   registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
-  aspectRatio?: AspectRatio;
-  designSystem?: DesignSystemData;
-  onOverflowChange: (info: SlideOverflowInfo) => void;
+  aspectRatio?: AspectRatio | undefined;
+  designSystem?: DesignSystemData | undefined;
+  onOverflowChange: (slide: Slide, info: SlideOverflowInfo) => void;
   aiEditing?: boolean;
   isFillingPlaceholder?: boolean;
   canDelete?: boolean;
-  hasSlideClipboard?: boolean;
+  hasSlideClipboard?: boolean | undefined;
   onCutSlide?: (slideIds: string[]) => void;
   onCopySlide?: (slideIds: string[]) => void;
   onPasteSlide?: (slideId: string) => void;
@@ -347,7 +422,7 @@ function SortableSlideThumb({
   onNewSlideAfter?: (slideId: string) => void;
   onDuplicateSlide?: (slideIds: string[]) => void;
   onToggleSkipSlide?: (slideIds: string[], skipped: boolean) => void;
-  altDragSlideId?: string | null;
+  altDragSlideId?: string | null | undefined;
 }) {
   const t = useT();
   const {
@@ -382,6 +457,10 @@ function SortableSlideThumb({
   const actionSlideIds = selectedSlideIds.includes(slide.id)
     ? selectedSlideIds
     : [slide.id];
+  const reportOverflow = useCallback(
+    (info: SlideOverflowInfo) => onOverflowChange(slide, info),
+    [onOverflowChange, slide],
+  );
 
   return (
     <div ref={setNodeRef} style={style}>
@@ -408,7 +487,7 @@ function SortableSlideThumb({
               ) {
                 event.preventDefault();
                 event.stopPropagation();
-                onMoveSlide(event.key, event.shiftKey);
+                onMoveSlide(slide.id, event.key, event.shiftKey);
                 return;
               }
               listeners?.onKeyDown?.(event);
@@ -416,21 +495,23 @@ function SortableSlideThumb({
               if (!isSlideRailNavigationKey(event.key)) return;
               event.preventDefault();
               event.stopPropagation();
-              onFilmstripNavigate(event.key, event.shiftKey);
+              onFilmstripNavigate(slide.id, event.key, event.shiftKey);
             }}
             onClick={(event) => {
               event.currentTarget.focus();
-              onSelect({
+              onSelect(slide.id, {
                 shiftKey: event.shiftKey,
                 metaKey: event.metaKey,
                 ctrlKey: event.ctrlKey,
               });
             }}
             onContextMenu={() => {
-              if (!selectedSlideIds.includes(slide.id)) onSelect({});
+              if (!selectedSlideIds.includes(slide.id)) onSelect(slide.id, {});
             }}
             onFocus={(event) => {
-              if (event.currentTarget.matches(":focus-visible")) onSelect({});
+              if (event.currentTarget.matches(":focus-visible")) {
+                onSelect(slide.id, {});
+              }
             }}
             aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
             aria-current={isActive ? "true" : undefined}
@@ -471,7 +552,7 @@ function SortableSlideThumb({
                * lets it skip everything below the fold; `aspect-ratio` keeps the row
                * the right height while its contents are skipped. */}
               <div
-                data-slide-thumbnail-frame
+                data-slide-thumbnail-frame={slide.id}
                 className={`relative w-full overflow-hidden rounded border ${
                   slide.skipped ? "opacity-40" : ""
                 }`}
@@ -493,13 +574,15 @@ function SortableSlideThumb({
                   contentVisibility: "auto",
                 }}
               >
-                <SlideRenderer
-                  slide={slide}
-                  slidePosition={{ number: index + 1, count: slideCount }}
-                  aspectRatio={aspectRatio}
-                  designSystem={designSystem}
-                  onOverflowChange={onOverflowChange}
-                />
+                {renderContent ? (
+                  <SlideRenderer
+                    slide={slide}
+                    slidePosition={{ number: index + 1, count: slideCount }}
+                    aspectRatio={aspectRatio}
+                    designSystem={designSystem}
+                    onOverflowChange={reportOverflow}
+                  />
+                ) : null}
                 {showGeneratingShimmer && (
                   <div
                     aria-hidden="true"
@@ -573,7 +656,7 @@ function SortableSlideThumb({
       </ContextMenu>
     </div>
   );
-}
+});
 
 function GeneratingSlideSkeleton({
   index,
@@ -628,7 +711,7 @@ function GeneratingSlideSkeleton({
 export default function EditorSidebar({
   slides,
   activeSlideId,
-  selectedSlideIds = [],
+  selectedSlideIds = NO_SLIDE_IDS,
   deckId,
   deckTitle,
   onSelectSlide,
@@ -718,16 +801,10 @@ export default function EditorSidebar({
       aspectRatio: aspectRatio ?? "16:9",
       slides: measuredSlides,
     };
-    const body = JSON.stringify(payload);
     for (const key of DECK_FIT_STATE_KEYS) {
-      fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
-        method: "PUT",
+      writeClientAppState(key, payload, {
         keepalive: true,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Request-Source": TAB_ID,
-        },
-        body,
+        requestSource: TAB_ID,
       }).catch(() => {});
     }
   }, [aspectRatio, deckId, slides]);
@@ -765,10 +842,9 @@ export default function EditorSidebar({
     return () => {
       if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
       for (const key of DECK_FIT_STATE_KEYS) {
-        fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
-          method: "DELETE",
+        deleteClientAppState(key, {
           keepalive: true,
-          headers: { "X-Request-Source": TAB_ID },
+          requestSource: TAB_ID,
         }).catch(() => {});
       }
     };
@@ -901,6 +977,102 @@ export default function EditorSidebar({
     [onReorderSlides, readOnly, selectedSlideIds, slides],
   );
 
+  // Thumbnails get these stable wrappers, so a change to the slide list or a
+  // parent re-render does not re-render every memoized thumbnail.
+  const thumbHandlersRef = useRef({
+    onSelectSlide,
+    navigateToSlide,
+    moveSlideFromKeyboard,
+    handleSlideOverflowChange,
+    handleDeleteSlide,
+    onCutSlide,
+    onCopySlide,
+    onPasteSlide,
+    onNewSlideAfter,
+    onDuplicateSlide,
+    onToggleSkipSlide,
+  });
+  useLayoutEffect(() => {
+    thumbHandlersRef.current = {
+      onSelectSlide,
+      navigateToSlide,
+      moveSlideFromKeyboard,
+      handleSlideOverflowChange,
+      handleDeleteSlide,
+      onCutSlide,
+      onCopySlide,
+      onPasteSlide,
+      onNewSlideAfter,
+      onDuplicateSlide,
+      onToggleSkipSlide,
+    };
+  });
+  const [thumbHandlers] = useState(() => ({
+    select: (slideId: string, options?: SlideSelectionOptions) =>
+      thumbHandlersRef.current.onSelectSlide(slideId, options),
+    navigate: (
+      slideId: string,
+      key: SlideRailNavigationKey,
+      extendSelection?: boolean,
+    ) =>
+      thumbHandlersRef.current.navigateToSlide(slideId, key, extendSelection),
+    move: (
+      slideId: string,
+      key: "ArrowUp" | "ArrowDown",
+      toBoundary: boolean,
+    ) =>
+      thumbHandlersRef.current.moveSlideFromKeyboard(slideId, key, toBoundary),
+    overflow: (slide: Slide, info: SlideOverflowInfo) =>
+      thumbHandlersRef.current.handleSlideOverflowChange(slide, info),
+    delete: (slideIds: string[]) =>
+      thumbHandlersRef.current.handleDeleteSlide(slideIds),
+    cut: (slideIds: string[]) =>
+      thumbHandlersRef.current.onCutSlide?.(slideIds),
+    copy: (slideIds: string[]) =>
+      thumbHandlersRef.current.onCopySlide?.(slideIds),
+    paste: (slideId: string) =>
+      thumbHandlersRef.current.onPasteSlide?.(slideId),
+    newAfter: (slideId: string) =>
+      thumbHandlersRef.current.onNewSlideAfter?.(slideId),
+    duplicate: (slideIds: string[]) =>
+      thumbHandlersRef.current.onDuplicateSlide?.(slideIds),
+    toggleSkip: (slideIds: string[], skipped: boolean) =>
+      thumbHandlersRef.current.onToggleSkipSlide?.(slideIds, skipped),
+  }));
+
+  // Real thumbnails render only near the rail's viewport (the same windowing
+  // as the canvas scroll previews); `null` until the observer first reports.
+  const thumbnailListRef = useRef<HTMLDivElement>(null);
+  const [nearThumbnailIds, setNearThumbnailIds] =
+    useState<ReadonlySet<string> | null>(null);
+  const thumbnailIdsKey = slides.map((slide) => slide.id).join("|");
+  useEffect(() => {
+    const list = thumbnailListRef.current;
+    if (!list || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setNearThumbnailIds((current) => {
+          const next = new Set(current ?? []);
+          for (const entry of entries) {
+            const slideId = (entry.target as HTMLElement).dataset
+              .slideThumbnailFrame;
+            if (!slideId) continue;
+            if (entry.isIntersecting) next.add(slideId);
+            else next.delete(slideId);
+          }
+          return next;
+        });
+      },
+      { root: list, rootMargin: THUMBNAIL_RENDER_MARGIN },
+    );
+    for (const frame of list.querySelectorAll<HTMLElement>(
+      "[data-slide-thumbnail-frame]",
+    )) {
+      observer.observe(frame);
+    }
+    return () => observer.disconnect();
+  }, [thumbnailIdsKey]);
+
   const describeSlideIndex = describeSlideId
     ? slides.findIndex((s) => s.id === describeSlideId)
     : -1;
@@ -908,6 +1080,7 @@ export default function EditorSidebar({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      if (e.defaultPrevented || isArrowKeyOwnedByWidget(e.target)) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (
         tag === "INPUT" ||
@@ -967,6 +1140,7 @@ export default function EditorSidebar({
         }
       >
         <div
+          ref={thumbnailListRef}
           className="h-full min-h-0 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain p-2"
           onScroll={(event) => {
             setThumbnailListScrolled(event.currentTarget.scrollTop > 1);
@@ -976,52 +1150,54 @@ export default function EditorSidebar({
             items={slides.map((s) => s.id)}
             strategy={verticalListSortingStrategy}
           >
-            {slides.map((slide, index) => (
-              <SortableSlideThumb
-                key={slide.id}
-                slide={slide}
-                index={index}
-                slideCount={slides.length}
-                isActive={slide.id === activeSlideId}
-                isSelected={selectedSlideIds.includes(slide.id)}
-                selectedSlideIds={selectedSlideIds}
-                onSelect={(options) => onSelectSlide(slide.id, options)}
-                onFilmstripNavigate={(key, extendSelection) =>
-                  navigateToSlide(slide.id, key, extendSelection)
-                }
-                onMoveSlide={
-                  onReorderSlides
-                    ? (key, toBoundary) =>
-                        moveSlideFromKeyboard(slide.id, key, toBoundary)
-                    : undefined
-                }
-                readOnly={readOnly}
-                registerButtonRef={registerSlideButton}
-                presenceUsers={slidePresence?.get(slide.id) ?? []}
-                aspectRatio={aspectRatio}
-                designSystem={designSystem}
-                aiEditing={aiEditedSlideIds.has(slide.id)}
-                isFillingPlaceholder={slide.id === aiGeneratingSlideId}
-                canDelete={
-                  slides.length >
-                  (selectedSlideIds.includes(slide.id)
-                    ? selectedSlideIds.length
-                    : 1)
-                }
-                hasSlideClipboard={hasSlideClipboard}
-                onCutSlide={onCutSlide}
-                onCopySlide={onCopySlide}
-                onPasteSlide={onPasteSlide}
-                onDeleteSlide={handleDeleteSlide}
-                onNewSlideAfter={onNewSlideAfter}
-                onDuplicateSlide={onDuplicateSlide}
-                altDragSlideId={altDragSlideId}
-                onToggleSkipSlide={onToggleSkipSlide}
-                onOverflowChange={(info) =>
-                  handleSlideOverflowChange(slide, info)
-                }
-              />
-            ))}
+            {slides.map((slide, index) => {
+              const isSelected = selectedSlideIds.includes(slide.id);
+              const isActive = slide.id === activeSlideId;
+              return (
+                <SortableSlideThumb
+                  key={slide.id}
+                  slide={slide}
+                  index={index}
+                  slideCount={slides.length}
+                  isActive={isActive}
+                  isSelected={isSelected}
+                  // Only a selected thumbnail acts on the selection, so the
+                  // rest keep a stable prop when it changes.
+                  selectedSlideIds={
+                    isSelected ? selectedSlideIds : NO_SLIDE_IDS
+                  }
+                  renderContent={
+                    isActive ||
+                    (nearThumbnailIds === null
+                      ? index < INITIAL_RENDERED_THUMBNAILS
+                      : nearThumbnailIds.has(slide.id))
+                  }
+                  onSelect={thumbHandlers.select}
+                  onFilmstripNavigate={thumbHandlers.navigate}
+                  onMoveSlide={onReorderSlides ? thumbHandlers.move : undefined}
+                  readOnly={readOnly}
+                  registerButtonRef={registerSlideButton}
+                  presenceUsers={slidePresence?.get(slide.id) ?? NO_PRESENCE}
+                  aspectRatio={aspectRatio}
+                  designSystem={designSystem}
+                  aiEditing={aiEditedSlideIds.has(slide.id)}
+                  isFillingPlaceholder={slide.id === aiGeneratingSlideId}
+                  canDelete={
+                    slides.length > (isSelected ? selectedSlideIds.length : 1)
+                  }
+                  hasSlideClipboard={hasSlideClipboard}
+                  onCutSlide={thumbHandlers.cut}
+                  onCopySlide={thumbHandlers.copy}
+                  onPasteSlide={thumbHandlers.paste}
+                  onDeleteSlide={thumbHandlers.delete}
+                  onNewSlideAfter={thumbHandlers.newAfter}
+                  onDuplicateSlide={thumbHandlers.duplicate}
+                  altDragSlideId={altDragSlideId}
+                  onToggleSkipSlide={thumbHandlers.toggleSkip}
+                  onOverflowChange={thumbHandlers.overflow}
+                />
+              );
+            })}
           </SortableContext>
           {slides.length === 0 && generatingSlides.length === 0 && (
             <div className="flex flex-col items-center gap-2 p-8 text-center">

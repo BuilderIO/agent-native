@@ -81,6 +81,7 @@ import {
   requestDesignHistoryOpen,
   requestDesignUiToggle,
 } from "@/lib/design-ui-events";
+import "@/lib/register-google-font-catalog";
 
 import changelog from "../CHANGELOG.md?raw";
 import { getDesignGenerationPageviewProvenanceFromProperties } from "../shared/generation-provenance.js";

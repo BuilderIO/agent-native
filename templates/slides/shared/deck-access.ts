@@ -24,3 +24,27 @@ export function deckAccessApprovalContinuationPath(deckId: string): string {
 export function deckAccessApprovalSessionKey(deckId: string): string {
   return `${SLIDES_ACCESS_APPROVAL_SESSION_KEY_PREFIX}${encodeURIComponent(deckId)}`;
 }
+
+/** The roles an access request can ask for, and an approval can grant. */
+export const DECK_ACCESS_REQUEST_ROLES = ["viewer", "editor"] as const;
+export type DeckAccessRequestRole = (typeof DECK_ACCESS_REQUEST_ROLES)[number];
+
+const DECK_ROLE_RANK = {
+  viewer: 0,
+  commenter: 1,
+  editor: 2,
+  admin: 3,
+  owner: 4,
+} as const;
+
+/** Whether someone holding `role` on a deck already has `requested`. */
+export function deckRoleCovers(
+  role: string,
+  requested: DeckAccessRequestRole,
+): boolean {
+  return (
+    Object.hasOwn(DECK_ROLE_RANK, role) &&
+    DECK_ROLE_RANK[role as keyof typeof DECK_ROLE_RANK] >=
+      DECK_ROLE_RANK[requested]
+  );
+}

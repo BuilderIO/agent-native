@@ -262,6 +262,28 @@ describe("PresenterView with an audience", () => {
       false,
     ]);
   });
+  it("relays clicker and Home/End keys to the audience", () => {
+    const audience = render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+
+    fireEvent.keyDown(window, { key: "End" });
+    expect(within(audience.container).getByText("3 / 3")).toBeTruthy();
+    expect(within(presenter.container).getByText("3 / 3")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "PageUp" });
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Home" });
+    expect(within(audience.container).getByText("1 / 3")).toBeTruthy();
+    expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "PageDown" });
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+  });
 });
 
 describe("PresenterView after the audience leaves", () => {

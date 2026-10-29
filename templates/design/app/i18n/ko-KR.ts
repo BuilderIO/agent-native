@@ -434,6 +434,7 @@ export default {
       font: "세례반",
       baseSize: "기본 크기",
       size: "크기",
+      fontSizes: "글꼴 크기",
       weight: "무게",
       color: "색상",
       align: "맞추다",
@@ -881,6 +882,9 @@ export default {
       right: "아르 자형",
       bottom: "비",
       left: "엘",
+    },
+    fontPicker: {
+      catalogUnavailable: "전체 글꼴 라이브러리를 불러오지 못했습니다.",
     },
     fontFamilies: {
       inherit: "상속",
@@ -2864,8 +2868,6 @@ export default {
       dismiss: "닫기",
     },
     import: "가져오기",
-    importOptions: "가져오기 옵션",
-    figmaLink: "Figma 링크",
     importFromFigma: "Figma에서 가져오기",
     figmaFile: "Figma 파일 (.fig)",
     figmaFileMaxSize: "최대 {{max}}GB",

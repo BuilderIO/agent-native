@@ -364,6 +364,7 @@ export default {
       font: "Font",
       baseSize: "Base Size",
       size: "Size",
+      fontSizes: "Font sizes",
       weight: "Weight",
       color: "Color",
       align: "Align",
@@ -812,6 +813,9 @@ export default {
       right: "R",
       bottom: "B",
       left: "L",
+    },
+    fontPicker: {
+      catalogUnavailable: "Couldn't load the full font library.",
     },
     fontFamilies: {
       inherit: "Inherit",
@@ -2798,8 +2802,6 @@ export default {
       dismiss: "Dismiss",
     },
     import: "Import",
-    importOptions: "Import options",
-    figmaLink: "Figma link",
     importFromFigma: "Import from Figma",
     figmaFile: "Figma file (.fig)",
     figmaFileMaxSize: "Up to {{max}} GB",

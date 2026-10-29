@@ -444,6 +444,7 @@ export default {
       font: "Schriftart",
       baseSize: "Basisgröße",
       size: "Größe",
+      fontSizes: "Schriftgrößen",
       weight: "Gewicht",
       color: "Farbe",
       align: "Ausrichten",
@@ -896,6 +897,10 @@ export default {
       right: "R",
       bottom: "B",
       left: "L",
+    },
+    fontPicker: {
+      catalogUnavailable:
+        "Die vollständige Schriftbibliothek konnte nicht geladen werden.",
     },
     fontFamilies: {
       inherit: "Erben",
@@ -2922,8 +2927,6 @@ export default {
       dismiss: "Schließen",
     },
     import: "Importieren",
-    importOptions: "Importoptionen",
-    figmaLink: "Figma-Link",
     importFromFigma: "Aus Figma importieren",
     figmaFile: "Figma-Datei (.fig)",
     figmaFileMaxSize: "Bis zu {{max}} GB",

@@ -1,6 +1,6 @@
 import type { SlideTransitionType } from "../../../shared/slide-transitions";
 
-export type SlideNavigationCommand = "next" | "prev";
+export type SlideNavigationCommand = "next" | "prev" | "first" | "last";
 export type SlideDirection = "forward" | "backward";
 
 export interface SlideFlight {
@@ -127,11 +127,53 @@ function arrivingBuildsLeft(
   );
 }
 
+/**
+ * The deck command a key press asks for. Presentation clickers send PageDown
+ * and PageUp, so they step the same as the arrow keys.
+ */
+export function slideNavigationKeyCommand(
+  key: string,
+): SlideNavigationCommand | null {
+  switch (key) {
+    case "ArrowRight":
+    case "ArrowDown":
+    case "PageDown":
+    case " ":
+      return "next";
+    case "ArrowLeft":
+    case "ArrowUp":
+    case "PageUp":
+      return "prev";
+    case "Home":
+      return "first";
+    case "End":
+      return "last";
+    default:
+      return null;
+  }
+}
+
+function jumpIndex(
+  command: "first" | "last",
+  layout: SlideNavigationLayout,
+): number {
+  return command === "first" ? 0 : Math.max(0, layout.stepCounts.length - 1);
+}
+
 export function canCommand(
   state: SlideNavigationState,
   layout: SlideNavigationLayout,
   command: SlideNavigationCommand,
 ): boolean {
+  if (command === "first" || command === "last") {
+    const index = jumpIndex(command, layout);
+    return (
+      state.flight !== null ||
+      state.displayedIndex !== index ||
+      state.targetIndex !== index ||
+      state.buildStep !== 0
+    );
+  }
   if (command === "prev") {
     return state.targetIndex > 0 || prevConsumesBuildStep(state);
   }
@@ -203,6 +245,14 @@ export function reduceSlideNavigation(
   switch (action.type) {
     case "command": {
       if (slideCount === 0) return state;
+      if (action.command === "first" || action.command === "last") {
+        // A jump lands at once, on the slide unbuilt, and drops any flight.
+        if (!canCommand(state, layout, action.command)) return state;
+        return {
+          ...createSlideNavigation(jumpIndex(action.command, layout)),
+          flightSequence: state.flightSequence,
+        };
+      }
       if (action.command === "prev") {
         if (prevConsumesBuildStep(state)) {
           return { ...state, buildStep: state.buildStep - 1 };

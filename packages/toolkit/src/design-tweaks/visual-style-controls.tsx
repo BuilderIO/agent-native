@@ -1,4 +1,4 @@
-import { IconColorPicker } from "@tabler/icons-react";
+import { IconChevronDown, IconColorPicker } from "@tabler/icons-react";
 import {
   useEffect,
   useRef,
@@ -381,6 +381,41 @@ export function VisualSwatchControl({
   );
 }
 
+/**
+ * The text color mark people know from document editors: a bold "A" over a
+ * thick bar in the picked color, in a 16px box like the icons beside it. The
+ * bar keeps a faint outline so a color that matches the toolbar, like white
+ * on a dark theme, still reads as a bar.
+ */
+function TextColorMark({ color }: { color: string | null }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4 shrink-0">
+      <text
+        x="12"
+        y="15.5"
+        textAnchor="middle"
+        fontSize="17"
+        fontWeight={600}
+        fill="currentColor"
+        style={{ fontFamily: "inherit" }}
+      >
+        A
+      </text>
+      <rect
+        x="3.5"
+        y="18"
+        width="17"
+        height="4.5"
+        rx="1"
+        stroke="currentColor"
+        strokeWidth={1}
+        strokeOpacity={0.35}
+        style={{ fill: color ?? "transparent" }}
+      />
+    </svg>
+  );
+}
+
 export function VisualColorPicker({
   label,
   value,
@@ -396,6 +431,7 @@ export function VisualColorPicker({
   mixedLabel = "Mixed",
   variant = "outline",
   glyph,
+  textColor = false,
 }: {
   label: string;
   value: string;
@@ -415,6 +451,11 @@ export function VisualColorPicker({
   mixedLabel?: string;
   variant?: "outline" | "filled" | "swatch";
   glyph?: ReactNode;
+  /**
+   * With `variant="swatch"`, draws the swatch as a text color mark: an "A"
+   * over a bar in the picked color.
+   */
+  textColor?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const color = parseCssColor(value) ?? FALLBACK_RGBA;
@@ -501,13 +542,22 @@ export function VisualColorPicker({
           className,
         )}
       >
-        {glyph && variant === "swatch" ? (
+        {textColor && variant === "swatch" ? (
+          <TextColorMark color={mixed ? null : value} />
+        ) : glyph && variant === "swatch" ? (
+          // The glyph and its color bar share one 16px icon box, so the
+          // swatch sits on the same center line as the icons beside it.
           <span
             aria-hidden="true"
-            className="text-[13px] font-semibold leading-none text-foreground underline decoration-[3px] underline-offset-[3px] [filter:drop-shadow(0.5px_0_0_rgba(0,0,0,0.25))_drop-shadow(-0.5px_0_0_rgba(0,0,0,0.25))_drop-shadow(0_0.5px_0_rgba(0,0,0,0.25))_drop-shadow(0_-0.5px_0_rgba(0,0,0,0.25))]"
-            style={mixed ? undefined : { textDecorationColor: value }}
+            className="flex size-4 shrink-0 flex-col items-center justify-between"
           >
-            {glyph}
+            <span className="flex h-3 items-center justify-center text-xs font-semibold leading-none text-foreground [&_svg]:size-3">
+              {glyph}
+            </span>
+            <span
+              className="h-1 w-3.5 rounded-[1px] border border-border/70"
+              style={swatchBackground(mixed ? "transparent" : value)}
+            />
           </span>
         ) : (
           <span
@@ -520,9 +570,9 @@ export function VisualColorPicker({
             <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">
               {displayValue}
             </span>
-            <span
+            <IconChevronDown
               aria-hidden="true"
-              className="size-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70"
+              className="size-3 shrink-0 text-muted-foreground"
             />
           </>
         )}

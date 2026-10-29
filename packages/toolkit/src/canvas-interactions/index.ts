@@ -65,3 +65,4 @@ export {
   type CanvasTextEditPolicy,
   type CanvasViewport,
 } from "./canvas-interactions.js";
+export { normalizeCanvasHotkeyKey } from "./hotkey-keys.js";

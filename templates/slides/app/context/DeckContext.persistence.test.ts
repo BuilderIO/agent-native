@@ -52,6 +52,7 @@ import {
   clearSlideEditingActive,
   deckContentSignature,
   flushPendingSaves,
+  getDeckFieldConflicts,
   getDeckSaveError,
   getStaleContentConflictSlideId,
   hasFailedDeckSave,
@@ -65,6 +66,7 @@ import {
   useDeckContentConflicts,
   useDecks,
   type Deck,
+  type DuplicateDeckResult,
   type DeckReloadStatus,
   type Slide,
 } from "./DeckContext";
@@ -2088,6 +2090,87 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasFailedDeckSave(deckId)).toBe(false);
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
+
+  it.each([
+    ["keep-mine", "Local notes", "Local notes"],
+    ["use-latest", "Peer notes", "Peer notes"],
+  ] as const)(
+    "resolves a speaker notes conflict with %s",
+    async (choice, expectedLocal, expectedServer) => {
+      const deckId = `notes-conflict-${choice}`;
+      window.history.pushState({}, "", `/deck/${deckId}`);
+      const { setAccessibleDeck, getAccessibleDeck } = setupFetch({
+        slideFieldConflicts: {
+          deckId,
+          count: 1,
+          slideId: "slide-1",
+          field: "notes",
+          remoteValue: "Peer notes",
+        },
+        serverFaithfulClientWrites: true,
+      });
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      setAccessibleDeck({
+        id: deckId,
+        title: "Notes conflict deck",
+        createdAt: "2026-05-12T00:00:00.000Z",
+        updatedAt: "2026-05-12T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "One",
+            notes: "Old notes",
+            layout: "title",
+          },
+        ],
+      });
+      await act(async () => {
+        await result.current.reloadDecks();
+      });
+      act(() => {
+        result.current.updateSlide(
+          deckId,
+          "slide-1",
+          { notes: "Local notes" },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await expect(result.current.flushDeckSave(deckId)).rejects.toThrow(
+          "unresolved slide field conflict",
+        );
+      });
+      expect(getDeckFieldConflicts(deckId)).toEqual([
+        {
+          slideId: "slide-1",
+          field: "notes",
+          localValue: "Local notes",
+          remoteValue: "Peer notes",
+        },
+      ]);
+
+      let resolution: unknown;
+      await act(async () => {
+        resolution = await result.current.resolveDeckFieldConflict(
+          deckId,
+          "slide-1",
+          "notes",
+          choice,
+        );
+      });
+
+      expect(resolution).toEqual({ status: "resolved" });
+      expect(getDeckFieldConflicts(deckId)).toEqual([]);
+      expect(hasFailedDeckSave(deckId)).toBe(false);
+      expect(
+        result.current.decks
+          .find((deck) => deck.id === deckId)
+          ?.slides.find((slide) => slide.id === "slide-1")?.notes,
+      ).toBe(expectedLocal);
+      expect(getAccessibleDeck()?.slides[0]?.notes).toBe(expectedServer);
+    },
+  );
 
   it("quarantines a stale slide field while saving unrelated edits", async () => {
     const deckId = "mixed-slide-field-conflict-deck";
@@ -6514,6 +6597,74 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it("undoes a slide delete from its token only while it is the newest step", async () => {
+    window.history.pushState({}, "", "/deck/undo-if-latest-deck");
+    const initial: Deck = {
+      id: "undo-if-latest-deck",
+      title: "Undo If Latest Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "keep-slide",
+          content: '<div class="fmd-slide"><h1>Keep</h1></div>',
+          notes: "",
+          layout: "title",
+        },
+        {
+          id: "drop-slide",
+          content: '<div class="fmd-slide"><h1>Drop</h1></div>',
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const deleted: { token: string | null } = { token: null };
+    await act(async () => {
+      deleted.token = result.current.deleteSlides(initial.id, ["drop-slide"]);
+      await result.current.flushDeckSave(initial.id);
+    });
+    const token = deleted.token ?? "";
+    expect(token).not.toBe("");
+
+    await act(async () => {
+      result.current.updateSlide(initial.id, "keep-slide", {
+        notes: "Edited after the delete",
+      });
+      await result.current.flushDeckSave(initial.id);
+    });
+    let undone = true;
+    await act(async () => {
+      undone = result.current.undoIfLatest(initial.id, token);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(undone).toBe(false);
+    const afterStaleUndo = result.current.getDeck(initial.id)?.slides;
+    expect(afterStaleUndo?.map((slide) => slide.id)).toEqual(["keep-slide"]);
+    expect(afterStaleUndo?.[0]?.notes).toBe("Edited after the delete");
+
+    await act(async () => {
+      result.current.undo(initial.id);
+      await result.current.flushDeckSave(initial.id);
+    });
+    await act(async () => {
+      undone = result.current.undoIfLatest(initial.id, token);
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(undone).toBe(true);
+    expect(
+      result.current.getDeck(initial.id)?.slides.map((slide) => slide.id),
+    ).toEqual(["keep-slide", "drop-slide"]);
+  });
+
   it("keeps a remotely assigned slide object ID when undo conflicts", async () => {
     window.history.pushState({}, "", "/deck/undo-remote-object-id-deck");
     const initial: Deck = {
@@ -7531,6 +7682,49 @@ describe("DeckContext deck creation persistence", () => {
 
     write(1, false);
     write(2, false);
+    await act(async () => result.current.undo("shared-deck"));
+    expect(contentOf()).toContain(">0<");
+  });
+
+  it("undoes a run of writes sharing an undo coalesce key as one step", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide">0</div>',
+          notes: "",
+          layout: "title",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    const contentOf = () =>
+      result.current.getDeck("shared-deck")?.slides[0]?.content;
+    const write = (n: number, undoCoalesceKey: string) =>
+      act(() => {
+        result.current.updateSlide(
+          "shared-deck",
+          "slide-1",
+          { content: `<div class="fmd-slide">${n}</div>` },
+          { separateUndo: true, undoCoalesceKey },
+        );
+      });
+
+    write(1, "nudge:slide-1:a");
+    write(2, "nudge:slide-1:a");
+    write(3, "nudge:slide-1:b");
+    await act(async () => result.current.undo("shared-deck"));
+    expect(contentOf()).toContain(">2<");
     await act(async () => result.current.undo("shared-deck"));
     expect(contentOf()).toContain(">0<");
   });
@@ -8840,7 +9034,9 @@ describe("DeckContext deck creation persistence", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     deferNextGetDeck();
-    let duplicatePromise: Promise<Deck | null> = Promise.resolve(null);
+    let duplicatePromise: Promise<DuplicateDeckResult> = Promise.resolve({
+      status: "failed",
+    });
     act(() => {
       duplicatePromise = result.current.duplicateDeck(
         source.id,
@@ -8855,14 +9051,14 @@ describe("DeckContext deck creation persistence", () => {
       rerender();
     });
 
-    let duplicate: Deck | null = source;
+    let duplicate: DuplicateDeckResult = { status: "created", deck: source };
     await act(async () => {
       resolveDeferredGetDeck();
       duplicate = await duplicatePromise;
     });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(duplicate).toBeNull();
+    expect(duplicate).toEqual({ status: "cancelled" });
     expect(
       fetchMock.mock.calls.some(([url]) =>
         requestString(url).includes("/_agent-native/actions/duplicate-deck"),
@@ -8921,7 +9117,10 @@ describe("DeckContext deck creation persistence", () => {
       await Promise.resolve();
     });
 
-    let overlappingDuplicate: Deck | null = newSource;
+    let overlappingDuplicate: DuplicateDeckResult = {
+      status: "created",
+      deck: newSource,
+    };
     await act(async () => {
       overlappingDuplicate = await result.current.duplicateDeck(
         newSource.id,
@@ -8930,7 +9129,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     expect(oldFailure).not.toHaveBeenCalled();
-    expect(overlappingDuplicate).toBeNull();
+    expect(overlappingDuplicate).toEqual({ status: "pending" });
     expect(pendingDuplicateCount()).toBe(1);
     expect(result.current.getDeck("new-org-copy")).toBeDefined();
   });
@@ -8967,6 +9166,37 @@ describe("DeckContext deck creation persistence", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.decks).toEqual([]);
     expect(result.current.getDeck(oldDeck.id)).toBeUndefined();
+  });
+
+  it("restores a deck and reports the failure when its delete is rejected", async () => {
+    window.history.pushState({}, "", "/");
+    orgQueryState.data = { orgId: "org-a" };
+    const deck: Deck = {
+      id: "undeletable-deck",
+      title: "Undeletable Deck",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+      slides: [],
+    };
+    const { setAccessibleDeck, rejectDeferredDelete } = setupFetch({
+      deferredDelete: true,
+    });
+    setAccessibleDeck(deck);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const onFailure = vi.fn();
+
+    act(() => result.current.deleteDeck(deck.id, onFailure));
+    expect(result.current.getDeck(deck.id)).toBeUndefined();
+    expect(onFailure).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rejectDeferredDelete();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(onFailure).toHaveBeenCalledTimes(1));
+    expect(result.current.getDeck(deck.id)).toBeDefined();
   });
 
   it("does not defer an optimistic delete into the next organization", async () => {

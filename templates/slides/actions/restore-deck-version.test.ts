@@ -142,4 +142,31 @@ describe("restore-deck-version action", () => {
     expect(mockNotifyClients).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
+
+  it("keeps the deck's design system when the snapshot does not record one", async () => {
+    limitFn.mockResolvedValueOnce([
+      {
+        ...version,
+        data: JSON.stringify({
+          id: "deck-1",
+          title: "Deck",
+          slides: [{ id: "slide-1", content: "older" }],
+          updatedAt: "2026-09-02T00:00:01.000Z",
+        }),
+      },
+    ]);
+    const setFn = vi.fn(() => ({
+      where: vi.fn(async () => ({ rowCount: 1 })),
+    }));
+    mockDb.transaction.mockImplementationOnce(
+      async (run: (tx: unknown) => Promise<void>) =>
+        run({ update: () => ({ set: setFn }) }),
+    );
+
+    await action.run({ deckId: "deck-1", versionId: "version-1" });
+
+    expect(setFn).toHaveBeenCalledWith(
+      expect.objectContaining({ designSystemId: "system-1" }),
+    );
+  });
 });

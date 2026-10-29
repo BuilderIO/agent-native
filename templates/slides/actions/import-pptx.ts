@@ -22,6 +22,7 @@ import {
   type ParsedImage,
   type ParsedPresentation,
 } from "../server/handlers/import/pptx-parser.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import { trackSlides } from "../server/lib/slides-tracking.js";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
@@ -248,7 +249,7 @@ export async function importPptxBufferToDeck(args: {
         .update(schema.decks)
         .set({
           title: deckTitle,
-          data: JSON.stringify(data),
+          ...deckDataColumns(data),
           ...(designSystemId !== undefined
             ? { designSystemId }
             : { designSystemId: latestDeck.designSystemId }),
@@ -289,7 +290,7 @@ export async function importPptxBufferToDeck(args: {
   await db.insert(schema.decks).values({
     id,
     title: deckTitle,
-    data: JSON.stringify(data),
+    ...deckDataColumns(data),
     ownerEmail,
     orgId: getRequestOrgId(),
     designSystemId: designSystemId ?? undefined,

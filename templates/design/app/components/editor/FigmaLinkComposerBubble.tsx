@@ -34,7 +34,7 @@ import {
 const FIGMA_TOKEN_DOCS_URL =
   "https://developers.figma.com/docs/rest-api/personal-access-tokens/";
 
-function getFigmaFileTitle(link: FigmaLink): string | null {
+export function getFigmaFileTitle(link: FigmaLink): string | null {
   const segments = new URL(link.url).pathname.split("/").filter(Boolean);
   const fileKeyIndex = segments.indexOf(link.fileKey);
   const encodedTitle =

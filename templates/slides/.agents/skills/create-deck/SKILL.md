@@ -30,6 +30,10 @@ for example `skill-create-deck--references-reference-inputs`.
 
 ## Workflow
 
+When the context already gives a deck id, the deck exists: skip `create-deck`,
+and skip the workspace-defaults and design-system lookups whose results the
+context already provides.
+
 1. Read the `creative-context` skill and retrieve factual evidence separately
    from presentation structure. Respect `contextMode: "off"`.
 2. Unless the user named a reference deck or design system, call
@@ -196,8 +200,10 @@ line-height x wrapped lines (average glyph width is about 0.5 x font-size), plus
 padding and gaps. Count every wrapped line and keep about 10% slack for the
 measured check. Example: a two-line 34px/1.12 heading (76) + 18 gap + three
 cards of two 18px/1.4 lines plus 24 padding (3 x 74 = 223) + two 14px gaps (28)
-= 345, inside 412; a fourth card adds 88 and does not fit. When the total
-exceeds the budget, split the slide; do not shrink type, padding, or gaps.
+= 345, inside 412; a fourth card adds 88 and does not fit. When a new slide's
+total exceeds the budget, split it; do not shrink type, padding, or gaps. When
+the user asks to add content to an existing slide, keep it on that slide as
+`slide-editing` (Fit and layout checks) describes.
 
 Build an intentional composition beyond a text dump: use a title block,
 two-column split, metric treatment, rule, callout, visual placeholder, or

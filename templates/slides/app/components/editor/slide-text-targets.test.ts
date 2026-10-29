@@ -7,7 +7,9 @@ import {
   findSmartBlock,
   getSlideCanvasTraversalElements,
   isRichTextBlock,
+  isSlideCanvasShortcutBlocked,
   isSlideCanvasShortcutTarget,
+  isSlideCanvasTabTarget,
   isSlideTextEditingTarget,
   isTextLeaf,
   isTransparentLayoutWrapper,
@@ -150,6 +152,42 @@ describe("slide text targets", () => {
     expect(isSlideCanvasShortcutTarget(activeElement, null)).toBe(false);
     expect(isSlideCanvasShortcutTarget(null, canvas)).toBe(false);
     expect(isSlideCanvasShortcutTarget(document.body, canvas)).toBe(true);
+  });
+
+  it("cycles objects with Tab only from inside the canvas", () => {
+    const canvas = document.createElement("div");
+    const selectedObject = document.createElement("div");
+    canvas.append(selectedObject);
+    document.body.append(canvas);
+
+    expect(isSlideCanvasTabTarget(canvas, canvas)).toBe(true);
+    expect(isSlideCanvasTabTarget(selectedObject, canvas)).toBe(true);
+    expect(isSlideCanvasTabTarget(document.body, canvas)).toBe(false);
+    canvas.remove();
+  });
+
+  it("blocks canvas shortcuts from toolbars, menus and dialogs", () => {
+    const surface = (attributes: Record<string, string>) => {
+      const host = document.createElement("div");
+      for (const [name, value] of Object.entries(attributes)) {
+        host.setAttribute(name, value);
+      }
+      const button = document.createElement("button");
+      host.append(button);
+      return button;
+    };
+
+    expect(
+      isSlideCanvasShortcutBlocked(
+        surface({ "data-slide-context-toolbar": "true" }),
+      ),
+    ).toBe(true);
+    expect(isSlideCanvasShortcutBlocked(surface({ role: "menu" }))).toBe(true);
+    expect(isSlideCanvasShortcutBlocked(surface({ role: "dialog" }))).toBe(
+      true,
+    );
+    expect(isSlideCanvasShortcutBlocked(document.body)).toBe(false);
+    expect(isSlideCanvasShortcutBlocked(null)).toBe(false);
   });
 
   it("keeps inline style runs inside their containing text block", () => {

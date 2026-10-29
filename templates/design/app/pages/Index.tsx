@@ -83,6 +83,8 @@ import { toast } from "sonner";
 import { trace } from "@/components/design/design-trace";
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import { useDetectedFigmaComposerLink } from "@/components/editor/FigmaLinkComposerBubble";
+import { HomeFigmaLinkBubble } from "@/components/editor/HomeFigmaLinkBubble";
 import { useHomePromptContext } from "@/components/editor/HomePromptContext";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type {
@@ -443,16 +445,22 @@ export default function Index() {
       ? firstPaintPrompt.text
       : null,
   );
-  const handleHomePromptTextChange = useCallback((text: string) => {
-    if (
-      homeSuggestionPromptSourceRef.current &&
-      homeSuggestionPromptTextRef.current !== null &&
-      homeSuggestionPromptTextRef.current !== text
-    ) {
-      homeSuggestionPromptSourceRef.current = false;
-      homeSuggestionPromptTextRef.current = null;
-    }
-  }, []);
+  const { link: detectedFigmaLink, onComposerTextChange: detectFigmaLink } =
+    useDetectedFigmaComposerLink();
+  const handleHomePromptTextChange = useCallback(
+    (text: string) => {
+      detectFigmaLink(text);
+      if (
+        homeSuggestionPromptSourceRef.current &&
+        homeSuggestionPromptTextRef.current !== null &&
+        homeSuggestionPromptTextRef.current !== text
+      ) {
+        homeSuggestionPromptSourceRef.current = false;
+        homeSuggestionPromptTextRef.current = null;
+      }
+    },
+    [detectFigmaLink],
+  );
   const homeSuggestionSeed = useHomeSuggestionSeed();
   const shellSuggestionRole = useHomeSuggestionRole();
   const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
@@ -1423,6 +1431,11 @@ export default function Index() {
                 homePromptInitialText !== undefined
               }
               onPromptTextChange={handleHomePromptTextChange}
+              composerHeaderSlot={
+                detectedFigmaLink ? (
+                  <HomeFigmaLinkBubble link={detectedFigmaLink} />
+                ) : null
+              }
               placeholder={
                 selectedTemplate
                   ? t("promptDialog.templatePromptPlaceholder", {

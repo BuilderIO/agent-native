@@ -1,15 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconBrowser,
-  IconChevronDown,
-  IconDeviceDesktop,
-  IconNotes,
-  IconPlayerPlay,
-} from "@tabler/icons-react";
-import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { IconChevronDown, IconPlayerPlay } from "@tabler/icons-react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +21,7 @@ import {
   type PresentMode,
   type PresentRequest,
 } from "@/lib/deck-present-url";
+import { isMacPlatform } from "@/lib/utils";
 
 export function PresentMenu({
   deckId,
@@ -44,7 +40,7 @@ export function PresentMenu({
   // middle click keeps the browser's own new-tab behavior.
   const handleLinkClick = (
     event: ReactMouseEvent<HTMLAnchorElement>,
-    mode: PresentMode,
+    request: Omit<PresentRequest, "preserveNativeNavigation">,
   ) => {
     if (event.button !== 0 && event.button !== 1) return;
     const preserveNativeNavigation =
@@ -52,75 +48,127 @@ export function PresentMenu({
       (event.button === 0 &&
         (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey));
     if (preserveNativeNavigation) {
-      if (onPresent?.({ preserveNativeNavigation: true, mode }) === true) {
+      if (
+        onPresent?.({ ...request, preserveNativeNavigation: true }) === true
+      ) {
         event.preventDefault();
       }
       return;
     }
     event.preventDefault();
-    onPresent?.({ mode });
+    onPresent?.(request);
   };
 
-  const presentLink = (mode: PresentMode, label: string, icon: ReactNode) => (
+  const presentLink = (
+    request: { mode: PresentMode; fromBeginning?: true },
+    label: string,
+  ) => (
     <DropdownMenuItem asChild className="cursor-pointer">
       <Link
-        to={buildPresentUrl(deckId, currentSlideIndex, mode)}
+        to={buildPresentUrl(
+          deckId,
+          request.fromBeginning ? 0 : currentSlideIndex,
+          request.mode,
+        )}
         onClick={
-          onPresent ? (event) => handleLinkClick(event, mode) : undefined
+          onPresent ? (event) => handleLinkClick(event, request) : undefined
         }
         onAuxClick={
-          onPresent ? (event) => handleLinkClick(event, mode) : undefined
+          onPresent ? (event) => handleLinkClick(event, request) : undefined
         }
       >
-        {icon}
         {label}
       </Link>
     </DropdownMenuItem>
   );
 
+  // Play presents at once, the way every deck tool does; the chevron holds
+  // the other ways to present.
+  const fullscreenUrl = buildPresentUrl(
+    deckId,
+    currentSlideIndex,
+    "fullscreen",
+  );
+
   return (
-    <DropdownMenu>
+    <ButtonGroup className="flex-shrink-0">
       <Tooltip>
         <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
+          {hasSlides ? (
+            <Button asChild size="sm" className="px-2.5">
+              <Link
+                to={fullscreenUrl}
+                aria-label={t("editorToolbar.present")}
+                onClick={
+                  onPresent
+                    ? (event) => handleLinkClick(event, { mode: "fullscreen" })
+                    : undefined
+                }
+                onAuxClick={
+                  onPresent
+                    ? (event) => handleLinkClick(event, { mode: "fullscreen" })
+                    : undefined
+                }
+              >
+                <IconPlayerPlay aria-hidden="true" />
+              </Link>
+            </Button>
+          ) : (
             <Button
               type="button"
               size="sm"
-              disabled={!hasSlides}
-              className="flex-shrink-0 gap-1 px-2.5"
+              disabled
+              className="px-2.5"
               aria-label={t("editorToolbar.present")}
             >
               <IconPlayerPlay aria-hidden="true" />
-              <IconChevronDown aria-hidden="true" />
             </Button>
-          </DropdownMenuTrigger>
+          )}
         </TooltipTrigger>
-        <TooltipContent>{t("editorToolbar.present")}</TooltipContent>
+        <TooltipContent>
+          {t("editorToolbar.presentWithShortcut", {
+            shortcut: isMacPlatform() ? "\u2318\u21b5" : "Ctrl+Enter",
+          })}
+        </TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="w-60">
-        {presentLink(
-          "window",
-          t("editorToolbar.presentInTab"),
-          <IconBrowser className="size-4" />,
-        )}
-        {presentLink(
-          "fullscreen",
-          t("editorToolbar.presentFullScreen"),
-          <IconDeviceDesktop className="size-4" />,
-        )}
-        <DropdownMenuItem
-          className="cursor-pointer items-start gap-2"
-          onSelect={() => onPresent?.({ mode: "presenter" })}
-        >
-          <IconNotes className="mt-0.5 size-4" />
-          <span className="flex flex-col">
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!hasSlides}
+                className="px-1.5"
+                aria-label={t("editorToolbar.presentOptions")}
+              >
+                <IconChevronDown aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{t("editorToolbar.presentOptions")}</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-60">
+          {presentLink(
+            { mode: "fullscreen" },
+            t("editorToolbar.presentFullScreen"),
+          )}
+          {presentLink(
+            { mode: "fullscreen", fromBeginning: true },
+            t("editorToolbar.presentFromBeginning"),
+          )}
+          {presentLink({ mode: "window" }, t("editorToolbar.presentInTab"))}
+          <DropdownMenuItem
+            className="cursor-pointer flex-col items-start gap-0"
+            onSelect={() => onPresent?.({ mode: "presenter" })}
+          >
             <span>{t("editorToolbar.presentPresenterView")}</span>
             <span className="text-xs text-muted-foreground">
               {t("editorToolbar.presentPresenterViewDescription")}
             </span>
-          </span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </ButtonGroup>
   );
 }

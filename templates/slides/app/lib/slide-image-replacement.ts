@@ -1,3 +1,4 @@
+import { snapToSlideGridStep } from "./slide-grid";
 import { SOURCE_STAMP_ATTR } from "./slide-source-map";
 
 const PLACEHOLDER_TARGET_PREFIX = "placeholder:";
@@ -1864,8 +1865,14 @@ export function insertDroppedImageIntoSlideHtml(
     x: 640,
     y: 360,
   };
-  const left = Math.max(0, Math.round(position.x - DROPPED_IMAGE_WIDTH / 2));
-  const top = Math.max(0, Math.round(position.y - DROPPED_IMAGE_HEIGHT / 2));
+  const left = Math.max(
+    0,
+    snapToSlideGridStep(position.x - DROPPED_IMAGE_WIDTH / 2),
+  );
+  const top = Math.max(
+    0,
+    snapToSlideGridStep(position.y - DROPPED_IMAGE_HEIGHT / 2),
+  );
 
   img.setAttribute("src", newSrc);
   img.setAttribute("alt", cleanAlt(options.alt));

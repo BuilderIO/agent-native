@@ -443,6 +443,7 @@ export default {
       font: "フォント",
       baseSize: "ベースサイズ",
       size: "サイズ",
+      fontSizes: "フォントサイズ",
       weight: "重さ",
       color: "色",
       align: "整列",
@@ -893,6 +894,9 @@ export default {
       right: "R",
       bottom: "B",
       left: "L",
+    },
+    fontPicker: {
+      catalogUnavailable: "フォントライブラリ全体を読み込めませんでした。",
     },
     fontFamilies: {
       inherit: "継承する",
@@ -2893,8 +2897,6 @@ export default {
       dismiss: "閉じる",
     },
     import: "インポート",
-    importOptions: "インポートオプション",
-    figmaLink: "Figmaリンク",
     importFromFigma: "Figma からインポート",
     figmaFile: "Figma ファイル (.fig)",
     figmaFileMaxSize: "最大 {{max}} GB",

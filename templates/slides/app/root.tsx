@@ -75,6 +75,7 @@ import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
 import "@/lib/register-chat-renderers";
+import "@/lib/register-google-font-catalog";
 
 import changelog from "../CHANGELOG.md?raw";
 import {
