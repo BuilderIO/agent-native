@@ -1717,11 +1717,9 @@ describe("DatabaseView UI regressions", () => {
       value: "",
     };
     databaseResponse.properties = [status];
-    databaseResponse.items = [
-      row("a", "active"),
-      row("b", "active"),
-      row("c", "next"),
-    ];
+    const first = row("a", "active");
+    const third = row("c", "next");
+    databaseResponse.items = [first, row("b", "active"), third];
     const view = createDatabaseView("Table", "default", { filters: [filter] });
     databaseResponse.database.viewConfig = {
       activeViewId: view.id,
@@ -1736,7 +1734,7 @@ describe("DatabaseView UI regressions", () => {
       button.textContent.trim().startsWith("Status"),
     );
     if (!chip) throw new Error("The Status filter chip did not render.");
-    return { chip, row };
+    return { chip, row, first, third };
   }
 
   async function mousePointerDown(target: Element) {
@@ -1753,7 +1751,7 @@ describe("DatabaseView UI regressions", () => {
   }
 
   it("redraws only the rows whose data changed when a chip opens, a row changes, or a row goes", async () => {
-    const { chip, row } = await renderStatusFilteredTable();
+    const { chip, row, first, third } = await renderStatusFilteredTable();
     expect(cellRendersByItemId.get("item-a")).toBeGreaterThan(0);
 
     cellRendersByItemId.clear();
@@ -1763,8 +1761,6 @@ describe("DatabaseView UI regressions", () => {
 
     // A refetch after one agent write: structural sharing keeps the other
     // rows' objects, so only the rewritten row redraws.
-    const [first, , third] = databaseResponse.items;
-    if (!first || !third) throw new Error("The table needs three rows.");
     databaseResponse.items = [first, row("b", "done"), third];
     cellRendersByItemId.clear();
     await renderDatabaseView();
