@@ -476,8 +476,12 @@ export async function enqueueCommentWebhooks(
   if (!webhooks.length) return 0;
   const actor = args.actor ?? currentActor();
   const now = new Date().toISOString();
-  // Plain text is never longer than the Markdown, so `truncated` covers both.
   const contentText = commentPlainText(args.comment.content);
+  // Plain text can run longer than the Markdown, as a table's cells gain
+  // spaces, so either passing the limit marks the comment cut short.
+  const truncated =
+    args.comment.content.length > MAX_COMMENT_CHARS ||
+    contentText.length > MAX_COMMENT_CHARS;
   const rows = webhooks
     .filter((webhook) => webhookEvents(webhook).includes(args.type))
     .map((webhook) => {
@@ -503,7 +507,7 @@ export async function enqueueCommentWebhooks(
             authorEmail: args.comment.authorEmail,
             content: args.comment.content.slice(0, MAX_COMMENT_CHARS),
             contentText: contentText.slice(0, MAX_COMMENT_CHARS),
-            truncated: args.comment.content.length > MAX_COMMENT_CHARS,
+            truncated,
             resolved: args.comment.resolved,
           },
         },

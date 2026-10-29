@@ -9,3 +9,4 @@ One way to show a comment, in every app:
 - `ReviewCommentItem` uses it, so review comments keep their lists, quotes and code blocks, and mentions show as chips.
 - New `commentPlainText()` and `commentExcerpt()` from `@agent-native/core/review/plain-text` turn a comment into plain text for emails and webhooks. They read the comment with the same Markdown parser as the renderer, so the text matches what the comment shows. The kit's reply and mention emails quote comments with them, so they no longer show Markdown markers or `@[Name](mailto:…)`. `COMMENT_MARKDOWN_LIMIT` and `splitCommentAtMarkdownLimit()` from the same module give the cut both use.
 - `InlineMarkdown` shows a protected span's own text inside inline code and code blocks, instead of its placeholder link.
+- Toolkit now requires Core 0.223.0 or newer, because `CommentBody` uses Core's comment plain text.

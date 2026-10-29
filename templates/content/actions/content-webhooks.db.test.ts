@@ -1210,8 +1210,13 @@ describe("content webhooks", () => {
         content: "c".repeat(2_001),
       }),
     );
-    await settled(webhook.id, 3);
-    const [value, short, long] = eventsFor(webhook.id).map(
+    // A table's plain text outgrows its Markdown: each `a|b` reads `a | b`.
+    const table = `a|b\n-|-\n${"a|b\n".repeat(450)}`;
+    await asOwner(() =>
+      addComment.run({ documentId: row.documentId, content: table }),
+    );
+    await settled(webhook.id, 4);
+    const [value, short, long, cells] = eventsFor(webhook.id).map(
       (request) => request.event.data,
     );
     expect(value.newValue).toHaveLength(16_000);
@@ -1220,6 +1225,9 @@ describe("content webhooks", () => {
     expect(long.content).toHaveLength(2_000);
     expect(long.contentText).toHaveLength(2_000);
     expect(long.truncated).toBe(true);
+    expect(cells.content).toBe(table);
+    expect(cells.contentText).toHaveLength(2_000);
+    expect(cells.truncated).toBe(true);
   });
 
   it("W2-4: registers, lists and removes a webhook, and keeps others out", async () => {
