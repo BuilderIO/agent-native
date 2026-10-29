@@ -10,6 +10,7 @@ vi.mock("./store.js", () => store);
 import {
   assignQuestionIntakeExperimentOnSignup,
   QuestionIntakeAssignmentError,
+  InvalidQuestionIntakeExperimentAssignmentError,
   QUESTION_INTAKE_CONTROL_VARIANT,
   QUESTION_INTAKE_TREATMENT_VARIANT,
   questionIntakeExposureProperties,
@@ -56,7 +57,9 @@ describe("signup-time question-intake assignments", () => {
         experimentId: "design_no_questions",
         variantId: "no_questions",
       }),
-    ).toContain("over any earlier conflicting instructions");
+    ).toContain(
+      "the user's current message, including app-injected directives",
+    );
     expect(
       treatmentInstructionsForQuestionIntake(config, {
         authUserId: "user-1",
@@ -165,16 +168,33 @@ describe("signup-time question-intake assignments", () => {
     expect(store.upsertAssignment).not.toHaveBeenCalled();
   });
 
-  it("keeps the stored arm and rejects unknown stored variants", async () => {
+  it("keeps an existing valid stored arm", async () => {
     store.getAssignment.mockResolvedValue({ variantId: "no_questions" });
     await expect(
       assignQuestionIntakeExperimentOnSignup(config, "user-1"),
     ).resolves.toMatchObject({ variantId: "no_questions" });
     expect(store.upsertAssignment).not.toHaveBeenCalled();
+  });
 
+  it("reports an invalid stored variant as a typed, non-retryable failure", async () => {
     store.getAssignment.mockResolvedValue({ variantId: "unexpected" });
     await expect(
       resolveQuestionIntakeExperimentAssignment(config, "user-1"),
-    ).rejects.toThrow("unknown variant");
+    ).rejects.toMatchObject({
+      name: InvalidQuestionIntakeExperimentAssignmentError.name,
+      code: "question_intake_assignment_invalid",
+    });
+    expect(store.getAssignment).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry an invalid stored variant during signup", async () => {
+    store.getAssignment.mockResolvedValue({ variantId: "unexpected" });
+    await expect(
+      assignQuestionIntakeExperimentOnSignup(config, "user-1"),
+    ).rejects.toMatchObject({
+      name: InvalidQuestionIntakeExperimentAssignmentError.name,
+      code: "question_intake_assignment_invalid",
+    });
+    expect(store.getAssignment).toHaveBeenCalledTimes(1);
   });
 });

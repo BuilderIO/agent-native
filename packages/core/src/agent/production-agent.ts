@@ -146,6 +146,7 @@ import {
   singleNonHostedAssignment,
 } from "../observability/hosted-model-experiment.js";
 import {
+  InvalidQuestionIntakeExperimentAssignmentError,
   questionIntakeExposureProperties,
   resolveQuestionIntakeExperimentAssignment,
   treatmentInstructionsForQuestionIntake,
@@ -13999,13 +14000,22 @@ export function createProductionAgentHandler(
             ? undefined
             : runRequestContext?.authUserId,
         );
-    } catch {
-      console.error("[agent-chat] question-intake assignment lookup failed");
-      setResponseStatus(event, 503);
+    } catch (error) {
+      const invalidAssignment =
+        error instanceof InvalidQuestionIntakeExperimentAssignmentError
+          ? error
+          : null;
+      console.error(
+        invalidAssignment
+          ? "[agent-chat] question-intake assignment is invalid"
+          : "[agent-chat] question-intake assignment lookup failed",
+      );
+      setResponseStatus(event, invalidAssignment ? 500 : 503);
       return {
         error: "The agent run failed.",
-        code: "question_intake_assignment_unavailable",
-        retryable: true,
+        code:
+          invalidAssignment?.code ?? "question_intake_assignment_unavailable",
+        retryable: invalidAssignment === null,
       };
     }
     if (questionIntakeAssignment) {

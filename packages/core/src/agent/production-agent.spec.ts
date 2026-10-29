@@ -4495,6 +4495,64 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("returns a non-retryable failure for an invalid stored experiment variant", async () => {
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    const assignmentLookup = vi
+      .spyOn(
+        questionIntakeExperiment,
+        "resolveQuestionIntakeExperimentAssignment",
+      )
+      .mockRejectedValue(
+        new questionIntakeExperiment.InvalidQuestionIntakeExperimentAssignmentError(
+          "design_no_questions",
+        ),
+      );
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Build a dashboard" }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          authUserId: "better-auth-user-5",
+          run: {},
+        },
+        () => handler(event),
+      );
+
+      expect(event.res.status ?? event.node.res.statusCode).toBe(500);
+      expect(response).toMatchObject({
+        code: "question_intake_assignment_invalid",
+        retryable: false,
+      });
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      assignmentLookup.mockRestore();
+      resetAppConfigForTests();
+    }
+  });
+
   it("waits for the durable queue receipt and replays it after a lost acknowledgement", async () => {
     const threadId = "thread-durable-admission";
     const messageId = "message-durable-admission";

@@ -51,6 +51,17 @@ export class QuestionIntakeAssignmentError extends Error {
   }
 }
 
+export class InvalidQuestionIntakeExperimentAssignmentError extends Error {
+  readonly code = "question_intake_assignment_invalid";
+
+  constructor(experimentId: string) {
+    super(
+      `Question-intake assignment has an invalid stored variant for ${experimentId}.`,
+    );
+    this.name = "InvalidQuestionIntakeExperimentAssignmentError";
+  }
+}
+
 export function treatmentInstructionsForQuestionIntake(
   config: QuestionIntakeExperimentConfig | undefined,
   assignment: QuestionIntakeExperimentAssignment | null,
@@ -63,7 +74,7 @@ export function treatmentInstructionsForQuestionIntake(
     return undefined;
   }
   return [
-    "For this assigned experiment treatment, follow the instructions below over any earlier conflicting instructions about whether to ask intake questions.",
+    "For this assigned experiment treatment, the instructions below override conflicting intake-question directives in the app prompt or the user's current message, including app-injected directives.",
     config.treatmentInstructions.trim(),
   ].join("\n");
 }
@@ -102,8 +113,8 @@ function assignmentFromStored(
     variantId !== QUESTION_INTAKE_CONTROL_VARIANT &&
     variantId !== QUESTION_INTAKE_TREATMENT_VARIANT
   ) {
-    throw new Error(
-      "Question-intake experiment assignment has an unknown variant.",
+    throw new InvalidQuestionIntakeExperimentAssignmentError(
+      config.experimentId,
     );
   }
   return { authUserId, experimentId: config.experimentId, variantId };
@@ -137,10 +148,18 @@ export async function assignQuestionIntakeExperimentOnSignup(
   try {
     return await assign();
   } catch (firstError) {
+    if (firstError instanceof InvalidQuestionIntakeExperimentAssignmentError) {
+      throw firstError;
+    }
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
     try {
       return await assign();
     } catch (retryError) {
+      if (
+        retryError instanceof InvalidQuestionIntakeExperimentAssignmentError
+      ) {
+        throw retryError;
+      }
       throw new QuestionIntakeAssignmentError(
         config.experimentId,
         new AggregateError(
