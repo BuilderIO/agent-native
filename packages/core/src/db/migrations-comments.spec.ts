@@ -10,3 +10,9 @@ it("preserves legacy output for comments in existing migrations", () => {
     "SELECT 1 \nFROM t",
   ]);
 });
+
+it("preserves nested block comments as part of the statement", () => {
+  expect(
+    splitSqlStatements("/* outer; /* inner */ still */ SELECT foo$bar$;"),
+  ).toEqual(["/* outer; /* inner */ still */ SELECT foo$bar$"]);
+});
