@@ -136,6 +136,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  memo,
   useEffect,
   useCallback,
   useId,
@@ -258,6 +259,7 @@ import {
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useStableCallback } from "@/hooks/use-stable-callback";
 import { messagesByLocale } from "@/i18n-data";
 import { readPageShapeHint, rememberPageShape } from "@/lib/page-startup-hints";
 import { startupAnchor } from "@/lib/startup-timing";
@@ -336,7 +338,6 @@ import {
 import {
   DatabaseColumnPresentation,
   ColumnPresentationMenuItems,
-  useDatabaseColumnPresentation,
 } from "./DatabaseColumnPresentation";
 import type { DatabaseExportContext } from "./DatabaseExportDialog";
 import {
@@ -391,6 +392,8 @@ export interface DatabaseViewProps {
 
 const CONTENT_DATABASE_PAGE_SIZE = 100;
 const CONTENT_DATABASE_MAX_ITEM_LIMIT = 5_000;
+// Table rows are memoized; a fresh `{}` each render would re-render them all.
+const NO_COLUMN_WRAP_OVERRIDES: Record<string, boolean> = {};
 
 export function createDatabaseViewSaveQueue() {
   let previous: Promise<unknown> = Promise.resolve();
@@ -1378,13 +1381,25 @@ function DatabaseTable({
     documentId: string | null;
     visibleItems: ContentDatabaseItem[];
   }>({ documentId: null, visibleItems: [] });
-  const tableProperties = useMemo(
+  // Whether a Property shows can depend on the rows, but every refetch brings
+  // a new `items` array. Keep the list's identity while the same Properties
+  // show, or each live write would redraw every memoized table row.
+  const tablePropertyIds = useMemo(
     () =>
-      orderedProperties.filter((property) =>
-        isDatabasePropertyVisibleInView(property, items, activeView),
-      ),
+      orderedProperties
+        .filter((property) =>
+          isDatabasePropertyVisibleInView(property, items, activeView),
+        )
+        .map((property) => property.definition.id)
+        .join("\n"),
     [orderedProperties, items, activeView],
   );
+  const tableProperties = useMemo(() => {
+    const visibleIds = new Set(tablePropertyIds.split("\n"));
+    return orderedProperties.filter((property) =>
+      visibleIds.has(property.definition.id),
+    );
+  }, [orderedProperties, tablePropertyIds]);
   const hiddenProperties = useMemo(
     () =>
       orderedProperties.filter(
@@ -2010,44 +2025,43 @@ function DatabaseTable({
   }
 
   // Opens the row with its Comments showing, from a count or a cell marker.
-  const previewItemComments: OpenDatabaseItemComments = (
-    item,
-    threadId,
-    propertyId,
-  ) => {
-    if (openWorkspaceFiles(item)) return;
-    seedDatabaseItemDocumentCaches(queryClient, item);
-    prioritizeBuilderBodyHydrationForItem(item);
-    if (activeView.openPagesIn === "full_page") {
-      const path = databaseItemPagePath(
-        item.document.id,
-        databaseId,
-        document.id,
-      );
-      const link = threadId
-        ? `${path}&comment=${encodeURIComponent(threadId)}`
-        : propertyId
-          ? `${path}&commentProperty=${encodeURIComponent(propertyId)}`
-          : path;
-      runPreviewTransition(() => void navigate(link));
-      return;
-    }
-    const intent: PageCommentIntent = {
-      key: ++previewCommentIntentSequenceRef.current,
-      documentId: item.document.id,
-      threadId,
-      propertyId,
-    };
-    if (item.document.id === previewDocumentId) {
-      setPreviewCommentIntent(intent);
-      return;
-    }
-    runPreviewTransition(() => {
-      previewSessionRef.current = null;
-      setPreviewCommentIntent(intent);
-      setPreviewDocumentIdState(item.document.id);
-    });
-  };
+  // Every table cell reads this through context, so it keeps one identity.
+  const previewItemComments: OpenDatabaseItemComments = useStableCallback(
+    (item, threadId, propertyId) => {
+      if (openWorkspaceFiles(item)) return;
+      seedDatabaseItemDocumentCaches(queryClient, item);
+      prioritizeBuilderBodyHydrationForItem(item);
+      if (activeView.openPagesIn === "full_page") {
+        const path = databaseItemPagePath(
+          item.document.id,
+          databaseId,
+          document.id,
+        );
+        const link = threadId
+          ? `${path}&comment=${encodeURIComponent(threadId)}`
+          : propertyId
+            ? `${path}&commentProperty=${encodeURIComponent(propertyId)}`
+            : path;
+        runPreviewTransition(() => void navigate(link));
+        return;
+      }
+      const intent: PageCommentIntent = {
+        key: ++previewCommentIntentSequenceRef.current,
+        documentId: item.document.id,
+        threadId,
+        propertyId,
+      };
+      if (item.document.id === previewDocumentId) {
+        setPreviewCommentIntent(intent);
+        return;
+      }
+      runPreviewTransition(() => {
+        previewSessionRef.current = null;
+        setPreviewCommentIntent(intent);
+        setPreviewDocumentIdState(item.document.id);
+      });
+    },
+  );
 
   function handleDeletedPreviewItem(item: ContentDatabaseItem) {
     const previewState = previewStateRef.current;
@@ -3843,7 +3857,9 @@ function DatabaseTable({
               )
             }
             onEffectiveFrozenColumnsChange={setEffectiveFrozenColumnIds}
-            columnWrapOverrides={activeView.columnWrapOverrides ?? {}}
+            columnWrapOverrides={
+              activeView.columnWrapOverrides ?? NO_COLUMN_WRAP_OVERRIDES
+            }
             frozenThroughColumnId={activeView.frozenThroughColumnId}
             onWrapColumn={(id, wrapped) =>
               updateActiveView((view) => ({
@@ -6087,6 +6103,18 @@ function DatabaseTableView({
     }
   }
 
+  // Rows are memoized, so a chip toggle or a one-row refetch redraws only
+  // the rows whose props changed. Handlers recreated here each render would
+  // redraw every row; pass rows these instead.
+  const onRowDragHandlePointerDown = useStableCallback(startRowDrag);
+  const onRowToggleCheckbox = useStableCallback(toggleCheckboxCell);
+  const onRowToggleSelected = useStableCallback(onToggleRowSelection);
+  const onRowPreview = useStableCallback(onPreview);
+  const onRowDeletedPreview = useStableCallback(onDeletedPreviewItem);
+  const onRowTitleEditStarted = useStableCallback(onTitleFocusHandled);
+  const onRowOpenPage = useStableCallback(onOpenPage);
+  const onRowUpdateWidgetTitle = useStableCallback(onUpdateWidgetRowTitle);
+
   async function removeSelectedRows(selectedSnapshot: ContentDatabaseItem[]) {
     if (selectedSnapshot.length === 0) return;
     setConfirmRemoveSelectedOpen(false);
@@ -6515,9 +6543,10 @@ function DatabaseTableView({
                               canEdit={canEdit}
                               canEditRows={canEditRows}
                               sources={sources}
-                              onUpdateWidgetRowTitle={onUpdateWidgetRowTitle}
+                              onUpdateWidgetRowTitle={onRowUpdateWidgetTitle}
                               selectedIdSet={selectedIdSet}
                               wrapCells={wrapCells}
+                              columnWrapOverrides={columnWrapOverrides}
                               rowDensity={rowDensity}
                               isCreating={isCreating}
                               newRowLabel={newRowLabel}
@@ -6528,15 +6557,15 @@ function DatabaseTableView({
                                 group.id,
                               )}
                               onCreateRow={onCreateGroupedRow}
-                              onTitleFocusHandled={onTitleFocusHandled}
+                              onTitleFocusHandled={onRowTitleEditStarted}
                               onCollapsedChange={(collapsed) =>
                                 onGroupCollapsedChange(group.id, collapsed)
                               }
-                              onToggleCheckbox={toggleCheckboxCell}
-                              onToggleRowSelection={onToggleRowSelection}
-                              onPreview={onPreview}
-                              onDeletedPreviewItem={onDeletedPreviewItem}
-                              onOpenPage={onOpenPage}
+                              onToggleCheckbox={onRowToggleCheckbox}
+                              onToggleRowSelection={onRowToggleSelected}
+                              onPreview={onRowPreview}
+                              onDeletedPreviewItem={onRowDeletedPreview}
+                              onOpenPage={onRowOpenPage}
                             />
                           ))
                         : items.map((item, index) => (
@@ -6566,26 +6595,22 @@ function DatabaseTableView({
                               startEditingTitle={
                                 focusedTitleDocumentId === item.document.id
                               }
-                              onDragHandlePointerDown={(event) =>
-                                startRowDrag(item.id, event)
+                              onDragHandlePointerDown={
+                                onRowDragHandlePointerDown
                               }
-                              onToggleCheckbox={(property) =>
-                                void toggleCheckboxCell(item, property)
-                              }
+                              onToggleCheckbox={onRowToggleCheckbox}
                               wrapCells={wrapCells}
+                              columnWrapOverrides={columnWrapOverrides}
                               rowDensity={rowDensity}
-                              onToggleSelected={() =>
-                                onToggleRowSelection(item.id)
-                              }
-                              onPreviewItem={onPreview}
-                              onDeletedPreviewItem={onDeletedPreviewItem}
-                              onTitleEditStarted={onTitleFocusHandled}
-                              onPreview={() => onPreview(item)}
-                              onOpenPage={() => onOpenPage(item)}
+                              onToggleSelected={onRowToggleSelected}
+                              onPreview={onRowPreview}
+                              onDeletedPreviewItem={onRowDeletedPreview}
+                              onTitleEditStarted={onRowTitleEditStarted}
+                              onOpenPage={onRowOpenPage}
                               onUpdateWidgetRowTitle={
                                 canEditRows &&
                                 !databaseItemIsSourceBacked(item, sources)
-                                  ? onUpdateWidgetRowTitle
+                                  ? onRowUpdateWidgetTitle
                                   : undefined
                               }
                             />
@@ -7844,8 +7869,11 @@ function DatabaseInlineFilterControl({
   const filterIsComplete =
     !contentDatabaseFilterOperatorNeedsValue(filter.operator) ||
     filter.value.trim().length > 0;
+  // Not modal, nor are the menus inside it: a modal menu restyles <body> to
+  // block pointer events and lock scrolling, which forces a style pass over
+  // every table cell each time a chip opens or closes.
   return (
-    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+    <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
@@ -7878,7 +7906,7 @@ function DatabaseInlineFilterControl({
           onKeyDown={(event) => event.stopPropagation()}
         >
           <div className="flex items-center gap-0.5">
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -7905,7 +7933,7 @@ function DatabaseInlineFilterControl({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -7946,7 +7974,7 @@ function DatabaseInlineFilterControl({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -19276,6 +19304,7 @@ function DatabaseGroupedTableSection({
   onUpdateWidgetRowTitle,
   selectedIdSet,
   wrapCells,
+  columnWrapOverrides,
   rowDensity,
   isCreating,
   newRowLabel,
@@ -19306,6 +19335,7 @@ function DatabaseGroupedTableSection({
   ) => Promise<void>;
   selectedIdSet: Set<string>;
   wrapCells: boolean;
+  columnWrapOverrides: Record<string, boolean>;
   rowDensity: DatabaseRowDensity;
   isCreating: boolean;
   newRowLabel: string;
@@ -19355,17 +19385,14 @@ function DatabaseGroupedTableSection({
               isDropTarget={false}
               startEditingTitle={focusedTitleDocumentId === item.document.id}
               wrapCells={wrapCells}
+              columnWrapOverrides={columnWrapOverrides}
               rowDensity={rowDensity}
-              onDragHandlePointerDown={() => undefined}
-              onToggleCheckbox={(property) =>
-                void onToggleCheckbox(item, property)
-              }
-              onToggleSelected={() => onToggleRowSelection(item.id)}
-              onPreviewItem={onPreview}
+              onToggleCheckbox={onToggleCheckbox}
+              onToggleSelected={onToggleRowSelection}
+              onPreview={onPreview}
               onDeletedPreviewItem={onDeletedPreviewItem}
               onTitleEditStarted={onTitleFocusHandled}
-              onPreview={() => onPreview(item)}
-              onOpenPage={() => onOpenPage(item)}
+              onOpenPage={onOpenPage}
               onUpdateWidgetRowTitle={
                 canEditRows &&
                 item.rowRevision &&
@@ -19428,7 +19455,11 @@ export function databaseItemPropertyForColumn(
   };
 }
 
-function DatabaseTableRow({
+// Memoized: a table redraws on every chip toggle and live-write refetch, and
+// unchanged rows keep their `item` identity through query structural sharing.
+// Pass only stable handlers and values; one per-render closure or object here
+// redraws every row again.
+const DatabaseTableRow = memo(function DatabaseTableRow({
   item,
   properties,
   columnWidths,
@@ -19445,15 +19476,15 @@ function DatabaseTableRow({
   isDropTarget,
   startEditingTitle,
   wrapCells,
+  columnWrapOverrides,
   rowDensity,
   onDragHandlePointerDown,
   onToggleCheckbox,
   onToggleSelected,
-  onPreviewItem,
+  onPreview,
   onDeletedPreviewItem,
   onTitleEditStarted,
   onUpdateWidgetRowTitle,
-  onPreview,
   onOpenPage,
 }: {
   item: ContentDatabaseItem;
@@ -19472,24 +19503,25 @@ function DatabaseTableRow({
   isDropTarget: boolean;
   startEditingTitle: boolean;
   wrapCells: boolean;
+  columnWrapOverrides: Record<string, boolean>;
   rowDensity: DatabaseRowDensity;
-  onDragHandlePointerDown: (event: ReactPointerEvent) => void;
-  onToggleCheckbox: (property: DocumentProperty) => void;
-  onToggleSelected: () => void;
-  onPreviewItem: (item: ContentDatabaseItem) => void;
+  onDragHandlePointerDown?: (itemId: string, event: ReactPointerEvent) => void;
+  onToggleCheckbox: (
+    item: ContentDatabaseItem,
+    property: DocumentProperty,
+  ) => Promise<void>;
+  onToggleSelected: (itemId: string) => void;
+  onPreview: (item: ContentDatabaseItem) => void;
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
   onTitleEditStarted: () => void;
   onUpdateWidgetRowTitle?: (
     item: ContentDatabaseItem,
     title: string,
   ) => Promise<void>;
-  onPreview: () => void;
-  onOpenPage: () => void;
+  onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
-  const presentation = useDatabaseColumnPresentation();
-  const longPress = useContentTableLongPress(onToggleSelected);
-  const columnWrap = (id: string) =>
-    presentation?.columnWrapOverrides[id] ?? wrapCells;
+  const longPress = useContentTableLongPress(() => onToggleSelected(item.id));
+  const columnWrap = (id: string) => columnWrapOverrides[id] ?? wrapCells;
   return (
     <DatabaseTableGrid
       {...longPress}
@@ -19514,14 +19546,14 @@ function DatabaseTableRow({
             checked={selected}
             quietUntilHover
             label={`${selected ? "Deselect" : "Select"} ${item.document.title || "Untitled"}`}
-            onToggle={onToggleSelected}
+            onToggle={() => onToggleSelected(item.id)}
           />
-          {canDragRow ? (
+          {canDragRow && onDragHandlePointerDown ? (
             <button
               type="button"
               aria-label={`Drag ${item.document.title || "Untitled"}`}
               className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-accent active:cursor-grabbing group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onPointerDown={onDragHandlePointerDown}
+              onPointerDown={(event) => onDragHandlePointerDown(item.id, event)}
             >
               <IconGripVertical className="size-3.5" />
             </button>
@@ -19541,7 +19573,7 @@ function DatabaseTableRow({
           wrapCells={columnWrap("name")}
           rowDensity={rowDensity}
           onTitleEditStarted={onTitleEditStarted}
-          onPreview={onPreview}
+          onPreview={() => onPreview(item)}
         />
       }
       propertyCells={properties.map((property) => {
@@ -19587,7 +19619,7 @@ function DatabaseTableRow({
                   itemProperty.definition.name
                 }`}
                 className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onToggleCheckbox(itemProperty)}
+                onClick={() => void onToggleCheckbox(item, itemProperty)}
               >
                 {value}
               </button>
@@ -19626,15 +19658,15 @@ function DatabaseTableRow({
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}
-            onPreviewItem={onPreviewItem}
+            onPreviewItem={onPreview}
             onDeletedPreviewItem={onDeletedPreviewItem}
-            onOpenPage={onOpenPage}
+            onOpenPage={() => onOpenPage(item)}
           />
         ) : null
       }
     />
   );
-}
+});
 
 export function RowActionsCell({
   item,

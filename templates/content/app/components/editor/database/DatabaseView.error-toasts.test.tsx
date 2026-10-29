@@ -4,6 +4,7 @@ import type {
   ContentDatabaseResponse,
   ContentDatabaseSource,
   ContentDatabaseTableQuery,
+  DocumentProperty,
 } from "@shared/api";
 // @vitest-environment happy-dom
 //
@@ -23,6 +24,9 @@ const databaseItemsState = vi.hoisted(() => ({ settled: true, failed: false }));
 const databaseQueryState = vi.hoisted(() => ({
   isError: false,
   unanswered: false,
+  // A sorted or filtered view's own read stays in flight unless a test
+  // answers it.
+  tableQueryAnswered: false,
 }));
 const databaseRetryItemsMock = vi.hoisted(() => vi.fn());
 const databaseRefetchMock = vi.hoisted(() =>
@@ -186,7 +190,8 @@ vi.mock("@agent-native/toolkit/app/settings", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("@/hooks/use-content-database", () => ({
+vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-content-database")>()),
   isContentDatabaseUnavailable: () => false,
   useContentDatabase: (
     documentId: string,
@@ -199,7 +204,9 @@ vi.mock("@/hooks/use-content-database", () => ({
       data: databaseQueryState.unanswered ? undefined : response,
       isLoading: false,
       isError: databaseQueryState.isError,
-      isFetching: limit !== response.pagination?.limit || Boolean(tableQuery),
+      isFetching:
+        limit !== response.pagination?.limit ||
+        (Boolean(tableQuery) && !databaseQueryState.tableQueryAnswered),
       itemsSettled: databaseItemsState.settled,
       itemsFailed: databaseItemsState.failed,
       itemsRetrying: false,
@@ -255,11 +262,16 @@ vi.mock("@/hooks/use-content-database", () => ({
   }),
 }));
 
-vi.mock("@/hooks/use-document-properties", () => ({
+vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-document-properties")>()),
   useSetDocumentProperty: () => benignMutation,
   useContentDatabaseRowSearch: () => ({ data: undefined, isLoading: false }),
   useConfigureDocumentProperty: () => benignMutation,
   useUpdateDatabaseItems: () => benignMutation,
+  useDuplicateDocumentProperty: () => benignMutation,
+  useReorderDocumentProperty: () => benignMutation,
+  useDeleteDocumentProperty: () => benignMutation,
+  useSetBuilderEntryStatus: () => benignMutation,
 }));
 
 vi.mock("@/hooks/use-content-spaces", () => ({
@@ -279,6 +291,20 @@ vi.mock("@/hooks/use-documents", async (importOriginal) => ({
   useCreateDocument: () => createDocumentMutation,
   useDeleteDocument: () => benignMutation,
   useUpdateDocument: () => benignMutation,
+}));
+
+// Every table cell renders one, so its render count per row shows which rows
+// a table update redrew.
+const cellRendersByItemId = vi.hoisted(() => new Map<string, number>());
+vi.mock("./database-cell-comments", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./database-cell-comments")>()),
+  DatabaseCellComments: ({ item }: { item: ContentDatabaseItem }) => {
+    cellRendersByItemId.set(
+      item.id,
+      (cellRendersByItemId.get(item.id) ?? 0) + 1,
+    );
+    return null;
+  },
 }));
 
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
@@ -457,6 +483,7 @@ describe("DatabaseView UI regressions", () => {
     databaseItemsState.failed = false;
     databaseQueryState.isError = false;
     databaseQueryState.unanswered = false;
+    databaseQueryState.tableQueryAnswered = false;
     databaseRetryItemsMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
     createDocumentMutation.mutateAsync.mockReset();
@@ -1644,5 +1671,85 @@ describe("DatabaseView UI regressions", () => {
         '[aria-label="Deselect Beta"]',
       ),
     ).toBeTruthy();
+  });
+
+  it("redraws no rows when a filter chip opens and only the changed row on a refetch", async () => {
+    const status: DocumentProperty = {
+      definition: {
+        id: "status",
+        databaseId: "database-1",
+        name: "Status",
+        type: "text",
+        visibility: "always_show",
+        options: {},
+        position: 0,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      value: null,
+      editable: true,
+    };
+    const row = (id: string, value: string): ContentDatabaseItem => ({
+      id: `item-${id}`,
+      databaseId: "database-1",
+      document: {
+        ...fakeDocument,
+        id: `document-${id}`,
+        parentId: "document-1",
+        title: id,
+        database: undefined,
+      },
+      position: 0,
+      properties: [{ ...status, value }],
+    });
+    const filter = {
+      key: "status",
+      label: "Status",
+      operator: "is_not_empty" as const,
+      value: "",
+    };
+    databaseResponse.properties = [status];
+    databaseResponse.items = [
+      row("a", "active"),
+      row("b", "active"),
+      row("c", "next"),
+    ];
+    const view = createDatabaseView("Table", "default", { filters: [filter] });
+    databaseResponse.database.viewConfig = {
+      activeViewId: view.id,
+      views: [view],
+      sorts: view.sorts,
+      filters: view.filters,
+      columnWidths: view.columnWidths,
+    };
+    databaseQueryState.tableQueryAnswered = true;
+    await renderDatabaseView();
+    expect(cellRendersByItemId.get("item-a")).toBeGreaterThan(0);
+
+    const chip = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent.trim().startsWith("Status"),
+    );
+    expect(chip).toBeTruthy();
+    cellRendersByItemId.clear();
+    await act(async () => {
+      chip?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(chip?.getAttribute("aria-expanded")).toBe("true");
+    expect([...cellRendersByItemId.keys()]).toEqual([]);
+
+    // A refetch after one agent write: structural sharing keeps the other
+    // rows' objects, so only the rewritten row redraws.
+    const [first, , third] = databaseResponse.items;
+    databaseResponse.items = [first, row("b", "done"), third];
+    cellRendersByItemId.clear();
+    await renderDatabaseView();
+    expect([...cellRendersByItemId.keys()]).toEqual(["item-b"]);
   });
 });
