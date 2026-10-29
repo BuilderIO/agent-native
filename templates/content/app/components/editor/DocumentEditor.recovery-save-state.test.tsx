@@ -2016,7 +2016,9 @@ describe("closing a page this tab never edited", () => {
       await act(async () => {
         await expect(mounted(fixture.session).flush()).resolves.toBeUndefined();
       });
-      expect(fixture.save.mock.calls[0][0]).toMatchObject(
+      const firstSave = fixture.save.mock.calls.find((_, index) => index === 0);
+      if (!firstSave) throw new Error("Expected a page save.");
+      expect(firstSave[0]).toMatchObject(
         field === "title"
           ? { title: "Renamed before closing" }
           : { content: "Edited before closing" },
@@ -2038,7 +2040,9 @@ describe("closing a page this tab never edited", () => {
         "editor.pageSaveBeforeNavigationFailed",
       );
     });
-    expect(fixture.save.mock.calls[0][0]).toMatchObject({
+    const firstSave = fixture.save.mock.calls.find((_, index) => index === 0);
+    if (!firstSave) throw new Error("Expected a page save.");
+    expect(firstSave[0]).toMatchObject({
       content: "Edited before closing",
     });
     expect(mounted(fixture.awareness).getLocalState()?.unsavedEdits).toBe(true);
