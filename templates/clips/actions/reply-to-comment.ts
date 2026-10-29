@@ -29,7 +29,7 @@ export default defineAction({
       .optional()
       .describe("Organization members mentioned in the reply"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const [parent] = await db
       .select()
@@ -38,15 +38,18 @@ export default defineAction({
       .limit(1);
     if (!parent) throw new Error(`Comment not found: ${args.commentId}`);
 
-    const result = await addComment.run({
-      recordingId: parent.recordingId,
-      threadId: parent.threadId,
-      parentId: parent.id,
-      videoTimestampMs: parent.videoTimestampMs,
-      content: args.content,
-      authorName: args.authorName,
-      mentions: args.mentions,
-    });
+    const result = await addComment.run(
+      {
+        recordingId: parent.recordingId,
+        threadId: parent.threadId,
+        parentId: parent.id,
+        videoTimestampMs: parent.videoTimestampMs,
+        content: args.content,
+        authorName: args.authorName,
+        mentions: args.mentions,
+      },
+      ctx,
+    );
 
     return { ...result, parentId: parent.id };
   },

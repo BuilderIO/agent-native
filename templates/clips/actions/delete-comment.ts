@@ -6,10 +6,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  isRecordingExpiredForViewer,
-  isRecordingTrashedForViewer,
-} from "../server/lib/recording-page-access.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -18,7 +15,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Comment ID"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const [existing] = await db
       .select()
@@ -30,27 +27,11 @@ export default defineAction({
     const userEmail = getRequestUserEmail();
     const isAuthor = sameOwnerEmail(existing.authorEmail, userEmail);
 
-    const access = await assertAccess(
-      "recording",
+    await assertCommentAccess(
       existing.recordingId,
-      "viewer",
+      "delete",
+      ctx?.requestHeaders,
     );
-    if (
-      isRecordingTrashedForViewer({
-        trashedAt: (access.resource as { trashedAt?: string | null }).trashedAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError();
-    }
-    if (
-      isRecordingExpiredForViewer({
-        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError("Recording has expired");
-    }
 
     if (!isAuthor) {
       try {

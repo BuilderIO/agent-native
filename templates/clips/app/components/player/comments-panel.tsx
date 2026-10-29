@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
+import { COMMENT_ACCESS_TOKEN_HEADER } from "../../../shared/comment-access";
 import {
   displayCommentMentions,
   mentionsForCommentText,
@@ -101,6 +102,26 @@ type EditState = {
   pending: Map<number, Comment>;
   authoritative?: Comment;
   authoritativeToken?: number;
+};
+
+type SentDraft = {
+  value: string;
+  mentions: MentionEntry[];
+  atMs: number;
+  replyTo: Comment | null;
+};
+
+type AddCommentVars = {
+  content: string;
+  videoTimestampMs?: number | undefined;
+  threadId?: string | undefined;
+  parentId?: string | undefined;
+  mentions?: unknown;
+};
+
+type FailedSend = {
+  comment: Comment;
+  vars: object;
 };
 
 const defaultLens: CommentsLens = {
@@ -183,9 +204,13 @@ function updateReactionUsers(
 
 export interface CommentsPanelProps {
   recordingId: string;
+  commentAccessToken?: string;
+  getCommentAccessToken?: (
+    refusedToken?: string | null,
+  ) => Promise<string | null | undefined>;
   comments: Comment[];
   currentMs: number;
-  getCurrentMs?: () => number;
+  getCurrentMs?: (() => number) | undefined;
   currentUserEmail?: string;
   currentUserName?: string;
   enableComments: boolean;
@@ -221,11 +246,28 @@ export function CommentsPanel(props: CommentsPanelProps) {
     applyComments = defaultLens.applyComments,
     presentation = "default",
   } = props;
+  const commentAccessTokenRef = useRef<string | null | undefined>(
+    props.commentAccessToken,
+  );
+  useEffect(() => {
+    commentAccessTokenRef.current = props.commentAccessToken;
+  }, [props.commentAccessToken]);
+  const refusedCommentAccessTokenRef = useRef<string | null | undefined>(
+    undefined,
+  );
+  const commentHeaders = () =>
+    commentAccessTokenRef.current
+      ? { [COMMENT_ACCESS_TOKEN_HEADER]: commentAccessTokenRef.current }
+      : undefined;
+  const refuseCommentAccess = () => {
+    refusedCommentAccessTokenRef.current = commentAccessTokenRef.current;
+  };
   const isSignedIn = !!currentUserEmail;
   const isSharePresentation = presentation === "share";
   const isInlinePresentation = presentation === "inline";
   const isConversationPresentation =
     isSharePresentation || isInlinePresentation;
+  const t = useT();
   const formatters = useFormatters();
   const [draft, setDraft] = useState("");
   // A comment belongs to the frame on screen when typing starts, not when it
@@ -245,6 +287,22 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [editMentions, setEditMentions] = useState<MentionEntry[]>([]);
+  // Composers clear on send, so a failed add needs what was sent to put back.
+  const sentDraftsRef = useRef(new WeakMap<object, SentDraft>());
+  const composerDraftsRef = useRef({
+    comment: draft,
+    reply: replyDraft,
+    replyTo,
+  });
+  useEffect(() => {
+    composerDraftsRef.current = { comment: draft, reply: replyDraft, replyTo };
+  }, [draft, replyDraft, replyTo]);
+  const [sendFailed, setSendFailed] = useState<"comment" | "reply" | null>(
+    null,
+  );
+  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
+  const clearSendFailed = (composer: "comment" | "reply") =>
+    setSendFailed((failed) => (failed === composer ? null : failed));
   const replyComposerRef = useRef<HTMLTextAreaElement>(null);
   const { data: mentionMembers = [] } = useMentionMembers(
     recordingId,
@@ -273,13 +331,33 @@ export function CommentsPanel(props: CommentsPanelProps) {
     });
   };
 
+  // A renewal refetches this query, so queries are cancelled only after it
+  // settles, and its response can replace the optimistic change: `show` runs
+  // again afterward and must be idempotent.
+  const prepareCommentWrite = async (show: () => void, undo: () => void) => {
+    if (props.getCommentAccessToken) {
+      const proof = props.getCommentAccessToken(
+        refusedCommentAccessTokenRef.current,
+      );
+      show();
+      try {
+        commentAccessTokenRef.current = await proof;
+      } catch (error) {
+        undo();
+        throw error;
+      }
+    }
+    await queryClient.cancelQueries({ queryKey });
+    show();
+  };
+
   const reconcileReactionMutation = (
-    ctx: CommentsMutationContext,
+    ctx: CommentsMutationContext | undefined,
     serverUsers?: string[],
     succeeded = false,
   ) => {
     if (
-      !ctx.reactionKey ||
+      !ctx?.reactionKey ||
       !ctx.operationToken ||
       !ctx.commentId ||
       !ctx.emoji
@@ -332,7 +410,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
   };
 
   const reconcileEditMutation = (
-    ctx: CommentsMutationContext,
+    ctx: CommentsMutationContext | undefined,
     data?: {
       id?: string;
       content?: string;
@@ -341,7 +419,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     },
     succeeded = false,
   ) => {
-    if (!ctx.commentId || !ctx.operationToken) return;
+    if (!ctx?.commentId || !ctx.operationToken) return;
     const state = editStatesRef.current.get(ctx.commentId);
     if (!state) return;
 
@@ -409,29 +487,72 @@ export function CommentsPanel(props: CommentsPanelProps) {
     }
   };
 
+  const optimisticComment = (vars: AddCommentVars): Comment => {
+    const id = makeTempId();
+    const now = new Date().toISOString();
+    return {
+      id,
+      threadId: vars.threadId ?? id,
+      parentId: vars.parentId ?? null,
+      authorEmail: currentUserEmail ?? "",
+      authorName: currentUserName ?? null,
+      content: vars.content,
+      mentions: displayCommentMentions(vars.mentions),
+      videoTimestampMs: vars.videoTimestampMs ?? 0,
+      emojiReactionsJson: "{}",
+      createdAt: now,
+      updatedAt: now,
+    };
+  };
+
+  // Text typed, or a reply opened on another comment, since the send wins over
+  // the failed draft, which then waits in the feed to be retried.
+  const restoreSentDraft = (vars: AddCommentVars) => {
+    const sent = sentDraftsRef.current.get(vars);
+    if (!sent) return;
+    const composer = sent.replyTo ? "reply" : "comment";
+    const live = composerDraftsRef.current;
+    const replyingElsewhere =
+      sent.replyTo && live.replyTo && live.replyTo.id !== sent.replyTo.id;
+    if (live[composer].trim() || replyingElsewhere) {
+      const failed = { comment: optimisticComment(vars), vars };
+      setFailedSends((list) => [...list, failed]);
+      return;
+    }
+    setSendFailed(composer);
+    live[composer] = sent.value;
+    if (sent.replyTo) {
+      setReplyTo(sent.replyTo);
+      setReplyDraft(sent.value);
+      setReplyMentions(sent.mentions);
+    } else {
+      setDraft(sent.value);
+      setDraftAtMs(sent.atMs);
+      setDraftMentions(sent.mentions);
+    }
+  };
+
   const addComment = useActionMutation("add-comment", {
+    headers: commentHeaders,
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey });
-      const tempId = makeTempId();
-      const now = new Date().toISOString();
-      const optimistic: Comment = {
-        id: tempId,
-        threadId: vars.threadId ?? tempId,
-        parentId: vars.parentId ?? null,
-        authorEmail: currentUserEmail ?? "",
-        authorName: currentUserName ?? null,
-        content: vars.content,
-        mentions: displayCommentMentions(vars.mentions),
-        videoTimestampMs: vars.videoTimestampMs ?? 0,
-        emojiReactionsJson: "{}",
-        createdAt: now,
-        updatedAt: now,
-      };
-      patchComments((list) => [...list, optimistic]);
-      return { type: "add", tempId } satisfies CommentsMutationContext;
+      const optimistic = optimisticComment(vars);
+      const tempId = optimistic.id;
+      const context = { type: "add", tempId } satisfies CommentsMutationContext;
+      await prepareCommentWrite(
+        () =>
+          patchComments((list) =>
+            list.some((comment) => comment.id === tempId)
+              ? list
+              : [...list, optimistic],
+          ),
+        () => rollbackComments(context),
+      );
+      return context;
     },
-    onError: (_err, _vars, ctx: any) => {
-      rollbackComments(ctx);
+    onError: (_err, vars, ctx) => {
+      refuseCommentAccess();
+      rollbackComments(ctx as CommentsMutationContext | undefined);
+      restoreSentDraft(vars);
     },
     onSuccess: (data: any, _vars, ctx: any) => {
       if (!ctx?.tempId || !data?.id) return;
@@ -446,10 +567,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
   });
 
   const reactToComment = useActionMutation("react-to-comment", {
+    headers: commentHeaders,
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey });
       const currentUser = currentUserEmail;
       if (!currentUser) {
+        await prepareCommentWrite(
+          () => {},
+          () => {},
+        );
         return {
           type: "reaction",
           commentId: vars.commentId,
@@ -481,29 +606,35 @@ export function CommentsPanel(props: CommentsPanelProps) {
         })();
       state.latestToken = operationToken;
       state.pending.set(operationToken, { optimisticUsers });
-      patchComments((commentList) =>
-        commentList.map((comment) =>
-          comment.id === vars.commentId
-            ? {
-                ...comment,
-                emojiReactionsJson: updateReactionUsers(
-                  comment.emojiReactionsJson,
-                  vars.emoji,
-                  optimisticUsers,
-                ),
-              }
-            : comment,
-        ),
-      );
-      return {
+      const context = {
         type: "reaction",
         commentId: vars.commentId,
         emoji: vars.emoji,
         reactionKey,
         operationToken,
       } satisfies CommentsMutationContext;
+      await prepareCommentWrite(
+        () =>
+          patchComments((commentList) =>
+            commentList.map((comment) =>
+              comment.id === vars.commentId
+                ? {
+                    ...comment,
+                    emojiReactionsJson: updateReactionUsers(
+                      comment.emojiReactionsJson,
+                      vars.emoji,
+                      optimisticUsers,
+                    ),
+                  }
+                : comment,
+            ),
+          ),
+        () => reconcileReactionMutation(context, undefined, false),
+      );
+      return context;
     },
     onError: (_err, _vars, ctx: any) => {
+      refuseCommentAccess();
       reconcileReactionMutation(ctx, undefined, false);
     },
     onSuccess: (data: any, _vars: any, ctx: any) => {
@@ -519,23 +650,27 @@ export function CommentsPanel(props: CommentsPanelProps) {
   });
 
   const remove = useActionMutation("delete-comment", {
+    headers: commentHeaders,
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey });
       const current = visibleCommentsRef.current;
       const target = current.find((comment) => comment.id === vars.id);
       const removedIds = target
         ? collectCommentSubtreeIds(current, target.id)
         : new Set<string>();
       const removed = current.filter((comment) => removedIds.has(comment.id));
-      patchComments((list) => {
-        return list.filter((comment) => !removedIds.has(comment.id));
-      });
+      const withoutRemoved = (list: Comment[]) =>
+        list.filter((comment) => !removedIds.has(comment.id));
+      await prepareCommentWrite(
+        () => patchComments(withoutRemoved),
+        () => patchComments((list) => [...withoutRemoved(list), ...removed]),
+      );
       return {
         type: "remove",
         removed,
       } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
+      refuseCommentAccess();
       rollbackComments(ctx);
     },
     onSuccess: (data: any, _vars: any, ctx: any) => {
@@ -554,8 +689,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
   });
 
   const updateComment = useActionMutation("update-comment", {
+    headers: commentHeaders,
     onMutate: async (vars: any) => {
-      await queryClient.cancelQueries({ queryKey });
       const updatedAt = new Date().toISOString();
       const current = visibleCommentsRef.current.find(
         (comment) => comment.id === vars.id,
@@ -584,27 +719,33 @@ export function CommentsPanel(props: CommentsPanelProps) {
           updatedAt,
         });
       }
-      patchComments((list) =>
-        list.map((comment) =>
-          comment.id === vars.id
-            ? {
-                ...comment,
-                content: vars.content,
-                ...(vars.mentions === undefined
-                  ? {}
-                  : { mentions: displayCommentMentions(vars.mentions) }),
-                updatedAt,
-              }
-            : comment,
-        ),
-      );
-      return {
+      const context = {
         type: "update",
         commentId: vars.id,
         operationToken,
       } satisfies CommentsMutationContext;
+      await prepareCommentWrite(
+        () =>
+          patchComments((list) =>
+            list.map((comment) =>
+              comment.id === vars.id
+                ? {
+                    ...comment,
+                    content: vars.content,
+                    ...(vars.mentions === undefined
+                      ? {}
+                      : { mentions: displayCommentMentions(vars.mentions) }),
+                    updatedAt,
+                  }
+                : comment,
+            ),
+          ),
+        () => reconcileEditMutation(context, undefined, false),
+      );
+      return context;
     },
     onError: (_err, vars: any, ctx: any) => {
+      refuseCommentAccess();
       reconcileEditMutation(ctx, undefined, false);
       setEditingId(vars.id);
       setEditDraft(vars.content);
@@ -615,9 +756,13 @@ export function CommentsPanel(props: CommentsPanelProps) {
     },
   });
 
+  // Failed sends stay out of the query cache, so a refetch cannot drop them.
   const threads = useMemo(() => {
     const map = new Map<string, Comment[]>();
-    visibleComments.forEach((c) => {
+    [
+      ...visibleComments,
+      ...failedSends.map((failed) => failed.comment),
+    ].forEach((c) => {
       const list = map.get(c.threadId) ?? [];
       list.push(c);
       map.set(c.threadId, list);
@@ -625,7 +770,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     return Array.from(map.values()).map((list) =>
       list.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     );
-  }, [visibleComments]);
+  }, [visibleComments, failedSends]);
 
   const sortedThreads = useMemo(
     () =>
@@ -668,16 +813,33 @@ export function CommentsPanel(props: CommentsPanelProps) {
           ...mentionArgs(value, draftMentions),
           ...(currentUserName ? { authorName: currentUserName } : {}),
         };
+    sentDraftsRef.current.set(vars, {
+      value,
+      mentions: target ? replyMentions : draftMentions,
+      atMs: vars.videoTimestampMs,
+      replyTo: target,
+    });
     if (target) {
       setReplyDraft("");
       setReplyMentions([]);
       setReplyTo(null);
+      clearSendFailed("reply");
     } else {
       setDraft("");
       setDraftAtMs(null);
       setDraftMentions([]);
+      clearSendFailed("comment");
     }
     addComment.mutate(vars);
+  }
+
+  function dropFailedSend(failed: FailedSend) {
+    setFailedSends((list) => list.filter((entry) => entry !== failed));
+  }
+
+  function retryFailedSend(failed: FailedSend) {
+    dropFailedSend(failed);
+    addComment.mutate(failed.vars);
   }
 
   function openReply(comment: Comment) {
@@ -729,27 +891,43 @@ export function CommentsPanel(props: CommentsPanelProps) {
     if (!value.trim()) setDraftAtMs(null);
     else if (draftAtMs === null) setDraftAtMs(getCurrentMs?.() ?? currentMs);
     setDraft(value);
+    clearSendFailed("comment");
   }
 
+  const sendFailedAlert = (
+    <p
+      role="alert"
+      className={cn(
+        "text-[11px] text-destructive",
+        isConversationPresentation ? "px-1 pt-1.5" : "px-4 pb-3",
+      )}
+    >
+      {t("notificationsRoute.sendFailed")}
+    </p>
+  );
+
   const composer = (
-    <CommentComposer
-      draft={draft}
-      currentMs={draftAtMs ?? currentMs}
-      currentUserEmail={currentUserEmail}
-      currentUserName={currentUserName}
-      isSignedIn={isSignedIn}
-      isConversationPresentation={isConversationPresentation}
-      isInlinePresentation={isInlinePresentation}
-      enableComments={enableComments}
-      canComment={canComment}
-      onDraftChange={changeDraft}
-      onMentionAdd={(mention) =>
-        setDraftMentions((current) => upsertMention(current, mention))
-      }
-      members={mentionMembers}
-      onSubmit={() => submitDraft(draft, null)}
-      onUnauthenticated={onUnauthenticated}
-    />
+    <>
+      <CommentComposer
+        draft={draft}
+        currentMs={draftAtMs ?? currentMs}
+        currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
+        isSignedIn={isSignedIn}
+        isConversationPresentation={isConversationPresentation}
+        isInlinePresentation={isInlinePresentation}
+        enableComments={enableComments}
+        canComment={canComment}
+        onDraftChange={changeDraft}
+        onMentionAdd={(mention) =>
+          setDraftMentions((current) => upsertMention(current, mention))
+        }
+        members={mentionMembers}
+        onSubmit={() => submitDraft(draft, null)}
+        onUnauthenticated={onUnauthenticated}
+      />
+      {sendFailed === "comment" ? sendFailedAlert : null}
+    </>
   );
 
   const renderCommentNode = (
@@ -761,6 +939,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
     const nextAncestors = new Set(ancestors).add(node.comment.id);
     const replyAllowed = depth < MAX_COMMENT_REPLY_DEPTH;
     const childDepth = Math.min(depth + 1, MAX_COMMENT_REPLY_DEPTH);
+    const failedSend = failedSends.find(
+      (failed) => failed.comment === node.comment,
+    );
     return (
       <li
         key={node.comment.id}
@@ -792,6 +973,16 @@ export function CommentsPanel(props: CommentsPanelProps) {
           onUnauthenticated={onUnauthenticated}
           canReply={replyAllowed}
           isReply={depth > 0}
+          sendFailure={
+            failedSend
+              ? {
+                  onRetry: canComment
+                    ? () => retryFailedSend(failedSend)
+                    : undefined,
+                  onDelete: () => dropFailedSend(failedSend),
+                }
+              : undefined
+          }
         />
         {canComment && replyAllowed && replyTo?.id === node.comment.id ? (
           <div className="ps-8">
@@ -800,7 +991,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
               textareaRef={replyComposerRef}
               currentUserEmail={currentUserEmail}
               currentUserName={currentUserName}
-              onDraftChange={setReplyDraft}
+              onDraftChange={(value) => {
+                setReplyDraft(value);
+                clearSendFailed("reply");
+              }}
               onMentionAdd={(mention) =>
                 setReplyMentions((current) => upsertMention(current, mention))
               }
@@ -809,9 +1003,11 @@ export function CommentsPanel(props: CommentsPanelProps) {
                 setReplyDraft("");
                 setReplyMentions([]);
                 setReplyTo(null);
+                clearSendFailed("reply");
               }}
               onSubmit={() => submitDraft(replyDraft, replyTo)}
             />
+            {sendFailed === "reply" ? sendFailedAlert : null}
           </div>
         ) : null}
         {node.children.length > 0 ? (
@@ -940,8 +1136,8 @@ function CommentComposer({
 }: {
   draft: string;
   currentMs: number;
-  currentUserEmail?: string;
-  currentUserName?: string;
+  currentUserEmail?: string | undefined;
+  currentUserName?: string | undefined;
   isSignedIn: boolean;
   isConversationPresentation: boolean;
   isInlinePresentation: boolean;
@@ -951,7 +1147,7 @@ function CommentComposer({
   onMentionAdd: (mention: MentionEntry) => void;
   members: { email: string; name: string | null }[];
   onSubmit: () => void;
-  onUnauthenticated?: (intent: "comment" | "react") => void;
+  onUnauthenticated?: ((intent: "comment" | "react") => void) | undefined;
 }) {
   const t = useT();
   const avatarUrl = useAvatarUrl(currentUserEmail);
@@ -1217,6 +1413,7 @@ function CommentCard({
   onUnauthenticated,
   canReply = true,
   isReply,
+  sendFailure,
 }: {
   comment: Comment;
   formatRelativeTime: ReturnType<typeof useFormatters>["formatRelativeTime"];
@@ -1239,6 +1436,7 @@ function CommentCard({
   onUnauthenticated?: (intent: "comment" | "react") => void;
   canReply?: boolean;
   isReply?: boolean;
+  sendFailure?: { onRetry?: (() => void) | undefined; onDelete: () => void };
 }) {
   const t = useT();
   const [localJson, setLocalJson] = useState<string | null>(null);
@@ -1328,134 +1526,162 @@ function CommentCard({
               protectedSpans={commentMentionSpans(comment.mentions)}
             />
 
-            <div
-              data-comment-actions
-              className="mt-1 flex min-h-7 min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto text-xs text-muted-foreground"
-            >
-              {canParticipate && canReply ? (
+            {sendFailure ? (
+              <div className="mt-1 flex min-h-7 items-center gap-0.5 text-xs">
+                <p role="alert" className="me-1 text-destructive">
+                  {t("notificationsRoute.sendFailed")}
+                </p>
+                {sendFailure.onRetry ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={sendFailure.onRetry}
+                    className="h-7 rounded-md px-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {t("libraryGrid.retry")}
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={onReply}
-                  className="h-7 gap-1.5 rounded-md px-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+                  onClick={sendFailure.onDelete}
+                  className="h-7 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 >
-                  <IconCornerDownRight className="size-3" />
-                  {t("commentsPanel.reply")}
+                  {t("commentsPanel.delete")}
                 </Button>
-              ) : null}
-
-              {canParticipate ? (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t("commentsPanel.react")}
-                      title={t("commentsPanel.react")}
-                      className="size-7 rounded-md text-foreground hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <IconMoodSmile className="size-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    side="top"
-                    align="start"
-                    className="w-auto p-1"
-                  >
-                    <div className="flex gap-0.5">
-                      {REACTION_EMOJIS.map((e) => (
-                        <button
-                          key={e}
-                          onClick={() => {
-                            if (!currentUserEmail) {
-                              onUnauthenticated?.("react");
-                              return;
-                            }
-                            setLocalJson(JSON.stringify(toggleEmoji(e)));
-                            onReact(comment.id, e);
-                          }}
-                          aria-label={`${t("commentsPanel.react")} ${e}`}
-                          className="flex size-8 items-center justify-center rounded text-lg hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {e}
-                        </button>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              ) : null}
-
-              {Object.entries(reactions).map(([emoji, users]) => {
-                const mine =
-                  !!currentUserEmail && users.includes(currentUserEmail);
-                return canParticipate ? (
+              </div>
+            ) : (
+              <div
+                data-comment-actions
+                className="mt-1 flex min-h-7 min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto text-xs text-muted-foreground"
+              >
+                {canParticipate && canReply ? (
                   <Button
-                    key={emoji}
                     type="button"
-                    variant="secondary"
+                    variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      if (!currentUserEmail) {
-                        onUnauthenticated?.("react");
-                        return;
-                      }
-                      setLocalJson(JSON.stringify(toggleEmoji(emoji)));
-                      onReact(comment.id, emoji);
-                    }}
-                    aria-pressed={mine}
-                    title={t("commentsPanel.react")}
-                    className={cn(
-                      "h-7 min-w-7 shrink-0 gap-1 rounded-md px-1.5 text-xs font-normal",
-                      mine && "text-primary",
-                    )}
+                    onClick={onReply}
+                    className="h-7 gap-1.5 rounded-md px-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
                   >
-                    {emoji} {users.length}
+                    <IconCornerDownRight className="size-3" />
+                    {t("commentsPanel.reply")}
                   </Button>
-                ) : (
-                  <span
-                    key={emoji}
-                    className="flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs"
-                  >
-                    {emoji} {users.length}
-                  </span>
-                );
-              })}
+                ) : null}
 
-              {isOwner && (canComment || canDelete) ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t("commentsPanel.moreActions", {
-                        author: commentAuthor,
-                      })}
-                      className="pointer-events-none ms-auto size-7 rounded-md text-muted-foreground opacity-0 transition-opacity group-hover/comment:pointer-events-auto group-hover/comment:opacity-100 group-focus-within/comment:pointer-events-auto group-focus-within/comment:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <IconDots className="size-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {canComment ? (
-                      <DropdownMenuItem onSelect={onStartEdit}>
-                        {t("commentsPanel.editComment")}
-                      </DropdownMenuItem>
-                    ) : null}
-                    {canDelete ? (
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onSelect={() => onDelete(comment.id)}
+                {canParticipate ? (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t("commentsPanel.react")}
+                        title={t("commentsPanel.react")}
+                        className="size-7 rounded-md text-foreground hover:bg-accent hover:text-accent-foreground"
                       >
-                        {t("commentsPanel.delete")}
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-            </div>
+                        <IconMoodSmile className="size-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="top"
+                      align="start"
+                      className="w-auto p-1"
+                    >
+                      <div className="flex gap-0.5">
+                        {REACTION_EMOJIS.map((e) => (
+                          <button
+                            key={e}
+                            onClick={() => {
+                              if (!currentUserEmail) {
+                                onUnauthenticated?.("react");
+                                return;
+                              }
+                              setLocalJson(JSON.stringify(toggleEmoji(e)));
+                              onReact(comment.id, e);
+                            }}
+                            aria-label={`${t("commentsPanel.react")} ${e}`}
+                            className="flex size-8 items-center justify-center rounded text-lg hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {e}
+                          </button>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                ) : null}
+
+                {Object.entries(reactions).map(([emoji, users]) => {
+                  const mine =
+                    !!currentUserEmail && users.includes(currentUserEmail);
+                  return canParticipate ? (
+                    <Button
+                      key={emoji}
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        if (!currentUserEmail) {
+                          onUnauthenticated?.("react");
+                          return;
+                        }
+                        setLocalJson(JSON.stringify(toggleEmoji(emoji)));
+                        onReact(comment.id, emoji);
+                      }}
+                      aria-pressed={mine}
+                      title={t("commentsPanel.react")}
+                      className={cn(
+                        "h-7 min-w-7 shrink-0 gap-1 rounded-md px-1.5 text-xs font-normal",
+                        mine && "text-primary",
+                      )}
+                    >
+                      {emoji} {users.length}
+                    </Button>
+                  ) : (
+                    <span
+                      key={emoji}
+                      className="flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs"
+                    >
+                      {emoji} {users.length}
+                    </span>
+                  );
+                })}
+
+                {isOwner && (canComment || canDelete) ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t("commentsPanel.moreActions", {
+                          author: commentAuthor,
+                        })}
+                        className="pointer-events-none ms-auto size-7 rounded-md text-muted-foreground opacity-0 transition-opacity group-hover/comment:pointer-events-auto group-hover/comment:opacity-100 group-focus-within/comment:pointer-events-auto group-focus-within/comment:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-accent hover:text-accent-foreground"
+                      >
+                        <IconDots className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {canComment ? (
+                        <DropdownMenuItem onSelect={onStartEdit}>
+                          {t("commentsPanel.editComment")}
+                        </DropdownMenuItem>
+                      ) : null}
+                      {canDelete ? (
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => onDelete(comment.id)}
+                        >
+                          {t("commentsPanel.delete")}
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </div>
+            )}
           </>
         )}
       </div>

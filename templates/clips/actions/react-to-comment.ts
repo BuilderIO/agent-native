@@ -17,7 +17,7 @@ export default defineAction({
     commentId: z.string().describe("Comment ID"),
     emoji: z.string().min(1).describe("Emoji character (e.g. 👍, ❤️, 🔥)"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const viewerEmail = getRequestUserEmail();
     if (!viewerEmail) {
@@ -33,7 +33,11 @@ export default defineAction({
       if (!existing) throw new Error(`Comment not found: ${args.commentId}`);
 
       if (attempt === 0) {
-        await assertCommentAccess(existing.recordingId);
+        await assertCommentAccess(
+          existing.recordingId,
+          "write",
+          ctx?.requestHeaders,
+        );
       }
 
       const previousJson = existing.emojiReactionsJson;

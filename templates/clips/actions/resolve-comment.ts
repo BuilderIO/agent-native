@@ -25,7 +25,7 @@ export default defineAction({
       .optional()
       .describe("Explicit resolved value. Omit to toggle."),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const [existing] = await db
       .select()
@@ -39,7 +39,11 @@ export default defineAction({
       throw new Error("Sign in required to resolve comments.");
     }
 
-    await assertCommentAccess(existing.recordingId);
+    await assertCommentAccess(
+      existing.recordingId,
+      "write",
+      ctx?.requestHeaders,
+    );
 
     if (!sameOwnerEmail(existing.authorEmail, userEmail)) {
       try {

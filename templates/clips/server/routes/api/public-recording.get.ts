@@ -36,6 +36,7 @@ import {
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
 import { countRecordingAgentViews } from "../../lib/agent-views.js";
+import { getCommentAccessTokenResourceId } from "../../lib/comment-access-token.js";
 import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
 import {
   isHeldForRedaction,
@@ -314,10 +315,11 @@ export default defineEventHandler(async (event) => {
   }
 
   let protectedMediaToken: string | null = null;
+  let commentAccessToken: string | null = null;
   if (rec.password && !viewerIsOwner) {
     if (!tokenAllowsAgentAccess) {
       if (!password) {
-        // No password supplied at all — this is the initial load or a
+        // No password supplied at all â€” this is the initial load or a
         // background poll sitting on the password prompt, not a guess. Don't
         // touch the throttle, or a viewer who never submits anything would
         // eventually get 429'd just for polling.
@@ -335,6 +337,14 @@ export default defineEventHandler(async (event) => {
         setResponseStatus(event, 401);
         return { error: "Password required", passwordRequired: true };
       }
+      commentAccessToken = signShortLivedToken({
+        resourceId: getCommentAccessTokenResourceId(
+          recordingId,
+          rec.password,
+          rec.sharePasswordVersion,
+        ),
+        ttlSeconds: 600,
+      });
     }
     protectedMediaToken = setProtectedMediaAccessCookie(
       event,
@@ -513,7 +523,7 @@ export default defineEventHandler(async (event) => {
       kind: resolveRecordingKind(rec.kind),
       // A screenshot's picture is served by the thumbnail route, which is the
       // full stored image and carries the same short-lived token as the video
-      // URL — so the share password gates the image bytes too.
+      // URL â€” so the share password gates the image bytes too.
       imageUrl: isImageRecording(rec) ? playbackThumbnailUrl : null,
       thumbnailUrl: playbackThumbnailUrl,
       animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
@@ -524,6 +534,7 @@ export default defineEventHandler(async (event) => {
         : rec.editsJson,
       videoUrl: playbackVideoUrl,
       mediaAccessToken: protectedMediaToken,
+      commentAccessToken,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,
       mediaUpdatedAt: rec.mediaUpdatedAt,
