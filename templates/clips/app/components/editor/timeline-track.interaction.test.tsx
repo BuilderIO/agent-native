@@ -218,6 +218,21 @@ describe("TimelineTrack pointer gestures", () => {
       });
     });
 
+    it("still selects and seeks on a click at the edge of the range", () => {
+      render(DEFAULT_EDITS, RANGE);
+
+      act(() => {
+        pointer(firstPiece(), "pointerdown", 602);
+        pointer(track(), "pointerup", 602);
+      });
+
+      expect(onSelectionChange).toHaveBeenLastCalledWith({
+        kind: "clip",
+        anchorMs: 6_020,
+      });
+      expect(onSeek).toHaveBeenCalledWith(6_020);
+    });
+
     it("starts a new selection when the drag starts outside the range", () => {
       render(DEFAULT_EDITS, RANGE);
 

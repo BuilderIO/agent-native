@@ -751,7 +751,7 @@ export default function RecordingPage() {
   const [editorRedactions, setEditorRedactions] = useState(0);
   const isCompactLayout = useIsCompactRecordingLayout();
   const openSidePanel = useCallback(
-    (next: ToolbarPanel) => {
+    (next: ToolbarPanel, options?: { leaveEditor?: boolean }) => {
       if (panel !== next) {
         trackEvent("clip_panel_opened", {
           app_name: "clips",
@@ -764,6 +764,9 @@ export default function RecordingPage() {
       setSidePanelCollapsed(false);
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("panel", next);
+      // One write: a separate setEditing(false) would copy the same params
+      // snapshot and this write would put `edit` back.
+      if (options?.leaveEditor) nextParams.delete("edit");
       setSearchParams(nextParams, { replace: true });
       if (!isCompactLayout) return;
       requestAnimationFrame(() => {
@@ -809,19 +812,22 @@ export default function RecordingPage() {
     setSearchParams,
     setSidePanelCollapsed,
   ]);
-  const openAgentPanel = useCallback(() => {
-    if (recordingId) {
-      trackEvent("builtin_agent_used", {
-        app_name: "clips",
-        template_name: "clips",
-        output_id: recordingId,
-        output_type: "clip",
-        query_type: "clip",
-        surface: "recording_page",
-      });
-    }
-    openSidePanel("agent");
-  }, [openSidePanel, recordingId]);
+  const openAgentPanel = useCallback(
+    (options?: { leaveEditor?: boolean }) => {
+      if (recordingId) {
+        trackEvent("builtin_agent_used", {
+          app_name: "clips",
+          template_name: "clips",
+          output_id: recordingId,
+          output_type: "clip",
+          query_type: "clip",
+          surface: "recording_page",
+        });
+      }
+      openSidePanel("agent", options);
+    },
+    [openSidePanel, recordingId],
+  );
   const transcriptKickedRef = useRef<string | null>(null);
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
@@ -2525,8 +2531,7 @@ export default function RecordingPage() {
   function handleGenerateWorkflow(kind: WorkflowKind) {
     if (!recording) return;
     if (aiRequestBusy || isRecentWorkflowGeneration(generatedWorkflow)) return;
-    setEditing(false);
-    openAgentPanel();
+    openAgentPanel({ leaveEditor: true });
     workflowLifecycleActiveRef.current = true;
     primeCompletionCue();
     startWorkflowToast(t("recordingPage.workflowQueued"));
@@ -3314,7 +3319,7 @@ export default function RecordingPage() {
                 none of those, so those actions are hidden. */}
             {isImage ? null : (
               <>
-                <DropdownMenuItem onSelect={openAgentPanel}>
+                <DropdownMenuItem onSelect={() => openAgentPanel()}>
                   {t("recordingPage.askAboutClip")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />

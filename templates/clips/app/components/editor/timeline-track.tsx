@@ -335,8 +335,6 @@ export function TimelineTrack({
       if (drag.kind === "range") {
         if (drag.moved) {
           onSelectionChange(dragRange(drag, toMs(e.clientX), durationMs));
-        } else if (drag.mode === "resize") {
-          return;
         } else if (drag.gapCutId) {
           onSelectionChange({ kind: "gap", cutId: drag.gapCutId });
         } else {
