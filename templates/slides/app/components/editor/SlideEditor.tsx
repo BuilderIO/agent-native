@@ -6018,7 +6018,9 @@ export default function SlideEditor({
     (copy: HTMLElement) => {
       const slideContent = getSlideContent();
       const source = slideContent && getRenderedSlideSource(slideContent);
-      return source ? storedFormOf(source, copy) : null;
+      if (!source) return null;
+      stripSizeLocks(copy);
+      return storedFormOf(source, copy);
     },
     [getSlideContent],
   );

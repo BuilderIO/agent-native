@@ -168,6 +168,18 @@ describe("mergeRenderedEdits", () => {
     expect(result.html).not.toContain("contain");
   });
 
+  it("keeps authored containment styles that carry no size lock", () => {
+    const source =
+      '<div class="fmd-slide"><p style="contain: layout; contain-intrinsic-size: 100px 20px">Alpha</p></div>';
+    const { root, save } = mount(source);
+    q(root, "p").textContent = "Alpha edited";
+    stripSizeLocks(root);
+
+    const result = save();
+    expect(result.html).toContain("contain: layout");
+    expect(result.html).toContain("contain-intrinsic-size: 100px 20px");
+  });
+
   it("preserves authored accessibility attributes when a block is retagged", () => {
     const source =
       '<div class="fmd-slide"><p role="textbox" aria-expanded="false" aria-autocomplete="inline" aria-controls="details-panel" aria-activedescendant="details-heading" aria-haspopup="grid" aria-label="Details">Text</p></div>';

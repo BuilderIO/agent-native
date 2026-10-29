@@ -292,6 +292,8 @@ function dropSizeLock(el: HTMLElement) {
     el.style.removeProperty("contain");
   }
   el.style.removeProperty("contain-intrinsic-size");
+  el.style.removeProperty("contain-intrinsic-width");
+  el.style.removeProperty("contain-intrinsic-height");
   if (!el.getAttribute("style")) el.removeAttribute("style");
 }
 
@@ -311,13 +313,12 @@ export function stripFreeformReservation(el: HTMLElement) {
  * it already has, so the merge reads the removal and drops it from the stored markup.
  */
 export function stripSizeLocks(root: ParentNode) {
-  for (const el of root.querySelectorAll<HTMLElement>("[style*='contain']")) {
+  const selector = "[style*='contain']";
+  if (root instanceof Element && root.matches(selector)) {
+    dropSizeLock(root as HTMLElement);
+  }
+  for (const el of root.querySelectorAll<HTMLElement>(selector)) {
     dropSizeLock(el);
-    // Stored locks can carry the longhands alone, as the reported slide did.
-    el.style.removeProperty("contain-intrinsic-size");
-    el.style.removeProperty("contain-intrinsic-width");
-    el.style.removeProperty("contain-intrinsic-height");
-    if (!el.getAttribute("style")) el.removeAttribute("style");
   }
 }
 
