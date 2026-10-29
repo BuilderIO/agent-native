@@ -90,18 +90,21 @@ describe("failed tool attempts", () => {
       expect(steps).toBeLessThanOrEqual(limit + (interruptedCloseout ? 2 : 1));
       const visible = events.reduce((text, event) => {
         if (event.type === "clear") return "";
+        if (event.type === "error") return text + event.error;
         return event.type === "text" ? text + event.text : text;
       }, "");
       expect(visible).toContain("Invalid");
-      expect(
-        events.some(
-          (event) =>
-            event.type === "text" &&
-            /stopped/i.test(event.text) &&
-            event.text.includes("update-view") &&
-            event.text.includes("Invalid"),
-        ),
-      ).toBe(true);
+      expect(visible).toMatch(/stopped/i);
+      expect(visible).toContain("update-view");
+      if (varied) {
+        expect(events.filter((event) => event.type === "text")).toHaveLength(0);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            errorCode: "repeated_tool_failure",
+          }),
+        );
+      }
     },
   );
 
@@ -213,7 +216,7 @@ describe("failed tool attempts", () => {
     expect(
       events.some(
         (event) =>
-          event.type === "text" && event.text.includes("failed 5 times"),
+          event.type === "error" && event.error.includes("failed 5 times"),
       ),
     ).toBe(true);
   });

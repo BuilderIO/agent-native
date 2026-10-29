@@ -16444,7 +16444,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("counts per-item not-found errors as distinct failures", async () => {
+  it("bounds a not-found sweep even when errors name distinct items", async () => {
     const ITEMS = 7;
     let streamCalls = 0;
     const run = vi.fn(async (input: { id: number }) => {
@@ -16499,9 +16499,13 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(run).toHaveBeenCalledTimes(ITEMS);
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "error" }),
+    // oracle-change: distinct errors still consume the new per-tool failure budget.
+    expect(run).toHaveBeenCalledTimes(5);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_tool_failure",
+      }),
     );
   });
 

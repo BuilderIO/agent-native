@@ -9289,6 +9289,7 @@ export async function runAgentLoop(opts: {
     // Tool closures set the stop, so control flow still reads it as null here.
     const actionStopRequested = () => requestedActionStop !== null;
     let requestedActionStopTranscriptSent = false;
+    const hasActionStopTranscript = () => requestedActionStopTranscriptSent;
     const approvalTranscriptCallIds = new Set<string>();
     const sentApprovalTranscriptTexts = new Set<string>();
     let requestedConnection:
@@ -11529,7 +11530,8 @@ export async function runAgentLoop(opts: {
     if (requestedActionStop) {
       const stop = requestedActionStop as TerminalActionStop;
       if (isLoopBreakerStop(stop)) {
-        await send({ type: "text", text: `${stop.message}\n\n` });
+        if (!hasActionStopTranscript())
+          await send({ type: "text", text: `${stop.message}\n\n` });
         loopBreakerCloseout = stop;
         messages.push({
           role: "user",
@@ -11545,12 +11547,9 @@ export async function runAgentLoop(opts: {
         continue;
       }
       terminalActionStop = stop;
-      if (stop.errorCode === "repeated_tool_failure") {
-        await send({ type: "text", text: stop.message });
-      }
       if (requestedConnection) {
         send({ type: "connection_required", ...requestedConnection });
-      } else if (!requestedActionStopTranscriptSent) {
+      } else if (!hasActionStopTranscript()) {
         sendTerminalActionStop(stop);
       }
       break;
