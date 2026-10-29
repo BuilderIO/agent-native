@@ -81,6 +81,20 @@ describe("Design no-questions readout query", () => {
       expect(sql).toContain("design_exported");
       expect(sql).toContain("telemetry_origin");
       expect(sql).toContain("output_id");
+      const serverOriginFilter =
+        _name === "PostgreSQL"
+          ? "properties ->> 'telemetry_origin' = 'server'"
+          : "json_value(properties, '$.telemetry_origin') = 'server'";
+      const exposureRows =
+        /exposure_rows AS \(([\s\S]*?)\),\s*exposures AS/.exec(sql)?.[1];
+      const assignmentFailures =
+        /assignment_failures AS \(([\s\S]*?)\),\s*prompts AS/.exec(sql)?.[1];
+      expect(exposureRows).toContain("agent_experiment_exposed");
+      expect(exposureRows).toContain(serverOriginFilter);
+      expect(assignmentFailures).toContain(
+        "agent_experiment_assignment_failed",
+      );
+      expect(assignmentFailures).toContain(serverOriginFilter);
       if (_name === "PostgreSQL") {
         expect(sql).toContain("e.properties ->> 'output_id' = r.output_id");
         expect(sql).toContain("e.properties ->> 'telemetry_origin' = 'server'");

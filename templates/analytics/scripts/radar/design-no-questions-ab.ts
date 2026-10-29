@@ -73,6 +73,7 @@ exposure_rows AS (
   WHERE app = 'design' AND event_name = 'agent_experiment_exposed'
     AND properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND properties ->> 'experiment_variant' IN ('control', 'no_questions')
+    AND properties ->> 'telemetry_origin' = 'server'
     AND person_key IS NOT NULL
     AND event_date BETWEEN $1 AND $2
     AND happened_at <= $4::timestamptz
@@ -87,6 +88,7 @@ assignment_failures AS (
   WHERE app = 'design' AND event_name = 'agent_experiment_assignment_failed'
     AND properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND properties ->> 'failure_stage' = 'signup'
+    AND properties ->> 'telemetry_origin' = 'server'
     AND event_date BETWEEN $1 AND $2
     AND happened_at <= $4::timestamptz
 ),
@@ -251,6 +253,7 @@ exposure_rows AS (
   WHERE app = 'design' AND event_name = 'agent_experiment_exposed'
     AND json_value(properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(properties, '$.experiment_variant') IN ('control', 'no_questions')
+    AND json_value(properties, '$.telemetry_origin') = 'server'
     AND person_key IS NOT NULL
     AND event_date BETWEEN @start_date AND @end_date
     AND happened_at <= @as_of
@@ -265,6 +268,7 @@ assignment_failures AS (
   WHERE app = 'design' AND event_name = 'agent_experiment_assignment_failed'
     AND json_value(properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(properties, '$.failure_stage') = 'signup'
+    AND json_value(properties, '$.telemetry_origin') = 'server'
     AND event_date BETWEEN @start_date AND @end_date
     AND happened_at <= @as_of
 ),
