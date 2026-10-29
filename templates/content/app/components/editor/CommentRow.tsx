@@ -56,8 +56,12 @@ export function renderCommentBody(
         at,
         kind: mention.kind,
       }))}
-      renderMention={({ at }) => {
-        const mention = at === undefined ? undefined : mentionAt.get(at);
+      // A mention written as `@[Name](mailto:…)`, as agents and other apps
+      // write them, has no stored entry, so its email makes it a person.
+      renderMention={({ at, label, email }) => {
+        const mention =
+          (at === undefined ? undefined : mentionAt.get(at)) ??
+          (email ? { kind: "person" as const, email, name: label } : null);
         return mention ? <CommentMentionPill mention={mention} /> : null;
       }}
       renderLink={(href, children, className) =>

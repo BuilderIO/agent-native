@@ -39,7 +39,10 @@ export interface CommentBodyProps {
   codeClassName?: string;
   /** Draws a link in a full body. The default opens it in a new tab. */
   renderLink?: InlineMarkdownProps["renderLink"];
-  /** Draws a mention. The default is the kit's mention chip. */
+  /**
+   * Draws a mention. Return nothing to draw the kit's mention chip, which is
+   * also the default.
+   */
   renderMention?: (mention: CommentBodyMention) => ReactNode;
 }
 
@@ -79,22 +82,22 @@ export function CommentBody({
         const mention =
           span.at === undefined ? undefined : mentionAt.get(span.at);
         if (!mention) return <span>{children}</span>;
-        return renderMention ? (
-          renderMention(mention)
-        ) : (
-          <ReviewMentionChip
-            mention={mention}
-            // A preview's line is often smaller than a chip, and it may sit on
-            // an inverted card, like a video's comment bubble. There the chip
-            // takes the line's size and color, so it neither pushes the row
-            // taller nor goes dark on a dark card.
-            className={cn(
-              "select-text",
-              compact &&
-                "h-auto py-0 text-[1em] leading-[inherit] text-inherit border-current/30",
-            )}
-            title={mention.email ?? undefined}
-          />
+        return (
+          renderMention?.(mention) ?? (
+            <ReviewMentionChip
+              mention={mention}
+              // A preview's line is often smaller than a chip, and it may sit on
+              // an inverted card, like a video's comment bubble. There the chip
+              // takes the line's size and color, so it neither pushes the row
+              // taller nor goes dark on a dark card.
+              className={cn(
+                "select-text",
+                compact &&
+                  "h-auto py-0 text-[1em] leading-[inherit] text-inherit border-current/30",
+              )}
+              title={mention.email ?? undefined}
+            />
+          )
         );
       }}
       renderLink={

@@ -122,6 +122,21 @@ describe("CommentBody", () => {
     expect(container.textContent).toContain("docs");
   });
 
+  it("draws the kit's chip when an app's renderer returns nothing", () => {
+    render(
+      <CommentBody
+        body="Ask @[Alex Kim](mailto:alex@example.com) or @Sam"
+        mentions={[{ label: "Sam", email: "sam@example.com" }]}
+        renderMention={(mention) =>
+          mention.label === "Sam" ? <b>custom {mention.label}</b> : null
+        }
+      />,
+    );
+
+    expect(container.querySelector("b")?.textContent).toBe("custom Sam");
+    expect(chips()).toEqual(["@Alex Kim"]);
+  });
+
   it("draws a compact preview's mention chips in the line's color", () => {
     render(
       <CommentBody

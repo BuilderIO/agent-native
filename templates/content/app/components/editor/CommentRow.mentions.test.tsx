@@ -97,6 +97,15 @@ describe("sent comment mentions", () => {
     ]);
   });
 
+  it("draws an @[Name](mailto:…) mention, as agents write them, as a person", () => {
+    const pills = render("Ask @[Sam Lee](mailto:sam@example.com) first", null);
+
+    expect(
+      pills.map((pill) => [pill.dataset.commentMention, spokenText(pill)]),
+    ).toEqual([["person", "@Sam Lee"]]);
+    expect(spokenText(host)).toBe("Ask @Sam Lee first");
+  });
+
   it("leaves plain-text mentions with no stored identity as text", () => {
     expect(render("Thanks @Sam, and @Claude too", null)).toEqual([]);
     expect(spokenText(host)).toBe("Thanks @Sam, and @Claude too");
