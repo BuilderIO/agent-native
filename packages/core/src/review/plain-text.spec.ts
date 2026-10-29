@@ -1,3 +1,7 @@
+import type { Nodes } from "mdast";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -255,6 +259,8 @@ describe("commentPlainText", () => {
       `${"![".repeat(16)}x${"](u)".repeat(16)} `.repeat(400),
       `${"- ".repeat(16)}x\n`.repeat(600),
       `${"x <!--".repeat(64)}\n\n`.repeat(50),
+      // Code in a fence, which the limits leave alone.
+      `\`\`\`\n${"*a[".repeat(6_000)}`,
     ]) {
       expect(fastest(text, 2) / ordinaryMs, text.slice(0, 12)).toBeLessThan(20);
     }
@@ -305,6 +311,113 @@ describe("splitCommentAtMarkdownLimit", () => {
       splitCommentAtMarkdownLimit("<!-- a -->\n".repeat(65)).markdown,
     ).toBe("");
   });
+
+  it("doesn't count code in a fence as Markdown", () => {
+    // A traceback with no blank lines holds over 1,000 underscores.
+    const traceback =
+      'File "/srv/app_name/handler_module.py", line 12, in __call__\n'.repeat(
+        200,
+      );
+    for (const fence of ["```", "~~~"]) {
+      const body = `The error:\n\n${fence}\n${traceback}${fence}\n\n**Ideas?**`;
+      expect(splitCommentAtMarkdownLimit(body).rest).toBe("");
+      expect(commentPlainText(body)).toBe(
+        `The error:\n\n${traceback.trimEnd()}\n\nIdeas?`,
+      );
+    }
+  });
+
+  it("counts again once a fence closes, where the parser closes it", () => {
+    const tangled = "*a".repeat(1_001);
+    expect(
+      splitCommentAtMarkdownLimit(`\`\`\`\ncode\n\`\`\`\n${tangled}`),
+    ).toEqual({
+      markdown: "```\ncode\n```\n",
+      rest: tangled,
+    });
+    expect(
+      splitCommentAtMarkdownLimit(`\`\`\`\n   \`\`\`\n${tangled}`).markdown,
+    ).toBe("```\n   ```\n");
+    // A closing fence has up to three spaces before it, at least as many of
+    // the opening's markers, and nothing after them.
+    for (const open of [
+      "```\n    ```",
+      "````\n```",
+      "```\n~~~",
+      "```\n``` js",
+    ]) {
+      expect(splitCommentAtMarkdownLimit(`${open}\n${tangled}`).rest).toBe("");
+    }
+  });
+
+  it("stops following fences after a line that could hide one", () => {
+    // A fence inside an HTML block is HTML, and the block runs past a blank
+    // line. A fence opened in a quote or after spaces can be closed by a line
+    // that looks like an opening one. A backtick in a backtick fence's info
+    // string makes the line text.
+    const tangled = "*a".repeat(1_001);
+    for (const before of [
+      "<div>\n```\n",
+      "  ```\n```\n",
+      "> ```\n```\n",
+      "``` a`b\n",
+    ]) {
+      expect(
+        splitCommentAtMarkdownLimit(`${before}\n${tangled}`).markdown,
+      ).toBe(`${before}\n`);
+    }
+  });
+
+  it("never skips a paragraph the parser reads as Markdown", () => {
+    // Random comments of fence, HTML, quote, list, table and definition lines,
+    // with one paragraph too tangled to read quickly. Wherever the parser
+    // reads it as Markdown rather than code or HTML, the Markdown must stop
+    // before it.
+    const lines = [
+      ...["```", "```js", "``` a`b", "````", "~~~", " ```", "   ```"],
+      ...["    ```", "\t```", "```  ", "  ```", "> ```", "<div>", "<!-- x"],
+      ...["-->", "- a", "> a", "1. a", "a|b", "-|-", "[a]: /u 'x", "'"],
+      ...["text", "", "    code"],
+    ];
+    let seed = 1;
+    const random = (count: number): number => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed % count;
+    };
+    for (let run = 0; run < 2_000; run += 1) {
+      const comment = Array.from(
+        { length: 1 + random(10) },
+        () => lines[random(lines.length)] ?? "",
+      );
+      const at = random(comment.length + 1);
+      const probe = comment.toSpliced(at, 0, "probe");
+      if (rawLines(probe.join("\n")).has(at + 1)) continue;
+      const tangled = comment.toSpliced(at, 0, "*a".repeat(1_001));
+      const lineStart =
+        tangled.slice(0, at).join("\n").length + Math.min(at, 1);
+      expect(
+        splitCommentAtMarkdownLimit(tangled.join("\n")).markdown.length,
+        JSON.stringify(probe),
+      ).toBeLessThanOrEqual(lineStart);
+    }
+  });
+
+  it("stops before a code block rather than split it at the limit", () => {
+    const block = `\`\`\`ts\n${"const x = 1;\n".repeat(2_000)}\`\`\`\n\nAfter`;
+    expect(splitCommentAtMarkdownLimit(`Intro\n\n${block}`)).toEqual({
+      markdown: "Intro\n\n",
+      rest: block,
+    });
+    // A block that closes before the paragraph break stays whole.
+    const words = "word ".repeat(2_400);
+    const closed = `${words}\n\n\`\`\`\n${"x\n".repeat(100)}\`\`\``;
+    expect(
+      splitCommentAtMarkdownLimit(`${closed}\n\n${words}${words}`),
+    ).toEqual({
+      markdown: closed,
+      rest: `${words}${words}`,
+    });
+  });
 });
 
 /** The quickest of a few reads, in milliseconds, which steadies a busy machine. */
@@ -337,3 +450,22 @@ describe("commentExcerpt", () => {
     );
   });
 });
+
+/** The lines, counted from 1, that the parser reads as code or raw HTML. */
+function rawLines(markdown: string): Set<number> {
+  const lines = new Set<number>();
+  const visit = (node: Nodes): void => {
+    if ((node.type === "code" || node.type === "html") && node.position) {
+      const { start, end } = node.position;
+      for (let line = start.line; line <= end.line; line += 1) lines.add(line);
+    }
+    if ("children" in node) for (const child of node.children) visit(child);
+  };
+  visit(
+    fromMarkdown(markdown, {
+      extensions: [gfm()],
+      mdastExtensions: [gfmFromMarkdown()],
+    }),
+  );
+  return lines;
+}

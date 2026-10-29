@@ -36,25 +36,31 @@ const MAX_LINE_NESTING = 16;
  * Splits a comment where its Markdown stops: before the first paragraph too
  * tangled for the parser to read quickly, or else at a paragraph break near
  * the limit, so the Markdown part doesn't end inside a block when it can help
- * it.
+ * it. Rather than end inside a fenced code block, it stops before the block,
+ * which then shows as written with the rest.
  */
 export function splitCommentAtMarkdownLimit(body: string): {
   markdown: string;
   rest: string;
 } {
-  let cut = tangledParagraphAt(body);
+  const { tangledAt, fences } = readCommentLines(body);
+  let cut = tangledAt;
   if (cut === undefined) {
     if (body.length <= COMMENT_MARKDOWN_LIMIT) {
       return { markdown: body, rest: "" };
     }
     const head = body.slice(0, COMMENT_MARKDOWN_LIMIT);
     const paragraphBreak = head.lastIndexOf("\n\n");
-    cut =
+    let limitCut =
       paragraphBreak > COMMENT_MARKDOWN_LIMIT / 2
         ? paragraphBreak
         : COMMENT_MARKDOWN_LIMIT;
-    const last = body.charCodeAt(cut - 1);
-    if (last >= 0xd800 && last <= 0xdbff) cut -= 1;
+    const last = body.charCodeAt(limitCut - 1);
+    if (last >= 0xd800 && last <= 0xdbff) limitCut -= 1;
+    const split = fences.find(
+      (fence) => fence.start < limitCut && limitCut < fence.end,
+    );
+    cut = split ? split.start : limitCut;
   }
   return {
     markdown: body.slice(0, cut),
@@ -63,11 +69,34 @@ export function splitCommentAtMarkdownLimit(body: string): {
 }
 
 /**
- * Where the first paragraph within the limit that passes the limits above
- * starts, if one does. A blank line always ends a paragraph, so counting
- * between blank lines never counts too few, even across code blocks.
+ * A code block fenced at the left margin, from the start of its opening line
+ * to the end of its closing line (Infinity if it doesn't close within the
+ * limit).
  */
-function tangledParagraphAt(body: string): number | undefined {
+interface Fence {
+  start: number;
+  end: number;
+}
+
+/**
+ * Reads a comment's lines up to the limit: where the first paragraph that
+ * passes the limits above starts, if one does, and where its fenced code
+ * blocks sit. Code isn't Markdown, so it isn't counted. A blank line or a
+ * fence always ends a paragraph, so counting between them never counts too
+ * few.
+ */
+function readCommentLines(body: string): {
+  tangledAt: number | undefined;
+  fences: Fence[];
+} {
+  const fences: Fence[] = [];
+  let fence: (OpeningFence & { start: number }) | undefined;
+  // Only fences opened at the left margin are followed. A fence opened in a
+  // quote, a list or with a few spaces could be closed by a line that looks
+  // like it opens one, and a fence line inside an HTML block is HTML, which
+  // can run past blank lines. So after a line that could open either, stop
+  // trusting fences and count everything.
+  let trustFences = true;
   let paragraph = 0;
   let emphasis = 0;
   let htmlComments = 0;
@@ -80,32 +109,103 @@ function tangledParagraphAt(body: string): number | undefined {
     const next = end + (body.startsWith("\r\n", end) ? 2 : 1);
     let at = start;
     while (at < end && isSpace(body.charAt(at))) at += 1;
-    if (at === end) {
+    const opening =
+      fence === undefined && trustFences
+        ? openingFence(body, start, end)
+        : undefined;
+    if (fence !== undefined) {
+      if (closesFence(body, start, end, fence)) {
+        fences.push({ start: fence.start, end });
+        fence = undefined;
+        paragraph = next;
+      }
+    } else if (at === end || opening !== undefined) {
+      if (opening !== undefined) fence = { ...opening, start };
       paragraph = next;
       emphasis = 0;
       htmlComments = 0;
       brackets = 0;
     } else {
-      if (lineNesting(body, at, end) > MAX_LINE_NESTING) return paragraph;
+      const text = body.slice(at, end);
+      if (
+        text.startsWith("<") ||
+        text.includes("```") ||
+        text.includes("~~~")
+      ) {
+        trustFences = false;
+      }
+      if (lineNesting(body, at, end) > MAX_LINE_NESTING) {
+        return { tangledAt: paragraph, fences };
+      }
       for (let index = at; index < end; index += 1) {
         const char = body.charAt(index);
         if (char === "*" || char === "_" || char === "~") {
           emphasis += 1;
-          if (emphasis > MAX_EMPHASIS_MARKERS) return paragraph;
+          if (emphasis > MAX_EMPHASIS_MARKERS) {
+            return { tangledAt: paragraph, fences };
+          }
         } else if (char === "[") {
           brackets += 1;
-          if (brackets > MAX_BRACKET_DEPTH) return paragraph;
+          if (brackets > MAX_BRACKET_DEPTH) {
+            return { tangledAt: paragraph, fences };
+          }
         } else if (char === "]") {
           brackets = Math.max(0, brackets - 1);
         } else if (char === "<" && body.startsWith("<!--", index)) {
           htmlComments += 1;
-          if (htmlComments > MAX_HTML_COMMENTS) return paragraph;
+          if (htmlComments > MAX_HTML_COMMENTS) {
+            return { tangledAt: paragraph, fences };
+          }
         }
       }
     }
     start = next;
   }
-  return undefined;
+  if (fence !== undefined) fences.push({ start: fence.start, end: Infinity });
+  return { tangledAt: undefined, fences };
+}
+
+interface OpeningFence {
+  marker: string;
+  length: number;
+}
+
+/**
+ * The fence a line opens, if it opens one at the left margin. Only there is
+ * it sure to be a fence outside any quote or list, which would close it.
+ */
+function openingFence(
+  body: string,
+  start: number,
+  end: number,
+): OpeningFence | undefined {
+  const marker = body.charAt(start);
+  if (marker !== "`" && marker !== "~") return undefined;
+  let at = start;
+  while (at < end && body.charAt(at) === marker) at += 1;
+  if (at - start < 3) return undefined;
+  // A backtick in a backtick fence's info string makes the line text.
+  if (marker === "`" && body.slice(at, end).includes("`")) return undefined;
+  return { marker, length: at - start };
+}
+
+/**
+ * Whether a line closes the fence: up to three spaces, at least as many of
+ * the fence's markers, and nothing else.
+ */
+function closesFence(
+  body: string,
+  start: number,
+  end: number,
+  fence: OpeningFence,
+): boolean {
+  let at = start;
+  while (at < end && at - start < 3 && body.charAt(at) === " ") at += 1;
+  const markers = at;
+  while (at < end && body.charAt(at) === fence.marker) at += 1;
+  if (at - markers < fence.length) return false;
+  while (at < end && isSpace(body.charAt(at))) at += 1;
+  return at === end;
 }
 
 /** How many quote and list markers open the line from `at` to `end`. */
