@@ -269,6 +269,8 @@ function emitTrackedEvent(
   const safeProperties = { ...(properties ?? {}) };
   delete safeProperties.auth_user_id;
   delete safeProperties.authUserId;
+  delete safeProperties.telemetry_origin;
+  delete safeProperties.telemetryOrigin;
   if (telemetryOrigin === "client") {
     delete safeProperties.experiment_id;
     delete safeProperties.experiment_variant;
@@ -280,6 +282,7 @@ function emitTrackedEvent(
       : null;
   const trackedProperties = withCanonicalTrackingProperties({
     ...safeProperties,
+    telemetry_origin: telemetryOrigin,
     ...(firstRunExperiment ?? {}),
     ...(questionIntakeAssignment
       ? {

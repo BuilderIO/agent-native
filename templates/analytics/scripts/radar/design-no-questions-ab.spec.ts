@@ -73,21 +73,29 @@ describe("Design no-questions readout query", () => {
       ),
     ],
   ])(
-    "uses explicit exposure, prompt, outcome and maturity joins (%s)",
+    "uses server traces, proven UI outcomes and maturity joins (%s)",
     (_name, sql) => {
       expect(sql).toContain("agent_experiment_exposed");
-      expect(sql).toContain("design_prompt_submitted");
+      expect(sql).not.toContain("design_prompt_submitted");
       expect(sql).toContain("design_ready_viewed");
       expect(sql).toContain("design_exported");
-      expect(sql).toContain("first_prompt_output_id");
-      expect(sql.match(/first_prompt_output_id IS NOT NULL/g)).toHaveLength(2);
+      expect(sql).toContain("telemetry_origin");
+      expect(sql).toContain("output_id");
       if (_name === "PostgreSQL") {
-        expect(sql).toContain(
-          "e.properties ->> 'output_id' = a.first_prompt_output_id",
+        expect(sql).toContain("e.properties ->> 'output_id' = r.output_id");
+        expect(sql).toContain("e.properties ->> 'telemetry_origin' = 'server'");
+        expect(sql).not.toContain(
+          "e.properties ->> 'render_location' = 'browser'",
         );
       } else {
         expect(sql).toContain(
-          "json_value(e.properties, '$.output_id') = a.first_prompt_output_id",
+          "json_value(e.properties, '$.output_id') = r.output_id",
+        );
+        expect(sql).toContain(
+          "json_value(e.properties, '$.telemetry_origin') = 'server'",
+        );
+        expect(sql).not.toContain(
+          "json_value(e.properties, '$.render_location') = 'browser'",
         );
       }
       expect(sql).toContain("event_name = '$ai_generation'");
@@ -102,9 +110,11 @@ describe("Design no-questions readout query", () => {
       expect(sql).toContain("no_questions");
       expect(sql).toContain("mature_1to7d");
       expect(sql).toContain("mature_24h");
-      expect(
-        sql.match(/AND happened_at <= (\$4::timestamptz|@as_of)/g),
-      ).toHaveLength(3);
+      expect(sql).toContain(
+        _name === "PostgreSQL"
+          ? "AND happened_at <= $4::timestamptz"
+          : "AND happened_at <= @as_of",
+      );
     },
   );
 
@@ -118,16 +128,14 @@ describe("Design no-questions readout query", () => {
       "e.event_date <= to_char($4::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD')",
     );
     expect(postgresSql).toContain("AND event_date BETWEEN $1 AND $2");
-    expect(
-      postgresSql.match(/AND e\.happened_at <= \$4::timestamptz/g),
-    ).toHaveLength(3);
+    expect(postgresSql).toContain("AND e.happened_at <= $4::timestamptz");
     expect(bigQuerySql).toMatch(
       /events_query_range`?\(@start_date, DATE\(@as_of\)\)/,
     );
     expect(bigQuerySql).toContain(
       "AND event_date BETWEEN @start_date AND @end_date",
     );
-    expect(bigQuerySql.match(/AND e\.happened_at <= @as_of/g)).toHaveLength(3);
+    expect(bigQuerySql).toContain("AND e.happened_at <= @as_of");
   });
 
   it("reports all requested metrics with mature denominators and sample size", async () => {
@@ -162,7 +170,7 @@ describe("Design no-questions readout query", () => {
       "Signup assignment failures with no arm: 2",
     );
     expect(formatDesignNoQuestionsReadout(result)).toContain(
-      "Exports count completed browser exports and completed server exports initiated by the Design UI",
+      "Exports count only completed server-origin exports initiated by the Design UI",
     );
     expect(queryMocks.runPostgresQuery).toHaveBeenCalledWith(
       buildPostgresDesignNoQuestionsAbSql(),

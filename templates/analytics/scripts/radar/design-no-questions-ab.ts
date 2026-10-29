@@ -15,7 +15,6 @@ export const DESIGN_NO_QUESTIONS_VARIANTS = [
   "no_questions",
 ] as const;
 const DEFAULT_START = "2026-10-27";
-const PROMPT_EXPOSURE_JOIN_WINDOW = "10 minutes";
 const BASELINE_READY_RATE = 0.596;
 const TARGET_READY_RATE = BASELINE_READY_RATE + 0.1;
 
@@ -92,28 +91,30 @@ assignment_failures AS (
     AND happened_at <= $4::timestamptz
 ),
 prompts AS (
-  SELECT id, person_key, happened_at, properties ->> 'output_id' AS output_id,
-    properties ->> 'experiment_id' AS experiment_id,
-    properties ->> 'experiment_variant' AS variant
-  FROM base_events
-  WHERE app = 'design' AND event_name = 'design_prompt_submitted'
-    AND properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
-    AND properties ->> 'experiment_variant' IN ('control', 'no_questions')
-    AND person_key IS NOT NULL
-    AND happened_at <= $4::timestamptz
+  SELECT e.id, e.person_key, e.happened_at,
+    e.properties ->> 'turn_id' AS turn_id,
+    (string_to_array(e.properties ->> 'experiment_variants', ','))[
+      assignment.assignment_index
+    ] AS variant
+  FROM base_events e
+  CROSS JOIN LATERAL unnest(
+    string_to_array(e.properties ->> 'experiment_ids', ',')
+  ) WITH ORDINALITY AS assignment(experiment_id, assignment_index)
+  WHERE e.app = 'design' AND e.event_name = '$ai_generation'
+    AND e.properties ->> 'telemetry_origin' = 'server'
+    AND assignment.experiment_id = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND (string_to_array(e.properties ->> 'experiment_variants', ','))[
+      assignment.assignment_index
+    ] IN ('control', 'no_questions')
+    AND e.person_key IS NOT NULL
+    AND e.happened_at <= $4::timestamptz
 ),
 cohort AS (
   SELECT x.person_key, x.variant, x.exposed_at, x.exposed_turn_id,
-    min(p.happened_at) FILTER (WHERE p.happened_at BETWEEN
-      x.exposed_at - interval '${PROMPT_EXPOSURE_JOIN_WINDOW}' AND
-      x.exposed_at + interval '${PROMPT_EXPOSURE_JOIN_WINDOW}') AS first_prompt_at,
-    (array_agg(p.output_id ORDER BY p.happened_at, p.id) FILTER (WHERE
-      p.happened_at BETWEEN
-        x.exposed_at - interval '${PROMPT_EXPOSURE_JOIN_WINDOW}' AND
-        x.exposed_at + interval '${PROMPT_EXPOSURE_JOIN_WINDOW}'))[1]
-      AS first_prompt_output_id
+    min(p.happened_at) AS first_prompt_at
   FROM exposures x
-  LEFT JOIN prompts p ON p.person_key = x.person_key AND p.variant = x.variant
+  LEFT JOIN prompts p ON p.person_key = x.person_key
+    AND p.variant = x.variant AND p.turn_id = x.exposed_turn_id
   GROUP BY x.person_key, x.variant, x.exposed_at, x.exposed_turn_id
 ),
 anchors AS (
@@ -123,17 +124,20 @@ anchors AS (
   FROM cohort
 ),
 ready AS (
-  SELECT a.person_key, min(e.happened_at) AS ready_at
+  SELECT a.person_key, min(e.happened_at) AS ready_at,
+    (array_agg(e.properties ->> 'output_id' ORDER BY e.happened_at, e.id)
+      FILTER (WHERE nullif(e.properties ->> 'output_id', '') IS NOT NULL))[1]
+      AS output_id
   FROM anchors a
   JOIN base_events e ON e.person_key = a.person_key
     AND e.app = 'design' AND e.event_name = 'design_ready_viewed'
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < a.anchor_at + interval '24 hours'
     AND e.happened_at <= $4::timestamptz
-    AND a.first_prompt_output_id IS NOT NULL
-    AND e.properties ->> 'output_id' = a.first_prompt_output_id
-    AND e.properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
-    AND e.properties ->> 'experiment_variant' = a.variant
+    AND e.properties ->> 'telemetry_origin' = 'server'
+    AND e.properties ->> 'caller' = 'frontend'
+    AND e.properties ->> 'turn_id' = a.exposed_turn_id
+    AND nullif(e.properties ->> 'output_id', '') IS NOT NULL
   GROUP BY a.person_key
 ),
 second_prompts AS (
@@ -141,6 +145,7 @@ second_prompts AS (
   FROM anchors a
   JOIN base_events t ON t.person_key = a.person_key
     AND t.app = 'design' AND t.event_name = '$ai_generation'
+    AND t.properties ->> 'telemetry_origin' = 'server'
     AND t.happened_at > a.first_prompt_at
     AND t.happened_at < a.first_prompt_at + interval '24 hours'
     AND t.happened_at <= $4::timestamptz
@@ -159,21 +164,17 @@ second_prompts AS (
 exports AS (
   SELECT a.person_key, min(e.happened_at) AS exported_at
   FROM anchors a
+  JOIN ready r ON r.person_key = a.person_key
   JOIN base_events e ON e.person_key = a.person_key
     AND e.app = 'design' AND e.event_name = 'design_exported'
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < a.anchor_at + interval '24 hours'
     AND e.happened_at <= $4::timestamptz
-    AND a.first_prompt_output_id IS NOT NULL
-    AND e.properties ->> 'output_id' = a.first_prompt_output_id
-    AND e.properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
-    AND e.properties ->> 'experiment_variant' = a.variant
+    AND e.properties ->> 'telemetry_origin' = 'server'
+    AND e.properties ->> 'output_id' = r.output_id
     AND e.properties ->> 'status' = 'completed'
-    AND (
-      e.properties ->> 'render_location' = 'browser'
-      OR (e.properties ->> 'render_location' = 'server'
-        AND e.properties ->> 'caller' = 'frontend')
-    )
+    AND e.properties ->> 'render_location' = 'server'
+    AND e.properties ->> 'caller' = 'frontend'
   GROUP BY a.person_key
 ),
 returns AS (
@@ -268,30 +269,29 @@ assignment_failures AS (
     AND happened_at <= @as_of
 ),
 prompts AS (
-  SELECT id, person_key, happened_at,
-    json_value(properties, '$.output_id') AS output_id,
-    json_value(properties, '$.experiment_id') AS experiment_id,
-    json_value(properties, '$.experiment_variant') AS variant
-  FROM base_events
-  WHERE app = 'design' AND event_name = 'design_prompt_submitted'
-    AND json_value(properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
-    AND json_value(properties, '$.experiment_variant') IN ('control', 'no_questions')
-    AND person_key IS NOT NULL
-    AND happened_at <= @as_of
+  SELECT e.id, e.person_key, e.happened_at,
+    json_value(e.properties, '$.turn_id') AS turn_id,
+    SPLIT(json_value(e.properties, '$.experiment_variants'), ',')[
+      SAFE_OFFSET(assignment_index)
+    ] AS variant
+  FROM base_events e
+  CROSS JOIN UNNEST(SPLIT(json_value(e.properties, '$.experiment_ids'), ','))
+    AS experiment_id WITH OFFSET AS assignment_index
+  WHERE e.app = 'design' AND e.event_name = '$ai_generation'
+    AND json_value(e.properties, '$.telemetry_origin') = 'server'
+    AND experiment_id = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND SPLIT(json_value(e.properties, '$.experiment_variants'), ',')[
+      SAFE_OFFSET(assignment_index)
+    ] IN ('control', 'no_questions')
+    AND e.person_key IS NOT NULL
+    AND e.happened_at <= @as_of
 ),
 cohort AS (
   SELECT x.person_key, x.variant, x.exposed_at, x.exposed_turn_id,
-    min(p.happened_at) AS first_prompt_at,
-    ARRAY_AGG(STRUCT(
-      p.happened_at AS happened_at,
-      p.id AS id,
-      p.output_id AS output_id
-    ) ORDER BY p.happened_at, p.id LIMIT 1)[SAFE_OFFSET(0)].output_id
-      AS first_prompt_output_id
+    min(p.happened_at) AS first_prompt_at
   FROM exposures x
   LEFT JOIN prompts p ON p.person_key = x.person_key AND p.variant = x.variant
-    AND p.happened_at BETWEEN timestamp_sub(x.exposed_at, INTERVAL 10 MINUTE)
-      AND timestamp_add(x.exposed_at, INTERVAL 10 MINUTE)
+    AND p.turn_id = x.exposed_turn_id
   GROUP BY x.person_key, x.variant, x.exposed_at, x.exposed_turn_id
 ),
 anchors AS (
@@ -301,17 +301,23 @@ anchors AS (
   FROM cohort
 ),
 ready AS (
-  SELECT a.person_key, min(e.happened_at) AS ready_at
+  SELECT a.person_key, min(e.happened_at) AS ready_at,
+    ARRAY_AGG(STRUCT(
+      e.happened_at AS happened_at,
+      e.id AS id,
+      json_value(e.properties, '$.output_id') AS output_id
+    ) ORDER BY e.happened_at, e.id LIMIT 1)[SAFE_OFFSET(0)].output_id
+      AS output_id
   FROM anchors a
   JOIN base_events e ON e.person_key = a.person_key
     AND e.app = 'design' AND e.event_name = 'design_ready_viewed'
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
     AND e.happened_at <= @as_of
-    AND a.first_prompt_output_id IS NOT NULL
-    AND json_value(e.properties, '$.output_id') = a.first_prompt_output_id
-    AND json_value(e.properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
-    AND json_value(e.properties, '$.experiment_variant') = a.variant
+    AND json_value(e.properties, '$.telemetry_origin') = 'server'
+    AND json_value(e.properties, '$.caller') = 'frontend'
+    AND json_value(e.properties, '$.turn_id') = a.exposed_turn_id
+    AND nullif(json_value(e.properties, '$.output_id'), '') IS NOT NULL
   GROUP BY a.person_key
 ),
 second_prompts AS (
@@ -319,6 +325,7 @@ second_prompts AS (
   FROM anchors a
   JOIN base_events t ON t.person_key = a.person_key
     AND t.app = 'design' AND t.event_name = '$ai_generation'
+    AND json_value(t.properties, '$.telemetry_origin') = 'server'
     AND t.happened_at > a.first_prompt_at
     AND t.happened_at < timestamp_add(a.first_prompt_at, INTERVAL 24 HOUR)
     AND t.happened_at <= @as_of
@@ -336,21 +343,17 @@ second_prompts AS (
 exports AS (
   SELECT a.person_key, min(e.happened_at) AS exported_at
   FROM anchors a
+  JOIN ready r ON r.person_key = a.person_key
   JOIN base_events e ON e.person_key = a.person_key
     AND e.app = 'design' AND e.event_name = 'design_exported'
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
     AND e.happened_at <= @as_of
-    AND a.first_prompt_output_id IS NOT NULL
-    AND json_value(e.properties, '$.output_id') = a.first_prompt_output_id
-    AND json_value(e.properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
-    AND json_value(e.properties, '$.experiment_variant') = a.variant
+    AND json_value(e.properties, '$.telemetry_origin') = 'server'
+    AND json_value(e.properties, '$.output_id') = r.output_id
     AND json_value(e.properties, '$.status') = 'completed'
-    AND (
-      json_value(e.properties, '$.render_location') = 'browser'
-      OR (json_value(e.properties, '$.render_location') = 'server'
-        AND json_value(e.properties, '$.caller') = 'frontend')
-    )
+    AND json_value(e.properties, '$.render_location') = 'server'
+    AND json_value(e.properties, '$.caller') = 'frontend'
   GROUP BY a.person_key
 ),
 returns AS (
@@ -644,7 +647,7 @@ export function formatDesignNoQuestionsReadout(
     `Primary metric baseline used for power: ${(result.primaryBaseline * 100).toFixed(1)}%; target lift: +${(result.targetLift * 100).toFixed(0)} points; sample needed: ${result.sampleNeededPerArm} per arm (${result.sampleNeededTotal} total), two-sided 5% significance and 80% power.`,
     `Signup assignment failures with no arm: ${result.signupAssignmentFailures}.`,
     "",
-    "| Variant | Exposed | Prompt joined | 24h mature | Design ready within 24h | Time to design p50 / p90 | Second prompt within 24h | Completed export within 24h | Mature 1–7d | 1–7d return |",
+    "| Variant | Exposed | Server prompt trace | 24h mature | Design ready within 24h | Time to design p50 / p90 | Second prompt within 24h | Completed UI export within 24h | Mature 1–7d | 1–7d return |",
     "| --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | --- |",
   ];
   for (const arm of result.arms) {
@@ -654,7 +657,7 @@ export function formatDesignNoQuestionsReadout(
   }
   lines.push(
     "",
-    `Design-ready and completed-export rates use the mature exposed cohort. Exports count completed browser exports and completed server exports initiated by the Design UI; agent and automation exports are excluded. Ready and export events must match the first prompt's Design output id. Signup assignment failures are reported separately and are not assigned to either arm. The second-prompt rate uses mature exposed users with a joined first prompt. The return rate uses only users with a full 8-day observation window. Exposure joins to a stamped Design prompt within ±${PROMPT_EXPOSURE_JOIN_WINDOW}; when that prompt event is missing, time-based outcomes use the server exposure timestamp. Design-ready and export outcomes require matching experiment id and variant.`,
+    "Design-ready and completed UI-export rates use the mature exposed cohort. Time starts at the first server-traced generation in the exposed turn, falling back to the server exposure timestamp when a trace is missing. Ready outcomes require a server-origin event from the Design UI for the exposed turn. Exports count only completed server-origin exports initiated by the Design UI and matching the output from that verified ready event; client-reported browser exports are excluded. Signup assignment failures are reported separately and are not assigned to either arm. The second-prompt rate uses mature exposed users with a joined first server trace. The return rate uses only users with a full 8-day observation window.",
   );
   return lines.join("\n");
 }

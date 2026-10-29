@@ -384,7 +384,16 @@ describe("tracking registry", () => {
           clientSource,
         );
         track("design_ready_viewed", { status: "completed" }, clientSource);
-        track("design_exported", { status: "completed" }, clientSource);
+        track(
+          "design_exported",
+          {
+            status: "completed",
+            telemetry_origin: "server",
+            caller: "frontend",
+            render_location: "server",
+          },
+          clientSource,
+        );
         track(
           "design_exported",
           { status: "completed" },
@@ -418,9 +427,15 @@ describe("tracking registry", () => {
     });
     expect(clientReadyEvent?.properties).not.toHaveProperty("experiment_id");
     expect(clientExportEvent?.properties).not.toHaveProperty("experiment_id");
+    expect(clientExportEvent?.properties).toMatchObject({
+      telemetry_origin: "client",
+      caller: "frontend",
+      render_location: "server",
+    });
     expect(serverExportEvent?.properties).toMatchObject({
       experiment_id: "design_no_questions",
       experiment_variant: "no_questions",
+      telemetry_origin: "server",
     });
     expect(mockQuestionIntakeAssignment).toHaveBeenCalledTimes(2);
   });
