@@ -5128,7 +5128,7 @@ export function createCoreRoutesPlugin(
           return runWithRequestContext(
             {
               userEmail,
-              orgId: orgId ?? undefined,
+              ...(orgId ? { orgId } : {}),
               ...(browserTabId ? { run: { browserTabId } } : {}),
             },
             async () => {
