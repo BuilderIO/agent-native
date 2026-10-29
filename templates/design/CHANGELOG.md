@@ -3,10 +3,17 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-29
+
+### Fixed
+
+- Design ChatGPT tools describe parameters without referring to unavailable actions.
+
 ## 2026-10-28
 
 ### Fixed
 
+- Design is less likely to fail when generating a screen with tweaks, files or canvas placements.
 - Dragging a shape inside an SVG now moves it within the drawing, and X/Y, arrow keys, and align move it too.
 - Illustrations the agent draws as SVG now open as separate layers you can select, recolor, and retype.
 - Language and intelligence changes now work during voice chat.
@@ -21,6 +28,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- New Design signups may get a first draft sooner, without intake questions.
 - Design ideas appear right away, with clear next steps after your first design.
 - Design runs recover from temporary builder errors and report incomplete edits clearly
 - New screens now fill in on the canvas as the agent writes them, with each element's frame drawn before its content appears
@@ -2446,15 +2454,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Layer selections now preserve hidden and locked canvas state more faithfully.
 - Screen overview now handles zooming, drawing, opening, and deleting screens more reliably.
 - Selected-element chips in chat are shorter and easier to scan.
-
-## 2026-06-27
-
-### Improved
-
-- Improved mobile navigation chrome and sidebar drawer motion.
-
-### Fixed
-
-- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
 
 For the full list of updates, see the [changelog folder](./changelog/).

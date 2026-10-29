@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.92
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.91
 
 ### Patch Changes
@@ -657,16 +663,5 @@
 ### Patch Changes
 
 - bc29c82: Retry visual recap publishing once with a focused source-repair turn when the hosted Plan parser rejects malformed MDX.
-
-## 0.4.0
-
-### Minor Changes
-
-- 7cfb087: Publish PR Visual Recap helpers as a dependency-light CLI package so recap workflows no longer install the full Agent-Native framework dependency graph.
-
-### Patch Changes
-
-- 7cfb087: Default the Claude backend of the PR Visual Recap workflow to `claude-sonnet-5` when `VISUAL_RECAP_MODEL` is unset, instead of falling through to the Claude Code CLI's own (expensive Opus-tier) default — keeping automated recaps on a cost-efficient model by default. The Codex and openai-compatible backends are unaffected.
-- 7cfb087: Cap the visual-recap skill's browser render-inspect-fix loop at one re-render, and note that the recap's canonical shape/budgets are also a cost ceiling, to keep interactive recap generation from re-iterating or re-reading the full diff indefinitely.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

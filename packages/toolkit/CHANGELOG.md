@@ -1,5 +1,15 @@
 # @agent-native/toolkit
 
+## 0.222.1
+
+### Patch Changes
+
+- 86af196: Add `registerBuilderBranchProject`, a host hook that names the Builder project a code-change handoff targets, read through the new `resolveBuilderHandoffProjectId`. Realtime channels and Builder status keep the deployment's project. The Send to Builder card now sends the browser tab id so a host can find the open view. Design registers the hook under Builder identity so the Builder agent works on the project of the open design.
+- c96a41d: Render the first-paint prompt composer only on the client to prevent production /home server-rendering errors.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.222.1
+
 ## 0.222.0
 
 ### Minor Changes
@@ -1518,12 +1528,5 @@
 ### Patch Changes
 
 - 2db503b: Fix toolkit canvas interaction and collaboration UI behavior.
-
-## 0.14.1
-
-### Patch Changes
-
-- b3b4580: Render chat-history row action menus in a collision-aware portal so rail menus are not clipped by the scroll container.
-- b3b4580: Overlay chat row menus on timestamps and unread indicators without reserving a separate trailing column.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
