@@ -721,6 +721,39 @@ describe("design_ready_viewed", () => {
     }
   });
 
+  it.each(["pending", "error"])(
+    "stops polling after ten minutes when resolution stays %s",
+    async (mode) => {
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        setUrl("?generation_attempt_id=attempt_1234567890abcdef");
+        if (mode === "pending")
+          mocks.callAction.mockResolvedValue({
+            status: "pending",
+            result: null,
+          });
+        else mocks.callAction.mockRejectedValue(new Error("unavailable"));
+        await renderReady({ files: [screen("a")] });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(600_000);
+        });
+        const calls = mocks.callAction.mock.calls.length;
+        expect(calls).toBeGreaterThan(1);
+        expect(calls).toBeLessThan(50);
+        await renderReady({ files: [screen("a", "new-version")] });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000);
+        });
+        expect(mocks.callAction).toHaveBeenCalledTimes(calls);
+        expect(warn).toHaveBeenCalledTimes(mode === "error" ? 1 : 0);
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("does not poll again when a result link has no provenance", async () => {
     vi.useFakeTimers();
     try {

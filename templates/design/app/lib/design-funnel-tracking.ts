@@ -215,6 +215,7 @@ export function useDesignReadyViewTracking({
   const cancelSendsRef = useRef(new Set<() => void>());
   const receiptRetryTimersRef = useRef(new Map<string, number>());
   const lifecycleRef = useRef(0);
+  const attemptDeadlinesRef = useRef(new Map<string, number>());
 
   const send = useRef((callback: () => void) => {
     // runWhenTabVisible calls back synchronously when the tab is visible, so
@@ -519,9 +520,16 @@ export function useDesignReadyViewTracking({
     )
       return;
     let cancelled = false;
+    const isCancelled = () => cancelled;
     let timer: number | undefined;
     let checks = 0;
+    let loggedError = false;
+    const key = `${designId}:${urlAttemptId}`;
+    const deadline =
+      attemptDeadlinesRef.current.get(key) ?? Date.now() + 10 * 60 * 1000;
+    attemptDeadlinesRef.current.set(key, deadline);
     const resolveAttempt = async () => {
+      if (isCancelled() || Date.now() >= deadline) return;
       try {
         const { status, result } = await callAction<{
           status: "missing" | "pending" | "ready" | "unavailable" | "terminal";
@@ -532,7 +540,8 @@ export function useDesignReadyViewTracking({
           { method: "GET", uiOnly: true },
         );
         if (
-          cancelled ||
+          isCancelled() ||
+          Date.now() >= deadline ||
           status === "missing" ||
           status === "unavailable" ||
           status === "terminal"
@@ -547,15 +556,22 @@ export function useDesignReadyViewTracking({
           return;
         }
       } catch (error) {
-        console.warn("Could not resolve generation attempt", error);
+        if (!loggedError) {
+          console.warn("Could not resolve generation attempt", error);
+          loggedError = true;
+        }
       }
-      if (!cancelled) {
+      if (!isCancelled() && Date.now() < deadline) {
         checks += 1;
         timer = window.setTimeout(
           () => {
             void resolveAttempt();
           },
-          Math.min(2000 * 2 ** Math.min(checks - 1, 3), 15000),
+          Math.min(
+            2000 * 2 ** Math.min(checks - 1, 3),
+            15000,
+            deadline - Date.now(),
+          ),
         );
       }
     };
