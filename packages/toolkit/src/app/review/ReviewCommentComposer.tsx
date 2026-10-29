@@ -257,6 +257,9 @@ export function ReviewCommentComposer({
   };
 
   const handleKeyDown = (event: KeyboardEvent): boolean => {
+    // While an input method is composing, its keys (Escape to cancel, arrows
+    // to pick a candidate, Enter to confirm) belong to it.
+    if (isComposingKey(event)) return false;
     if (event.key === "Escape") {
       if (mentionMenuOpen) {
         closeMention();
@@ -271,8 +274,7 @@ export function ReviewCommentComposer({
       }
       return false;
     }
-    const isComposing = isComposingKey(event);
-    if (mentionListOpen && !isComposing) {
+    if (mentionListOpen) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const step = event.key === "ArrowDown" ? 1 : -1;
@@ -292,7 +294,6 @@ export function ReviewCommentComposer({
     if (
       mentionOptions.length > 0 &&
       event.key === "@" &&
-      !isComposing &&
       !event.metaKey &&
       !event.ctrlKey &&
       !event.altKey

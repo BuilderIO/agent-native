@@ -342,6 +342,8 @@ export function SlideCommentPins({
 }: SlideCommentPinsProps) {
   const t = useT();
   const createComment = useCreateSlideComment();
+  // Enter repeats while held, so send each comment once until it settles.
+  const submittingRef = useRef(false);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const [canvasRect, setCanvasRect] = useState<DOMRect | null>(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
@@ -532,12 +534,13 @@ export function SlideCommentPins({
 
   const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed || !pending || !deckId || createComment.isPending) return;
+    if (!trimmed || !pending || !deckId || submittingRef.current) return;
     if (pending.slideId !== slideId) {
       setPending(null);
       setText("");
       return;
     }
+    submittingRef.current = true;
     setError(null);
     try {
       await onBeforeCommentSubmit?.();
@@ -551,6 +554,8 @@ export function SlideCommentPins({
       setText("");
     } catch (err) {
       setError(actionErrorMessage(err) ?? t("comments.saveCommentFailed"));
+    } finally {
+      submittingRef.current = false;
     }
   };
 

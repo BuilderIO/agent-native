@@ -74,7 +74,8 @@ export function TimestampedCommentBar({
 
   const submit = () => {
     const content = draft.trim();
-    if (!content) return;
+    // Enter repeats while held, so send each comment once until it settles.
+    if (!content || addComment.isPending) return;
     addComment.mutate(
       { recordingId, content, videoTimestampMs: atMs },
       {

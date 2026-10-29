@@ -583,6 +583,17 @@ describe("ReviewCommentComposer", () => {
     }
   });
 
+  it("leaves Escape to an input method that is composing", async () => {
+    const onEscape = vi.fn();
+    await render(<Harness onEscape={onEscape} />);
+
+    keydown("Escape", { isComposing: true });
+    expect(onEscape).not.toHaveBeenCalled();
+
+    keydown("Escape");
+    expect(onEscape).toHaveBeenCalledTimes(1);
+  });
+
   it("opens the picker from the toolbar button", async () => {
     let state = { value: "", mentions: [] as ReviewMention[] };
     await render(

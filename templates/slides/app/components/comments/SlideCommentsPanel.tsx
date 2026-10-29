@@ -354,6 +354,8 @@ function PendingCommentInput({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Enter repeats while held, so send each comment once until it settles.
+  const submittingRef = useRef(false);
   const createComment = useCreateSlideComment();
 
   useEffect(() => {
@@ -362,7 +364,8 @@ function PendingCommentInput({
 
   const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || submittingRef.current) return;
+    submittingRef.current = true;
     setError(null);
     try {
       await onBeforeSubmit?.();
@@ -377,6 +380,8 @@ function PendingCommentInput({
       onDone();
     } catch (err) {
       setError(actionErrorMessage(err) ?? t("comments.saveCommentFailed"));
+    } finally {
+      submittingRef.current = false;
     }
   };
 
@@ -451,6 +456,8 @@ export function ReplyInput({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Enter repeats while held, so send each reply once until it settles.
+  const submittingRef = useRef(false);
   const createComment = useCreateSlideComment();
 
   useEffect(() => {
@@ -459,7 +466,8 @@ export function ReplyInput({
 
   const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || submittingRef.current) return;
+    submittingRef.current = true;
     setError(null);
     try {
       await onBeforeSubmit?.();
@@ -474,6 +482,8 @@ export function ReplyInput({
       onDone();
     } catch (err) {
       setError(actionErrorMessage(err) ?? t("comments.saveReplyFailed"));
+    } finally {
+      submittingRef.current = false;
     }
   };
 

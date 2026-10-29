@@ -995,6 +995,38 @@ describe("SlideCommentsPanel", () => {
     );
   });
 
+  it("sends a reply once while the first send is still pending", async () => {
+    const onDone = vi.fn();
+    const send: { finish?: (value: { id: string }) => void } = {};
+    createComment.mockReset().mockReturnValue(
+      new Promise((resolve) => {
+        send.finish = resolve;
+      }),
+    );
+
+    render(
+      <ReplyInput
+        deckId="deck-1"
+        slideId="slide-1"
+        threadId="thread-1"
+        parentId="comment-1"
+        onDone={onDone}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText("Write a reply...");
+    fireEvent.change(input, { target: { value: "Agreed" } });
+    // A held Enter repeats.
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", repeat: true });
+    fireEvent.keyDown(input, { key: "Enter", repeat: true });
+    await waitFor(() => expect(createComment).toHaveBeenCalledTimes(1));
+
+    send.finish?.({ id: "comment-2" });
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(createComment).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a reply open while IME keys are composing", () => {
     const onDone = vi.fn();
     createComment.mockReset();

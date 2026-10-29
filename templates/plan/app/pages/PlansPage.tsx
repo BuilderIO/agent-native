@@ -9083,6 +9083,9 @@ function CommentMentionEditor({
         onKeyUp={emitChange}
         onMouseUp={emitChange}
         onKeyDown={(event) => {
+          // While an input method is composing, its keys (arrows to pick a
+          // candidate, Enter to confirm, Escape to cancel) belong to it.
+          if (isComposingKey(event)) return;
           if (suggestionsOpen && event.key === "ArrowDown") {
             event.preventDefault();
             setSelectedIndex((index) =>
@@ -9099,7 +9102,6 @@ function CommentMentionEditor({
             );
             return;
           }
-          if (isComposingKey(event)) return;
           if (suggestionsOpen && event.key === "Enter" && members[0]) {
             event.preventDefault();
             selectMember(members[selectedIndex] ?? members[0]);
