@@ -124,7 +124,7 @@ Defaults match historical behaviour: `allowPublic: true`, `requireOrgMemberForUs
 
 ### Soft-deleted resources
 
-`deletedAtColumn: "deletedAt"` names the resource's soft-delete stamp. A stamped row drops out of `accessFilter`, `resolveAccess` and `assertAccess` return no access to it, and its link status reads `trashed` to people who could open it. Restore and Trash views pass `{ includeDeleted: true }` to `resolveAccess`/`assertAccess`, or `includeDeleted: true` in `accessFilter`'s options. See `soft-delete`.
+`deletedAtColumn: "deletedAt"` names the resource's soft-delete stamp. A stamped row drops out of `accessFilter`, `resolveAccess` and `assertAccess` return no access to it, and its link status reads `trashed` to people who could open it. Restore, Trash views, and purge ("Delete forever") pass `{ includeDeleted: true }` to `resolveAccess`/`assertAccess`, or `includeDeleted: true` in `accessFilter`'s options. See `soft-delete`.
 
 ### Reusable organization groups
 

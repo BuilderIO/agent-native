@@ -68,7 +68,9 @@ with a separate permanent action (`trash-recording`, `restore-recording`,
    return no access to them, so every action that checks the parent
    (comments, slides, files) stops at a deleted one for reads and writes
    alike. Links say "in the trash" to people who could open it. The restore
-   action and the Trash list opt back in with `{ includeDeleted: true }`.
+   action, the Trash list, and the purge action opt back in with
+   `{ includeDeleted: true }`; without it they get no access to the stamped
+   row they exist to act on.
 5. **Filter what skips the access check.** Add `isNull(table.deletedAt)` to
    reads that don't go through `accessFilter` or `assertAccess` on this row:
    public/SSR and embed routes that load by id or slug, counts, exports,

@@ -124,8 +124,8 @@ export interface ShareableResourceRegistration {
    * The resource-table key of a soft-delete stamp. A stamped row is
    * unavailable, `accessFilter` leaves it out, and `resolveAccess` /
    * `assertAccess` treat it as missing, so every child action that checks
-   * the parent also stops at a deleted one. Restore and trash views opt back
-   * in with `includeDeleted`.
+   * the parent also stops at a deleted one. Restore, trash views, and purge
+   * opt back in with `includeDeleted`.
    */
   deletedAtColumn?: string;
   /**
