@@ -231,6 +231,66 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("keeps a nested group's members where they render when it joins flow", async () => {
+    const page =
+      await openPage(`<div class="fmd-slide-group" data-slide-group="true" data-slide-object-id="group"
+  style="position: absolute; left: 120px; top: 80px; width: 420px; height: 160px; box-sizing: border-box;">
+  <div data-slide-object-id="card" style="position: absolute; left: 20px; top: 30px; width: 110px; height: 60px;"></div>
+  <div class="fmd-slide-group" data-slide-group="true" data-slide-object-id="inner"
+    style="position: absolute; left: 160px; top: 30px; width: 200px; height: 100px;">
+    <div data-slide-object-id="badge" style="position: absolute; left: 40px; top: 20px; width: 50px; height: 30px;"></div>
+  </div>
+</div>`);
+    const badgeRect = () =>
+      page.evaluate(() => {
+        const { left, top, width, height } = document
+          .querySelector('[data-slide-object-id="badge"]')!
+          .getBoundingClientRect();
+        return { badge: { left, top, width, height } };
+      });
+    const before = await badgeRect();
+    const outcome = await page.evaluate(() => {
+      const group = document.querySelector<HTMLElement>(
+        '[data-slide-object-id="group"]',
+      )!;
+      const result = window.slideAutoLayout.enableSlideGroupAutoLayout(group);
+      const inner = group.querySelector<HTMLElement>(
+        '[data-slide-object-id="inner"]',
+      )!;
+      return { result, innerPosition: inner.style.position };
+    });
+    expect(outcome).toEqual({
+      result: { status: "applied" },
+      innerPosition: "relative",
+    });
+    expectSameRects(await badgeRect(), before);
+    await page.close();
+  });
+
+  it("takes a new main axis size once a Fill member is pinned for a resize", async () => {
+    const page = await openPage();
+    const widths = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      api.enableSlideGroupAutoLayout(group);
+      const first = group.querySelector<HTMLElement>(
+        '[data-slide-object-id="first"]',
+      )!;
+      api.setSlideLayoutSizing(first, "horizontal", "fill");
+      const filled = first.offsetWidth;
+      first.style.width = "60px";
+      const ignored = first.offsetWidth;
+      api.fixSlideLayoutSizing(first, ["horizontal"]);
+      const pinned = first.offsetWidth;
+      first.style.width = "60px";
+      return { filled, ignored, pinned, resized: first.offsetWidth };
+    });
+    expect(widths.ignored).toBe(widths.filled);
+    expect(widths.pinned).toBe(widths.filled);
+    expect(widths.resized).toBe(60);
+    await page.close();
+  });
+
   it("refuses a member that is not rendered and leaves the group as it was", async () => {
     const page = await openPage();
     const outcome = await page.evaluate(() => {

@@ -1,3 +1,8 @@
+import {
+  inferFlowArrangement,
+  readLayoutModel,
+  writeLayoutChange,
+} from "@agent-native/toolkit/canvas-interactions/layout-model";
 import { getFrameGroupBounds } from "@shared/canvas-math";
 import type {
   CodeLayerNode,
@@ -5,11 +10,6 @@ import type {
   CodeLayerTreeNode,
 } from "@shared/code-layer";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
-import {
-  inferFlowArrangement,
-  readLayoutModel,
-  writeLayoutChange,
-} from "@agent-native/toolkit/canvas-interactions/layout-model";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";

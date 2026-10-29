@@ -1,6 +1,6 @@
+import { readLayoutModel } from "@agent-native/toolkit/canvas-interactions/layout-model";
 import type { CodeLayerSource } from "@shared/code-layer";
 import { applyVisualEdit } from "@shared/code-layer";
-import { readLayoutModel } from "@agent-native/toolkit/canvas-interactions/layout-model";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";

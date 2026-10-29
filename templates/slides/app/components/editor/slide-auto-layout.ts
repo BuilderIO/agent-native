@@ -241,10 +241,24 @@ function layoutNodeOf(
   };
 }
 
+function positionOf(element: HTMLElement): string {
+  return (
+    element.style.position || computedStyleOf(element).position || "static"
+  );
+}
+
 function isPlaced(element: HTMLElement): boolean {
-  const position =
-    element.style.position || computedStyleOf(element).position || "static";
+  const position = positionOf(element);
   return position === "absolute" || position === "fixed";
+}
+
+/** Whether something inside the element is placed relative to it. */
+function anchorsPlacedContent(element: HTMLElement): boolean {
+  return elementChildren(element).some(
+    (child) =>
+      isPlaced(child) ||
+      (positionOf(child) === "static" && anchorsPlacedContent(child)),
+  );
 }
 
 function parentInputOf(element: HTMLElement): LayoutParentInput | null {
@@ -376,11 +390,20 @@ export function enableSlideGroupAutoLayout(
   const write = writeLayoutChange(model, { kind: "enable-auto-layout" });
   if (write.status !== "ok") return refused(write.reason, write.nodeIds);
 
+  // Joining flow clears a member's position, and a nested group's members
+  // would then be placed against this group instead and move.
+  const anchors = new Set(
+    Array.from(members.values()).filter(anchorsPlacedContent),
+  );
   for (const id of write.order ?? []) {
     const member = members.get(id);
     if (member) group.append(member);
   }
-  applyWrite(group, write, members);
+  applyWrite(group, write, members, (member, patch) =>
+    anchors.has(member) && patch.position === null
+      ? { ...patch, position: "relative" }
+      : patch,
+  );
   // Flex stretches a member with no cross size of its own, which is every
   // fit text box: pack them to the start unless the layout said otherwise.
   if (!write.frame.alignItems)

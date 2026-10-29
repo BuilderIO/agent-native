@@ -40,7 +40,13 @@ and edit it the same way:
   style="position: absolute; left: 120px; top: 160px; width: 360px; height: 80px; box-sizing: border-box; display: flex; flex-direction: row; gap: 20px; padding: 20px 10px; align-items: flex-start;"
 >
   <div data-slide-object-id="card-a" style="width: 100px; height: 40px;">A</div>
-  <div class="fmd-text-box" data-slide-object-id="label-b" style="width: 100px;">B</div>
+  <div
+    class="fmd-text-box"
+    data-slide-object-id="label-b"
+    style="width: 100px;"
+  >
+    B
+  </div>
 </div>
 ```
 
@@ -63,6 +69,5 @@ and edit it the same way:
   `padding`.
 - To turn auto layout off, pin each member at its rendered box with
   `position: absolute; left; top; width; height; box-sizing: border-box;
-  margin: 0` (no `height` on a text box that sizes to its text) and set the
+margin: 0` (no `height` on a text box that sizes to its text) and set the
   group to `display: block`. A group that hugged gets its rendered px size.
-

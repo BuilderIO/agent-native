@@ -6791,8 +6791,12 @@ export default function SlideEditor({
   ]);
 
   const [, setAutoLayoutRevision] = useState(0);
-  // A scrub writes on every move; only its first write opens an undo step.
-  const autoLayoutScrubActiveRef = useRef(false);
+  // A scrub previews in the DOM only; this is the group's style before it, so
+  // cancel can put it back and commit writes the slide once.
+  const autoLayoutScrubStartRef = useRef<{
+    group: HTMLElement;
+    style: string | null;
+  } | null>(null);
 
   const commitAutoLayoutEdit = useCallback(
     (result: SlideAutoLayoutResult, { separateUndo = true } = {}) => {
@@ -6882,19 +6886,39 @@ export default function SlideEditor({
       change: SlideAutoLayoutFrameChange,
       phase: "preview" | "commit" | "cancel",
     ) => {
+      const start = autoLayoutScrubStartRef.current;
       if (readOnly || phase === "cancel") {
-        autoLayoutScrubActiveRef.current = false;
+        autoLayoutScrubStartRef.current = null;
+        if (start) {
+          if (start.style === null) start.group.removeAttribute("style");
+          else start.group.setAttribute("style", start.style);
+          invalidateSelectionOverlayMeasurement();
+        }
         return;
       }
       const group = resolveSelectedElement();
       if (!group || !isAutoLayoutSlideGroup(group)) return;
-      const separateUndo = !autoLayoutScrubActiveRef.current;
-      autoLayoutScrubActiveRef.current = phase === "preview";
-      commitAutoLayoutEdit(updateSlideAutoLayoutFrame(group, change), {
-        separateUndo,
-      });
+      if (phase === "preview") {
+        if (start?.group !== group) {
+          autoLayoutScrubStartRef.current = {
+            group,
+            style: group.getAttribute("style"),
+          };
+        }
+        if (updateSlideAutoLayoutFrame(group, change).status === "applied") {
+          invalidateSelectionOverlayMeasurement();
+        }
+        return;
+      }
+      autoLayoutScrubStartRef.current = null;
+      commitAutoLayoutEdit(updateSlideAutoLayoutFrame(group, change));
     },
-    [commitAutoLayoutEdit, readOnly, resolveSelectedElement],
+    [
+      commitAutoLayoutEdit,
+      invalidateSelectionOverlayMeasurement,
+      readOnly,
+      resolveSelectedElement,
+    ],
   );
 
   const handleLayoutSizingChange = useCallback(
@@ -7613,6 +7637,14 @@ export default function SlideEditor({
           restoreDescendants = frozen.restoreDescendants;
           promotedToFreeform = true;
           setSelectedObjectId(ensureSlideObjectId(element));
+        }
+        // Flex sizes a Fill or Hug member whatever width or height it is
+        // given, so the axes this handle drags are Fixed before it moves.
+        if (inFlowLayout) {
+          fixSlideLayoutSizing(element, [
+            ...(/[ew]/.test(handle) ? (["horizontal"] as const) : []),
+            ...(/[ns]/.test(handle) ? (["vertical"] as const) : []),
+          ]);
         }
         const origin = getObjectGeometry(element);
         const transform = readSlideObjectTransformSnapshot(element);

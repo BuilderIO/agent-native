@@ -1,3 +1,12 @@
+import {
+  joinFlowPatch,
+  readLayoutModel,
+  writeLayoutChange,
+  type LayoutBoxModel,
+  type LayoutNodeInput,
+  type LayoutRect,
+  type LayoutStylePatch,
+} from "@agent-native/toolkit/canvas-interactions/layout-model";
 import type { Declaration, Root, Rule } from "postcss";
 import CssSyntaxError from "postcss/lib/css-syntax-error";
 import parseCss from "postcss/lib/parse";
@@ -36,15 +45,6 @@ import {
 } from "./group-runtime.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
 import { resolveLayerNameAttribute } from "./layer-name.js";
-import {
-  joinFlowPatch,
-  readLayoutModel,
-  writeLayoutChange,
-  type LayoutBoxModel,
-  type LayoutNodeInput,
-  type LayoutRect,
-  type LayoutStylePatch,
-} from "@agent-native/toolkit/canvas-interactions/layout-model";
 import {
   LINE_SEGMENT_PROPERTY,
   lineSegmentPathData,

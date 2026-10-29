@@ -1,5 +1,3 @@
-import { describe, expect, it } from "vitest";
-
 import {
   availableSizing,
   canHugContent,
@@ -17,6 +15,7 @@ import {
   type LayoutRect,
   type LayoutWrite,
 } from "@agent-native/toolkit/canvas-interactions/layout-model";
+import { describe, expect, it } from "vitest";
 
 function node(overrides: Partial<LayoutNodeInput> = {}): LayoutNodeInput {
   return { id: "frame", tagName: "div", styles: {}, ...overrides };
