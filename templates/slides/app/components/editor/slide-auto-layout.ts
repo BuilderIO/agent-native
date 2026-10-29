@@ -401,11 +401,16 @@ export function enableSlideGroupAutoLayout(
     const member = members.get(id);
     if (member) group.append(member);
   }
-  applyWrite(group, write, members, (member, patch) =>
-    anchors.has(member) && patch.position === null
-      ? { ...patch, position: "relative" }
-      : patch,
-  );
+  applyWrite(group, write, members, (member, patch) => {
+    if (patch.position !== null) return patch;
+    // A member joins at the size it had, which flex would shrink under a
+    // smaller group; Fixed means it keeps that size.
+    return {
+      ...patch,
+      flexShrink: "0",
+      ...(anchors.has(member) ? { position: "relative" } : {}),
+    };
+  });
   // Flex stretches a member with no cross size of its own, which is every
   // fit text box: pack them to the start unless the layout said otherwise.
   if (!write.frame.alignItems)
@@ -423,6 +428,13 @@ export function disableSlideGroupAutoLayout(
   const members = membersById(group);
   if (!members) return refused("unidentified-children");
   const model = readModel(group, measure, "sizing-box");
+  if (model.children.status !== "read") return refused("children-unreadable");
+  // A member in flow is only pinned where it was measured rendering; one that
+  // was not would be left in block flow once the group stops laying out.
+  const unmeasured = model.children.items
+    .filter((child) => child.positioning === "auto" && !child.rect)
+    .map((child) => child.id ?? "");
+  if (unmeasured.length > 0) return refused("unmeasured", unmeasured);
   const write = writeLayoutChange(model, { kind: "disable-auto-layout" });
   if (write.status !== "ok") return refused(write.reason, write.nodeIds);
   // A text box that sizes to its text keeps doing so once placed; pinning
@@ -433,9 +445,16 @@ export function disableSlideGroupAutoLayout(
     ),
   );
   applyWrite(group, write, members, (member, patch) => {
-    if (!sizesItself.has(member)) return patch;
-    const next = { ...patch };
-    delete next.height;
+    // Flow sizing is inert while placed, but would come back on the next
+    // enable and override the size the member was pinned at.
+    const next: LayoutStylePatch = {
+      ...patch,
+      flexGrow: null,
+      flexShrink: null,
+      flexBasis: null,
+      alignSelf: null,
+    };
+    if (sizesItself.has(member)) delete next.height;
     return next;
   });
   return { status: "applied" };

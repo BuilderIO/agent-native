@@ -176,6 +176,50 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("refuses to turn off while a member in flow is not rendered", async () => {
+    const page = await openPage();
+    const outcome = await page.evaluate(() => {
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      window.slideAutoLayout.enableSlideGroupAutoLayout(group);
+      group
+        .querySelector<HTMLElement>('[data-slide-object-id="third"]')!
+        .style.setProperty("display", "none");
+      const before = group.outerHTML;
+      const result = window.slideAutoLayout.disableSlideGroupAutoLayout(group);
+      return { result, untouched: group.outerHTML === before };
+    });
+    expect(outcome).toEqual({
+      result: { status: "refused", reason: "unmeasured", objectIds: ["third"] },
+      untouched: true,
+    });
+    await page.close();
+  });
+
+  it("keeps a Fill member at its pinned size when auto layout turns off and on again", async () => {
+    const page = await openPage();
+    const filled = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      api.enableSlideGroupAutoLayout(group);
+      const first = group.querySelector<HTMLElement>(
+        '[data-slide-object-id="first"]',
+      )!;
+      api.setSlideLayoutSizing(first, "horizontal", "fill");
+      api.disableSlideGroupAutoLayout(group);
+      // Room to spare on the right, which a stale flex-grow would take.
+      group.style.width = "520px";
+      return first.style.flexGrow;
+    });
+    expect(filled).toBe("");
+    const before = await memberRects(page);
+    await page.evaluate(() => {
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      window.slideAutoLayout.enableSlideGroupAutoLayout(group);
+    });
+    expectSameRects(await memberRects(page), before);
+    await page.close();
+  });
+
   it("reorders a member to the slot under the pointer", async () => {
     const page = await openPage();
     const order = await page.evaluate(() => {
