@@ -1,4 +1,4 @@
-import { useOrgMembers } from "@agent-native/core/client/org";
+import { useOrg, useOrgMembers } from "@agent-native/core/client/org";
 import type { ReviewMention } from "@agent-native/core/review";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -32,6 +32,9 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
  * name past the first page is found by asking for it: the composer reports the
  * text after the `@`, and the matching page replaces the list. The members
  * endpoint already leaves out anyone whose removal is pending.
+ *
+ * `searching` is true while the answer to the current query is still on its
+ * way, so a list that cannot match it yet is not mistaken for "no one".
  */
 export function useReviewMentionPeople() {
   const [query, setQuery] = useState("");
@@ -40,17 +43,26 @@ export function useReviewMentionPeople() {
     query,
     query === "" ? 0 : SEARCH_DEBOUNCE_MS,
   );
-  const { data } = useOrgMembers(0, searched);
+  const { data: org } = useOrg();
+  const orgId = org?.orgId ?? null;
+  const { data, isFetching } = useOrgMembers(0, searched);
   const fetched = useMemo(
     () => (data ? reviewMentionPeople(data.members) : null),
     [data],
   );
   // The picker keeps the last answer while the next one loads, instead of
-  // blinking to empty on every keystroke.
-  const lastPeopleRef = useRef<ReviewMention[]>([]);
-  const people = fetched ?? lastPeopleRef.current;
+  // blinking to empty on every keystroke. It never carries one organization's
+  // people into another's.
+  const lastPeopleRef = useRef<{
+    orgId: string | null;
+    people: ReviewMention[];
+  }>({ orgId: null, people: [] });
+  const people =
+    fetched ??
+    (lastPeopleRef.current.orgId === orgId ? lastPeopleRef.current.people : []);
   useEffect(() => {
-    if (fetched) lastPeopleRef.current = fetched;
-  }, [fetched]);
-  return { people, onMentionQueryChange: setQuery };
+    if (fetched) lastPeopleRef.current = { orgId, people: fetched };
+  }, [fetched, orgId]);
+  const searching = query !== "" && (searched !== query || Boolean(isFetching));
+  return { people, searching, onMentionQueryChange: setQuery };
 }

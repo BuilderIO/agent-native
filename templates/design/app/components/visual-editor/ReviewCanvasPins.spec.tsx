@@ -81,6 +81,7 @@ const comment: ReviewComment = vi.hoisted(
       updatedAt: "2026-07-13T13:00:00.000Z",
       metadata: null,
       canDelete: true,
+      canDeleteThread: true,
     }) satisfies ReviewComment,
 );
 
@@ -125,6 +126,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => ({ data: { orgId: "org-1" } }),
   useOrgMembers: () => ({
     data: {
       members: mocks.useRealComposer
@@ -4906,6 +4908,25 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       expect(document.body.textContent).not.toContain("review.markUnread");
       expect(document.body.textContent).not.toContain("review.markRead");
       expect(document.body.textContent).not.toContain("review.editComment");
+    });
+
+    it("hides Delete thread when the server says the thread cannot be deleted, though the first comment is theirs", async () => {
+      reviewComments = [
+        { ...comment, canDelete: true, canDeleteThread: false },
+      ];
+      await renderPins({ currentUserEmail: "reviewer@example.com" });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuLayout()).toEqual(["review.copyLink"]);
+    });
+
+    it("does not offer Delete thread when the server did not say", async () => {
+      const { canDeleteThread: _unsaid, ...withoutThreadFlag } = comment;
+      reviewComments = [withoutThreadFlag];
+      await renderPins({ currentUserEmail: "reviewer@example.com" });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuItem("review.deleteThread")).toBeUndefined();
     });
 
     it("keeps the agent items away from viewers who cannot edit the design", async () => {

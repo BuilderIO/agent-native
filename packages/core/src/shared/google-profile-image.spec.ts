@@ -31,6 +31,25 @@ describe("isGoogleProfileImageUrl", () => {
     ).toBe(true);
   });
 
+  it.each([undefined, null, 42, {}, ["https://lh3.googleusercontent.com/a/x"]])(
+    "rejects a non-string value %j",
+    (value) => {
+      expect(isGoogleProfileImageUrl(value)).toBe(false);
+      expect(isGoogleDefaultAvatarUrl(value)).toBe(false);
+    },
+  );
+
+  it.each(["   ", "\n\t"])("rejects a blank value %j", (value) => {
+    expect(isGoogleProfileImageUrl(value)).toBe(false);
+    expect(isGoogleDefaultAvatarUrl(value)).toBe(false);
+  });
+
+  it("ignores the whitespace around an otherwise good URL", () => {
+    expect(
+      isGoogleProfileImageUrl("  https://lh3.googleusercontent.com/a/photo \n"),
+    ).toBe(true);
+  });
+
   it.each([
     "http://lh3.googleusercontent.com/photo",
     "https://googleusercontent.com.evil.example/photo",

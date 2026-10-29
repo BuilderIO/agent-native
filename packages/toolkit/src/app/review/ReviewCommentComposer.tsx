@@ -57,6 +57,12 @@ export interface ReviewCommentComposerProps {
    * `mentionOptions` from it.
    */
   onMentionQueryChange?: ((query: string) => void) | undefined;
+  /**
+   * True while the host's answer to the current query is still on its way.
+   * With no option matching yet, the picker stays hidden rather than say
+   * "No people found" before the host has said so.
+   */
+  mentionOptionsLoading?: boolean | undefined;
   showCommentTools?: boolean | undefined;
   /** Rendered at the end of the left tools group, e.g. an image button. */
   commentToolsEnd?: ReactNode;
@@ -103,6 +109,7 @@ export function ReviewCommentComposer({
   onMentionsChange,
   mentionOptions = [],
   onMentionQueryChange,
+  mentionOptionsLoading = false,
   showCommentTools = false,
   commentToolsEnd,
   attachments,
@@ -145,6 +152,18 @@ export function ReviewCommentComposer({
   const mentionArmedRef = useRef(false);
   const mentionQueryRef = useRef("");
   const mentionListboxId = useId();
+  const onMentionQueryChangeRef = useRef(onMentionQueryChange);
+  useEffect(() => {
+    onMentionQueryChangeRef.current = onMentionQueryChange;
+  });
+  // A card dismissed with the picker open never reaches `closeMention`, and the
+  // host would keep narrowing the next composer's list by this one's query.
+  useEffect(
+    () => () => {
+      if (mentionQueryRef.current !== "") onMentionQueryChangeRef.current?.("");
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!autoFocus || !editorReady) return;
@@ -181,6 +200,10 @@ export function ReviewCommentComposer({
     Math.max(filteredMentionOptions.length - 1, 0),
   );
   const mentionListOpen = mentionMenuOpen && filteredMentionOptions.length > 0;
+  const mentionAwaitingHost =
+    mentionMenuOpen &&
+    mentionOptionsLoading &&
+    filteredMentionOptions.length === 0;
 
   const closeMention = () => {
     mentionArmedRef.current = false;
@@ -384,7 +407,7 @@ export function ReviewCommentComposer({
         </div>
       ) : null}
       <Popover
-        open={mentionMenuOpen}
+        open={mentionMenuOpen && !mentionAwaitingHost}
         onOpenChange={(open) => {
           if (!open) closeMention();
         }}
@@ -582,7 +605,9 @@ export function ReviewCommentComposer({
         />
       </Popover>
       <div role="status" aria-live="polite" className="sr-only">
-        {mentionMenuOpen && filteredMentionOptions.length === 0
+        {mentionMenuOpen &&
+        !mentionAwaitingHost &&
+        filteredMentionOptions.length === 0
           ? noMentionsLabel
           : ""}
       </div>

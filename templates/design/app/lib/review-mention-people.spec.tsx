@@ -11,10 +11,13 @@ import {
 
 const mocks = vi.hoisted(() => ({
   useOrgMembers: vi.fn(),
+  orgId: "org-1" as string | null,
+  fetching: false,
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
   useOrgMembers: mocks.useOrgMembers,
+  useOrg: () => ({ data: { orgId: mocks.orgId } }),
 }));
 
 const alice = { email: "alice@example.com", name: "Alice Jones" };
@@ -57,10 +60,13 @@ describe("useReviewMentionPeople", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     answers.clear();
     answers.set("", { members: [alice] });
+    mocks.orgId = "org-1";
+    mocks.fetching = false;
     mocks.useOrgMembers.mockReset();
     mocks.useOrgMembers.mockImplementation(
       (_offset: number, query: string) => ({
         data: answers.get(query),
+        isFetching: mocks.fetching,
       }),
     );
     container = document.createElement("div");
@@ -121,6 +127,55 @@ describe("useReviewMentionPeople", () => {
     act(() => latest.onMentionQueryChange("zzz"));
     await advance(200);
     expect(latest.people).toEqual([]);
+  });
+
+  it("does not carry one organization's people into another's while that one loads", async () => {
+    expect(latest.people.map((person) => person.label)).toEqual([
+      "Alice Jones",
+    ]);
+
+    mocks.orgId = "org-2";
+    answers.set("", undefined);
+    act(() => root.render(<Probe />));
+    expect(latest.people).toEqual([]);
+  });
+
+  it("offers no one when there is no active organization", () => {
+    mocks.orgId = null;
+    answers.set("", undefined);
+    act(() => root.render(<Probe />));
+    expect(latest.people).toEqual([]);
+  });
+
+  describe("searching", () => {
+    it("is false with no query", () => {
+      expect(latest.searching).toBe(false);
+    });
+
+    it("is true from the first keystroke, while the typing is still being debounced", () => {
+      act(() => latest.onMentionQueryChange("sha"));
+      expect(latest.searching).toBe(true);
+    });
+
+    it("stays true while the server request for the query is in flight", async () => {
+      mocks.fetching = true;
+      act(() => latest.onMentionQueryChange("sha"));
+      await advance(200);
+      expect(latest.searching).toBe(true);
+    });
+
+    it("turns false once the server has answered", async () => {
+      answers.set("sha", { members: [shawn] });
+      act(() => latest.onMentionQueryChange("sha"));
+      await advance(200);
+      expect(latest.searching).toBe(false);
+    });
+
+    it("is false again as soon as the picker closes", () => {
+      act(() => latest.onMentionQueryChange("sha"));
+      act(() => latest.onMentionQueryChange(""));
+      expect(latest.searching).toBe(false);
+    });
   });
 
   it("goes back to the first page as soon as the picker closes", async () => {

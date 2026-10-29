@@ -495,6 +495,28 @@ export async function releaseReviewNotificationDelivery(
   });
 }
 
+/**
+ * A reply needs a live root. The root row is held `FOR SHARE`, which inside a
+ * transaction makes a concurrent thread delete wait for the reply and then see
+ * it, or makes the reply see the delete and refuse. Outside one the lock lasts
+ * only as long as the read.
+ */
+async function assertLiveReviewRoot(
+  client: DbExec,
+  threadId: string,
+  resource: { resourceType: string; resourceId: string },
+): Promise<void> {
+  // raw-sql-ok: the statement is constant text; the ids are bound.
+  const { rows } = await client.execute({
+    sql: `SELECT id FROM agent_review_comments
+           WHERE id = ? AND resource_type = ? AND resource_id = ?
+             AND parent_comment_id IS NULL AND deleted_at IS NULL
+           FOR SHARE`,
+    args: [threadId, resource.resourceType, resource.resourceId],
+  });
+  if (rows.length === 0) throw new Error("Open review thread not found");
+}
+
 export async function insertReviewReply(
   input: InsertReviewCommentInput & {
     threadId: string;
@@ -506,6 +528,8 @@ export async function insertReviewReply(
   await ensureReviewTables();
   const client = getDbExec();
   const insertAndRoute = async (tx: DbExec) => {
+    // raw-sql-ok: the helper's statement is constant text; the ids are bound.
+    await assertLiveReviewRoot(tx, input.threadId, resource);
     if (routeTarget) {
       const routedCount = await routeReviewThreadWithClient(
         tx,
@@ -521,6 +545,8 @@ export async function insertReviewReply(
   };
   if (client.transaction) return client.transaction(insertAndRoute);
 
+  // raw-sql-ok: the helper's statement is constant text; the ids are bound.
+  await assertLiveReviewRoot(client, input.threadId, resource);
   const reply = await insertReviewCommentWithClient(input, client);
   if (!routeTarget) return reply;
   try {
@@ -554,6 +580,8 @@ export async function insertReviewReplyIdempotently(
   await ensureReviewTables();
   const client = getDbExec();
   const insertAndRoute = async (tx: DbExec) => {
+    // raw-sql-ok: the helper's statement is constant text; the ids are bound.
+    await assertLiveReviewRoot(tx, input.threadId, resource);
     const result = await insertReviewCommentIdempotentlyWithClient(
       { ...input, replyRouteTarget: routeTarget },
       tx,
@@ -573,6 +601,8 @@ export async function insertReviewReplyIdempotently(
   };
   if (client.transaction) return client.transaction(insertAndRoute);
 
+  // raw-sql-ok: the helper's statement is constant text; the ids are bound.
+  await assertLiveReviewRoot(client, input.threadId, resource);
   const result = await insertReviewCommentIdempotentlyWithClient(
     { ...input, replyRouteTarget: routeTarget },
     client,
@@ -1277,28 +1307,61 @@ export async function sendReviewThreadToAgent(
   return routeReviewThread(threadId, "agent", resource);
 }
 
+/** Who wrote each live reply under a thread's first comment. */
+export async function getLiveReviewReplyAuthors(
+  threadId: string,
+  resource: { resourceType: string; resourceId: string },
+): Promise<Array<string | null>> {
+  await ensureReviewTables();
+  // raw-sql-ok: the statement is constant text; the ids are bound.
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT author_email FROM agent_review_comments
+           WHERE thread_id = ? AND resource_type = ? AND resource_id = ?
+             AND parent_comment_id IS NOT NULL AND deleted_at IS NULL`,
+    args: [threadId, resource.resourceType, resource.resourceId],
+  });
+  return rows.map((row) => {
+    const email = (row as { author_email?: unknown }).author_email;
+    return typeof email === "string" ? email : null;
+  });
+}
+
 export async function deleteReviewComment(
   id: string,
   deletedBy?: string | null,
 ): Promise<number> {
   await ensureReviewTables();
   const now = new Date().toISOString();
-  // A thread's first comment is the thread. Replies left behind would have no
-  // root for any list to hang them on, but would still sit in the table.
-  // raw-sql-ok: the statement is constant text; the ids and actor are bound.
-  const result = await getDbExec().execute({
-    sql: `UPDATE agent_review_comments
-        SET status = 'deleted',
-            deleted_by = ?,
-            deleted_at = ?,
-            updated_at = ?
-      WHERE id = ?
-         OR (deleted_at IS NULL AND thread_id = (
-              SELECT thread_id FROM agent_review_comments
-               WHERE id = ? AND parent_comment_id IS NULL))`,
-    args: [deletedBy ?? null, now, now, id, id],
-  });
-  return result.rowsAffected ?? 0;
+  const client = getDbExec();
+  const deleteIn = async (tx: DbExec) => {
+    // A reply still being written holds its root `FOR SHARE`. Taking the root
+    // `FOR UPDATE` first waits that out, so the update below, which reads a
+    // fresh snapshot, sees the reply and takes it along. A later reply finds
+    // the root gone and refuses.
+    // raw-sql-ok: the statement is constant text; the id is bound.
+    await tx.execute({
+      sql: `SELECT id FROM agent_review_comments
+             WHERE id = ? AND parent_comment_id IS NULL FOR UPDATE`,
+      args: [id],
+    });
+    // A thread's first comment is the thread. Replies left behind would have no
+    // root for any list to hang them on, but would still sit in the table.
+    // raw-sql-ok: the statement is constant text; the ids and actor are bound.
+    const result = await tx.execute({
+      sql: `UPDATE agent_review_comments
+          SET status = 'deleted',
+              deleted_by = ?,
+              deleted_at = ?,
+              updated_at = ?
+        WHERE id = ?
+           OR (deleted_at IS NULL AND thread_id = (
+                SELECT thread_id FROM agent_review_comments
+                 WHERE id = ? AND parent_comment_id IS NULL))`,
+      args: [deletedBy ?? null, now, now, id, id],
+    });
+    return result.rowsAffected > 0 ? result.rowsAffected : 0;
+  };
+  return client.transaction ? client.transaction(deleteIn) : deleteIn(client);
 }
 
 export async function updateReviewComment(

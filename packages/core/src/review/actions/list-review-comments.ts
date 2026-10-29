@@ -20,6 +20,7 @@ import {
   getReviewThreadSummary,
   queryReviewComments,
 } from "../store.js";
+import { canDeleteReviewThread } from "../thread-delete.js";
 import type { ReviewResourceContext } from "../types.js";
 
 const schema = z.object({
@@ -100,6 +101,14 @@ export default defineAction({
       ),
     );
     const redactIdentity = shouldRedactReviewIdentity(actionCtx, access);
+    const isEditor = roleSatisfies(access.role, "editor");
+    const replyAuthorsByThread = new Map<string, Array<string | null>>();
+    for (const comment of comments) {
+      if (!comment.parentCommentId) continue;
+      const authors = replyAuthorsByThread.get(comment.threadId) ?? [];
+      authors.push(comment.authorEmail);
+      replyAuthorsByThread.set(comment.threadId, authors);
+    }
     const commentsWithCapabilities = comments.map((comment) => ({
       ...comment,
       ...(comment.authorEmail
@@ -113,10 +122,23 @@ export default defineAction({
         : {}),
       canDelete:
         roleSatisfies(access.role, "commenter") &&
-        (roleSatisfies(access.role, "editor") ||
+        (isEditor ||
           Boolean(
             actionCtx?.userEmail && comment.authorEmail === actionCtx.userEmail,
           )),
+      ...(comment.parentCommentId
+        ? {}
+        : {
+            canDeleteThread:
+              roleSatisfies(access.role, "commenter") &&
+              canDeleteReviewThread({
+                isEditor,
+                actorEmail: actionCtx?.userEmail,
+                rootAuthorEmail: comment.authorEmail,
+                replyAuthorEmails:
+                  replyAuthorsByThread.get(comment.threadId) ?? [],
+              }),
+          }),
     }));
     return redactIdentity
       ? {

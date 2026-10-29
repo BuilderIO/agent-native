@@ -499,6 +499,69 @@ describe("ReviewCommentComposer", () => {
     expect(document.body.textContent).toContain("No people found");
   });
 
+  it("tells the host to drop its query when the composer goes away mid-search", async () => {
+    const onMentionQueryChange = vi.fn();
+    await render(<Harness onMentionQueryChange={onMentionQueryChange} />);
+    keydown("@");
+    typeText("al");
+    await act(async () => {});
+    onMentionQueryChange.mockClear();
+
+    act(() => root.unmount());
+    expect(onMentionQueryChange).toHaveBeenCalledTimes(1);
+    expect(onMentionQueryChange).toHaveBeenCalledWith("");
+    // The afterEach unmount must find a mounted root again.
+    root = createRoot(container);
+  });
+
+  it("does not call the host on unmount when no search was open", async () => {
+    const onMentionQueryChange = vi.fn();
+    await render(<Harness onMentionQueryChange={onMentionQueryChange} />);
+    keydown("@");
+    await act(async () => {});
+    onMentionQueryChange.mockClear();
+
+    act(() => root.unmount());
+    expect(onMentionQueryChange).not.toHaveBeenCalled();
+    root = createRoot(container);
+  });
+
+  it("says nothing about no one matching while the host is still searching", async () => {
+    function SearchingHarness({ loading }: { loading: boolean }) {
+      return (
+        <Harness
+          mentionOptions={[alice, bob]}
+          mentionOptionsLoading={loading}
+          onMentionQueryChange={() => {}}
+        />
+      );
+    }
+    await render(<SearchingHarness loading />);
+    keydown("@");
+    typeText("zzz");
+    await act(async () => {});
+    expect(mentionListbox()).toBeNull();
+    expect(document.body.textContent).not.toContain("No people found");
+
+    await render(<SearchingHarness loading={false} />);
+    expect(document.body.textContent).toContain("No people found");
+  });
+
+  it("shows matches the host's stale list already has while it searches", async () => {
+    await render(
+      <Harness
+        mentionOptions={[alice, bob]}
+        mentionOptionsLoading
+        onMentionQueryChange={() => {}}
+      />,
+    );
+    keydown("@");
+    typeText("ali");
+    await act(async () => {});
+    expect(mentionOptionLabels()).toHaveLength(1);
+    expect(mentionOptionLabels()[0]).toContain("Alice");
+  });
+
   it("does not open a picker for a bare @ when there is no one to offer", async () => {
     await render(
       <Harness mentionOptions={[]} onMentionQueryChange={vi.fn()} />,

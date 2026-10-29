@@ -1073,8 +1073,11 @@ export function ReviewCanvasPins({
       enabled: Boolean(!hidden && resourceType && resourceId),
     },
   );
-  const { people: peopleMentionOptions, onMentionQueryChange } =
-    useReviewMentionPeople();
+  const {
+    people: peopleMentionOptions,
+    searching: mentionSearching,
+    onMentionQueryChange,
+  } = useReviewMentionPeople();
   const reviewAgentController = useReviewAgent();
   // Only editors get agent features; the server refuses everyone else too.
   const reviewAgent =
@@ -3083,7 +3086,9 @@ export function ReviewCanvasPins({
                   onCopyLink={() => void copyThreadLink(thread)}
                   onSetUnread={(unread) => setThreadUnread(thread, unread)}
                   onDeleteThread={() => setDeleteCandidate(thread.root)}
-                  canDeleteThread={canPost && (thread.root.canDelete ?? false)}
+                  canDeleteThread={
+                    canPost && (thread.root.canDeleteThread ?? false)
+                  }
                   onDeleteComment={setDeleteCandidate}
                   canDeleteComment={(comment) =>
                     canPost && (comment.canDelete ?? false)
@@ -3115,6 +3120,7 @@ export function ReviewCanvasPins({
                   mentionOptions={mentionOptions}
                   editMentionOptions={peopleMentionOptions}
                   onMentionQueryChange={onMentionQueryChange}
+                  mentionSearching={mentionSearching}
                   replyAttachments={replyAttachments}
                   onReplyAttachmentsChange={setReplyAttachments}
                   onReplyDraftChange={setReplyDraft}
@@ -3236,6 +3242,7 @@ export function ReviewCanvasPins({
                 }
                 onMentionsChange={setDraftMentions}
                 onMentionQueryChange={onMentionQueryChange}
+                mentionSearching={mentionSearching}
                 attachments={draftAttachments}
                 onAttachmentsChange={setDraftAttachments}
                 onChange={(value) => {
@@ -3837,6 +3844,7 @@ function DraftComposer({
   mentionOptions,
   onMentionsChange,
   onMentionQueryChange,
+  mentionSearching,
   attachments,
   onAttachmentsChange,
   onChange,
@@ -3852,6 +3860,7 @@ function DraftComposer({
   mentionOptions: readonly ReviewMentionOption[];
   onMentionsChange: (mentions: ReviewMention[]) => void;
   onMentionQueryChange: (query: string) => void;
+  mentionSearching: boolean;
   attachments: ReviewImageAttachment[];
   onAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onChange: (value: string) => void;
@@ -3896,6 +3905,7 @@ function DraftComposer({
             onMentionsChange={onMentionsChange}
             mentionOptions={mentionOptions}
             onMentionQueryChange={onMentionQueryChange}
+            mentionOptionsLoading={mentionSearching}
             agentsLabel={t("review.agent.sectionLabel")}
             showCommentTools
             emojiLabel={t("review.addEmoji")}
@@ -3985,6 +3995,7 @@ function ReviewThreadPopover({
   mentionOptions,
   editMentionOptions,
   onMentionQueryChange,
+  mentionSearching,
   replyAttachments,
   onReplyAttachmentsChange,
   onReplyDraftChange,
@@ -4033,6 +4044,7 @@ function ReviewThreadPopover({
   /** A comment edit never starts a run, so it offers people only. */
   editMentionOptions: readonly ReviewMention[];
   onMentionQueryChange: (query: string) => void;
+  mentionSearching: boolean;
   replyAttachments: ReviewImageAttachment[];
   onReplyAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onReplyDraftChange: (value: string) => void;
@@ -4123,6 +4135,7 @@ function ReviewThreadPopover({
             onMentionsChange={onEditMentionsChange}
             mentionOptions={editMentionOptions}
             onMentionQueryChange={onMentionQueryChange}
+            mentionOptionsLoading={mentionSearching}
             showCommentTools
             emojiLabel={t("review.addEmoji")}
             mentionLabel={t("review.mention")}
@@ -4217,6 +4230,7 @@ function ReviewThreadPopover({
               onMentionsChange={onReplyMentionsChange}
               mentionOptions={mentionOptions}
               onMentionQueryChange={onMentionQueryChange}
+              mentionOptionsLoading={mentionSearching}
               agentsLabel={t("review.agent.sectionLabel")}
               showCommentTools
               commentToolsEnd={replyImages.toolsEnd}
