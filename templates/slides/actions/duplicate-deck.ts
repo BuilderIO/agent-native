@@ -121,7 +121,11 @@ export default defineAction({
           errorCode: "deck_id_conflict",
           statusCode: 409,
         });
-      throw error;
+      console.error("[duplicate-deck] insert failed", error);
+      fail("Could not duplicate the deck.", {
+        errorCode: "deck_duplicate_failed",
+        statusCode: 500,
+      });
     }
 
     await trackDeckCreated(
