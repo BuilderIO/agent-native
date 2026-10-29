@@ -23,6 +23,22 @@ export const SSR_HTML_CONTENT_TYPE = "text/html; charset=utf-8";
 
 export const SSR_QUERY_CACHE_KEY_HEADER = "x-agent-native-ssr-key";
 
+/**
+ * Response header a route sets to the most seconds its SSR response may be
+ * kept anywhere, for a page whose content can change or be taken down (a
+ * public share page, say). The SSR handler reads and removes it. It only ever
+ * shortens the deployment's policy, and it names one duration for every
+ * visitor of the route, so it can't vary the shell per request or per user.
+ * `0` means don't store it at all.
+ */
+export const SSR_MAX_AGE_HEADER = "x-agent-native-ssr-max-age";
+
+/**
+ * Error statuses whose SSR HTML/`.data` answer still gets the shared cache
+ * policy: a missing or removed page is the same for every visitor.
+ */
+export const SSR_CACHEABLE_ERROR_STATUSES: readonly number[] = [404, 410];
+
 export type SsrHtmlContentTypeOptions = {
   varyByQuery?: boolean;
 };
@@ -120,8 +136,108 @@ export function ssrCacheHeadersForPolicy(
   };
 }
 
+/**
+ * The route's `SSR_MAX_AGE_HEADER` value in seconds, or null when unset. A
+ * value that isn't whole seconds reads as 0: the route asked for a shorter
+ * window, and falling back to the deployment's would keep a page it takes
+ * down for as long as that window.
+ */
+export function parseSsrMaxAge(raw: string | null | undefined): number | null {
+  if (raw == null) return null;
+  const value = raw.trim();
+  if (!/^\d+$/.test(value)) return 0;
+  return Math.min(Number(value), MAX_SSR_CACHE_SECONDS);
+}
+
+export type SsrSharedWindow = { maxAge: number; stale: number };
+
+export type SsrRouteCacheLimits = {
+  cdn: SsrSharedWindow;
+  netlify: SsrSharedWindow;
+};
+
+function directiveSeconds(control: string, name: string): number | null {
+  const match = new RegExp(`(?:^|,)\\s*${name}=(\\d+)\\s*(?:,|$)`, "i").exec(
+    control,
+  );
+  return match ? Number(match[1]) : null;
+}
+
+function sharedWindow(control: string): SsrSharedWindow {
+  return {
+    maxAge:
+      directiveSeconds(control, "s-maxage") ??
+      directiveSeconds(control, "max-age") ??
+      0,
+    stale: directiveSeconds(control, "stale-while-revalidate") ?? 0,
+  };
+}
+
+/**
+ * The longest shared-cache windows a route's `SSR_MAX_AGE_HEADER` can ask for
+ * under `policy`, read from the headers the deployment would send, one per CDN
+ * header since they differ. Null when the deployment stores nothing. The
+ * generated edge worker inlines these at build time.
+ */
+export function ssrRouteCacheLimits(
+  policy: SsrCachePolicy,
+): SsrRouteCacheLimits | null {
+  if (policy.kind === "disabled") return null;
+  const headers = ssrCacheHeadersForPolicy(policy);
+  return {
+    cdn: sharedWindow(headers["cdn-cache-control"]),
+    netlify: sharedWindow(headers["netlify-cdn-cache-control"]),
+  };
+}
+
+function sharedWithin(window: SsrSharedWindow, seconds: number): string {
+  return (
+    `s-maxage=${Math.min(seconds, window.maxAge)}, ` +
+    `stale-while-revalidate=${Math.min(seconds, window.stale)}`
+  );
+}
+
+/**
+ * The deployment's policy with every window cut to at most `seconds`, for a
+ * route that set `SSR_MAX_AGE_HEADER`. Browsers revalidate on each visit, so
+ * shared caches alone bound how old a copy gets: fresh for `seconds`, then
+ * served once more while it refreshes, so never more than twice `seconds`
+ * after the render. Nothing is served stale on origin errors either, since a
+ * page taken down must not come back while origin is failing.
+ */
+export function ssrCacheHeadersWithin(
+  policy: SsrCachePolicy,
+  seconds: number,
+): SsrCacheHeaders {
+  const limits = ssrRouteCacheLimits(policy);
+  if (!limits || seconds <= 0) return { ...DISABLED_SSR_CACHE_HEADERS };
+  return {
+    "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    "cdn-cache-control": `public, ${sharedWithin(limits.cdn, seconds)}`,
+    "netlify-cdn-cache-control": `public, durable, ${sharedWithin(
+      limits.netlify,
+      seconds,
+    )}`,
+  };
+}
+
 let memoizedRaw: string | undefined;
 let memoizedHeaders: Readonly<SsrCacheHeaders> | undefined;
+let memoizedPolicyRaw: string | undefined;
+let memoizedPolicy: SsrCachePolicy | undefined;
+
+/** The deployment-wide policy from `AGENT_NATIVE_SSR_CACHE`. */
+export function resolveSsrCachePolicy(
+  env: Record<string, string | undefined> = typeof process === "undefined"
+    ? {}
+    : process.env,
+): SsrCachePolicy {
+  const raw = env[SSR_CACHE_ENV_VAR];
+  if (memoizedPolicy && raw === memoizedPolicyRaw) return memoizedPolicy;
+  memoizedPolicyRaw = raw;
+  memoizedPolicy = parseSsrCacheSetting(raw);
+  return memoizedPolicy;
+}
 
 export function resolveSsrCacheHeaders(
   env: Record<string, string | undefined> = typeof process === "undefined"
