@@ -114,17 +114,26 @@ export async function notifyClients(
   // A deleted deck has no row to check access against, so tombstones go to the
   // audience captured before the delete.
   const isDeletedTombstone = type === "deck-deleted" && hasExplicitScope;
+  // Tabs of one user share an identity, so resolve access once per identity.
+  const accessByIdentity = new Map<string, Promise<boolean>>();
   await Promise.all(
     [...sseClients].map(async (client) => {
       try {
-        const canReceive = isDeletedTombstone
-          ? matchesDeletedAudience(client, scope)
-          : Boolean(
-              await resolveAccess("deck", deckId, {
-                userEmail: client.email,
-                ...(client.orgId ? { orgId: client.orgId } : {}),
-              }),
-            );
+        let canReceive: boolean;
+        if (isDeletedTombstone) {
+          canReceive = matchesDeletedAudience(client, scope);
+        } else {
+          const identity = `${client.email.trim().toLowerCase()}\n${client.orgId ?? ""}`;
+          let access = accessByIdentity.get(identity);
+          if (!access) {
+            access = resolveAccess("deck", deckId, {
+              userEmail: client.email,
+              ...(client.orgId ? { orgId: client.orgId } : {}),
+            }).then(Boolean);
+            accessByIdentity.set(identity, access);
+          }
+          canReceive = await access;
+        }
         if (canReceive) client.push(message);
       } catch (err) {
         console.error(
