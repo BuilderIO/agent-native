@@ -10,6 +10,9 @@
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const ESCAPED = /\\([!-/:-@[-`{-~])/g;
 const HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/;
+const QUOTE = /^(?: {0,3}> ?)+/;
+const LIST_ITEM = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
+const THEMATIC_BREAK = /^ {0,3}([-*_])(?: *\1){2,} *$/;
 /**
  * An HTML open or closing tag as CommonMark reads one. Text that only looks
  * like a tag, such as `x<y+1 and y>2`, stays: the renderer shows it too. No
@@ -27,6 +30,14 @@ const HTML_TAG =
  */
 export function commentPlainText(markdown: string): string {
   const lines: string[] = [];
+  // A paragraph's lines are read together, since code and emphasis can cross
+  // a line break inside one, but not into the next paragraph or list item.
+  let paragraph: string[] = [];
+  let paragraphDepth = 0;
+  const endParagraph = () => {
+    if (paragraph.length) lines.push(plainInline(paragraph.join("\n")));
+    paragraph = [];
+  };
   let fence: string | null = null;
   for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
     const opener = FENCE.exec(line);
@@ -44,11 +55,28 @@ export function commentPlainText(markdown: string): string {
     // A backtick fence's info string can't hold a backtick; one that does is
     // inline code, not a fence.
     if (marker && !(marker.startsWith("`") && info.includes("`"))) {
+      endParagraph();
       fence = marker;
       continue;
     }
-    lines.push(plainLine(line));
+    const quote = QUOTE.exec(line)?.[0] ?? "";
+    const depth = quote.split(">").length - 1;
+    const text = line.slice(quote.length);
+    const heading = HEADING.exec(text);
+    if (!text.trim() || THEMATIC_BREAK.test(text) || heading) {
+      endParagraph();
+      lines.push(
+        heading
+          ? plainInline(withoutClosingHashes(text.slice(heading[0].length)))
+          : "",
+      );
+      continue;
+    }
+    if (depth !== paragraphDepth || LIST_ITEM.test(text)) endParagraph();
+    paragraphDepth = depth;
+    paragraph.push(text);
   }
+  endParagraph();
   return lines
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -69,16 +97,16 @@ export function commentExcerpt(markdown: string, limit = 240): string {
   return `${collapsed.slice(0, cut).trimEnd()}…`;
 }
 
-function plainLine(line: string): string {
-  if (/^ {0,3}([-*_])(?: *\1){2,} *$/.test(line)) return "";
-  let text = line.replace(/^(?: {0,3}> ?)+/, "");
-  const heading = HEADING.exec(text);
-  if (heading) text = withoutClosingHashes(text.slice(heading[0].length));
+/** Inline text, which may hold line breaks: code spans, then the rest. */
+function plainInline(text: string): string {
   let plain = "";
   let cursor = 0;
   for (const span of codeSpans(text)) {
-    plain += plainInline(text.slice(cursor, span.start));
-    const code = text.slice(span.start + span.ticks, span.end - span.ticks);
+    plain += plainProse(text.slice(cursor, span.start));
+    // A line break inside code reads as a space, as CommonMark has it.
+    const code = text
+      .slice(span.start + span.ticks, span.end - span.ticks)
+      .replaceAll("\n", " ");
     // One space comes off each side when both sides have one and the code
     // isn't all spaces, as CommonMark reads `` ` a ` ``.
     const padded =
@@ -89,7 +117,7 @@ function plainLine(line: string): string {
     plain += padded ? code.slice(1, -1) : code;
     cursor = span.end;
   }
-  return plain + plainInline(text.slice(cursor));
+  return plain + plainProse(text.slice(cursor));
 }
 
 /**
@@ -116,17 +144,27 @@ function withoutClosingHashes(text: string): string {
 function codeSpans(
   text: string,
 ): { start: number; end: number; ticks: number }[] {
-  const runs = Array.from(text.matchAll(/`+/g), (match, index) => ({
-    index,
-    at: match.index,
-    length: match[0].length,
-  }));
+  const runs = Array.from(text.matchAll(/`+/g), (match, index) => {
+    // An unescaped backslash before a run makes its first backtick literal.
+    // That only matters where the run opens code: inside code, a backslash
+    // is literal, so it can't escape the closing run.
+    let slashes = 0;
+    while (text[match.index - slashes - 1] === "\\") slashes += 1;
+    const escaped = slashes % 2 === 1;
+    return {
+      index,
+      at: match.index + (escaped ? 1 : 0),
+      opens: match[0].length - (escaped ? 1 : 0),
+      end: match.index + match[0].length,
+      length: match[0].length,
+    };
+  });
   type Run = (typeof runs)[number];
   const closers = new Map<Run, Run>();
   const laterByLength = new Map<number, Run>();
   for (const run of [...runs].reverse()) {
-    const later = laterByLength.get(run.length);
-    if (later) closers.set(run, later);
+    const later = laterByLength.get(run.opens);
+    if (run.opens > 0 && later) closers.set(run, later);
     laterByLength.set(run.length, run);
   }
   const spans: { start: number; end: number; ticks: number }[] = [];
@@ -134,17 +172,13 @@ function codeSpans(
   for (const open of runs) {
     const closing = closers.get(open);
     if (open.index < next || !closing) continue;
-    spans.push({
-      start: open.at,
-      end: closing.at + closing.length,
-      ticks: open.length,
-    });
+    spans.push({ start: open.at, end: closing.end, ticks: open.opens });
     next = closing.index + 1;
   }
   return spans;
 }
 
-function plainInline(text: string): string {
+function plainProse(text: string): string {
   const escaped: string[] = [];
   return (
     text

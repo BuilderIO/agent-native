@@ -65,6 +65,25 @@ describe("commentPlainText", () => {
     expect(commentPlainText("see issue #")).toBe("see issue #");
   });
 
+  it("reads a paragraph's lines together, as the renderer does", () => {
+    expect(commentPlainText("`a *b*\nc`")).toBe("a *b* c");
+    expect(commentPlainText("**bold\nacross** and _this\none_")).toBe(
+      "bold\nacross and this\none",
+    );
+    expect(commentPlainText("> `a\n> b`")).toBe("a b");
+    // Code doesn't run into the next list item or paragraph.
+    expect(commentPlainText("- a `b\n- c` d")).toBe("- a `b\n- c` d");
+    expect(commentPlainText("`a\n\nb`")).toBe("`a\n\nb`");
+  });
+
+  it("leaves escaped backticks as backticks", () => {
+    expect(commentPlainText("\\`not code\\`")).toBe("`not code`");
+    expect(commentPlainText("\\``code`")).toBe("`code");
+    // Inside code a backslash is literal, so it can't escape the closer.
+    expect(commentPlainText("`ends in \\`")).toBe("ends in \\");
+    expect(commentPlainText("\\\\`code`")).toBe("\\code");
+  });
+
   it("takes linear time on long lines of unclosed markers", () => {
     const started = performance.now();
     for (const text of [
@@ -78,6 +97,9 @@ describe("commentPlainText", () => {
       `# x${" ".repeat(100_000)}y`,
       `# x${" #".repeat(50_000)}y`,
       `\` ${"a".repeat(100_000)}\``,
+      "**x\n".repeat(50_000),
+      "`x\n".repeat(50_000),
+      `${"\\".repeat(10)}\``.repeat(10_000),
     ]) {
       commentPlainText(text);
     }

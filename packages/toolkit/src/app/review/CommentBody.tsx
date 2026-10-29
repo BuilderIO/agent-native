@@ -305,7 +305,7 @@ function linkRanges(body: string): (at: number) => boolean {
     let high = merged.length - 1;
     while (low <= high) {
       const middle = (low + high) >> 1;
-      const range = merged[middle];
+      const range = merged.at(middle);
       if (!range) return false;
       if (at < range.start) high = middle - 1;
       else if (at >= range.end) low = middle + 1;
