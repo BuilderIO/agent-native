@@ -930,6 +930,27 @@ export default defineAction({
               "Live GitHub pull-request state changed during approval recovery; no approval state was finalized.",
           };
         }
+        let forkHasVerifiedBuilderAssignee: boolean;
+        try {
+          forkHasVerifiedBuilderAssignee =
+            await hasVerifiedBuilderAssignee(livePullRequest);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "unknown membership verification error";
+          await reconcileClaim(
+            pullRequest.headSha,
+            `Fork assignee membership could not be revalidated during approval recovery: ${message}. Reconciliation is required before retrying.`,
+          );
+          throw error;
+        }
+        if (forkHasVerifiedBuilderAssignee) {
+          const reason =
+            "A verified BuilderIO member is assigned to this fork; the existing approval remains unreconciled and requires manual handling.";
+          await reconcileClaim(pullRequest.headSha, reason);
+          return { ok: true, action: "needs_manual", reason };
+        }
         previouslyFinalized =
           existingItem.status === "auto_approved" &&
           existingMetadata.autoApprovalHeadSha === pullRequest.headSha &&

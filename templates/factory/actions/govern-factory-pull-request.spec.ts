@@ -972,6 +972,65 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(lateApproval.approvePullRequest).not.toHaveBeenCalled();
   });
 
+  it("does not recover a late attributed approval for a newly assigned fork", async () => {
+    await seedInternalApprovalPath();
+    const firstAttempt = governanceGitHub({
+      internalMember: true,
+      passingChecks: true,
+      changedFiles: ["src/change.ts"],
+      headRepository: "contributor/fork",
+      approvalError: new GitHubRequestError("approval timed out", true),
+    });
+    await expect(
+      runGovernance(firstAttempt, DEFAULT_FACTORY_ID, true),
+    ).rejects.toThrow("approval timed out");
+
+    const lateApproval = governanceGitHub({
+      internalMember: true,
+      passingChecks: true,
+      changedFiles: ["src/change.ts"],
+      headRepository: "contributor/fork",
+      revalidatedSummary: {
+        assignees: [{ id: 456, login: "builder-assignee" }],
+      },
+      assigneeMember: true,
+      reviewEvents: [
+        memberApprovalReview({
+          author: "factory-bot",
+          authorType: "Bot",
+          body: `${FACTORY_APPROVAL_BODY_MARKER}${governanceDecisionId()}; recovered`,
+        }),
+      ],
+    });
+    const result = await runGovernance(lateApproval, DEFAULT_FACTORY_ID, true);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decision = (
+      await db
+        .select({ outcome: triageDecisions.outcome })
+        .from(triageDecisions)
+        .where(eq(triageDecisions.id, governanceDecisionId()))
+    )[0];
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: "needs_manual",
+      reason: expect.stringContaining("assigned to this fork"),
+    });
+    expect(lateApproval.checkOrganizationMemberById).toHaveBeenCalledWith(
+      "BuilderIO",
+      456,
+      "builder-assignee",
+    );
+    expect(item.status).toBe("reconciliation_required");
+    expect(decision.outcome).toBe("needs_manual");
+    expect(lateApproval.approvePullRequest).not.toHaveBeenCalled();
+  });
+
   it("recovers an accepted approval after the post-approval summary read fails", async () => {
     await seedInternalApprovalPath();
     const firstAttempt = governanceGitHub({

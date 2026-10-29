@@ -166,6 +166,10 @@ describe("feedback-fix-proof", () => {
 
     assert.match(
       workflow,
+      /pull_request:\s*\n\s+types:\s*\[[^\]]*edited[^\]]*\]/,
+    );
+    assert.match(
+      workflow,
       /has_reports: \$\{\{ steps\.feedback\.outputs\.has_reports \}\}/,
     );
     assert.match(
