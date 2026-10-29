@@ -495,13 +495,14 @@ if (isBuilderIdentityEnabled()) {
 
 if (isBuilderIdentityEnabled()) {
   // Code-change handoffs go to the Builder project of the design the user has
-  // open, not to a deployment-wide setting. Access is checked as for any read
-  // of that design, so a design the user cannot see names no project.
+  // open, not to a deployment-wide setting. A handoff writes to that project,
+  // so it needs editor access, as creating a design branch does; a design the
+  // user can only view names no project.
   registerBuilderBranchProject(async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
     const designId = navigation?.["designId"];
     if (typeof designId !== "string" || !designId) return undefined;
-    const access = await assertAccess("design", designId, "viewer");
+    const access = await assertAccess("design", designId, "editor");
     const app = readFusionApp(access.resource?.data);
     // A local launch session is not bound to a Builder project, so it names
     // none; the deployment's own project setting, if any, applies as usual.

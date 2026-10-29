@@ -51,7 +51,7 @@ describe("Builder branch project from the open design", () => {
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",
       "design-1",
-      "viewer",
+      "editor",
     );
   });
 
@@ -74,7 +74,7 @@ describe("Builder branch project from the open design", () => {
     await expect(mocks.provider!()).resolves.toBeUndefined();
   });
 
-  it("does not name a project for a design the user cannot read", async () => {
+  it("does not name a project for a design the user cannot edit", async () => {
     mocks.assertAccess.mockRejectedValue(new Error("forbidden"));
 
     await expect(mocks.provider!()).rejects.toThrow("forbidden");
