@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
-import { applyEdits, applyOneEdit } from "./apply-edits";
+import {
+  ApplyEditConflictError,
+  applyEdits,
+  applyOneEdit,
+} from "./apply-edits";
 
 describe("applyEdits", () => {
   it("replaces a unique exact match", () => {
@@ -31,9 +35,10 @@ describe("applyEdits", () => {
   });
 
   it("throws with guidance when search is not found", () => {
-    expect(() =>
-      applyEdits(`<p>hi</p>`, [{ search: `<p>nope</p>`, replace: `x` }]),
-    ).toThrow(/not found/);
+    const edit = () =>
+      applyEdits(`<p>hi</p>`, [{ search: `<p>nope</p>`, replace: `x` }]);
+    expect(edit).toThrow(ApplyEditConflictError);
+    expect(edit).toThrow(/not found/);
   });
 
   it("matches whitespace-flexibly when exact fails", () => {

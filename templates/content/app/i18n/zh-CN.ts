@@ -862,6 +862,8 @@ const editor = {
     editProperty: "编辑 {{name}}",
     builderStatusPublishInBuilder:
       "在 Builder 编辑器中保存的更改只能从 Builder 发布。",
+    builderStatusUnpublishedChangesInBuilder:
+      "未发布的更改来自 Builder 编辑器，因此无法在此设置。",
     editStartDate: "编辑 {{name}} 开始日期",
     editValue: "编辑 {{name}} 值",
     empty: "空",
@@ -1834,6 +1836,10 @@ const overrides = {
     aiRemoveRecipient: "移除 AI 接收者",
     aiSend: "发送给 AI",
     aiSendShort: "发送",
+    aiSendReply: "回复",
+    aiSendSuggest: "建议",
+    aiSendApply: "应用",
+    aiSendMode: "发送给 AI：{{mode}}",
     aiResponseMode: "回应",
     aiChooseSendMode: "选择 AI 发送模式",
     aiSuggestChanges: "建议更改",
@@ -1862,6 +1868,8 @@ const overrides = {
     aiFailed: "AI 请求失败",
     retry: "重试",
     aiQueued: "AI 正在排队…",
+    aiWorkingNamed: "{{name}} 正在处理…",
+    aiQueuedNamed: "{{name}} 正在排队…",
     aiRefreshing: "AI 正在检查最新页面…",
     aiCancelled: "AI 请求已停止",
     aiStop: "停止",

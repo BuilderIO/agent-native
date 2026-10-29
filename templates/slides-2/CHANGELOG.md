@@ -2,6 +2,28 @@
 
 All notable user-facing changes to Slides 2 are documented here. Open it any time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-27
+
+### Improved
+
+- Onboarding and setup copy now uses a clear, collaborative voice.
+
+## 2026-10-25
+
+### Fixed
+
+- Generation no longer updates a presentation after you leave it.
+
+## 2026-10-22
+
+### Added
+
+- Outside assistants can clone a slide from existing context and open the copy in the Slides editor.
+
+### Fixed
+
+- New decks and added slides open in the full Slides 2 app from their chat links.
+
 ## 2026-10-20
 
 ### Added

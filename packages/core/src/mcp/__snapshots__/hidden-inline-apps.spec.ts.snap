@@ -1,0 +1,172 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+// oracle-change: Content share-local-file-document and Design generate-screens and export-coding-handoff are now scoped widget targets, so their catalog entries carry a UI resource; every other tool stays plain
+exports[`explicit connector inline apps > advertises each inline tool on the default production catalog, with a UI resource only for a scoped widget target 1`] = `
+{
+  "analytics": [
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Open traffic dashboard",
+      },
+      "name": "open-traffic-dashboard",
+    },
+  ],
+  "calendar": [
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Manage event draft",
+      },
+      "name": "manage-event-draft",
+    },
+  ],
+  "content": [
+    {
+      "_meta": {
+        "openai/outputTemplate": "ui://content/share-local-file-document/shell-v65",
+        "openai/toolInvocation/invoked": "Share document ready",
+        "openai/toolInvocation/invoking": "Opening Share document",
+        "openai/widgetAccessible": true,
+        "openai/widgetCSP": {
+          "connect_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+          "frame_domains": [
+            "$requestOrigin",
+          ],
+          "resource_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+        },
+        "ui": {
+          "resourceUri": "ui://content/share-local-file-document/shell-v65",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://content/share-local-file-document/shell-v65",
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Share local file document",
+      },
+      "name": "share-local-file-document",
+    },
+  ],
+  "design": [
+    {
+      "_meta": {
+        "openai/outputTemplate": "ui://design/generate-screens/shell-v65",
+        "openai/toolInvocation/invoked": "Design generation session ready",
+        "openai/toolInvocation/invoking": "Opening Design generation session",
+        "openai/widgetAccessible": true,
+        "openai/widgetCSP": {
+          "connect_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+          "frame_domains": [
+            "$requestOrigin",
+          ],
+          "resource_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+        },
+        "ui": {
+          "resourceUri": "ui://design/generate-screens/shell-v65",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://design/generate-screens/shell-v65",
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Generate screens",
+      },
+      "name": "generate-screens",
+    },
+    {
+      "_meta": {
+        "openai/outputTemplate": "ui://design/export-coding-handoff/shell-v65",
+        "openai/toolInvocation/invoked": "Design agent handoff ready",
+        "openai/toolInvocation/invoking": "Opening Design agent handoff",
+        "openai/widgetAccessible": true,
+        "openai/widgetCSP": {
+          "connect_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+          "frame_domains": [
+            "$requestOrigin",
+          ],
+          "resource_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+        },
+        "ui": {
+          "resourceUri": "ui://design/export-coding-handoff/shell-v65",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://design/export-coding-handoff/shell-v65",
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Export coding handoff",
+      },
+      "name": "export-coding-handoff",
+    },
+  ],
+  "slides": [
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Clone context slide",
+      },
+      "name": "clone-context-slide",
+    },
+  ],
+  "slides-2": [
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Clone context slide",
+      },
+      "name": "clone-context-slide",
+    },
+  ],
+}
+`;

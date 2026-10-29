@@ -4,6 +4,7 @@ on:
   # No `branches` filter: a stacked PR targets its parent PR's branch, and the
   # required checks must report on it too.
   pull_request:
+    types: [opened, edited, synchronize, reopened]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -21,6 +22,7 @@ jobs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
       full: ${{ steps.scope.outputs.full }}
       lint: ${{ steps.scope.outputs.lint }}
+      has_reports: ${{ steps.feedback.outputs.has_reports }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       workspace_filters: ${{ steps.scope.outputs.workspace_filters }}
       test_workspace_filters: ${{ steps.scope.outputs.test_workspace_filters }}
@@ -72,6 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          persist-credentials: false
           fetch-depth: 0
           filter: blob:none
 
@@ -96,6 +99,21 @@ jobs:
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CI_PR_TITLE: ${{ github.event.pull_request.title }}
         run: node --experimental-strip-types scripts/ci-change-scope.ts
+
+      - name: Look for feedback reports
+        id: feedback
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/feedback-proof-gate"
+          if git cat-file -e "$BASE_SHA:scripts/feedback-fix-proof.ts" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/feedback-fix-proof.ts" > "$RUNNER_TEMP/feedback-proof-gate/feedback-fix-proof.ts"
+          else
+            cp scripts/feedback-fix-proof.ts "$RUNNER_TEMP/feedback-proof-gate/feedback-fix-proof.ts"
+          fi
+          node --experimental-strip-types --no-warnings "$RUNNER_TEMP/feedback-proof-gate/feedback-fix-proof.ts" --has-reports >> "$GITHUB_OUTPUT"
 
       # Full planning only reads manifests and counts files. Targeted planning
       # runs `pnpm list` and `vitest list --changed`, so it needs an install.
@@ -125,12 +143,24 @@ jobs:
   lint:
     name: Lint & format
     needs: change-scope
-    if: needs.change-scope.outputs.lint == 'true'
+    # Required check: run when selected, and also when change-scope did not
+    # succeed so the feedback proof gate fails closed instead of being skipped.
+    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.lint == 'true' || needs.change-scope.outputs.has_reports == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Require a successful change scope
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+        run: |
+          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
+            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            exit 1
+          fi
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          persist-credentials: false
           fetch-depth: 0
           filter: blob:none
 
@@ -188,6 +218,23 @@ jobs:
         if: ${{ !cancelled() && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
         run: node scripts/guard-no-major-changeset.mjs
 
+      - name: Re-run feedback fix proofs
+        if: needs.change-scope.outputs.has_reports == 'true'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/feedback-proof-gate"
+          for f in feedback-fix-proof.ts fix-proof.ts; do
+            if git cat-file -e "$BASE_SHA:scripts/$f" 2>/dev/null; then
+              git show "$BASE_SHA:scripts/$f" > "$RUNNER_TEMP/feedback-proof-gate/$f"
+            else
+              cp "scripts/$f" "$RUNNER_TEMP/feedback-proof-gate/$f"
+            fi
+          done
+          node --experimental-strip-types --no-warnings "$RUNNER_TEMP/feedback-proof-gate/feedback-fix-proof.ts"
+
   typecheck:
     name: Typecheck
     needs: change-scope
@@ -196,6 +243,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -234,6 +283,8 @@ jobs:
       matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -344,6 +395,8 @@ jobs:
       matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -494,6 +547,8 @@ jobs:
           ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/free-disk
 
@@ -603,6 +658,8 @@ jobs:
         shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_broad_workflow_shards) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/free-disk
 
@@ -785,6 +842,8 @@ jobs:
         shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_e2e_diagnostic_shards) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/free-disk
 
@@ -856,6 +915,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/free-disk
 
@@ -1056,6 +1117,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1075,6 +1138,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1110,6 +1175,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1181,6 +1248,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1405,6 +1474,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1433,6 +1504,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1449,6 +1522,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1477,6 +1552,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1505,6 +1582,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1537,6 +1616,8 @@ jobs:
         browser: [chromium, webkit]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1578,6 +1659,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1619,6 +1702,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1724,6 +1809,8 @@ jobs:
       RUN_BACKGROUND_JOBS: "0"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1793,6 +1880,8 @@ jobs:
       NODE_ENV: production
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1809,6 +1898,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
 
@@ -1842,6 +1933,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/free-disk
 
@@ -1955,6 +2048,8 @@ jobs:
       SSR_BOOT_APPS: ${{ needs.change-scope.outputs.ssr_boot_apps }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       # Skip postinstall build chain here — core is built explicitly below so we
       # control the exact build order and avoid redundant parallel builds.
@@ -2014,6 +2109,8 @@ jobs:
           fi
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -2053,6 +2150,7 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: ./.github/actions/setup-pnpm
@@ -2069,10 +2167,11 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.guards == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: ./.github/actions/setup-pnpm
@@ -2128,7 +2227,7 @@ jobs:
       - name: Run security guards
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
-        run: pnpm guards
+        run: node --import tsx scripts/run-guards.ts
 
       - name: Check the Slides interaction oracle against one full test run
         if: ${{ !cancelled() && needs.change-scope.outputs.slides_oracle == 'true' }}
@@ -2191,6 +2290,8 @@ jobs:
           fi
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/standalone-chat-acceptance
 

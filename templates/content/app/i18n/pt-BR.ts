@@ -928,6 +928,8 @@ const editor = {
     editProperty: "Editar {{name}}",
     builderStatusPublishInBuilder:
       "Alterações salvas no editor do Builder só podem ser publicadas pelo Builder.",
+    builderStatusUnpublishedChangesInBuilder:
+      "Alterações não publicadas vêm do editor do Builder, então não podem ser definidas aqui.",
     editStartDate: "Editar data de início do {{name}}",
     editValue: "Editar valor {{name}}",
     empty: "Vazio",
@@ -1836,6 +1838,10 @@ const overrides = {
     aiRemoveRecipient: "Remover destinatário de IA",
     aiSend: "Enviar para a IA",
     aiSendShort: "Enviar",
+    aiSendReply: "Responder",
+    aiSendSuggest: "Sugerir",
+    aiSendApply: "Aplicar",
+    aiSendMode: "Enviar para a IA: {{mode}}",
     aiResponseMode: "Resposta",
     aiChooseSendMode: "Escolher modo de envio da IA",
     aiSuggestChanges: "Sugerir alterações",
@@ -1865,6 +1871,8 @@ const overrides = {
     aiFailed: "Falha na solicitação de IA",
     retry: "Tentar novamente",
     aiQueued: "A IA está na fila…",
+    aiWorkingNamed: "{{name}} está trabalhando…",
+    aiQueuedNamed: "{{name}} está na fila…",
     aiRefreshing: "A IA está verificando a página mais recente…",
     aiCancelled: "Solicitação de IA interrompida",
     aiStop: "Parar",

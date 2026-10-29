@@ -31,8 +31,11 @@ import {
   CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
+  parseSsrCacheSetting,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
+  ssrCacheHeadersWithin,
 } from "../shared/cache-control.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -1627,9 +1630,15 @@ const corePackageRoot = path.resolve(
 );
 
 function linkCorePackageForWorker(dir: string): void {
+  // The plain Node worker needs built exports, which Stryker's sandbox omits.
+  const packageRootForWorker = corePackageRoot.includes(
+    `${path.sep}.stryker-tmp${path.sep}`,
+  )
+    ? path.resolve(corePackageRoot, "../..")
+    : corePackageRoot;
   const packageLink = path.join(dir, "node_modules", "@agent-native", "core");
   fs.mkdirSync(path.dirname(packageLink), { recursive: true });
-  fs.symlinkSync(corePackageRoot, packageLink, "dir");
+  fs.symlinkSync(packageRootForWorker, packageLink, "dir");
 }
 
 describe("Netlify static cache headers", () => {
@@ -1901,6 +1910,15 @@ export function createRequestHandler() {
         headers: {
           location: "/login",
           "content-type": "text/html",
+          ...${JSON.stringify(options.responseHeaders ?? {})},
+        },
+      });
+    }
+    if (url.pathname === "/missing") {
+      return new Response("missing", {
+        status: 404,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
           ...${JSON.stringify(options.responseHeaders ?? {})},
         },
       });
@@ -2753,6 +2771,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     const configPath = path.join(dir, "identity-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      "/_platform",
+    );
+    vi.stubEnv(
       "AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([
         { id: "workspace-calendar", path: "/recordings" },
@@ -2780,6 +2802,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(html).toContain('"workspaceAppPath":"/recordings"');
     expect(html).toContain('"workspaceAppMountPaths":["/recordings","/clips"]');
     expect(html).toContain('"workspaceRuntime":true');
+    expect(html).toContain('"frameworkRoutePrefix":"/_platform"');
   });
 
   it("keeps an idless non-root mount as a sibling in the worker shell config", async () => {
@@ -2885,6 +2908,7 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
 
     expect(html).toContain('"workspaceAppPath":"/"');
     expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
+    expect(html).toContain('"explicitRootPath":true');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
@@ -3271,6 +3295,92 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
     expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
     expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
+  });
+
+  it.each([
+    [undefined, "20"],
+    [undefined, "0"],
+    [undefined, "3600"],
+    [undefined, "999999999999"],
+    ["30s", "60"],
+    ["off", "20"],
+  ])(
+    "shortens the window a route asks for like the Nitro handler (AGENT_NATIVE_SSR_CACHE=%s, route %s)",
+    async (setting, routeSeconds) => {
+      if (setting) vi.stubEnv("AGENT_NATIVE_SSR_CACHE", setting);
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+        responseHeaders: { [SSR_MAX_AGE_HEADER]: routeSeconds },
+      });
+
+      const response = await worker.fetch(
+        new Request("https://app.test/redirect"),
+        {},
+        {},
+      );
+
+      const expected = ssrCacheHeadersWithin(
+        parseSsrCacheSetting(setting),
+        Number(routeSeconds),
+      );
+      for (const [name, value] of Object.entries(expected)) {
+        expect(response.headers.get(name)).toBe(value);
+      }
+      expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
+    },
+  );
+
+  it("shortens a route's not-found window like the Nitro handler", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+      responseHeaders: { [SSR_MAX_AGE_HEADER]: "20" },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://app.test/missing"),
+      {},
+      {},
+    );
+
+    expect(response.status).toBe(404);
+    for (const [name, value] of Object.entries(
+      ssrCacheHeadersWithin(parseSsrCacheSetting(undefined), 20),
+    )) {
+      expect(response.headers.get(name)).toBe(value);
+    }
+    expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
+  });
+
+  // A missing page is the same for every visitor, so the worker stamps it with
+  // the deployment's policy, as the Nitro handler does.
+  it("caches a not-found answer that sets no window like the Nitro handler", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/missing"),
+      {},
+      {},
+    );
+
+    expect(response.status).toBe(404);
+    for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+      expect(response.headers.get(name)).toBe(value);
+    }
+  });
+
+  it("stores nothing when a route's max age is malformed", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+      responseHeaders: { [SSR_MAX_AGE_HEADER]: "soon" },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://app.test/redirect"),
+      {},
+      {},
+    );
+
+    for (const [name, value] of Object.entries(DISABLED_SSR_CACHE_HEADERS)) {
+      expect(response.headers.get(name)).toBe(value);
+    }
+    expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
   });
 
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {

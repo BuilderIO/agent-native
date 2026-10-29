@@ -1,9 +1,11 @@
-import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
+  addChangedSqlCallSiteModules,
   addChangedSqlExecuteWrapperModules,
   findRawSqlInterpolationViolations,
   findRawSqlInterpolationViolationsInSources,
@@ -464,6 +466,35 @@ describe("raw SQL interpolation guard", () => {
     );
   });
 
+  it("skips tracing calls that cannot reach an execute sink", () => {
+    // Each step reads the two before it inside a loop, so tracing every path
+    // through the reassignments doubles per step. A helper that never executes
+    // SQL must not trigger that trace, or a large file never finishes.
+    const steps = 32;
+    const text = source([
+      "declare const seed: string;",
+      "function note(value: string) { return value.length; }",
+      ...Array.from(
+        { length: steps },
+        (_, index) => `let step${index}: string = seed;`,
+      ),
+      "while (true) {",
+      ...Array.from(
+        { length: steps - 1 },
+        (_, index) =>
+          `  if (seed.length > ${index + 1}) step${index + 1} = step${index} + step${Math.max(0, index - 1)} + seed;`,
+      ),
+      `  note(step${steps - 1});`,
+      "  if (seed) break;",
+      "}",
+      'database.execute("SELECT 1");',
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([1]))).toEqual(
+      [],
+    );
+  });
+
   it("finds an unsafe template source flowing into an unchanged execute sink", () => {
     const text = source([
       "declare const name: string;",
@@ -701,6 +732,34 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
+  it("reports a new wrapper call that reuses an unchanged unsafe SQL value", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper = [
+      'import { getDbExec } from "./db/client.js";',
+      "export function runQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+    ].join("\n");
+    const store = [
+      'import { runQuery } from "./sql-helpers.js";',
+      "const query = `SELECT * FROM records WHERE id = ${recordId}`;",
+      "runQuery(query);",
+    ].join("\n");
+    const sources = new Map<string, RawSqlGuardSource>([
+      [wrapperFile, { source: wrapper, addedLines: new Set<number>() }],
+      [storeFile, { source: store, addedLines: new Set([3]) }],
+    ]);
+
+    expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
+      {
+        file: storeFile,
+        line: 3,
+        snippet: "runQuery(query);",
+      },
+    ]);
+  });
+
   it("traces a template assigned before an unchanged imported wrapper call", () => {
     const wrapperFile = "packages/core/src/sql-helpers.ts";
     const storeFile = "packages/core/src/store.ts";
@@ -738,6 +797,58 @@ describe("raw SQL interpolation guard", () => {
           "const statement = `SELECT * FROM records WHERE id = ${recordId}`;",
       },
     ]);
+  });
+
+  it("discovers an unchanged wrapper from a changed SQL helper caller", () => {
+    const fixtureRoot = resolve(process.cwd(), ".tmp");
+    mkdirSync(fixtureRoot, { recursive: true });
+    const fixtureDir = mkdtempSync(
+      resolve(fixtureRoot, "raw-sql-wrapper-discovery-"),
+    );
+    const helperFile = resolve(fixtureDir, "sql-helpers.ts");
+    const callerFile = resolve(fixtureDir, "store.ts");
+    const wrapperFile = resolve(fixtureDir, "query-wrapper.ts");
+    const unrelatedFile = resolve(fixtureDir, "unrelated.ts");
+    const helper = [
+      "export function ownerFilter(ownerId: string) {",
+      "  return `owner_id = ${ownerId}`;",
+      "}",
+    ].join("\n");
+    const caller = [
+      'import { ownerFilter } from "./sql-helpers.js";',
+      'import { runQuery } from "./query-wrapper.js";',
+      "runQuery(`SELECT * FROM records WHERE ${ownerFilter(ownerId)}`);",
+    ].join("\n");
+    const wrapper = [
+      'import { getDbExec } from "@agent-native/core/db";',
+      "export function runQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+    ].join("\n");
+
+    try {
+      writeFileSync(callerFile, caller);
+      writeFileSync(wrapperFile, wrapper);
+      writeFileSync(unrelatedFile, "const ownerFilter = 1;\n");
+      const sources = new Map<string, RawSqlGuardSource>([
+        [helperFile, { source: helper, addedLines: new Set([2]) }],
+      ]);
+
+      addChangedSqlCallSiteModules(sources, () => [callerFile, unrelatedFile]);
+
+      expect(sources.has(callerFile)).toBe(true);
+      expect(sources.has(wrapperFile)).toBe(true);
+      expect(sources.has(unrelatedFile)).toBe(false);
+      expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
+        {
+          file: relative(process.cwd(), helperFile),
+          line: 2,
+          snippet: "return `owner_id = ${ownerId}`;",
+        },
+      ]);
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 
   it("traces imported wrappers that forward SQL through another wrapper", () => {
@@ -839,6 +950,42 @@ describe("raw SQL interpolation guard", () => {
         file: storeFile,
         line: 2,
         snippet: "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+      },
+    ]);
+  });
+
+  it("traces each callsite when a wrapper is reused", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper = [
+      'import { getDbExec } from "./db/client.js";',
+      "export function runQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+    ].join("\n");
+    const store = [
+      'import { runQuery } from "./sql-helpers.js";',
+      "runQuery(`SELECT * FROM records WHERE id = ${firstId}`);",
+      "runQuery(`SELECT * FROM records WHERE id = ${secondId}`);",
+    ].join("\n");
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [wrapperFile, { source: wrapper, addedLines: new Set<number>() }],
+          [storeFile, { source: store, addedLines: new Set([2, 3]) }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: storeFile,
+        line: 2,
+        snippet: "runQuery(`SELECT * FROM records WHERE id = ${firstId}`);",
+      },
+      {
+        file: storeFile,
+        line: 3,
+        snippet: "runQuery(`SELECT * FROM records WHERE id = ${secondId}`);",
       },
     ]);
   });
@@ -1951,4 +2098,21 @@ describe("raw SQL interpolation guard", () => {
       ),
     ).toEqual([]);
   });
+
+  it("traces diamond-shaped assignment chains without re-walking each path", () => {
+    const depth = 40;
+    const text = source([
+      "declare const recordId: string;",
+      "let v0 = `SELECT ${recordId}`;",
+      ...Array.from(
+        { length: depth },
+        (_, i) => `let v${i + 1} = v${i} + v${i};`,
+      ),
+      `database.execute(v${depth});`,
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([depth + 3])),
+    ).toHaveLength(1);
+  }, 10_000);
 });

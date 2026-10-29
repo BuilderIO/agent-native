@@ -915,6 +915,8 @@ const editor = {
     editProperty: "{{name}}を編集",
     builderStatusPublishInBuilder:
       "Builder のエディターで保存された変更は、Builder からのみ公開できます。",
+    builderStatusUnpublishedChangesInBuilder:
+      "未公開の変更は Builder のエディターから反映されるため、ここでは設定できません。",
     editStartDate: "{{name}} 開始日の編集",
     editValue: "{{name}} 値を編集する",
     empty: "空の",
@@ -1800,6 +1802,10 @@ const overrides = {
     aiRemoveRecipient: "AI 宛先を削除",
     aiSend: "AI に送信",
     aiSendShort: "送信",
+    aiSendReply: "返信",
+    aiSendSuggest: "提案",
+    aiSendApply: "適用",
+    aiSendMode: "AI に送信: {{mode}}",
     aiResponseMode: "応答",
     aiChooseSendMode: "AI 送信モードを選択",
     aiSuggestChanges: "変更を提案",
@@ -1828,6 +1834,8 @@ const overrides = {
     aiFailed: "AI リクエストに失敗しました",
     retry: "再試行",
     aiQueued: "AI は待機中です…",
+    aiWorkingNamed: "{{name}} が処理中…",
+    aiQueuedNamed: "{{name}} は待機中です…",
     aiRefreshing: "AI が最新のページを確認中…",
     aiCancelled: "AI リクエストを停止しました",
     aiStop: "停止",

@@ -907,6 +907,8 @@ const editor = {
     editProperty: "{{name}} 편집",
     builderStatusPublishInBuilder:
       "Builder 편집기에 저장된 변경 사항은 Builder에서만 게시할 수 있습니다.",
+    builderStatusUnpublishedChangesInBuilder:
+      "게시되지 않은 변경 사항은 Builder 편집기에서 오므로 여기서 설정할 수 없습니다.",
     editStartDate: "{{name}} 시작 날짜 편집",
     editValue: "{{name}} 값 편집",
     empty: "비어 있음",
@@ -1783,6 +1785,10 @@ const overrides = {
     aiRemoveRecipient: "AI 수신자 제거",
     aiSend: "AI로 보내기",
     aiSendShort: "보내기",
+    aiSendReply: "답글",
+    aiSendSuggest: "제안",
+    aiSendApply: "적용",
+    aiSendMode: "AI로 보내기: {{mode}}",
     aiResponseMode: "응답",
     aiChooseSendMode: "AI 전송 모드 선택",
     aiSuggestChanges: "변경 제안",
@@ -1811,6 +1817,8 @@ const overrides = {
     aiFailed: "AI 요청 실패",
     retry: "다시 시도",
     aiQueued: "AI가 대기 중…",
+    aiWorkingNamed: "{{name}} 작업 중…",
+    aiQueuedNamed: "{{name}} 대기 중…",
     aiRefreshing: "AI가 최신 페이지를 확인 중…",
     aiCancelled: "AI 요청이 중지됨",
     aiStop: "중지",

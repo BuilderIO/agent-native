@@ -890,6 +890,8 @@ const editor = {
     editProperty: "تحرير {{name}}",
     builderStatusPublishInBuilder:
       "لا يمكن نشر التغييرات المحفوظة في محرر Builder إلا من Builder.",
+    builderStatusUnpublishedChangesInBuilder:
+      "تأتي التغييرات غير المنشورة من محرر Builder، لذا لا يمكن تعيينها هنا.",
     editStartDate: "تحرير تاريخ البدء {{name}}",
     editValue: "تحرير قيمة {{name}}",
     empty: "فارغ",
@@ -1792,6 +1794,10 @@ const overrides = {
     aiRemoveRecipient: "إزالة مستلم الذكاء الاصطناعي",
     aiSend: "إرسال إلى الذكاء الاصطناعي",
     aiSendShort: "إرسال",
+    aiSendReply: "رد",
+    aiSendSuggest: "اقتراح",
+    aiSendApply: "تطبيق",
+    aiSendMode: "إرسال إلى الذكاء الاصطناعي: {{mode}}",
     aiResponseMode: "الرد",
     aiChooseSendMode: "اختيار وضع الإرسال إلى الذكاء الاصطناعي",
     aiSuggestChanges: "اقتراح تغييرات",
@@ -1820,6 +1826,8 @@ const overrides = {
     aiFailed: "فشل طلب الذكاء الاصطناعي",
     retry: "إعادة المحاولة",
     aiQueued: "طلب الذكاء الاصطناعي في قائمة الانتظار…",
+    aiWorkingNamed: "{{name}} يعمل…",
+    aiQueuedNamed: "{{name}} في قائمة الانتظار…",
     aiRefreshing: "الذكاء الاصطناعي يتحقق من أحدث صفحة…",
     aiCancelled: "تم إيقاف طلب الذكاء الاصطناعي",
     aiStop: "إيقاف",

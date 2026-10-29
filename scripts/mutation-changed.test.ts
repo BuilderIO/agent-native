@@ -47,6 +47,26 @@ test("leaves type-level proofs (.test-d.ts) out of mutation scope", () => {
   assert.deepEqual(mutateSpecs(added), ["src/state-machine/index.ts:1-1"]);
 });
 
+test("leaves test workers, fixtures, and generated files out of mutation scope", () => {
+  const added = new Map([
+    [absolute("packages/core/src/agent/run-store.ts"), new Set([1])],
+    [
+      absolute("packages/core/src/agent/run-store.fencing.worker.ts"),
+      new Set([1]),
+    ],
+    [
+      absolute("packages/core/src/agent/run-store.native-harness.fixture.ts"),
+      new Set([1]),
+    ],
+    [absolute("packages/core/src/collab/__fixtures__/tasks.ts"), new Set([1])],
+    [
+      absolute("packages/core/src/db/schema-snapshot.generated.ts"),
+      new Set([1]),
+    ],
+  ]);
+  assert.deepEqual(mutateSpecs(added), ["src/agent/run-store.ts:1-1"]);
+});
+
 /** Serves only the listed files; any other read fails the test. */
 const readFrom =
   (files: Record<string, string>) =>
@@ -104,6 +124,37 @@ test("skips specs that read source text or import outside Core, which fail in St
   assert.deepEqual(
     namedSpecs(["src/server/plugin.ts:1-2"], () => listing, readFrom(files)),
     { include: ["src/server/plugin.spec.ts"], missing: [] },
+  );
+});
+
+test("skips specs that need a database or other service, as the fast-test lanes do", () => {
+  const listing = [
+    "run-store.spec.ts",
+    "run-store.fencing.postgres.integration.spec.ts",
+    "run-store.hosted.e2e.spec.ts",
+    "run-store.db.test.ts",
+    "run-store.live.spec.ts",
+    "run-store.perf.test.ts",
+    "run-store.ts",
+  ];
+  const files = {
+    "src/agent/run-store.spec.ts": `import { x } from "./run-store";`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/agent/run-store.ts:1-2"], () => listing, readFrom(files)),
+    { include: ["src/agent/run-store.spec.ts"], missing: [] },
+  );
+});
+
+test("skips specs that import the repo-root catalog harness", () => {
+  const listing = ["plugin.spec.ts", "plugin.inventory.spec.ts", "plugin.ts"];
+  const files = {
+    "src/plugin.spec.ts": `import { start } from "./plugin";`,
+    "src/plugin.inventory.spec.ts": `import { repoRoot } from "./mcp/advertised-catalog.harness.js";`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/plugin.ts:1-2"], () => listing, readFrom(files)),
+    { include: ["src/plugin.spec.ts"], missing: [] },
   );
 });
 

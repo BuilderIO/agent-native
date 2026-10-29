@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolkitI18nCatalog } from "../i18n.js";
-import { ShareButton } from "./ShareButton.js";
+import { ShareButton, type ShareButtonActionHandle } from "./ShareButton.js";
 
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
@@ -981,6 +981,7 @@ describe("ShareButton", () => {
   });
 
   it("renders optional share tabs and switches to custom tab content", async () => {
+    const actionRef = React.createRef<ShareButtonActionHandle>();
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -988,6 +989,7 @@ describe("ShareButton", () => {
             resourceType="design"
             resourceId="design-1"
             shareUrl="https://design.agent-native.com/design/design-1"
+            actionRef={actionRef}
             shareTabs={{
               tabs: [
                 {
@@ -1033,7 +1035,7 @@ describe("ShareButton", () => {
         ?.getAttribute("aria-labelledby"),
     ).toBe(tabs[0].id);
 
-    pressTab(tabs[1]);
+    act(() => actionRef.current?.open("export"));
 
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
     expect(container.textContent).toContain("Export body");

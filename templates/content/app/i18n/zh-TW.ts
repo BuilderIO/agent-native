@@ -746,6 +746,8 @@ const overrides = {
       editProperty: "編輯 {{name}}",
       builderStatusPublishInBuilder:
         "在 Builder 編輯器中儲存的變更只能從 Builder 發布。",
+      builderStatusUnpublishedChangesInBuilder:
+        "未發布的變更來自 Builder 編輯器，因此無法在此設定。",
       editStartDate: "編輯 {{name}} 開始日期",
       editValue: "編輯 {{name}} 值",
       empty: "空",
@@ -1093,6 +1095,10 @@ const overrides = {
     aiRemoveRecipient: "移除 AI 收件者",
     aiSend: "傳送給 AI",
     aiSendShort: "傳送",
+    aiSendReply: "回覆",
+    aiSendSuggest: "建議",
+    aiSendApply: "套用",
+    aiSendMode: "傳送給 AI：{{mode}}",
     aiResponseMode: "回應",
     aiChooseSendMode: "選擇 AI 傳送模式",
     aiAttribution: "由 AI 代表 {{name}} 發佈",
@@ -1147,6 +1153,8 @@ const overrides = {
     aiFailed: "AI 請求失敗",
     retry: "重試",
     aiQueued: "AI 正在排隊…",
+    aiWorkingNamed: "{{name}} 正在處理…",
+    aiQueuedNamed: "{{name}} 正在排隊…",
     aiRefreshing: "AI 正在檢查最新頁面…",
     aiCancelled: "AI 請求已停止",
     aiStop: "停止",

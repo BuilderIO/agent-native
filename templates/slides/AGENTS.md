@@ -34,7 +34,7 @@ For framework questions, use local docs: `pnpm action docs-search --query "<topi
 | `list-deck-templates` / `get-deck-template` / `create-deck-from-template` | Browse/copy templates |
 | `add-slide-comment` / `list-slide-comments` / `update-slide-comment` / `delete-slide-comment` / `toggle-slide-comment-reaction` | Manage comments |
 | `read-composer-source` / `apply-design-system` | Read references / link design system |
-| `generate-home-suggestions` / `generate-image-api` | Suggest prompts / generate images locally; Assets is opt-in |
+| `generate-image-api` | Generate images locally; Assets is opt-in |
 | `export-pptx` / `export-html` / `export-google-slides` | Export deck |
 
 ## Core Rules
@@ -71,3 +71,9 @@ Google Slides export produces a PPTX for the user to import; a native Slides fil
 Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI.
 
 Search with `rg --hidden --follow`; read the exact linked guide before deeper work.
+
+## Actions for outside agents
+
+| Action | Purpose |
+| --- | --- |
+| `clone-context-slide` | Copy a pinned native library slide into an editable deck, preserving provenance |

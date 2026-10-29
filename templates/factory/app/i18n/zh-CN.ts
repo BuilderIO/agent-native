@@ -354,9 +354,6 @@ const messages = {
       connectionsNeeded: "{{count}} 个待连接",
       connectionsListName: "需要连接",
       jumpToProblem: "在画布上显示",
-      testRun: "试运行",
-      testing: "正在启动",
-      saveAndTest: "保存并试运行",
       moreActions: "更多操作",
       runNow: "立即运行",
       runNowSaveFirst: "正式运行前请先保存更改。",
@@ -423,6 +420,12 @@ const messages = {
       body: "此工作流有尚未保存的更改。",
       stay: "继续编辑",
       discard: "放弃",
+    },
+    draft: {
+      restored: "已恢复你未保存的更改。",
+      saveFailed: "无法保存你更改的草稿。{{reason}}",
+      unreadable: "无法恢复你未保存的更改，因此已打开保存的版本。",
+      discardFailed: "无法放弃你的草稿。{{reason}}",
     },
     liveRun: {
       dialogTitle: "要正式运行此工作流吗？",

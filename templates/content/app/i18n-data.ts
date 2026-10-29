@@ -810,6 +810,8 @@ const editorPropertiesMessages = {
   editProperty: "Edit {{name}}",
   builderStatusPublishInBuilder:
     "Changes saved in Builder's editor can only be published from Builder.",
+  builderStatusUnpublishedChangesInBuilder:
+    "Unpublished changes come from Builder's editor, so they can't be set here.",
   editStartDate: "Edit {{name}} start date",
   editValue: "Edit {{name}} value",
   moveColumnLeft: "Move column left",
@@ -1827,6 +1829,10 @@ const enUS = {
     aiRemoveRecipient: "Remove AI recipient",
     aiSend: "Send to AI",
     aiSendShort: "Send",
+    aiSendReply: "Reply",
+    aiSendSuggest: "Suggest",
+    aiSendApply: "Apply",
+    aiSendMode: "Send to AI: {{mode}}",
     aiResponseMode: "Response",
     aiChooseSendMode: "Choose how AI responds",
     aiSuggestChanges: "Suggest changes",
@@ -1855,6 +1861,8 @@ const enUS = {
     aiFailed: "AI request failed",
     retry: "Retry",
     aiQueued: "AI is queued…",
+    aiWorkingNamed: "{{name}} is working…",
+    aiQueuedNamed: "{{name}} is queued…",
     aiRefreshing: "AI is checking the latest page…",
     aiCancelled: "AI request stopped",
     aiStop: "Stop",

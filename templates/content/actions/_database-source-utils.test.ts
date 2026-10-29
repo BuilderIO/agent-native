@@ -29,6 +29,7 @@ import {
   builderBodyHydrationAttemptIsTerminal,
   builderBodyHydrationNextAttemptAt,
   builderBodyHydrationFailureEvidence,
+  builderBodyIsRawPlaceholderOnly,
   builderBodyNeedsSourceComponentWrite,
   builderBodyReadSourceValues,
   knownBuilderReviewDocumentIds,
@@ -1109,6 +1110,24 @@ describe("database source helpers", () => {
         nextContent:
           "Opening paragraph.\n\n![Diagram](https://cdn.builder.io/image.png)\n\nClosing paragraph.",
       }),
+    ).toBe(false);
+  });
+
+  it("treats a body as a raw placeholder only when it has no text of its own", () => {
+    const raw = (summary: string) =>
+      `<BuilderRawBlock id="b1" rawRef="r1" rawHash="h1" componentName="Hero" summary={${JSON.stringify(summary)}} />`;
+    const plain = '<BuilderRawBlock id="b2" rawRef="r2" rawHash="h2" />';
+    expect(builderBodyIsRawPlaceholderOnly(raw("A hero />"))).toBe(true);
+    expect(builderBodyIsRawPlaceholderOnly(`${raw("One")}\n\n${plain}\n`)).toBe(
+      true,
+    );
+    expect(
+      builderBodyIsRawPlaceholderOnly(
+        `${raw("A hero")}\n\nA paragraph written in Content.`,
+      ),
+    ).toBe(false);
+    expect(
+      builderBodyIsRawPlaceholderOnly(`${plain}\n\n<BuilderText id="t1" />`),
     ).toBe(false);
   });
 

@@ -934,6 +934,8 @@ const editor = {
     editProperty: "Bearbeiten Sie {{name}}",
     builderStatusPublishInBuilder:
       "Im Builder-Editor gespeicherte Änderungen können nur in Builder veröffentlicht werden.",
+    builderStatusUnpublishedChangesInBuilder:
+      "Unveröffentlichte Änderungen kommen aus dem Builder-Editor und können hier nicht festgelegt werden.",
     editStartDate: "{{name}}-Startdatum bearbeiten",
     editValue: "{{name}}-Wert bearbeiten",
     empty: "Leer",
@@ -1844,6 +1846,10 @@ const overrides = {
     aiRemoveRecipient: "KI-Empfänger entfernen",
     aiSend: "An KI senden",
     aiSendShort: "Senden",
+    aiSendReply: "Antworten",
+    aiSendSuggest: "Vorschlagen",
+    aiSendApply: "Anwenden",
+    aiSendMode: "An KI senden: {{mode}}",
     aiResponseMode: "Antwort",
     aiChooseSendMode: "KI-Sendemodus auswählen",
     aiSuggestChanges: "Änderungen vorschlagen",
@@ -1874,6 +1880,8 @@ const overrides = {
     aiFailed: "KI-Anfrage fehlgeschlagen",
     retry: "Erneut versuchen",
     aiQueued: "KI wartet…",
+    aiWorkingNamed: "{{name}} arbeitet…",
+    aiQueuedNamed: "{{name}} wartet…",
     aiRefreshing: "KI prüft die neueste Seite…",
     aiCancelled: "KI-Anfrage gestoppt",
     aiStop: "Stoppen",

@@ -276,6 +276,9 @@ export default defineAction({
             source,
             summary: input.summary ?? "Saved",
             createdBy: scoped.userEmail,
+            // The person's draft goes with their own save, in the same write.
+            // An agent save leaves it: the editor offers Keep my changes.
+            discardDraftOf: source === "save" ? scoped.userEmail : undefined,
           });
           // A new version must earn its own clean dry run, so an enabled workflow
           // is switched off with the save: the rows first, then the job. The host

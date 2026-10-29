@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.220.0",
+  "version": "0.222.2",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -196,6 +196,7 @@
     "./client/session-replay-privacy": "./dist/client/session-replay-privacy.js",
     "./client/use-db-sync": "./dist/client/use-db-sync.js",
     "./client/zoom-gesture": "./dist/client/zoom-gesture.js",
+    "./client/generation-stream": "./dist/client/generation-stream/index.js",
     "./client/ui": "./dist/client/ui/index.js",
     "./client/theme": "./dist/client/theme.js",
     "./client/uploads": "./dist/client/uploads/index.js",
@@ -471,6 +472,7 @@
     "./workspace-files": "./dist/workspace-files/index.js",
     "./workspace-connections/credential-key-aliases": "./dist/workspace-connections/credential-key-aliases.js",
     "./workspace-connections/actions/list-workspace-user-groups": "./dist/workspace-connections/actions/list-workspace-user-groups.js",
+    "./workspace-connections/actions/list-workspace-connection-scopes": "./dist/workspace-connections/actions/list-workspace-connection-scopes.js",
     "./workspace-connections/actions/upsert-workspace-user-group": "./dist/workspace-connections/actions/upsert-workspace-user-group.js",
     "./workspace-connections/actions/bulk-update-workspace-user-groups": "./dist/workspace-connections/actions/bulk-update-workspace-user-groups.js",
     "./workspace-connections/actions/delete-workspace-user-group": "./dist/workspace-connections/actions/delete-workspace-user-group.js",
@@ -733,6 +735,7 @@
     "idb-keyval": "6.3.0",
     "ink": "6.8.0",
     "isbot": "^5",
+    "isomorphic-git": "1.44.5",
     "jiti": "^2.7.0",
     "jose": "^6.2.2",
     "linkedom": "catalog:",

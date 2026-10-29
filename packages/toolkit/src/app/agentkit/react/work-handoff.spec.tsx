@@ -264,3 +264,104 @@ describe("Worked for handoff to the reply footer", () => {
     expect(placeholder()).toBeNull();
   });
 });
+
+describe("a reply that narrates between steps", () => {
+  const search = (
+    sequence: number,
+    id: string,
+    status: "running" | "completed",
+  ) =>
+    event(sequence, {
+      type: status === "running" ? "tool.started" : "tool.updated",
+      toolCall: {
+        id,
+        name: "web-search",
+        status,
+        messageId: "reply",
+        input: { query: id },
+      },
+    });
+  const narrated: AgentEvent[] = [
+    event(1, { type: "run.started" }),
+    event(2, {
+      type: "message.created",
+      message: {
+        id: "reply",
+        role: "assistant",
+        status: "streaming",
+        parts: [],
+      },
+    }),
+    event(3, {
+      type: "message.delta",
+      messageId: "reply",
+      text: "Looking it up.",
+    }),
+    search(4, "first", "running"),
+    search(5, "first", "completed"),
+    event(6, {
+      type: "message.delta",
+      messageId: "reply",
+      text: "Checking stock.",
+    }),
+    search(7, "second", "running"),
+  ];
+  const answered: AgentEvent[] = [
+    search(8, "second", "completed"),
+    event(9, {
+      type: "message.delta",
+      messageId: "reply",
+      text: "Buy the Trek.",
+    }),
+    event(10, {
+      type: "message.completed",
+      message: {
+        id: "reply",
+        role: "assistant",
+        status: "complete",
+        parts: [
+          { type: "text", text: "Looking it up." },
+          { type: "text", text: "Checking stock." },
+          { type: "text", text: "Buy the Trek." },
+        ],
+      },
+    }),
+    event(11, { type: "run.completed" }),
+  ];
+  const rows = () => [
+    ...container.querySelectorAll<HTMLElement>(".agentkit-activities"),
+  ];
+
+  beforeEach(() => stubReducedMotion(true));
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps one live row above the reply while the run works", async () => {
+    const live = reduce(narrated);
+    const observable = observableController(snapshotOf(live, 0));
+    await render(observable.controller);
+    await flush();
+
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]!.dataset.running).toBe("true");
+    expect(container.textContent).not.toContain("Worked for");
+    const reply = container.querySelector('[data-message-id="reply"]')!;
+    expect(
+      rows()[0]!.compareDocumentPosition(reply) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await act(async () =>
+      observable.update(snapshotOf(reduce(answered, live), 1)),
+    );
+    await flush();
+
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]!.closest(".agentkit-message-actions")).not.toBeNull();
+    expect(container.textContent?.match(/Worked for/g)).toHaveLength(1);
+  });
+});

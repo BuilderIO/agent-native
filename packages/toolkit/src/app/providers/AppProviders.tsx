@@ -2,6 +2,8 @@ import { ActionQueryCacheGate } from "@agent-native/core/client/action-query-cac
 import {
   agentNativePath,
   frameworkRoutePrefix,
+  isWorkspaceRuntime,
+  resolveAppBasePath,
 } from "@agent-native/core/client/api-path";
 import {
   AgentNativeI18nProvider,
@@ -81,6 +83,9 @@ export interface AppProvidersProps {
 
   sessionBypass?: boolean;
 
+  /** See `RequireSessionProps.signedOutHref`. */
+  signedOutHref?: () => string | null;
+
   skipFirstRunOnboarding?: boolean;
 
   /**
@@ -133,10 +138,17 @@ function EarlyBetaRedirectScript() {
 // Marks <html> as an MCP App widget before the server-rendered skeleton below
 // paints, so the widget never flashes the app's own sidebar.
 function McpAppWidgetBootScript() {
+  const workspaceRuntime = isWorkspaceRuntime();
+  // Workspace mount metadata is available to the inline browser script.
   return (
     <script
       data-agent-native-mcp-widget-boot="1"
-      dangerouslySetInnerHTML={{ __html: getMcpAppWidgetEmbedBootScriptBody() }}
+      dangerouslySetInnerHTML={{
+        __html: getMcpAppWidgetEmbedBootScriptBody(
+          workspaceRuntime ? undefined : resolveAppBasePath(),
+          workspaceRuntime,
+        ),
+      }}
     />
   );
 }
@@ -556,6 +568,7 @@ export function AppProviders({
   clientOnlyFallback,
   skeletonLayout,
   sessionBypass = false,
+  signedOutHref,
   skipFirstRunOnboarding = false,
   unsupportedDevice,
   disableWebMcp = false,
@@ -601,7 +614,11 @@ export function AppProviders({
   }
 
   const sessionGated = (
-    <RequireSession bypass={sessionBypass} fallback={fallback}>
+    <RequireSession
+      bypass={sessionBypass}
+      fallback={fallback}
+      signedOutHref={signedOutHref}
+    >
       {sessionBypass ? (
         <>
           {ownsDocument ? <AgentRunAwareness persistUnread={false} /> : null}
@@ -618,7 +635,6 @@ export function AppProviders({
           <AgentEngineReadinessBootstrap />
           <FirstRunOnboardingStartupGate
             suppressSurface={skipFirstRunOnboarding}
-            fallback={fallback}
           >
             {children}
           </FirstRunOnboardingStartupGate>

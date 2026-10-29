@@ -912,6 +912,51 @@ describe("createAgentNativeChatRuntime", () => {
     vi.useRealTimers();
   });
 
+  it("keeps streamed tool input that arrives without a call id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "tool_input_delta", tool: "add-slide", text: '{"deckId"' },
+        { type: "tool_input_delta", tool: "add-slide", text: ':"d1"}' },
+        {
+          type: "tool_input_delta",
+          tool: "add-slide",
+          id: "call-2",
+          text: "{",
+        },
+        { type: "tool_start", tool: "add-slide", input: { deckId: "d1" } },
+        { type: "tool_done", tool: "add-slide", result: "ok" },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ threadId: "thread-input" });
+    const turn = await session.startTurn({ prompt: "Add a slide" });
+    const events = await drain(turn.events);
+
+    const deltas = events.flatMap((event) =>
+      event.type === "tool-delta"
+        ? [{ id: event.toolCallId, text: event.inputTextDelta }]
+        : [],
+    );
+    expect(deltas.map((delta) => delta.text)).toEqual([
+      '{"deckId"',
+      ':"d1"}',
+      "{",
+    ]);
+    const [first, second, third] = deltas;
+    expect(first?.id).toEqual(expect.any(String));
+    expect(second?.id).toBe(first?.id);
+    expect(third?.id).toBe("call-2");
+    // The id-less input and the tool that runs from it are the same call.
+    const finished = events.find((event) => event.type === "tool-done");
+    expect(finished?.type === "tool-done" && finished.toolCallId).toBe(
+      first?.id,
+    );
+  });
+
   it("splits the streamed reply around a message sent into the run", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
@@ -4278,6 +4323,56 @@ describe("createAgentNativeChatRuntime", () => {
         },
       ],
     });
+  });
+
+  it("drops a cleared draft back to the last completed tool", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          { type: "text", text: "Checking the forms." },
+          { type: "tool_start", id: "tool-1", tool: "list-forms", input: {} },
+          { type: "tool_done", id: "tool-1", tool: "list-forms", result: "ok" },
+          { type: "thinking", text: "Drafting the answer." },
+          { type: "text", text: "You have three forms." },
+          { type: "clear" },
+          { type: "thinking", text: "Checking the receipts." },
+          { type: "text", text: "You have two forms." },
+          { type: "done" },
+        ]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-cleared-draft",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({ prompt: "How many forms?" });
+    const events = await drain(turn.events);
+
+    expect(
+      events.find((event) => event.type === "message-replace"),
+    ).toMatchObject({
+      message: {
+        content: [
+          { type: "text", text: "Checking the forms." },
+          { type: "text", text: "" },
+        ],
+      },
+    });
+    expect(events.find((event) => event.type === "message-done")).toMatchObject(
+      {
+        message: {
+          content: [
+            { type: "text", text: "Checking the forms." },
+            { type: "reasoning", text: "Checking the receipts." },
+            { type: "text", text: "You have two forms." },
+          ],
+        },
+      },
+    );
   });
 
   it("forwards queued promotion identity with a stable turn ID", async () => {

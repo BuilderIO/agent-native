@@ -10,6 +10,7 @@ export {
   type CollabInitializationErrorCategory,
   type CollabInitializationState,
   type CollaborativeDocSyncResult,
+  type CollabUpdateAck,
 } from "../../collab/client.js";
 export { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
 export {

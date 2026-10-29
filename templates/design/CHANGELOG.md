@@ -3,16 +3,117 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-29
+
+### Fixed
+
+- Design ChatGPT tools describe parameters without referring to unavailable actions.
+
+## 2026-10-28
+
+### Fixed
+
+- Design is less likely to fail when generating a screen with tweaks, files or canvas placements.
+- Dragging a shape inside an SVG now moves it within the drawing, and X/Y, arrow keys, and align move it too.
+- Illustrations the agent draws as SVG now open as separate layers you can select, recolor, and retype.
+- Language and intelligence changes now work during voice chat.
+- Rename a frame by double-clicking its title
+
+## 2026-10-27
+
+### Added
+
+- Comment threads have a new menu: send a thread to the agent, ask it to suggest changes, have it reply in the thread, or apply the changes and resolve the comment in one step.
+- Mention an AI agent in a comment, or ask it from the thread menu to reply, suggest or apply changes.
+
+### Improved
+
+- New Design signups may get a first draft sooner, without intake questions.
+- Design ideas appear right away, with clear next steps after your first design.
+- Design runs recover from temporary builder errors and report incomplete edits clearly
+- New screens now fill in on the canvas as the agent writes them, with each element's frame drawn before its content appears
+- Start designs with ready-to-use role-based prompts, then refine, export, or share your first result from the canvas.
+- First-run setup makes free credits the primary path while keeping personal API keys one click away
+
+### Fixed
+
+- A comment thread no longer opens by itself after you create a frame.
+- Design edits handle whitespace changes and identify stale snapshots clearly
+- Design generation now recovers from temporary connection and edit conflicts
+- Pinching to zoom over a comment pin or card now zooms the canvas instead of the browser.
+- Images removed by undo, redo, or replacement stay gone when their upload
+  finishes.
+- Design imports make your source and page choices clear, and checklist steps take you to the right place.
+
+## 2026-10-26
+
+### Improved
+
+- Comments have a new look: a cleaner thread card with agent badges and reactions, a reply box with mention chips and a toolbar, a Threads panel grouped by screen, and avatar pins on the canvas.
+- The editor chat shows its context chips again, so picked screens and layers stay visible and removable after Select closes.
+- The new-design prompt keeps Send as its main button; the mic still dictates.
+- Voice edits make the smallest matching change, say the new value out loud, and start faster
+
+### Fixed
+
+- Rejected layer deletions no longer hide canvas content or clear the selection.
+- Undoing an image paste keeps it removed when the upload finishes.
+- Vector changes save reliably, and deleted pasted images stay deleted while uploads finish.
+- Suggested actions in the docked chat sit on one line just above the prompt bar.
+
+## 2026-10-25
+
+### Fixed
+
+- Bounce edits are saved when you leave the editor
+- Clearing the final Motion track no longer blocks saving.
+- Motion edits keep spring settings intact and save animation styles and easing presets on the first save.
+- Double-clicking the Motion timeline adds a keyframe again
+- Motion easing previews now render CSS steps and linear curves correctly while preserving spring values after source saves
+- Clamped Bounce input returns to the saved value when the editor loses focus.
+- Motion keeps spring easing edits valid and keyframes unchanged when easing segments are double-clicked
+- Pending edits, coding handoffs and snapshot exports for a live URL screen no longer carry the frame's internal connection key in the route.
+- Removing the final screen no longer crashes the Motion editor.
+- Spring easing values retain their precision, and double-clicking an easing segment no longer adds a keyframe
+
+## 2026-10-24
+
+### Added
+
+- Pick screens and layers for the agent with the Select button in the chat composer.
+
+### Improved
+
+- Motion edits now preserve styles targeted to other layers by structural CSS selectors.
+- Motion transition controls now line up with their inspector rows
+- The agent chat panel swaps its tabs for a chat switcher when narrow and keeps a 320px minimum width.
+- The home prompt uses the large composer with dictation, and the agent panel opens on the same default model as the home prompt
+
+### Fixed
+
+- Approving local file writes no longer undoes the edit that asked for them, and the consent dialog stays open until approval finishes.
+- Design history restores remain available after collaborators leave
+- Local file write consent asks you to sign in before approving access.
+- Motion edits catch more script and stylesheet changes that can interfere with animations.
+- Motion edits stop when structural CSS selectors could change at runtime, including through dynamic Alpine data and lifecycle directives.
+- Motion edits now stop when authored CSS or runtime HTML could override animated styles.
+- Motion edits protect animations from conflicting styles while preserving ordinary hover effects
+- Motion styles stay selected across timeline layers and valid Path animations remain editable.
+- Signing in from the file-write consent dialog now brings you back to the same request, ready to approve.
+- Visual Edit links keep their editing access after sign-in without background save errors.
+
 ## 2026-10-23
 
 ### Improved
 
+- Changes to Position and Scale animations stay in sync with local React and HTML/CSS source.
 - Drag a frame on the canvas by its name label to move it.
 - HTML Motion edits preserve interactive Alpine visibility state
 - Promotional artwork now sizes and checks text for its intended display size.
 
 ### Fixed
 
+- PNG and PDF exports preserve frame proportions, responsive layouts, and image sizing.
 - Image and PDF exports preserve external stylesheet styles when the stylesheet can be fetched.
 - Motion editing works again on designs that load Tailwind and Alpine from the CDN.
 - Reopening a design while it is still generating keeps tracking the generation until it finishes.
@@ -22,6 +123,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Outside assistants can generate screens and open coding handoffs in Design, with approval before creating shareable code links.
 - Export compatible HTML frames for HubSpot email, or ask the agent to adapt existing content into a new email frame while preserving the original.
 - HubSpot conversion exports can verify that original link destinations are preserved.
 - Preview HubSpot emails with sample recipient names and button destinations without changing saved content.
@@ -31,6 +133,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Generation sessions and coding handoffs open the design inline in compatible agent hosts.
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
 - A selected line or arrow shows a handle at each end; drag one to move just that end, with Shift to snap to 45 degrees
 - Independent content and mobile layout reviews are available on request for HubSpot emails.
 - Right-clicking a layer row opens the full canvas menu, and Tab while renaming moves to the next layer.
@@ -39,6 +143,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Builder sign-in keeps Design export actions available
+- Local visual editing returns an app link when no browser handoff is available
 - Align works on a single layer inside its frame, and aligning several layers moves only the aligned axis.
 - Hug, Fill, and Fixed only appear where they apply, so frames no longer collapse to 0×0 and the inspector shows the mode a layer is actually in.
 - Frames using Hug height expand to show their full content on the canvas.
@@ -66,6 +172,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The ownership filter beside search is a lighter button with a filter icon.
 - Templates now open a read-only preview from the card, and the home library shows more starters, including dashboard, messaging, task board and design studio screens.
 - Effect thumbnails now show how shaders treat the Agent-Native mark against a quiet tonal background, making their differences easier to judge.
 - Native shader previews use less GPU memory when many mesh effects are visible.
@@ -2348,25 +2455,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Layer selections now preserve hidden and locked canvas state more faithfully.
 - Screen overview now handles zooming, drawing, opening, and deleting screens more reliably.
 - Selected-element chips in chat are shorter and easier to scan.
-
-## 2026-06-27
-
-### Improved
-
-- Improved mobile navigation chrome and sidebar drawer motion.
-
-### Fixed
-
-- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
-
-## 2026-06-24
-
-### Added
-
-- Added a language picker and localized app chrome for supported languages.
-
-### Improved
-
-- Settings now link directly to Agent settings for model, API key, automation, and voice preferences.
 
 For the full list of updates, see the [changelog folder](./changelog/).

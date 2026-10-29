@@ -623,7 +623,7 @@ describe("comments sidebar layout", () => {
     expect(submit).toContain("ambiguousCreate()");
     expect(submit).toContain("const id = pendingComment.id;");
     expect(submit).toMatch(
-      /onPendingChange\(id, \(\) => \(\{ submitting: true \}\)\)[\s\S]*?const result = await createComment\.mutateAsync\([\s\S]*?onPendingDone\(id, result\.threadId\);[\s\S]*?catch \(error\)/,
+      /onPendingChange\(id, \(\) => \(\{ submitting: true \}\)\)[\s\S]*?const result = [\s\S]*?await createComment\.mutateAsync\([\s\S]*?onPendingDone\(id, result\.threadId\);[\s\S]*?catch \(error\)/,
     );
     expect(failure).toContain(
       "onPendingChange(id, () => ({ submitting: false }));",

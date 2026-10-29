@@ -13,7 +13,13 @@ import {
   IconChevronDown,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import {
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -89,6 +95,10 @@ export interface ExportMenuHandle {
   exportHtml: () => Promise<void>;
   exportPdf: () => Promise<void>;
   exportPptx: () => Promise<void>;
+}
+
+export interface ExportDropdownActionHandle {
+  open: () => void;
 }
 
 type ExportKind = "html" | "pdf" | "pptx" | "google-slides";
@@ -308,13 +318,16 @@ export function ExportDropdown({
   exportMenuRef,
   hasSlides,
   showGoogleSlides,
+  actionRef,
 }: {
   exportMenuRef: { current: ExportMenuHandle | null };
   hasSlides: boolean;
   showGoogleSlides: boolean;
+  actionRef?: Ref<ExportDropdownActionHandle>;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  useImperativeHandle(actionRef, () => ({ open: () => setOpen(true) }), []);
   const googleSlidesExport = useGoogleSlidesExportAvailability(
     hasSlides && open,
   );

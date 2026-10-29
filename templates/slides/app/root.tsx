@@ -3,6 +3,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import {
   createAgentNativeQueryClient,
   useDbSync,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import {
   enterStyleEditing as coreEnterStyleEditing,
@@ -11,19 +12,45 @@ import {
   getEmbedAuthToken,
   isEmbedAuthActive,
 } from "@agent-native/core/client/host";
-import { useT } from "@agent-native/core/client/i18n";
-import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import {
+  getLocaleInitScript,
+  useT,
+  type LocaleCode,
+} from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import {
+  createHomeSuggestionOrder,
+  createHomeSuggestionRandom,
+  HomeSuggestionSeedProvider,
+  pickHomeSuggestions,
+  readHomeSuggestionRole,
+  TemplateLibraryGrid,
+  useHomeSuggestionSeedForHome,
+} from "@agent-native/toolkit/app-shell";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
+import {
+  AppShellSkeleton,
+  type AppShellFirstPaintHome,
+} from "@agent-native/toolkit/app/shared";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
-import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  IconArrowRight,
+  IconComponents,
+  IconHierarchy2,
+  IconLayoutGrid,
+  IconSun,
+  IconMoon,
+  IconTemplate,
+} from "@tabler/icons-react";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Links,
   Meta,
+  Link,
   Outlet,
   Scripts,
   ScrollRestoration,
@@ -36,7 +63,13 @@ import {
   getEditorCommands,
   type EditorCommandGroup,
 } from "@/components/editor/editor-command-model";
+import {
+  SlidesHomeLibrary,
+  type SlidesHomeLibraryTab,
+} from "@/components/home/SlidesHomeLibrary";
+import { SlidesRecentSkeleton } from "@/components/home/SlidesRecentSkeleton";
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { Button } from "@/components/ui/button";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -44,9 +77,18 @@ import { TAB_ID } from "@/lib/tab-id";
 import "@/lib/register-chat-renderers";
 
 import changelog from "../CHANGELOG.md?raw";
+import {
+  SLIDES_NEW_DECK_DRAFT_SCOPE,
+  slidesHomeSuggestionPools,
+  trackSlidesHomeSuggestionClick,
+} from "./home-suggestions";
 import { i18nCatalog } from "./i18n";
+import slidesEnglish from "./i18n/en-US";
 
 import stylesheet from "./global.css?url";
+
+const loadFirstPaintSuggestionMessages = (locale: string) =>
+  i18nCatalog.loadMessages(locale as LocaleCode);
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -59,6 +101,143 @@ configureTracking({
 
 const BARE_ROUTES = new Set(["/slide"]);
 const BARE_PREFIXES = ["/share/", "/p/"];
+function slidesFirstPaintSuggestions(
+  seed: number,
+  order: readonly number[],
+  role: string,
+) {
+  return pickHomeSuggestions(
+    slidesHomeSuggestionPools,
+    role,
+    createHomeSuggestionRandom(seed),
+    order,
+  ).map(({ id, key, label }) => {
+    const [, , roleKey, labelKey] = label.split(".");
+    const [, , , promptKey] = key.split(".");
+    const roleLabels = slidesEnglish.home.suggestionLabels as Record<
+      string,
+      Record<string, string>
+    >;
+    const rolePrompts = slidesEnglish.home.suggestionPrompts as Record<
+      string,
+      Record<string, string>
+    >;
+    const shortLabel =
+      roleKey && labelKey ? roleLabels[roleKey]?.[labelKey] : undefined;
+    const prompt =
+      roleKey && promptKey ? rolePrompts[roleKey]?.[promptKey] : undefined;
+    if (!shortLabel || !prompt)
+      throw new Error(`Missing Slides home suggestion copy: ${label}`);
+    return {
+      id,
+      label: shortLabel,
+      prompt,
+      labelMessageKey: label,
+      messageKey: key,
+    };
+  });
+}
+
+function SlidesFirstPaintLibrary({
+  messages,
+}: {
+  messages: typeof slidesEnglish;
+}) {
+  const [value, setValue] = useState<SlidesHomeLibraryTab>("templates");
+  return (
+    <SlidesHomeLibrary
+      value={value}
+      onValueChange={setValue}
+      labels={{
+        templates: messages.templatesPage.title,
+        recent: messages.home.recent,
+      }}
+      browseAll={
+        <Button
+          variant="ghost"
+          size="sm"
+          className="min-w-[111px] justify-center"
+          asChild
+        >
+          <Link to="/templates">
+            {messages.templatesPage.browseAll}
+            <IconArrowRight />
+          </Link>
+        </Button>
+      }
+      templates={
+        <TemplateLibraryGrid
+          items={[]}
+          renderPreview={() => null}
+          loading
+          onSelect={() => {}}
+          labels={{
+            loading: messages.templatesPage.loading,
+            empty: messages.templatesPage.empty,
+            retry: messages.home.retry,
+          }}
+        />
+      }
+      recent={<SlidesRecentSkeleton />}
+    />
+  );
+}
+
+function slidesFirstPaintCopy(messages: typeof slidesEnglish) {
+  return {
+    appName: messages.navigation.brand,
+    pageTitle: messages.header.decks,
+    promptTitle: messages.home.firstDeckPromptTitle,
+    promptPlaceholder: messages.home.newDeckPlaceholder,
+    suggestedPromptsLabel: messages.home.suggestedPrompts,
+    sidebarItems: [
+      {
+        label: messages.header.decks,
+        to: "/home",
+        icon: IconLayoutGrid,
+      },
+      {
+        label: messages.templatesPage.title,
+        to: "/templates",
+        icon: IconTemplate,
+      },
+      {
+        label: messages.navigation.designSystems,
+        to: "/design-systems",
+        icon: IconComponents,
+      },
+    ],
+    templatesLabel: messages.home.decksTitle,
+    recentLabel: messages.home.recent,
+    browseAllLabel: messages.home.showAllDecks,
+    library: <SlidesFirstPaintLibrary messages={messages} />,
+  };
+}
+
+const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
+  appId: "slides",
+  ...slidesFirstPaintCopy(slidesEnglish),
+  headerHeight: 56,
+  localizeMessages: (messages) =>
+    slidesFirstPaintCopy(messages as typeof slidesEnglish),
+  suggestionRole: "general",
+  renderComposer: (props) => (
+    <div data-agentkit-composer-size="large">
+      <PromptComposer
+        {...props}
+        attachmentsEnabled
+        className="slides-home-prompt-composer-area"
+        layoutVariant="hero"
+        modelStatusChecksEnabled
+        requireAgentEngine
+        showMissingApiKeySetup={false}
+        showModelSelector
+        voiceChatEnabled={false}
+        voiceEnabled
+      />
+    </div>
+  ),
+};
 
 export function isBareContentPath(pathname: string): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "");
@@ -357,35 +536,91 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
+  const homeSuggestionSeed = useHomeSuggestionSeedForHome(
+    location.pathname === "/" || location.pathname === "/home",
+    "slides",
+  );
+  const { session } = useSession();
+  const homeSuggestionRoleScope =
+    session?.authUserId || session?.userId
+      ? JSON.stringify([
+          session.authUserId ?? session.userId,
+          session.orgId ?? "",
+        ])
+      : null;
+  const homeSuggestionRole = useMemo(
+    () => readHomeSuggestionRole("slides", homeSuggestionRoleScope),
+    [homeSuggestionRoleScope, location.pathname],
+  );
+  const homeSuggestionOrder = useMemo(() => {
+    const pool = slidesHomeSuggestionPools[homeSuggestionRole];
+    return createHomeSuggestionOrder(
+      pool.length,
+      createHomeSuggestionRandom(homeSuggestionSeed),
+    );
+  }, [homeSuggestionRole, homeSuggestionSeed]);
   const sessionBypass = computeSessionBypass(location.pathname);
+  const firstPaintSuggestions = useMemo(
+    () =>
+      slidesFirstPaintSuggestions(
+        homeSuggestionSeed,
+        homeSuggestionOrder,
+        homeSuggestionRole,
+      ),
+    [homeSuggestionOrder, homeSuggestionRole, homeSuggestionSeed],
+  );
+  const firstPaintHome =
+    location.pathname === "/" || location.pathname === "/home" ? (
+      <QueryClientProvider client={queryClient}>
+        <AppShellSkeleton
+          layout="prompt-library"
+          firstPaintHome={{
+            ...slidesFirstPaintHome,
+            promptDraftScope: `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionRoleScope ?? "anonymous"}`,
+            promptHandoffScope: homeSuggestionRoleScope ?? "anonymous",
+            suggestions: firstPaintSuggestions,
+            suggestionRole: homeSuggestionRole,
+            suggestionSeed: homeSuggestionSeed,
+            loadSuggestionMessages: loadFirstPaintSuggestionMessages,
+            onHomeSuggestionClick: trackSlidesHomeSuggestionClick,
+          }}
+        />
+      </QueryClientProvider>
+    ) : undefined;
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
     return <Outlet />;
   }
 
   return (
-    <AppToolkitProvider>
-      <AppProviders
-        queryClient={queryClient}
-        skeletonLayout="prompt-library"
-        defaultTheme="dark"
-        i18n={{ catalog: i18nCatalog }}
-        sessionBypass={sessionBypass}
-        unsupportedDevice={
-          sessionBypass || isEmbedAuthActive()
-            ? undefined
-            : {
-                appName: "Slides",
-                subject: isDeckEditorPath(location.pathname)
-                  ? "deck"
-                  : undefined,
+    <HomeSuggestionSeedProvider
+      seed={homeSuggestionSeed}
+      role={homeSuggestionRole}
+    >
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          skeletonLayout="prompt-library"
+          {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}
+          defaultTheme="dark"
+          i18n={{ catalog: i18nCatalog }}
+          sessionBypass={sessionBypass}
+          {...(!(sessionBypass || isEmbedAuthActive())
+            ? {
+                unsupportedDevice: {
+                  appName: "Slides",
+                  ...(isDeckEditorPath(location.pathname)
+                    ? { subject: "deck" }
+                    : {}),
+                },
               }
-        }
-        skipFirstRunOnboarding={isDeckEditorPath(location.pathname)}
-      >
-        <AppContent />
-      </AppProviders>
-    </AppToolkitProvider>
+            : {})}
+          skipFirstRunOnboarding={isDeckEditorPath(location.pathname)}
+        >
+          <AppContent />
+        </AppProviders>
+      </AppToolkitProvider>
+    </HomeSuggestionSeedProvider>
   );
 }
 

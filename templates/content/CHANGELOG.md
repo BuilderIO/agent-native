@@ -3,14 +3,107 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-28
+
+### Improved
+
+- Content menus use consistent text-only actions.
+
+### Fixed
+
+- Choosing Use saved after an interrupted recovery no longer lets the discarded edits come back later
+- Renaming a page while an agent edits it no longer stops your typing from saving or undoes the agent's edit on reload
+
+## 2026-10-27
+
+### Improved
+
+- A public page's link opens a read-only copy for people who aren't signed in, instead of asking them to sign in
+- An AI suggestion in a comment thread uses the same group as suggested changes in the margin: its summary, edit count, Accept all and Reject all come first, and opening it shows each edit with the usual check and X.
+
+### Fixed
+
+- Edits to a public page reach its readers within a minute, and making it private or moving it to Trash takes it down just as fast
+- Two collections connected to the same Builder model can no longer push over each other's changes to the same entry at the same moment.
+- Restoring page history preserves text without exposing unauthorized private callout images
+- An agent's Accept on words someone is still typing in returns the suggestion to pending instead of failing with a server error
+- Opening a page you can't access goes straight to the no-access screen without a brief error first, including when you come back to it
+
+## 2026-10-26
+
+### Improved
+
+- A comment sent to AI says what it asks for on its send button (Reply, Suggest or Apply), and while the AI works, the thread names the model doing it.
+
+### Fixed
+
+- Opening another comment thread while you're writing a new comment keeps what you wrote.
+- When the AI answers in a long comment thread, the card shows the start of its answer instead of jumping to the end, and scrolling past either end of a card no longer scrolls the page.
+- Document reads preserve bodies containing ordinary prose about starting an embed.
+
+## 2026-10-25
+
+### Fixed
+
+- A GitHub folder linked into a Personal space now fills its collection, instead of saying GitHub isn't connected for the person who linked it
+- Changes an agent makes at the end of a page, such as adding an item to a closing list, now stay when you have the page open instead of being saved over. So does a block an agent adds right before or after one you're editing.
+- In Suggesting mode, Accept and Reject show at once on a suggestion you just typed or added to, and the session's other suggestions stay on screen
+- Web addresses in collections and page properties open in a new tab when you click the link, and clicking the rest of the cell still edits them.
+- While suggesting, the struck-out word no longer blinks off with each keystroke
+
+## 2026-10-24
+
+### Added
+
+- Agents can register webhooks that send a signed event when a property changes on a collection row or page, or when a comment is created or resolved.
+- Agents can write a property only while it still holds the value they read, even when someone changed it and changed it back in between. Each value also carries a change ID, so an agent can act once per change.
+- Pick Published or Draft in a Builder entry's status to stage a publish or unpublish; the source review sends it.
+
+### Improved
+
+- Content responds sooner after a quiet spell, because a newly started server loads and prepares less code before its first response
+
+### Fixed
+
+- A copied block that holds data, such as an inline database, keeps its data when pasted instead of disappearing on save.
+- Cmd+Z and Cmd+Shift+Z undo and redo a change to a toggle's title while you're typing in it.
+- Deleting a property no longer leaves filters or sorts on it in shared views or your personal views, so a filter on a deleted property no longer hides every page.
+- Document saves no longer mistake closed editor sessions for active editors
+- Refreshing a Builder collection keeps edits Content has not pushed yet, and the review flags the ones Builder changed too.
+- Resolving a comment from its card in the margin closes the card. In a stack of comments, the next one opens in its place.
+
+## 2026-10-23
+
+### Added
+
+- Builder collections show each entry's Builder status (Published, Draft, or Unpublished changes) in the table, board, and page info.
+
+### Improved
+
+- A folded comment stack's new front card now comes up over the old one, and an opened stack's clicked comment sits level with its text
+
+### Fixed
+
+- A comment on a video now stays attached to that video, sits beside it in the margin, and opens it when clicked, instead of showing Highlight unavailable.
+- A local-folder sync no longer overwrites an edit saved while it runs or leaves that edit out of a conflict it reports, and a file that comes back to the folder no longer offers to unlink its page.
+- Public pages show each block's name while the page is still loading, instead of the block's source.
+- Pushing a Builder update from a large collection now ends on Pushed instead of Checked and Ready to send to Builder.
+- You can comment on text selected across paragraphs and other blocks, and its quote reads with a space where the blocks meet.
+
 ## 2026-10-22
 
 ### Added
 
+- Outside assistants can open shareable local-file copies in Content, with approval before creating or refreshing the copy.
+- Collection filters add does not contain, starts with, ends with, on or before, and on or after. Date filters can use relative days like today, and is within picks a range the way Notion does, such as the past 2 weeks or this month. A date without a time now counts as the whole day, so "on or before today" keeps rows from later today.
 - Blocks with several comment threads fold into one stack in the margin, which opens in place when you click it or a highlight
 
 ### Improved
 
+- Shareable local-file copies open inline with document editing and sharing controls in compatible agent hosts.
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+- Tables get Header row, Header column and Fit to width in their block menu, colours for rows and columns, and menus that close the moment you press Escape.
+- The block menu turns a block into another kind, colours it and comments on it, filters as you type, and shows each action’s shortcut. It says why a locked block can’t be duplicated or deleted, and a click beside the page lets go of a selected block.
 - A big GitHub folder fills its collection much faster, and keeps filling while the collection is open rather than waiting for the next background sync
 - Collections with large select or multi-select properties open faster and use less memory, because each property definition is sent once instead of with every row
 - Pressing Escape while writing a comment, reply or edit cancels it, and asks first if you've written something.
@@ -20,6 +113,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Pages using the live copy keep unsent edits through a refresh, closed tab, or lost connection.
+- A comment on the start of a block no longer highlights blocks added just above it.
+- Saving a Builder entry from Content no longer snaps back on the next refresh, and draft entries get a plain save that Builder shows right away.
+- The Page stays editable while Accept, Reject, Accept remaining, and Reject remaining save, and a failed save returns only that decision to pending
 - A GitHub folder sync keeps going when file storage fails, filling pages without their images and adding them on a later sync
 - Opening a page no longer saves an edit again after another open tab's save already stored it.
 - Changes made from a menu or popover, such as an image's alt text, are always saved.
@@ -40,6 +137,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Undoing a slash command now turns the block back in one step, keeps its text, and leaves the caret where it was
 - Blocks fields keep unconfirmed saves visible, and agent reads handle changing collection fields and older editors reliably
 - Compact HTML table row groups keep their cells, and unsupported block colors are reported during Markdown checks.
 - Suggestions keep refusing unmatched emphasis in stored Markdown

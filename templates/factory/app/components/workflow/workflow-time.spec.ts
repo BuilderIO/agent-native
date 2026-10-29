@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   describeCron,
   formatRelativeTime,
+  formatRunStart,
   formatRunTime,
 } from "./workflow-time";
 
@@ -83,6 +84,30 @@ describe("formatRunTime", () => {
         "en",
       ),
     ).toBe("now");
+  });
+});
+
+describe("formatRunStart", () => {
+  it("tells apart two runs that both read as the same time ago", () => {
+    const earlier = { startedAt: "2026-10-15T02:47:42.000Z" };
+    const later = { startedAt: "2026-10-15T02:49:41.000Z" };
+    expect(formatRunTime({ ...earlier, finishedAt: null }, NOW, "en")).toBe(
+      formatRunTime({ ...later, finishedAt: null }, NOW, "en"),
+    );
+    expect(formatRunStart(earlier, "en-US")).not.toBe(
+      formatRunStart(later, "en-US"),
+    );
+  });
+
+  it("reads the date and the clock down to the second, in the reader's zone", () => {
+    expect(
+      formatRunStart({ startedAt: "2026-10-15T02:47:42.000Z" }, "en-US"),
+    ).toMatch(/^[A-Z][a-z]{2} \d{1,2}, 2026, \d{1,2}:\d{2}:42\s?[AP]M$/);
+  });
+
+  it("gives nothing for a stamp it cannot read", () => {
+    expect(formatRunStart({ startedAt: "" }, "en-US")).toBeNull();
+    expect(formatRunStart({ startedAt: "not a date" }, "en-US")).toBeNull();
   });
 });
 

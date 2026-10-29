@@ -1,5 +1,102 @@
 # @agent-native/scheduling
 
+## 0.2.49
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [39cb8ce]
+  - @agent-native/toolkit@0.222.2
+
+## 0.2.48
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [86af196]
+- Updated dependencies [c96a41d]
+- Updated dependencies
+  - @agent-native/toolkit@0.222.1
+
+## 0.2.47
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 4123c9c: Require Core 0.222.0 or newer to match the Core peer requirement of Scheduling's Toolkit dependency.
+- Updated dependencies [ede5c57]
+- Updated dependencies [7e08199]
+- Updated dependencies [c038e00]
+- Updated dependencies [51e8de9]
+- Updated dependencies
+- Updated dependencies [7e08199]
+- Updated dependencies [f8c2ba6]
+- Updated dependencies [78fa714]
+- Updated dependencies [0bf6393]
+- Updated dependencies [8adaead]
+- Updated dependencies [a54e178]
+  - @agent-native/toolkit@0.222.0
+
+## 0.2.46
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 2e8f454: Compile with `noImplicitOverride` and `noFallthroughCasesInSwitch`, and, where the code already passes them, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Optional fields that legitimately hold `undefined` are now typed `T | undefined`. No runtime behavior changes.
+- Updated dependencies [94dab1c]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [f717042]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [9a61c1d]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [99c97eb]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [9c559ff]
+- Updated dependencies [9fd95b5]
+- Updated dependencies [2938b17]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0c8b261]
+- Updated dependencies [cc341a4]
+- Updated dependencies [180ecbe]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [723fac2]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [c2a6e7e]
+- Updated dependencies [656b02e]
+- Updated dependencies [1cd201c]
+- Updated dependencies [c2a6e7e]
+- Updated dependencies [bdfea6d]
+- Updated dependencies [4173583]
+- Updated dependencies [4173583]
+- Updated dependencies [369ceab]
+- Updated dependencies [d569c61]
+- Updated dependencies [e086032]
+- Updated dependencies [ee67a21]
+- Updated dependencies [ef8111a]
+- Updated dependencies [0ab7e59]
+- Updated dependencies
+- Updated dependencies [7199312]
+- Updated dependencies [12a91c6]
+- Updated dependencies [8254996]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [f20824d]
+- Updated dependencies [ef46f92]
+- Updated dependencies [b14bed7]
+- Updated dependencies [f83c054]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [a9c0fa9]
+- Updated dependencies [eaa780a]
+- Updated dependencies [d9cfcd4]
+- Updated dependencies [82efd47]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [2e8f454]
+- Updated dependencies [90395b3]
+- Updated dependencies [7ee0542]
+  - @agent-native/toolkit@0.221.0
+
 ## 0.2.45
 
 ### Patch Changes
@@ -1123,38 +1220,5 @@
 - b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
 - Updated dependencies [b6d7f87]
   - @agent-native/toolkit@0.5.0
-
-## 0.1.25
-
-### Patch Changes
-
-- 38ca6fa: Require host identity (or the booking's capability token) before mutating bookings, revoking private links, duplicating event types, and returning reschedule tokens, closing cross-tenant write/disclosure gaps.
-- Updated dependencies [38ca6fa]
-  - @agent-native/toolkit@0.4.7
-
-## 0.1.24
-
-### Patch Changes
-
-- f43d34c: Add a Microsoft Teams conferencing provider with delegated OAuth and Microsoft Graph meeting creation and cancellation.
-- f43d34c: Batch selected-calendar reads and bound external availability checks to reduce
-  slot lookup latency without overwhelming calendar providers.
-- f43d34c: Add a safe manifest-driven package lifecycle CLI with Scheduling as the first inspectable, installable, and ejectable package.
-- f43d34c: Re-validate availability before creating bookings and make booking writes transactional.
-- Updated dependencies [f43d34c]
-  - @agent-native/toolkit@0.4.6
-
-## 0.1.23
-
-### Patch Changes
-
-- 86697e9: Depend on `@agent-native/toolkit` via `workspace:^` instead of `workspace:*`. Publishing now pins a caret range (e.g. `^0.4.3`) rather than an exact version, so an app that scaffolds `@agent-native/toolkit@latest` separately can dedupe against it through normal semver resolution instead of installing two mismatched toolkit copies side by side (which crashed Vite with `"./collab-ui" is not exported`).
-
-## 0.1.22
-
-### Patch Changes
-
-- Updated dependencies [680b1eb]
-  - @agent-native/toolkit@0.4.4
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

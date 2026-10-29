@@ -32,10 +32,14 @@ export { CommentAvatar } from "./CommentAvatar";
  * Render a comment body. Each `@name` that matches one of the comment's
  * stored mentions becomes a pill for that person or agent; text that only
  * looks like a mention stays text. Raw HTML is never interpreted.
+ *
+ * Paragraphs, lists, quotes and code blocks keep their shape; `compact`
+ * flattens them to one run of text for clamped previews.
  */
 export function renderCommentBody(
   content: string,
   mentions: readonly CommentMention[],
+  { compact = false }: { compact?: boolean } = {},
 ) {
   const mentionAt = new Map(
     findCommentMentions(content, mentions).map(({ start, mention }) => [
@@ -46,7 +50,8 @@ export function renderCommentBody(
   return (
     <InlineMarkdown
       content={content}
-      inline
+      inline={compact}
+      renderLists
       protectedSpans={[...mentionAt].map(([at, mention]) => ({
         source: `@${mention.name}`,
         label: `@${mention.name}`,

@@ -885,6 +885,8 @@ const editor = {
     editProperty: "{{name}} संपादित करें",
     builderStatusPublishInBuilder:
       "Builder के एडिटर में सहेजे गए बदलाव केवल Builder से ही प्रकाशित किए जा सकते हैं।",
+    builderStatusUnpublishedChangesInBuilder:
+      "अप्रकाशित बदलाव Builder के एडिटर से आते हैं, इसलिए उन्हें यहाँ सेट नहीं किया जा सकता।",
     editStartDate: "{{name}} आरंभ दिनांक संपादित करें",
     editValue: "{{name}} मान संपादित करें",
     empty: "ख़ाली",
@@ -1760,6 +1762,10 @@ const overrides = {
     aiRemoveRecipient: "AI प्राप्तकर्ता हटाएँ",
     aiSend: "AI को भेजें",
     aiSendShort: "भेजें",
+    aiSendReply: "जवाब दें",
+    aiSendSuggest: "सुझाएँ",
+    aiSendApply: "लागू करें",
+    aiSendMode: "AI को भेजें: {{mode}}",
     aiResponseMode: "जवाब",
     aiChooseSendMode: "AI भेजने का मोड चुनें",
     aiSuggestChanges: "बदलाव सुझाएँ",
@@ -1788,6 +1794,8 @@ const overrides = {
     aiFailed: "AI अनुरोध विफल",
     retry: "फिर से कोशिश करें",
     aiQueued: "AI कतार में है…",
+    aiWorkingNamed: "{{name}} काम कर रहा है…",
+    aiQueuedNamed: "{{name}} कतार में है…",
     aiRefreshing: "AI नवीनतम पेज जाँच रहा है…",
     aiCancelled: "AI अनुरोध रोक दिया गया",
     aiStop: "रोकें",

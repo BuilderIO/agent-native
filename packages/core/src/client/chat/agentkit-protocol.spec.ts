@@ -1,3 +1,7 @@
+import {
+  createAgentThreadState,
+  reduceAgentEvent,
+} from "@agent-native/agentkit/client";
 import type {
   AgentApprovalResponse,
   AgentEvent,
@@ -175,6 +179,102 @@ function createRuntime(
     ...overrides,
   };
 }
+
+describe("a cleared draft", () => {
+  async function replyParts(stream: Record<string, unknown>[]) {
+    const transport = createAgentKitProtocolAdapter(
+      createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: (async () =>
+          new Response(
+            stream
+              .map(
+                (event, seq) =>
+                  `data: ${JSON.stringify({ ...event, seq })}\n\n`,
+              )
+              .join(""),
+            {
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-cleared",
+              },
+            },
+          )) as typeof fetch,
+      }),
+    );
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Answer the question")],
+    });
+    let thread = createAgentThreadState("thread-1");
+    let beforeCompletion: AgentMessage["parts"] | undefined;
+    for await (const event of transport.subscribeToRun({
+      threadId: "thread-1",
+      runId,
+    })) {
+      if (event.type === "message.completed" && !beforeCompletion) {
+        beforeCompletion = thread.messages.find(
+          (message) => message.role === "assistant",
+        )?.parts;
+      }
+      thread = reduceAgentEvent(thread, event);
+    }
+    await transport.dispose();
+    return {
+      beforeCompletion,
+      final: thread.messages.find((message) => message.role === "assistant")
+        ?.parts,
+    };
+  }
+
+  const draft = [
+    { type: "thinking", text: "Drafting." },
+    { type: "text", text: "Answer A." },
+    { type: "clear" },
+  ];
+
+  it("leaves the stream showing only what the agent wrote after it", async () => {
+    const parts = await replyParts([
+      ...draft,
+      { type: "thinking", text: "Retrying." },
+      { type: "text", text: "Answer B." },
+      { type: "done" },
+    ]);
+    const answer = [
+      expect.objectContaining({ type: "reasoning", text: "Retrying." }),
+      expect.objectContaining({ type: "text", text: "Answer B." }),
+    ];
+
+    expect(parts.beforeCompletion).toEqual(answer);
+    expect(parts.final).toEqual(answer);
+  });
+
+  it("starts the rewrite after a kept tool call as its own paragraph", async () => {
+    const parts = await replyParts([
+      { type: "text", text: "Checking." },
+      { type: "tool_start", id: "tool-1", tool: "search", input: { q: "a" } },
+      { type: "tool_done", id: "tool-1", tool: "search", result: "ok" },
+      { type: "text", text: "Answer A." },
+      { type: "clear" },
+      { type: "text", text: "Answer B." },
+      { type: "done" },
+    ]);
+
+    expect(parts.beforeCompletion).toEqual([
+      expect.objectContaining({ type: "text", text: "Checking." }),
+      expect.objectContaining({ type: "text", text: "Answer B." }),
+    ]);
+  });
+
+  it("does not come back when the run then fails", async () => {
+    const parts = await replyParts([
+      ...draft,
+      { type: "error", error: "The model stopped." },
+    ]);
+
+    expect(parts.final ?? []).toEqual([]);
+  });
+});
 
 describe("createAgentKitProtocolAdapter", () => {
   it("maps runtime suggestion IDs to the protocol run ID", async () => {
@@ -4856,6 +4956,113 @@ describe("createAgentKitProtocolAdapter", () => {
     await expect(
       transport.getRun?.({ threadId: "thread-1", runId }),
     ).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("keeps readers attached until a cancel whose stream closes first settles", async () => {
+    const streamClosed = Promise.withResolvers<void>();
+    const cancelSettled = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "status", message: "Working" };
+      await streamClosed.promise;
+    }
+    const cancel = vi.fn(async () => {
+      streamClosed.resolve();
+      await cancelSettled.promise;
+      return { status: "cancelled" as const };
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Copy the slides")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "activity.updated") break;
+    }
+    const remaining: AgentEvent[] = [];
+    const drained = (async () => {
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) return;
+        remaining.push(next.value);
+      }
+    })();
+
+    const cancelling = transport.cancelRun({ threadId: "thread-1", runId });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    // Let the closed stream end the pump and wake the reader.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    cancelSettled.resolve();
+    await cancelling;
+    await drained;
+
+    expect(remaining.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["run.status", "run.cancelled"]),
+    );
+    expect(remaining.at(-1)?.type).toBe("run.cancelled");
+    await transport.dispose();
+  });
+
+  it("releases readers when a cancel whose stream closed first fails", async () => {
+    const streamClosed = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "status", message: "Working" };
+      await streamClosed.promise;
+      yield { type: "done", reason: "complete" };
+    }
+    const cancel = vi.fn(async () => {
+      streamClosed.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      throw new Error("Cancel request failed");
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Copy the slides")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "activity.updated") break;
+    }
+    const drained = (async () => {
+      while (!(await iterator.next()).done) {}
+    })();
+
+    await expect(
+      transport.cancelRun({ threadId: "thread-1", runId }),
+    ).rejects.toThrow("Cancel request failed");
+    await expect(drained).resolves.toBeUndefined();
+    await transport.dispose();
   });
 
   it("leaves a paused Core turn to the server when the adapter is disposed", async () => {
