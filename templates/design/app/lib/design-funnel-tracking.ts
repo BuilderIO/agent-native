@@ -524,14 +524,19 @@ export function useDesignReadyViewTracking({
     const resolveAttempt = async () => {
       try {
         const { status, result } = await callAction<{
-          status: "missing" | "pending" | "ready" | "unavailable";
+          status: "missing" | "pending" | "ready" | "unavailable" | "terminal";
           result: { runId: string; turnId: string } | null;
         }>(
           "resolve-design-generation-attempt" as never,
           { designId, attemptId: urlAttemptId } as never,
           { method: "GET", uiOnly: true },
         );
-        if (cancelled || status === "missing" || status === "unavailable")
+        if (
+          cancelled ||
+          status === "missing" ||
+          status === "unavailable" ||
+          status === "terminal"
+        )
           return;
         if (status === "ready" && result) {
           window.dispatchEvent(

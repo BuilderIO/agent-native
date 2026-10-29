@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { getCurrentTurnRunIdsForThread } from "@agent-native/core/server";
+import {
+  getCurrentTurnRunIdsForThread,
+  getRunStatus,
+} from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -15,7 +18,7 @@ export default defineAction({
     attemptId: z.string().min(1),
   }),
   outputSchema: z.object({
-    status: z.enum(["missing", "pending", "ready", "unavailable"]),
+    status: z.enum(["missing", "pending", "ready", "unavailable", "terminal"]),
     result: z.object({ runId: z.string(), turnId: z.string() }).nullable(),
   }),
   http: { method: "GET" },
@@ -42,17 +45,30 @@ export default defineAction({
       attempt.threadId,
       attempt.turnId,
     );
-    for (const runId of runIds.reverse()) {
-      const receipt = await getDesignGenerationOutput.run(
-        { designId, runId, turnId: attempt.turnId },
-        ctx,
-      );
-      if (receipt.status === "has_output")
-        return {
-          status: "ready" as const,
-          result: { runId, turnId: attempt.turnId },
-        };
+    const latestRunId = runIds[runIds.length - 1];
+    if (!latestRunId) return { status: "pending" as const, result: null };
+    const status = await getRunStatus(latestRunId);
+    if (
+      status === "errored" ||
+      status === "aborted" ||
+      status === "truncated"
+    ) {
+      return { status: "terminal" as const, result: null };
     }
+    if (status !== "completed")
+      return { status: "pending" as const, result: null };
+    const receipt = await getDesignGenerationOutput.run(
+      { designId, runId: latestRunId, turnId: attempt.turnId },
+      ctx,
+    );
+    if (receipt.status === "no_output")
+      return { status: "terminal" as const, result: null };
+    if (receipt.status === "has_output")
+      return {
+        status: "ready" as const,
+        result: { runId: latestRunId, turnId: attempt.turnId },
+      };
+
     return { status: "pending" as const, result: null };
   },
 });

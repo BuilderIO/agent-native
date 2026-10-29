@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   access: vi.fn(),
   rows: vi.fn(),
   runIds: vi.fn(),
+  status: vi.fn(),
   receipt: vi.fn(),
 }));
 vi.mock("@agent-native/core/action", () => ({
@@ -11,6 +12,7 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 vi.mock("@agent-native/core/server", () => ({
   getCurrentTurnRunIdsForThread: mocks.runIds,
+  getRunStatus: mocks.status,
 }));
 vi.mock("@agent-native/core/sharing", () => ({ resolveAccess: mocks.access }));
 vi.mock("drizzle-orm", () => ({ and: vi.fn(), eq: vi.fn() }));
@@ -37,6 +39,7 @@ describe("generation attempt resolution", () => {
     ]);
     mocks.runIds.mockResolvedValue(["earlier-run", "completed-run"]);
     mocks.receipt.mockResolvedValue({ status: "unknown" });
+    mocks.status.mockResolvedValue("completed");
   });
   it("resolves the completed continuation with a verified output receipt", async () => {
     mocks.receipt.mockResolvedValueOnce({ status: "has_output" });
@@ -51,6 +54,28 @@ describe("generation attempt resolution", () => {
   });
   it("does not resolve a pending or unverified run", async () => {
     expect(await action.run(args)).toEqual({ status: "pending", result: null });
+  });
+  it("stops on a terminal failed turn without requesting a receipt", async () => {
+    mocks.status.mockResolvedValue("errored");
+    expect(await action.run(args)).toEqual({
+      status: "terminal",
+      result: null,
+    });
+    expect(mocks.receipt).not.toHaveBeenCalled();
+  });
+  it("stops after a completed turn with no output", async () => {
+    mocks.status.mockResolvedValue("completed");
+    mocks.receipt.mockResolvedValue({ status: "no_output" });
+    expect(await action.run(args)).toEqual({
+      status: "terminal",
+      result: null,
+    });
+  });
+  it("does not inspect an earlier completed run while its continuation is active", async () => {
+    mocks.status.mockResolvedValue("running");
+    mocks.receipt.mockResolvedValue({ status: "no_output" });
+    expect(await action.run(args)).toEqual({ status: "pending", result: null });
+    expect(mocks.receipt).not.toHaveBeenCalled();
   });
   it("reports missing provenance without treating it as pending", async () => {
     mocks.rows.mockResolvedValue([]);

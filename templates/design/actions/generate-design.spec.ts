@@ -503,6 +503,31 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     resetDesignDataMutation();
   });
 
+  it("fails before changing design output when provenance cannot be saved", async () => {
+    mocks.insert.mockReturnValueOnce({
+      values: vi.fn().mockRejectedValue(new Error("provenance unavailable")),
+    });
+    await expect(
+      action.run(
+        {
+          designId: "design-1",
+          prompt: "Create screen",
+          files: [
+            {
+              filename: "index.html",
+              fileType: "html",
+              content: "<html><body>new</body></html>",
+            },
+          ],
+        },
+        { caller: "tool", threadId: "thread-1", turnId: "turn-1" },
+      ),
+    ).rejects.toThrow("provenance unavailable");
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
   it("updates an existing file's content via the hash-guarded write path", async () => {
     setExistingFile("<html><body>old</body></html>");
 
