@@ -1,5 +1,14 @@
 # @agent-native/toolkit
 
+## 0.222.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 39cb8ce: `RequireSession` and `AppProviders` take a `signedOutHref` callback, so an app can send a signed-out visitor to a public view of the current URL instead of sign-in.
+- Updated dependencies
+  - @agent-native/agentkit@0.222.2
+
 ## 0.222.1
 
 ### Patch Changes
@@ -1522,11 +1531,5 @@
 ### Patch Changes
 
 - 89f194f: Fix toolkit canvas interaction and collaboration UI behavior.
-
-## 0.14.2
-
-### Patch Changes
-
-- 2db503b: Fix toolkit canvas interaction and collaboration UI behavior.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
