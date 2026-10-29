@@ -21,6 +21,7 @@ const backgroundJobsModule = pathToFileURL(
 
 describe("background job shutdown", () => {
   afterEach(async () => {
+    vi.useRealTimers();
     await stopBackgroundJobs();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
@@ -149,6 +150,42 @@ describe("background job shutdown", () => {
 
     expect(order).toEqual(["stop-start", "stop-done", "db-shutdown"]);
   });
+
+  it("stops waiting for a dev database that never finishes closing", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    // A fresh module, so no earlier test's finished close is reused.
+    vi.resetModules();
+    const freshDbClient = await import("../db/client.js");
+    vi.spyOn(freshDbClient, "beginPgliteClientShutdown").mockImplementation(
+      () => {},
+    );
+    vi.spyOn(freshDbClient, "waitForPgliteClientOperations").mockReturnValue(
+      new Promise<void>(() => {}),
+    );
+    const closeDb = vi
+      .spyOn(freshDbClient, "closeDbExec")
+      .mockResolvedValue(undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const lifecycle = await import("./dev-database-lifecycle.js");
+
+    const closeHooks: Array<() => void | Promise<void>> = [];
+    lifecycle.installDevDatabaseCloseHook({
+      hooks: {
+        hook(name: string, handler: () => void | Promise<void>) {
+          if (name === "close") closeHooks.push(handler);
+        },
+      },
+    });
+    vi.useFakeTimers();
+    const closing = closeHooks[0]!();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await closing;
+
+    expect(closeDb).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("dev database still closing after 5000ms"),
+    );
+  }, 5_000);
 
   it("clears registered referenced timers so the process can exit", async () => {
     const childSource = `

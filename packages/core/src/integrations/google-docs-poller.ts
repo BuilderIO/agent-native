@@ -79,6 +79,8 @@ let pollerGeneration = 0;
 const WATCH_CHANNEL_TTL_MS = 23 * 60 * 60 * 1000;
 const WATCH_RETRY_MS = 5 * 60 * 1000;
 const WATCH_STOP_CLAIM_TTL_MS = WATCH_RETRY_MS - 30 * 1000;
+/** Turning Docs off waits on this request, so a stalled one fails and is retried. */
+const WATCH_STOP_TIMEOUT_MS = 10_000;
 let watchRenewalTimer: ReturnType<typeof setTimeout> | null = null;
 
 type WatchStopResult =
@@ -453,6 +455,7 @@ export async function stopGoogleDocsWatchChannel(
           id: channelId,
           ...(typeof resourceId === "string" && { resourceId }),
         }),
+        signal: AbortSignal.timeout(WATCH_STOP_TIMEOUT_MS),
       },
     );
 
@@ -581,13 +584,46 @@ function scheduleWatchCleanupRetry(
   unrefTimer(watchRenewalTimer);
 }
 
-async function getPageToken(): Promise<string | null> {
+/** How many polls recheck a document whose comment check failed before giving up on it. */
+const COMMENT_CHECK_MAX_ATTEMPTS = 5;
+
+interface ChangesCursor {
+  pageToken: string | null;
+  /** Documents whose comment check failed, with how many times it has. */
+  retryFileIds: Record<string, number>;
+}
+
+async function getChangesCursor(): Promise<ChangesCursor> {
   const config = await getIntegrationConfig(PLATFORM, "page-token");
-  return (config?.configData?.pageToken as string) ?? null;
+  const retryFileIds = config?.configData?.retryFileIds;
+  return {
+    pageToken: (config?.configData?.pageToken as string) ?? null,
+    retryFileIds:
+      retryFileIds && typeof retryFileIds === "object"
+        ? (retryFileIds as Record<string, number>)
+        : {},
+  };
+}
+
+async function setChangesCursor(
+  pageToken: string,
+  retryFileIds: Record<string, number> = {},
+): Promise<void> {
+  await saveIntegrationConfig(
+    PLATFORM,
+    Object.keys(retryFileIds).length > 0
+      ? { pageToken, retryFileIds }
+      : { pageToken },
+    "page-token",
+  );
+}
+
+async function getPageToken(): Promise<string | null> {
+  return (await getChangesCursor()).pageToken;
 }
 
 async function setPageToken(token: string): Promise<void> {
-  await saveIntegrationConfig(PLATFORM, { pageToken: token }, "page-token");
+  await setChangesCursor(token);
 }
 
 function isAgentMention(commentText: string, triggerKeyword: string): boolean {
@@ -715,19 +751,18 @@ export async function processChanges(
   const accessToken = await getServiceAccountAccessToken();
   if (!accessToken) return;
 
-  let pageToken = await getPageToken();
+  const { pageToken, retryFileIds } = await getChangesCursor();
   if (!pageToken) {
-    pageToken = await getStartPageToken(accessToken);
-    await setPageToken(pageToken);
+    await setPageToken(await getStartPageToken(accessToken));
     return;
   }
 
   const { changes, nextPageToken } = await listChanges(pageToken, accessToken);
-  await setPageToken(nextPageToken);
+  // The cursor moves past these changes now, so documents whose check
+  // failed ride along with it and are checked again on the next poll.
+  await setChangesCursor(nextPageToken, retryFileIds);
 
-  if (changes.length === 0) return;
-
-  const docFileIds = new Set<string>();
+  const docFileIds = new Set<string>(Object.keys(retryFileIds));
   for (const change of changes) {
     if (change.removed) continue;
     if (
@@ -738,12 +773,36 @@ export async function processChanges(
     }
   }
 
+  const stillFailing: Record<string, number> = {};
   for (const fileId of docFileIds) {
     try {
       await checkDocumentComments(fileId, accessToken, options);
     } catch (err) {
       console.error(`[google-docs] Error checking comments on ${fileId}:`, err);
+      const attempts = (retryFileIds[fileId] ?? 0) + 1;
+      if (attempts < COMMENT_CHECK_MAX_ATTEMPTS) {
+        stillFailing[fileId] = attempts;
+      } else {
+        console.warn(
+          `[google-docs] Giving up on comments in ${fileId} after ${attempts} failed checks`,
+        );
+      }
     }
+  }
+
+  if (
+    Object.keys(retryFileIds).length > 0 ||
+    Object.keys(stillFailing).length > 0
+  ) {
+    // Another poll may have moved the cursor on meanwhile; keep its token
+    // and any failures it saved for documents this one didn't check.
+    const current = await getChangesCursor();
+    const retry = { ...current.retryFileIds };
+    for (const fileId of docFileIds) delete retry[fileId];
+    await setChangesCursor(current.pageToken ?? nextPageToken, {
+      ...retry,
+      ...stillFailing,
+    });
   }
 }
 

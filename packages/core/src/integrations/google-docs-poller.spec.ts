@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import * as googleDocs from "./adapters/google-docs.js";
 import * as configStore from "./config-store.js";
 import {
+  processChanges,
   startGoogleDocsPoller,
   stopGoogleDocsPoller,
   stopGoogleDocsWatchChannel,
@@ -19,16 +21,18 @@ afterEach(() => {
   pollJob.stop.mockReset();
 });
 
+const pollerOptions = {
+  systemPrompt: "",
+  actions: {},
+  model: "test-model",
+  apiKey: "test-key",
+  ownerEmail: "owner@example.com",
+};
+
 /** Starts the poller with Docs disabled and runs it until its poll job exists. */
 async function startPollJob(): Promise<void> {
   vi.useFakeTimers();
-  await startGoogleDocsPoller({
-    systemPrompt: "",
-    actions: {},
-    model: "test-model",
-    apiKey: "test-key",
-    ownerEmail: "owner@example.com",
-  });
+  await startGoogleDocsPoller(pollerOptions);
   // The poll loop creates its job 5 s after the poller starts.
   vi.advanceTimersByTime(5_000);
   vi.useRealTimers();
@@ -64,6 +68,35 @@ describe("Google Docs watch channel cleanup", () => {
       stopGoogleDocsWatchChannel("access-token", "channel-1", "resource-1"),
     ).resolves.toBe(false);
   });
+
+  it("gives up on a stop request that stalls", async () => {
+    const timeout = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(timeout.signal);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(init.signal!.reason),
+            );
+          }),
+      ),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const stopping = stopGoogleDocsWatchChannel(
+      "access-token",
+      "channel-1",
+      "resource-1",
+    );
+    timeout.abort(new DOMException("The operation timed out.", "TimeoutError"));
+
+    await expect(stopping).resolves.toBe(false);
+    expect(timeoutSpy).toHaveBeenCalledWith(10_000);
+  }, 2_000);
 
   it("retires the watch without waiting on a poll in flight when Docs is turned off", async () => {
     const readConfig = vi
@@ -103,5 +136,88 @@ describe("Google Docs watch channel cleanup", () => {
     await stopping;
     expect(readConfig).not.toHaveBeenCalledWith("google-docs", "watch-channel");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Google Docs change processing", () => {
+  const docChange = {
+    fileId: "doc-1",
+    removed: false,
+    file: {
+      id: "doc-1",
+      name: "Doc",
+      mimeType: "application/vnd.google-apps.document",
+    },
+  };
+
+  /** Keeps saved integration config in memory, starting from `initial`. */
+  function useConfig(initial: Record<string, Record<string, unknown>>) {
+    const saved = new Map(Object.entries(initial));
+    vi.spyOn(configStore, "getIntegrationConfig").mockImplementation(
+      async (_platform, key = "default") => {
+        const configData = saved.get(key);
+        return configData
+          ? ({ configData } as unknown as configStore.IntegrationConfig)
+          : null;
+      },
+    );
+    vi.spyOn(configStore, "saveIntegrationConfig").mockImplementation(
+      async (_platform, configData, key = "default") => {
+        saved.set(key, configData);
+      },
+    );
+    vi.spyOn(googleDocs, "getServiceAccountAccessToken").mockResolvedValue(
+      "access-token",
+    );
+    vi.spyOn(googleDocs, "getServiceAccountEmail").mockReturnValue(null);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    return saved;
+  }
+
+  it("checks a document again on the next poll when its comment check fails", async () => {
+    const saved = useConfig({ "page-token": { pageToken: "token-1" } });
+    vi.spyOn(googleDocs, "listChanges")
+      .mockResolvedValueOnce({ changes: [docChange], nextPageToken: "token-2" })
+      .mockResolvedValueOnce({ changes: [], nextPageToken: "token-3" });
+    const listComments = vi
+      .spyOn(googleDocs, "listDocComments")
+      .mockRejectedValueOnce(new Error("Drive unavailable"))
+      .mockResolvedValueOnce([]);
+
+    await processChanges(pollerOptions);
+    expect(saved.get("page-token")).toEqual({
+      pageToken: "token-2",
+      retryFileIds: { "doc-1": 1 },
+    });
+
+    await processChanges(pollerOptions);
+    expect(listComments).toHaveBeenCalledTimes(2);
+    expect(listComments).toHaveBeenLastCalledWith(
+      "doc-1",
+      "access-token",
+      undefined,
+    );
+    expect(saved.get("page-token")).toEqual({ pageToken: "token-3" });
+  });
+
+  it("gives up on a document after five failed checks", async () => {
+    const saved = useConfig({
+      "page-token": { pageToken: "token-1", retryFileIds: { "doc-1": 4 } },
+    });
+    vi.spyOn(googleDocs, "listChanges").mockResolvedValue({
+      changes: [],
+      nextPageToken: "token-2",
+    });
+    vi.spyOn(googleDocs, "listDocComments").mockRejectedValue(
+      new Error("File not found"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await processChanges(pollerOptions);
+
+    expect(saved.get("page-token")).toEqual({ pageToken: "token-2" });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Giving up on comments in doc-1"),
+    );
   });
 });

@@ -4225,6 +4225,7 @@ export function createCoreRoutesPlugin(
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
         let startupTimer: ReturnType<typeof setTimeout> | null = null;
         let sweepTimer: ReturnType<typeof setInterval> | null = null;
+        let sweep: Promise<void> | undefined;
 
         const stopSandboxExecutionSweep = () => {
           if (startupTimer) {
@@ -4244,7 +4245,7 @@ export function createCoreRoutesPlugin(
             if (now - lastSweep < SWEEP_INTERVAL_MS) return;
             lastSweep = now;
 
-            (async () => {
+            sweep = (async () => {
               const { drainDueSandboxExecutions } =
                 await import("../coding-tools/sandbox/background.js");
               await drainDueSandboxExecutions({ limit: 5 });
@@ -4256,7 +4257,16 @@ export function createCoreRoutesPlugin(
         }, 25_000); // Start 25s after init (after the agent sweeps)
         startupTimer.unref?.();
 
-        registerBackgroundJobStop(stopSandboxExecutionSweep);
+        // A sweep under way may still be starting executions; let it, then
+        // wait for them like any other run this process started.
+        registerBackgroundJobStop(async function stopSandboxExecutions() {
+          stopSandboxExecutionSweep();
+          if (!sweep) return;
+          await sweep;
+          const { waitForInProcessSandboxExecutions } =
+            await import("../coding-tools/sandbox/background.js");
+          await waitForInProcessSandboxExecutions();
+        });
         nitroApp.hooks?.hook?.("close", stopSandboxExecutionSweep);
       })();
 
