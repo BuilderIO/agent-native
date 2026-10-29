@@ -619,6 +619,7 @@ describe("writeLayoutChange — freeform to auto layout", () => {
       right: null,
       bottom: null,
       inset: null,
+      flexShrink: "0",
     });
     expect(write.children.get("panel")).toMatchObject({
       inset: null,

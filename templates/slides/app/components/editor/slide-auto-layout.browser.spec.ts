@@ -265,6 +265,52 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("keeps each member's sizing on its own axis when the direction turns", async () => {
+    const page = await openPage();
+    const result = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      api.enableSlideGroupAutoLayout(group);
+      const first = group.querySelector<HTMLElement>(
+        '[data-slide-object-id="first"]',
+      )!;
+      api.setSlideLayoutSizing(first, "horizontal", "fill");
+      const before = api.readSlideLayoutSizing(first)?.sizing;
+      const outcome = api.updateSlideAutoLayoutFrame(group, {
+        direction: "vertical",
+      });
+      return {
+        outcome,
+        before,
+        after: api.readSlideLayoutSizing(first)?.sizing,
+        width: first.offsetWidth,
+        height: first.offsetHeight,
+        contentWidth: group.clientWidth - 40,
+      };
+    });
+    expect(result.outcome).toEqual({ status: "applied" });
+    expect(result.before).toEqual({ horizontal: "fill", vertical: "fixed" });
+    expect(result.after).toEqual(result.before);
+    expect(result.width).toBe(result.contentWidth);
+    expect(result.height).toBe(60);
+    await page.close();
+  });
+
+  it("keeps members at their size when the group gets too small for them", async () => {
+    const page = await openPage();
+    const widths = await page.evaluate(() => {
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      window.slideAutoLayout.enableSlideGroupAutoLayout(group);
+      group.style.width = "200px";
+      return Array.from(
+        group.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+        (member) => member.offsetWidth,
+      );
+    });
+    expect(widths).toEqual([110, 110, 110]);
+    await page.close();
+  });
+
   it("hugs its members and fills the space they leave", async () => {
     const page = await openPage();
     const result = await page.evaluate(() => {

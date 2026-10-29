@@ -368,7 +368,9 @@ function membersById(group: HTMLElement): Map<string, HTMLElement> | null {
 
 /**
  * Turns a freeform group into auto layout: members are ordered by where they
- * render, and the gap, padding and alignment are inferred so nothing moves.
+ * render, and the gap, padding and alignment are inferred from them. Evenly
+ * spaced members stay put; uneven gaps settle on the median one and
+ * overlapping members are laid side by side, which is what auto layout means.
  * Refuses, writing nothing, when a member cannot be addressed or measured.
  */
 export function enableSlideGroupAutoLayout(
@@ -495,7 +497,50 @@ export function updateSlideAutoLayoutFrame(
   if (Object.keys(frame).length === 0) return { status: "unchanged" };
   const write = writeLayoutChange(model, { kind: "enable-auto-layout", frame });
   if (write.status !== "ok") return refused(write.reason, write.nodeIds);
+  // A member's Fill or Fixed is written for the axis it was set on: flex-grow
+  // on the main axis, align-self across it. Switching direction swaps which
+  // is which, so each member's sizing is read before and written again after.
+  const turns =
+    change.direction !== undefined && change.direction !== mainAxisOf(group);
+  const sizings = turns
+    ? flowMembers(group).map((member) => {
+        const { sizing } = readModel(member, measure, "sizing-box").frame;
+        return {
+          member,
+          sizing: {
+            horizontal: sizing.horizontal.mode,
+            vertical: sizing.vertical.mode,
+          },
+          px: {
+            ...(sizing.horizontal.px !== null
+              ? { horizontal: sizing.horizontal.px }
+              : {}),
+            ...(sizing.vertical.px !== null
+              ? { vertical: sizing.vertical.px }
+              : {}),
+          },
+        };
+      })
+    : [];
+  const groupStyle = group.getAttribute("style");
   applyWrite(group, write, new Map());
+  const memberWrites = sizings.map(({ member, sizing, px }) => ({
+    member,
+    write: writeLayoutChange(readModel(member, measure, "sizing-box"), {
+      kind: "sizing",
+      sizing,
+      px,
+    }),
+  }));
+  const failed = memberWrites.find(({ write }) => write.status !== "ok");
+  if (failed && failed.write.status !== "ok") {
+    if (groupStyle === null) group.removeAttribute("style");
+    else group.setAttribute("style", groupStyle);
+    return refused(failed.write.reason, failed.write.nodeIds);
+  }
+  for (const { member, write } of memberWrites) {
+    if (write.status === "ok") applyWrite(member, write, new Map());
+  }
   return { status: "applied" };
 }
 

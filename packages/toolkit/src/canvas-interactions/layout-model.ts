@@ -750,6 +750,9 @@ export function joinFlowPatch(child: LayoutNodeInput): LayoutStylePatch | null {
   if (!isOutOfFlow(child)) return {};
   const patch: LayoutStylePatch = {};
   for (const property of INSET_PROPERTIES) patch[property] = null;
+  // It joins at the size it had, which flex would shrink under a smaller
+  // frame; whatever flex-shrink it carried was inert while it was placed.
+  patch.flexShrink = "0";
   const styles = child.styles;
   const set = (value: string | undefined) =>
     value !== undefined && value.trim() !== "" && lower(value) !== "auto";
