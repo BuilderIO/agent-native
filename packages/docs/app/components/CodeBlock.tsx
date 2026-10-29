@@ -44,6 +44,13 @@ export default function CodeBlock({
     };
   }, [code, lang]);
 
+  useEffect(
+    () => () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    },
+    [],
+  );
+
   async function handleCopy() {
     if (!(await copyText(code.trim()))) return;
     setCopied(true);
