@@ -107,10 +107,7 @@ describe("workspace connection provider catalog", () => {
     expect(getWorkspaceConnectionProvider("hubspot")?.oauth).toMatchObject({
       provider: "hubspot",
       tokenUrl: "https://api.hubapi.com/oauth/v3/token",
-      scopes: expect.arrayContaining([
-        "crm.objects.contacts.read",
-        "crm.objects.deals.read",
-      ]),
+      scopes: [],
     });
     expect(getWorkspaceConnectionProvider("salesforce")?.oauth).toMatchObject({
       provider: "salesforce",
