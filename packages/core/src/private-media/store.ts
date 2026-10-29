@@ -40,6 +40,13 @@ export const PRIVATE_MEDIA_IMAGE_TYPES = [
   "image/gif",
   "image/webp",
   "image/svg+xml",
+  "image/avif",
+  "image/heic",
+  "image/heif",
+  "image/bmp",
+  "image/tiff",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
 ] as const;
 
 export type PrivateMediaImageType = (typeof PRIVATE_MEDIA_IMAGE_TYPES)[number];
@@ -189,6 +196,24 @@ function isSvgDocument(data: Uint8Array): boolean {
   return root !== undefined && Object.hasOwn(root, "svg");
 }
 
+/** An `ftyp` box is a few dozen bytes; this bounds a corrupt one's size field. */
+const MAX_FTYP_BYTES = 4096;
+
+/**
+ * Whether the file's leading `ftyp` box, which AVIF, HEIC and HEIF files open
+ * with, names one of `wanted` as its major or a compatible brand.
+ */
+function hasBrand(data: Uint8Array, wanted: readonly string[]): boolean {
+  if (data.length < 16 || ascii(data, 4, 8) !== "ftyp") return false;
+  const boxSize = new DataView(data.buffer, data.byteOffset).getUint32(0);
+  const end = Math.min(boxSize, data.length, MAX_FTYP_BYTES);
+  const brands = [ascii(data, 8, 12)];
+  for (let offset = 16; offset + 4 <= end; offset += 4) {
+    brands.push(ascii(data, offset, offset + 4));
+  }
+  return brands.some((brand) => wanted.includes(brand));
+}
+
 /** The image type the bytes actually are, which must match the declared one. */
 function sniffImageType(
   data: Uint8Array,
@@ -205,6 +230,22 @@ function sniffImageType(
       return ascii(data, 0, 4) === "RIFF" && ascii(data, 8, 12) === "WEBP";
     case "image/svg+xml":
       return isSvgDocument(data);
+    case "image/avif":
+      return hasBrand(data, ["avif", "avis"]);
+    case "image/heic":
+      return hasBrand(data, ["heic", "heix", "heim", "heis", "hevc", "hevx"]);
+    case "image/heif":
+      return hasBrand(data, ["mif1", "msf1", "heic", "heix"]);
+    case "image/bmp":
+      return ascii(data, 0, 2) === "BM";
+    case "image/tiff":
+      return (
+        startsWith(data, [0x49, 0x49, 0x2a, 0x00]) ||
+        startsWith(data, [0x4d, 0x4d, 0x00, 0x2a])
+      );
+    case "image/x-icon":
+    case "image/vnd.microsoft.icon":
+      return startsWith(data, [0x00, 0x00, 0x01, 0x00]);
   }
 }
 
@@ -215,7 +256,7 @@ export function validatePrivateMediaImage(
   const declared = mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
   if (!isPrivateMediaImageType(declared)) {
     throw new PrivateMediaValidationError(
-      "Only PNG, JPEG, GIF, WebP and SVG images can be uploaded.",
+      "Only PNG, JPEG, GIF, WebP, SVG, AVIF, HEIC, BMP, TIFF and ICO images can be uploaded.",
       415,
     );
   }
