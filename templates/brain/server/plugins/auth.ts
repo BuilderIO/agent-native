@@ -13,5 +13,5 @@ export default createToolkitAuthPlugin({
       "Review company-wide knowledge through proposal workflows",
     ],
   },
-  publicPaths: ["/api/_agent-native/brain/ingest"],
+  publicPaths: ["/api/_agent-native/brain/ingest", "/api/brain/queue/run"],
 });
