@@ -88,7 +88,7 @@ export function schedulePreviewDevOrgMembership(): void {
     try {
       const result = await ensurePreviewDevOrgMembership();
       if (result.status === "no-org" && attempts < 30) {
-        setTimeout(attempt, 5_000).unref?.();
+        setTimeout(() => void attempt(), 5_000).unref();
         return;
       }
       if (result.status === "ambiguous-org") {
