@@ -33,6 +33,7 @@ describe("CommentComposer mention autocomplete", () => {
     currentMembers: typeof members,
     onMentionAdd = vi.fn<(entry: MentionEntry) => void>(),
     onSubmit = vi.fn(),
+    onEscape = vi.fn(),
   ) {
     let updateMembers!: (nextMembers: typeof members) => void;
 
@@ -45,6 +46,7 @@ describe("CommentComposer mention autocomplete", () => {
           value={value}
           onChange={setValue}
           onSubmit={onSubmit}
+          onEscape={onEscape}
           onMentionAdd={onMentionAdd}
           members={availableMembers}
         />
@@ -202,5 +204,33 @@ describe("CommentComposer mention autocomplete", () => {
     keydown({ metaKey: true });
     keydown({ ctrlKey: true });
     expect(onSubmit).toHaveBeenCalledTimes(3);
+  });
+
+  it("leaves Escape to an input method that is composing", () => {
+    const onEscape = vi.fn();
+    const { textarea } = renderComposer(
+      members,
+      undefined,
+      undefined,
+      onEscape,
+    );
+    const escape = (init: KeyboardEventInit) =>
+      act(() => {
+        textarea.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+            ...init,
+          }),
+        );
+      });
+
+    act(() => typeInto(textarea, "にほん"));
+    escape({ isComposing: true });
+    expect(onEscape).not.toHaveBeenCalled();
+
+    escape({});
+    expect(onEscape).toHaveBeenCalledTimes(1);
   });
 });

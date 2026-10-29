@@ -1,6 +1,9 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { isCommentSendKey } from "@agent-native/toolkit/app/review";
+import {
+  isComposingKey,
+  isCommentSendKey,
+} from "@agent-native/toolkit/app/review";
 import { IconArrowUp, IconMessagePlus } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -99,6 +102,8 @@ export function TimestampedCommentBar({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
+            // An input method's Escape cancels its candidate, not the bar.
+            if (isComposingKey(e)) return;
             if (isCommentSendKey(e)) {
               e.preventDefault();
               submit();

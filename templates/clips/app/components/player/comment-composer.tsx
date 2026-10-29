@@ -229,7 +229,10 @@ export const CommentComposer = forwardRef<
   const menuOpen = query !== null && filtered.length > 0;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (menuOpen && !isComposingKey(event)) {
+    // While an input method is composing, its keys (Escape to cancel, arrows
+    // to pick a candidate, Enter to confirm) belong to it.
+    if (isComposingKey(event)) return;
+    if (menuOpen) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setHighlight((current) => (current + 1) % filtered.length);
