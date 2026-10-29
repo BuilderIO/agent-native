@@ -325,7 +325,8 @@ outstanding.
 This silence rule does not suppress replies required on the active user's own PR
 under `/ship`, `/ship-now`, or `/babysit-pr`; those follow the own-PR reply rules.
 
-When a reply is explicitly requested or needed to resolve a review thread, begin
+When a reply is explicitly requested or needed to resolve a review thread on
+the exact PR the current invocation authorizes (or the active user's own PR), begin
 by thanking the author for the PR, or for their update when they have updated it
 since the last message. If they have not updated since the last message, do not
 reply again. Never write “I have no further feedback” or another vague closing;
