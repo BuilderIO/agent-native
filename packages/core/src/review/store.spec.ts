@@ -652,6 +652,14 @@ describe("review store", () => {
     });
     expect(live.map((comment) => comment.id)).toEqual([reply.id]);
     expect(live[0].threadId).toBe(root.threadId);
+    const newest = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "d-delete",
+      scope: {},
+      bypassScope: true,
+      newestFirst: true,
+    });
+    expect(newest.map((comment) => comment.id)).toEqual([reply.id]);
   });
 
   it("keeps metadata another write adds while a comment is being deleted", async () => {

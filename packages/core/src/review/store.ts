@@ -858,6 +858,9 @@ function stableReviewReceiptJson(value: unknown): string {
     .join(",")}}`;
 }
 
+/** Leave out deleted comments. Neither takes a parameter. */
+const LIVE_COMMENT_FILTERS = ["deleted_at IS NULL", "status <> 'deleted'"];
+
 export async function queryReviewComments(
   input: QueryReviewCommentsInput,
 ): Promise<ReviewComment[]> {
@@ -873,8 +876,7 @@ export async function queryReviewComments(
     ...params,
   ];
   if (!input.includeDeleted) {
-    filters.push("deleted_at IS NULL");
-    filters.push("status <> 'deleted'");
+    filters.push(...LIVE_COMMENT_FILTERS);
   }
   if (!input.includeResolved) {
     filters.push("status <> 'resolved'");
@@ -943,7 +945,12 @@ export async function queryReviewComments(
   }
 
   if (input.newestFirst && !input.rootOnly) {
-    const rootFilters = [...filters, "parent_comment_id IS NULL"];
+    // A deleted root still anchors its thread, so its live replies list here
+    // as they do oldest first.
+    const rootFilters = [
+      ...filters.filter((filter) => !LIVE_COMMENT_FILTERS.includes(filter)),
+      "parent_comment_id IS NULL",
+    ];
     const rootFilterSql = rootFilters
       .map((filter) => filter.replace(/\bcomment\./g, "roots."))
       .join(" AND ");
