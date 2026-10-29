@@ -1769,6 +1769,20 @@ describe("DatabaseView UI regressions", () => {
     expect([...cellRendersByItemId.keys()]).toEqual([]);
   });
 
+  it("keeps a filter chip's menu open when focus moves outside it", async () => {
+    const { chip } = await renderStatusFilteredTable();
+    await mousePointerDown(chip);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    await act(async () => {
+      outside.focus();
+      await Promise.resolve();
+    });
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    outside.remove();
+  });
+
   it("keeps a filter chip's click shield in place until an outside click lands, then closes the menu", async () => {
     const { chip } = await renderStatusFilteredTable();
     await mousePointerDown(chip);

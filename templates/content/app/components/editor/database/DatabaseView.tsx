@@ -8047,7 +8047,8 @@ function DatabaseInlineFilterControl({
 // Covers the page under an open non-modal menu so the click that dismisses it
 // doesn't also open the cell beneath, as a modal menu's blocking would. The
 // shield sits just under the menu layer (z-[290]), above everything else.
-// Spread `contentProps` onto the menu's content.
+// Spread `contentProps` onto the menu's content: with them, the menu also stays
+// open when focus moves out of it, as a modal menu does.
 function useMenuOutsideClickShield(
   open: boolean,
   onOpenChange: (open: boolean) => void,
@@ -8078,6 +8079,9 @@ function useMenuOutsideClickShield(
         event.preventDefault();
       }
     },
+    // Adding a filter opens its chip while the add menu, closing, returns
+    // focus to its own button; that would dismiss the chip's menu at once.
+    onFocusOutside: (event: Event) => event.preventDefault(),
     // Leave focus where the click put it, as an outside click on a non-modal
     // menu does. In WebKit, moving focus off the chip when it reopens restyles
     // much of the page.
