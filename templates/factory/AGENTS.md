@@ -27,7 +27,7 @@ Use local framework docs, not web research: `pnpm action docs-search --query
   Builder work or post findings; see `review-latest-feedback` for sweeps.
 - PR governance follows `review-prs`: verify membership/evidence and skip
   drafts. Route confirmed external authors through the governance action for a
-  manual disposition, never approval; skip outside-fork PRs assigned to a
+  manual disposition, never approval; skip fork PRs assigned to a
   verified BuilderIO member. Apply verified `liamdebeasi` trust only to
   ordinary gates; keep ultra-scary risks manual. Governance never merges;
   Builder PRs merge only through a workflow merge step after its gate.

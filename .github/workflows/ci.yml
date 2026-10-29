@@ -21,6 +21,7 @@ jobs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
       full: ${{ steps.scope.outputs.full }}
       lint: ${{ steps.scope.outputs.lint }}
+      has_reports: ${{ steps.feedback.outputs.has_reports }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       workspace_filters: ${{ steps.scope.outputs.workspace_filters }}
       test_workspace_filters: ${{ steps.scope.outputs.test_workspace_filters }}
@@ -97,6 +98,21 @@ jobs:
           CI_PR_TITLE: ${{ github.event.pull_request.title }}
         run: node --experimental-strip-types scripts/ci-change-scope.ts
 
+      - name: Look for feedback reports
+        id: feedback
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/feedback-proof-gate"
+          if git cat-file -e "$BASE_SHA:scripts/feedback-fix-proof.ts" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/feedback-fix-proof.ts" > "$RUNNER_TEMP/feedback-proof-gate/feedback-fix-proof.ts"
+          else
+            cp scripts/feedback-fix-proof.ts "$RUNNER_TEMP/feedback-proof-gate/feedback-fix-proof.ts"
+          fi
+          node --experimental-strip-types --no-warnings "$RUNNER_TEMP/feedback-proof-gate/feedback-fix-proof.ts" --has-reports >> "$GITHUB_OUTPUT"
+
       # Full planning only reads manifests and counts files. Targeted planning
       # runs `pnpm list` and `vitest list --changed`, so it needs an install.
       - name: Install dependencies for targeted lane planning
@@ -125,7 +141,7 @@ jobs:
   lint:
     name: Lint & format
     needs: change-scope
-    if: needs.change-scope.outputs.lint == 'true'
+    if: needs.change-scope.outputs.lint == 'true' || needs.change-scope.outputs.has_reports == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -187,6 +203,23 @@ jobs:
       - name: Enforce package bump policy
         if: ${{ !cancelled() && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
         run: node scripts/guard-no-major-changeset.mjs
+
+      - name: Re-run feedback fix proofs
+        if: needs.change-scope.outputs.has_reports == 'true'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/feedback-proof-gate"
+          for f in feedback-fix-proof.ts fix-proof.ts; do
+            if git cat-file -e "$BASE_SHA:scripts/$f" 2>/dev/null; then
+              git show "$BASE_SHA:scripts/$f" > "$RUNNER_TEMP/feedback-proof-gate/$f"
+            else
+              cp "scripts/$f" "$RUNNER_TEMP/feedback-proof-gate/$f"
+            fi
+          done
+          node --experimental-strip-types --no-warnings "$RUNNER_TEMP/feedback-proof-gate/feedback-fix-proof.ts"
 
   typecheck:
     name: Typecheck

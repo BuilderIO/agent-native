@@ -503,7 +503,7 @@ export default defineAction({
           ok: true,
           action: "skipped",
           reason:
-            "This external fork pull request is assigned to a verified BuilderIO member and is excluded from Factory governance.",
+            "This fork pull request is assigned to a verified BuilderIO member and is excluded from Factory governance.",
         };
       }
     }
@@ -598,14 +598,11 @@ export default defineAction({
               "Pull-request author membership changed during evidence review; the latest governance eligibility must be reviewed before recording a manual disposition.",
           } as const;
         }
-        if (
-          !liveAuthorMembership.isMember &&
-          (await hasVerifiedBuilderAssignee(livePullRequest))
-        ) {
+        if (await hasVerifiedBuilderAssignee(livePullRequest)) {
           return {
             kind: "excluded",
             reason:
-              "This external fork pull request is assigned to a verified BuilderIO member and is excluded from Factory governance.",
+              "This fork pull request is assigned to a verified BuilderIO member and is excluded from Factory governance.",
           } as const;
         }
       } catch (error) {
@@ -615,7 +612,7 @@ export default defineAction({
             : "unknown membership verification error";
         await reconcileClaim(
           pullRequest.headSha,
-          `External pull-request membership could not be revalidated before recording a manual disposition: ${message}. Reconciliation is required before retrying.`,
+          `Pull-request author or assignee membership could not be revalidated before recording a manual disposition: ${message}. Reconciliation is required before retrying.`,
         );
         throw error;
       }

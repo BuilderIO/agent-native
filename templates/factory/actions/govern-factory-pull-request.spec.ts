@@ -1685,6 +1685,47 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(item.status).toBe("pr_observed");
   });
 
+  it("skips an internal-author fork newly assigned to a verified BuilderIO member", async () => {
+    await seedItem("pr_observed");
+    const github = governanceGitHub({
+      headRepository: "contributor/fork",
+      internalMember: true,
+      passingChecks: false,
+      changedFiles: ["src/change.ts"],
+      revalidatedSummary: {
+        assignees: [{ id: 456, login: "builder-assignee" }],
+      },
+      assigneeMember: true,
+    });
+
+    const result = await runGovernance(github);
+    const decisions = await db
+      .select({ id: triageDecisions.id })
+      .from(triageDecisions);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: "skipped",
+      reason: expect.stringContaining(
+        "assigned to a verified BuilderIO member",
+      ),
+    });
+    expect(github.checkOrganizationMemberById).toHaveBeenCalledWith(
+      "BuilderIO",
+      456,
+      "builder-assignee",
+    );
+    expect(recordFactoryAuditMock).not.toHaveBeenCalled();
+    expect(decisions).toEqual([]);
+    expect(item.status).toBe("pr_observed");
+  });
+
   it.each([
     [
       "after the approval claim",

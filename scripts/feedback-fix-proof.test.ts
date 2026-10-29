@@ -52,17 +52,20 @@ describe("parseReports", () => {
       {
         link: "https://app.slack.com/archives/C1/p1",
         proven: [`${fix}\tgrep -q fixed app.txt`],
-        visual: false,
+        visual: null,
       },
       {
         link: "https://app.slack.com/archives/C1/p2",
         proven: [],
-        visual: true,
+        visual: [
+          "https://example.com/before.png",
+          "https://example.com/after.png",
+        ],
       },
       {
         link: "https://app.slack.com/archives/C1/p3",
         proven: [],
-        visual: false,
+        visual: null,
       },
     ]);
   });
@@ -81,7 +84,7 @@ describe("parseReports", () => {
       ].join("\n"),
     );
     assert.deepEqual(
-      reports?.map((r) => [r.link, r.visual]),
+      reports?.map((r) => [r.link, r.visual !== null]),
       [
         ["https://app.slack.com/a", false],
         ["https://app.slack.com/b", false],
@@ -155,6 +158,35 @@ describe("parseReports", () => {
 });
 
 describe("feedback-fix-proof", () => {
+  it("runs report proofs inside the required Lint and format CI check", () => {
+    const workflow = readFileSync(
+      resolve(import.meta.dirname, "../.github/workflows/ci.yml"),
+      "utf8",
+    );
+
+    assert.match(
+      workflow,
+      /has_reports: \$\{\{ steps\.feedback\.outputs\.has_reports \}\}/,
+    );
+    assert.match(
+      workflow,
+      /if: needs\.change-scope\.outputs\.lint == 'true' \|\| needs\.change-scope\.outputs\.has_reports == 'true'/,
+    );
+    assert.match(
+      workflow,
+      /name: Lint & format[\s\S]*?Re-run feedback fix proofs/,
+    );
+    assert.match(
+      workflow,
+      /name: Re-run feedback fix proofs[\s\S]*?if: needs\.change-scope\.outputs\.has_reports == 'true'/,
+    );
+    assert.match(workflow, /git show "\$BASE_SHA:scripts\/\$f"/);
+    assert.match(
+      workflow,
+      /node --experimental-strip-types --no-warnings[\s\S]*?feedback-fix-proof\.ts"/,
+    );
+  });
+
   it("uses the trusted base proof gate in read-only pull-request CI", () => {
     const workflow = readFileSync(
       resolve(
@@ -192,6 +224,20 @@ describe("feedback-fix-proof", () => {
       `## Reports\n- https://app.slack.com/a\n${proven("grep -q fixed app.txt")}`,
     );
     assert.equal(r.status, 0, r.stdout + r.stderr);
+  });
+
+  it("labels visual-only evidence as requiring human validation", () => {
+    const r = gate(
+      [
+        "## Reports",
+        "- https://app.slack.com/a",
+        "  visual: https://example.com/before.png https://example.com/after.png",
+      ].join("\n"),
+    );
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /HUMAN VALIDATION REQUIRED BEFORE MERGE/);
+    assert.match(r.stdout, /0 reports machine-proven; 1 require human/);
+    assert.doesNotMatch(r.stdout, /all 1 reports machine-proven/);
   });
 
   it("fails a report with no proof line", () => {

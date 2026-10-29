@@ -270,16 +270,19 @@ apart from Steve's own 👀.
 - **Prove it.** The check has to fail with the fix's source changes put
   back to `main` and pass with them. A check that passes without your fix
   doesn't test the bug: write one that does. Tests that read source text
-  never count. For a purely visual fix, a before and after screenshot of the
-  signed-in app stands in. Put the proof under the report in the PR's
-  `Reports` section.
+  never count. For a purely visual fix, before and after screenshots are
+  evidence for a person to inspect, not automated proof. Before merging, a
+  human must open both images and confirm they show the reported change. Put
+  the evidence under the report in the PR's `Reports` section.
 <!-- framework-repo-only:start -->
   Commit the fix and its check, then run
   `node scripts/fix-proof.ts --fix <that commit> -- <the check>` from the
   repo root and paste its `fix-proof: proven ...` line, unchanged, under
   each report it fixes (`visual: <before> <after>` for a purely visual
-  fix). CI's `Feedback fix proof` check re-runs every line and fails the PR
-  on a report without one, so write the check before you push. The second
+  fix). The required `Lint & format` check runs this gate for PRs with a
+  `Reports` section and re-runs machine proofs. It marks visual-only reports
+  as needing human validation before merge; the screenshot URLs do not count
+  as proven. Write the check before you push. The second
   opinion below reads the red output to confirm the check failed on the
   bug, not on setup.
 <!-- framework-repo-only:end -->

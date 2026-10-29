@@ -4446,6 +4446,7 @@ test("still runs changed root script tests when the change set is full", () => {
   assert.equal(scope.full, true);
   assert.equal(scope.checks.guards, true);
   assert.deepEqual(scope.scriptTests, [
+    "scripts/feedback-fix-proof.test.ts",
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
   ]);
@@ -4472,6 +4473,13 @@ test("selects the feedback proof workflow test when its workflow changes", () =>
     ".github/workflows/feedback-fix-proof.yml",
   ]);
 
+  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
+});
+
+test("selects the feedback proof contract test when CI changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/ci.yml"]);
+
+  assert.equal(scope.full, true);
   assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
 });
 
