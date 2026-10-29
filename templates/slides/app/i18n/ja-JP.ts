@@ -618,6 +618,19 @@ const messages = {
     makeMoreVisual: "より視覚的にする",
     generateImage: "画像を生成",
     removeBackground: "背景を削除",
+    autoLayout: "オートレイアウト",
+    addAutoLayout: "オートレイアウトを追加",
+    removeAutoLayout: "オートレイアウトを削除",
+    direction: "方向",
+    gap: "間隔",
+    padding: "パディング",
+    layoutSizing: {
+      fixed: "固定",
+      hug: "内容に合わせる",
+      fill: "埋める",
+    },
+    autoLayoutUnmeasurable:
+      "このグループ内のオブジェクトを測定できませんでした。スライド上に表示されていることを確認して、もう一度お試しください。",
   },
   styleInspector: {
     title: "Style",

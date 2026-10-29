@@ -218,6 +218,24 @@ import {
   isSelectionOverlayOnActiveSlide,
   type SelectionOverlayMeasurement,
 } from "./selection-overlay-measurement";
+import {
+  disableSlideGroupAutoLayout,
+  enableSlideGroupAutoLayout,
+  fixSlideLayoutSizing,
+  isAutoLayoutSlideGroup,
+  moveSlideFlowMember,
+  readSlideAutoLayoutFrame,
+  readSlideLayoutSizing,
+  resolveSlideFlowInsertionIndex,
+  setSlideLayoutSizing,
+  slideAutoLayoutGroupOf,
+  slideFlowIndexOf,
+  updateSlideAutoLayoutFrame,
+  type LayoutAxis,
+  type LayoutSizing,
+  type SlideAutoLayoutFrameChange,
+  type SlideAutoLayoutResult,
+} from "./slide-auto-layout";
 import { decideSlideEscape } from "./slide-escape-arbiter";
 import {
   alignSlideObjectMembers,
@@ -6711,12 +6729,32 @@ export default function SlideEditor({
     const group =
       selection?.elements.length === 1 ? selection.elements[0] : null;
     if (!group || !isSlideObjectGroup(group)) return false;
+    // Members in flow have no placement of their own to ungroup with, so the
+    // group is pinned first, in the same undo step.
+    const groupStyle = group.getAttribute("style");
+    const memberStyles = Array.from(
+      group.children,
+      (child) => [child, child.getAttribute("style")] as const,
+    );
+    if (
+      isAutoLayoutSlideGroup(group) &&
+      disableSlideGroupAutoLayout(group).status !== "applied"
+    ) {
+      toast.error(t("contextToolbar.autoLayoutUnmeasurable"));
+      return false;
+    }
     const children = ungroupSlideObject(
       group,
       getObjectGeometry,
       applyObjectGeometry,
     );
-    if (!children) return false;
+    if (!children) {
+      restoreSlideObjectStyle(group, groupStyle);
+      for (const [child, style] of memberStyles) {
+        if (child instanceof HTMLElement) restoreSlideObjectStyle(child, style);
+      }
+      return false;
+    }
 
     stampBuilderIds(group.parentElement ?? getSlideContent() ?? group);
     const builderIds = new Set(
@@ -6749,7 +6787,125 @@ export default function SlideEditor({
     readCurrentSlideContentHtml,
     readOnly,
     refreshLayerNodes,
+    t,
   ]);
+
+  const [, setAutoLayoutRevision] = useState(0);
+  // A scrub writes on every move; only its first write opens an undo step.
+  const autoLayoutScrubActiveRef = useRef(false);
+
+  const commitAutoLayoutEdit = useCallback(
+    (result: SlideAutoLayoutResult, { separateUndo = true } = {}) => {
+      if (result.status === "refused") {
+        toast.error(t("contextToolbar.autoLayoutUnmeasurable"));
+        return false;
+      }
+      if (result.status !== "applied") return false;
+      refreshLayerNodes();
+      invalidateSelectionOverlayMeasurement();
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo,
+          persistence: "immediate",
+        });
+      }
+      setAutoLayoutRevision((revision) => revision + 1);
+      return true;
+    },
+    [
+      invalidateSelectionOverlayMeasurement,
+      readCurrentSlideContentHtml,
+      refreshLayerNodes,
+      t,
+    ],
+  );
+
+  /**
+   * Shift+A: a selected group starts laying its members out in flow; two or
+   * more selected objects are grouped into one auto layout group first.
+   */
+  const handleAddAutoLayout = useCallback(() => {
+    if (readOnly) return false;
+    const selection = getObjectOperationSelection();
+    if (!selection) return false;
+    const sole =
+      selection.elements.length === 1 ? (selection.elements[0] ?? null) : null;
+    if (sole && (!isSlideObjectGroup(sole) || isAutoLayoutSlideGroup(sole))) {
+      return false;
+    }
+    const group =
+      sole ??
+      groupSlideObjects(
+        selection.elements,
+        getObjectGeometry,
+        applyObjectGeometry,
+      );
+    if (!group) return false;
+    if (!sole) {
+      ensureBuilderId(group);
+      stampBuilderIds(group);
+    }
+    const result = enableSlideGroupAutoLayout(group);
+    if (result.status !== "applied" && !sole) {
+      ungroupSlideObject(group, getObjectGeometry, applyObjectGeometry);
+    }
+    if (!commitAutoLayoutEdit(result)) return result.status === "refused";
+    const selector = getBuilderSelector(group);
+    if (selector) {
+      clearMultiSelection();
+      selectElementForStyling(group, selector);
+    }
+    return true;
+  }, [
+    applyObjectGeometry,
+    clearMultiSelection,
+    commitAutoLayoutEdit,
+    getObjectGeometry,
+    getObjectOperationSelection,
+    readOnly,
+    selectElementForStyling,
+  ]);
+
+  /** Shift+Option+A: pins every member where it renders. */
+  const handleRemoveAutoLayout = useCallback(() => {
+    if (readOnly) return false;
+    const group = resolveSelectedElement();
+    if (!group || !isAutoLayoutSlideGroup(group)) return false;
+    const result = disableSlideGroupAutoLayout(group);
+    commitAutoLayoutEdit(result);
+    return result.status !== "unchanged";
+  }, [commitAutoLayoutEdit, readOnly, resolveSelectedElement]);
+
+  const handleAutoLayoutChange = useCallback(
+    (
+      change: SlideAutoLayoutFrameChange,
+      phase: "preview" | "commit" | "cancel",
+    ) => {
+      if (readOnly || phase === "cancel") {
+        autoLayoutScrubActiveRef.current = false;
+        return;
+      }
+      const group = resolveSelectedElement();
+      if (!group || !isAutoLayoutSlideGroup(group)) return;
+      const separateUndo = !autoLayoutScrubActiveRef.current;
+      autoLayoutScrubActiveRef.current = phase === "preview";
+      commitAutoLayoutEdit(updateSlideAutoLayoutFrame(group, change), {
+        separateUndo,
+      });
+    },
+    [commitAutoLayoutEdit, readOnly, resolveSelectedElement],
+  );
+
+  const handleLayoutSizingChange = useCallback(
+    (axis: LayoutAxis, sizing: LayoutSizing) => {
+      if (readOnly) return;
+      const element = resolveSelectedElement();
+      if (!element) return;
+      commitAutoLayoutEdit(setSlideLayoutSizing(element, axis, sizing));
+    },
+    [commitAutoLayoutEdit, readOnly, resolveSelectedElement],
+  );
 
   const handleAlignSelectedObjects = useCallback(
     (alignment: SlideObjectAlignment) => {
@@ -6877,6 +7033,134 @@ export default function SlideEditor({
     [getObjectGeometry],
   );
 
+  /**
+   * A member laid out by an auto layout group has no position of its own:
+   * dragging it moves its slot in the flow, and the group reflows live.
+   */
+  const startFlowMemberDrag = useCallback(
+    (
+      e: React.PointerEvent,
+      element: HTMLElement,
+      group: HTMLElement,
+      preserveClickWithoutMove: boolean,
+    ) => {
+      const slideCanvas = element.closest(
+        ".fmd-slide, [data-slide-canvas]",
+      ) as HTMLElement | null;
+      if (!slideCanvas) return;
+      const viewport = readGestureViewport(element, slideCanvas);
+      if (!viewport) return;
+      if (!preserveClickWithoutMove) {
+        e.preventDefault();
+        e.stopPropagation();
+        suppressNextClickRef.current = true;
+      }
+      const selector = getBuilderSelector(element);
+      if (selector) selectElementForStyling(element, selector);
+      const startIndex = slideFlowIndexOf(group, element);
+
+      const measureOverlay = () => {
+        const rect = element.getBoundingClientRect();
+        setSelectedElementMeasurement({
+          key: selectionOverlayMeasurementKeyRef.current,
+          identityKey: selectionOverlayMeasurementIdentityKeyRef.current,
+          rect,
+          frame: readSlideObjectSelectionFrame(element, rect),
+        });
+      };
+
+      const controller = createSlidesCanvasGestureController({
+        ...(viewport.toLocalDelta
+          ? { toLocalDelta: viewport.toLocalDelta }
+          : {}),
+        preview: (gesture) => {
+          suppressNextClickRef.current = true;
+          const index = resolveSlideFlowInsertionIndex(
+            group,
+            element,
+            gesture.pointer,
+          );
+          if (moveSlideFlowMember(group, element, index)) measureOverlay();
+          return { handled: true };
+        },
+        commit: () => {
+          if (slideFlowIndexOf(group, element) !== startIndex) {
+            refreshLayerNodes();
+            const html = readCurrentSlideContentHtml();
+            if (html !== null) {
+              onUpdateSlideRef.current({ content: html }, undefined, {
+                separateUndo: true,
+                persistence: "immediate",
+              });
+            }
+          }
+          const nextSelector = getBuilderSelector(element);
+          if (nextSelector) selectElementForStyling(element, nextSelector);
+          return { handled: true };
+        },
+        cancel: () => {
+          if (moveSlideFlowMember(group, element, startIndex)) measureOverlay();
+          return { handled: true };
+        },
+      });
+      controller.pointerDown({
+        kind: "move",
+        objectIds: [element.getAttribute("data-slide-object-id") ?? ""],
+        pointer: {
+          x: e.clientX,
+          y: e.clientY,
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+        },
+        viewport: viewport.rect,
+        canvas: viewport.canvas,
+      });
+
+      const pointerOf = (event: PointerEvent) => ({
+        x: event.clientX,
+        y: event.clientY,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+      });
+      const stop = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onCancel);
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
+        }
+      };
+      const onMove = (moveEvent: PointerEvent) => {
+        const update = controller.pointerMove(pointerOf(moveEvent));
+        if (update.phase !== "active") return;
+        moveEvent.preventDefault();
+        if (preserveClickWithoutMove) window.getSelection()?.removeAllRanges();
+      };
+      const onUp = (upEvent: PointerEvent) => {
+        stop();
+        const result = controller.pointerUp(pointerOf(upEvent));
+        if (!result.committed && preserveClickWithoutMove) return;
+        window.setTimeout(function clearFlowDragClickSuppression() {
+          suppressNextClickRef.current = false;
+        }, 0);
+      };
+      const onCancel = () => {
+        stop();
+        suppressNextClickRef.current = false;
+        controller.cancel();
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onCancel);
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
+    },
+    [readCurrentSlideContentHtml, refreshLayerNodes, selectElementForStyling],
+  );
+
   const startElementDrag = useCallback(
     (
       e: React.PointerEvent,
@@ -6890,6 +7174,11 @@ export default function SlideEditor({
       // hidden under the floating rich-text editor. Commit the edit before any
       // transform so the gesture moves the real object, not the editor's mirror.
       if (editingElRef.current) exitInlineEdit();
+      const flowGroup = slideAutoLayoutGroupOf(element);
+      if (flowGroup) {
+        startFlowMemberDrag(e, element, flowGroup, preserveClickWithoutMove);
+        return;
+      }
       const slideCanvas = element.closest(
         ".fmd-slide, [data-slide-canvas]",
       ) as HTMLElement | null;
@@ -7202,6 +7491,7 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       readOnly,
       selectElementForStyling,
+      startFlowMemberDrag,
       updateAlignmentGuides,
     ],
   );
@@ -7239,6 +7529,9 @@ export default function SlideEditor({
       const selector = getBuilderSelector(element);
       const initiallyAbsolute =
         getComputedStyle(element).position === "absolute";
+      // A member in an auto layout group is sized in place; the group keeps
+      // placing it, so it is never promoted to a freeform object.
+      const inFlowLayout = slideAutoLayoutGroupOf(element) !== null;
       let restoreMarkdownTree: (() => void) | undefined;
       let restoreDescendants: (() => void) | undefined;
       let promotedToFreeform = false;
@@ -7277,14 +7570,15 @@ export default function SlideEditor({
       // A press on a handle is not a resize: nothing may be written, promoted
       // or reflowed until the pointer travels past the drag threshold. Until
       // then `resizeOrigin` only has to describe a valid, non-empty box.
-      let resizeOrigin: SlideObjectGeometry = initiallyAbsolute
-        ? getObjectGeometry(element)
-        : {
-            x: 0,
-            y: 0,
-            width: element.offsetWidth,
-            height: element.offsetHeight,
-          };
+      let resizeOrigin: SlideObjectGeometry =
+        initiallyAbsolute || inFlowLayout
+          ? getObjectGeometry(element)
+          : {
+              x: 0,
+              y: 0,
+              width: element.offsetWidth,
+              height: element.offsetHeight,
+            };
       let resizeTransform = readSlideObjectTransformSnapshot(element);
       const isResizable = (
         origin: SlideObjectGeometry,
@@ -7309,7 +7603,7 @@ export default function SlideEditor({
       const beginResize = () => {
         if (began !== "pending") return began === "ready";
         began = "failed";
-        if (!initiallyAbsolute) {
+        if (!initiallyAbsolute && !inFlowLayout) {
           const frozen = freezeElementForFreeformSelection(element);
           if (!frozen || getComputedStyle(element).position !== "absolute") {
             frozen?.restoreMarkdownTree?.();
@@ -7328,7 +7622,8 @@ export default function SlideEditor({
         }
 
         const members: SlideObjectGroupResizeMember[] = [];
-        if (isSlideObjectGroup(element)) {
+        // An auto layout group reflows its members at the new size.
+        if (isSlideObjectGroup(element) && !isAutoLayoutSlideGroup(element)) {
           const pendingGroups = [element];
           while (pendingGroups.length > 0) {
             const currentGroup = pendingGroups.pop();
@@ -7525,6 +7820,17 @@ export default function SlideEditor({
           if (currentSelector)
             selectElementForStyling(element, currentSelector);
           if (promotedToFreeform) preserveSlideObjectLayoutSpacer(element);
+          if (inFlowLayout) {
+            const resized = getObjectGeometry(element);
+            fixSlideLayoutSizing(element, [
+              ...(resized.width !== resizeOrigin.width
+                ? (["horizontal"] as const)
+                : []),
+              ...(resized.height !== resizeOrigin.height
+                ? (["vertical"] as const)
+                : []),
+            ]);
+          }
           const html = readCurrentSlideContentHtml();
           if (restoreMarkdownTree) {
             removeSlideObjectLayoutSpacer(element);
@@ -8901,6 +9207,32 @@ export default function SlideEditor({
           : null);
       if (!element) return;
 
+      // In an auto layout group the arrows along its direction step the
+      // member through the flow; there is no position to nudge.
+      const flowGroup = slideAutoLayoutGroupOf(element);
+      if (flowGroup) {
+        e.preventDefault();
+        const vertical =
+          readSlideAutoLayoutFrame(flowGroup)?.mode === "vertical";
+        const step =
+          dx !== 0 && !vertical
+            ? Math.sign(dx)
+            : dy !== 0 && vertical
+              ? Math.sign(dy)
+              : 0;
+        const index = slideFlowIndexOf(flowGroup, element);
+        if (
+          step === 0 ||
+          !moveSlideFlowMember(flowGroup, element, index + step)
+        ) {
+          return;
+        }
+        commitAutoLayoutEdit({ status: "applied" });
+        const selector = getBuilderSelector(element);
+        if (selector) selectElementForStyling(element, selector);
+        return;
+      }
+
       // Arrow nudging is also a first-class way to move flow-layout text and
       // images. Promote those elements using the same reversible freeform
       // boundary as a real drag, then persist the exact resulting HTML.
@@ -8942,6 +9274,7 @@ export default function SlideEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [
     applyObjectGeometry,
+    commitAutoLayoutEdit,
     commitMultiObjectChange,
     editingEl,
     freezeElementForFreeformSelection,
@@ -10553,6 +10886,14 @@ export default function SlideEditor({
 
       if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
 
+      // `code`, not `key`: Option+Shift+A types a character on macOS.
+      if (!primary && e.shiftKey && e.code === "KeyA") {
+        handleCommand(
+          e.altKey ? handleRemoveAutoLayout() : handleAddAutoLayout(),
+        );
+        return;
+      }
+
       if (primary && e.altKey && e.key.toLowerCase() === "g") {
         handleCommand(
           e.shiftKey ? handleUngroupSelected() : handleGroupSelected(),
@@ -10650,8 +10991,10 @@ export default function SlideEditor({
     clearMultiSelection,
     editingEl,
     getSlideContent,
+    handleAddAutoLayout,
     handleArrangeSelected,
     handleGroupSelected,
+    handleRemoveAutoLayout,
     handleUngroupSelected,
     multiSelection.size,
     readOnly,
@@ -11015,6 +11358,25 @@ export default function SlideEditor({
     objectOperationSelection?.elements[0] &&
     isSlideObjectGroup(objectOperationSelection.elements[0]),
   );
+  const autoLayoutSubject =
+    multiSelection.size === 0 ? resolveSelectedElement() : null;
+  const autoLayoutState =
+    autoLayoutSubject &&
+    (isSlideObjectGroup(autoLayoutSubject) ||
+      slideAutoLayoutGroupOf(autoLayoutSubject))
+      ? {
+          frame: readSlideAutoLayoutFrame(autoLayoutSubject),
+          sizing: readSlideLayoutSizing(autoLayoutSubject),
+        }
+      : null;
+  const canAddAutoLayout =
+    canGroupObjects ||
+    Boolean(
+      canUngroupObjects &&
+      objectOperationSelection?.elements[0] &&
+      !isAutoLayoutSlideGroup(objectOperationSelection.elements[0]),
+    );
+  const canRemoveAutoLayout = Boolean(autoLayoutState?.frame);
   const selectedLayerIds = new Set(multiSelection);
   if (selectedLayerIds.size === 0) {
     const slideContent = getSlideContent();
@@ -11161,6 +11523,22 @@ export default function SlideEditor({
           {shortcutLabel("cmd+alt+shift+g")}
         </ContextMenuShortcut>
       </ContextMenuItem>
+      {canRemoveAutoLayout ? (
+        <ContextMenuItem onSelect={handleRemoveAutoLayout}>
+          {t("contextToolbar.removeAutoLayout")}
+          <ContextMenuShortcut>
+            {shortcutLabel("alt+shift+a")}
+          </ContextMenuShortcut>
+        </ContextMenuItem>
+      ) : (
+        <ContextMenuItem
+          disabled={!canAddAutoLayout}
+          onSelect={handleAddAutoLayout}
+        >
+          {t("contextToolbar.addAutoLayout")}
+          <ContextMenuShortcut>{shortcutLabel("shift+a")}</ContextMenuShortcut>
+        </ContextMenuItem>
+      )}
     </>
   );
 
@@ -11227,6 +11605,11 @@ export default function SlideEditor({
     onArrange: handleArrangeSelected,
     onGroup: handleGroupSelected,
     onUngroup: handleUngroupSelected,
+    autoLayout: autoLayoutState,
+    onAddAutoLayout: canAddAutoLayout ? handleAddAutoLayout : undefined,
+    onRemoveAutoLayout: handleRemoveAutoLayout,
+    onAutoLayoutChange: handleAutoLayoutChange,
+    onLayoutSizingChange: handleLayoutSizingChange,
     onToggleList: handleToggleList,
     objectSelectionCount: objectSelectionCount,
     canGroup: canGroupObjects,

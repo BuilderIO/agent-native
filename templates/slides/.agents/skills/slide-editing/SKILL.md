@@ -21,7 +21,7 @@ for example `skill-slide-editing--references-animations`.
 | --- | --- |
 | Changing only colors, borders, shadows, or backgrounds, or matching every slide to one slide's look | `references/restyling.md` |
 | Adding, changing, or removing click-to-reveal animations | `references/animations.md` |
-| Adding, moving, duplicating, or restyling hand-placed text boxes and other freeform objects | `references/freeform-objects.md` |
+| Adding, moving, duplicating, grouping, or restyling hand-placed text boxes and other freeform objects, including auto layout groups | `references/freeform-objects.md` |
 | Adding or editing a video | `references/video.md` |
 
 ## Wrapper and styling
@@ -148,6 +148,7 @@ Slides does, so write markup that maps cleanly:
   columns) are fine; the pointer skips them.
 - Ids belong to freeform objects only. Never stamp `data-slide-object-id` on a
   flow region: any id marks an object freeform and `export-pptx` rejects it.
+  Members of an auto layout group keep their ids while the group flows them.
   Preserve existing ids when rewriting a slide, and never save runtime
   `data-builder-id` values.
 - An empty hidden `.fmd-layout-spacer[data-slide-layout-spacer-for="ID"]`

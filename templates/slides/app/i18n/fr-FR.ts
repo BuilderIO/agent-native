@@ -631,6 +631,19 @@ const messages = {
     makeMoreVisual: "Rendre plus visuel",
     generateImage: "Générer une image",
     removeBackground: "Supprimer l'arrière-plan",
+    autoLayout: "Mise en page auto",
+    addAutoLayout: "Ajouter une mise en page auto",
+    removeAutoLayout: "Supprimer la mise en page auto",
+    direction: "Direction",
+    gap: "Espacement",
+    padding: "Marge intérieure",
+    layoutSizing: {
+      fixed: "Fixe",
+      hug: "Ajusté",
+      fill: "Remplir",
+    },
+    autoLayoutUnmeasurable:
+      "Impossible de mesurer un objet de ce groupe. Vérifiez qu'il est visible sur la diapositive et réessayez.",
   },
   styleInspector: {
     title: "Style",

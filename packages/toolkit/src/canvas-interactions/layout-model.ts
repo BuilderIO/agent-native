@@ -1,10 +1,9 @@
-import { roundGeometryStylePx } from "./canvas-math";
-
 /**
  * The one reading of a frame's layout and the one writer of changes to it.
  *
  * Every surface that decides auto layout, Hug, Fill, Fixed or freeform goes
- * through here: the inspector, the code layer, and the editor commands. Each
+ * through here: Design's inspector, code layer and editor commands, and Slides'
+ * auto layout groups. Each
  * used to re-derive "is this frame auto layout, is this child in flow, what is
  * its sizing, what size does it render at" on its own, and the same bug kept
  * shipping from whichever copy disagreed. Flexbox stays the CSS this writes;
@@ -14,6 +13,33 @@ import { roundGeometryStylePx } from "./canvas-math";
  * An input the caller could not read is a distinct state (`unreadable`), never
  * an empty list or a default size.
  */
+
+const GEOMETRY_PX_PROPERTY =
+  /^(?:left|top|right|bottom|inset(?:-(?:inline|block)(?:-(?:start|end))?)?|(?:min-|max-)?(?:width|height)|translate)$/;
+const PX_LENGTH_TOKEN = /^(?:-?(?:\d+\.?\d*|\.\d+)px|0)$/i;
+
+/**
+ * Lands a plain px value of a layer geometry property on whole pixels.
+ * Strokes, type, effects and non-px lengths keep their authored precision.
+ */
+export function roundGeometryStylePx(property: string, value: string): string {
+  const cssProperty = property
+    .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+    .toLowerCase();
+  if (!GEOMETRY_PX_PROPERTY.test(cssProperty)) return value;
+  const tokens = value.trim().split(/\s+/);
+  if (!tokens.every((t) => PX_LENGTH_TOKEN.test(t))) return value;
+  const fractional = (token: string) => {
+    const parsed = Number.parseFloat(token);
+    return token !== "0" && Math.round(parsed) !== parsed;
+  };
+  if (!tokens.some(fractional)) return value;
+  return tokens
+    .map((token) =>
+      token === "0" ? token : `${Math.round(Number.parseFloat(token)) || 0}px`,
+    )
+    .join(" ");
+}
 
 export type LayoutAxis = "horizontal" | "vertical";
 export type LayoutSizing = "fixed" | "hug" | "fill";

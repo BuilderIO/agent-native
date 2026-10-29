@@ -598,6 +598,19 @@ const messages = {
     makeMoreVisual: "更具视觉效果",
     generateImage: "生成图片",
     removeBackground: "移除背景",
+    autoLayout: "自动布局",
+    addAutoLayout: "添加自动布局",
+    removeAutoLayout: "移除自动布局",
+    direction: "方向",
+    gap: "间距",
+    padding: "内边距",
+    layoutSizing: {
+      fixed: "固定",
+      hug: "适应内容",
+      fill: "填充",
+    },
+    autoLayoutUnmeasurable:
+      "无法测量此组中的某个对象。请确认它在幻灯片上可见，然后重试。",
   },
   styleInspector: {
     title: "Style",

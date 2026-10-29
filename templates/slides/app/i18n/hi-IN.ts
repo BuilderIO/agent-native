@@ -608,6 +608,19 @@ const messages = {
     makeMoreVisual: "अधिक दृश्यात्मक बनाएँ",
     generateImage: "छवि बनाएँ",
     removeBackground: "बैकग्राउंड हटाएँ",
+    autoLayout: "ऑटो लेआउट",
+    addAutoLayout: "ऑटो लेआउट जोड़ें",
+    removeAutoLayout: "ऑटो लेआउट हटाएँ",
+    direction: "दिशा",
+    gap: "अंतर",
+    padding: "पैडिंग",
+    layoutSizing: {
+      fixed: "निश्चित",
+      hug: "सामग्री के अनुसार",
+      fill: "भरना",
+    },
+    autoLayoutUnmeasurable:
+      "इस समूह के किसी ऑब्जेक्ट को मापा नहीं जा सका। पक्का करें कि वह स्लाइड पर दिख रहा है, फिर से कोशिश करें।",
   },
   styleInspector: {
     title: "Style",

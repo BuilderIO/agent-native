@@ -16,7 +16,7 @@ import {
   type LayoutNodeInput,
   type LayoutParentInput,
   type LayoutStylePatch,
-} from "@shared/layout-model";
+} from "@agent-native/toolkit/canvas-interactions/layout-model";
 
 import { trace } from "../design-trace";
 import {

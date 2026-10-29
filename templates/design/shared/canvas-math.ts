@@ -1,3 +1,7 @@
+import { roundGeometryStylePx } from "@agent-native/toolkit/canvas-interactions/layout-model";
+
+export { roundGeometryStylePx };
+
 export interface CanvasPoint {
   x: number;
   y: number;
@@ -561,34 +565,6 @@ export function quantizeToStep(
     return Math.round(value);
   }
   return Math.round(value / step) * step;
-}
-
-const GEOMETRY_PX_PROPERTY =
-  /^(?:left|top|right|bottom|inset(?:-(?:inline|block)(?:-(?:start|end))?)?|(?:min-|max-)?(?:width|height)|translate)$/;
-const PX_LENGTH_TOKEN = /^(?:-?(?:\d+\.?\d*|\.\d+)px|0)$/i;
-
-/**
- * Lands a plain px value of a layer geometry property on whole pixels.
- * Strokes, type, effects and non-px lengths keep their authored precision.
- */
-export function roundGeometryStylePx(property: string, value: string): string {
-  const cssProperty = property
-    .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
-    .toLowerCase();
-  if (!GEOMETRY_PX_PROPERTY.test(cssProperty)) return value;
-  const tokens = value.trim().split(/\s+/);
-  if (tokens.length === 0 || !tokens.every((t) => PX_LENGTH_TOKEN.test(t))) {
-    return value;
-  }
-  let changed = false;
-  const rounded = tokens.map((token) => {
-    if (token === "0") return token;
-    const parsed = Number.parseFloat(token);
-    const whole = Math.round(parsed) || 0;
-    if (whole !== parsed) changed = true;
-    return `${whole}px`;
-  });
-  return changed ? rounded.join(" ") : value;
 }
 
 const POSITION_PX_PROPERTY =

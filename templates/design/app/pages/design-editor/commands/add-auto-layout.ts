@@ -9,7 +9,7 @@ import {
   inferFlowArrangement,
   readLayoutModel,
   writeLayoutChange,
-} from "@shared/layout-model";
+} from "@agent-native/toolkit/canvas-interactions/layout-model";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";

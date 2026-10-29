@@ -611,6 +611,19 @@ const messages = {
     makeMoreVisual: "Make more visual",
     generateImage: "Generate image",
     removeBackground: "Remove background",
+    autoLayout: "Auto layout",
+    addAutoLayout: "Add auto layout",
+    removeAutoLayout: "Remove auto layout",
+    direction: "Direction",
+    gap: "Gap",
+    padding: "Padding",
+    layoutSizing: {
+      fixed: "Fixed",
+      hug: "Hug",
+      fill: "Fill",
+    },
+    autoLayoutUnmeasurable:
+      "Couldn't measure an object in this group. Make sure it's visible on the slide and try again.",
   },
   styleInspector: {
     title: "Style",

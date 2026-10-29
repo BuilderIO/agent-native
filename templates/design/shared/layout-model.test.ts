@@ -16,7 +16,7 @@ import {
   type LayoutParentInput,
   type LayoutRect,
   type LayoutWrite,
-} from "./layout-model";
+} from "@agent-native/toolkit/canvas-interactions/layout-model";
 
 function node(overrides: Partial<LayoutNodeInput> = {}): LayoutNodeInput {
   return { id: "frame", tagName: "div", styles: {}, ...overrides };

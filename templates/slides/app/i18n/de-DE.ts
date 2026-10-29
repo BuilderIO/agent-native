@@ -623,6 +623,19 @@ const messages = {
     makeMoreVisual: "Visueller gestalten",
     generateImage: "Bild generieren",
     removeBackground: "Hintergrund entfernen",
+    autoLayout: "Auto-Layout",
+    addAutoLayout: "Auto-Layout hinzufügen",
+    removeAutoLayout: "Auto-Layout entfernen",
+    direction: "Richtung",
+    gap: "Abstand",
+    padding: "Innenabstand",
+    layoutSizing: {
+      fixed: "Fest",
+      hug: "Inhalt",
+      fill: "Füllen",
+    },
+    autoLayoutUnmeasurable:
+      "Ein Objekt in dieser Gruppe konnte nicht gemessen werden. Prüfe, ob es auf der Folie sichtbar ist, und versuche es erneut.",
   },
   styleInspector: {
     title: "Style",

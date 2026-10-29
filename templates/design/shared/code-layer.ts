@@ -44,7 +44,7 @@ import {
   type LayoutNodeInput,
   type LayoutRect,
   type LayoutStylePatch,
-} from "./layout-model";
+} from "@agent-native/toolkit/canvas-interactions/layout-model";
 import {
   LINE_SEGMENT_PROPERTY,
   lineSegmentPathData,
