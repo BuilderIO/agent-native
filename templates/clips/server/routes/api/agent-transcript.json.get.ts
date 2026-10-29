@@ -7,10 +7,6 @@ import {
 } from "h3";
 
 import {
-  originalToEdited,
-  parseEdits,
-} from "../../../app/lib/timestamp-mapping.js";
-import {
   buildAgentApiUrls,
   CLIPS_WEBMCP_DISCOVERY,
   CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS,
@@ -18,10 +14,6 @@ import {
   nextAgentTranscriptStartMs,
 } from "../../../shared/agent-context.js";
 import { isEmbedBackedRecording } from "../../../shared/embed-provider.js";
-import {
-  editedTimelineState,
-  EDITED_TIMELINE_UNAVAILABLE,
-} from "../../lib/agent-edited-timeline.js";
 import {
   applyAgentJsonHeaders,
   CLIPS_AGENT_ACCESS_PARAM,
@@ -158,33 +150,10 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const recording = accessResult.access.recording;
-  if (editedTimelineState(recording.editsJson) === "invalid") {
-    setResponseStatus(event, 409);
-    return EDITED_TIMELINE_UNAVAILABLE;
-  }
-  let loaded: Awaited<ReturnType<typeof loadAgentTranscript>>;
-  try {
-    loaded = await loadAgentTranscript(
-      recording.id,
-      recording.durationMs,
-      recording.editsJson,
-    );
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      error.code === "EDITED_TRANSCRIPT_UNAVAILABLE"
-    ) {
-      setResponseStatus(event, 409);
-      return {
-        failureKind: "unavailable",
-        error: error.message,
-        nextStep: "Use the clip player to view the edited recording.",
-      };
-    }
-    throw error;
-  }
-  const { transcript, agentSegments } = loaded;
+  const { transcript, agentSegments } = await loadAgentTranscript(
+    recording.id,
+    recording.durationMs,
+  );
   const api = buildAgentApiUrls(recording.id, {
     origin: getForwardedRequestOrigin(event),
     basePath: getServerAppBasePath(),
@@ -203,12 +172,7 @@ export default defineEventHandler(async (event: H3Event) => {
     recording: {
       id: recording.id,
       title: recording.title,
-      durationMs: recording.editsJson
-        ? originalToEdited(
-            recording.durationMs,
-            parseEdits(recording.editsJson),
-          )
-        : recording.durationMs,
+      durationMs: recording.durationMs,
       status: recording.status,
       agentReadiness,
     },

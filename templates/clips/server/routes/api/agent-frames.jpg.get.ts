@@ -19,12 +19,6 @@ import {
 } from "h3";
 
 import {
-  editedToOriginal,
-  effectiveDuration,
-  getExcludedRanges,
-  parseEdits,
-} from "../../../app/lib/timestamp-mapping.js";
-import {
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
@@ -44,7 +38,6 @@ import {
 } from "../../lib/video-frame-sheet.js";
 import {
   extractJpegFrameSheetFromFile,
-  extractEditedJpegFrameSheetFromFile,
   probeFrameSheetFpsFromFile,
   probeMediaDurationMsFromFile,
   VideoFrameExtractionError,
@@ -138,27 +131,13 @@ export default defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  const edits = parseEdits(recording.editsJson);
-  const cuts = getExcludedRanges(edits);
-  const hasCuts = cuts.length > 0;
-  const editedDurationMs = hasCuts
-    ? effectiveDuration(recording.durationMs, edits)
-    : recording.durationMs;
-  if (hasCuts && editedDurationMs <= 0) {
-    return sendFrameJson(event, 422, {
-      failureKind: "unsupported",
-      error: "This clip has no visible frames after its trims.",
-      nextStep: "Restore part of the recording before requesting frames.",
-    });
-  }
-
   const parsed = parseFrameSheetRequest({
     startMs: queryString(query.startMs),
     endMs: queryString(query.endMs),
     fps: queryString(query.fps),
   });
   if (!parsed.ok) return requestFailure(event, parsed);
-  const range = clampFrameSheetRange(parsed.value, editedDurationMs);
+  const range = clampFrameSheetRange(parsed.value, recording.durationMs);
   if (!range.ok) return requestFailure(event, range);
 
   // Plan against a duration: clamp the request to it, then lay out the grid.
@@ -175,11 +154,9 @@ export default defineEventHandler(async (event: H3Event) => {
   };
   // With fps given, an oversized request fails before the media download.
   const earlyPlan =
-    parsed.value.fps === null ||
-    (hasCuts &&
-      frameSheetReachesPast(parsed.value, parsed.value.fps, editedDurationMs))
+    parsed.value.fps === null
       ? null
-      : planWithin(parsed.value.fps, editedDurationMs);
+      : planWithin(parsed.value.fps, recording.durationMs);
   if (earlyPlan && !earlyPlan.ok) return requestFailure(event, earlyPlan);
 
   try {
@@ -191,129 +168,20 @@ export default defineEventHandler(async (event: H3Event) => {
       // past it, plan against the file's real duration so the sheet covers
       // the range that was asked for, not an earlier one. If the probe fails,
       // plan without a duration rather than move the range on the stored one.
-      const reachesPast = frameSheetReachesPast(
+      const durationMs = frameSheetReachesPast(
         parsed.value,
         fps,
-        editedDurationMs,
-      );
-      const probedDurationMs = reachesPast
+        recording.durationMs,
+      )
         ? await probeMediaDurationMsFromFile(media.path)
-        : null;
-      if (hasCuts && reachesPast && probedDurationMs === null) {
-        throw new VideoFrameExtractionError(
-          "EXTRACTION_FAILED",
-          "Could not determine the source duration for this trimmed range.",
-        );
-      }
-      const sourceDurationMs = hasCuts
-        ? (probedDurationMs ?? recording.durationMs)
         : recording.durationMs;
-      const durationMs = hasCuts
-        ? effectiveDuration(sourceDurationMs, edits)
-        : reachesPast
-          ? probedDurationMs
-          : editedDurationMs;
       const plan = planWithin(fps, durationMs);
       if (!plan.ok) return requestFailure(event, plan);
-      const extractEdited = (
-        editedPlan: FrameSheetPlan,
-        sourceDurationMs: number,
-      ) => {
-        if (cuts.every((cut) => editedPlan.endMs <= cut.startMs)) {
-          return extractJpegFrameSheetFromFile({
-            mediaPath: media.path,
-            plan: editedPlan,
-          });
-        }
-        return extractEditedJpegFrameSheetFromFile({
-          mediaPath: media.path,
-          plan: editedPlan,
-          sourceFrames: editedPlan.frameTimesMs.map((editedMs) => {
-            const atMs = editedToOriginal(editedMs, edits);
-            return {
-              atMs,
-              visibleStartMs: cuts.reduce(
-                (start, cut) =>
-                  cut.endMs <= atMs ? Math.max(start, cut.endMs) : start,
-                0,
-              ),
-              visibleEndMs: Math.min(
-                sourceDurationMs,
-                cuts.find((cut) => cut.startMs > atMs)?.startMs ??
-                  sourceDurationMs,
-              ),
-            };
-          }),
-        });
-      };
-      let result: { plan: FrameSheetPlan; sheet: Uint8Array };
-      if (hasCuts) {
-        try {
-          result = {
-            plan: plan.value,
-            sheet: await extractEdited(plan.value, sourceDurationMs),
-          };
-        } catch (error) {
-          if (
-            !(error instanceof VideoFrameExtractionError) ||
-            error.code !== "NO_FRAME_AT_TIMESTAMP"
-          )
-            throw error;
-          const actualDurationMs =
-            probedDurationMs ??
-            (await probeMediaDurationMsFromFile(media.path));
-          if (
-            actualDurationMs === null ||
-            actualDurationMs >= recording.durationMs
-          )
-            throw error;
-          const actualEditedDurationMs = effectiveDuration(
-            actualDurationMs,
-            edits,
-          );
-          if (
-            actualEditedDurationMs <= 0 ||
-            (!(reachesPast && probedDurationMs !== null) &&
-              !plan.value.frameTimesMs.some(
-                (time) => editedToOriginal(time, edits) >= actualDurationMs,
-              ))
-          )
-            throw error;
-          let recovered:
-            | { plan: FrameSheetPlan; sheet: Uint8Array }
-            | undefined;
-          const candidates = [
-            actualEditedDurationMs,
-            Math.max(1, actualEditedDurationMs - 1000),
-            1,
-          ];
-          for (const candidate of [...new Set(candidates)]) {
-            const retry = planWithin(fps, candidate);
-            if (!retry.ok) continue;
-            try {
-              recovered = {
-                plan: retry.value,
-                sheet: await extractEdited(retry.value, actualDurationMs),
-              };
-              break;
-            } catch (retryError) {
-              if (
-                !(retryError instanceof VideoFrameExtractionError) ||
-                retryError.code !== "NO_FRAME_AT_TIMESTAMP"
-              )
-                throw retryError;
-            }
-          }
-          if (!recovered) throw error;
-          result = recovered;
-        }
-      } else {
-        result = await extractSheetWithStaleDurationRecovery({
-          mediaPath: media.path,
-          plan: plan.value,
-          replan: (actualDurationMs) => planWithin(fps, actualDurationMs),
-        });
-      }
+      const result = await extractSheetWithStaleDurationRecovery({
+        mediaPath: media.path,
+        plan: plan.value,
+        replan: (actualDurationMs) => planWithin(fps, actualDurationMs),
+      });
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);
     } finally {

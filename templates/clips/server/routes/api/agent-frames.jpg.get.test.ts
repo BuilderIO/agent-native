@@ -1,10 +1,3 @@
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-import ffmpegPath from "ffmpeg-static";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetQuery = vi.hoisted(() => vi.fn());
@@ -14,7 +7,6 @@ const mockApplyAgentJsonHeaders = vi.hoisted(() => vi.fn());
 const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
 const mockLoadRecordingMediaFile = vi.hoisted(() => vi.fn());
 const mockExtractJpegFrameSheetFromFile = vi.hoisted(() => vi.fn());
-const mockExtractEditedJpegFrameSheetFromFile = vi.hoisted(() => vi.fn());
 const mockProbeFrameSheetFpsFromFile = vi.hoisted(() => vi.fn());
 const mockProbeMediaDurationMsFromFile = vi.hoisted(() => vi.fn());
 const mockCleanupMediaFile = vi.hoisted(() => vi.fn());
@@ -60,8 +52,6 @@ vi.mock("../../lib/public-agent-context.js", () => ({
 }));
 
 vi.mock("../../lib/video-frame.js", () => ({
-  extractEditedJpegFrameSheetFromFile: (...args: unknown[]) =>
-    mockExtractEditedJpegFrameSheetFromFile(...args),
   extractJpegFrameSheetFromFile: (...args: unknown[]) =>
     mockExtractJpegFrameSheetFromFile(...args),
   probeFrameSheetFpsFromFile: (...args: unknown[]) =>
@@ -72,17 +62,6 @@ vi.mock("../../lib/video-frame.js", () => ({
 }));
 
 import handler from "./agent-frames.jpg.get";
-const ffmpegBinary =
-  ffmpegPath && existsSync(ffmpegPath)
-    ? ffmpegPath
-    : (() => {
-        try {
-          execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
-          return "ffmpeg";
-        } catch {
-          return null;
-        }
-      })();
 
 function makeAccess(recording: Record<string, unknown> = {}) {
   return {
@@ -142,135 +121,11 @@ describe("agent-frames.jpg route", () => {
       cleanup: mockCleanupMediaFile,
     });
     mockCleanupMediaFile.mockResolvedValue(undefined);
-    mockExtractEditedJpegFrameSheetFromFile.mockResolvedValue(
-      new Uint8Array([0xff, 0xd8, 0xff]),
-    );
     mockExtractJpegFrameSheetFromFile.mockResolvedValue(
       new Uint8Array([0xff, 0xd8, 0xff]),
     );
     mockProbeFrameSheetFpsFromFile.mockResolvedValue(30);
     mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
-  });
-
-  it("returns real sheet pixels across a cut", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "clips-agent-sheet-route-"));
-    const video = join(dir, "colors.mp4");
-    const sheet = join(dir, "sheet.jpg");
-    try {
-      execFileSync(ffmpegBinary ?? "ffmpeg", [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-f",
-        "lavfi",
-        "-i",
-        "color=red:s=64x64:r=10:d=1",
-        "-f",
-        "lavfi",
-        "-i",
-        "color=blue:s=64x64:r=10:d=1",
-        "-f",
-        "lavfi",
-        "-i",
-        "color=green:s=64x64:r=10:d=1",
-        "-filter_complex",
-        "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]",
-        "-map",
-        "[v]",
-        "-c:v",
-        "mpeg4",
-        video,
-      ]);
-      const actual = await vi.importActual<
-        typeof import("../../lib/video-frame.js")
-      >("../../lib/video-frame.js");
-      mockExtractEditedJpegFrameSheetFromFile.mockImplementation(
-        actual.extractEditedJpegFrameSheetFromFile,
-      );
-      mockLoadRecordingMediaFile.mockResolvedValue({
-        path: video,
-        mimeType: "video/mp4",
-        cleanup: mockCleanupMediaFile,
-      });
-      mockLoadPublicAgentAccess.mockResolvedValue({
-        ok: true,
-        access: makeAccess({
-          durationMs: 3000,
-          width: 64,
-          height: 64,
-          editsJson: JSON.stringify({
-            trims: [{ startMs: 1000, endMs: 2000, excluded: true }],
-          }),
-        }),
-      });
-      const { event, body } = await run({
-        startMs: "500",
-        endMs: "1500",
-        fps: "2",
-      });
-      expect(event.status).toBe(200);
-      expect(event.headers.get("x-clips-frame-sheet-times")).toBe("500,1000");
-      await writeFile(sheet, body);
-      const rgb = execFileSync(ffmpegBinary ?? "ffmpeg", [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        sheet,
-        "-vf",
-        "scale=2:1",
-        "-frames:v",
-        "1",
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        "rgb24",
-        "-",
-      ]);
-      expect(rgb.readUInt8(0)).toBeGreaterThan(rgb.readUInt8(2));
-      expect(rgb.readUInt8(4)).toBeGreaterThan(rgb.readUInt8(5));
-      expect(mockCleanupMediaFile).toHaveBeenCalled();
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("uses one decode pass for a sheet wholly before the first cut", async () => {
-    mockLoadPublicAgentAccess.mockResolvedValue({
-      ok: true,
-      access: makeAccess({
-        editsJson: JSON.stringify({
-          trims: [{ startMs: 4000, endMs: 5000, excluded: true }],
-        }),
-      }),
-    });
-    const { event } = await run({ startMs: "1000", endMs: "3000", fps: "2" });
-    expect(event.status).toBe(200);
-    expect(mockExtractJpegFrameSheetFromFile).toHaveBeenCalledTimes(1);
-    expect(mockExtractEditedJpegFrameSheetFromFile).not.toHaveBeenCalled();
-  });
-
-  it("maps sheet samples across a cut on the edited timeline", async () => {
-    mockLoadPublicAgentAccess.mockResolvedValue({
-      ok: true,
-      access: makeAccess({
-        editsJson: JSON.stringify({
-          trims: [{ startMs: 2000, endMs: 4000, excluded: true }],
-        }),
-      }),
-    });
-    const { event } = await run({ startMs: "1000", endMs: "3000", fps: "1" });
-    expect(event.status).toBe(200);
-    expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sourceFrames: [
-          { atMs: 1000, visibleStartMs: 0, visibleEndMs: 2000 },
-          { atMs: 4000, visibleStartMs: 4000, visibleEndMs: 10000 },
-        ],
-      }),
-    );
-    expect(event.headers.get("x-clips-frame-sheet-times")).toBe("1000,2000");
   });
 
   it("returns one JPEG sheet with each cell's time in the headers", async () => {
@@ -335,121 +190,6 @@ describe("agent-frames.jpg route", () => {
     mockProbeMediaDurationMsFromFile.mockResolvedValue(10_000);
     await run({ startMs: "9900", fps: "30" });
     expect(lastPlan()).toMatchObject({ startMs: 9900, frameCount: 3 });
-  });
-
-  it("replans trimmed sheets against the actual source duration", async () => {
-    mockLoadPublicAgentAccess.mockResolvedValue({
-      ok: true,
-      access: makeAccess({
-        durationMs: 10000,
-        editsJson: JSON.stringify({
-          trims: [{ startMs: 1000, endMs: 3000, excluded: true }],
-        }),
-      }),
-    });
-    mockProbeMediaDurationMsFromFile.mockResolvedValue(5000);
-    mockExtractEditedJpegFrameSheetFromFile.mockRejectedValueOnce(
-      new MockVideoFrameExtractionError("NO_FRAME_AT_TIMESTAMP", "No frame"),
-    );
-    const { event } = await run({ startMs: "7000", fps: "2" });
-    expect(event.status).toBe(200);
-    expect(event.headers.get("x-clips-frame-sheet-times")).toBe("2997");
-    expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        sourceFrames: [
-          { atMs: 4997, visibleStartMs: 3000, visibleEndMs: 5000 },
-        ],
-      }),
-    );
-  });
-
-  it("backs up within the visible timeline when the last millisecond has no frame", async () => {
-    mockLoadPublicAgentAccess.mockResolvedValue({
-      ok: true,
-      access: makeAccess({
-        durationMs: 10000,
-        editsJson: JSON.stringify({
-          trims: [{ startMs: 1000, endMs: 3000, excluded: true }],
-        }),
-      }),
-    });
-    mockProbeMediaDurationMsFromFile.mockResolvedValue(5000);
-    const missing = new MockVideoFrameExtractionError(
-      "NO_FRAME_AT_TIMESTAMP",
-      "No frame",
-    );
-    mockExtractEditedJpegFrameSheetFromFile
-      .mockRejectedValueOnce(missing)
-      .mockRejectedValueOnce(missing)
-      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
-    const { event } = await run({ startMs: "7000", fps: "2" });
-    expect(event.status).toBe(200);
-    expect(event.headers.get("x-clips-frame-sheet-times")).toBe("1997");
-    expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        sourceFrames: [
-          { atMs: 3997, visibleStartMs: 3000, visibleEndMs: 5000 },
-        ],
-      }),
-    );
-  });
-
-  it("does not move a trimmed sheet when a cut boundary has no frame", async () => {
-    mockLoadPublicAgentAccess.mockResolvedValue({
-      ok: true,
-      access: makeAccess({
-        durationMs: 10000,
-        editsJson: JSON.stringify({
-          trims: [{ startMs: 1000, endMs: 3000, excluded: true }],
-        }),
-      }),
-    });
-    mockProbeMediaDurationMsFromFile.mockResolvedValue(5000);
-    mockExtractEditedJpegFrameSheetFromFile.mockRejectedValue(
-      new MockVideoFrameExtractionError("NO_FRAME_AT_TIMESTAMP", "No frame"),
-    );
-    const { event } = await run({ startMs: "999", endMs: "1499", fps: "2" });
-    expect(event.status).toBe(422);
-    expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenCalledTimes(1);
-  });
-
-  it("probes an understated source duration before planning trimmed sheets", async () => {
-    mockLoadPublicAgentAccess.mockResolvedValue({
-      ok: true,
-      access: makeAccess({
-        durationMs: 5000,
-        editsJson: JSON.stringify({
-          trims: [{ startMs: 1000, endMs: 2000, excluded: true }],
-        }),
-      }),
-    });
-    mockProbeMediaDurationMsFromFile.mockResolvedValue(8000);
-    const { event } = await run({ startMs: "5000", endMs: "5500", fps: "2" });
-    expect(event.status).toBe(200);
-    expect(event.headers.get("x-clips-frame-sheet-times")).toBe("5000");
-    expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sourceFrames: [
-          { atMs: 6000, visibleStartMs: 2000, visibleEndMs: 8000 },
-        ],
-      }),
-    );
-  });
-
-  it("does not return a shortened edited sheet when the source duration cannot be probed", async () => {
-    mockLoadPublicAgentAccess.mockResolvedValue({
-      ok: true,
-      access: makeAccess({
-        durationMs: 5000,
-        editsJson: JSON.stringify({
-          trims: [{ startMs: 1000, endMs: 2000, excluded: true }],
-        }),
-      }),
-    });
-    mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
-    const { event } = await run({ startMs: "5000", endMs: "5500", fps: "2" });
-    expect(event.status).toBe(502);
-    expect(mockExtractEditedJpegFrameSheetFromFile).not.toHaveBeenCalled();
   });
 
   it("plans again inside the real duration when the stored one is too long", async () => {

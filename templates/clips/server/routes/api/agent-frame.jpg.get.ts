@@ -18,19 +18,12 @@ import {
 } from "h3";
 
 import {
-  editedToOriginal,
-  effectiveDuration,
-  getExcludedRanges,
-  parseEdits,
-} from "../../../app/lib/timestamp-mapping.js";
-import {
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
   sendFrameJson,
 } from "../../lib/agent-frame-request.js";
 import {
-  agentFrameMediaKey,
   clampAgentFrameAtMs,
   loadStoredAgentFrame,
 } from "../../lib/agent-frame-store.js";
@@ -70,14 +63,12 @@ function cacheKey({
   recordingId,
   updatedAt,
   atMs,
-  mediaKey,
 }: {
   recordingId: string;
   updatedAt: string;
   atMs: number;
-  mediaKey: string;
 }): string {
-  return JSON.stringify([recordingId, updatedAt, atMs, mediaKey]);
+  return `${recordingId}:${updatedAt}:${atMs}`;
 }
 
 function getCachedFrame(key: string): Buffer | null {
@@ -221,77 +212,6 @@ async function extractFrameWithStaleDurationRecovery({
   }
 }
 
-async function extractEditedFrameWithStaleDurationRecovery({
-  mediaPath,
-  atMs,
-  editedMs,
-  durationMs,
-  edits,
-}: {
-  mediaPath: string;
-  atMs: number;
-  editedMs: number;
-  durationMs: number;
-  edits: ReturnType<typeof parseEdits>;
-}): Promise<{ frame: Uint8Array; atMs: number; editedMs: number }> {
-  const cuts = getExcludedRanges(edits);
-  const extract = (sourceMs: number, sourceDurationMs: number) =>
-    extractJpegFrameFromFile({
-      mediaPath,
-      atMs: sourceMs,
-      visibleStartMs: cuts.reduce(
-        (start, cut) =>
-          cut.endMs <= sourceMs ? Math.max(start, cut.endMs) : start,
-        0,
-      ),
-      visibleEndMs: Math.min(
-        sourceDurationMs,
-        cuts.find((cut) => cut.startMs > sourceMs)?.startMs ?? sourceDurationMs,
-      ),
-    });
-  try {
-    return { frame: await extract(atMs, durationMs), atMs, editedMs };
-  } catch (error) {
-    if (
-      !(error instanceof VideoFrameExtractionError) ||
-      error.code !== "NO_FRAME_AT_TIMESTAMP"
-    )
-      throw error;
-    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
-    if (
-      actualDurationMs === null ||
-      actualDurationMs >= durationMs ||
-      atMs < actualDurationMs
-    )
-      throw error;
-    const actualEditedDurationMs = effectiveDuration(actualDurationMs, edits);
-    if (actualEditedDurationMs <= 0) throw error;
-    const candidates = [
-      Math.max(0, actualEditedDurationMs - 1),
-      Math.max(0, actualEditedDurationMs - 1000),
-      0,
-    ];
-    for (const candidate of [...new Set(candidates)]) {
-      const sourceMs = editedToOriginal(candidate, edits);
-      if (sourceMs >= actualDurationMs) continue;
-      try {
-        return {
-          frame: await extract(sourceMs, actualDurationMs),
-          atMs: sourceMs,
-          editedMs: candidate,
-        };
-      } catch (candidateError) {
-        if (
-          !(candidateError instanceof VideoFrameExtractionError) ||
-          candidateError.code !== "NO_FRAME_AT_TIMESTAMP"
-        )
-          throw candidateError;
-      }
-    }
-    throw error;
-  }
-}
-
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
   const accessResult = await loadAgentFrameAccess(event);
@@ -320,23 +240,11 @@ export default defineEventHandler(async (event: H3Event) => {
     queryString(query.atMs),
     queryString(query.tSeconds),
   );
-  const edits = parseEdits(recording.editsJson);
-  const hasCuts = getExcludedRanges(edits).length > 0;
-  const editedDurationMs = effectiveDuration(durationMs, edits);
-  if (hasCuts && editedDurationMs <= 0) {
-    return sendFrameJson(event, 422, {
-      failureKind: "unsupported",
-      error: "This clip has no visible frames after its trims.",
-      nextStep: "Restore part of the recording before requesting a frame.",
-    });
-  }
-  const editedMs = clampAgentFrameAtMs(requestedMs, editedDurationMs);
-  const atMs = editedToOriginal(editedMs, edits);
+  const atMs = clampAgentFrameAtMs(requestedMs, durationMs);
   const key = cacheKey({
     recordingId: recording.id,
     updatedAt: recording.updatedAt,
     atMs,
-    mediaKey: `${agentFrameMediaKey(recording)}:${durationMs}`,
   });
 
   const access = accessResult.access;
@@ -355,9 +263,7 @@ export default defineEventHandler(async (event: H3Event) => {
     return cached;
   }
 
-  const lookup = hasCuts
-    ? { claim: null }
-    : await loadStoredAgentFrame(recording, atMs);
+  const lookup = await loadStoredAgentFrame(recording, atMs);
   if ("frame" in lookup) {
     await persistDefaultThumbnailIfMissing(
       access,
@@ -375,18 +281,10 @@ export default defineEventHandler(async (event: H3Event) => {
   try {
     const media = await loadRecordingMediaFile(recording);
     try {
-      const resolved = hasCuts
-        ? await extractEditedFrameWithStaleDurationRecovery({
-            mediaPath: media.path,
-            atMs,
-            editedMs,
-            durationMs,
-            edits,
-          })
-        : await extractFrameWithStaleDurationRecovery({
-            mediaPath: media.path,
-            atMs,
-          });
+      const resolved = await extractFrameWithStaleDurationRecovery({
+        mediaPath: media.path,
+        atMs,
+      });
 
       await persistDefaultThumbnailIfMissing(
         access,
@@ -396,13 +294,7 @@ export default defineEventHandler(async (event: H3Event) => {
       );
 
       if (resolved.atMs !== atMs) {
-        return redirectToResolvedFrame(
-          event,
-          access,
-          "editedMs" in resolved && typeof resolved.editedMs === "number"
-            ? resolved.editedMs
-            : resolved.atMs,
-        );
+        return redirectToResolvedFrame(event, access, resolved.atMs);
       }
 
       await claim?.fill(

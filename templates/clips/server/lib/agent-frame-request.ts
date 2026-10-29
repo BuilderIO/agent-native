@@ -78,45 +78,6 @@ export async function loadAgentFrameAccess(
 
   const recording = accessResult.access.recording;
 
-  if (recording.editsJson) {
-    let valid = false;
-    try {
-      const edits: unknown = JSON.parse(recording.editsJson);
-      if (edits && typeof edits === "object" && !Array.isArray(edits)) {
-        const trims = (edits as { trims?: unknown }).trims;
-        valid =
-          trims === undefined ||
-          (Array.isArray(trims) &&
-            trims.every((trim: unknown) => {
-              if (!trim || typeof trim !== "object") return false;
-              const t = trim as Record<string, unknown>;
-              return (
-                typeof t.startMs === "number" &&
-                Number.isFinite(t.startMs) &&
-                t.startMs >= 0 &&
-                typeof t.endMs === "number" &&
-                Number.isFinite(t.endMs) &&
-                t.endMs >= t.startMs &&
-                typeof t.excluded === "boolean"
-              );
-            }));
-      }
-    } catch {
-      valid = false;
-    }
-    if (!valid) {
-      return {
-        ok: false,
-        body: sendFrameJson(event, 422, {
-          failureKind: "unsupported",
-          error: "This clip's edits could not be read safely.",
-          nextStep:
-            "Ask the owner to check and save the clip's edits before requesting frames.",
-        }),
-      };
-    }
-  }
-
   if (
     isHeldForRedaction(
       recording.editsJson,

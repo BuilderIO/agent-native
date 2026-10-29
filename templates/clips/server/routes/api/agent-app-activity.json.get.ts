@@ -9,10 +9,6 @@ import {
   filterAppActivityEvents,
   MAX_APP_ACTIVITY_EVENTS,
 } from "../../../shared/app-activity.js";
-import {
-  EDITED_TIMELINE_UNAVAILABLE,
-  hasUnavailableEditedTimeline,
-} from "../../lib/agent-edited-timeline.js";
 import { loadRecordingAppActivity } from "../../lib/app-activity.js";
 import {
   applyAgentJsonHeaders,
@@ -86,11 +82,6 @@ export default defineEventHandler(async (event: H3Event) => {
       nextStep:
         "Ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
     };
-  }
-
-  if (hasUnavailableEditedTimeline(accessResult.access.recording.editsJson)) {
-    setResponseStatus(event, 409);
-    return EDITED_TIMELINE_UNAVAILABLE;
   }
 
   let window: ReturnType<typeof parseWindow>;

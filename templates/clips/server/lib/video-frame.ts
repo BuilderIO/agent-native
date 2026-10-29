@@ -3,8 +3,6 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { MAX_AGENT_FRAME_SHEET_FRAMES } from "@shared/agent-context";
-
 import {
   frameSheetFfmpegArgs,
   frameSheetFpsFromProbe,
@@ -289,13 +287,9 @@ export async function extractJpegFrame({
 export async function extractJpegFrameFromFile({
   mediaPath,
   atMs,
-  visibleEndMs,
-  visibleStartMs = 0,
 }: {
   mediaPath: string;
   atMs: number;
-  visibleEndMs?: number;
-  visibleStartMs?: number;
 }): Promise<Uint8Array> {
   const info = await stat(mediaPath);
   if (!info.size) {
@@ -318,15 +312,14 @@ export async function extractJpegFrameFromFile({
         // ffmpeg starts at the first frame at or after -ss. Comment times are
         // a frame start rounded up to a whole millisecond, so begin 1 ms
         // early to keep a sub-millisecond start (30 fps MP4) on that frame.
-        ...(visibleEndMs === undefined ? [] : ["-copyts", "-start_at_zero"]),
         "-ss",
-        String(Math.max(visibleStartMs, atMs - 1) / 1000),
+        String(Math.max(0, atMs - 1) / 1000),
         "-i",
         mediaPath,
         "-frames:v",
         "1",
         "-vf",
-        `${visibleEndMs === undefined ? "" : `trim=start=${Math.max(visibleStartMs, atMs - 1) / 1000}:end=${visibleEndMs / 1000},`}scale='min(1280,iw)':-2`,
+        "scale='min(1280,iw)':-2",
         "-q:v",
         "3",
         outputPath,
@@ -452,166 +445,6 @@ export async function extractJpegFrameSheetFromFile({
     } catch (err) {
       if (err instanceof VideoFrameExtractionError) throw err;
       throw mapFfmpegError(err);
-    } finally {
-      await rm(dir, { recursive: true, force: true }).catch(() => {});
-    }
-  });
-}
-
-export async function extractEditedJpegFrameSheetFromFile({
-  mediaPath,
-  plan,
-  sourceFrames,
-}: {
-  mediaPath: string;
-  plan: FrameSheetPlan;
-  sourceFrames: Array<{
-    atMs: number;
-    visibleEndMs: number;
-    visibleStartMs?: number;
-  }>;
-}): Promise<Uint8Array> {
-  if (
-    sourceFrames.length !== plan.frameCount ||
-    !sourceFrames.length ||
-    sourceFrames.length > MAX_AGENT_FRAME_SHEET_FRAMES
-  ) {
-    throw new VideoFrameExtractionError(
-      "EXTRACTION_FAILED",
-      "Invalid edited frame sheet plan.",
-    );
-  }
-  const info = await stat(mediaPath);
-  if (!info.size)
-    throw new VideoFrameExtractionError(
-      "EMPTY_MEDIA",
-      "Recording media is empty.",
-    );
-  return withFrameExtractionSlot(async () => {
-    const dir = await mkdtemp(join(tmpdir(), "clips-edited-sheet-"));
-    const outputPath = join(dir, "sheet.jpg");
-    try {
-      const batchSize =
-        plan.columns * Math.max(1, Math.floor(12 / plan.columns));
-      const deadline = Date.now() + FRAME_SHEET_TIMEOUT_MS;
-      const remaining = () => Math.max(1, deadline - Date.now());
-      const batches: string[] = [];
-      for (let offset = 0; offset < sourceFrames.length; offset += batchSize) {
-        const frames = sourceFrames.slice(offset, offset + batchSize);
-        const batchPath = join(dir, `batch-${batches.length}.jpg`);
-        const seekMs = Math.min(
-          ...frames.map(({ atMs, visibleStartMs = 0 }) =>
-            Math.max(visibleStartMs, atMs - 1),
-          ),
-        );
-        const inputs = [
-          "-threads",
-          "1",
-          "-ss",
-          String(seekMs / 1000),
-          "-i",
-          mediaPath,
-        ];
-        const streams = frames.map((_, index) => `[input${index}]`).join("");
-        const split =
-          frames.length === 1
-            ? `[0:v]null${streams}`
-            : `[0:v]split=${frames.length}${streams}`;
-        const cells = frames.map(
-          ({ atMs, visibleEndMs, visibleStartMs = 0 }, index) =>
-            `[input${index}]trim=start=${Math.max(visibleStartMs, atMs - 1) / 1000}:end=${visibleEndMs / 1000},trim=end_frame=1,setpts=PTS-STARTPTS,scale=${plan.cellWidth}:${plan.cellHeight}:force_original_aspect_ratio=decrease,pad=${plan.cellWidth}:${plan.cellHeight}:-1:-1:color=black[c${index}]`,
-        );
-        const labels = frames.map((_, index) => `[c${index}]`).join("");
-        const layout = frames
-          .map(
-            (_, index) =>
-              `${(index % plan.columns) * plan.cellWidth}_${Math.floor(index / plan.columns) * plan.cellHeight}`,
-          )
-          .join("|");
-        const stack =
-          frames.length === 1
-            ? `${labels}null[stack]`
-            : `${labels}xstack=inputs=${frames.length}:layout=${layout}:fill=black:shortest=1[stack]`;
-        const pad = `[stack]pad=${plan.columns * plan.cellWidth}:ih:0:0:color=black[out]`;
-        await runFfmpeg(
-          [
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostdin",
-            "-y",
-            "-copyts",
-            "-start_at_zero",
-            ...inputs,
-            "-filter_complex_threads",
-            "1",
-            "-filter_complex",
-            [split, ...cells, stack, pad].join(";"),
-            "-map",
-            "[out]",
-            "-frames:v",
-            "1",
-            "-q:v",
-            "2",
-            batchPath,
-          ],
-          remaining(),
-        ).catch((err) => {
-          throw mapFfmpegError(err);
-        });
-        let batchInfo;
-        try {
-          batchInfo = await stat(batchPath);
-        } catch (err) {
-          const code =
-            err instanceof Error && "code" in err ? err.code : undefined;
-          if (code !== "ENOENT") throw err;
-        }
-        if (!batchInfo?.size)
-          throw new VideoFrameExtractionError(
-            "NO_FRAME_AT_TIMESTAMP",
-            "A frame was unavailable in the visible range.",
-          );
-        batches.push(batchPath);
-      }
-      if (batches.length === 1 && batches[0])
-        return new Uint8Array(await readFile(batches[0]));
-      await runFfmpeg(
-        [
-          "-hide_banner",
-          "-loglevel",
-          "error",
-          "-nostdin",
-          "-y",
-          ...batches.flatMap((path) => ["-i", path]),
-          "-filter_complex",
-          `${batches.map((_, i) => `[${i}:v]`).join("")}vstack=inputs=${batches.length}[out]`,
-          "-map",
-          "[out]",
-          "-frames:v",
-          "1",
-          "-q:v",
-          "3",
-          outputPath,
-        ],
-        remaining(),
-      ).catch((err) => {
-        throw mapFfmpegError(err);
-      });
-      let output;
-      try {
-        output = await stat(outputPath);
-      } catch (err) {
-        const code =
-          err instanceof Error && "code" in err ? err.code : undefined;
-        if (code !== "ENOENT") throw err;
-      }
-      if (!output?.size)
-        throw new VideoFrameExtractionError(
-          "NO_FRAME_AT_TIMESTAMP",
-          "A frame was unavailable in the visible range.",
-        );
-      return new Uint8Array(await readFile(outputPath));
     } finally {
       await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
