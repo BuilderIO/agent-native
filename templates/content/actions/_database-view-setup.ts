@@ -56,7 +56,12 @@ const filterSchema = z
   .object({
     key: z.string().trim().min(1).max(200),
     label: z.string().max(500),
-    operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
+    operator: z
+      .enum(CONTENT_DATABASE_FILTER_OPERATORS)
+      .describe(
+        `Operators depend on the property's type. For multi_select use ${contentDatabaseFilterOperatorsForType("multi_select").join(", ")}. ` +
+          "To exclude several options, AND together one does_not_equal condition per option. does_not_contain applies to text.",
+      ),
     value: z.string(),
     filterGroupId: z.string().max(200).optional(),
     parentFilterGroupId: z.string().max(200).optional(),
@@ -341,12 +346,11 @@ function validateTablePatch(
   }
   for (const filter of patch.filters ?? []) {
     const type = filter.key === "name" ? "text" : typeById.get(filter.key)!;
-    if (
-      !contentDatabaseFilterOperatorsForType(type).includes(filter.operator)
-    ) {
+    const allowedOperators = contentDatabaseFilterOperatorsForType(type);
+    if (!allowedOperators.includes(filter.operator)) {
       setupError(
         "INVALID_VIEW_REFERENCE",
-        `Filter operator \"${filter.operator}\" is not valid for property \"${filter.key}\".`,
+        `Filter operator \"${filter.operator}\" is not valid for property \"${filter.key}\" (${type}). Allowed operators: ${allowedOperators.join(", ")}.`,
         400,
       );
     }
