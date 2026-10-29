@@ -13991,6 +13991,7 @@ export function createProductionAgentHandler(
       ReturnType<typeof resolveQuestionIntakeExperimentAssignment>
     > = null;
     try {
+      // raw-sql-ok: the assignment store binds the authenticated user ID as a query argument.
       questionIntakeAssignment =
         await resolveQuestionIntakeExperimentAssignment(
           questionIntakeConfig,
@@ -16976,7 +16977,7 @@ export function createProductionAgentHandler(
                 "agent_experiment_exposed",
                 questionIntakeExposureProperties(exposureAssignment, {
                   appId: options.appId ?? "app",
-                  threadId,
+                  ...(threadId === undefined ? {} : { threadId }),
                   turnId: effectiveTurnId,
                 }),
                 {

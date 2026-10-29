@@ -2624,6 +2624,7 @@ async function createBetterAuthInstance(
                 const questionIntakeConfig =
                   getAppConfig().agent.questionIntake;
                 experimentId = questionIntakeConfig?.experimentId;
+                // raw-sql-ok: the assignment store binds the authenticated user ID as a query argument.
                 await assignQuestionIntakeExperimentOnSignup(
                   questionIntakeConfig,
                   user.id,

@@ -129,6 +129,7 @@ describe("signup-time question-intake assignments", () => {
       [QUESTION_INTAKE_TREATMENT_VARIANT, 0],
     ]);
     for (let index = 0; index < 1000; index += 1) {
+      // raw-sql-ok: these synthetic IDs exercise assignment logic with mocked storage.
       const assignment = await assignQuestionIntakeExperimentOnSignup(
         config,
         `user-${index}`,

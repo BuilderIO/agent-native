@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -253,6 +254,32 @@ describe("isTrackedRepositoryTest", () => {
       ),
       false,
     );
+  });
+
+  it("surfaces malformed workspace manifests instead of treating them as absent", () => {
+    const manifest = join(repo, "packages/demo/package.json");
+    const contents = readFileSync(manifest, "utf8");
+    writeFileSync(manifest, "{");
+    try {
+      assert.throws(
+        () =>
+          isTrackedRepositoryTest(
+            [
+              "pnpm",
+              "--filter",
+              "demo",
+              "exec",
+              "vitest",
+              "run",
+              "src/example.test.mjs",
+            ],
+            repo,
+          ),
+        SyntaxError,
+      );
+    } finally {
+      writeFileSync(manifest, contents);
+    }
   });
 });
 

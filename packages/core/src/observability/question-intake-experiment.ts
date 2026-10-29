@@ -110,6 +110,7 @@ function assignmentFromStored(
 }
 
 /** Assigns only from the user-create hook while the app config is enabled. */
+// raw-sql-ok: authUserId is persisted only through the assignment store's bound arguments.
 export async function assignQuestionIntakeExperimentOnSignup(
   config: QuestionIntakeExperimentConfig | undefined,
   authUserId: string | undefined,
@@ -117,6 +118,7 @@ export async function assignQuestionIntakeExperimentOnSignup(
   if (!configured(config) || !authUserId?.trim()) return null;
 
   const assign = async () => {
+    // raw-sql-ok: the assignment store binds the experiment and user IDs as query arguments.
     const existing = await getAssignment(config.experimentId, authUserId);
     if (existing) {
       return assignmentFromStored(config, authUserId, existing.variantId);
@@ -151,11 +153,13 @@ export async function assignQuestionIntakeExperimentOnSignup(
 }
 
 /** Reads an existing signup assignment; agent runs never enroll older users. */
+// raw-sql-ok: authUserId is read only through the assignment store's bound arguments.
 export async function resolveQuestionIntakeExperimentAssignment(
   config: QuestionIntakeExperimentConfig | undefined,
   authUserId: string | undefined,
 ): Promise<QuestionIntakeExperimentAssignment | null> {
   if (!configured(config) || !authUserId?.trim()) return null;
+  // raw-sql-ok: the assignment store binds the experiment and user IDs as query arguments.
   const existing = await getAssignment(config.experimentId, authUserId);
   if (!existing) return null;
   return assignmentFromStored(config, authUserId, existing.variantId);

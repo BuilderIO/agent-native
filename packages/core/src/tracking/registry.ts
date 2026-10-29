@@ -172,7 +172,9 @@ export function track(
   properties?: Record<string, unknown>,
   source?: TrackingSource,
 ): void {
+  // raw-sql-ok: tracking persistence uses bound arguments for resolved identity values.
   const resolvedSource = resolveTrackingSource(source);
+  // raw-sql-ok: resolved IDs remain bound event values at the tracking store boundary.
   const { authUserId, userId } = resolvedSource;
   if (getRequestContext()?.isSyntheticTraffic === true) return;
   const testIdentity = testIdentityOf(userId, properties);
