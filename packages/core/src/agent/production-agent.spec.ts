@@ -99,6 +99,7 @@ import {
   serializeDurableDispatchPayload,
   callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
+  chainServerDrivenContinuation,
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
@@ -23677,6 +23678,71 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       startedAt: Date.now(),
     };
   }
+
+  it.each([false, true])(
+    "does not replay a consumed queued-message claim in a continuation (insert failure=%s)",
+    async (insertFails) => {
+      let dispatchPayload: string | undefined;
+      let dispatchedBody: Record<string, unknown> | undefined;
+
+      await chainServerDrivenContinuation({
+        event: {},
+        run: makeRun([{ type: "text", text: "Continuing this turn." }]),
+        effectiveThreadId: "t1",
+        effectiveTurnId: "turn1",
+        requestBody: {
+          threadId: "t1",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "already-consumed-claim",
+          message: "continue the queued request",
+        },
+        backgroundContinuationCount: 0,
+        chainViaDurableBackground: false,
+        deps: {
+          countRunsForTurn: async () => 1,
+          readTurnStartedAt: async () => null,
+          isTurnAborted: async () => false,
+          recordRunDiagnostic: async () => {},
+          insertRun: async (_runId, _threadId, _turnId, options) => {
+            if (insertFails) throw new Error("insert unavailable");
+            dispatchPayload = options.dispatchPayload;
+          },
+          markBackgroundContinuationChunkTerminal: async () => true,
+          fireInternalDispatch: async ({ body }) => {
+            dispatchedBody = body;
+          },
+          updateRunHeartbeat: async () => {},
+          readBackgroundRunClaim: async () => null,
+          updateRunStatusIfRunning: async () => false,
+          markRunAborted: async () => true,
+          isRunAborted: async () => false,
+          setRunTerminalReason: async () => {},
+          setRunError: async () => {},
+          emitRunText: async () => {},
+          generateRunId: () => "next-run",
+          sleep: async () => {},
+        },
+      });
+
+      if (insertFails) {
+        expect(dispatchPayload).toBeUndefined();
+        expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+        expect(dispatchedBody).toMatchObject({
+          queuedMessageId: "queued-1",
+          internalContinuation: true,
+        });
+      } else {
+        expect(JSON.parse(dispatchPayload!)).not.toHaveProperty(
+          "queuedMessageClaimId",
+        );
+        expect(JSON.parse(dispatchPayload!)).toMatchObject({
+          queuedMessageId: "queued-1",
+          internalContinuation: true,
+        });
+        expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+      }
+    },
+  );
 
   it("does NOT chain a foreground (non-background-worker) run", () => {
     expect(

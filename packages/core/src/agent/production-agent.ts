@@ -13180,6 +13180,8 @@ export async function chainServerDrivenContinuation(opts: {
   // Approval selectors apply only to the request that consumes their one-shot grants.
   delete continuationBody.approvedToolCalls;
   delete continuationBody.approvedToolCallAskIds;
+  // The initial admission consumed this one-time queued-message claim.
+  delete continuationBody.queuedMessageClaimId;
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   const markRunsAbortedOrThrow = async (...runIds: string[]) => {
     const results = await Promise.allSettled(
