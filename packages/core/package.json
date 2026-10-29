@@ -303,6 +303,7 @@
     "./integrations/actions/manage-messaging-channel": "./dist/integrations/actions/manage-messaging-channel.js",
     "./private-blob": "./dist/private-blob/index.js",
     "./icon-assets": "./dist/icon-assets/index.js",
+    "./private-media": "./dist/private-media/index.js",
     "./agent/tool-result-images": "./dist/agent/tool-result-images.js",
     "./agent/context-xray/actions/context-manifest-get": "./dist/agent/context-xray/actions/context-manifest-get.js",
     "./agent/context-xray/actions/context-pin": "./dist/agent/context-xray/actions/context-pin.js",

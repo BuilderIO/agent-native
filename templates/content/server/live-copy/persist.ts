@@ -36,7 +36,7 @@ import {
   liveBodyWriterFlagsOn,
   liveBodyWriterGateForRow,
 } from "../lib/live-body-writer.js";
-import { syncPrivateCalloutReferences } from "../lib/private-icon-references.js";
+import { syncPrivateBodyReferences } from "../lib/private-icon-references.js";
 import {
   rebaselinePageForCanonicalBody,
   type PageRebaselineReport,
@@ -542,7 +542,7 @@ async function writeBody(args: {
         now: updatedAt,
       });
     }
-    await syncPrivateCalloutReferences(db, {
+    await syncPrivateBodyReferences(db, {
       documentId,
       before: page.content,
       after: text,

@@ -1,4 +1,7 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appApiPath,
+} from "@agent-native/core/client/api-path";
 
 interface UploadResponse {
   url?: unknown;
@@ -260,10 +263,35 @@ async function uploadMediaFile(
   return body.url;
 }
 
-export async function uploadImageFile(file: File): Promise<string> {
+/**
+ * Uploads an image. With a target page, the image is stored privately and
+ * only that page's readers can load it; without one it goes to the
+ * workspace's file storage at a public URL.
+ */
+export async function uploadImageFile(
+  file: File,
+  target?: { documentId: string } | null,
+): Promise<string> {
   const normalized = normalizeImageFile(file);
   if (!normalized) throw new Error("Only image files can be uploaded.");
-  return uploadMediaFile(normalized, "image");
+  if (!target) return uploadMediaFile(normalized, "image");
+
+  const form = new FormData();
+  form.append("file", normalized, normalized.name || "image");
+  form.append("documentId", target.documentId);
+  const response = await fetch(appApiPath("/api/private-media"), {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  const body = (await response.json().catch(() => ({}))) as UploadResponse;
+  if (!response.ok) {
+    throw new Error(uploadResponseMessage(response, body, "image"));
+  }
+  if (typeof body.url !== "string" || !body.url) {
+    throw new Error("Image upload returned no URL.");
+  }
+  return body.url;
 }
 
 export async function uploadVideoFile(file: File): Promise<string> {

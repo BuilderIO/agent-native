@@ -73,6 +73,29 @@ export const privateIconReferences = table(
   ],
 );
 
+/**
+ * Which pages carry each private image (`@agent-native/core/private-media`).
+ * A row exists only after the page's editor uploaded the image there, or
+ * saved it into the page while already able to see it elsewhere. A reader
+ * gets the image when they can view a live page that has a row and whose
+ * body still contains the image's link.
+ */
+export const privateMediaReferences = table(
+  "content_private_media_references",
+  {
+    mediaId: text("media_id").notNull(),
+    documentId: text("document_id").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (reference) => [
+    uniqueIndex("content_private_media_reference_unique").on(
+      reference.documentId,
+      reference.mediaId,
+    ),
+    index("content_private_media_reference_media_idx").on(reference.mediaId),
+  ],
+);
+
 export const contentSpaces = table(
   "content_spaces",
   {

@@ -1768,6 +1768,11 @@ interface VisualEditorProps {
   suggesting?: boolean;
   widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
+  /**
+   * Images pasted, dropped or picked into this body go to private storage
+   * and load only for people who can open the page.
+   */
+  privateImageUploads?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
   onComment?: (
@@ -2620,6 +2625,7 @@ export async function uploadAndInsertImageFiles(
   view: EditorView,
   files: File[],
   position: number,
+  upload: (file: File) => Promise<string> = uploadImageFile,
 ): Promise<void> {
   if (files.length === 0) return;
 
@@ -2642,7 +2648,7 @@ export async function uploadAndInsertImageFiles(
 
   for (const pending of pendingUploads) {
     try {
-      const src = await uploadImageFile(pending.file);
+      const src = await upload(pending.file);
       if (!view.dom.isConnected) return;
       updatePendingMediaNode(view, "image", pending.uploadId, { src, alt: "" });
     } catch (error) {
@@ -3262,6 +3268,7 @@ export function VisualEditor({
   suggesting = false,
   widgetLoadDiagnosticsActive = false,
   localFileMode = false,
+  privateImageUploads = false,
   localFilePath,
   referenceDepth,
   onComment,
@@ -3319,6 +3326,13 @@ export function VisualEditor({
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
+  const privateImageTargetRef = useRef<{ documentId: string } | null>(null);
+  privateImageTargetRef.current =
+    privateImageUploads && documentId ? { documentId } : null;
+  const uploadBodyImage = useCallback(
+    (file: File) => uploadImageFile(file, privateImageTargetRef.current),
+    [],
+  );
   const clipsEnabled = useFeatureFlag(CLIP_EMBED_FLAG.key);
   const videosGoToClipsRef = useRef(false);
   videosGoToClipsRef.current = clipsEnabled && Boolean(documentId);
@@ -3535,6 +3549,7 @@ export function VisualEditor({
         pending.view,
         pending.imageFiles,
         pending.position,
+        uploadBodyImage,
       );
     }
     if (pending.videoFiles.length > 0) {
@@ -3551,7 +3566,7 @@ export function VisualEditor({
         pending.position,
       );
     }
-  }, [documentId, fileStorageConfigured]);
+  }, [documentId, fileStorageConfigured, uploadBodyImage]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
@@ -3861,7 +3876,12 @@ export function VisualEditor({
             return;
           }
           if (imageFiles.length > 0) {
-            void uploadAndInsertImageFiles(view, imageFiles, position);
+            void uploadAndInsertImageFiles(
+              view,
+              imageFiles,
+              position,
+              uploadBodyImage,
+            );
           }
           if (storedVideoFiles.length > 0) {
             void uploadAndInsertVideoFiles(view, storedVideoFiles, position);
@@ -3916,6 +3936,7 @@ export function VisualEditor({
               view,
               imageFiles,
               view.state.selection.from,
+              uploadBodyImage,
             );
           }
           if (storedVideoFiles.length > 0) {
@@ -4405,6 +4426,7 @@ export function VisualEditor({
       try {
         await completeImageFileUpload({
           file,
+          upload: uploadBodyImage,
           stageAttributes: (src) => {
             if (editor.isDestroyed || suggestingRef.current) return;
             staged = commitPendingImageUpload(editor.view, request, uploadId, {
@@ -4455,7 +4477,7 @@ export function VisualEditor({
         );
       }
     },
-    [editor, persistEditorContent, t],
+    [editor, persistEditorContent, t, uploadBodyImage],
   );
 
   const handleImageFileInputCancel = useCallback(() => {

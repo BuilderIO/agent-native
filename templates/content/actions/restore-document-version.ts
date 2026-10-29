@@ -26,7 +26,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
-import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
+import { syncPrivateBodyReferences } from "../server/lib/private-icon-references.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
 import { persistedContentBodyCommit } from "../server/live-copy/persist.js";
@@ -572,7 +572,7 @@ export default defineAction({
           "The document changed while the restore was committing.",
         );
       }
-      await syncPrivateCalloutReferences(
+      await syncPrivateBodyReferences(
         tx as unknown as ReturnType<typeof getDb>,
         {
           documentId,

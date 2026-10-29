@@ -54,6 +54,38 @@ describe("image uploads", () => {
     expect(uploadedFile.type).toBe("image/png");
   });
 
+  it("uploads an image into a page through the private image route", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        id: "00000000-0000-4000-8000-000000000001",
+        url: "/api/private-media/00000000-0000-4000-8000-000000000001",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File(["image-bytes"], "diagram.png", {
+      type: "image/png",
+    });
+
+    await expect(
+      uploadImageFile(file, { documentId: "document-1" }),
+    ).resolves.toBe("/api/private-media/00000000-0000-4000-8000-000000000001");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/private-media$/u),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: expect.any(FormData),
+      }),
+    );
+    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    expect(body.get("documentId")).toBe("document-1");
+    expect((body.get("file") as File).name).toBe("diagram.png");
+  });
+
   it.each(["", "application/octet-stream"])(
     "normalizes an SVG with browser MIME %j before upload",
     async (type) => {

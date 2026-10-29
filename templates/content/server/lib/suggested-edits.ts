@@ -68,7 +68,7 @@ import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { lockLegacyBodyWrites } from "./document-body-revision.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
 import { liveBodyWriterGate } from "./live-body-writer.js";
-import { syncPrivateCalloutReferences } from "./private-icon-references.js";
+import { syncPrivateBodyReferences } from "./private-icon-references.js";
 import {
   acceptedRangesOnSameText,
   acceptOnLiveCopy,
@@ -851,7 +851,7 @@ async function commitAcceptedContent(input: {
         if (typeof actorEmail !== "string" || !actorEmail) {
           throw new Error("Authentication is required to accept a suggestion");
         }
-        await syncPrivateCalloutReferences(identityTx, {
+        await syncPrivateBodyReferences(identityTx, {
           documentId,
           before: currentContent,
           after: nextContent,

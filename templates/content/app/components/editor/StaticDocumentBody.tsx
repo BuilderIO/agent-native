@@ -24,6 +24,7 @@ import {
   safeExternalPageUrl,
 } from "./extensions/NotionExtensions";
 import { isEmptyCell } from "./extensions/TablePresentation";
+import { imageDisplaySrc } from "./private-media-src";
 import {
   noteStoredBodyImageFailed,
   storedBodyOnScreen,
@@ -244,7 +245,7 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
     const src: string = node.attrs.src;
     const alt: string = node.attrs.alt || "";
     const image = h(document, "img", {
-      src,
+      src: imageDisplaySrc(src),
       alt,
       class: "media-block__content",
       draggable: "false",
