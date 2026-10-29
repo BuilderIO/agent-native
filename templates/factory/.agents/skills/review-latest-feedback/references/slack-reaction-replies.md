@@ -14,7 +14,8 @@ Post a reporter reply when this run adds a root reaction, when a newer human rep
 message needs a direct answer, or when this workflow owns a root from an earlier run
 that has no verified reply in its thread yet, unless a person is already handling the root
 or has asked the workflow to stop. The reply is one short, plain-language
-sentence (about 25 words at most). If the root asks a question, that sentence answers
+sentence (about 25 words at most), plus the exact bot disclosure, which does not count toward
+that limit. If the root asks a question, that sentence answers
 it first and also explains only the reaction(s) added in this run. An answer to a newer human message
 answers only that message. Skip the reply when the only reaction added is the merged
 `✅` close-out after an earlier "in review" reply; that close-out gets no second
@@ -190,8 +191,9 @@ Work that remains with this workflow is active and needs no `🎫` by itself, bu
 this workflow could not land gets `🎫` as a human handoff, matching the parent skill.
 Requests for a reporter-provided URL, evidence, or clarification are separate human
 actions, not team handoffs. Access, credentials, admin rights, and account changes
-are never asked of the reporter. They are Steve's internal work: record them in `handoffs[]` with a `🎫`, owner set to
-Steve, and `status: "unassigned"` until Steve explicitly commits in the thread. They
+are never asked of the reporter. They are Steve's internal work: record them in `handoffs[]` with a `🎫`, owner `"unassigned"`,
+and `status: "unassigned"` until Steve explicitly commits in the thread; name Steve in
+the action text, not the owner field. They
 are not in `reporterRequests[]`, so they do not expire with the reporter-request
 lifecycle.
 When this workflow asks a reporter for a URL, evidence, or clarification,
