@@ -1225,7 +1225,7 @@ async function exerciseScheduledStaleChatContinuation(
   ownerEmail: string,
 ): Promise<void> {
   const [
-    { createThread },
+    { createThread, deleteThread },
     {
       BACKGROUND_RUN_STALE_MS,
       claimBackgroundRun,
@@ -1473,7 +1473,43 @@ async function exerciseScheduledStaleChatContinuation(
         }),
     );
   } finally {
-    await db.close?.();
+    try {
+      await withDbExec(db, async () => {
+        await db.execute({
+          sql: `UPDATE agent_runs
+                SET status = 'truncated', completed_at = ?, terminal_reason = 'canary_cleanup'
+                WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running'`,
+          args: [Date.now(), threadId, turnId],
+        });
+        await db.execute({
+          sql: `DELETE FROM agent_run_events
+                WHERE run_id IN (
+                  SELECT id FROM agent_runs
+                  WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
+                )`,
+          args: [threadId, turnId],
+        });
+        await db.execute({
+          sql: "DELETE FROM agent_execution_steps WHERE thread_id = ? AND turn_id = ?",
+          args: [threadId, turnId],
+        });
+        await db.execute({
+          sql: "DELETE FROM agent_execution_leases WHERE thread_id = ? AND turn_id = ?",
+          args: [threadId, turnId],
+        });
+        await db.execute({
+          sql: "DELETE FROM agent_turn_initiators WHERE thread_id = ? AND turn_id = ?",
+          args: [threadId, turnId],
+        });
+        await db.execute({
+          sql: "DELETE FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ?",
+          args: [threadId, turnId],
+        });
+        await deleteThread(threadId, ownerEmail);
+      });
+    } finally {
+      await db.close?.();
+    }
   }
 }
 
