@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import { getDbExec, sql } from "@agent-native/core/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -31,26 +31,18 @@ afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
-async function insertDeck(id: string, visibility: string) {
-  await getDbExec().execute(
-    `INSERT INTO decks (id, title, data, owner_email, visibility) VALUES ('${id}', 'Deck', '{}', 'owner@example.test', '${visibility}')`,
-  );
-}
-
-async function insertLink(token: string, deckId: string | null) {
-  await getDbExec().execute(
-    `INSERT INTO deck_share_links (token, deck_id, title, slides, created_at) VALUES ('${token}', ${deckId ? `'${deckId}'` : "NULL"}, 'Deck', '[]', '${new Date().toISOString()}')`,
-  );
-}
-
 describe("findLiveDeckShareLink", () => {
   it("serves a snapshot only while its deck exists and is public", async () => {
-    await insertDeck("deck-public", "public");
-    await insertDeck("deck-private", "private");
-    await insertLink("tok-public", "deck-public");
-    await insertLink("tok-private", "deck-private");
-    await insertLink("tok-deleted", "deck-gone");
-    await insertLink("tok-legacy", null);
+    const createdAt = new Date().toISOString();
+    const exec = getDbExec();
+    await exec.execute(sql`INSERT INTO decks (id, title, data, owner_email, visibility)
+      VALUES ('deck-public', 'Deck', '{}', 'owner@example.test', 'public'),
+             ('deck-private', 'Deck', '{}', 'owner@example.test', 'private')`);
+    await exec.execute(sql`INSERT INTO deck_share_links (token, deck_id, title, slides, created_at)
+      VALUES ('tok-public', 'deck-public', 'Deck', '[]', ${sql.value(createdAt)}),
+             ('tok-private', 'deck-private', 'Deck', '[]', ${sql.value(createdAt)}),
+             ('tok-deleted', 'deck-gone', 'Deck', '[]', ${sql.value(createdAt)}),
+             ('tok-legacy', NULL, 'Deck', '[]', ${sql.value(createdAt)})`);
 
     expect(await findLiveDeckShareLink("tok-public")).toMatchObject({
       token: "tok-public",

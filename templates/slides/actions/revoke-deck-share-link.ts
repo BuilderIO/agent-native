@@ -12,6 +12,7 @@ export default defineAction({
     deckId: z.string().min(1).describe("Deck ID"),
     token: z.string().min(1).describe("Share link token to revoke"),
   }),
+  outputSchema: z.object({ success: z.boolean() }),
   http: { method: "DELETE" },
   mcpAnnotations: {
     readOnlyHint: false,

@@ -10,6 +10,9 @@ export default defineAction({
   description:
     "List the live snapshot share links for a deck (newest first). Expired links are omitted.",
   schema: z.object({ deckId: z.string().min(1).describe("Deck ID") }),
+  outputSchema: z.object({
+    links: z.array(z.object({ token: z.string(), createdAt: z.string() })),
+  }),
   http: { method: "GET" },
   mcpAnnotations: {
     readOnlyHint: true,
