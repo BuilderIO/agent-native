@@ -32,6 +32,13 @@ function storeBootstrapResult(sql: string) {
   if (/CREATE TABLE IF NOT EXISTS chat_thread_viewer_state/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
+  if (
+    /^(?:CREATE TABLE IF NOT EXISTS|CREATE INDEX IF NOT EXISTS|ALTER TABLE)\s+agent_chat_submission_inbox/i.test(
+      sql.trimStart(),
+    )
+  ) {
+    return { rows: [], rowsAffected: 0 };
+  }
   if (/FROM information_schema\.columns/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }

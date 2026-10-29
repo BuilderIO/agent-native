@@ -257,6 +257,44 @@ export const chatThreadsStore = defineStore({
         PRIMARY KEY (thread_id, user_email)
       )`,
     },
+    {
+      // Stands in for the inbox entries of the folded schema list (v5–v8),
+      // which a local boot skips: a database whose snapshot or baseline was
+      // already recorded otherwise keeps the v5 inbox shape while the
+      // queued-submission queries select the v6/v8 columns.
+      name: "chat-thread-inbox-runtime-schema",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS agent_chat_submission_inbox (
+          thread_id TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          state TEXT NOT NULL,
+          actor_email TEXT NOT NULL,
+          actor_auth_user_id TEXT,
+          actor_identity_authenticated_at_ms BIGINT,
+          actor_name TEXT,
+          actor_org_id TEXT,
+          actor_org_scope TEXT,
+          actor_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+          payload_hash TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          interrupt_active_run BOOLEAN NOT NULL DEFAULT FALSE,
+          submitted_run_id TEXT,
+          queue_order BIGSERIAL NOT NULL,
+          move_to_top_at BIGINT,
+          retry_after BIGINT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
+          PRIMARY KEY (thread_id, message_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS agent_chat_submission_inbox_pending_idx
+          ON agent_chat_submission_inbox (state, retry_after, interrupt_active_run DESC, move_to_top_at DESC, queue_order ASC)`,
+        "ALTER TABLE agent_chat_submission_inbox ADD COLUMN IF NOT EXISTS interrupt_run_id TEXT",
+        "ALTER TABLE agent_chat_submission_inbox ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0",
+        `CREATE INDEX IF NOT EXISTS agent_chat_submission_inbox_thread_pending_idx
+          ON agent_chat_submission_inbox (thread_id, interrupt_active_run DESC, move_to_top_at DESC, queue_order ASC)
+          WHERE state = 'queued'`,
+      ],
+    },
   ],
 });
 

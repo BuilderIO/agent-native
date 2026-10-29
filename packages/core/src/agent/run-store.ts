@@ -428,12 +428,28 @@ export const agentRunsStore = defineStore({
     ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
     {
       name: "thread-projection-retry-quarantine-runtime-schema",
+      // Stands in for legacy v9–v11, which a local boot skips: a database
+      // whose baseline was already recorded never re-runs the baseline's
+      // column ensures either, so this entry must create every column it
+      // touches before the index that reads them.
       run: async (exec) => {
+        await exec.execute({
+          sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE",
+        });
+        await exec.execute({
+          sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_retry_order BIGINT",
+        });
         await exec.execute({
           sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_error_code TEXT",
         });
         await exec.execute({
           sql: "CREATE SEQUENCE IF NOT EXISTS agent_run_projection_retry_order_seq",
+        });
+        await exec.execute({
+          sql: `UPDATE agent_runs
+                SET thread_projection_retry_order = nextval('agent_run_projection_retry_order_seq')
+                WHERE thread_projection_pending IS TRUE
+                  AND thread_projection_retry_order IS NULL`,
         });
         await exec.execute({
           sql: `CREATE INDEX IF NOT EXISTS agent_runs_thread_projection_retry_order_idx

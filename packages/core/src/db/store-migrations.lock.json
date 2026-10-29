@@ -425,6 +425,10 @@
     {
       "name": "viewer-state",
       "checksum": "12d60e0fc4587fc5"
+    },
+    {
+      "name": "chat-thread-inbox-runtime-schema",
+      "checksum": "b92bcd29b58cd668"
     }
   ],
   "checkpoints": [

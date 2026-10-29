@@ -1037,6 +1037,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     ],
     ["chat_threads", "chat-thread-inbox-interrupt-replay", "904890f43aebd9fe"],
     ["chat_threads", "chat-thread-inbox-retry-count", "b25ff25b6a61ccc9"],
+    ["chat_threads", "chat-thread-inbox-runtime-schema", "b92bcd29b58cd668"],
     [
       "chat_threads",
       "chat-thread-inbox-thread-order-index",
