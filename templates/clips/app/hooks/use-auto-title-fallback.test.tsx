@@ -139,7 +139,7 @@ describe("auto-title fallback", () => {
     await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(1));
     expect(regenerateTitleCalls()[0]).toEqual([
       "regenerate-title",
-      { recordingId: "rec_old" },
+      { recordingId: "rec_old", automatic: true },
     ]);
   });
 

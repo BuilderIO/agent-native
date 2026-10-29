@@ -9,22 +9,22 @@ import {
 import { TableMap, columnResizingPluginKey } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
-// The table's CSS keeps it at least as wide as the page, so this floor only
-// matters once unresized columns stop fitting: the table then scrolls inside
-// `.tableWrapper` instead of squeezing each column to a letter per line.
-// Tiptap's `cellMinWidth` stays small because it is also the drag minimum.
-export const READABLE_TABLE_COLUMN_MIN_WIDTH = 96;
+import {
+  COLUMN_SIZING_ATTRIBUTE,
+  ContentTableSizer,
+  READABLE_TABLE_COLUMN_MIN_WIDTH,
+  READABLE_TABLE_MIN_WIDTH_PROPERTY,
+} from "./table-sizing";
 
-// Column drags rewrite the table's inline `min-width` on every frame, so the
-// floor lives in a custom property that the stylesheet enforces instead.
-export const READABLE_TABLE_MIN_WIDTH_PROPERTY = "--content-table-min-width";
-
-// A table nobody has resized sizes its columns to their content, the way a
-// Markdown table does on GitHub, rather than splitting the page evenly. The
-// widths are never saved, so they follow the page width and the text.
-// "content" lets the browser size the columns; "held" keeps the widths it
-// chose while the caret is in the table, so typing doesn't move them.
-export const COLUMN_SIZING_ATTRIBUTE = "data-column-sizing";
+// A table nobody has resized sizes its columns to their content rather than
+// splitting the page evenly; table-sizing.ts has how. The widths are never
+// saved, so they follow the page width and the text, and they hold while the
+// caret is in the table, so typing doesn't move them.
+export {
+  COLUMN_SIZING_ATTRIBUTE,
+  READABLE_TABLE_COLUMN_MIN_WIDTH,
+  READABLE_TABLE_MIN_WIDTH_PROPERTY,
+};
 
 const HOLD_COLUMN_WIDTHS = "contentTableHoldColumnWidths";
 
@@ -32,7 +32,6 @@ export function readableTableMinWidth(colgroup: HTMLElement): number | null {
   let total = 0;
   let hasUnsizedColumn = false;
   for (const col of Array.from(colgroup.children)) {
-    // Stored widths are pixels; a held content-sized width is a percentage.
     const { width } = (col as HTMLElement).style;
     const pixels = width.endsWith("px") ? Number.parseFloat(width) : 0;
     if (pixels > 0) {
@@ -209,8 +208,7 @@ function startContentSizedResize(view: EditorView): ContentSizedResize | null {
   const { $cell } = handle;
   const table = $cell.node(-1);
   if (hasStoredColumnWidths(table)) return null;
-  let dom: Node | null = view.domAtPos($cell.start(-1)).node;
-  while (dom && dom.nodeName !== "TABLE") dom = dom.parentNode;
+  const dom = tableDom(view, $cell.start(-1));
   if (!dom) return null;
   // The handle sits on the right edge of the column being dragged.
   const map = TableMap.get(table);
@@ -218,7 +216,7 @@ function startContentSizedResize(view: EditorView): ContentSizedResize | null {
     map.colCount($cell.pos - $cell.start(-1)) +
     ($cell.nodeAfter?.attrs.colspan ?? 1) -
     1;
-  const widths = renderedColumnWidths(table, dom as HTMLTableElement);
+  const widths = renderedColumnWidths(table, dom);
   if (!widths) return null;
   const resize = {
     widths,
@@ -233,6 +231,21 @@ function startContentSizedResize(view: EditorView): ContentSizedResize | null {
   if (!tr) return null;
   view.dispatch(tr.setMeta("addToHistory", false));
   return resize;
+}
+
+function tableDom(view: EditorView, pos: number) {
+  let dom: Node | null = view.domAtPos(pos).node;
+  while (dom && dom.nodeName !== "TABLE") dom = dom.parentNode;
+  return dom as HTMLTableElement | null;
+}
+
+/** Whether the table holding the resize handle shows its rows as cards. */
+function cardsUnderHandle(view: EditorView) {
+  const handle = resizedTable(view.state);
+  // Only a content-sized table can show cards.
+  if (!handle || hasStoredColumnWidths(handle.$cell.node(-1))) return false;
+  const dom = tableDom(view, handle.$cell.start(-1));
+  return dom?.getAttribute(COLUMN_SIZING_ATTRIBUTE) === "cards";
 }
 
 // A touch screen sends a tap's mouse events only once the finger lifts, so a
@@ -335,7 +348,8 @@ export function contentTableColumnSizing() {
         },
         mousedown(view) {
           pending = null;
-          if (touching) {
+          // Cards have no column borders to drag.
+          if (touching || cardsUnderHandle(view)) {
             releaseColumnHandle(view);
             return false;
           }
@@ -371,12 +385,7 @@ export class ContentTableView extends TableView {
     this.applyColumnWidths(),
   );
 
-  // Each column's share of the table, in percent, while its widths are held,
-  // and the table's width when they were measured.
-  private heldShares: number[] | null = null;
-  private heldWidth = 0;
-  private holding = false;
-  private measuring = false;
+  private readonly sizer: ContentTableSizer;
 
   constructor(
     node: ProseMirrorNode,
@@ -385,6 +394,12 @@ export class ContentTableView extends TableView {
     HTMLAttributes: Record<string, unknown> = {},
   ) {
     super(node, cellMinWidth, view, HTMLAttributes);
+    this.sizer = new ContentTableSizer(
+      this.dom,
+      this.table,
+      this.colgroup,
+      () => this.node.attrs.fitPageWidth === true,
+    );
     this.applyColumnSizing(false);
     this.applyColumnWidths();
     this.columnObserver.observe(this.colgroup, {
@@ -398,6 +413,8 @@ export class ContentTableView extends TableView {
     node: ProseMirrorNode,
     decorations: readonly Decoration[] = [],
   ) {
+    // Tiptap writes only stored widths, so the measured ones go first.
+    if (hasStoredColumnWidths(node)) this.sizer.stop();
     if (!super.update(node)) return false;
     this.applyColumnSizing(
       decorations.some((decoration) => decoration.spec[HOLD_COLUMN_WIDTHS]),
@@ -406,61 +423,25 @@ export class ContentTableView extends TableView {
     return true;
   }
 
+  // The sizer marks the wrapper while the table scrolls sideways, as it
+  // marks the table itself.
+  override ignoreMutation(
+    mutation: Parameters<TableView["ignoreMutation"]>[0],
+  ) {
+    if (mutation.type === "attributes" && mutation.target === this.dom) {
+      return true;
+    }
+    return super.ignoreMutation(mutation);
+  }
+
   destroy() {
     this.columnObserver.disconnect();
+    this.sizer.destroy();
   }
 
   private applyColumnSizing(hold: boolean) {
-    // Tiptap only sets an unsized <col>'s `min-width`, so widths left by a
-    // hold or an undone resize are cleared here.
-    const cols = Array.from(this.colgroup.children) as HTMLElement[];
-    if (hasStoredColumnWidths(this.node)) {
-      // Stored widths are pixels; a percentage is a hold's, on a column
-      // left unsized to take up the rest.
-      for (const col of cols) {
-        if (col.style.width.endsWith("%")) col.style.removeProperty("width");
-      }
-      this.heldShares = null;
-      this.holding = false;
-      this.table.removeAttribute(COLUMN_SIZING_ATTRIBUTE);
-      return;
-    }
-    this.holding = hold;
-    if (hold && this.heldShares?.length === cols.length) {
-      this.applyHeldShares(cols);
-      return;
-    }
-    this.heldShares = null;
-    this.table.setAttribute(COLUMN_SIZING_ATTRIBUTE, "content");
-    for (const col of cols) col.style.removeProperty("width");
-    if (hold) this.measureHeldShares();
-  }
-
-  // ProseMirror redraws the cells only after `update`, and an update that
-  // starts a hold can also change them (an undo that puts the caret back in
-  // the table), so the widths are measured once it has, before the next paint.
-  private measureHeldShares() {
-    if (this.measuring) return;
-    this.measuring = true;
-    queueMicrotask(() => {
-      this.measuring = false;
-      if (!this.holding || this.heldShares) return;
-      const cols = Array.from(this.colgroup.children) as HTMLElement[];
-      const widths = renderedColumnWidths(this.node, this.table);
-      const total = widths?.reduce((sum, width) => sum + width, 0) ?? 0;
-      if (!widths || widths.length !== cols.length || total <= 0) return;
-      this.heldShares = widths.map((width) => (width / total) * 100);
-      this.heldWidth = this.table.getBoundingClientRect().width;
-      this.applyHeldShares(cols);
-      this.applyColumnWidths();
-    });
-  }
-
-  private applyHeldShares(cols: HTMLElement[]) {
-    this.table.setAttribute(COLUMN_SIZING_ATTRIBUTE, "held");
-    cols.forEach((col, index) => {
-      col.style.width = `${this.heldShares![index].toFixed(3)}%`;
-    });
+    if (hasStoredColumnWidths(this.node)) this.sizer.stop();
+    else this.sizer.update(hold);
   }
 
   private applyColumnWidths() {
@@ -468,17 +449,13 @@ export class ContentTableView extends TableView {
     const fit = this.node.attrs.fitPageWidth === true;
     if (fit) {
       this.table.setAttribute("data-fit-page-width", "true");
-      fitTableColumns(this.colgroup);
     } else {
       this.table.removeAttribute("data-fit-page-width");
     }
-    let minWidth = fit ? null : readableTableMinWidth(this.colgroup);
-    // A word too long for its column widens a content-sized table past the
-    // page instead of breaking; a held table keeps that width, so the word
-    // doesn't break once the caret is in the table either.
-    if (this.heldShares && minWidth !== null) {
-      minWidth = Math.max(minWidth, this.heldWidth);
-    }
+    // A content-sized table's sizer sets its widths and floor.
+    if (!hasStoredColumnWidths(this.node)) return;
+    if (fit) fitTableColumns(this.colgroup);
+    const minWidth = fit ? null : readableTableMinWidth(this.colgroup);
     if (minWidth === null) {
       this.table.style.removeProperty(READABLE_TABLE_MIN_WIDTH_PROPERTY);
     } else {

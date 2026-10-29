@@ -377,6 +377,29 @@ export const factoryWorkflowVersions = table(
   }),
 );
 
+// One private draft per member and workflow: the editor's graph as written,
+// which may not validate. A saved version is never read from here.
+export const factoryWorkflowDrafts = table(
+  "factory_workflow_drafts",
+  {
+    workflowId: text("workflow_id").notNull(),
+    orgId: text("org_id").notNull(),
+    factoryId: text("factory_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    baseVersion: integer("base_version").notNull(),
+    graphJson: text("graph_json").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (draft) => ({
+    pk: primaryKey({ columns: [draft.workflowId, draft.ownerEmail] }),
+    workflowIdx: index("factory_workflow_drafts_workflow_idx").on(
+      draft.orgId,
+      draft.factoryId,
+      draft.workflowId,
+    ),
+  }),
+);
+
 export const factoryWorkflowRuns = table(
   "factory_workflow_runs",
   {

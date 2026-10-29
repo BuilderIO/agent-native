@@ -21,7 +21,7 @@ import {
 import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import {
   getBuilderBrowserConnectUrlForOwner,
-  resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
 } from "../builder-browser.js";
 import type { BuilderOAuthPermissionScope } from "../builder-oauth.js";
 import { getRequestOrgId, getRequestUserEmail } from "../request-context.js";
@@ -285,7 +285,7 @@ export function createBuilderBrowserTool(deps: {
         const configured =
           (await builderConnectionForRequest(creds, BUILDER_OAUTH_SCOPE))
             .status === "connected";
-        const branchProjectId = await resolveBuilderBranchProjectId();
+        const branchProjectId = await resolveBuilderHandoffProjectId();
         let prompt = typeof args?.prompt === "string" ? args.prompt : "";
         const extensionId =
           typeof args?.extensionId === "string" ? args.extensionId.trim() : "";

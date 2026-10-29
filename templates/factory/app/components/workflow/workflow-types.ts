@@ -41,6 +41,10 @@ export interface GetWorkflowResult extends Omit<WorkflowSummaryRow, "job"> {
   job: WorkflowJobHealth;
 }
 
+export interface GetWorkflowDraftResult {
+  draft: { baseVersion: number; graph: string; updatedAt: string } | null;
+}
+
 export interface ListRunsResult {
   runs: RunView[];
   hasMore: boolean;

@@ -133,6 +133,22 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       const designId = id(args.designId, record(result).designId);
       return designId ? designWidgetTarget(designId) : null;
     },
+    "generate-screens": (_args: Record<string, unknown>, result: unknown) => {
+      const designId = id(record(result).designId);
+      return designId
+        ? designWidgetTarget(
+            designId,
+            `/design/${encodeURIComponent(designId)}?editorView=overview`,
+          )
+        : null;
+    },
+    "export-coding-handoff": (
+      _args: Record<string, unknown>,
+      result: unknown,
+    ) => {
+      const designId = id(record(result).designId);
+      return designId ? designWidgetTarget(designId) : null;
+    },
   },
   widgetReadActionArguments: {
     "get-design-snapshot": { designId: "designId" },
@@ -233,6 +249,8 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         "Responsive device frames for the design. Omitted values default to desktop and mobile; an empty list creates one exact-size static screen. Exact canvas sizes are handled one per call, and wider devices become the base frame.",
       primaryViewport:
         "Primary form factor for the design. Defaults to desktop at 1440x900 and has no effect when devices is provided.",
+      tweaks:
+        "Optional color swatches, segments, sliders, and toggles bound to CSS custom properties used in the generated design.",
     },
     "create-design-from-template": {
       targetDesignId:

@@ -1429,6 +1429,10 @@ export function App({
   }, [refreshVideoStorageStatus]);
 
   useEffect(() => {
+    if (popoverVisible) void refreshVideoStorageStatus();
+  }, [popoverVisible, refreshVideoStorageStatus]);
+
+  useEffect(() => {
     if (
       !shouldPollVideoStorageStatus(authStatus === "authed", videoStorageStatus)
     )

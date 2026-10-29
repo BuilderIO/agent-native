@@ -83,6 +83,9 @@ export interface AppProvidersProps {
 
   sessionBypass?: boolean;
 
+  /** See `RequireSessionProps.signedOutHref`. */
+  signedOutHref?: () => string | null;
+
   skipFirstRunOnboarding?: boolean;
 
   /**
@@ -565,6 +568,7 @@ export function AppProviders({
   clientOnlyFallback,
   skeletonLayout,
   sessionBypass = false,
+  signedOutHref,
   skipFirstRunOnboarding = false,
   unsupportedDevice,
   disableWebMcp = false,
@@ -610,7 +614,11 @@ export function AppProviders({
   }
 
   const sessionGated = (
-    <RequireSession bypass={sessionBypass} fallback={fallback}>
+    <RequireSession
+      bypass={sessionBypass}
+      fallback={fallback}
+      signedOutHref={signedOutHref}
+    >
       {sessionBypass ? (
         <>
           {ownsDocument ? <AgentRunAwareness persistUnread={false} /> : null}
@@ -627,7 +635,6 @@ export function AppProviders({
           <AgentEngineReadinessBootstrap />
           <FirstRunOnboardingStartupGate
             suppressSurface={skipFirstRunOnboarding}
-            fallback={fallback}
           >
             {children}
           </FirstRunOnboardingStartupGate>

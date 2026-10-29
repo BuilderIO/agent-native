@@ -39,6 +39,8 @@ interface NodeAuditPanelProps {
   /** Read one run's step, on the graph version that run used. */
   runId?: string;
   onClose?: () => void;
+  /** Runs just before the question goes to the agent, so a modal around the panel can get out of the sidebar's way. */
+  onAskAgent?: () => void;
 }
 
 const AUDIT_STEPS = 20;
@@ -109,6 +111,7 @@ export function NodeAuditPanel({
   title,
   runId,
   onClose,
+  onAskAgent,
 }: NodeAuditPanelProps) {
   const workflowCanvasStrings = useWorkflowCanvasStrings();
   const ws = useWorkflowStrings();
@@ -213,14 +216,15 @@ export function NodeAuditPanel({
         <Button
           variant="outline"
           size="sm"
-          onClick={() =>
+          onClick={() => {
+            onAskAgent?.();
             sendToAgentChat({
               message: s.audit.askMessage,
               context: auditAgentContext(factoryId, audit),
               submit: true,
               openSidebar: true,
-            })
-          }
+            });
+          }}
         >
           <IconMessage />
           {s.audit.askAgent}

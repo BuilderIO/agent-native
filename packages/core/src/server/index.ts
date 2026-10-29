@@ -842,8 +842,10 @@ export {
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
+  registerBuilderBranchProject,
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
   resolveIsBuilderBranchingEnabled,
   normalizeBuilderAgentAttachments,
   runBuilderAgent,
@@ -870,6 +872,7 @@ export {
 } from "./builder-branch.js";
 export {
   BuilderBranchFilesError,
+  readBuilderBranchBackupStatus,
   readBuilderBranchFiles,
 } from "./builder-branch-files.js";
 export {
