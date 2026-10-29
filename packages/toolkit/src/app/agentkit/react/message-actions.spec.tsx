@@ -458,6 +458,52 @@ describe("assistant reply toolbar", () => {
     outside.remove();
   });
 
+  it("keeps a press inside the toolbar from collapsing it when the browser moves focus to the transcript", async () => {
+    const writeText = vi.fn(async () => undefined);
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    cleanups.push(async () => {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    });
+    const { container, toolbar } = await renderChat();
+    const latest = toolbar("assistant-latest");
+    const more = toggle(latest);
+    const transcript = container.querySelector<HTMLElement>(
+      ".agentkit-transcript",
+    )!;
+    // Safari leaves a pressed button unfocused and focuses the nearest
+    // focusable container instead, before the click lands.
+    const pressLikeSafari = async (target: HTMLElement) => {
+      await act(async () => {
+        target.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true }),
+        );
+        transcript.focus();
+        target.click();
+        window.dispatchEvent(new PointerEvent("pointerup"));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    await press(more);
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    await pressLikeSafari(more);
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+
+    await press(more);
+    await pressLikeSafari(
+      latest.querySelector<HTMLElement>(
+        'button[data-message-action="request-id"]',
+      )!,
+    );
+    expect(writeText).toHaveBeenCalledWith("run-latest");
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("submits a thumb immediately with the message trace, ignores the same choice and switches to the other", async () => {
     const { toolbar, submitFeedback } = await renderChat();
     const latest = toolbar("assistant-latest");
