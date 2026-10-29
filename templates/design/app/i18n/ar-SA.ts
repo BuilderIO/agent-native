@@ -63,8 +63,7 @@ export default {
     recordingStarted: "بدأ التسجيل",
     appBandHeading: "{app} · {count} جلسة",
     journeyTitleSummary: "{app} · من {from} إلى {to} · {count} جلسة{partial}",
-    journeyTitleAppBandsSummary:
-      "من {from} إلى {to} · مجموعات مستقلة لكل تطبيق{partial}",
+    journeyTitleAppBandsSummary: "من {from} إلى {to} · مجموعات منفصلة{partial}",
     sessionCount: "\u200f{count} جلسة",
     otherPaths: "مسارات أخرى",
     otherBranchesShown: "يُعرض {shown} من أصل {total} فرعًا",
@@ -313,6 +312,9 @@ export default {
       chooseFrame: "اختيار إطار",
       inspect: "فحص",
       exportSvg: "تصدير SVG",
+      moreActions: "المزيد من الإجراءات",
+      askAboutFile: "اسأل عن هذا الملف",
+      askAboutFilePrompt: "اسأل عن ملف التصميم المرتبط. {{url}}",
       actionsPrefill: "راجع ثم أرسل",
       retry: "إعادة المحاولة",
       currentDesign: "تصميم Design الحالي",
@@ -2679,6 +2681,159 @@ export default {
   },
   home: {
     suggestedPrompts: "الاقتراحات المقترحة",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "صمّم لوحة تحليلات للمنتج تضم بطاقات مؤشرات ومخطط تحويل وجدول نشاط بأسلوب واثق يستند إلى البيانات.",
+        roadmapWorkspace:
+          "أنشئ مساحة لخارطة الطريق تضم خطاً زمنياً ربعياً وأولويات وملاحظات العملاء بأسلوب هادئ وتعاوني.",
+        onboardingFlow:
+          "صمّم بدء استخدام لتطبيق ميزانية يضم خطوات تقدم واختيار أهداف وإعداد الحساب بأسلوب مطمئن.",
+        featureComparison:
+          "أنشئ صفحة مقارنة SaaS تضم بطاقات خطط ومصفوفة ميزات وأسئلة شائعة بأسلوب مباشر يركز على التحويل.",
+        feedbackPortal:
+          "صمّم بوابة ملاحظات للعملاء تضم لوحة طلبات وتصويتاً وفلاتر للحالة بأسلوب مجتمعي منفتح.",
+        releaseNotes:
+          "أنشئ مركزاً للإصدارات يضم خطاً زمنياً وميزات بارزة وملاحظات ترحيل بأسلوب تحريري موجز.",
+        projectWorkspace:
+          "صمّم مساحة عمل للمنتج تضم أعمدة كانبان ومسؤولين ومحطات إنجاز بأسلوب يركز على الإنتاجية.",
+        launchWaitlist:
+          "أنشئ صفحة انتظار للإطلاق تضم عنواناً بارزاً وإثباتات ونموذج تسجيل بأسلوب متفائل.",
+      },
+      design: {
+        portfolioHome:
+          "صمّم محفظة لمصمم تضم مقدمة موجزة وشبكة دراسات حالة ونبذة واتصالاً بأسلوب تحريري مصقول.",
+        designSystem:
+          "أنشئ مرجعاً لنظام التصميم يضم رموز الألوان والخطوط ومعرض مكونات وملاحظات استخدام بأسلوب توثيقي دقيق.",
+        bankingApp:
+          "صمّم الشاشة الرئيسية لتطبيق بنك على الهاتف تضم الرصيد والمعاملات وأهداف الادخار بأسلوب هادئ وموثوق.",
+        travelBooking:
+          "أنشئ شاشة بحث عن السفر تضم فلاتر الوجهة وبطاقات الرحلة وخريطة بأسلوب خفيف ومليء بالمغامرة.",
+        coffeeShop:
+          "صمّم متجراً لمقهى يضم خلطات مميزة وقصص المنشأ واشتراكاً بأسلوب دافئ وحسي.",
+        musicFestival:
+          "أنشئ صفحة لمهرجان موسيقي تضم قائمة الفنانين والجدول وخريطة الموقع بأسلوب ملصق حيوي.",
+        accessibilityAudit:
+          "صمّم لوحة تدقيق لإمكانية الوصول تضم ملخص نتيجة وقائمة مشكلات وفلاتر بأسلوب واضح عالي التباين.",
+        artBook:
+          "أنشئ صفحة تحريرية لكتاب فني تضم أعمالاً غامرة واقتباساً بارزاً وتنقلاً بين الفصول بأسلوب معرض هادئ.",
+      },
+      developer: {
+        apiDocs:
+          "صمّم بوابة توثيق API تضم تنقلاً جانبياً وأمثلة شيفرة ومنشئ طلبات بأسلوب تقني دقيق.",
+        deploymentDashboard:
+          "أنشئ لوحة نشر تضم بطاقات البيئات وسجلات مباشرة وعناصر للتراجع بأسلوب تشغيلي هادئ.",
+        componentPlayground:
+          "صمّم مساحة لتجربة المكونات تضم عناصر تحكم للخصائص وحالات مختلفة ولوحة شيفرة بأسلوب واضح للمطورين.",
+        databaseConsole:
+          "أنشئ وحدة تحكم لقاعدة بيانات تضم محرر استعلامات وشجرة مخطط وجدول نتائج بأسلوب تقني مقتصد.",
+        issueTriage:
+          "صمّم لوحة فرز للمشكلات تضم فلاتر وشارات أولوية وقائمة مسؤولين بأسلوب واضح ومركّز.",
+        authSettings:
+          "أنشئ إعدادات مصادقة تضم بطاقات مزودين ورابط رجوع وقائمة أذونات بأسلوب آمن ومطمئن.",
+        workflowBuilder:
+          "صمّم منشئ تدفق CI يضم عقد خطوات وسجل تشغيل واختيار فرع بأسلوب تقني دقيق.",
+        developerPortfolio:
+          "أنشئ محفظة لمطور تضم بطاقات مشاريع وأدوات وخطاً زمنياً بأسلوب داكن ومركّز.",
+      },
+      marketing: {
+        campaignLanding:
+          "صمّم صفحة حملة تضم عنواناً قوياً ومزايا وإثباتات عملاء ودعوة للتسجيل بأسلوب حيوي.",
+        emailBuilder:
+          "أنشئ محرراً لحملة بريد تضم معاينة الموضوع وكتلاً للمحتوى وملخص الجمهور بأسلوب واضح وودود.",
+        socialCalendar:
+          "صمّم تقويماً للمحتوى الاجتماعي يضم تبويبات القنوات ومنشورات مجدولة ومؤشرات أداء بأسلوب تحريري مشرق.",
+        brandCampaign:
+          "أنشئ صفحة لحملة علامة تجارية تضم عنواناً وتوجيهاً فنياً ومعرض أصول بأسلوب واثق ومتناسق.",
+        webinarRegistration:
+          "صمّم صفحة تسجيل لندوة تضم بطاقات المتحدثين وجدولاً ونموذج تسجيل بأسلوب موثوق ومرحّب.",
+        seoBrief:
+          "أنشئ موجز SEO يضم مجموعات كلمات مفتاحية ومخطط محتوى وملاحظات منافسين بأسلوب بحثي مركّز.",
+        launchMetrics:
+          "صمّم لوحة مؤشرات إطلاق تضم بطاقات قنوات ومخطط تحويل وجدول حملات بأسلوب تحليلي.",
+        newsletterSignup:
+          "أنشئ صفحة اشتراك في نشرة تضم معاينة تحريرية واختيارات موضوع وحقل بريد بأسلوب دافئ وموجز.",
+      },
+      sales: {
+        leadWorkspace:
+          "صمّم مساحة عمل لعميل محتمل تضم تفاصيل الاتصال وخطاً زمنياً للنشاط وحقول تأهيل بأسلوب مهني وحاسم.",
+        accountBrief:
+          "أنشئ موجز بحث لحساب يضم ملخص شركة وأصحاب مصلحة وإشارات حديثة بأسلوب تنفيذي واضح.",
+        productDemo:
+          "صمّم صفحة عرض للمنتج تضم تبويبات الاستخدام ولقطات شاشة وإثباتات عملاء بأسلوب مقنع وواثق.",
+        proposalBuilder:
+          "أنشئ منشئ عروض يضم أقسام النطاق وبطاقات الأسعار وجدولاً زمنياً بأسلوب استشاري مصقول.",
+        pipelineDashboard:
+          "صمّم لوحة مسار مبيعات تضم مراحل وقيم صفقات ومخطط توقعات بأسلوب أعمال موجز.",
+        meetingBooking:
+          "أنشئ صفحة حجز اجتماع تضم أوقاتاً متاحة ومعاينة جدول ونموذجاً بأسلوب مهني مرحّب.",
+        customerStory:
+          "صمّم صفحة قصة عميل تضم التحدي والنتائج واقتباساً ومؤشرات بأسلوب تحريري قائم على الأدلة.",
+        accountHandoff:
+          "أنشئ مساحة تسليم حساب تضم أهداف العميل وجهات الاتصال والمهام المفتوحة بأسلوب هادئ وتعاوني.",
+      },
+      ops: {
+        inventoryDashboard:
+          "صمّم لوحة مخزون تضم مستويات السلع وتنبيهات إعادة الطلب وفلاتر الفئات بأسلوب تشغيلي عملي.",
+        staffScheduler:
+          "أنشئ جدول موظفين يضم شبكة المناوبات والتوفر وطلبات الإجازة بتصميم سهل القراءة.",
+        vendorPortal:
+          "صمّم بوابة تهيئة مورد تضم قائمة تحقق وحالات رفع المستندات وجهات الاتصال بأسلوب واضح ومطمئن.",
+        incidentResponse:
+          "أنشئ شاشة استجابة لحادث تضم شريط خطورة وخطاً زمنياً ولوحة مسؤول بأسلوب هادئ ومركّز.",
+        expenseApprovals:
+          "صمّم قائمة موافقات مصروفات تضم معاينات الإيصالات وتنبيهات السياسات والإجماليات بأسلوب محايد وفعال.",
+        warehouseReceiving:
+          "أنشئ شاشة استلام مستودع تضم تفاصيل الشحنة وحالة المسح وقائمة الأصناف بأسلوب شديد الوضوح.",
+        automationControl:
+          "صمّم لوحة تحكم للتدفقات تضم بطاقات أتمتة وسجل تشغيل وتنبيهات فشل بأسلوب تشغيلي واثق.",
+        helpdeskQueue:
+          "أنشئ قائمة دعم داخلية تضم بطاقات طلبات وفلاتر حالة وعناصر تعيين بأسلوب واضح ومساعد.",
+      },
+      individual: {
+        personalPortfolio:
+          "صمّم محفظة شخصية تضم نبذة قصيرة وأعمالاً مختارة ومهارات وروابط اتصال بأسلوب تحريري دافئ.",
+        mealPlanner:
+          "أنشئ شاشة تخطيط وجبات تضم وصفات أسبوعية وقائمة مشتريات وفلاتر غذائية بأسلوب عملي وودود.",
+        homeBudget:
+          "صمّم لوحة ميزانية منزلية تضم ملخصاً شهرياً ومخطط فئات وقائمة فواتير بأسلوب هادئ ومساند.",
+        tripPlanner:
+          "أنشئ مخطط رحلة يضم خطاً زمنياً وخريطة وبطاقات حجز بأسلوب خفيف ومليء بالمغامرة.",
+        readingJournal:
+          "صمّم دفتر قراءة يضم أغلفة كتب وملاحظات تقدم وتقييمات نجوم بأسلوب أدبي هادئ.",
+        invoiceTracker:
+          "أنشئ متتبع فواتير مستقل يضم قائمة عملاء وحالة الدفع والاستحقاق بأسلوب مهني منظم.",
+        habitTracker:
+          "صمّم تطبيق عادات يضم تسجيلات يومية وسلاسل إنجاز ومخطط تقدم بأسلوب لطيف ومحفّز.",
+        neighborhoodEvents:
+          "أنشئ صفحة فعاليات الحي تضم بطاقات أحداث وفلاتر محلية وعناصر تأكيد حضور بأسلوب مجتمعي مرحّب.",
+      },
+      general: {
+        saasHomepage:
+          "أنشئ صفحة رئيسية لـSaaS تضم عنواناً وأقسام ميزات وإثباتات عملاء بأسلوب واضح ومرحّب.",
+        analyticsDashboard:
+          "صمّم لوحة تحليلات تضم بطاقات مؤشرات ومخطط اتجاهات وجدول نشاط بأسلوب هادئ يستند إلى البيانات.",
+        habitApp:
+          "أنشئ شاشة منزلية لتطبيق عادات جوال تضم أهدافاً يومية وحلقات تقدم وتذكيرات بأسلوب مشجع وودود.",
+        onlineStore:
+          "صمّم واجهة متجر إلكتروني تضم منتجات مميزة وبطاقات فئات ومراجعات عملاء بأسلوب دافئ ومصقول.",
+        creativePortfolio:
+          "أنشئ محفظة إبداعية تضم مقدمة موجزة وشبكة مشاريع ونبذة بأسلوب تحريري معبّر.",
+        bookingPage:
+          "صمّم صفحة حجز تضم تقويم التوفر وبطاقات خدمات ومراجعات بأسلوب واضح وموثوق.",
+        adminDashboard:
+          "أنشئ لوحة إدارة تضم تنقلاً جانبياً وبطاقات ملخص ونشاطاً حديثاً بأسلوب عملي ومقتصد.",
+        communityEvent:
+          "صمّم صفحة فعالية مجتمعية تضم جدولاً وموقعاً ومتحدثين بأسلوب احتفالي مرحّب.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "الخطوات التالية",
+      refineWithPrompt: "حسّن باستخدام مطالبة",
+      export: "تصدير",
+      shareLink: "مشاركة الرابط",
+      dismiss: "إغلاق",
+    },
     import: "استيراد",
     importOptions: "خيارات الاستيراد",
     figmaLink: "رابط Figma",
@@ -2756,6 +2911,89 @@ export default {
     paginationPrevious: "السابق",
     paginationNext: "التالي",
     paginationPage: "الصفحة {{page}} من {{totalPages}}",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "لوحة تحليلات للمنتج",
+        roadmapWorkspace: "مساحة لخارطة الطريق",
+        onboardingFlow: "بدء استخدام لتطبيق ميزانية",
+        featureComparison: "صفحة مقارنة SaaS",
+        feedbackPortal: "بوابة ملاحظات للعملاء",
+        releaseNotes: "مركز الإصدارات",
+        projectWorkspace: "مساحة عمل للمنتج",
+        launchWaitlist: "صفحة انتظار للإطلاق",
+      },
+      design: {
+        portfolioHome: "محفظة لمصمم",
+        designSystem: "مرجع نظام التصميم",
+        bankingApp: "الشاشة الرئيسية لتطبيق بنك",
+        travelBooking: "شاشة بحث عن السفر",
+        coffeeShop: "واجهة مقهى",
+        musicFestival: "صفحة لمهرجان موسيقي",
+        accessibilityAudit: "لوحة تدقيق لإمكانية الوصول",
+        artBook: "صفحة تحريرية لكتاب فني",
+      },
+      developer: {
+        apiDocs: "بوابة توثيق API",
+        deploymentDashboard: "لوحة نشر",
+        componentPlayground: "مساحة لتجربة المكونات",
+        databaseConsole: "وحدة تحكم لقاعدة بيانات",
+        issueTriage: "لوحة فرز للمشكلات",
+        authSettings: "إعدادات مصادقة",
+        workflowBuilder: "منشئ تدفقات CI",
+        developerPortfolio: "محفظة لمطور",
+      },
+      marketing: {
+        campaignLanding: "صفحة حملة",
+        emailBuilder: "محرراً لحملة بريد",
+        socialCalendar: "تقويم المحتوى الاجتماعي",
+        brandCampaign: "صفحة لحملة علامة تجارية",
+        webinarRegistration: "صفحة تسجيل لندوة",
+        seoBrief: "موجز SEO",
+        launchMetrics: "لوحة مؤشرات إطلاق",
+        newsletterSignup: "اشتراك النشرة البريدية",
+      },
+      sales: {
+        leadWorkspace: "مساحة عمل لعميل محتمل",
+        accountBrief: "موجز بحث الحساب",
+        productDemo: "صفحة عرض للمنتج",
+        proposalBuilder: "منشئ عروض",
+        pipelineDashboard: "لوحة مسار مبيعات",
+        meetingBooking: "صفحة حجز اجتماع",
+        customerStory: "صفحة قصة عميل",
+        accountHandoff: "مساحة تسليم حساب",
+      },
+      ops: {
+        inventoryDashboard: "لوحة مخزون",
+        staffScheduler: "جدول الموظفين",
+        vendorPortal: "بوابة تهيئة مورد",
+        incidentResponse: "شاشة استجابة لحادث",
+        expenseApprovals: "قائمة موافقات مصروفات",
+        warehouseReceiving: "شاشة استلام مستودع",
+        automationControl: "لوحة تحكم للتدفقات",
+        helpdeskQueue: "قائمة دعم داخلية",
+      },
+      individual: {
+        personalPortfolio: "محفظة شخصية",
+        mealPlanner: "شاشة تخطيط وجبات",
+        homeBudget: "لوحة ميزانية منزلية",
+        tripPlanner: "مخطط رحلة",
+        readingJournal: "دفتر قراءة",
+        invoiceTracker: "متتبع فواتير مستقل",
+        habitTracker: "تطبيق عادات",
+        neighborhoodEvents: "صفحة فعاليات الحي",
+      },
+      general: {
+        saasHomepage: "صفحة رئيسية لـSaaS",
+        analyticsDashboard: "لوحة تحليلات",
+        habitApp: "شاشة منزلية لتطبيق عادات",
+        onlineStore: "واجهة متجر إلكتروني",
+        creativePortfolio: "محفظة إبداعية",
+        bookingPage: "صفحة حجز",
+        adminDashboard: "لوحة إدارة",
+        communityEvent: "صفحة فعالية مجتمعية",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "تحرير مرئي",
@@ -3167,6 +3405,93 @@ export default {
     searching: "جارٍ البحث…",
     reactionFailed: "تعذر تحديث التفاعل",
     moveFailed: "تعذر نقل التعليق",
+    threadTitle: "تعليق",
+    agentBadge: "وكيل",
+    closeThread: "إغلاق المحادثة",
+    deleteThread: "حذف المحادثة",
+    deleteThreadTitle: "حذف المحادثة؟",
+    deleteThreadDescription: "سيؤدي هذا إلى إزالة المحادثة من المراجعة.",
+    pin: {
+      thread_zero: "محادثة من {{authors}}، {{count}} تعليق",
+      thread_one: "محادثة من {{authors}}، {{count}} تعليق",
+      thread_two: "محادثة من {{authors}}، {{count}} تعليقان",
+      thread_few: "محادثة من {{authors}}، {{count}} تعليقات",
+      thread_many: "محادثة من {{authors}}، {{count}} تعليقًا",
+      thread_other: "محادثة من {{authors}}، {{count}} تعليق",
+      authorsOther_zero: "{{count}} آخر",
+      authorsOther_one: "{{count}} آخر",
+      authorsOther_two: "{{count}} آخران",
+      authorsOther_few: "{{count}} آخرين",
+      authorsOther_many: "{{count}} آخرًا",
+      authorsOther_other: "{{count}} آخر",
+      unread: "غير مقروءة",
+      resolved: "تم الحل",
+      draft: "مسودة تعليق",
+    },
+    reaction: {
+      label_zero: "{{emoji}}، {{count}} تفاعل",
+      label_one: "{{emoji}}، {{count}} تفاعل",
+      label_two: "{{emoji}}، {{count}} تفاعلان",
+      label_few: "{{emoji}}، {{count}} تفاعلات",
+      label_many: "{{emoji}}، {{count}} تفاعلًا",
+      label_other: "{{emoji}}، {{count}} تفاعل",
+      labelMine_zero: "{{emoji}}، {{count}} تفاعل، بما في ذلك تفاعلك",
+      labelMine_one: "{{emoji}}، {{count}} تفاعل، بما في ذلك تفاعلك",
+      labelMine_two: "{{emoji}}، {{count}} تفاعلان، بما في ذلك تفاعلك",
+      labelMine_few: "{{emoji}}، {{count}} تفاعلات، بما في ذلك تفاعلك",
+      labelMine_many: "{{emoji}}، {{count}} تفاعلًا، بما في ذلك تفاعلك",
+      labelMine_other: "{{emoji}}، {{count}} تفاعل، بما في ذلك تفاعلك",
+    },
+    filtersActive: "تم تطبيق التصفية",
+    suggestChanges: "اقتراح تعديلات",
+    replyInThread: "الرد في المحادثة",
+    applyChangesAndResolve: "تطبيق التعديلات وحل المحادثة",
+    agent: {
+      sectionLabel: "الوكلاء",
+      queued: "{{agent}} في قائمة الانتظار",
+      working: "{{agent}} يعمل…",
+      replied: "رد {{agent}}",
+      suggested: "اقترح {{agent}} تعديلات",
+      applied: "طبّق {{agent}} التعديلات وحلّ المحادثة",
+      needsInput: "{{agent}} يحتاج إلى مدخلاتك",
+      failed: "تعذّر على {{agent}} إكمال المهمة",
+      cancelled: "تم الإيقاف",
+      cancel: "إلغاء",
+      openChat: "فتح الدردشة",
+      retry: "إعادة المحاولة",
+      fallbackName: "AI",
+      setupRequired: "اربط نموذج ذكاء اصطناعي لاستخدام الوكلاء",
+      startFailed: "تعذّر تشغيل الوكيل",
+      cancelFailed: "تعذّر إيقاف الوكيل",
+      busy: "يعمل وكيل على هذه المحادثة بالفعل",
+      error: {
+        engineNotConfigured: "لم يتم ربط أي نموذج ذكاء اصطناعي",
+        noResult: "انتهى الوكيل دون تقديم رد",
+        timeout: "لم يستجب الوكيل في الوقت المحدد",
+        permission: "لم تعد تملك صلاحية التعديل",
+        threadUnavailable: "لم تعد هذه المحادثة مفتوحة",
+        targetChanged: "تغيّر التصميم أثناء عمل الوكيل",
+        applyUnavailable: "لا يستطيع الوكيل تعديل هذه الشاشة",
+        applyIncomplete: "تم تعديل التصميم لكن لم تُحلّ المحادثة. راجع التعديل.",
+        cancelledAfterEdit: "تم الإيقاف بعد تعديل التصميم. راجع التعديل.",
+        generic: "حدث خطأ ما",
+      },
+    },
+    newThread: "محادثة جديدة",
+    threadsCount_zero: "{{count}} محادثة",
+    threadsCount_one: "{{count}} محادثة",
+    threadsCount_two: "{{count}} محادثتان",
+    threadsCount_few: "{{count}} محادثات",
+    threadsCount_many: "{{count}} محادثةً",
+    threadsCount_other: "{{count}} محادثة",
+    boardGroup: "اللوحة",
+    send: "إرسال",
+    pinLabel_zero: "محادثة تعليقات بها {{count}} تعليق",
+    pinLabel_one: "محادثة تعليقات بها {{count}} تعليق",
+    pinLabel_two: "محادثة تعليقات بها {{count}} تعليقان",
+    pinLabel_few: "محادثة تعليقات بها {{count}} تعليقات",
+    pinLabel_many: "محادثة تعليقات بها {{count}} تعليقًا",
+    pinLabel_other: "محادثة تعليقات بها {{count}} تعليق",
     status: {
       draft: "مسودة",
       in_review: "قيد المراجعة",

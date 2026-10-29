@@ -75,6 +75,7 @@ import {
   type IdentityRekeyDb,
 } from "../identity/rekey.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
+import { assignQuestionIntakeExperimentOnSignup } from "../observability/question-intake-experiment.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
   getAuthEmailForUserId,
@@ -2615,6 +2616,63 @@ async function createBetterAuthInstance(
             if (!email) return;
 
             await emitSignupEventForCreatedUser(user, context);
+
+            const actingUserId = context?.context?.session?.user?.id;
+            if (user.id && (!actingUserId || actingUserId === user.id)) {
+              let experimentId: string | undefined;
+              try {
+                const questionIntakeConfig =
+                  getAppConfig().agent.questionIntake;
+                experimentId = questionIntakeConfig?.experimentId;
+                // raw-sql-ok: the assignment store binds the authenticated user ID as a query argument.
+                await assignQuestionIntakeExperimentOnSignup(
+                  questionIntakeConfig,
+                  user.id,
+                );
+              } catch (error) {
+                console.error(
+                  "[auth] question-intake assignment failed after retry",
+                  {
+                    code: "question_intake_assignment_failed",
+                    experimentId,
+                  },
+                );
+                if (experimentId) {
+                  try {
+                    track(
+                      "agent_experiment_assignment_failed",
+                      {
+                        experiment_id: experimentId,
+                        failure_stage: "signup",
+                        error_code: "question_intake_assignment_failed",
+                      },
+                      { authUserId: user.id, userId: email },
+                    );
+                  } catch {
+                    console.error(
+                      "[auth] failed to track question-intake assignment failure",
+                      { code: "question_intake_assignment_tracking_failed" },
+                    );
+                  }
+                }
+                try {
+                  const { captureError } = await import("./capture-error.js");
+                  captureError(error, {
+                    route: "auth.signup",
+                    tags: {
+                      failureClass: "question-intake-assignment",
+                      errorCode: "question_intake_assignment_failed",
+                    },
+                    extra: { experimentId },
+                  });
+                } catch {
+                  console.error(
+                    "[auth] failed to report question-intake assignment failure",
+                    { code: "question_intake_assignment_reporting_failed" },
+                  );
+                }
+              }
+            }
 
             if (user.emailVerified !== true) return;
 

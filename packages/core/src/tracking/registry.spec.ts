@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  resetAppConfigForTests,
+  setAppConfigLayer,
+} from "../app-config/store.js";
+import {
+  createTrackingEventScope,
+  flushTrackingEvents,
+} from "../observability/tracing.js";
+import {
   loadFirstRunBuilderCreditsV2Assignment,
   recordFirstRunBuilderCreditsV2Exposure,
 } from "../onboarding/first-run-builder-credits-experiment.js";
@@ -12,6 +20,7 @@ import {
   identify,
   registerTrackingProvider,
   track,
+  trackQuestionIntakeExposure,
   unregisterTrackingProvider,
 } from "./registry.js";
 import type { TrackingEvent } from "./types.js";
@@ -21,12 +30,24 @@ const mockExperimentAssignments = vi.hoisted(() => ({
   getAssignment: vi.fn(),
   upsertAssignment: vi.fn(),
 }));
+const mockQuestionIntakeAssignment = vi.hoisted(() => vi.fn());
 
-vi.mock("../observability/tracing.js", () => ({
-  queueTrackingEvent: mockQueueTrackingEvent,
-}));
+vi.mock("../observability/tracing.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../observability/tracing.js")>();
+  return { ...actual, queueTrackingEvent: mockQueueTrackingEvent };
+});
 
 vi.mock("../observability/store.js", () => mockExperimentAssignments);
+vi.mock(
+  "../observability/question-intake-experiment.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../observability/question-intake-experiment.js")
+    >()),
+    resolveQuestionIntakeExperimentAssignment: mockQuestionIntakeAssignment,
+  }),
+);
 
 function captureEvents(): TrackingEvent[] {
   const events: TrackingEvent[] = [];
@@ -48,6 +69,8 @@ describe("tracking registry", () => {
     mockQueueTrackingEvent.mockClear();
     mockExperimentAssignments.getAssignment.mockReset();
     mockExperimentAssignments.upsertAssignment.mockReset();
+    mockQuestionIntakeAssignment.mockReset().mockResolvedValue(null);
+    resetAppConfigForTests();
     vi.restoreAllMocks();
   });
 
@@ -164,8 +187,10 @@ describe("tracking registry", () => {
         authUserId: "better-auth-user-1",
       },
       async () => {
+        const expected = assignFirstRunBuilderCreditsV2("better-auth-user-1");
         const assignment = await recordFirstRunBuilderCreditsV2Exposure({
           flagEnabled: true,
+          experimentVariant: expected!.experiment_variant,
         });
         expect(assignment).toMatchObject({
           authUserId: "better-auth-user-1",
@@ -211,7 +236,10 @@ describe("tracking registry", () => {
       { userEmail: "alice@example.com", authUserId: "better-auth-user-1" },
       async () => {
         await expect(
-          recordFirstRunBuilderCreditsV2Exposure({ flagEnabled: false }),
+          recordFirstRunBuilderCreditsV2Exposure({
+            flagEnabled: false,
+            experimentVariant: "control",
+          }),
         ).resolves.toBeNull();
         track("run_started", {});
       },
@@ -247,6 +275,88 @@ describe("tracking registry", () => {
     });
   });
 
+  it("restores stored attribution on first-run onboarding client events", async () => {
+    const events = captureEvents();
+    const authUserId = "better-auth-user-onboarding";
+    const expected = assignFirstRunBuilderCreditsV2(authUserId);
+    mockExperimentAssignments.getAssignment.mockResolvedValue({
+      experimentId: "first_run_builder_credits_v2",
+      userId: authUserId,
+      variantId: expected?.experiment_variant,
+      assignedAt: 123,
+    });
+
+    await runWithRequestContext(
+      { userEmail: "first-run@example.com", authUserId },
+      async () => {
+        await loadFirstRunBuilderCreditsV2Assignment();
+        track(
+          "onboarding_method_clicked",
+          {
+            flow: "first_run",
+            experiment_id: "client-spoof",
+            experiment_variant: "control",
+          },
+          {
+            userId: "first-run@example.com",
+            authUserId,
+            telemetryOrigin: "client",
+          },
+        );
+        track(
+          "onboarding_step_viewed",
+          { flow: "checklist", experiment_id: "client-spoof" },
+          {
+            userId: "first-run@example.com",
+            authUserId,
+            telemetryOrigin: "client",
+          },
+        );
+      },
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.properties).toMatchObject({
+      flow: "first_run",
+      experiment_id: "first_run_builder_credits_v2",
+      experiment_variant: expected?.experiment_variant,
+    });
+    expect(events[1]?.properties).not.toHaveProperty("experiment_id");
+    expect(events[1]?.properties).not.toHaveProperty("experiment_variant");
+  });
+
+  it("does not trust first-run onboarding tags without a stored assignment", async () => {
+    const events = captureEvents();
+    mockExperimentAssignments.getAssignment.mockResolvedValue(null);
+
+    await runWithRequestContext(
+      {
+        userEmail: "unassigned@example.com",
+        authUserId: "better-auth-unassigned",
+      },
+      async () => {
+        await loadFirstRunBuilderCreditsV2Assignment();
+        track(
+          "onboarding_experiment_exposed",
+          {
+            flow: "first_run",
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+          {
+            userId: "unassigned@example.com",
+            authUserId: "better-auth-unassigned",
+            telemetryOrigin: "client",
+          },
+        );
+      },
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+    expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
+  });
+
   it("keeps unassigned events joinable without reading the arm on every run", async () => {
     const events = captureEvents();
 
@@ -265,6 +375,417 @@ describe("tracking registry", () => {
     expect(mockExperimentAssignments.getAssignment).not.toHaveBeenCalled();
   });
 
+  it("stamps configured client funnel events from the stored signup assignment", async () => {
+    const events = captureEvents();
+    const pending: Promise<unknown>[] = [];
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+          clientTrackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    mockQuestionIntakeAssignment.mockResolvedValue({
+      authUserId: "better-auth-user-3",
+      experimentId: "design_no_questions",
+      variantId: "no_questions",
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: "carol@example.com",
+        authUserId: "better-auth-user-3",
+        run: { waitUntil: (promise) => pending.push(promise) },
+      },
+      () => {
+        track("design_prompt_submitted", {
+          experiment_id: "client-spoof",
+          experiment_variant: "control",
+        });
+        track("design_ready_viewed", {});
+      },
+    );
+    await Promise.all(pending);
+
+    expect(events).toHaveLength(2);
+    const promptEvent = events.find(
+      (event) => event.name === "design_prompt_submitted",
+    );
+    const readyEvent = events.find(
+      (event) => event.name === "design_ready_viewed",
+    );
+    expect(promptEvent?.properties).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "no_questions",
+    });
+    expect(readyEvent?.properties).not.toHaveProperty("experiment_id");
+    expect(mockQuestionIntakeAssignment).toHaveBeenCalledWith(
+      expect.objectContaining({ experimentId: "design_no_questions" }),
+      "better-auth-user-3",
+    );
+  });
+
+  it("tracks a run exposure with the assigned arm and effective turn ID", async () => {
+    const events = captureEvents();
+    const assignment = {
+      authUserId: "better-auth-user-3",
+      experimentId: "design_no_questions",
+      variantId: "no_questions" as const,
+    };
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["agent_experiment_exposed"],
+        },
+      },
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: "carol@example.com",
+        authUserId: "better-auth-user-3",
+        run: { questionIntakeExperimentAssignment: assignment },
+      },
+      () =>
+        trackQuestionIntakeExposure(assignment, {
+          appId: "design",
+          threadId: "thread-3",
+          turnId: "turn-3",
+          userId: "carol@example.com",
+        }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      name: "agent_experiment_exposed",
+      userId: "carol@example.com",
+      properties: {
+        experiment_id: "design_no_questions",
+        experiment_variant: "no_questions",
+        app_id: "design",
+        thread_id: "thread-3",
+        turn_id: "turn-3",
+      },
+    });
+    expect(mockQuestionIntakeAssignment).not.toHaveBeenCalled();
+  });
+
+  it("attributes only allowlisted client experiment events and preserves client provenance", async () => {
+    const events = captureEvents();
+    const pending: Promise<unknown>[] = [];
+    const clientSource = {
+      userId: "carol@example.com",
+      authUserId: "better-auth-user-3",
+      telemetryOrigin: "client" as const,
+    };
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: [
+            "design_prompt_submitted",
+            "design_ready_viewed",
+            "design_exported",
+          ],
+          clientTrackedEventNames: [
+            "design_prompt_submitted",
+            "design_ready_viewed",
+          ],
+        },
+      },
+    });
+    mockQuestionIntakeAssignment.mockResolvedValue({
+      authUserId: "better-auth-user-3",
+      experimentId: "design_no_questions",
+      variantId: "no_questions",
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: "carol@example.com",
+        authUserId: "better-auth-user-3",
+        run: { waitUntil: (promise) => pending.push(promise) },
+      },
+      () => {
+        track(
+          "design_prompt_submitted",
+          { prompt_length_bucket: "1-50" },
+          clientSource,
+        );
+        track(
+          "design_ready_viewed",
+          { is_owner: true, screen_count: 1, turn_id: "turn-1" },
+          clientSource,
+        );
+        track(
+          "design_exported",
+          {
+            status: "completed",
+            telemetry_origin: "server",
+            caller: "frontend",
+            render_location: "server",
+          },
+          clientSource,
+        );
+        track(
+          "design_exported",
+          { status: "completed" },
+          {
+            ...clientSource,
+            telemetryOrigin: "server",
+          },
+        );
+      },
+    );
+    await Promise.all(pending);
+
+    const promptEvent = events.find(
+      (event) => event.name === "design_prompt_submitted",
+    );
+    const clientReadyEvent = events.find(
+      (event) => event.name === "design_ready_viewed",
+    );
+    const clientExportEvent = events.find(
+      (event) =>
+        event.name === "design_exported" && !event.properties.experiment_id,
+    );
+    const serverExportEvent = events.find(
+      (event) =>
+        event.name === "design_exported" &&
+        event.properties.experiment_id === "design_no_questions",
+    );
+    expect(promptEvent?.properties).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "no_questions",
+    });
+    expect(clientReadyEvent?.properties).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "no_questions",
+      telemetry_origin: "client",
+    });
+    expect(clientExportEvent?.properties).not.toHaveProperty("experiment_id");
+    expect(clientExportEvent?.properties).toMatchObject({
+      telemetry_origin: "client",
+      caller: "frontend",
+      render_location: "server",
+    });
+    expect(serverExportEvent?.properties).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "no_questions",
+      telemetry_origin: "server",
+    });
+    expect(mockQuestionIntakeAssignment).toHaveBeenCalledTimes(3);
+  });
+
+  it("registers deferred experiment attribution before response-scope flush", async () => {
+    const events = captureEvents();
+    let resolveAssignment!: (assignment: {
+      authUserId: string;
+      experimentId: string;
+      variantId: "no_questions";
+    }) => void;
+    const scope = createTrackingEventScope();
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+          clientTrackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    mockQuestionIntakeAssignment.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAssignment = resolve;
+        }),
+    );
+
+    await runWithRequestContext(
+      {
+        userEmail: "carol@example.com",
+        authUserId: "better-auth-user-3",
+        trackingScope: scope,
+      },
+      () => {
+        track(
+          "design_prompt_submitted",
+          {},
+          {
+            userId: "carol@example.com",
+            authUserId: "better-auth-user-3",
+            telemetryOrigin: "client",
+          },
+        );
+        expect(scope.pending.size).toBe(1);
+      },
+    );
+
+    let flushed = false;
+    const responseFlush = flushTrackingEvents(scope).then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+    expect(flushed).toBe(false);
+    expect(events).toHaveLength(0);
+
+    resolveAssignment({
+      authUserId: "better-auth-user-3",
+      experimentId: "design_no_questions",
+      variantId: "no_questions",
+    });
+    await responseFlush;
+
+    expect(flushed).toBe(true);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "no_questions",
+    });
+    expect(scope.pending.size).toBe(0);
+  });
+
+  it("does not trust client-supplied experiment metadata when no signup assignment exists", async () => {
+    const events = captureEvents();
+    const pending: Promise<unknown>[] = [];
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: "carol@example.com",
+        authUserId: "better-auth-user-3",
+        run: { waitUntil: (promise) => pending.push(promise) },
+      },
+      () =>
+        track("design_prompt_submitted", {
+          experiment_id: "client-spoof",
+          experiment_variant: "no_questions",
+        }),
+    );
+    await Promise.all(pending);
+
+    expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+    expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
+  });
+
+  it("drops client-supplied experiment metadata from unconfigured event names", () => {
+    const events = captureEvents();
+
+    track(
+      "arbitrary_client_event",
+      {
+        experiment_id: "client-spoof",
+        experiment_variant: "no_questions",
+      },
+      { userId: "carol@example.com", telemetryOrigin: "client" },
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+    expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
+  });
+
+  it("emits tracked events without attribution when assignment lookup fails", async () => {
+    const events = captureEvents();
+    const pending: Promise<unknown>[] = [];
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    mockQuestionIntakeAssignment.mockRejectedValue(new Error("db unavailable"));
+
+    await runWithRequestContext(
+      {
+        userEmail: "carol@example.com",
+        authUserId: "better-auth-user-4",
+        run: { waitUntil: (promise) => pending.push(promise) },
+      },
+      () => track("design_prompt_submitted", {}),
+    );
+    await Promise.all(pending);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.name).toBe("design_prompt_submitted");
+    expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+    expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
+    expect(error).toHaveBeenCalledWith(
+      "[tracking] question-intake assignment lookup failed",
+      {
+        experimentId: "design_no_questions",
+        eventName: "design_prompt_submitted",
+      },
+    );
+  });
+
+  it("uses a run's authenticated assignment without another assignment lookup", async () => {
+    const events = captureEvents();
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_exported"],
+        },
+      },
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: "carol@example.com",
+        authUserId: "better-auth-user-3",
+        run: {
+          questionIntakeExperimentAssignment: {
+            authUserId: "better-auth-user-3",
+            experimentId: "design_no_questions",
+            variantId: "control",
+          },
+        },
+      },
+      () => track("design_exported", {}),
+    );
+
+    expect(events[0]?.properties).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "control",
+    });
+    expect(mockExperimentAssignments.getAssignment).not.toHaveBeenCalled();
+  });
+
   it("derives experiment exposure only from the authenticated request id", async () => {
     const events = captureEvents();
 
@@ -272,7 +793,10 @@ describe("tracking registry", () => {
       { userEmail: "alice@example.com", agentRunAnonymous: true },
       async () => {
         await expect(
-          recordFirstRunBuilderCreditsV2Exposure({ flagEnabled: true }),
+          recordFirstRunBuilderCreditsV2Exposure({
+            flagEnabled: true,
+            experimentVariant: "control",
+          }),
         ).resolves.toBeNull();
         track("run_started", {});
       },

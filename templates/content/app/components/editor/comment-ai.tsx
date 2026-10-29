@@ -1044,14 +1044,29 @@ export function useCommentAiRequests(
   );
 }
 
+/** "Claude Haiku 5.5 is working…": the model the run uses. */
+function workingLabel(
+  model: string | null | undefined,
+  t: ReturnType<typeof useT>,
+  queued = false,
+) {
+  if (!model?.trim())
+    return t(queued ? "comments.aiQueued" : "comments.aiWorking");
+  return t(queued ? "comments.aiQueuedNamed" : "comments.aiWorkingNamed", {
+    name: modelDisplayName(model),
+  });
+}
+
 function requestStatusLabel(
   request: CommentAiRequest,
   t: ReturnType<typeof useT>,
 ) {
+  // Until a run starts, only the model the comment was sent to is known.
+  const model = request.model ?? request.submittedModel;
   if (request.status === "classifying" || request.status === "classified")
-    return t("comments.aiWorking");
-  if (request.status === "queued") return t("comments.aiQueued");
-  if (request.status === "running") return t("comments.aiWorking");
+    return workingLabel(model, t);
+  if (request.status === "queued") return workingLabel(model, t, true);
+  if (request.status === "running") return workingLabel(model, t);
   if (request.status === "refreshing") return t("comments.aiRefreshing");
   if (request.status === "failed") return t("comments.aiFailed");
   if (request.status === "cancelled") return t("comments.aiCancelled");
@@ -1107,7 +1122,8 @@ export function CommentAiRequestStatus({
     continuation?.status === "unavailable";
   const continuationLabel = continuation
     ? continuation.status === "queued" || continuation.status === "running"
-      ? t("comments.aiWorking")
+      ? // A follow-up runs on request.model alone (see dispatchContinuation).
+        workingLabel(request.model, t)
       : continuation.status === "aborted"
         ? t("comments.aiCancelled")
         : continuation.status === "completed"
@@ -1136,7 +1152,9 @@ export function CommentAiRequestStatus({
         title={continuation?.error ?? request.error ?? undefined}
       >
         {active ? <Spinner aria-hidden className="size-3.5 shrink-0" /> : null}
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {/* Wraps rather than truncates: in a narrow card, "Claude Haiku 5.5
+            is working…" would otherwise lose the words that say what it's doing. */}
+        <span className="min-w-0 flex-1 break-words">{label}</span>
       </div>
       {active ? (
         <Button

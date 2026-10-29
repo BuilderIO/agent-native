@@ -76,6 +76,7 @@ const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
   "audio",
   "contentReference",
   "localMdxComponent",
+  "registryBlock",
 ]);
 
 type SelectionFillRange = {
@@ -311,36 +312,47 @@ export function shouldShowBubbleToolbar({
   return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
 }
 
+/** Starts a comment on the text in `range`; false when there's nothing to quote. */
+export function startCommentOnRange(
+  editor: Editor,
+  onComment: NonNullable<BubbleToolbarProps["onComment"]>,
+  range: CommentRange,
+) {
+  const { from, to } = trimSelectionRange(
+    editor.state.doc,
+    range.from,
+    range.to,
+  );
+  // The quote is the anchor's text, which runs blocks together: a selection
+  // across a paragraph break is highlighted and found again in that form.
+  const anchor = captureAnchor(editor.state.doc, from, to);
+  if (!anchor.quotedText.trim()) return false;
+  const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
+  const coords = editor.view.coordsAtPos(from);
+  const scrollContainer = editor.view.dom.closest(
+    ".flex-1.min-h-0.overflow-auto",
+  );
+  const containerTop = scrollContainer
+    ? scrollContainer.getBoundingClientRect().top
+    : 0;
+  const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+  const offsetTop = coords.top - containerTop + scrollTop;
+  editor.commands.setTextSelection(from);
+  onComment(anchor.quotedText, offsetTop, anchor, { from, to }, suggestionId);
+  return true;
+}
+
 /** Starts a comment on the selected text; false when there's nothing to quote. */
 function useCommentFromSelection(
   editor: Editor,
   onComment: BubbleToolbarProps["onComment"],
 ) {
-  return useCallback(() => {
-    if (!onComment) return false;
-    const { from, to } = trimSelectionRange(
-      editor.state.doc,
-      editor.state.selection.from,
-      editor.state.selection.to,
-    );
-    // The quote is the anchor's text, which runs blocks together: a selection
-    // across a paragraph break is highlighted and found again in that form.
-    const anchor = captureAnchor(editor.state.doc, from, to);
-    if (!anchor.quotedText.trim()) return false;
-    const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
-    const coords = editor.view.coordsAtPos(from);
-    const scrollContainer = editor.view.dom.closest(
-      ".flex-1.min-h-0.overflow-auto",
-    );
-    const containerTop = scrollContainer
-      ? scrollContainer.getBoundingClientRect().top
-      : 0;
-    const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
-    const offsetTop = coords.top - containerTop + scrollTop;
-    editor.commands.setTextSelection(from);
-    onComment(anchor.quotedText, offsetTop, anchor, { from, to }, suggestionId);
-    return true;
-  }, [editor, onComment]);
+  return useCallback(
+    () =>
+      !!onComment &&
+      startCommentOnRange(editor, onComment, editor.state.selection),
+    [editor, onComment],
+  );
 }
 
 /**

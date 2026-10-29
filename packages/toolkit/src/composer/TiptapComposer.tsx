@@ -1166,6 +1166,10 @@ export interface TiptapComposerProps {
   initialText?: string;
   /** Stable key used to re-apply the seeded text. */
   initialTextKey?: string | number;
+  /** Let an explicit host handoff replace a saved draft. */
+  initialTextOverridesSavedDraft?: boolean;
+  /** Skip onTextChange notifications caused only by initial draft setup. */
+  suppressInitialTextChange?: boolean;
   /** Chips placed into `initialText`, as `setText` takes them. */
   initialReferences?: readonly ComposerTextReference[];
   /**
@@ -1333,6 +1337,11 @@ export interface TiptapComposerProps {
    * then hides while it would only repeat the card's connect choices.
    */
   setupCardVisible?: boolean;
+  /**
+   * Reports whether the loaded model list offers only connect paths, which
+   * is known before the server's readiness check answers.
+   */
+  onModelConnectionRequiredChange?: (required: boolean) => void;
   /**
    * Optional secondary model menu (e.g. an image-generation model) rendered as
    * an extra section inside the model picker. Opt-in; omit for chat-only apps.
@@ -1849,6 +1858,7 @@ function ModelSelector({
   terminalModeControl,
   imageModel,
   setupCardVisible = false,
+  onConnectionRequiredChange,
 }: {
   model: string;
   selectedEngine?: string;
@@ -1879,6 +1889,7 @@ function ModelSelector({
   imageModel?: ComposerImageModelMenu;
   open?: boolean;
   setupCardVisible?: boolean;
+  onConnectionRequiredChange?: (required: boolean) => void;
 }) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate;
@@ -2159,6 +2170,18 @@ function ModelSelector({
     onlyConnectPathAvailable ||
     (selectedModelProviderGroups.length > 0 &&
       selectedModelProviderGroups.every((group) => !group.configured));
+  // Only a loaded list that names providers, none of them connected, means
+  // setup. A selected model on an unconnected provider still has others, and
+  // an empty list is a catalog that failed to load, not proof of anything.
+  const connectionRequired =
+    onlyConnectPathAvailable && !modelListLoading && providerGroups.length > 0;
+  useEffect(() => {
+    onConnectionRequiredChange?.(connectionRequired);
+  }, [connectionRequired, onConnectionRequiredChange]);
+  useEffect(
+    () => () => onConnectionRequiredChange?.(false),
+    [onConnectionRequiredChange],
+  );
   // One connect label on every surface: hosts differ in which connect paths
   // they offer, and the picker lists those paths.
   const selectedModelButtonLabel = selectedModelNeedsConnection
@@ -2887,6 +2910,8 @@ function TiptapComposerSurface({
   focusRef,
   initialText,
   initialTextKey,
+  initialTextOverridesSavedDraft = false,
+  suppressInitialTextChange = false,
   initialReferences,
   onSubmit,
   onEmptySubmit,
@@ -2937,6 +2962,7 @@ function TiptapComposerSurface({
   onConnectProvider,
   onConnectLocalRuntime,
   setupCardVisible = false,
+  onModelConnectionRequiredChange,
   imageModelMenu,
   draftScope,
   contextItems: providedContextItems,
@@ -3632,6 +3658,8 @@ function TiptapComposerSurface({
           }));
   const placeholderRef = useRef(resolvedPlaceholder);
   placeholderRef.current = resolvedPlaceholder;
+  const applyingInitialContentRef = useRef(false);
+  const initialTextSyncCompleteRef = useRef(false);
 
   const editor = useEditor({
     extensions: createTiptapComposerExtensions(() => placeholderRef.current),
@@ -3642,7 +3670,12 @@ function TiptapComposerSurface({
       // the composer runtime is only synced on submit, so its isEmpty lags.
       setEditorHasText(composerDocumentHasContent(ed.state.doc));
       setAttachmentError(null);
-      onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
+      if (
+        !applyingInitialContentRef.current &&
+        (!suppressInitialTextChange || initialTextSyncCompleteRef.current)
+      ) {
+        onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
+      }
       setReferenceRevision((revision) => revision + 1);
 
       scheduleComposerDraftPersist(ed);
@@ -4086,9 +4119,10 @@ function TiptapComposerSurface({
   // correct immediately after a tab switch, not only after the next keystroke.
   useEffect(() => {
     if (!isComposerEditorUsable(editor) || !onTextChange) return;
+    if (suppressInitialTextChange) return;
     const currentText = editor.getText({ blockSeparator: "\n" }).trim();
     if (initialText === undefined) onTextChange(currentText);
-  }, [editor, initialText, onTextChange]);
+  }, [editor, initialText, onTextChange, suppressInitialTextChange]);
 
   const insertReference = useCallback(
     (ref: AgentComposerReference) => {
@@ -6195,6 +6229,7 @@ function TiptapComposerSurface({
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
+    initialTextSyncCompleteRef.current = true;
     const draftKeyChanged = previousDraftKeyRef.current !== draftKey;
     previousDraftKeyRef.current = draftKey;
     if (draftKeyChanged) {
@@ -6222,7 +6257,7 @@ function TiptapComposerSurface({
             );
           }
         });
-      onTextChangeRef.current?.("");
+      if (!suppressInitialTextChange) onTextChangeRef.current?.("");
     }
     const key = initialTextKey ?? initialText;
     let saved: string | null = null;
@@ -6238,21 +6273,56 @@ function TiptapComposerSurface({
     const savedDraft = saved ? readComposerDraft(saved) : null;
 
     try {
-      if (savedDraft && editor.isEmpty && shouldRestoreSavedDraft) {
-        editor.commands.setContent(savedDraft.html);
+      if (
+        initialText !== undefined &&
+        initialTextOverridesSavedDraft &&
+        initialTextKeyRef.current !== key
+      ) {
+        initialTextKeyRef.current = key;
+        applyingInitialContentRef.current = suppressInitialTextChange;
+        try {
+          editor.commands.setContent(
+            plainTextToDoc(
+              initialText,
+              textChips(initialReferencesRef.current),
+            ),
+          );
+        } finally {
+          applyingInitialContentRef.current = false;
+        }
+      } else if (savedDraft && editor.isEmpty && shouldRestoreSavedDraft) {
+        if (initialText !== undefined) initialTextKeyRef.current = key;
+        applyingInitialContentRef.current = suppressInitialTextChange;
+        try {
+          editor.commands.setContent(savedDraft.html);
+        } finally {
+          applyingInitialContentRef.current = false;
+        }
         updateSlotReferences(savedDraft.slotReferences);
         editor.commands.focus("end");
-        if (initialText !== undefined) initialTextKeyRef.current = key;
-      } else if (initialText === undefined) {
-        onTextChangeRef.current?.(
-          editor.getText({ blockSeparator: "\n" }).trim(),
-        );
-        return;
-      } else if (initialTextKeyRef.current !== key) {
+      } else if (
+        initialText !== undefined &&
+        initialTextKeyRef.current !== key
+      ) {
         initialTextKeyRef.current = key;
-        editor.commands.setContent(
-          plainTextToDoc(initialText, textChips(initialReferencesRef.current)),
-        );
+        applyingInitialContentRef.current = suppressInitialTextChange;
+        try {
+          editor.commands.setContent(
+            plainTextToDoc(
+              initialText,
+              textChips(initialReferencesRef.current),
+            ),
+          );
+        } finally {
+          applyingInitialContentRef.current = false;
+        }
+      } else if (initialText === undefined) {
+        if (!suppressInitialTextChange) {
+          onTextChangeRef.current?.(
+            editor.getText({ blockSeparator: "\n" }).trim(),
+          );
+        }
+        return;
       } else {
         return;
       }
@@ -6262,7 +6332,7 @@ function TiptapComposerSurface({
           slotReferencesRef.current.length > 0,
       );
       composerRuntime.setText(trimmed);
-      onTextChangeRef.current?.(trimmed);
+      if (!suppressInitialTextChange) onTextChangeRef.current?.(trimmed);
       scheduleComposerDraftPersist(editor);
     } catch {
       // coercion-ok: a stale editor during unmount should not block the refresh path.
@@ -6273,6 +6343,8 @@ function TiptapComposerSurface({
     editor,
     initialText,
     initialTextKey,
+    initialTextOverridesSavedDraft,
+    suppressInitialTextChange,
     scheduleComposerDraftPersist,
     setPlanNextState,
     textChips,
@@ -6282,11 +6354,16 @@ function TiptapComposerSurface({
   // Tiptap only reads `editable` at init; prop changes need setEditable.
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
-    editor.setEditable(!editorLocked);
+    applyingInitialContentRef.current = suppressInitialTextChange;
+    try {
+      editor.setEditable(!editorLocked);
+    } finally {
+      applyingInitialContentRef.current = false;
+    }
     if (!editorLocked) return;
     editor.commands.blur();
     closePopover();
-  }, [editor, editorLocked, closePopover]);
+  }, [editor, editorLocked, closePopover, suppressInitialTextChange]);
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
@@ -6712,6 +6789,7 @@ function TiptapComposerSurface({
             terminalModeControl={terminalModeControl}
             imageModel={imageModelMenu}
             setupCardVisible={setupCardVisible}
+            onConnectionRequiredChange={onModelConnectionRequiredChange}
           />
         )}
         {actionButton ?? (

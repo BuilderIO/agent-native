@@ -50,16 +50,12 @@ const messages = {
     untitledChat: "Untitled chat",
   },
   home: {
-    composerPlaceholder: "Call the hello action for Alex",
     communityTitle: "Connect with us",
     docsAddAction: "Add an action",
     docsAddPage: "Add a page",
     docsGettingStarted: "Getting started",
     docsKeyConcepts: "Key concepts",
     docsTitle: "Documentation",
-    editHint: "Edit {{file}} and save, then ask again to see the new greeting.",
-    lead: "Your app's UI and its agent share one set of actions.",
-    leadTry: "Ask the agent to call the hello action.",
     title: "Get started",
   },
   navigation: {

@@ -8,7 +8,7 @@ import {
   CredentialStoreUnavailableError,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   archiveWorkspaceApp,
@@ -1224,6 +1224,106 @@ describe("listWorkspaceApps", () => {
       errorCode: "workspace_gateway_unavailable",
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe("gateway failure trail", () => {
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+      stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    function gatewayFailureLog(): Record<string, unknown> | undefined {
+      return warn.mock.calls.find(
+        (call) => call[0] === "[dispatch] workspace apps gateway read failed:",
+      )?.[1] as Record<string, unknown> | undefined;
+    }
+
+    it("names a gateway that did not answer in time, apart from one that was unreachable", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: unknown, init?: RequestInit) =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () =>
+                reject(new DOMException("aborted", "AbortError")),
+              );
+            }),
+        ),
+      );
+
+      await expect(
+        runWithRequestContext(
+          { userEmail: "dev@example.test", requestId: "req-dispatch-1" },
+          () => listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        errorCode: "workspace_gateway_timeout",
+      });
+
+      expect(gatewayFailureLog()).toMatchObject({
+        errorCode: "workspace_gateway_timeout",
+        status: 503,
+        requestId: "req-dispatch-1",
+        gateway: "https://agent-workspace.builder.io",
+        cause: expect.stringContaining("aborted"),
+      });
+    }, 10_000);
+
+    it("keeps the cause of a transport failure in the log, not on the screen", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error("getaddrinfo ENOTFOUND"), {
+              code: "ENOTFOUND",
+            }),
+          });
+        }),
+      );
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "workspace_gateway_unavailable" });
+
+      expect(gatewayFailureLog()?.cause).toContain("ENOTFOUND");
+    });
+
+    it("logs the workspace's own request id when it answered with an error", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response("down", {
+              status: 503,
+              headers: { "x-agent-native-request-id": "req-workspace-9" },
+            }),
+        ),
+      );
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "workspace_gateway_http_503" });
+
+      expect(gatewayFailureLog()).toMatchObject({
+        errorCode: "workspace_gateway_http_503",
+        upstreamStatus: 503,
+        upstreamRequestId: "req-workspace-9",
+      });
+      expect(gatewayFailureLog()).not.toHaveProperty("cause");
+    });
   });
 
   it("surfaces malformed hosted registry responses instead of using manifest apps", async () => {

@@ -46,6 +46,8 @@ vi.mock("@/hooks/use-documents", () => ({
 }));
 vi.mock("@/components/icons/ContentIcon", () => ({ ContentIcon: () => null }));
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { SuggestionReviewCard } from "./SuggestionReviewCard";
 
 (
@@ -118,15 +120,27 @@ afterEach(() => {
 function render(suggestionIds: string[] = ["edit-0", "edit-1"]) {
   act(() =>
     root.render(
-      <SuggestionReviewCard documentId="doc-1" suggestionIds={suggestionIds} />,
+      <TooltipProvider>
+        <SuggestionReviewCard
+          documentId="doc-1"
+          suggestionIds={suggestionIds}
+        />
+      </TooltipProvider>,
     ),
   );
 }
 
+// Accept and Reject are icons named by their aria-label.
 const button = (label: string, index = 0) =>
   [...host.querySelectorAll("button")].filter(
-    (entry) => entry.textContent === label,
+    (entry) =>
+      entry.textContent === label || entry.getAttribute("aria-label") === label,
   )[index];
+
+const decisionButtons = () =>
+  host.querySelectorAll(
+    "[data-suggestion-decision], [data-suggestion-proposal-decision]",
+  );
 
 const shownEdits = () =>
   [...host.querySelectorAll("[data-thread-suggestion]")].map((edit) =>
@@ -230,7 +244,7 @@ describe("SuggestionReviewCard", () => {
     expect(host.querySelector('[role="status"]')?.textContent).toBe(
       "comments.accepted",
     );
-    expect(host.querySelector("button")).toBeNull();
+    expect(decisionButtons()).toHaveLength(0);
   });
 
   it("reports a failed decision that left the edit pending", async () => {
@@ -252,7 +266,7 @@ describe("SuggestionReviewCard", () => {
     render();
 
     expect(shownEdits()).toEqual(["edit-0", "edit-1"]);
-    expect(host.querySelector("button")).toBeNull();
+    expect(decisionButtons()).toHaveLength(0);
     expect(host.textContent).toContain("comments.suggestionReviewReadOnly");
   });
 

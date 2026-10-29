@@ -7,19 +7,18 @@ import {
   type ArticleTopic,
   type ArticleTopicSummary,
 } from "../../../lib/article-topics";
-import { ARTICLES_BASE, USE_CASES_BASE } from "../../../lib/campaign-content";
+import {
+  ARTICLES_BASE,
+  USE_CASES_BASE,
+  type UseCase,
+} from "../../../lib/campaign-content";
 import { sitePathForLocale } from "../docs-locale";
 import { TemplateLandingShell } from "../template-landing";
 import { Button } from "../website-redesign/ds/button";
 import { ContentCard } from "../website-redesign/ds/content-card";
 import { SectionHeader } from "../website-redesign/ds/section-header";
 import { ArticleBody, parseArticle, sanitizedMarkdown } from "./markdown";
-import {
-  campaignHref,
-  safeHref,
-  type Article,
-  type UseCase,
-} from "./public-content";
+import { campaignHref, safeHref, type Article } from "./public-content";
 import {
   CampaignBand,
   CampaignDate,

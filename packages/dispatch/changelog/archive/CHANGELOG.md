@@ -1,3 +1,22 @@
+## 0.31.0
+
+### Minor Changes
+
+- 8690e40: Make automation details inspectable in Dispatch, including the prompt, trigger configuration, capabilities, and past runs.
+
+## 0.30.5
+
+### Patch Changes
+
+- 8e51925: Fix Electron chat feedback around app visibility, local development tools, and run recovery.
+
+## 0.30.4
+
+### Patch Changes
+
+- Updated dependencies [fc85cb2]
+  - @agent-native/toolkit@0.16.7
+
 ## 0.30.3
 
 ### Patch Changes

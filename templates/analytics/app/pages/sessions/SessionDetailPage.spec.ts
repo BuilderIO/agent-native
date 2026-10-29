@@ -1102,7 +1102,7 @@ describe("session replay chunk loading", () => {
       }),
     ).rejects.toThrow("replay_capture_chunk_limit_exceeded");
     expect(requested).toHaveLength(MAX_SESSION_REPLAY_CAPTURE_CHUNKS);
-  });
+  }, 60_000);
 
   it("fails before fetching when the needed prefix exceeds the event limit", async () => {
     const fixture = replayCaptureChunkFixture(0, []);

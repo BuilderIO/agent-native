@@ -7,10 +7,12 @@ const getUserSettingMock = vi.hoisted(() => vi.fn());
 const createGoogleEventMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
 const writeAppStateMock = vi.hoisted(() => vi.fn());
+const compareAndSetAppStateMock = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: vi.fn(),
   writeAppState: writeAppStateMock,
+  compareAndSetAppState: compareAndSetAppStateMock,
   deleteAppState: vi.fn(),
   deleteAppStateByPrefix: vi.fn(),
 }));
@@ -112,8 +114,9 @@ describe("out-of-office action parity", () => {
       }),
     );
 
-    expect(writeAppStateMock).toHaveBeenCalledWith(
+    expect(compareAndSetAppStateMock).toHaveBeenCalledWith(
       "calendar-draft-ooo-draft",
+      null,
       expect.objectContaining({
         id: "ooo-draft",
         title: "Out of office",

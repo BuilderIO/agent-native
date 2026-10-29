@@ -5,9 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   EMBED_TOKEN_STORAGE_KEY,
+  embedTokenStorageKey,
   getMcpAppWidgetEmbedBootScriptBody,
   MCP_APP_WIDGET_EMBED_ATTRIBUTE,
   MCP_CHAT_BRIDGE_STORAGE_KEY,
+  mcpChatBridgeStorageKey,
 } from "../shared/mcp-app-widget-embed.js";
 import { _resetEmbedAuthForTests } from "./embed-auth.js";
 import {
@@ -51,6 +53,11 @@ function resetDocument(): void {
   setParent(window);
   setTestUrl("http://localhost:3000/");
   sessionStorage.clear();
+  delete (
+    window as Window & {
+      __AGENT_NATIVE_EXTERNAL_EMBED?: unknown;
+    }
+  ).__AGENT_NATIVE_EXTERNAL_EMBED;
   _resetMcpAppHostForTests();
   _resetEmbedAuthForTests();
 }
@@ -73,8 +80,10 @@ function denyStorage(): () => void {
   return () => spies.forEach((spy) => spy.mockRestore());
 }
 
-function runBootScript(): boolean {
-  new Function(getMcpAppWidgetEmbedBootScriptBody())();
+function runBootScript(basePath = "", workspaceRuntime = false): boolean {
+  new Function(
+    getMcpAppWidgetEmbedBootScriptBody(basePath, workspaceRuntime),
+  )();
   const marked = document.documentElement.hasAttribute(
     MCP_APP_WIDGET_EMBED_ATTRIBUTE,
   );
@@ -127,6 +136,41 @@ describe("MCP app widget detection at the shared boundary", () => {
       ).toBe("1");
     },
   );
+
+  it("looks up a workspace embed token only under the current app mount", () => {
+    setParent(hostWindow());
+    setTestUrl("http://localhost:3000/dispatch/home");
+    sessionStorage.setItem(
+      embedTokenStorageKey("/event-finder", true),
+      "child-token",
+    );
+    sessionStorage.setItem(
+      mcpChatBridgeStorageKey("/event-finder", true),
+      "child-token",
+    );
+
+    expect(runBootScript("/dispatch", true)).toBe(false);
+
+    setParent(hostWindow());
+    setTestUrl("http://localhost:3000/event-finder/inbox");
+    expect(runBootScript("/event-finder", true)).toBe(true);
+  });
+
+  it("recognizes a transplanted embed token before the app client persists it", () => {
+    setParent(hostWindow());
+    setTestUrl("http://localhost:3000/event-finder/inbox");
+    (
+      window as Window & {
+        __AGENT_NATIVE_EXTERNAL_EMBED?: unknown;
+      }
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = {
+      target: "/event-finder/inbox",
+      token: "child-token",
+      chatBridgeActive: true,
+    };
+
+    expect(runBootScript("/event-finder", true)).toBe(true);
+  });
 
   it.each([
     ["sessionStorage works", () => () => {}],

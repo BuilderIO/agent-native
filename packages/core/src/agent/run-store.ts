@@ -7,8 +7,16 @@ import {
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
-import { getDbExec, getScopedTransactionDbExec } from "../db/client.js";
-import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  getDbExec,
+  getScopedDbExec,
+  getScopedTransactionDbExec,
+} from "../db/client.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -486,6 +494,60 @@ export const agentRunsStore = defineStore({
         `ALTER TABLE agent_runs ALTER COLUMN admission_order
            SET DEFAULT nextval('agent_run_admission_order_seq')`,
       ],
+    },
+    {
+      name: "execution-leases-and-steps",
+      run: async (exec) => {
+        await ensureTableExists(
+          "agent_execution_leases",
+          `CREATE TABLE IF NOT EXISTS agent_execution_leases (
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          owner_run_id TEXT NOT NULL,
+          lease_expires_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          PRIMARY KEY (thread_id, turn_id)
+        )`,
+          { injectedClient: exec },
+        );
+        await ensureColumnExists(
+          "agent_runs",
+          "worker_generation",
+          `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS worker_generation BIGINT`,
+          { injectedClient: exec },
+        );
+        await ensureTableExists(
+          "agent_execution_steps",
+          `CREATE TABLE IF NOT EXISTS agent_execution_steps (
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          step_id TEXT NOT NULL,
+          operation_id TEXT NOT NULL,
+          tool_name TEXT NOT NULL,
+          input_json TEXT NOT NULL,
+          replay_policy TEXT NOT NULL,
+          status TEXT NOT NULL,
+          run_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          result_json TEXT,
+          receipt_json TEXT,
+          error_json TEXT,
+          dispatched_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          PRIMARY KEY (thread_id, turn_id, step_id)
+        )`,
+          { injectedClient: exec },
+        );
+        await ensureIndexExists(
+          "agent_execution_steps_pending_idx",
+          `CREATE INDEX IF NOT EXISTS agent_execution_steps_pending_idx
+          ON agent_execution_steps (thread_id, turn_id, status, created_at)`,
+          { injectedClient: exec },
+        );
+      },
     },
   ],
 });
@@ -1705,7 +1767,7 @@ function earlierTurnProjectionPendingSql(): string {
 }
 
 export async function claimBackgroundRun(runId: string): Promise<boolean> {
-  await ensureRunTables();
+  if (getScopedDbExec() === undefined) await ensureRunTables();
   const client = getDbExec();
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
@@ -2684,19 +2746,48 @@ export const RUN_DIAG_STAGE = {
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
 
+export interface RouteFailureDiagnosticEvidence {
+  format: "route_failure_v1";
+  errorMetadata?: "unreadable";
+  errorName?: string;
+  errorCode?: string;
+  httpStatus?: string;
+  causeName?: string;
+}
+
 export async function recordRunDiagnostic(
   runId: string,
   stage: RunDiagStage,
   detail?: string,
+  evidence?: RouteFailureDiagnosticEvidence,
 ): Promise<void> {
   if (!runId) return;
   try {
     await ensureRunTables();
-    const payload = JSON.stringify({
+    // raw-sql-ok: diagnostic JSON is passed only as a bound SQL value.
+    const payloadFields = {
       stage,
       ...(detail ? { detail: detail.slice(0, 1500) } : {}),
+      ...(stage === RUN_DIAG_STAGE.routeThrew && evidence ? { evidence } : {}),
       at: Date.now(),
-    }).slice(0, 2000);
+    };
+    // raw-sql-ok: diagnostic JSON is passed only as a bound SQL value.
+    let payload = JSON.stringify(payloadFields);
+    if (payload.length > 2000 && typeof payloadFields.detail === "string") {
+      const fullDetail = payloadFields.detail;
+      let low = 0;
+      let high = fullDetail.length;
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        payloadFields.detail = fullDetail.slice(0, middle);
+        if (JSON.stringify(payloadFields).length <= 2000) low = middle;
+        else high = middle - 1;
+      }
+      if (low === 0) delete payloadFields.detail;
+      else payloadFields.detail = fullDetail.slice(0, low);
+      // raw-sql-ok: diagnostic JSON is passed only as a bound SQL value.
+      payload = JSON.stringify(payloadFields);
+    }
     const isWorkerStage =
       stage === RUN_DIAG_STAGE.workerSetupStep ||
       stage === RUN_DIAG_STAGE.workerStarted;

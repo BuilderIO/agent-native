@@ -25,12 +25,17 @@ retired scheduled agent jobs such as PR governance, never for a new request.
      weekly schedules; without one the save fails with `schedule_timezone_required`
    - the Slack channel id, such as `C0123ABCD`. A `#channel` name is not an
      id: ask for the id in this same message, not in a later one.
+   - Before asking for an id, try `list-provider-options` (`provider` and
+     `resource`: slack `channels`, github `repositories`, sentry
+     `organizations`, then sentry `projects` with `parent`; `search` narrows
+     it): it returns real channels, repos and projects, and fails with
+     `credential_missing` while the provider is not connected.
 3. **Read the catalog in two calls.** `describe-workflow-node-catalog` with
    `view: "index"` returns connection status, the graph shape, every node kind
    with its ports and a `settingsShape`, and one line per operation. Then one
-   call with `operationIds: [...]` for the full fields of the operations you
-   use. Read a kind's full schema (`kind: "source"`) only when its shape is not
-   enough. The unfiltered call is too big for one tool result.
+   call with `operationIds: [...]` for the full fields and outputs of the
+   operations you use. Read a kind's full schema (`kind: "source"`) only when
+   its shape is not enough. The unfiltered call is too big for one tool result.
 4. **Save the whole graph.** `save-factory-workflow` with `factoryId`, `name`
    and `graph` (JSON text, see "Graph shape") creates it, disabled. A bad graph
    fails with `graph_invalid` and one line per problem,
@@ -116,7 +121,7 @@ operators. Roots:
 | Root | Reads |
 | --- | --- |
 | `item` | the item at this node (shape below), plus `item.id` |
-| `nodes.<name>` | the output a node upstream attached (a Lookup's `into` renames it); a node that is not upstream fails with `bad_reference` |
+| `nodes.<name>` | the output a node upstream attached (a Lookup's `into` renames it). A node that is not upstream fails with `bad_reference`, and so does a field its operation does not return: the error lists the real ones |
 | `settings` | the workflow settings, such as `settings.extras.repository` |
 | `run` | `id`, `mode`, `startedAt`, `scheduledFor`, `windowStart`, `windowEnd` |
 | `loop` | `iteration`, `max`, inside a loop only |
@@ -263,6 +268,36 @@ what could not be read.
 approval: say which item and what it may send first); `dismiss-factory-item`
 closes it and sends nothing. Both take `factoryId` and `itemId`, and a repeat
 changes nothing.
+
+## Builder: start, then check
+
+Builder ignores the branch name a start asks for and keeps its own. `builder.start`
+returns it as `externalRef` (also `branchName`), and a start whose receipt was
+reused still supplies it.
+
+- **Bind every later Builder step to the start's receipt.** `builder.check` and
+  `builder.followUp` take `branchName` as
+  `{ "mode": "path", "path": "nodes.<start step>.externalRef" }`. The name you
+  asked for is not the one Builder keeps, so a check on it reads `not_found`.
+- **Route on `state`, `hasPullRequest`, `prNumber` and `prUrl`.** There is no
+  `status` and no `pullRequest.number`; a save that reads a name `builder.check`
+  does not return is refused with the real names listed. Test `hasPullRequest`,
+  never `prNumber > 0`: `prNumber` is null until a pull request exists.
+- **`state` is `working`, `stuck`, `completed`, `failed` or `not_found`.**
+  `completed` means Builder is idle and a pull request exists, whether open,
+  closed or draft; read `prStatus` before treating it as done. `failed` is a real failure (the branch
+  was archived or deleted without a merge). `not_found` is not a failure: Builder
+  has no active branch under that name, which can mean the task finished and was
+  archived, the name is not the one Builder returned, or the task was never
+  created. Wait and check again, or hand it to a person; do not report it as
+  Builder failing.
+- **Put `reason` in any message that says what Builder is**, such as
+  `Builder is {{ nodes.check.state }} ({{ nodes.check.reason }})`, so a person
+  can tell `branch_not_found` from `branch_archived`.
+- **A start is deduplicated only by the branch name it asked for.** Builder
+  renames branches, so a start whose receipt was lost can start a second task.
+  Ask for a name unique to the task. `builder.followUp` succeeding means Builder
+  queued the message, not that it acted on it.
 
 ## Merging a pull request
 

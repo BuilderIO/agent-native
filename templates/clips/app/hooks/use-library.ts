@@ -52,10 +52,19 @@ export interface RecordingSummary {
   height: number;
   transcriptStatus?: "pending" | "streaming" | "ready" | "failed" | null;
   transcriptHasText?: boolean;
+  /** From Content only: the page the Clip was uploaded to. */
+  contentPageUrl?: string | null;
 }
 
 export interface ListRecordingsArgs {
-  view?: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  view?:
+    | "library"
+    | "shared"
+    | "space"
+    | "archive"
+    | "trash"
+    | "all"
+    | "from-content";
   /** "image" is the Screenshots view; omitted means clips and screenshots. */
   kind?: "video" | "image" | "all";
   folderId?: string | null;

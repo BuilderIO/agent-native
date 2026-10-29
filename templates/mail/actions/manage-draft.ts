@@ -1,8 +1,11 @@
-import { embedApp } from "@agent-native/core";
+import { isDeepStrictEqual } from "node:util";
+
+import { embedApp, isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
+  compareAndSetAppState,
   deleteAppState,
   deleteAppStateByPrefix,
   listAppState,
@@ -185,7 +188,101 @@ async function beforeFirstWrite<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Removes a Gmail draft this call saved when no Mail draft points at it, and
+ * returns whether it did. The caller is already failing with the error that
+ * matters, so a failed cleanup is logged rather than thrown in its place, and
+ * the caller names the draft left in Gmail.
+ */
+async function discardUnstoredGmailDraft(
+  gmailDraft: GmailDraftRef,
+): Promise<boolean> {
+  try {
+    await deleteGmailDraft(gmailDraft);
+    return true;
+  } catch (error) {
+    console.error("[manage-draft] unstored Gmail draft cleanup failed:", error);
+    return false;
+  }
+}
+
+type GmailDraftRef = {
+  ownerEmail: string;
+  accountEmail: string;
+  draftId: string;
+};
+
+/**
+ * Stores a new compose draft only while its key is empty, and returns
+ * whether it did. The write can commit before it throws, so a throw rereads
+ * the key, and finding this draft there counts as stored. Anything else
+ * means it wasn't: the Gmail draft this call saved, if any, is removed and
+ * the error rethrown. If that Gmail draft can't be removed, the error names
+ * it instead. If the reread fails too, the outcome is unknown, so
+ * that Gmail draft stays (Mail may point at it) and the error says to check
+ * before creating the draft again.
+ */
+async function storeNewComposeDraft(
+  draft: ComposeState,
+  newGmailDraft: GmailDraftRef | null,
+): Promise<boolean> {
+  const key = `compose-${draft.id}`;
+  try {
+    return await compareAndSetAppState(key, null, draft);
+  } catch (error) {
+    let stored: Record<string, unknown> | null;
+    try {
+      stored = await readAppState(key);
+    } catch {
+      console.error(
+        `[manage-draft] draft ${draft.id} write and reread both failed:`,
+        error,
+      );
+      const kept = newGmailDraft
+        ? `, so it kept the Gmail draft it saved (${newGmailDraft.draftId})`
+        : "";
+      fail(
+        `Mail couldn't confirm whether draft "${draft.id}" was stored${kept}. Check for draft "${draft.id}" before creating it again.`,
+        {
+          errorCode: "draft_store_unconfirmed",
+          statusCode: 503,
+          details: {
+            draftId: draft.id,
+            ...(newGmailDraft ? { gmailDraftId: newGmailDraft.draftId } : {}),
+          },
+        },
+      );
+    }
+    // A Gmail draft ID belongs to this call alone. Without one, only the
+    // exact draft this call wrote counts as stored.
+    const stillOurs = draft.savedDraftId
+      ? stored?.savedDraftId === draft.savedDraftId
+      : isDeepStrictEqual(stored, draft);
+    if (stillOurs) return true;
+    if (newGmailDraft && !(await discardUnstoredGmailDraft(newGmailDraft))) {
+      console.error(`[manage-draft] draft ${draft.id} write failed:`, error);
+      fail(
+        `Mail couldn't store draft "${draft.id}" or remove the Gmail draft it saved (${newGmailDraft.draftId}), which stays in Gmail's drafts.`,
+        {
+          errorCode: "draft_store_failed",
+          statusCode: 503,
+          details: {
+            draftId: draft.id,
+            leftoverGmailDraftId: newGmailDraft.draftId,
+          },
+        },
+      );
+    }
+    throw error;
+  }
+}
+
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Manage compose drafts: use `create` for a new draft even if another " +
     "compose draft is open; use `update` to revise a specific existing draft " +
@@ -194,8 +291,14 @@ export default defineAction({
     "with only the raw compose ID (not the `compose-{id}` app-state key), " +
     "`delete-saved` with `savedDraftId` for a saved mailbox draft, or " +
     "`delete-all` to remove all compose drafts. To start a new reply, call " +
-    "`create` with mode=reply, replyToId, to, subject, and body.",
+    "`create` with mode=reply, replyToId, to, subject, and body. " +
+    "Outside agents require human approval to delete drafts.",
   schema: manageDraftSchema,
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    args.action !== "create" &&
+    args.action !== "update",
+  allowPersistentApproval: false,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -301,6 +404,11 @@ export default defineAction({
         fail(`Invalid draft ID "${rawId}"`, {
           errorCode: "draft_invalid_id",
         });
+      if (await readAppState(`compose-${id}`))
+        fail(`Draft "${id}" already exists; use update to revise it.`, {
+          errorCode: "draft_already_exists",
+          statusCode: 409,
+        });
       const signature = await readConfiguredSignature();
       const ownerEmail = getRequestUserEmail();
       const body = appendSignatureToBody(args.body || "", signature);
@@ -339,7 +447,33 @@ export default defineAction({
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
       const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
       if (accountEmail) draft.accountEmail = accountEmail;
-      await writeAppState(`compose-${id}`, draft);
+      const newGmailDraft =
+        savedGmailDraft?.created && ownerEmail
+          ? {
+              ownerEmail,
+              accountEmail: savedGmailDraft.accountEmail,
+              draftId: savedGmailDraft.draftId,
+            }
+          : null;
+      if (!(await storeNewComposeDraft(draft, newGmailDraft))) {
+        const leftover =
+          newGmailDraft && !(await discardUnstoredGmailDraft(newGmailDraft))
+            ? newGmailDraft.draftId
+            : null;
+        const leftoverNote = leftover
+          ? ` The Gmail draft this call saved (${leftover}) couldn't be removed and stays in Gmail's drafts.`
+          : "";
+        fail(
+          `Draft "${id}" already exists; use update to revise it.${leftoverNote}`,
+          {
+            errorCode: "draft_already_exists",
+            statusCode: 409,
+            ...(leftover
+              ? { details: { draftId: id, leftoverGmailDraftId: leftover } }
+              : {}),
+          },
+        );
+      }
       track(
         "draft_created",
         {

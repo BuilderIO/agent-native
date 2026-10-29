@@ -123,8 +123,8 @@ export function CommentAiModelList({
 
 /**
  * Send control shown once an AI recipient is in the draft. The main segment
- * sends; the chevron picks how AI should respond. The model is chosen from
- * the recipient pill itself.
+ * sends and names the response it asks for; the chevron picks it. The model
+ * is chosen from the recipient pill itself.
  */
 export function CommentAiSendControl({
   mode,
@@ -144,6 +144,13 @@ export function CommentAiSendControl({
     ["suggest", t("comments.aiSuggestChanges")],
     ["apply-resolve", t("comments.aiApplyAndResolve")],
   ];
+  const sendLabels: Record<CommentAiMode, string> = {
+    auto: t("comments.aiSendShort"),
+    reply: t("comments.aiSendReply"),
+    suggest: t("comments.aiSendSuggest"),
+    "apply-resolve": t("comments.aiSendApply"),
+  };
+  const modeLabel = modes.find(([value]) => value === mode)?.[1];
   const segment =
     "inline-flex h-7 items-center bg-foreground text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-35";
   return (
@@ -156,11 +163,16 @@ export function CommentAiSendControl({
         )}
         disabled={disabled}
         onClick={onSubmit}
-        aria-label={t("comments.aiSend")}
+        aria-label={
+          mode === "auto" || !modeLabel
+            ? t("comments.aiSend")
+            : t("comments.aiSendMode", { mode: modeLabel })
+        }
         data-comment-send
+        data-comment-ai-send-mode={mode}
       >
         <AgentMark size={14} />
-        {t("comments.aiSendShort")}
+        {sendLabels[mode]}
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

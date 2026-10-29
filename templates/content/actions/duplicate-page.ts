@@ -7,6 +7,7 @@ import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withoutBuilderStatusValues } from "./_builder-status-property.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 import {
@@ -167,15 +168,18 @@ export default defineAction({
       }
 
       if (sameSpace) {
-        const values = await db
-          .select()
-          .from(schema.documentPropertyValues)
-          .where(
-            inArray(
-              schema.documentPropertyValues.documentId,
-              pages.map((page) => page.id),
+        const values = await withoutBuilderStatusValues(
+          db,
+          await db
+            .select()
+            .from(schema.documentPropertyValues)
+            .where(
+              inArray(
+                schema.documentPropertyValues.documentId,
+                pages.map((page) => page.id),
+              ),
             ),
-          );
+        );
         const owners = new Map<string, string>();
         for (const row of await db
           .select({

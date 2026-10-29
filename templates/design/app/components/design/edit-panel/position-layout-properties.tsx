@@ -8,6 +8,10 @@ import {
 } from "@shared/canvas-math";
 import { keepsPixelGrid } from "@shared/canvas-math";
 import {
+  svgShapeTranslateAfterMove,
+  type SvgShapeOffset,
+} from "@shared/svg-shape-offset";
+import {
   IconAngle,
   IconAxisX,
   IconAxisY,
@@ -213,6 +217,7 @@ type OffsetLayout = Extract<AlignNodeLayout, { kind: "offset" }>;
 export type PositionFieldMode =
   | { kind: "out-of-flow" }
   | { kind: "offset"; layout: OffsetLayout }
+  | { kind: "svg-shape"; offset: SvgShapeOffset }
   | { kind: "read-only" };
 
 function offsetAxisState(element: ElementInfo, property: string) {
@@ -257,6 +262,11 @@ export function positionFieldMode(element: ElementInfo): PositionFieldMode {
   if (element.primitiveKind === "boolean-operand") {
     return { kind: "out-of-flow" };
   }
+  if (element.svgShapeOffset !== undefined) {
+    return element.svgShapeOffset
+      ? { kind: "svg-shape", offset: element.svgShapeOffset }
+      : { kind: "read-only" };
+  }
   const position = (
     element.computedStyles.position ||
     element.inlineStyles?.position ||
@@ -298,6 +308,22 @@ export function positionFieldMode(element: ElementInfo): PositionFieldMode {
       y: axis("top", "bottom", element.boundingRect.height),
     },
   };
+}
+
+/** Moves a shape inside an SVG so its X or Y reads `referenceOffset`. */
+export function svgShapePositionPatch(
+  element: ElementInfo,
+  offset: SvgShapeOffset,
+  axis: "x" | "y",
+  referenceOffset: number,
+): Record<string, string> {
+  const distance = referenceOffset - measuredPositionOffset(element, axis);
+  const translate = svgShapeTranslateAfterMove(
+    offset,
+    element.positionContainingBlockTransform ?? { a: 1, b: 0, c: 0, d: 1 },
+    axis === "x" ? { dx: distance, dy: 0 } : { dx: 0, dy: distance },
+  );
+  return translate ? { translate } : {};
 }
 
 /** Moves an in-flow layer so its X or Y reads `referenceOffset`. */
@@ -599,7 +625,9 @@ export function PositionLayoutProperties({
         ? inFlowPositionPatch(element, positionMode.layout, axis, value)
         : positionMode.kind === "out-of-flow"
           ? authoredPositionPatch(element, axis, value)
-          : {};
+          : positionMode.kind === "svg-shape"
+            ? svgShapePositionPatch(element, positionMode.offset, axis, value)
+            : {};
     if (Object.keys(patch).length === 0) return;
     commitStylePatch(patch, onStyleChange, onStylesChange, meta);
   };
@@ -676,6 +704,7 @@ export function PositionLayoutProperties({
               "Absolute position" /* i18n-ignore design inspector action */
             }
             active={constrainedPosition}
+            disabled={element.svgShapeOffset !== undefined}
             onClick={() =>
               commitStylePatch(
                 constrainedPosition

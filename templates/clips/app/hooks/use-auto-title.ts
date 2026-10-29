@@ -19,6 +19,7 @@ import {
 } from "@shared/ai-request-status";
 import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { parseTranscriptSegments } from "@shared/transcript-segments";
+import { workflowSessionTabId } from "@shared/workflow";
 import { useEffect, useRef } from "react";
 
 const TWO_MINUTES_MS = 2 * 60 * 1000;
@@ -242,7 +243,7 @@ export function useAutoTitleBridge(): void {
               continue;
             }
 
-            const tabId = workflowTabId(
+            const tabId = workflowSessionTabId(
               request.recordingId,
               request.requestedAt,
               request.requestId,
@@ -319,10 +320,10 @@ export function useAutoTitleBridge(): void {
           }
           const key = fallbackKey(candidate.id);
           dispatched.current.add(key);
-          callAction(
-            "regenerate-title" as any,
-            { recordingId: candidate.id } as any,
-          )
+          callAction("regenerate-title", {
+            recordingId: candidate.id,
+            automatic: true,
+          })
             .then((result) => {
               const outcome = result as {
                 queued?: boolean;
@@ -460,6 +461,16 @@ export async function retryWorkflowAction(
         request as any,
       )) as Record<string, unknown>;
       if (result[successKey] === true) return true;
+      if (request.operation === "reject" && result.reason === "not-requester") {
+        return true;
+      }
+      if (
+        request.operation === "reject" &&
+        result.reason === "rejection-unverified"
+      ) {
+        // Leave the request queued for requester-owned cleanup without looping this dispatch.
+        return true;
+      }
       if (typeof result.reason === "string" && result.reason !== "stale") {
         return false;
       }
@@ -488,17 +499,6 @@ async function persistAndConsumeWorkflowRequest(
     "delivered",
   );
   if (delivered) await consumeWorkflowRequest(request);
-}
-
-function workflowTabId(
-  recordingId: string,
-  requestedAt: string,
-  requestId?: string,
-) {
-  const identity = requestId
-    ? `${encodeURIComponent(requestedAt)}:${encodeURIComponent(requestId)}`
-    : encodeURIComponent(requestedAt);
-  return `clips-workflow:${recordingId}:${identity}:run`;
 }
 
 type BackgroundAiRequestStatus =
@@ -806,11 +806,12 @@ async function dispatchWorkflowRequest(
   );
 
   if (outcome.type === "rejected") {
-    await retryWorkflowAction(
-      { operation: "stop", ...workflowRequest, tabId },
+    const reconciled = await retryWorkflowAction(
+      { operation: "reject", ...workflowRequest, tabId },
       "reconciled",
     );
-    return { handled: false, accepted: false };
+    if (reconciled) bumpAiRequestRefresh();
+    return { handled: reconciled, accepted: false };
   }
   if (outcome.type === "uncertain") {
     return { handled: false, accepted: false };
@@ -833,21 +834,31 @@ function isConfirmedBackgroundSessionRejection(error: unknown): boolean {
 
 async function settleWorkflowSession(
   session: ActiveAiRequestSession,
+  snapshot?: BackgroundAgentSessionSnapshot,
 ): Promise<boolean> {
+  const terminalRunId =
+    snapshot?.runId &&
+    ["completed", "truncated", "errored", "aborted"].includes(snapshot.status)
+      ? snapshot.runId
+      : undefined;
   try {
     const result = (await callAction(
       "reconcile-workflow-generation" as any,
       {
-        operation: "stop",
+        operation: terminalRunId ? "settle-terminal" : "settle",
         recordingId: session.recordingId,
         requestedAt: session.requestedAt,
         ...(session.requestId ? { requestId: session.requestId } : {}),
         tabId: session.operationId,
+        ...(terminalRunId ? { terminalRunId } : {}),
       } as any,
     )) as { reconciled?: boolean; reason?: string };
     return (
       result.reconciled === true ||
-      (typeof result.reason === "string" && result.reason !== "stale")
+      (typeof result.reason === "string" &&
+        result.reason !== "stale" &&
+        result.reason !== "in-progress" &&
+        result.reason !== "run-not-found")
     );
   } catch (error) {
     console.warn("[clips] failed to reconcile finished workflow session", {
@@ -872,7 +883,7 @@ async function persistSessionOutcome(
       snapshot,
     );
   }
-  return status === "working" ? true : settleWorkflowSession(session);
+  return status === "working" ? true : settleWorkflowSession(session, snapshot);
 }
 
 async function monitorAiRequestSession(

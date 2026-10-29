@@ -19,12 +19,20 @@ import {
 } from "@agent-native/toolkit/agentkit";
 import {
   PromptHome,
+  createHomeSuggestionRandom,
+  normalizeHomeSuggestionRole,
+  pickHomeSuggestions,
+  useHomeSuggestionRole,
+  useHomeSuggestionSeed,
+  useFirstPaintPromptDraft,
   useHomeSearchShortcut,
   useSetHeaderActions,
   useSetPageTitle,
+  writeHomeSuggestionRole,
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/toolkit/app/onboarding";
 import {
   ClientOnly,
   LazyChunkErrorBoundary,
@@ -83,6 +91,7 @@ import {
   SlidesHomeLibrary,
   type SlidesHomeLibraryTab,
 } from "@/components/home/SlidesHomeLibrary";
+import { SlidesRecentSkeleton } from "@/components/home/SlidesRecentSkeleton";
 import { HomeHeaderActions } from "@/components/layout/Header";
 import { useOpenMobileSidebar } from "@/components/layout/Layout";
 import { DeckTemplateLibrary } from "@/components/templates/DeckTemplateLibrary";
@@ -104,6 +113,12 @@ import {
   type Deck,
 } from "@/context/DeckContext";
 import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
+import {
+  SLIDES_NEW_DECK_DRAFT_SCOPE,
+  slidesHomeSuggestionPools,
+  trackSlidesHomeSuggestionClick,
+  type SlidesHomeSuggestion,
+} from "@/home-suggestions";
 import {
   clearStartedGenerationAttempt,
   useAgentGenerating,
@@ -204,7 +219,6 @@ function HomeChrome({ title, actions }: { title: string; actions: ReactNode }) {
   useSetHeaderActions(actions);
   return null;
 }
-const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 const PENDING_PROMPT_CONTEXT_KEY = "slides:pending-deck-prompt-context";
 const PENDING_PROMPT_MODEL_SELECTION_KEY =
@@ -227,26 +241,6 @@ const RETRY_REASONING_EFFORTS = new Set([
   "xhigh",
   "max",
 ]);
-
-interface HomeSuggestion {
-  id?: string;
-  label: string;
-  prompt: string;
-}
-
-type HomeSuggestionsResult =
-  | { status: "ready"; suggestions: HomeSuggestion[] }
-  | {
-      status: "unavailable";
-      reason: "missing_credentials" | "timeout";
-      suggestions: [];
-    };
-
-function isReadyHomeSuggestions(
-  result: HomeSuggestionsResult | undefined,
-): result is Extract<HomeSuggestionsResult, { status: "ready" }> {
-  return result?.status === "ready" && result.suggestions.length === 3;
-}
 
 interface ImportedReferenceSource {
   deckId: string;
@@ -365,6 +359,7 @@ function readStoredReferenceSelection(): StoredReferenceSelectionResult {
 
 function savePromptForRetry(
   prompt: string,
+  draftScope: string,
   options: {
     context?: string;
     modelSelection?: DeckModelSelection;
@@ -400,7 +395,7 @@ function savePromptForRetry(
       signInHandoffSaved = true;
     } catch {}
   }
-  const draftSaved = savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, prompt);
+  const draftSaved = savePromptToComposerDraft(draftScope, prompt);
   return signInHandoffSaved && draftSaved;
 }
 
@@ -664,6 +659,17 @@ export default function Index({ active = true }: { active?: boolean }) {
     session?.orgId ?? "",
   ];
   const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
+  const homeSuggestionRoleScope =
+    session?.authUserId || session?.userId
+      ? JSON.stringify([
+          session.authUserId ?? session.userId,
+          session.orgId ?? "",
+        ])
+      : null;
+  const homeSuggestionDraftScope = homeSuggestionRoleScope ?? "anonymous";
+  const homeSuggestionSeed = useHomeSuggestionSeed();
+  const shellSuggestionRole = useHomeSuggestionRole();
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   // `session` is null while the check is loading or the server is unreachable,
   // neither of which means signed out. Only a definitive answer sends the user
   // to sign in; otherwise the server stays the authority on the request.
@@ -680,126 +686,140 @@ export default function Index({ active = true }: { active?: boolean }) {
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(true);
-  const fallbackHomeSuggestions = useMemo(
-    () =>
-      [
-        t("home.fallbackSuggestions.pitch"),
-        t("home.fallbackSuggestions.roadmap"),
-        t("home.fallbackSuggestions.explainer"),
-      ].map((prompt, index) => ({
-        id: `slides-home-generic-${index}`,
-        label: prompt,
-        prompt,
-      })),
-    [t],
-  );
   const homeSuggestionsProfile = useActionQuery<{
     onboardingRole?: string | null;
   }>(
     "get-user-profile",
     {},
     {
-      enabled: quickActionsEnabled,
       queryKeyScope: [homeSuggestionsIdentityScope],
       staleTime: 0,
     },
   );
-  const homeSuggestionsProfileReady =
-    quickActionsEnabled &&
-    (homeSuggestionsProfile.data !== undefined ||
-      homeSuggestionsProfile.isError);
-  const homeSuggestionsCacheScope = JSON.stringify([
-    ...homeSuggestionsIdentity,
-    homeSuggestionsProfile.data?.onboardingRole ?? null,
-  ]);
-  const [homeSuggestionsSnapshotState, setHomeSuggestionsSnapshotState] =
-    useState<{
-      scope: string;
-      suggestions: HomeSuggestion[];
-    } | null>(null);
-  const homeSuggestionsSnapshot =
-    homeSuggestionsProfileReady &&
-    homeSuggestionsSnapshotState?.scope === homeSuggestionsIdentityScope
-      ? homeSuggestionsSnapshotState.suggestions
-      : null;
-  const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
-    "generate-home-suggestions",
-    {},
-    {
-      enabled:
-        isHome &&
-        showNewDeckPrompt &&
-        homeSuggestionsProfileReady &&
-        homeSuggestionsSnapshot === null,
-      queryKeyScope: [homeSuggestionsCacheScope],
-      retry: false,
-      staleTime: (query) =>
-        isReadyHomeSuggestions(query.state.data) ? Number.POSITIVE_INFINITY : 0,
-      gcTime: Number.POSITIVE_INFINITY,
-      refetchOnMount: (query) => !isReadyHomeSuggestions(query.state.data),
-      refetchOnWindowFocus: (query) =>
-        !isReadyHomeSuggestions(query.state.data),
-      refetchOnReconnect: (query) => !isReadyHomeSuggestions(query.state.data),
-    },
-  );
-  const readyHomeSuggestions =
-    homeSuggestionsProfileReady &&
-    homeSuggestionsQuery.data?.status === "ready" &&
-    homeSuggestionsQuery.data.suggestions.length === 3
-      ? homeSuggestionsQuery.data.suggestions
-      : null;
-  const homeSuggestionsUnavailable =
-    !homeSuggestionsQuery.isFetching &&
-    quickActionsEnabled &&
-    (homeSuggestionsQuery.isError ||
-      homeSuggestionsQuery.data?.status === "unavailable" ||
-      (homeSuggestionsQuery.data?.status === "ready" &&
-        homeSuggestionsQuery.data.suggestions.length !== 3));
   useEffect(() => {
-    if (homeSuggestionsSnapshot !== null) return;
-    const result = homeSuggestionsQuery.data;
-    if (
-      quickActionsEnabled &&
-      homeSuggestionsProfileReady &&
-      result?.status === "ready" &&
-      result.suggestions.length === 3
-    ) {
-      setHomeSuggestionsSnapshotState({
-        scope: homeSuggestionsIdentityScope,
-        suggestions: result.suggestions,
-      });
-    } else if (
-      quickActionsEnabled &&
-      homeSuggestionsProfileReady &&
-      homeSuggestionsUnavailable
-    ) {
-      setHomeSuggestionsSnapshotState({
-        scope: homeSuggestionsIdentityScope,
-        suggestions: fallbackHomeSuggestions,
-      });
-    }
-  }, [
-    homeSuggestionsQuery.data,
-    homeSuggestionsSnapshot,
-    homeSuggestionsCacheScope,
-    homeSuggestionsIdentityScope,
-    quickActionsEnabled,
-    homeSuggestionsProfileReady,
-    homeSuggestionsUnavailable,
-    fallbackHomeSuggestions,
-  ]);
-  const homeSuggestions =
-    homeSuggestionsSnapshot ?? readyHomeSuggestions ?? fallbackHomeSuggestions;
+    const handleFirstRunCompleted = () => void homeSuggestionsProfile.refetch();
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      handleFirstRunCompleted,
+    );
+    return () =>
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        handleFirstRunCompleted,
+      );
+  }, [homeSuggestionsProfile.refetch]);
+  const homeSuggestionRole =
+    homeSuggestionsProfile.data !== undefined
+      ? normalizeHomeSuggestionRole(homeSuggestionsProfile.data.onboardingRole)
+      : (shellSuggestionRole ?? "general");
+  useEffect(() => {
+    if (homeSuggestionsProfile.data === undefined) return;
+    writeHomeSuggestionRole(
+      "slides",
+      homeSuggestionsProfile.data.onboardingRole,
+      homeSuggestionRoleScope,
+    );
+  }, [homeSuggestionRoleScope, homeSuggestionsProfile.data]);
+  const selectedHomeSuggestions = useMemo(
+    () =>
+      pickHomeSuggestions(
+        slidesHomeSuggestionPools,
+        homeSuggestionRole,
+        createHomeSuggestionRandom(homeSuggestionSeed),
+      ),
+    [homeSuggestionsIdentityScope, homeSuggestionRole, homeSuggestionSeed],
+  );
+  const homeSuggestions = useMemo(
+    () =>
+      selectedHomeSuggestions.map((suggestion: SlidesHomeSuggestion) => {
+        const prompt = t(suggestion.key);
+        return { ...suggestion, label: t(suggestion.label), prompt };
+      }),
+    [selectedHomeSuggestions, t],
+  );
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
     useState<Deck | null>(null);
   const homeComposerRef = useRef<PromptPopoverHandle>(null);
+  const [homeComposerReady, setHomeComposerReady] = useState(false);
+  const handleHomeComposerRef = useCallback(
+    (composer: PromptPopoverHandle | null) => {
+      if (homeComposerRef.current === composer) return;
+      homeComposerRef.current = composer;
+      setHomeComposerReady(composer !== null);
+    },
+    [],
+  );
+  const firstPaintPromptDraft = useFirstPaintPromptDraft(
+    "slides",
+    homeSuggestionDraftScope,
+  );
+  const firstPaintPrompt =
+    firstPaintPromptDraft.status === "present"
+      ? firstPaintPromptDraft.draft
+      : null;
+  const homeSuggestionPromptSourceRef = useRef(
+    firstPaintPrompt?.source === "home_suggestion",
+  );
+  const homeSuggestionPromptTextRef = useRef(
+    firstPaintPrompt?.source === "home_suggestion"
+      ? firstPaintPrompt.text
+      : null,
+  );
+  const handleHomePromptTextChange = useCallback((text: string) => {
+    if (
+      homeSuggestionPromptSourceRef.current &&
+      homeSuggestionPromptTextRef.current !== null &&
+      homeSuggestionPromptTextRef.current !== text
+    ) {
+      homeSuggestionPromptSourceRef.current = false;
+      homeSuggestionPromptTextRef.current = null;
+    }
+  }, []);
   const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
     text: string;
     key: number;
-  } | null>(null);
+  } | null>(() =>
+    firstPaintPrompt
+      ? { text: firstPaintPrompt.text, key: firstPaintPrompt.revision }
+      : null,
+  );
+  const firstPaintSubmitRevisionRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      !isHome ||
+      !showNewDeckPrompt ||
+      !firstPaintPrompt?.submitted ||
+      !firstPaintPrompt.text.trim() ||
+      !quickActionsEnabled ||
+      firstRunOwnsSurface ||
+      !homeComposerReady ||
+      firstPaintSubmitRevisionRef.current === firstPaintPrompt.revision
+    ) {
+      return;
+    }
+    const composer = homeComposerRef.current;
+    if (!composer) return;
+    firstPaintSubmitRevisionRef.current = firstPaintPrompt.revision;
+    void composer
+      .submitSource(firstPaintPrompt.text, firstPaintPrompt.files ?? [])
+      .then((accepted) => {
+        if (!accepted) toast.error(t("home.context.notReady"));
+      });
+  }, [
+    firstPaintPrompt?.revision,
+    firstPaintPrompt?.submitted,
+    firstPaintPrompt?.text,
+    firstPaintPrompt?.files,
+    firstRunOwnsSurface,
+    homeComposerReady,
+    isHome,
+    quickActionsEnabled,
+    showNewDeckPrompt,
+    t,
+  ]);
   const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
     [],
   );
@@ -1124,12 +1144,22 @@ export default function Index({ active = true }: { active?: boolean }) {
       } = {},
     ) => {
       if (
-        !savePromptForRetry(prompt, {
-          context: options.context,
-          modelSelection: options.modelSelection,
-          referenceSelection: options.referenceSelection,
-          persistAcrossSignIn: true,
-        })
+        !savePromptForRetry(
+          prompt,
+          `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
+          {
+            ...(options.context !== undefined
+              ? { context: options.context }
+              : {}),
+            ...(options.modelSelection !== undefined
+              ? { modelSelection: options.modelSelection }
+              : {}),
+            ...(options.referenceSelection !== undefined
+              ? { referenceSelection: options.referenceSelection }
+              : {}),
+            persistAcrossSignIn: true,
+          },
+        )
       ) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
@@ -1146,7 +1176,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       setShowSignInDialog(true);
     },
-    [setNewDeckPromptOpen],
+    [homeSuggestionDraftScope, setNewDeckPromptOpen],
   );
 
   const setSignInDialogOpen = useCallback((open: boolean) => {
@@ -1195,18 +1225,24 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryPrompt(saved);
     setNewDeckRetryModelSelection(savedModelSelection);
     setNewDeckRetryReferenceSelection(savedReferenceSelection);
-    savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved);
+    savePromptToComposerDraft(
+      `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
+      saved,
+    );
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt({ text: saved, key: Date.now() });
     setSelectedDesignSystemId(savedReferenceSelection?.designSystemId ?? null);
     setSelectedReferenceDeckId(null);
     setShowNewDeckPrompt(true);
-  }, [session]);
+  }, [homeSuggestionDraftScope, session]);
 
   useEffect(() => {
     const state = location.state as DeckGenerationRetryState | null;
     if (!state?.retryPrompt) return;
-    savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, state.retryPrompt);
+    savePromptToComposerDraft(
+      `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
+      state.retryPrompt,
+    );
     setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     setNewDeckRetryFiles(state.retryFiles ?? []);
     setNewDeckRetryReferenceSelection(
@@ -1221,7 +1257,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryModelSelection(state.modelSelection);
     setShowNewDeckPrompt(true);
     void navigate(".", { replace: true, state: null });
-  }, [location.state, navigate]);
+  }, [homeSuggestionDraftScope, location.state, navigate]);
 
   const handleCreateDeckBlank = () => {
     const selectedDesignSystem = selectedDesignSystemId
@@ -1350,6 +1386,9 @@ export default function Index({ active = true }: { active?: boolean }) {
     };
     let generationFailureTracked = false;
     let sourceImportMayHaveWrittenSlides = false;
+    const generationSource = homeSuggestionPromptSourceRef.current
+      ? "home_suggestion"
+      : "new_deck_prompt";
     trackEvent("generation_started", {
       app_name: "slides",
       template_name: "slides",
@@ -1357,8 +1396,10 @@ export default function Index({ active = true }: { active?: boolean }) {
       output_id: deckId,
       output_type: "deck",
       started_at_ms: generationStartedAt,
-      source: "new_deck_prompt",
+      source: generationSource,
     });
+    homeSuggestionPromptSourceRef.current = false;
+    homeSuggestionPromptTextRef.current = null;
     setNewDeckPromptOpen(false);
 
     const recoverFromGenerationSetupFailure = (
@@ -1377,15 +1418,19 @@ export default function Index({ active = true }: { active?: boolean }) {
           ...generationTimingFields(generationStartedAt, generationEndedAt),
           failure_code: failureCode,
           failure_stage: "setup",
-          source: "new_deck_prompt",
+          source: generationSource,
         });
       }
       settlePendingDeckAttachments("commit");
       if (
-        !savePromptForRetry(prompt, {
-          context: additionalContext,
-          modelSelection,
-        })
+        !savePromptForRetry(
+          prompt,
+          `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
+          {
+            context: additionalContext,
+            ...(modelSelection !== undefined ? { modelSelection } : {}),
+          },
+        )
       ) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
@@ -1780,7 +1825,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         output_id: deckId,
         output_type: "deck",
         ...generationTimingFields(generationStartedAt, generationAcceptedAt),
-        source: "new_deck_prompt",
+        source: generationSource,
       });
     } catch (error) {
       recoverFromGenerationSetupFailure(
@@ -2712,7 +2757,8 @@ export default function Index({ active = true }: { active?: boolean }) {
   return (
     <PromptHome
       title={t("home.firstDeckPromptTitle")}
-      connectionAttached={agentEngineMissing}
+      connectionAttached={agentEngine.state !== "configured"}
+      focusComposer={() => homeComposerRef.current?.focus()}
       mobileToolbar={
         isHome ? (
           <div className="slides-home-mobile-toolbar flex min-w-0 flex-1 items-center gap-2">
@@ -2779,7 +2825,7 @@ export default function Index({ active = true }: { active?: boolean }) {
             <PromptPopover
               presentation="inline"
               context={composerContext}
-              controllerRef={homeComposerRef}
+              controllerRef={handleHomeComposerRef}
               disabled={!isHome}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
@@ -2793,6 +2839,7 @@ export default function Index({ active = true }: { active?: boolean }) {
               onSkip={handlePromptSkip}
               skipLabel={t("home.skipPrompt")}
               onSubmit={handlePromptSubmit}
+              onPromptTextChange={handleHomePromptTextChange}
               onBeforeUpload={(
                 prompt,
                 files,
@@ -2848,9 +2895,10 @@ export default function Index({ active = true }: { active?: boolean }) {
                 return false;
               }}
               loading={generating}
-              draftScope={NEW_DECK_DRAFT_SCOPE}
+              draftScope={`${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`}
               initialText={newDeckInitialPrompt?.text}
               initialTextKey={newDeckInitialPrompt?.key}
+              initialTextOverridesSavedDraft={newDeckInitialPrompt !== null}
               initialModelSelection={newDeckRetryModelSelection}
               onRetainedAttachmentsAbandoned={
                 handlePendingDeckAttachmentsAbandoned
@@ -2865,21 +2913,35 @@ export default function Index({ active = true }: { active?: boolean }) {
             loading={false}
             announceUpdates
             layout="single-line"
+            homeTracking={{
+              appId: "slides",
+              role: homeSuggestionRole,
+              seed: homeSuggestionSeed,
+            }}
+            onHomeSuggestionClick={trackSlidesHomeSuggestionClick}
             suggestions={homeSuggestions.map((suggestion, index) => ({
               ...suggestion,
               id: suggestion.id ?? `slides-home-${index}`,
-              disabled:
-                !quickActionsEnabled || !showNewDeckPrompt || generating,
+              disabled: generating,
             }))}
             ariaLabel={t("home.suggestedPrompts")}
             className="px-0 py-0"
             onSelect={(suggestion) => {
-              if (!quickActionsEnabled || !showNewDeckPrompt || generating)
+              if (generating) return;
+              const composer = homeComposerRef.current;
+              if (!composer) return;
+              homeSuggestionPromptSourceRef.current = true;
+              const prompt = agentSuggestionPrompt(suggestion);
+              homeSuggestionPromptTextRef.current = prompt;
+              if (!quickActionsEnabled) {
+                setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+                window.requestAnimationFrame(() => composer.focus());
                 return;
-              void homeComposerRef.current?.submitSource(
-                agentSuggestionPrompt(suggestion),
-                [],
-              );
+              }
+              void composer.submitSource(prompt, []).finally(() => {
+                homeSuggestionPromptSourceRef.current = false;
+                homeSuggestionPromptTextRef.current = null;
+              });
             }}
           />
         ) : null
@@ -2913,7 +2975,12 @@ export default function Index({ active = true }: { active?: boolean }) {
             recent: t("home.recent"),
           }}
           browseAll={
-            <Button variant="ghost" size="sm" asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="min-w-[111px] justify-center"
+              asChild
+            >
               <Link to="/templates">
                 {t("templatesPage.browseAll")}
                 <IconArrowRight />
@@ -2938,7 +3005,7 @@ export default function Index({ active = true }: { active?: boolean }) {
           templates={<DeckTemplateLibrary enabled={isHome} />}
           recent={
             viewState === "loading" ? (
-              <DeckListLoadingSkeleton />
+              <SlidesRecentSkeleton />
             ) : viewState === "error" ? null : (
               <div className="agent-template-library-grid">
                 {visibleDecks.map((deck) => (
@@ -3126,29 +3193,6 @@ export default function Index({ active = true }: { active?: boolean }) {
         </AlertDialogContent>
       </AlertDialog>
     </PromptHome>
-  );
-}
-
-function DeckListLoadingSkeleton() {
-  return (
-    <div className="agent-template-library-grid" aria-busy="true">
-      {Array.from({ length: 8 }, (_, index) => (
-        <div
-          key={index}
-          className="agent-template-library-card group relative min-w-0"
-          aria-hidden="true"
-        >
-          <div className="agent-template-library-primary overflow-hidden rounded-xl border border-border bg-card">
-            <div className="agent-template-library-preview bg-muted/30">
-              <Skeleton className="size-full rounded-none" />
-            </div>
-            <div className="agent-template-library-caption">
-              <Skeleton className="h-4 w-3/4" />
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 

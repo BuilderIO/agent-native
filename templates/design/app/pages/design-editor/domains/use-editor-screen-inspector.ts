@@ -633,11 +633,12 @@ export function useEditorScreenInspector({
           ),
         );
         if (next === content) continue;
-        computedStylesByScreen[screenId] = rootStyles;
-        applyFileContentUpdate(screenId, next, {
+        const publication = applyFileContentUpdate(screenId, next, {
           persist: true,
           recordHistory: false,
         });
+        if (publication.status !== "accepted") continue;
+        computedStylesByScreen[screenId] = rootStyles;
         changes.push({ fileId: screenId, before: content, after: next });
       }
       if (Object.keys(computedStylesByScreen).length > 0) {

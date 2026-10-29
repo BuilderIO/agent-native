@@ -83,7 +83,7 @@ interface NodeDetailsDialogProps {
   /** The step to show. Without one the modal is closed. */
   node: WorkflowNode | undefined;
   onClose: () => void;
-  /** Opens with the name field focused, as F2 and Space do on the canvas. */
+  /** Opens with the name field focused, as F2 and Space do on the canvas. Enter there commits the name and closes the modal. */
   focusName: boolean;
   /** The step is opened for the first time after it was added: its issue marks wait. */
   quiet: boolean;
@@ -223,6 +223,7 @@ export function NodeDetailsDialog({
               node={node}
               title={title}
               inputRef={nameRef}
+              onCommitAndClose={focusName ? onClose : undefined}
             />
             <IconAction
               label={s.toolbar.duplicate}

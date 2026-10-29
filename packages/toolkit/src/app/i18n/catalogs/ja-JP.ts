@@ -196,6 +196,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "戻る",
   "onboarding.creditsSkipAnyway": "それでもスキップ",
   "onboarding.creditsUseCustomKeys": "カスタムキーを使用",
+  "onboarding.creditsUseOwnApiKeys": "自分の API キーを使う",
   "onboarding.creditsAboutLabel": "無料クレジットについて",
   "onboarding.creditsActivating": "無料クレジットを有効化しています",
   "onboarding.creditsActivatingTooltip":
@@ -563,6 +564,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "スキルファイルをアップロード",
   "composer.upload": "アップロード",
   "composer.uploadFailed": "選択したファイルをアップロードできませんでした。",
+  "composer.imageTooLargeToAttach":
+    "「{{name}}」は {{size}} MB です。{{limit}} MB を超える画像は添付できません。小さい画像を使用してください。",
+  "composer.imageTooManyPixelsToAttach":
+    "「{{name}}」は {{megapixels}} メガピクセルです。{{limit}} メガピクセルを超える画像は添付できません。小さい画像を使用してください。",
   "composer.fileTooLarge":
     "このファイルはアップロード上限の {{size}} MB を超えています。",
   "composer.sessionExpired":

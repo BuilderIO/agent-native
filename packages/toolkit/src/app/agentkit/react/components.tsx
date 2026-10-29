@@ -108,6 +108,7 @@ import {
   ComposerNotice,
   ComposerNoticeScope,
 } from "../../../composer/composer-notice.js";
+import { useComposerRuntimeAdapters } from "../../../composer/runtime-adapters.js";
 import { Dialog, Tooltip } from "../../../design-system/index.js";
 import { useTableColumnGlide } from "../../../table-column-glide.js";
 import { Skeleton } from "../../../ui/skeleton.js";
@@ -1010,7 +1011,8 @@ function agentThreadEventIndex(
     else byRun.set(event.runId, [event]);
     if (
       event.type === "message.created" ||
-      event.type === "message.completed"
+      event.type === "message.completed" ||
+      event.type === "message.replaced"
     ) {
       messageRunIds.set(event.message.id, event.runId);
     } else if (
@@ -2563,9 +2565,15 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
         event.type === "run.failed" ||
         event.type === "run.cancelled"),
   );
+  // A local run, such as voice chat's, never starts on the server, so it
+  // stays queued while it works; its own events show it is working.
+  const localRunWorking =
+    run?.status === "queued" && runEvents.length > 0 && !hasTerminalRunEvent;
   const activelyWorking =
     isCurrentSegment &&
-    (run ? run.status === "running" : running && !hasTerminalRunEvent);
+    (run
+      ? run.status === "running" || localRunWorking
+      : running && !hasTerminalRunEvent);
   const waitingLabel =
     isCurrentSegment && run?.status === "awaiting_approval"
       ? labels.waitingForApproval
@@ -4763,6 +4771,15 @@ function messageText(message: AgentMessage): string {
     .join("\n");
 }
 
+function messageCopyText(message: AgentMessage, text: string): string {
+  const files = message.parts.flatMap((part) => {
+    if (part.type !== "file") return [];
+    const href = safeAgentHref(part.url);
+    return [[part.name, ...(href ? [href] : [])].join("\n")];
+  });
+  return [text, ...files].filter(Boolean).join("\n\n");
+}
+
 function findPreviousMessage(
   messages: readonly AgentMessage[],
   messageId: string,
@@ -5381,6 +5398,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
   const secondaryActionsRef = useRef<HTMLDivElement>(null);
   const pendingFocusRef = useRef<"secondary" | "toggle" | null>(null);
   const secondaryActionsId = useId();
+  const copyText = messageCopyText(message, text);
   const showRetry =
     isLastAssistantMessage &&
     position.hasPreviousUserMessage &&
@@ -5438,8 +5456,8 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     if (!hasSecondaryActions && moreActionsOpen) setMoreActions(false, null);
   }, [hasSecondaryActions, moreActionsOpen, setMoreActions]);
   const copyAction = useAgentKitMutation(async () => {
-    const handled = await onCopyMessage?.({ message, text });
-    if (!handled && !(await writeClipboardText(text))) {
+    const handled = await onCopyMessage?.({ message, text: copyText });
+    if (!handled && !(await writeClipboardText(copyText))) {
       throw new Error(labels.copyUnavailable);
     }
     setCopied(true);
@@ -6191,6 +6209,7 @@ export interface AgentKitComposerProps extends Omit<
     | "modelStatusChecksEnabled"
     | "showMissingApiKeySetup"
     | "setupCardVisible"
+    | "onModelConnectionRequiredChange"
     | "contextUsageSlot"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
@@ -6292,6 +6311,7 @@ export function AgentKitComposer({
   requireAgentEngine = false,
   showMissingApiKeySetup,
   setupCardVisible,
+  onModelConnectionRequiredChange,
   contextUsageSlot,
   attachmentsEnabled,
   onAttachmentRequest,
@@ -6426,13 +6446,14 @@ export function AgentKitComposer({
     };
   }, []);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const composerTranslate = useComposerRuntimeAdapters().translate;
   useEffect(() => {
     setAttachmentError(null);
     setStopError(null);
   }, [threadId]);
   const composerAttachmentAdapter = useMemo(
-    () => attachmentAdapter ?? createChatAttachmentAdapter(),
-    [attachmentAdapter],
+    () => attachmentAdapter ?? createChatAttachmentAdapter(composerTranslate),
+    [attachmentAdapter, composerTranslate],
   );
   const starting = useAgentKitSubmissionStarting(threadId);
   const active = hasActiveRuns(thread) || starting;
@@ -7009,6 +7030,7 @@ export function AgentKitComposer({
             requireAgentEngine,
             showMissingApiKeySetup,
             setupCardVisible,
+            onModelConnectionRequiredChange,
             contextUsageSlot,
             layoutVariant,
             toolbarSlot,
@@ -8343,6 +8365,19 @@ export function AgentKitChat({
     ]),
   );
   const pendingRuns = new Set(pendingRunIds);
+  // A running turn's work after its reply's latest text joins the row above
+  // that reply. As its own row below, the work before reads as finished while
+  // the run is still working, and the turn shows two rows until it ends.
+  const liveReplyRunIds = new Set(
+    pendingRunIds.filter((runId) => {
+      const reply = lastAssistantMessagesByRun.get(runId);
+      return (
+        thread.runs[runId]?.status === "running" &&
+        reply !== undefined &&
+        runSegmentEnds.get(runId)?.id === reply.id
+      );
+    }),
+  );
   const runRevision = (runId: RunId) =>
     `${runId}:${eventIndex.byRun.get(runId)?.length ?? 0}`;
   const renderRunFailure = (runId: RunId) => {
@@ -8518,7 +8553,7 @@ export function AgentKitChat({
   }
   const tailRunIds = Array.from(
     new Set([
-      ...pendingRunIds,
+      ...pendingRunIds.filter((runId) => !liveReplyRunIds.has(runId)),
       ...Array.from(failedRuns.keys()).filter(
         (runId) => !lastAssistantMessagesByRun.has(runId),
       ),
@@ -8652,11 +8687,19 @@ export function AgentKitChat({
       !hasRunWork(runId, sequence) &&
       !hasVisibleReasoning(message),
     );
+    const extendsLiveWork =
+      isAssistantBoundary &&
+      liveReplyRunIds.has(runId) &&
+      lastAssistantMessagesByRun.get(runId)?.id === message.id;
     const rendersRunWork = Boolean(
       isAssistantBoundary &&
       runId &&
       (summarizesTurn ||
-        hasRunWork(runId, previousAssistant?.sequence, sequence)),
+        hasRunWork(
+          runId,
+          previousAssistant?.sequence,
+          extendsLiveWork ? undefined : sequence,
+        )),
     );
     // A saved reply's reasoning before its answer joins the work group above
     // it, so the turn shows one disclosure; the stream did not place it there.
@@ -8671,7 +8714,7 @@ export function AgentKitChat({
           runId,
           anchor: previousAssistant?.id ?? "start",
           afterSequence: previousAssistant?.sequence,
-          throughSequence: sequence,
+          throughSequence: extendsLiveWork ? undefined : sequence,
           messageId: message.id,
           foldedReasoningMessageId: foldsReasoning ? message.id : undefined,
           summarizesTurn,

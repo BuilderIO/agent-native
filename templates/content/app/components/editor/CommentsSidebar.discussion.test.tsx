@@ -248,6 +248,62 @@ describe("the Discussion panel", () => {
     expect(card("text-1")).not.toBeNull();
   });
 
+  it("brings a new entry in a capped margin card into view from its start, unless it already shows", () => {
+    const [pageThread, textThread] = fixtureThreads as [
+      CommentThread,
+      CommentThread,
+    ];
+    const rootComment = textThread.comments.find(
+      (comment) => comment.id === "text-1-root",
+    );
+    if (!rootComment) throw new Error("The fixture thread has no comment");
+    const withEntries = (...ids: string[]): CommentThread[] => [
+      pageThread,
+      {
+        ...textThread,
+        comments: [
+          ...textThread.comments,
+          ...ids.map((id) => ({
+            ...rootComment,
+            id,
+            parent_id: "text-1-root",
+            content: `Entry ${id}`,
+          })),
+        ],
+      },
+    ];
+    render("inline", "text-1");
+    const body = container.querySelector<HTMLElement>(
+      '[data-thread-card="text-1"] [data-comment-thread-body]',
+    );
+    if (!body) throw new Error("The thread card has no body");
+    Object.defineProperty(body, "scrollHeight", { value: 1200 });
+    Object.defineProperty(body, "clientHeight", { value: 384 });
+    const scrollTo = vi.fn();
+    body.scrollTo = scrollTo;
+    let entryTop = 200;
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const top = this.hasAttribute("data-comment-entry") ? entryTop : 0;
+        return DOMRect.fromRect({ x: 0, y: top, width: 0, height: 0 });
+      });
+    try {
+      // The answer lands right under the comment that asked for it.
+      threads = withEntries("answer-1");
+      render("inline", "text-1");
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      // Below the fold, the card scrolls to its start, not to its end.
+      entryTop = 900;
+      threads = withEntries("answer-1", "answer-2");
+      render("inline", "text-1");
+      expect(scrollTo).toHaveBeenCalledWith({ top: 900, behavior: "smooth" });
+    } finally {
+      rect.mockRestore();
+    }
+  });
+
   it("remembers the sort and a Page's filters, and forgets the filters once they're back to default", async () => {
     render();
     await click("[data-discussion-sort-trigger]");

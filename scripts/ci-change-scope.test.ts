@@ -1117,7 +1117,7 @@ test("checks the Builder Code starter scaffold for core and Chat changes", () =>
   }
   assert.equal(unrelatedCore.checks.scaffold, false);
   assert.equal(unrelatedCore.checks.builder_code_starter_scaffold, false);
-  assert.equal(unrelatedCoreTemplate.checks.scaffold, true);
+  assert.equal(unrelatedCoreTemplate.checks.scaffold, false);
   assert.equal(unrelatedCoreTemplate.scaffoldCli, false);
   assert.equal(unrelatedCoreTemplate.scaffoldWorkspace, false);
   assert.equal(
@@ -1148,6 +1148,7 @@ test("checks the Builder Code starter scaffold for core and Chat changes", () =>
   ]);
   const headlessTemplate = classifyChangedPaths([
     "packages/core/src/templates/headless/AGENTS.md",
+    "packages/core/src/templates/headless/package.json",
   ]);
   assert.equal(headlessTemplate.scaffoldCli, true);
   assert.deepEqual(
@@ -4296,7 +4297,7 @@ test("keeps package metadata targeted but runs the guards that scan it", () => {
   assert.equal(scope.checks.guards, true);
 });
 
-test("routes agent instructions to core and skills instead of the full suite", () => {
+test("runs only lint and guards for markdown-only instruction changes", () => {
   for (const path of [
     ".agents/skills/qa/SKILL.md",
     "skills/an/SKILL.md",
@@ -4308,21 +4309,41 @@ test("routes agent instructions to core and skills instead of the full suite", (
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.full, false, path);
     assert.equal(scope.docsOnly, false, path);
-    const instructionFilters = [
-      "!./community-templates/**",
-      "@agent-native/core",
-      "@agent-native/skills",
-    ];
-    assert.deepEqual(scope.workspaceFilters, instructionFilters, path);
-    assert.deepEqual(scope.testWorkspaceFilters, instructionFilters, path);
+    assert.deepEqual(scope.workspaceFilters, [], path);
+    assert.deepEqual(scope.testWorkspaceFilters, [], path);
     assert.deepEqual(
       Object.entries(scope.checks)
         .filter(([, enabled]) => enabled)
         .map(([name]) => name),
-      ["lint", "fast_tests", "build", "guards"],
+      ["lint", "guards"],
       path,
     );
   }
+
+  const syncedSkill = classifyChangedPaths([
+    ".agents/skills/review-latest-feedback/SKILL.md",
+    "templates/factory/.agents/skills/review-latest-feedback/SKILL.md",
+    "packages/core/src/templates/factory/.agents/skills/review-latest-feedback/SKILL.md",
+  ]);
+  assert.equal(syncedSkill.full, false);
+  assert.deepEqual(syncedSkill.testWorkspaceFilters, []);
+  assert.equal(syncedSkill.checks.fast_tests, false);
+  assert.equal(syncedSkill.checks.typecheck, false);
+  assert.equal(syncedSkill.checks.build, false);
+  assert.equal(syncedSkill.checks.lint, true);
+  assert.equal(syncedSkill.checks.guards, true);
+
+  const withCode = classifyChangedPaths([
+    ".agents/skills/qa/SKILL.md",
+    "packages/core/src/cli/skills.ts",
+  ]);
+  assert.equal(withCode.checks.fast_tests, true);
+  assert.equal(
+    classifyChangedPaths(["verification/execution-lease/NOTES.md"]).checks
+      .verify_execution_lease,
+    true,
+  );
+  assert.equal(withCode.checks.typecheck, true);
 
   assert.equal(isInstructionPath("README.md"), false);
   assert.equal(isInstructionPath("templates/chat/AGENTS.md"), false);
@@ -4425,6 +4446,7 @@ test("still runs changed root script tests when the change set is full", () => {
   assert.equal(scope.full, true);
   assert.equal(scope.checks.guards, true);
   assert.deepEqual(scope.scriptTests, [
+    "scripts/feedback-fix-proof.test.ts",
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
   ]);
@@ -4444,6 +4466,21 @@ test("selects the release workflow test when the publish workflow changes", () =
   assert.deepEqual(scope.scriptTests, [
     "scripts/package-release-workflow.test.ts",
   ]);
+});
+
+test("selects the feedback proof workflow test when its workflow changes", () => {
+  const scope = classifyChangedPaths([
+    ".github/workflows/feedback-fix-proof.yml",
+  ]);
+
+  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
+});
+
+test("selects the feedback proof contract test when CI changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/ci.yml"]);
+
+  assert.equal(scope.full, true);
+  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
 });
 
 test("runs the change-scope test when the selector or its test changes", () => {
@@ -4687,6 +4724,7 @@ test(
         "scripts/guard-no-unbounded-table-reads.test.ts",
         "scripts/deploy-alerts-workflow.test.ts",
         "scripts/package-release-workflow.test.ts",
+        "scripts/feedback-fix-proof.test.ts",
         "scripts/qa-deploy-paths-lib.ts",
         "scripts/design-e2e-regression-pins.ts",
         "scripts/design-e2e-spec-selection.ts",

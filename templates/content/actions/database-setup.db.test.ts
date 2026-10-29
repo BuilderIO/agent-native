@@ -115,6 +115,53 @@ describe("ordinary database setup", () => {
     ).toBe("Current draft");
   });
 
+  it("advertises a system property such as the Builder status as not editable", async () => {
+    const created = await as(owner, () =>
+      create.run({
+        spaceId,
+        title: "Builder articles",
+        idempotencyKey: "system-property-metadata",
+      }),
+    );
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values({
+        id: `builder_status_${runId}`,
+        ownerEmail: owner,
+        databaseId: created.database.id,
+        systemRole: "builder_status",
+        name: "Builder status",
+        type: "select",
+        position: -1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const description = await as(owner, () =>
+      describeDatabase.run({ databaseId: created.database.id }),
+    );
+    if (!("mutationContract" in description) || !description.mutationContract)
+      throw new Error("Fixture database has no mutation contract.");
+    expect(
+      description.mutationContract.properties.find(
+        (property) => property.id === `builder_status_${runId}`,
+      ),
+    ).toMatchObject({
+      writable: false,
+      sourceManaged: false,
+      systemRole: "builder_status",
+    });
+    expect(
+      description.setupContract?.properties.find(
+        (property) => property.propertyId === `builder_status_${runId}`,
+      ),
+    ).toEqual({
+      propertyId: `builder_status_${runId}`,
+      editable: false,
+      reason: "System definition",
+    });
+  });
+
   it("preserves the UI optimistic Page identity through the shared reliable create path", async () => {
     const newDocumentId = `optimistic-${runId}`;
     const args = {

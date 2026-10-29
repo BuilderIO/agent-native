@@ -2,7 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import { commentMentionsForText } from "@shared/comment-mentions";
-import { IconDots, IconExternalLink } from "@tabler/icons-react";
+import { IconDots } from "@tabler/icons-react";
 import { useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
@@ -348,7 +348,6 @@ export function CommentEntry({
             ) : null}
             {onOpenAiConversation ? (
               <DropdownMenuItem onSelect={onOpenAiConversation}>
-                <IconExternalLink size={14} />
                 {t("comments.aiOpenConversation")}
               </DropdownMenuItem>
             ) : null}

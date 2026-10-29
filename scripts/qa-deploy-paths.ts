@@ -4,10 +4,11 @@
  * app, install, migrate a real Postgres, build, run it the way the guide says,
  * then sign up, call the `hello` action, and confirm the account landed in
  * Postgres and survived a restart. The Netlify path also waits for its signed
- * scheduled wake to update scheduler health in the throwaway database.
+ * scheduled wake to update scheduler health in the throwaway database, and
+ * local-source runs verify durable AgentHarness recovery through that sweep.
  *
  *   pnpm qa:deploy-paths --target node|docker|netlify|vercel|presets
- *     [--source local|npm]
+ *     [--source local|npm] [--exercise-chat-durability]
  *
  * `node` and `docker` run the app here. `netlify` and `vercel` deploy it to a
  * real project on that host and run the same checks against its address.
@@ -64,6 +65,7 @@ import {
   deployDatabaseName,
   deployProjectName,
   deployProjectSlot,
+  diagnosticStageName,
   dockerfileBaseImages,
   extractFencedBlock,
   findFileUrls,
@@ -71,6 +73,7 @@ import {
   observeDeployMarkerResponse,
   PRESET_SHAPES,
   redactSecrets,
+  routeFailureEvidenceSummary,
   schedulerCheckIsAfter,
   secretsInUrl,
   VENDOR_DIR,
@@ -100,6 +103,7 @@ const { values } = parseArgs({
     "netlify-account-slug": { type: "string" },
     "vercel-scope": { type: "string" },
     keep: { type: "boolean", default: false },
+    "exercise-chat-durability": { type: "boolean", default: false },
   },
 });
 
@@ -111,6 +115,7 @@ const adminDatabaseUrlArg =
 const netlifyAccountSlug = values["netlify-account-slug"];
 const vercelScope = values["vercel-scope"];
 const keep = values.keep === true;
+const exerciseChatDurability = values["exercise-chat-durability"] === true;
 
 if (!DEPLOY_TARGETS.includes(target)) {
   console.error(`--target must be one of: ${DEPLOY_TARGETS.join(", ")}`);
@@ -118,6 +123,17 @@ if (!DEPLOY_TARGETS.includes(target)) {
 }
 if (source !== "local" && source !== "npm") {
   console.error("--source must be local or npm");
+  process.exit(2);
+}
+if (exerciseChatDurability && (target !== "netlify" || source !== "local")) {
+  console.error(
+    "--exercise-chat-durability requires --target netlify and --source local",
+  );
+  process.exit(2);
+}
+const e2eOpenAiApiKey = process.env.BETA_E2E_OPENAI_API_KEY?.trim();
+if (exerciseChatDurability && !e2eOpenAiApiKey) {
+  console.error("--exercise-chat-durability requires BETA_E2E_OPENAI_API_KEY");
   process.exit(2);
 }
 
@@ -148,6 +164,7 @@ for (const name of ["NETLIFY_AUTH_TOKEN", "VERCEL_TOKEN"]) {
   const token = process.env[name];
   if (token) registerSecrets(token);
 }
+if (e2eOpenAiApiKey) registerSecrets(e2eOpenAiApiKey);
 
 interface StepResult {
   name: string;
@@ -366,6 +383,7 @@ async function waitFor(
   timeoutMs: number,
   probe: () => Promise<boolean>,
   abortReason: () => string | null = () => null,
+  timeoutContext: () => string | null = () => null,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
@@ -381,9 +399,14 @@ async function waitFor(
     }
     await sleep(1_000);
   }
+  const context = timeoutContext();
+  const diagnostics = [
+    ...(lastError ? [`last error: ${errorMessage(lastError)}`] : []),
+    ...(context ? [context] : []),
+  ];
   throw new Error(
     `Timed out after ${timeoutMs}ms waiting for ${label}${
-      lastError ? ` (last error: ${errorMessage(lastError)})` : ""
+      diagnostics.length ? ` (${diagnostics.join("; ")})` : ""
     }.`,
   );
 }
@@ -765,19 +788,82 @@ function assertPresetShape(
 
 interface Session {
   cookie: string;
+  storageState: {
+    cookies: Array<{
+      name: string;
+      value: string;
+      domain: string;
+      path: string;
+      expires: number;
+      httpOnly: boolean;
+      secure: boolean;
+      sameSite: "Strict" | "Lax" | "None";
+    }>;
+    origins: [];
+  };
 }
 
-function sessionFrom(response: Response): Session {
-  const cookie = response.headers
+function sessionFrom(response: Response, baseUrl: string): Session {
+  const host = new URL(baseUrl).hostname;
+  const cookies: Session["storageState"]["cookies"] = response.headers
     .getSetCookie()
-    .map((entry) => entry.split(";")[0]!)
-    .filter((pair) => !pair.endsWith("="))
+    .flatMap((entry) => {
+      const [pair, ...rawAttributes] = entry
+        .split(";")
+        .map((part) => part.trim());
+      if (!pair) return [];
+      const separator = pair.indexOf("=");
+      if (separator < 1) return [];
+      const attributes = new Map<string, string>(
+        rawAttributes.map((attribute) => {
+          const index = attribute.indexOf("=");
+          return index < 0
+            ? ([attribute.toLowerCase(), ""] as const)
+            : ([
+                attribute.slice(0, index).toLowerCase(),
+                attribute.slice(index + 1),
+              ] as const);
+        }),
+      );
+      const name = pair.slice(0, separator);
+      const value = pair.slice(separator + 1);
+      const rawSameSite = attributes.get("samesite")?.toLowerCase();
+      const sameSite: Session["storageState"]["cookies"][number]["sameSite"] =
+        rawSameSite === "strict"
+          ? "Strict"
+          : rawSameSite === "none"
+            ? "None"
+            : "Lax";
+      const maxAge = Number(attributes.get("max-age"));
+      const expiresAt = attributes.get("expires");
+      const expires = Number.isFinite(maxAge)
+        ? Math.floor(Date.now() / 1000) + maxAge
+        : expiresAt
+          ? Math.floor(Date.parse(expiresAt) / 1000)
+          : -1;
+      return [
+        {
+          name,
+          value,
+          domain: attributes.get("domain") || host,
+          path: attributes.get("path") || "/",
+          expires,
+          httpOnly: attributes.has("httponly"),
+          secure: attributes.has("secure"),
+          sameSite,
+        },
+      ];
+    })
+    .filter((cookie) => cookie.value.length > 0);
+  const cookie = cookies
+    .map(({ name, value }) => `${name}=${value}`)
     .join("; ");
   assert.ok(
     cookie.includes("session_token="),
     "The auth response should set a session cookie.",
   );
-  return { cookie };
+  for (const { name, value } of cookies) registerSecrets(`${name}=${value}`);
+  return { cookie, storageState: { cookies, origins: [] } };
 }
 
 async function authenticate(
@@ -799,7 +885,7 @@ async function authenticate(
   );
   const body = await response.text();
   assert.equal(response.status, 200, `${action} failed: ${body}`);
-  return sessionFrom(response);
+  return sessionFrom(response, baseUrl);
 }
 
 async function callHello(baseUrl: string, session: Session): Promise<void> {
@@ -812,12 +898,86 @@ async function callHello(baseUrl: string, session: Session): Promise<void> {
   assert.deepEqual(JSON.parse(body), { message: "Hello, deploy-paths!" });
 }
 
+async function exerciseDisposableChatReliability(
+  app: RunningApp,
+  workDir: string,
+  email: string,
+  session: Session,
+): Promise<void> {
+  assert.ok(
+    e2eOpenAiApiKey,
+    "The isolated Chat proof needs its dedicated key.",
+  );
+  const stateDir = path.join(workDir, "disposable-chat-e2e");
+  const authStateDir = path.join(stateDir, "auth-state");
+  const storageStateFile = path.join(stateDir, "signup-session.json");
+  const reportSlot = `deploy-paths-${process.pid}-${randomBytes(3).toString("hex")}`;
+  const outputDir = path.join(
+    repoRoot,
+    "e2e",
+    "beta",
+    "test-results",
+    reportSlot,
+  );
+  const reportDir = path.join(
+    repoRoot,
+    "e2e",
+    "beta",
+    "playwright-report",
+    reportSlot,
+  );
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.writeFileSync(storageStateFile, JSON.stringify(session.storageState));
+
+  try {
+    await runLive(
+      "pnpm",
+      [
+        "e2e:beta",
+        "--project=chat",
+        "--grep",
+        "a direct busy POST retains its reference attachment across reload|Stop returns the composer to idle and the thread still works|refresh mid-run restores the complete answer",
+      ],
+      {
+        cwd: repoRoot,
+        env: {
+          ...baseEnv(),
+          CI: "true",
+          BETA_E2E_APPS: "chat",
+          BETA_E2E_AUTHED: "1",
+          BETA_E2E_CLUSTER: "chat",
+          BETA_E2E_EMAIL: email,
+          BETA_E2E_SESSION_TOKENS: "",
+          BETA_E2E_SESSION_TOKEN_CHAT: "",
+          BETA_E2E_STORAGE_STATE: "",
+          BETA_E2E_STORAGE_STATE_FILE: storageStateFile,
+          BETA_E2E_AUTH_STATE_DIR: authStateDir,
+          BETA_E2E_DISPOSABLE_CHAT_ORIGIN: app.baseUrl,
+          BETA_E2E_OPENAI_API_KEY: e2eOpenAiApiKey,
+          BETA_E2E_ALLOW_SHARED_KEY: "",
+          BETA_E2E_SHARED_OPENAI_API_KEY: "",
+          BETA_E2E_GLOBAL_TIMEOUT_MINUTES: "20",
+          BETA_E2E_REPORT_SLOT: reportSlot,
+        },
+        timeoutMs: 21 * 60_000,
+        label: "isolated authenticated Chat durability specs",
+      },
+    );
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    fs.rmSync(reportDir, { recursive: true, force: true });
+  }
+}
+
 async function exerciseApp(
   app: RunningApp,
   appDir: string,
   databaseUrl: string,
 ): Promise<void> {
-  const email = `deploy-paths-${randomBytes(4).toString("hex")}@example.com`;
+  const email = exerciseChatDurability
+    ? `deploy-paths+autoz-${randomBytes(4).toString("hex")}@example.com`
+    : `deploy-paths-${randomBytes(4).toString("hex")}@example.com`;
 
   await step("the server reports no missing deploy settings", async () => {
     const response = await fetchWithTimeout(
@@ -906,6 +1066,495 @@ async function exerciseApp(
         ),
       ),
     );
+
+    if (source === "local") {
+      await step(
+        "a signed Netlify scheduled tick recovers an expired AgentHarness follow-up",
+        () => exerciseScheduledAgentHarnessRecovery(databaseUrl),
+      );
+    }
+
+    if (exerciseChatDurability) {
+      await step(
+        "authenticated busy Chat POST retains its reference attachment through reload",
+        () =>
+          exerciseDisposableChatReliability(
+            app,
+            path.dirname(appDir),
+            email,
+            session,
+          ),
+      );
+      await step(
+        "a signed Netlify scheduled tick completes one stale Chat continuation",
+        () => exerciseScheduledStaleChatContinuation(databaseUrl, email),
+      );
+    }
+  }
+}
+
+async function exerciseScheduledAgentHarnessRecovery(
+  databaseUrl: string,
+): Promise<void> {
+  const [
+    {
+      claimAgentHarnessSessionFollowUp,
+      getAgentHarnessSession,
+      listAgentHarnessSessionEvents,
+      saveAgentHarnessSession,
+    },
+    { createDbExec, withDbExec },
+  ] = await Promise.all([
+    import("../packages/core/src/agent/harness/store.js"),
+    import("../packages/core/src/db/client.js"),
+  ]);
+  const sessionId = "qa-deploy-paths-scheduled-recovery";
+  const followUpId = `${sessionId}:follow-up`;
+  const claimId = `${sessionId}:claim`;
+  const db = await createDbExec({ url: databaseUrl });
+
+  try {
+    const { claimed, previousSchedulerCheck } = await withDbExec(
+      db,
+      async () => {
+        const session = await saveAgentHarnessSession({
+          id: sessionId,
+          harnessName: "qa-deploy-paths-scheduler-recovery",
+          threadId: `${sessionId}:thread`,
+        });
+        assert.equal(
+          session.generation,
+          1,
+          "The scheduled recovery fixture must start in a fresh database.",
+        );
+        assert.equal(session.status, "idle");
+
+        const claimed = await claimAgentHarnessSessionFollowUp(
+          sessionId,
+          session.generation,
+          claimId,
+          {
+            followUpId,
+            prompt: "Recover this undispatched deployment-path follow-up.",
+            metadata: { source: "qa-deploy-paths" },
+            claimLeaseMs: 15_000,
+            deadlineDurationMs: 30 * 60_000,
+          },
+        );
+        assert.ok(claimed, "The scheduled recovery fixture must be claimed.");
+        assert.equal(claimed.followUpDispatchedAt, null);
+
+        const health = await db.execute({
+          sql: `SELECT last_checked_at
+                FROM automation_scheduler_health
+                WHERE runtime = 'recurring-jobs' AND last_checked_at IS NOT NULL
+                ORDER BY last_checked_at DESC
+                LIMIT 1`,
+        });
+        const previousCheck = (
+          health.rows[0] as { last_checked_at?: unknown } | undefined
+        )?.last_checked_at;
+        assert.notEqual(
+          previousCheck,
+          undefined,
+          "The signed scheduler health check must exist before seeding recovery.",
+        );
+        assert.notEqual(previousCheck, null);
+        const previousSchedulerCheck = Number(previousCheck);
+        assert.ok(
+          Number.isSafeInteger(previousSchedulerCheck),
+          "The scheduler health check must be a safe integer timestamp.",
+        );
+        return { claimed, previousSchedulerCheck };
+      },
+    );
+    assert.ok(
+      claimed.followUpClaimExpiresAt !== null &&
+        claimed.followUpClaimExpiresAt !== undefined,
+      "The scheduled recovery fixture must have a short claim expiry.",
+    );
+
+    await waitFor(
+      "the scheduled sweep to recover the expired AgentHarness follow-up",
+      SCHEDULER_WAKE_TIMEOUT_MS,
+      async () =>
+        withDbExec(db, async () => {
+          const health = await db.execute({
+            sql: `SELECT last_checked_at
+                  FROM automation_scheduler_health
+                  WHERE runtime = 'recurring-jobs' AND last_checked_at IS NOT NULL
+                  ORDER BY last_checked_at DESC
+                  LIMIT 1`,
+          });
+          const tickAdvanced = health.rows.some((row) =>
+            schedulerCheckIsAfter(
+              (row as { last_checked_at?: unknown }).last_checked_at,
+              previousSchedulerCheck,
+            ),
+          );
+          if (!tickAdvanced) return false;
+
+          const recovered = await getAgentHarnessSession(sessionId);
+          return (
+            recovered?.generation === claimed.generation + 1 &&
+            recovered.status === "idle" &&
+            recovered.followUpOutcome === "not_dispatched"
+          );
+        }),
+    );
+
+    await withDbExec(db, async () => {
+      const recovered = await getAgentHarnessSession(sessionId);
+      assert.ok(recovered, "The AgentHarness session must remain persisted.");
+      assert.equal(recovered.status, "idle");
+      assert.equal(recovered.followUpOutcome, "not_dispatched");
+      assert.equal(recovered.followUpClaimId, null);
+      assert.equal(recovered.followUpDispatchedAt, null);
+      assert.equal(recovered.generation, claimed.generation + 1);
+
+      const events = await listAgentHarnessSessionEvents(sessionId);
+      assert.ok(
+        events.some(
+          ({ operationId, event }) =>
+            operationId === `follow-up:${followUpId}` &&
+            event.type === "error" &&
+            event.errorCode === "harness_follow_up_not_dispatched",
+        ),
+        "The scheduled recovery must journal the not-dispatched outcome for this follow-up.",
+      );
+    });
+  } finally {
+    await db.close?.();
+  }
+}
+
+async function exerciseScheduledStaleChatContinuation(
+  databaseUrl: string,
+  ownerEmail: string,
+): Promise<void> {
+  const [
+    { createThread, deleteThread },
+    {
+      BACKGROUND_RUN_STALE_MS,
+      claimBackgroundRun,
+      claimTurnExecutionLease,
+      insertRun,
+      persistRunCheckpointEvent,
+    },
+    { withExecutionFence },
+    { buildUserMessage },
+    { createDbExec, withDbExec },
+  ] = await Promise.all([
+    import("../packages/core/src/chat-threads/store.js"),
+    import("../packages/core/src/agent/run-store.js"),
+    import("../packages/core/src/agent/execution-fence.js"),
+    import("../packages/core/src/agent/thread-data-builder.js"),
+    import("../packages/core/src/db/client.js"),
+  ]);
+  const nonce = randomBytes(6).toString("hex");
+  const runId = `agent-durability-canary-${nonce}`;
+  const threadId = `${runId}:thread`;
+  const turnId = `${runId}:turn`;
+  const marker = `durability-result-${nonce}`;
+  const prompt = `Reply with exactly ${marker} and no other text.`;
+  const db = await createDbExec({ url: databaseUrl });
+
+  try {
+    const previousSchedulerCheck = await withDbExec(db, async () => {
+      const health = await db.execute({
+        sql: `SELECT last_checked_at
+              FROM automation_scheduler_health
+              WHERE runtime = 'recurring-jobs' AND last_checked_at IS NOT NULL
+              ORDER BY last_checked_at DESC
+              LIMIT 1`,
+      });
+      const value = (
+        health.rows[0] as { last_checked_at?: unknown } | undefined
+      )?.last_checked_at;
+      assert.notEqual(
+        value,
+        undefined,
+        "A scheduler health check must precede the stale Chat canary.",
+      );
+      assert.notEqual(value, null);
+      const checkedAt = Number(value);
+      assert.ok(
+        Number.isSafeInteger(checkedAt),
+        "The previous scheduler check must be a safe integer timestamp.",
+      );
+      return checkedAt;
+    });
+
+    await withDbExec(db, async () => {
+      const userMessage = buildUserMessage({ text: prompt, runId, turnId });
+      const threadData = JSON.stringify({ messages: [userMessage] });
+      await createThread(ownerEmail, {
+        id: threadId,
+        title: "Scheduled recovery canary",
+        initialData: {
+          threadData,
+          preview: prompt,
+          messageCount: 1,
+        },
+      });
+      await insertRun(runId, threadId, turnId, {
+        dispatchMode: "background",
+        dispatchPayload: JSON.stringify({ message: prompt, threadId, turnId }),
+        turnInitiator: {
+          email: ownerEmail,
+          orgScope: "personal",
+          anonymous: false,
+        },
+      });
+      assert.equal(
+        await claimBackgroundRun(runId),
+        true,
+        "The stale Chat canary must be claimed before its worker is lost.",
+      );
+      const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+      await withExecutionFence(fence, () =>
+        persistRunCheckpointEvent(
+          runId,
+          { type: "auto_continue", reason: "run_timeout" },
+          "run_timeout",
+        ),
+      );
+      const staleAt = Date.now() - BACKGROUND_RUN_STALE_MS - 5_000;
+      const agedRun = await db.execute({
+        sql: `UPDATE agent_runs
+              SET started_at = ?, heartbeat_at = ?, last_progress_at = ?, in_flight_since = NULL
+              WHERE id = ? AND status = 'running'`,
+        args: [staleAt, staleAt, staleAt, runId],
+      });
+      assert.equal(
+        agedRun.rowsAffected,
+        1,
+        "The stale Chat canary must remain running after its worker is lost.",
+      );
+      const expiredLease = await db.execute({
+        sql: `UPDATE agent_execution_leases
+              SET lease_expires_at = clock_timestamp() - INTERVAL '1 second'
+              WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?`,
+        args: [threadId, turnId, runId],
+      });
+      assert.equal(
+        expiredLease.rowsAffected,
+        1,
+        "The stale Chat canary must not retain a live execution lease.",
+      );
+    });
+
+    const observationStartedAt = Date.now();
+    let terminalFailure: string | null = null;
+    let observedRouteFailure: string | null = null;
+    await waitFor(
+      "the naturally scheduled sweep to complete exactly one stale Chat continuation",
+      SCHEDULER_WAKE_TIMEOUT_MS,
+      async () =>
+        withDbExec(db, async () => {
+          const runRows = await db.execute({
+            sql: `SELECT id, status, terminal_reason, error_code, diag_stage, worker_stage,
+                         dispatch_mode, continuation_order
+                  FROM agent_runs
+                  WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
+                  ORDER BY started_at, id`,
+            args: [threadId, turnId],
+          });
+          if (runRows.rows.length >= 2) {
+            const observedSuccessor = runRows.rows.find(
+              (row) => (row as { id?: unknown }).id !== runId,
+            ) as { diag_stage?: unknown } | undefined;
+            observedRouteFailure ??= routeFailureEvidenceSummary(
+              observedSuccessor?.diag_stage,
+            );
+          }
+
+          const health = await db.execute({
+            sql: `SELECT last_checked_at, last_error
+                  FROM automation_scheduler_health
+                  WHERE runtime = 'recurring-jobs' AND last_checked_at IS NOT NULL
+                  ORDER BY last_checked_at DESC
+                  LIMIT 1`,
+          });
+          const latestHealth = health.rows[0] as
+            | { last_checked_at?: unknown; last_error?: unknown }
+            | undefined;
+          if (
+            !schedulerCheckIsAfter(
+              latestHealth?.last_checked_at,
+              Math.max(previousSchedulerCheck, observationStartedAt),
+            )
+          ) {
+            return false;
+          }
+          assert.equal(
+            latestHealth?.last_error ?? null,
+            null,
+            "The scheduled recovery check must not record an error.",
+          );
+
+          if (runRows.rows.length < 2) return false;
+          assert.equal(
+            runRows.rows.length,
+            2,
+            "The stale Chat canary must have exactly one successor.",
+          );
+          const predecessor = runRows.rows.find(
+            (row) => (row as { id?: unknown }).id === runId,
+          ) as
+            | {
+                status?: unknown;
+                terminal_reason?: unknown;
+                error_code?: unknown;
+                continuation_order?: unknown;
+              }
+            | undefined;
+          const successor = runRows.rows.find(
+            (row) => (row as { id?: unknown }).id !== runId,
+          ) as
+            | {
+                id?: unknown;
+                status?: unknown;
+                terminal_reason?: unknown;
+                error_code?: unknown;
+                diag_stage?: unknown;
+                worker_stage?: unknown;
+                dispatch_mode?: unknown;
+                continuation_order?: unknown;
+              }
+            | undefined;
+          assert.ok(
+            predecessor,
+            "The stale predecessor must remain persisted.",
+          );
+          assert.ok(successor, "The recovered successor must be persisted.");
+          if (successor.status === "running") return false;
+          if (successor.status !== "completed") {
+            terminalFailure = [
+              `successor ended ${String(successor.status)}`,
+              `errorCode=${String(successor.error_code ?? "unknown")}`,
+              `terminalReason=${String(successor.terminal_reason ?? "unknown")}`,
+              `diagStage=${diagnosticStageName(successor.diag_stage)}`,
+              `workerStage=${diagnosticStageName(successor.worker_stage)}`,
+              ...(observedRouteFailure ? [observedRouteFailure] : []),
+            ].join(" ");
+            return false;
+          }
+          assert.equal(predecessor.status, "truncated");
+          assert.equal(predecessor.terminal_reason, "run_timeout");
+          assert.ok(
+            successor.dispatch_mode === "background" ||
+              successor.dispatch_mode === "background-processing",
+            "The recovered successor must use background dispatch.",
+          );
+          assert.ok(
+            Number(successor.continuation_order) >
+              Number(predecessor.continuation_order),
+            "The successor must follow the stale run in continuation order.",
+          );
+
+          const eventRows = await db.execute({
+            sql: `SELECT run_id, event_data
+                  FROM agent_run_events
+                  WHERE run_id IN (?, ?)
+                  ORDER BY run_id, seq`,
+            args: [runId, String(successor.id)],
+          });
+          const events = eventRows.rows.map((row) => {
+            const value = (row as { event_data?: unknown }).event_data;
+            const event = typeof value === "string" ? JSON.parse(value) : value;
+            assert.ok(
+              typeof event === "object" && event !== null,
+              "A persisted canary run event must be readable.",
+            );
+            return {
+              runId: String((row as { run_id?: unknown }).run_id),
+              event: event as Record<string, unknown>,
+            };
+          });
+          const predecessorCheckpoints = events.filter(
+            ({ runId: eventRunId, event }) =>
+              eventRunId === runId &&
+              event.type === "auto_continue" &&
+              event.reason === "run_timeout",
+          );
+          const successorTerminalEvents = events.filter(
+            ({ runId: eventRunId, event }) =>
+              eventRunId === successor?.id &&
+              [
+                "done",
+                "error",
+                "missing_api_key",
+                "loop_limit",
+                "auto_continue",
+              ].includes(String(event.type)),
+          );
+          const successorText = events
+            .filter(
+              ({ runId: eventRunId, event }) =>
+                eventRunId === successor?.id && event.type === "text",
+            )
+            .map(({ event }) =>
+              typeof event.text === "string" ? event.text : "",
+            )
+            .join("");
+          assert.equal(predecessorCheckpoints.length, 1);
+          assert.equal(successorTerminalEvents.length, 1);
+          assert.equal(
+            successorText.split(marker).length - 1,
+            1,
+            "The recovered continuation must emit its marker exactly once.",
+          );
+          log(
+            "scheduled Chat recovery: predecessor=truncated successor=completed successors=1 terminalEvents=1 markerOccurrences=1",
+          );
+          return true;
+        }),
+      () => terminalFailure,
+      () => observedRouteFailure,
+    );
+  } finally {
+    try {
+      await withDbExec(db, async () => {
+        await db.execute({
+          sql: `UPDATE agent_runs
+                SET status = 'truncated', completed_at = ?, terminal_reason = 'canary_cleanup'
+                WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running'`,
+          args: [Date.now(), threadId, turnId],
+        });
+        await db.execute({
+          sql: `DELETE FROM agent_run_events
+                WHERE run_id IN (
+                  SELECT id FROM agent_runs
+                  WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
+                )`,
+          args: [threadId, turnId],
+        });
+        await db.execute({
+          sql: "DELETE FROM agent_execution_steps WHERE thread_id = ? AND turn_id = ?",
+          args: [threadId, turnId],
+        });
+        await db.execute({
+          sql: "DELETE FROM agent_tool_ledger WHERE thread_id = ?",
+          args: [threadId],
+        });
+        await db.execute({
+          sql: "DELETE FROM agent_execution_leases WHERE thread_id = ? AND turn_id = ?",
+          args: [threadId, turnId],
+        });
+        await db.execute({
+          sql: "DELETE FROM agent_turn_initiators WHERE thread_id = ? AND turn_id = ?",
+          args: [threadId, turnId],
+        });
+        await db.execute({
+          sql: "DELETE FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ?",
+          args: [threadId, turnId],
+        });
+        await deleteThread(threadId, ownerEmail);
+      });
+    } finally {
+      await db.close?.();
+    }
   }
 }
 

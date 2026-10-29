@@ -34,6 +34,9 @@ Use `/sidecar <task>` for read-only investigations.
 - Scale effort: for small changes, read briefly, edit, and run existing checks;
   skip surveys, unrequested tests, and browser automation. Explore deeply only
   for ambiguous or cross-cutting work.
+- Keep routine replies concise: lead with the answer in 1–2 short sentences.
+  Include only the requested detail and any essential result, blocker, or next
+  step; omit recaps, process narration, and filler unless more detail is needed.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
@@ -74,8 +77,6 @@ Use `/sidecar <task>` for read-only investigations.
   metadata unless explicitly requested.
 - Keep the chat title accurate.
 - Follow `reporting-progress` for updates and mid-task stops.
-- Use sub-agents liberally for complex independent work when Agent Teams are
-  available; keep the main thread focused on orchestration.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
@@ -139,7 +140,8 @@ Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
 `no-bare-error-in-actions`, `external-result-contract`,
-`no-source-reading-tests`, `no-oracle-loosening`, `action-output-schema`,
+`no-source-reading-tests`, `no-oracle-loosening`,
+`no-raw-sql-interpolation`, `action-output-schema`,
 `strict-lint`, and `compiler-strictness` check only lines this branch added,
 so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented

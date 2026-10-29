@@ -1,0 +1,104 @@
+slug: ai-dictation
+app: clips
+roles:
+  - engineering
+  - product
+title: 口述提示词，不用再打字
+seo_title: 能输入到任何应用的 AI 听写
+meta_description: 用 AI 听写向 Claude Code、Slack 或文档说话，整理好的文字直接出现在光标处。Agent-Native Clips 会保存每一次听写，方便日后搜索。
+updated: 2026-10-26
+hero:
+  body: 你说出的提示词、工单和回复，会变成整理好的文字落在光标处，从 Claude Code 到 Slack 都行。Agent-Native Clips 会保存每一次听写，需要时，它的 agent 还能帮你改写。
+  button:
+    label: 开始听写
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb42e201ec33f4acf8f8b6d39f67a2503
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3b0e34d91eee4240a0211ba4ca9b0859
+    alt: "Clips 的听写页面，显示今天的听写：给编码 agent 的一段长提示词、一张 bug 工单和一条 Slack 更新。提示词那张卡片已展开，显示原文和已清理的文字。"
+how_to:
+  heading: 如何使用 AI 听写
+  steps:
+    - title: 在任何应用里听写
+      body: 安装 Clips Desktop，点进 Claude Code、Linear 或 Slack，说话时按住你的快捷键（默认是 Fn，也可以在设置中自选）。松开后，Clips 会把你说的话放到光标处。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F493f3728ed1246bb841a651e3aa76300
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb3785ba8ec804690836d94e31ff92e17
+        alt: "编码 agent 的对话：一段关于 webhook 重试的听写提示词已发送，agent 完成了修改。光标停在消息框里，下方的 Clips 胶囊正在聆听下一段提示词，绿色波形升起。"
+    - title: 教 Clips 你的用词
+      body: 在听写页面打开词典，添加你的产品、库和同事的名字，或者用“词条 → 替换词”处理 Clips 总是听错的词。导入 CSV 文件可以一次添加整个列表。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F855c88996488417e8dc3a532a0fd21a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff4e9c0557a1344f6a55e7e9c4356a5ab
+        alt: "Clips 的词典面板，有添加词条、导入和导出 CSV。下方是 Agent-Native、“web hooks → webhooks”和“kube control → kubectl”等词条。"
+    - title: 找回过去的听写
+      body: 在 Clips 中按 Cmd+K，输入你说过的一个词，匹配的听写就会连同你当时使用的应用一起显示出来。选中一条，即可在听写页面打开它。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5e344071b49f4e51ae5eef2708c46605
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F13f558e09094404f975350ad0c359acc
+        alt: "Clips 搜索菜单，输入了“webhook”，在听写下列出两条过去的听写：一段对 Cursor 说的提示词，和一条对 Slack 说的消息。"
+features:
+  heading: 用说代替打字所需的一切
+  items:
+    - title: 你的剪贴板原样保留
+      body: Clips 粘贴到应用后会把你的剪贴板内容还原，所以你复制的链接还在。在终端里，它则改为直接键入。
+    - title: 可撤销的 AI 清理
+      body: "Clips 会修正听错的词、逗号和大小写，并去掉说错重来的部分：用云端引擎自动完成，也可以一键完成。原文会保留。"
+    - title: 从你的修改中学习
+      body: Clips 粘贴后，马上改掉听错的词，桌面应用就会把这个修改加入词典，下次听写就能听对。
+    - title: 长提示词免手持
+      body: 连按两下快捷键，就能持续聆听，让你边想边说；再按一下即可停止。按 Esc 可以丢弃这次听写。
+    - title: 再粘贴一次
+      body: 按 Cmd+Ctrl+V，可以把上一次听写再粘贴到另一个文本框里，光标放错位置时很方便。
+    - title: 向 agent 问问听写内容
+      body: 问“我说过关于第三季度预算的什么？”或者“把这段絮叨整理成要点”，agent 会根据你的历史记录来处理。
+integrations:
+  heading: 把 Clips 连接到你已经在用的工具
+  cards:
+    - title: 给你的编码 agent 下提示
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: "把整个任务说给 Claude Code、Cursor 或 Codex：涉及的文件、边界情况和要运行的测试。"
+    - title: 在你原本工作的地方写作
+      logos:
+        - name: Slack
+        - name: Gmail
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8a604ea4db60420eaa356fa7821e0b57
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+      body: 把进展更新、回复和草稿直接说进消息或文档里。在 Slack 中，Clips 会去掉末尾的句号。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Linear
+        - name: GitHub
+        - name: Notion
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 用 Agent-Native Clips 还能做的其他事
+  cards:
+    - title: 无需机器人入会，也能拿到会议笔记
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: 在你自己的电脑上录下会议，得到摘要、笔记和行动项。
+    - title: 录下 bug，附带控制台和网络日志
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: 在 Chrome 里演示一次 bug，你的编码 agent 就能拿到录屏和页面记录下的内容。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Clips 免费吗？
+      a: 是的。Agent-Native Clips 免费且开源，桌面应用默认开启语音听写。AI 清理使用 Builder.io AI 额度或你自己的密钥运行，所以并非无限使用。Clips 目前处于 alpha 阶段，随着它成长还会有变化。
+    - q: Clips 和我电脑自带的听写有什么不同？
+      a: 自带的听写无需设置，但不会保留[可搜索的说话历史](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/)。Clips 会保存每一次听写的原文和已清理的文字，学习你的用词，并用 AI 整理文字。Clips agent 能找到你说过的内容并改写，比如把一段絮叨整理成要点。
+    - q: Clips 能把我们团队的行话拼对吗？
+      a: 能，只要这些词条已在你的词典里。每行添加一个，或者用“词条 → 替换词”处理总是听错的词。你也可以导入词条的 CSV 文件。Clips 粘贴后，你马上改掉某个词，桌面应用会把这个修改存进词典，供下次使用。
+    - q: 我的听写会被保存吗？能找到以前的吗？
+      a: 每一次听写都会连同原文和已清理的文字、时间与时长一起保存，并按天分组显示在听写页面。按 Cmd+K 可以按你说过的话搜索，也可以问 [Clips agent](https://www.agent-native.com/docs/template-clips-agent/)，比如“给我看看我昨天听写了什么”。任何一条听写你都可以删除。
+    - q: 我的声音会离开我的电脑吗？
+      a: 不一定。Clips Desktop 可以在你的设备上转录，使用内置语音识别或 Local Whisper（[Clips 中的转录引擎](https://www.agent-native.com/docs/template-clips-features/)）。如果使用 Builder.io 或你自己的密钥，Clips 会把你的听写发送给那个 AI 服务做清理。每次听写的文字都会保存到你的 Clips 账号。
