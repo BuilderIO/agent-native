@@ -534,7 +534,6 @@ function DatabaseTimelineCard({
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
-            rowIndex={0}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}

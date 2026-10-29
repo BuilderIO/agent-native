@@ -6578,7 +6578,6 @@ function DatabaseTableView({
                               properties={properties}
                               columnWidths={columnWidths}
                               canEdit={canEdit}
-                              rowIndex={index}
                               canReorder={rowsAreManuallyOrdered}
                               canDragRow={rowDraggingEnabled}
                               canMoveUp={rowsAreManuallyOrdered && index > 0}
@@ -8060,7 +8059,6 @@ function useMenuOutsideClickShield(
           aria-hidden="true"
           data-menu-outside-click-shield=""
           className="fixed inset-0 z-[289]"
-          onPointerDown={(event) => event.preventDefault()}
           onClick={() => {
             dismissedByShield.current = true;
             onOpenChange(false);
@@ -13124,7 +13122,6 @@ function DatabaseCalendarCard({
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
-            rowIndex={0}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -13842,7 +13839,6 @@ function DatabaseBoardCard({
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
-            rowIndex={0}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -19430,7 +19426,6 @@ function DatabaseGroupedTableSection({
               properties={properties}
               columnWidths={columnWidths}
               canEdit={canEdit}
-              rowIndex={index}
               canReorder={false}
               canDragRow={false}
               canMoveUp={false}
@@ -19521,7 +19516,6 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   databaseDocumentId,
   workspaceCatalog,
   canEdit,
-  rowIndex,
   canReorder,
   canDragRow,
   canMoveUp,
@@ -19548,7 +19542,6 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   databaseDocumentId: string;
   workspaceCatalog: boolean;
   canEdit: boolean;
-  rowIndex: number;
   canReorder: boolean;
   canDragRow: boolean;
   canMoveUp: boolean;
@@ -19709,7 +19702,6 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
-            rowIndex={rowIndex}
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}
@@ -19732,7 +19724,6 @@ export function RowActionsCell({
 }: {
   item: ContentDatabaseItem;
   databaseDocumentId: string;
-  rowIndex: number;
   canReorder: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;

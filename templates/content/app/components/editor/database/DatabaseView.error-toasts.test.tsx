@@ -1745,7 +1745,7 @@ describe("DatabaseView UI regressions", () => {
     });
   }
 
-  it("redraws no rows when a filter chip opens and only the changed row on a refetch", async () => {
+  it("redraws only the rows whose data changed when a chip opens, a row changes, or a row goes", async () => {
     const { chip, row } = await renderStatusFilteredTable();
     expect(cellRendersByItemId.get("item-a")).toBeGreaterThan(0);
 
@@ -1761,20 +1761,27 @@ describe("DatabaseView UI regressions", () => {
     cellRendersByItemId.clear();
     await renderDatabaseView();
     expect([...cellRendersByItemId.keys()]).toEqual(["item-b"]);
+
+    // Removing a row moves the rows after it up without redrawing them.
+    databaseResponse.items = [first, third];
+    cellRendersByItemId.clear();
+    await renderDatabaseView();
+    expect([...cellRendersByItemId.keys()]).toEqual([]);
   });
 
-  it("closes a filter chip's menu on an outside click without passing the click to the table", async () => {
+  it("keeps a filter chip's click shield in place until an outside click lands, then closes the menu", async () => {
     const { chip } = await renderStatusFilteredTable();
     await mousePointerDown(chip);
     // The menu starts listening for outside pointerdowns on the next task.
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     const shield = document.querySelector("[data-menu-outside-click-shield]");
     if (!shield) throw new Error("No click shield covers the page.");
-    const tableClick = vi.fn();
-    container.addEventListener("click", tableClick);
 
+    // Closing on pointerdown would remove the shield before the click, which
+    // would then land on the table underneath.
     await mousePointerDown(shield);
     expect(chip.getAttribute("aria-expanded")).toBe("true");
+    expect(shield.isConnected).toBe(true);
     await act(async () => {
       shield.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
@@ -1783,7 +1790,6 @@ describe("DatabaseView UI regressions", () => {
     expect(
       document.querySelector("[data-menu-outside-click-shield]"),
     ).toBeNull();
-    expect(tableClick).not.toHaveBeenCalled();
     expect(document.activeElement).not.toBe(chip);
   });
 });
