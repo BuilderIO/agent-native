@@ -4242,16 +4242,21 @@ export function createCoreRoutesPlugin(
           startupTimer = null;
           sweepTimer = setInterval(() => {
             const now = Date.now();
-            if (now - lastSweep < SWEEP_INTERVAL_MS) return;
+            // One sweep at a time, so stopping has only one to wait for.
+            if (sweep || now - lastSweep < SWEEP_INTERVAL_MS) return;
             lastSweep = now;
 
             sweep = (async () => {
               const { drainDueSandboxExecutions } =
                 await import("../coding-tools/sandbox/background.js");
               await drainDueSandboxExecutions({ limit: 5 });
-            })().catch(() => {
-              // best-effort — never break the server
-            });
+            })()
+              .catch(() => {
+                // best-effort — never break the server
+              })
+              .finally(() => {
+                sweep = undefined;
+              });
           }, 30_000); // Check every 30s but only sweep once per 2min
           sweepTimer.unref?.();
         }, 25_000); // Start 25s after init (after the agent sweeps)

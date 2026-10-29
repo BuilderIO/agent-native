@@ -35,8 +35,10 @@ import {
   listDocComments,
 } from "./adapters/google-docs.js";
 import {
+  deleteIntegrationConfig,
   getIntegrationConfig,
   integrationConfigWriteEpoch,
+  listIntegrationConfigs,
   saveIntegrationConfig,
   saveIntegrationConfigIfUnchanged,
   type IntegrationConfig,
@@ -584,46 +586,52 @@ function scheduleWatchCleanupRetry(
   unrefTimer(watchRenewalTimer);
 }
 
-/** How many polls recheck a document whose comment check failed before giving up on it. */
-const COMMENT_CHECK_MAX_ATTEMPTS = 5;
-
-interface ChangesCursor {
-  pageToken: string | null;
-  /** Documents whose comment check failed, with how many times it has. */
-  retryFileIds: Record<string, number>;
-}
-
-async function getChangesCursor(): Promise<ChangesCursor> {
-  const config = await getIntegrationConfig(PLATFORM, "page-token");
-  const retryFileIds = config?.configData?.retryFileIds;
-  return {
-    pageToken: (config?.configData?.pageToken as string) ?? null,
-    retryFileIds:
-      retryFileIds && typeof retryFileIds === "object"
-        ? (retryFileIds as Record<string, number>)
-        : {},
-  };
-}
-
-async function setChangesCursor(
-  pageToken: string,
-  retryFileIds: Record<string, number> = {},
-): Promise<void> {
-  await saveIntegrationConfig(
-    PLATFORM,
-    Object.keys(retryFileIds).length > 0
-      ? { pageToken, retryFileIds }
-      : { pageToken },
-    "page-token",
-  );
-}
-
 async function getPageToken(): Promise<string | null> {
-  return (await getChangesCursor()).pageToken;
+  const config = await getIntegrationConfig(PLATFORM, "page-token");
+  return (config?.configData?.pageToken as string) ?? null;
 }
 
 async function setPageToken(token: string): Promise<void> {
-  await setChangesCursor(token);
+  await saveIntegrationConfig(PLATFORM, { pageToken: token }, "page-token");
+}
+
+/** How many polls check a document whose comment check failed before giving up on it. */
+const COMMENT_CHECK_MAX_ATTEMPTS = 5;
+const COMMENT_RETRY_KEY_PREFIX = "comment-retry:";
+
+/**
+ * Documents whose comment check failed, with how many times it has. Each has
+ * its own row, so polls running at once never overwrite each other's.
+ */
+async function getCommentCheckRetries(): Promise<Map<string, number>> {
+  const retries = new Map<string, number>();
+  for (const config of await listIntegrationConfigs(PLATFORM)) {
+    if (!config.configKey.startsWith(COMMENT_RETRY_KEY_PREFIX)) continue;
+    const attempts = config.configData?.attempts;
+    retries.set(
+      config.configKey.slice(COMMENT_RETRY_KEY_PREFIX.length),
+      // Count a malformed row as one failure rather than skipping or trusting it.
+      typeof attempts === "number" && Number.isInteger(attempts) && attempts > 0
+        ? attempts
+        : 1,
+    );
+  }
+  return retries;
+}
+
+async function recordCommentCheckFailure(
+  fileId: string,
+  attempts: number,
+): Promise<void> {
+  const key = COMMENT_RETRY_KEY_PREFIX + fileId;
+  if (attempts < COMMENT_CHECK_MAX_ATTEMPTS) {
+    await saveIntegrationConfig(PLATFORM, { attempts }, key);
+    return;
+  }
+  console.warn(
+    `[google-docs] Giving up on comments in ${fileId} after ${attempts} failed checks`,
+  );
+  await deleteIntegrationConfig(PLATFORM, key);
 }
 
 function isAgentMention(commentText: string, triggerKeyword: string): boolean {
@@ -751,18 +759,20 @@ export async function processChanges(
   const accessToken = await getServiceAccountAccessToken();
   if (!accessToken) return;
 
-  const { pageToken, retryFileIds } = await getChangesCursor();
+  let pageToken = await getPageToken();
   if (!pageToken) {
-    await setPageToken(await getStartPageToken(accessToken));
+    pageToken = await getStartPageToken(accessToken);
+    await setPageToken(pageToken);
     return;
   }
 
   const { changes, nextPageToken } = await listChanges(pageToken, accessToken);
-  // The cursor moves past these changes now, so documents whose check
-  // failed ride along with it and are checked again on the next poll.
-  await setChangesCursor(nextPageToken, retryFileIds);
+  await setPageToken(nextPageToken);
 
-  const docFileIds = new Set<string>(Object.keys(retryFileIds));
+  // The cursor has moved past these changes, so a document whose check
+  // fails is recorded and checked again on later polls.
+  const retries = await getCommentCheckRetries();
+  const docFileIds = new Set<string>(retries.keys());
   for (const change of changes) {
     if (change.removed) continue;
     if (
@@ -773,36 +783,27 @@ export async function processChanges(
     }
   }
 
-  const stillFailing: Record<string, number> = {};
   for (const fileId of docFileIds) {
     try {
       await checkDocumentComments(fileId, accessToken, options);
-    } catch (err) {
-      console.error(`[google-docs] Error checking comments on ${fileId}:`, err);
-      const attempts = (retryFileIds[fileId] ?? 0) + 1;
-      if (attempts < COMMENT_CHECK_MAX_ATTEMPTS) {
-        stillFailing[fileId] = attempts;
-      } else {
-        console.warn(
-          `[google-docs] Giving up on comments in ${fileId} after ${attempts} failed checks`,
+      if (retries.has(fileId)) {
+        await deleteIntegrationConfig(
+          PLATFORM,
+          COMMENT_RETRY_KEY_PREFIX + fileId,
         );
       }
+    } catch (err) {
+      console.error(`[google-docs] Error checking comments on ${fileId}:`, err);
+      await recordCommentCheckFailure(
+        fileId,
+        (retries.get(fileId) ?? 0) + 1,
+      ).catch((saveErr) => {
+        console.error(
+          `[google-docs] Could not record the failed check on ${fileId}:`,
+          saveErr,
+        );
+      });
     }
-  }
-
-  if (
-    Object.keys(retryFileIds).length > 0 ||
-    Object.keys(stillFailing).length > 0
-  ) {
-    // Another poll may have moved the cursor on meanwhile; keep its token
-    // and any failures it saved for documents this one didn't check.
-    const current = await getChangesCursor();
-    const retry = { ...current.retryFileIds };
-    for (const fileId of docFileIds) delete retry[fileId];
-    await setChangesCursor(current.pageToken ?? nextPageToken, {
-      ...retry,
-      ...stillFailing,
-    });
   }
 }
 

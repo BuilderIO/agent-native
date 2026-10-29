@@ -161,9 +161,21 @@ describe("Google Docs change processing", () => {
           : null;
       },
     );
+    vi.spyOn(configStore, "listIntegrationConfigs").mockImplementation(
+      async () =>
+        [...saved].map(
+          ([configKey, configData]) =>
+            ({ configKey, configData }) as configStore.IntegrationConfig,
+        ),
+    );
     vi.spyOn(configStore, "saveIntegrationConfig").mockImplementation(
       async (_platform, configData, key = "default") => {
         saved.set(key, configData);
+      },
+    );
+    vi.spyOn(configStore, "deleteIntegrationConfig").mockImplementation(
+      async (_platform, key = "default") => {
+        saved.delete(key);
       },
     );
     vi.spyOn(googleDocs, "getServiceAccountAccessToken").mockResolvedValue(
@@ -185,9 +197,9 @@ describe("Google Docs change processing", () => {
       .mockResolvedValueOnce([]);
 
     await processChanges(pollerOptions);
-    expect(saved.get("page-token")).toEqual({
-      pageToken: "token-2",
-      retryFileIds: { "doc-1": 1 },
+    expect(Object.fromEntries(saved)).toEqual({
+      "page-token": { pageToken: "token-2" },
+      "comment-retry:doc-1": { attempts: 1 },
     });
 
     await processChanges(pollerOptions);
@@ -197,12 +209,15 @@ describe("Google Docs change processing", () => {
       "access-token",
       undefined,
     );
-    expect(saved.get("page-token")).toEqual({ pageToken: "token-3" });
+    expect(Object.fromEntries(saved)).toEqual({
+      "page-token": { pageToken: "token-3" },
+    });
   });
 
   it("gives up on a document after five failed checks", async () => {
     const saved = useConfig({
-      "page-token": { pageToken: "token-1", retryFileIds: { "doc-1": 4 } },
+      "page-token": { pageToken: "token-1" },
+      "comment-retry:doc-1": { attempts: 4 },
     });
     vi.spyOn(googleDocs, "listChanges").mockResolvedValue({
       changes: [],
@@ -215,9 +230,54 @@ describe("Google Docs change processing", () => {
 
     await processChanges(pollerOptions);
 
-    expect(saved.get("page-token")).toEqual({ pageToken: "token-2" });
+    expect(Object.fromEntries(saved)).toEqual({
+      "page-token": { pageToken: "token-2" },
+    });
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("Giving up on comments in doc-1"),
     );
+  });
+
+  it("counts a malformed retry row as one failed check", async () => {
+    const saved = useConfig({
+      "page-token": { pageToken: "token-1" },
+      "comment-retry:doc-1": { attempts: "4" },
+      "comment-retry:doc-2": { attempts: -3 },
+    });
+    vi.spyOn(googleDocs, "listChanges").mockResolvedValue({
+      changes: [],
+      nextPageToken: "token-2",
+    });
+    vi.spyOn(googleDocs, "listDocComments").mockRejectedValue(
+      new Error("Drive unavailable"),
+    );
+
+    await processChanges(pollerOptions);
+
+    expect(saved.get("comment-retry:doc-1")).toEqual({ attempts: 2 });
+    expect(saved.get("comment-retry:doc-2")).toEqual({ attempts: 2 });
+  });
+
+  it("keeps a failure another poll records while this one runs", async () => {
+    const saved = useConfig({
+      "page-token": { pageToken: "token-1" },
+      "comment-retry:doc-1": { attempts: 1 },
+    });
+    vi.spyOn(googleDocs, "listChanges").mockResolvedValue({
+      changes: [],
+      nextPageToken: "token-2",
+    });
+    vi.spyOn(googleDocs, "listDocComments").mockImplementation(async () => {
+      // A push notification's poll records doc-2 while this one is checking.
+      saved.set("comment-retry:doc-2", { attempts: 1 });
+      return [];
+    });
+
+    await processChanges(pollerOptions);
+
+    expect(Object.fromEntries(saved)).toEqual({
+      "page-token": { pageToken: "token-2" },
+      "comment-retry:doc-2": { attempts: 1 },
+    });
   });
 });
