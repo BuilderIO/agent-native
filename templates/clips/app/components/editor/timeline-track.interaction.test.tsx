@@ -78,7 +78,7 @@ describe("TimelineTrack pointer gestures", () => {
   const pieces = () =>
     Array.from(container.querySelectorAll('[role="button"]'));
   const firstPiece = () => {
-    const piece = pieces().at(0);
+    const piece = pieces().shift();
     if (!piece) throw new Error("no timeline piece rendered");
     return piece;
   };
