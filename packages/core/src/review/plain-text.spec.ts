@@ -368,6 +368,18 @@ describe("splitCommentAtMarkdownLimit", () => {
     }
   });
 
+  it("follows a fence up to three spaces in until a list or quote opens", () => {
+    const tangled = "*a".repeat(1_001);
+    expect(
+      splitCommentAtMarkdownLimit(`   \`\`\`\n${tangled}\n  \`\`\``).rest,
+    ).toBe("");
+    // In a list item the fence closes with the item, here at the unindented
+    // line, which the parser reads as Markdown.
+    expect(
+      splitCommentAtMarkdownLimit(`- a\n\n  \`\`\`\n${tangled}`).markdown,
+    ).toBe("- a\n\n");
+  });
+
   it("never skips a paragraph the parser reads as Markdown", () => {
     // Random comments of fence, HTML, quote, list, table and definition lines,
     // with one paragraph too tangled to read quickly. Wherever the parser
@@ -407,6 +419,11 @@ describe("splitCommentAtMarkdownLimit", () => {
     expect(splitCommentAtMarkdownLimit(`Intro\n\n${block}`)).toEqual({
       markdown: "Intro\n\n",
       rest: block,
+    });
+    const indented = `  \`\`\`ts\n${"const x = 1;\n".repeat(2_000)}  \`\`\``;
+    expect(splitCommentAtMarkdownLimit(`Intro\n\n${indented}`)).toEqual({
+      markdown: "Intro\n\n",
+      rest: indented,
     });
     // A block that closes before the paragraph break stays whole.
     const words = "word ".repeat(2_400);

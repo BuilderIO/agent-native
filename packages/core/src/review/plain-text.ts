@@ -91,12 +91,14 @@ function readCommentLines(body: string): {
 } {
   const fences: Fence[] = [];
   let fence: (OpeningFence & { start: number }) | undefined;
-  // Only fences opened at the left margin are followed. A fence opened in a
-  // quote, a list or with a few spaces could be closed by a line that looks
-  // like it opens one, and a fence line inside an HTML block is HTML, which
-  // can run past blank lines. So after a line that could open either, stop
-  // trusting fences and count everything.
+  // Only fences outside any quote, list or footnote are followed: at the
+  // left margin, or up to three spaces in before any line has opened one. A
+  // fence inside one could be closed by a line that looks like it opens one,
+  // and a fence line inside an HTML block is HTML, which can run past blank
+  // lines. So after a line that could open either, stop trusting fences and
+  // count everything.
   let trustFences = true;
+  let containers = false;
   let paragraph = 0;
   let emphasis = 0;
   let htmlComments = 0;
@@ -109,9 +111,13 @@ function readCommentLines(body: string): {
     const next = end + (body.startsWith("\r\n", end) ? 2 : 1);
     let at = start;
     while (at < end && isSpace(body.charAt(at))) at += 1;
+    const indent = at - start;
     const opening =
-      fence === undefined && trustFences
-        ? openingFence(body, start, end)
+      fence === undefined &&
+      trustFences &&
+      (indent === 0 ||
+        (!containers && indent <= 3 && !body.slice(start, at).includes("\t")))
+        ? openingFence(body, at, end)
         : undefined;
     if (fence !== undefined) {
       if (closesFence(body, start, end, fence)) {
@@ -134,9 +140,9 @@ function readCommentLines(body: string): {
       ) {
         trustFences = false;
       }
-      if (lineNesting(body, at, end) > MAX_LINE_NESTING) {
-        return { tangledAt: paragraph, fences };
-      }
+      const nesting = lineNesting(body, at, end);
+      if (nesting > MAX_LINE_NESTING) return { tangledAt: paragraph, fences };
+      if (nesting > 0 || text.startsWith("[^")) containers = true;
       for (let index = at; index < end; index += 1) {
         const char = body.charAt(index);
         if (char === "*" || char === "_" || char === "~") {
@@ -170,10 +176,7 @@ interface OpeningFence {
   length: number;
 }
 
-/**
- * The fence a line opens, if it opens one at the left margin. Only there is
- * it sure to be a fence outside any quote or list, which would close it.
- */
+/** The fence a line opens, if it opens one, from its first marker. */
 function openingFence(
   body: string,
   start: number,
