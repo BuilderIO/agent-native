@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { defineAction } from "../action.js";
 import { getCredentialContext } from "../server/request-context.js";
+import { assertAgentProviderRequestAllowed } from "./agent-request-policy.js";
 import {
   appendProviderCorpusJobHits,
   createProviderCorpusJob,
@@ -439,6 +440,7 @@ async function startJob(
 ): Promise<ProviderCorpusJobRecord> {
   if (!args.mode) throw new Error("start requires mode.");
   if (!args.request) throw new Error("start requires request.");
+  assertAgentProviderRequestAllowed(args.request);
   const search = args.search ?? {};
   if (!hasSearchNeedle(search)) {
     throw new Error(
@@ -855,7 +857,11 @@ async function callProvider(
   runtime: ProviderCorpusRuntime,
   request: ProviderRequest,
 ): Promise<ProviderBodyResult> {
-  const raw = (await runtime.executeRequest(cleanRequest(request))) as Record<
+  // Also checked here, not only at start: a job stored before a provider
+  // became read-only must not replay its write on continue.
+  const cleaned = cleanRequest(request);
+  assertAgentProviderRequestAllowed(cleaned);
+  const raw = (await runtime.executeRequest(cleaned)) as Record<
     string,
     unknown
   >;

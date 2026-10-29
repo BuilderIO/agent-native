@@ -8,7 +8,12 @@ import {
   withFencedExecutionWrite,
 } from "../agent/execution-fence.js";
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
-import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
+import {
+  getDbExec,
+  getScopedDbExec,
+  type DbExec,
+  type DbExecStatement,
+} from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -979,7 +984,7 @@ export async function attachAutomationRunThread(
   runId: string,
   options: { requirePersisted?: boolean; expectedRunId?: string | null } = {},
 ): Promise<void> {
-  await ensureTable();
+  if (getScopedDbExec() === undefined) await ensureTable();
   const fence = currentExecutionFence();
   if (fence && (fence.runId !== runId || fence.threadId !== threadId)) {
     throw new StaleExecutionFenceError(fence);

@@ -34,29 +34,17 @@ const mocks = vi.hoisted(() => ({
   writePendingGeneration: vi.fn(),
   clearPendingGeneration: vi.fn(),
   fullAppBuilding: false,
-  suggestionPending: false,
-  suggestionRetrying: false,
-  suggestionUnavailable: false,
-  suggestionCachedReady: false,
-  suggestionLabel: "Generated dashboard",
   suggestionSession: {
     authUserId: "viewer-a",
     userId: "viewer-a",
     email: "viewer-a@example.test",
     orgId: "org-a",
   },
-  suggestionRole: "design",
+  suggestionRole: "design" as string | null,
   suggestionProfileFetching: false,
   suggestionProfileError: false,
   suggestionProfileQueryScope: null as readonly unknown[] | null,
-  suggestionQueryScope: null as readonly unknown[] | null,
-  suggestionQueryOptions: null as {
-    enabled?: boolean;
-    staleTime?: unknown;
-    refetchOnMount?: unknown;
-    refetchOnWindowFocus?: unknown;
-    refetchOnReconnect?: unknown;
-  } | null,
+  homeSuggestionEvent: vi.fn(),
   ownCount: 0,
   ownedCount: 0,
   ownStatus: "success",
@@ -65,6 +53,7 @@ const mocks = vi.hoisted(() => ({
   listParams: null as Record<string, unknown> | null,
   refetch: vi.fn(),
   focusComposer: vi.fn(),
+  setComposerText: vi.fn(),
   submitWithText: vi.fn(),
   submitDraft: vi.fn(async () => true),
   getDraftSnapshot: vi.fn(),
@@ -87,6 +76,13 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   useAgentEngineConfigured: () => mocks.agentEngine,
   requireAgentEngineConfiguredForDispatch:
     mocks.requireAgentEngineConfiguredForDispatch,
+}));
+
+vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/analytics")
+  >()),
+  trackEvent: (...args: unknown[]) => mocks.homeSuggestionEvent(...args),
 }));
 
 vi.mock(
@@ -170,7 +166,9 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       const enabled = options?.enabled !== false;
       return {
         data:
-          enabled && !mocks.suggestionProfileError
+          enabled &&
+          !mocks.suggestionProfileError &&
+          !mocks.suggestionProfileFetching
             ? { onboardingRole: mocks.suggestionRole }
             : undefined,
         isLoading: enabled && mocks.suggestionProfileFetching,
@@ -180,6 +178,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
           !mocks.suggestionProfileError &&
           !mocks.suggestionProfileFetching,
         isError: enabled && mocks.suggestionProfileError,
+        refetch: mocks.refetch,
       };
     }
     if (name === "list-designs") {
@@ -229,98 +228,6 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
         refetch: mocks.refetch,
       };
     }
-    if (name === "generate-home-suggestions") {
-      mocks.suggestionQueryScope = options?.queryKeyScope ?? null;
-      mocks.suggestionQueryOptions = options ?? null;
-      if (options?.enabled === false) {
-        if (mocks.suggestionCachedReady) {
-          return {
-            data: {
-              status: "ready",
-              suggestions: [
-                {
-                  id: "cached-design-suggestion",
-                  label: "Cached dashboard",
-                  prompt: "Create a cached analytics dashboard.",
-                },
-                {
-                  id: "cached-design-suggestion-2",
-                  label: "Cached prototype",
-                  prompt: "Create a cached interactive prototype.",
-                },
-                {
-                  id: "cached-design-suggestion-3",
-                  label: "Cached mobile flow",
-                  prompt: "Create a cached responsive mobile flow.",
-                },
-              ],
-            },
-            isLoading: false,
-            isFetching: false,
-            isError: false,
-          };
-        }
-        return {
-          data: undefined,
-          isLoading: false,
-          isFetching: false,
-          isError: false,
-        };
-      }
-      if (mocks.suggestionRetrying) {
-        return {
-          data: { status: "unavailable", suggestions: [] },
-          isLoading: false,
-          isFetching: true,
-          isError: true,
-        };
-      }
-      if (mocks.suggestionUnavailable) {
-        return {
-          data: {
-            status: "unavailable",
-            reason: "timeout",
-            suggestions: [],
-          },
-          isLoading: false,
-          isFetching: false,
-          isError: false,
-        };
-      }
-      if (mocks.suggestionPending) {
-        return {
-          data: undefined,
-          isLoading: true,
-          isFetching: true,
-          isError: false,
-        };
-      }
-      return {
-        data: {
-          status: "ready",
-          suggestions: [
-            {
-              id: "design-suggestion",
-              label: mocks.suggestionLabel,
-              prompt: mocks.starterPrompt,
-            },
-            {
-              id: "design-suggestion-2",
-              label: "Generated prototype",
-              prompt: "Create a useful interactive prototype.",
-            },
-            {
-              id: "design-suggestion-3",
-              label: "Generated mobile flow",
-              prompt: "Create a responsive mobile flow.",
-            },
-          ],
-          isLoading: false,
-          isFetching: false,
-          isError: false,
-        },
-      };
-    }
     return { data: undefined, isLoading: false };
   },
   useActionMutation: (name: string) => ({
@@ -355,6 +262,9 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => {
     if (key === "home.untitledDesign") return "Untitled Design";
     if (key === "home.starterDashboardPrompt") return mocks.starterPrompt;
+    if (key === "home.suggestions.design.portfolioHome") {
+      return mocks.starterPrompt;
+    }
     if (key === "home.searchNoResultsTitle") {
       return "No designs match your search";
     }
@@ -372,7 +282,9 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
   useHomeSearchShortcut: vi.fn(),
+  useHomeSuggestionRole: () => "general",
   useSetPageTitle: () => {},
+  writeHomeSuggestionRole: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -422,6 +334,7 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     if (props.composerRef)
       props.composerRef.current = {
         focus: mocks.focusComposer,
+        setText: mocks.setComposerText,
         submitWithText: mocks.submitWithText,
         submit: mocks.submitDraft,
         getDraftSnapshot: mocks.getDraftSnapshot,
@@ -532,6 +445,7 @@ function installLocalStorage() {
 beforeEach(async () => {
   installLocalStorage();
   window.localStorage.clear();
+  window.sessionStorage.clear();
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -552,12 +466,8 @@ beforeEach(async () => {
   mocks.generateTitle.mockResolvedValue(undefined);
   mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
   mocks.promptProps = null;
+  mocks.setComposerText.mockReset();
   mocks.fullAppBuilding = false;
-  mocks.suggestionPending = false;
-  mocks.suggestionRetrying = false;
-  mocks.suggestionUnavailable = false;
-  mocks.suggestionCachedReady = false;
-  mocks.suggestionLabel = "Generated dashboard";
   mocks.suggestionSession = {
     authUserId: "viewer-a",
     userId: "viewer-a",
@@ -568,8 +478,7 @@ beforeEach(async () => {
   mocks.suggestionProfileFetching = false;
   mocks.suggestionProfileError = false;
   mocks.suggestionProfileQueryScope = null;
-  mocks.suggestionQueryScope = null;
-  mocks.suggestionQueryOptions = null;
+  mocks.homeSuggestionEvent.mockReset();
   mocks.systemsEnabled = true;
   mocks.systemsLoading = false;
   mocks.systemsError = null;
@@ -587,6 +496,12 @@ beforeEach(async () => {
     root.render(<Index />);
   });
 });
+
+async function completeFirstRun() {
+  await act(async () => {
+    window.dispatchEvent(new Event("agent-native:first-run-completed"));
+  });
+}
 
 afterEach(async () => {
   await act(async () => {
@@ -639,39 +554,44 @@ it("does not auto-attach the default design system to a fresh prompt", async () 
   );
 });
 
+// oracle-change: replace generator loading, cache and timeout states with fixed prompt pools.
 describe("Index skip to editor", () => {
-  it("hides home suggestions when AI is unavailable and restores them after connection", async () => {
-    expect(
-      container.querySelector('[data-agent-suggestion-bar="true"]'),
-    ).not.toBeNull();
-
+  it("keeps home suggestions enabled before and after connection", async () => {
     mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));
+
+    let bar = container.querySelector<HTMLElement>(
+      '[data-agent-suggestion-bar="true"]',
+    );
     expect(
-      container.querySelector('[data-agent-suggestion-bar="true"]'),
-    ).toBeNull();
-    expect(mocks.suggestionQueryOptions?.enabled).toBe(false);
+      bar?.querySelectorAll('[data-agent-suggestion-chip="true"]'),
+    ).toHaveLength(3);
+    expect(
+      [...(bar?.querySelectorAll<HTMLButtonElement>("button") ?? [])].every(
+        (button) => !button.disabled,
+      ),
+    ).toBe(true);
     expect(container.textContent).toContain("Connect AI");
 
     mocks.agentEngine = { state: "configured", missing: false, canChat: true };
     await act(async () => root.render(<Index />));
+    bar = container.querySelector<HTMLElement>(
+      '[data-agent-suggestion-bar="true"]',
+    );
     expect(
-      container.querySelector('[data-agent-suggestion-bar="true"]'),
-    ).not.toBeNull();
+      [...(bar?.querySelectorAll<HTMLButtonElement>("button") ?? [])].every(
+        (button) => !button.disabled,
+      ),
+    ).toBe(true);
     const actionsRow = container.querySelector("[data-home-prompt-actions]");
     const skipButton = container.querySelector(
       '[data-testid="design-home-skip-prompt"]',
     );
     expect(actionsRow).toBeTruthy();
-    expect(skipButton).toBeTruthy();
-    expect(
-      actionsRow?.querySelector('[data-agent-suggestion-bar="true"]'),
-    ).not.toBeNull();
     expect(skipButton?.closest("[data-home-prompt-actions]")).toBe(actionsRow);
-    expect(container.textContent).toContain("Generated dashboard");
   });
 
-  it("does not reserve quick actions space for a selected template without suggestions", async () => {
+  it("keeps the suggestion row beside a selected template", async () => {
     mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));
     await act(async () =>
@@ -679,18 +599,18 @@ describe("Index skip to editor", () => {
     );
 
     expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
-    expect(container.querySelector("[data-home-prompt-actions]")).toBeNull();
     expect(
-      container.querySelectorAll(
-        ".agent-prompt-home-hero > .agent-prompt-home-composer",
-      ),
-    ).toHaveLength(1);
+      container.querySelector("[data-home-prompt-actions]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).not.toBeNull();
   });
 
   it("explains an unaccepted quick start without replacing the draft or creating a design", async () => {
     mocks.submitWithText.mockResolvedValueOnce(false);
-    const suggestion = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Generated dashboard",
+    const suggestion = container.querySelector<HTMLButtonElement>(
+      '[data-agent-suggestion-position="1"]',
     );
     await act(async () => suggestion?.click());
     expect(mocks.toastError).toHaveBeenCalledWith("homeContext.notReady");
@@ -699,17 +619,21 @@ describe("Index skip to editor", () => {
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
   });
   it("submits the localized quick start through the current composer without replacing its draft or selections", async () => {
+    mocks.submitWithText.mockResolvedValue(true);
+    await completeFirstRun();
     await act(async () =>
       mocks.promptProps?.onDesignSystemChange("override-system"),
     );
     await act(async () =>
       mocks.promptProps?.onTemplateChange("saved-template"),
     );
-    const suggestion = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Generated dashboard",
+    const suggestion = container.querySelector<HTMLButtonElement>(
+      '[data-agent-suggestion-position="1"]',
     );
     await act(async () => suggestion?.click());
-    expect(mocks.submitWithText).toHaveBeenCalledWith(mocks.starterPrompt);
+    expect(mocks.submitWithText).toHaveBeenCalledWith(
+      expect.stringMatching(/^home\.suggestions\.design\./),
+    );
     expect(mocks.promptProps?.initialText).toBeUndefined();
     expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
     expect(mocks.promptProps?.selectedDesignSystemId).toBe("override-system");
@@ -747,7 +671,10 @@ describe("Index skip to editor", () => {
     expect(skipButton).toBeTruthy();
     expect(
       actionsRow?.querySelector('[data-agent-suggestion-bar="true"]'),
-    ).toBeNull();
+    ).not.toBeNull();
+    expect(
+      actionsRow?.querySelectorAll('[data-agent-suggestion-chip="true"]'),
+    ).toHaveLength(3);
     expect(actionsRow?.className).toContain("justify-between");
     expect(skipButton?.className).toContain("font-normal");
     await act(async () => {
@@ -806,7 +733,7 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps).toMatchObject({
       inline: true,
       open: true,
-      draftScope: "design:new:0",
+      draftScope: expect.stringMatching(/^design:new:0:/),
     });
     expect(container.textContent).not.toContain("home.newDesign");
     expect(container.textContent).not.toContain("home.createFirstDesign");
@@ -929,67 +856,82 @@ describe("Index skip to editor", () => {
     ).toBe(false);
   });
 
-  it("hides the suggestion slot while provider setup is missing", async () => {
-    mocks.agentEngine = { state: "missing", missing: true, canChat: false };
-    await act(async () => root.render(<Index />));
-    const bar = container.querySelector<HTMLElement>(
-      '[aria-label="home.suggestedPrompts"]',
-    );
-    expect(bar).toBeNull();
-    expect(container.textContent).not.toContain("Generated dashboard");
-    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
-  });
-
-  it("holds the suggestion slot while loading and keeps the first result", async () => {
+  it("renders three suggestions while the profile role is still loading", async () => {
     await act(async () => root.render(null));
-    mocks.suggestionPending = true;
+    mocks.suggestionProfileFetching = true;
+    mocks.suggestionRole = null;
     await act(async () => root.render(<Index />));
 
     const bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(bar).not.toBeNull();
+    expect(bar?.getAttribute("aria-busy")).toBeNull();
     expect(
       bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(0);
+    expect(
+      bar?.querySelectorAll('[data-agent-suggestion-chip="true"]'),
     ).toHaveLength(3);
-
-    mocks.suggestionPending = false;
-    await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain("Generated dashboard");
-    expect(mocks.suggestionLabel).toBe("Generated dashboard");
-
-    mocks.suggestionLabel = "Another dashboard";
-    await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain("Generated dashboard");
-    expect(container.textContent).not.toContain("Another dashboard");
+    expect(bar?.textContent).toContain("home.suggestionLabels.general.");
   });
 
-  it("shows clickable fallback suggestions when loading never settles", async () => {
+  it("adopts the profile role for returning users and refreshes it after onboarding", async () => {
     await act(async () => root.render(null));
-    vi.useFakeTimers();
-    mocks.suggestionPending = true;
+    mocks.suggestionProfileFetching = true;
+    mocks.suggestionRole = null;
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[aria-label="home.suggestedPrompts"]')
+        ?.textContent,
+    ).toContain("home.suggestionLabels.general.");
+
+    mocks.suggestionProfileFetching = false;
+    mocks.suggestionRole = "marketing";
+    await act(async () => root.render(<Index />));
+    const bar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(bar?.textContent).toContain("home.suggestionLabels.marketing.");
+    expect(bar?.textContent).not.toContain("home.suggestionLabels.general.");
+
+    mocks.refetch.mockClear();
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-native:first-run-completed"));
+    });
+    const completedBar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(completedBar?.textContent).toContain(
+      "home.suggestionLabels.marketing.",
+    );
+    expect(completedBar?.textContent).not.toContain(
+      "home.suggestionLabels.general.",
+    );
+    expect(mocks.refetch).toHaveBeenCalled();
+  });
+
+  it("keeps suggestions available before AI setup and after connection", async () => {
+    mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));
 
     let bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
     expect(
-      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+      bar?.querySelectorAll('[data-agent-suggestion-chip="true"]'),
     ).toHaveLength(3);
+    expect(
+      [...(bar?.querySelectorAll<HTMLButtonElement>("button") ?? [])].every(
+        (button) => !button.disabled,
+      ),
+    ).toBe(true);
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(12_000);
-    });
-
+    mocks.agentEngine = { state: "configured", missing: false, canChat: true };
+    await act(async () => root.render(<Index />));
     bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.getAttribute("aria-busy")).toBeNull();
-    expect(
-      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
-    ).toHaveLength(0);
-    expect(container.textContent).toContain("chat.suggestionLandingPage");
     expect(
       [...(bar?.querySelectorAll<HTMLButtonElement>("button") ?? [])].every(
         (button) => !button.disabled,
@@ -997,227 +939,51 @@ describe("Index skip to editor", () => {
     ).toBe(true);
   });
 
-  it("restarts the suggestion timeout when returning to a previous identity", async () => {
-    await act(async () => root.render(null));
-    vi.useFakeTimers();
-    mocks.suggestionPending = true;
+  it("prefills and tracks a suggestion before AI setup", async () => {
+    mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(12_000);
-    });
-    expect(container.textContent).toContain("chat.suggestionLandingPage");
-
-    mocks.suggestionSession = {
-      authUserId: "viewer-b",
-      userId: "viewer-b",
-      email: "viewer-b@example.test",
-      orgId: "org-b",
-    };
-    await act(async () => root.render(<Index />));
-
-    mocks.suggestionSession = {
-      authUserId: "viewer-a",
-      userId: "viewer-a",
-      email: "viewer-a@example.test",
-      orgId: "org-a",
-    };
-    await act(async () => root.render(<Index />));
-
-    const bar = container.querySelector<HTMLElement>(
-      '[aria-label="home.suggestedPrompts"]',
+    await completeFirstRun();
+    const suggestion = container.querySelector<HTMLButtonElement>(
+      '[data-agent-suggestion-position="1"]',
     );
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
-    expect(
-      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
-    ).toHaveLength(3);
-    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+    const label = suggestion?.textContent ?? "";
+
+    await act(async () => suggestion?.click());
+
+    const prompt = mocks.promptProps?.initialText;
+    expect(prompt).toMatch(/^home\.suggestions\.design\./);
+    expect(prompt).not.toBe(label);
+    expect(mocks.setComposerText).toHaveBeenCalledWith(prompt);
+    expect(mocks.focusComposer).toHaveBeenCalled();
+    expect(mocks.homeSuggestionEvent).toHaveBeenCalledWith(
+      "home_suggestion_clicked",
+      expect.objectContaining({
+        app_id: "design",
+        role: "design",
+        suggestion_id: expect.any(String),
+        position: 1,
+      }),
+    );
+
+    const editedPrompt = `${prompt} with a mobile version`;
+    await act(async () => {
+      mocks.promptProps?.onPromptTextChange?.(editedPrompt);
+      await mocks.promptProps?.onSubmit(editedPrompt, [], {});
+    });
+    const submitEvent = mocks.trackDesignRelay.mock.calls.find(
+      ([name]) => name === "design_prompt_submitted",
+    );
+    expect(submitEvent?.[1]).toMatchObject({ prompt_source: "composer" });
   });
 
-  it("shows the suggestion slot only after readiness recovers", async () => {
-    await act(async () => root.render(null));
-    mocks.agentEngine = {
-      state: "unavailable",
-      missing: false,
-      canChat: false,
-    };
-    await act(async () => root.render(<Index />));
-
-    expect(
-      container.querySelector('[aria-label="home.suggestedPrompts"]'),
-    ).toBeNull();
-    expect(mocks.suggestionPending).toBe(false);
-
-    mocks.agentEngine = { state: "configured", missing: false, canChat: true };
-    await act(async () => root.render(<Index />));
-
-    expect(container.textContent).toContain("Generated dashboard");
-    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
-    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
-  });
-
-  it("retries unavailable results while keeping ready samples fresh", async () => {
-    await act(async () => root.render(null));
-    mocks.suggestionUnavailable = true;
-    await act(async () => root.render(<Index />));
-
-    expect(container.textContent).toContain("chat.suggestionLandingPage");
-    expect(mocks.suggestionQueryOptions?.enabled).toBe(false);
-
-    const staleTime = mocks.suggestionQueryOptions?.staleTime as (
-      query: never,
-    ) => number;
-    const refetchOnMount = mocks.suggestionQueryOptions?.refetchOnMount as (
-      query: never,
-    ) => boolean;
-    const refetchOnWindowFocus = mocks.suggestionQueryOptions
-      ?.refetchOnWindowFocus as (query: never) => boolean;
-    const refetchOnReconnect = mocks.suggestionQueryOptions
-      ?.refetchOnReconnect as (query: never) => boolean;
-    const unavailable = {
-      state: { data: { status: "unavailable", suggestions: [] } },
-    } as never;
-    const ready = {
-      state: {
-        data: {
-          status: "ready",
-          suggestions: [
-            { id: "one", label: "One", prompt: "One" },
-            { id: "two", label: "Two", prompt: "Two" },
-            { id: "three", label: "Three", prompt: "Three" },
-          ],
-        },
-      },
-    } as never;
-    expect(staleTime(unavailable)).toBe(0);
-    expect(refetchOnMount(unavailable)).toBe(true);
-    expect(refetchOnWindowFocus(unavailable)).toBe(true);
-    expect(refetchOnReconnect(unavailable)).toBe(true);
-    expect(staleTime(ready)).toBe(Number.POSITIVE_INFINITY);
-    expect(refetchOnMount(ready)).toBe(false);
-    expect(refetchOnWindowFocus(ready)).toBe(false);
-    expect(refetchOnReconnect(ready)).toBe(false);
-
-    mocks.suggestionUnavailable = false;
-    await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain("chat.suggestionLandingPage");
-
-    await act(async () => root.render(null));
-    await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain("Generated dashboard");
-  });
-
-  it("loads suggestions after the profile lookup fails", async () => {
+  it("uses general prompts when the profile cannot be read", async () => {
     await act(async () => root.render(null));
     mocks.suggestionProfileError = true;
-    mocks.suggestionPending = true;
     await act(async () => root.render(<Index />));
-
-    const bar = container.querySelector<HTMLElement>(
-      '[aria-label="home.suggestedPrompts"]',
-    );
-    expect(mocks.suggestionQueryOptions?.enabled).toBe(true);
-    expect(mocks.suggestionQueryScope).toEqual([
-      JSON.stringify(["viewer-a", "org-a", null]),
-    ]);
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
     expect(
-      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
-    ).toHaveLength(3);
-
-    mocks.suggestionPending = false;
-    await act(async () => root.render(<Index />));
-
-    expect(container.textContent).toContain("Generated dashboard");
-    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
-
-    mocks.suggestionProfileError = false;
-    mocks.suggestionRole = "product";
-    mocks.suggestionLabel = "Recovered product dashboard";
-    await act(async () => root.render(<Index />));
-
-    expect(container.textContent).toContain("Generated dashboard");
-    expect(container.textContent).not.toContain("Recovered product dashboard");
-    expect(mocks.suggestionQueryOptions?.enabled).toBe(false);
-  });
-
-  it("shows the skeleton while retrying a cached unavailable result", async () => {
-    await act(async () => root.render(null));
-    mocks.suggestionRetrying = true;
-    await act(async () => root.render(<Index />));
-
-    const bar = container.querySelector<HTMLElement>(
-      '[aria-label="home.suggestedPrompts"]',
-    );
-    expect(bar?.getAttribute("aria-busy")).toBe("true");
-    expect(
-      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
-    ).toHaveLength(3);
-    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
-
-    mocks.suggestionRetrying = false;
-    await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain("Generated dashboard");
-    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
-  });
-
-  it("waits for readiness before snapshotting cached generated suggestions", async () => {
-    await act(async () => root.render(null));
-    mocks.agentEngine = { state: "unknown", missing: false, canChat: false };
-    mocks.suggestionCachedReady = true;
-    await act(async () => root.render(<Index />));
-
-    const bar = container.querySelector<HTMLElement>(
-      '[aria-label="home.suggestedPrompts"]',
-    );
-    expect(bar).toBeNull();
-    expect(container.textContent).not.toContain("Cached dashboard");
-
-    mocks.agentEngine = { state: "configured", missing: false, canChat: true };
-    mocks.suggestionCachedReady = false;
-    await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain("Generated dashboard");
-    expect(container.textContent).not.toContain("Cached dashboard");
-  });
-
-  it("scopes the suggestion cache and snapshot to the signed-in viewer", async () => {
-    await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain("Generated dashboard");
-    expect(mocks.suggestionQueryScope).toEqual([
-      JSON.stringify(["viewer-a", "org-a", "design"]),
-    ]);
-    expect(mocks.suggestionProfileQueryScope).toEqual([
-      JSON.stringify(["viewer-a", "org-a"]),
-    ]);
-
-    mocks.suggestionSession = {
-      authUserId: "viewer-b",
-      userId: "viewer-b",
-      email: "viewer-b@example.test",
-      orgId: "org-b",
-    };
-    mocks.suggestionLabel = "Viewer B dashboard";
-    await act(async () => root.render(<Index />));
-
-    expect(container.textContent).toContain("Viewer B dashboard");
-    expect(container.textContent).not.toContain("Generated dashboard");
-    expect(mocks.suggestionQueryScope).toEqual([
-      JSON.stringify(["viewer-b", "org-b", "design"]),
-    ]);
-    expect(mocks.suggestionProfileQueryScope).toEqual([
-      JSON.stringify(["viewer-b", "org-b"]),
-    ]);
-
-    mocks.suggestionRole = "product";
-    mocks.suggestionLabel = "Product dashboard";
-    await act(async () => root.render(<Index />));
-
-    expect(container.textContent).toContain("Viewer B dashboard");
-    expect(container.textContent).not.toContain("Product dashboard");
-    expect(mocks.suggestionQueryScope).toEqual([
-      JSON.stringify(["viewer-b", "org-b", "product"]),
-    ]);
-    expect(mocks.suggestionQueryOptions?.enabled).toBe(false);
+      container.querySelector('[aria-label="home.suggestedPrompts"]')
+        ?.textContent,
+    ).toContain("home.suggestionLabels.general.");
   });
 
   it.each([
@@ -1250,12 +1016,17 @@ describe("Index skip to editor", () => {
       const suggestionBar = container.querySelector<HTMLElement>(
         '[aria-label="home.suggestedPrompts"]',
       );
-      expect(Boolean(suggestionBar)).toBe(ready);
+      expect(Boolean(suggestionBar)).toBe(true);
       expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBeNull();
-      expect(container.textContent?.includes("Generated dashboard")).toBe(
-        ready,
-      );
-      expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+      expect(
+        suggestionBar?.querySelectorAll('[data-agent-suggestion-chip="true"]'),
+      ).toHaveLength(3);
+      expect(
+        [
+          ...(suggestionBar?.querySelectorAll<HTMLButtonElement>("button") ??
+            []),
+        ].every((button) => !button.disabled),
+      ).toBe(true);
     },
   );
 
@@ -1525,7 +1296,7 @@ describe("Index search empty state", () => {
     expect(container.textContent).toContain("Try a different search.");
     expect(container.textContent).not.toContain("home.createFirstDesign");
     expect(container.textContent).not.toContain("home.pickStartingPoint");
-    expect(container.textContent).toContain("Generated dashboard");
+    expect(container.textContent).toContain("home.suggestionLabels.design.");
   });
 
   it("keeps searched shared designs visible when the user owns no designs", async () => {
@@ -2021,21 +1792,31 @@ describe("home funnel tracking", () => {
     expect(promptEvents()).toHaveLength(0);
   });
 
-  it("records a suggestion chip as its own source", async () => {
+  it("records a home suggestion click and submits it with its own source", async () => {
     mocks.createDesign.mockResolvedValue(undefined);
+    await completeFirstRun();
     mocks.submitWithText.mockImplementationOnce(async (text: string) => {
       await mocks.promptProps?.onSubmit(text, [], {});
       return true;
     });
-    const suggestion = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Generated dashboard",
+    const suggestion = container.querySelector<HTMLButtonElement>(
+      '[data-agent-suggestion-position="1"]',
     );
     await act(async () => suggestion?.click());
     expect(promptEvents()).toHaveLength(1);
     expect(promptEvents()[0][1]).toMatchObject({
-      prompt_source: "suggestion_chip",
+      prompt_source: "home_suggestion",
       output_id: "design-1",
     });
+    expect(mocks.homeSuggestionEvent).toHaveBeenCalledWith(
+      "home_suggestion_clicked",
+      expect.objectContaining({
+        app_id: "design",
+        role: "design",
+        suggestion_id: expect.stringMatching(/^design-suggestion-/),
+        position: 1,
+      }),
+    );
   });
 
   it("records a template prompt with the copied design id", async () => {

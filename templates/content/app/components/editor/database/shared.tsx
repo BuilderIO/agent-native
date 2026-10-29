@@ -10,9 +10,7 @@ import {
   IconCalendar,
   IconCheck,
   IconChevronRight,
-  IconCopy,
   IconDots,
-  IconExternalLink,
   IconFileText,
   IconForms,
   IconFilter,
@@ -22,10 +20,8 @@ import {
   IconList,
   IconMinus,
   IconSearch,
-  IconStarOff,
   IconTable,
   IconTimeline,
-  IconTrash,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -594,7 +590,6 @@ export function RowActionsCell({
               onOpenPage();
             }}
           >
-            <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
             Open page
           </DropdownMenuItem>
           {canDuplicateRow ? (
@@ -605,7 +600,6 @@ export function RowActionsCell({
                 void duplicateRow();
               }}
             >
-              <IconCopy className="mr-2 size-4 text-muted-foreground" />
               Duplicate row
             </DropdownMenuItem>
           ) : null}
@@ -625,11 +619,6 @@ export function RowActionsCell({
                 }
               }}
             >
-              {removesFavoriteMembership ? (
-                <IconStarOff className="mr-2 size-4 text-muted-foreground" />
-              ) : (
-                <IconTrash className="mr-2 size-4" />
-              )}
               {removesFavoriteMembership
                 ? "Remove from favorites"
                 : canDeleteWorkspace

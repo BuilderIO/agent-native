@@ -99,6 +99,113 @@ function event(
   } as AgentEvent;
 }
 
+describe("message.replaced", () => {
+  const draft = [
+    event(1, { type: "run.started" }),
+    event(2, {
+      type: "message.created",
+      message: { id: "reply", role: "assistant", parts: [] },
+    }),
+    event(3, { type: "reasoning.delta", messageId: "reply", text: "Draft." }),
+    event(4, { type: "message.delta", messageId: "reply", text: "Answer A." }),
+  ];
+  const replaced = event(5, {
+    type: "message.replaced",
+    message: {
+      id: "reply",
+      role: "assistant",
+      parts: [{ type: "text", text: "Kept." }],
+    },
+  });
+  const reduce = (events: AgentEvent[]) =>
+    events.reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+  it("swaps a streaming message's parts and keeps it streaming", () => {
+    const thread = reduce([
+      ...draft,
+      replaced,
+      event(6, { type: "message.delta", messageId: "reply", text: " B." }),
+    ]);
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "reply",
+        status: "streaming",
+        parts: [{ type: "text", text: "Kept. B." }],
+      }),
+    ]);
+  });
+
+  it("ignores a replacement that is not an assistant reply", () => {
+    const thread = reduce([
+      ...draft,
+      {
+        ...replaced,
+        message: {
+          id: "prompt",
+          role: "user",
+          parts: [{ type: "text", text: "Injected." }],
+        },
+      },
+    ]);
+
+    expect(thread.messages.map((message) => message.id)).toEqual(["reply"]);
+    expect(thread.runs["run-1"]?.activeMessageId).toBe("reply");
+  });
+
+  it("leaves a completed message as it is", () => {
+    const thread = reduce([
+      ...draft,
+      event(5, {
+        type: "message.completed",
+        message: {
+          id: "reply",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer A." }],
+        },
+      }),
+      { ...replaced, id: "event-6", sequence: 6 },
+    ]);
+
+    expect(thread.messages[0]).toMatchObject({
+      status: "complete",
+      parts: [{ type: "text", text: "Answer A." }],
+    });
+  });
+});
+
+describe("text around a tool call", () => {
+  it("starts the text after the call as its own part", () => {
+    const thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: { id: "reply", role: "assistant", parts: [] },
+      }),
+      event(3, { type: "message.delta", messageId: "reply", text: "Looking." }),
+      event(4, {
+        type: "tool.started",
+        toolCall: {
+          id: "call-1",
+          name: "search",
+          status: "running",
+          messageId: "reply",
+        },
+      }),
+      event(5, {
+        type: "message.delta",
+        messageId: "reply",
+        text: "Found it.",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(thread.messages[0]?.parts).toEqual([
+      { type: "text", text: "Looking." },
+      { type: "text", text: "Found it." },
+    ]);
+  });
+});
+
 describe("classifyAgentEvent", () => {
   const started = reduceAgentEvent(
     createAgentThreadState("thread-1"),

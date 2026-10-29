@@ -17,6 +17,13 @@ function hydratedEditorChromeBridgeScript(boardSurface: boolean): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
+function launchBrowser() {
+  return chromium.launch({
+    headless: true,
+    ...(process.env.GITHUB_ACTIONS === "true" ? { channel: "chrome" } : {}),
+  });
+}
+
 const content = `<!doctype html><html><head></head><body data-agent-native-layer-name="Screen 1" style="margin:0">
   <div data-agent-native-node-id="draft-frame-1" layer-name="Imported frame" data-an-primitive="frame" style="position:absolute;left:184px;top:109px;width:382px;height:283px;background:#ffffff">
     <div data-agent-native-node-id="rect-1" data-agent-native-layer-name="Rectangle" data-an-primitive="rectangle" style="position:absolute;left:16px;top:16px;width:48px;height:48px;background:#d4d4d8"></div>
@@ -110,11 +117,42 @@ async function clickLabelSelection(browser: Browser): Promise<string[]> {
 }
 
 describe("editor chrome frame name labels", () => {
+  it("renames a board frame from its title", { timeout: 60_000 }, async () => {
+    const browser = await launchBrowser();
+    const page = await browser.newPage();
+    try {
+      await page.setContent(content);
+      await page.evaluate(() => {
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "frame-label-rename")
+            (window as any).renamed = event.data;
+        });
+      });
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.locator("[data-agent-native-frame-label]").dblclick();
+      const input = page.locator("[data-agent-native-frame-label-input]");
+      expect(await input.count()).toBe(1);
+      await input.fill("Workspace");
+      await input.press("Enter");
+      await page.waitForFunction(() => Boolean((window as any).renamed));
+      expect(await page.evaluate(() => (window as any).renamed.name)).toBe(
+        "Workspace",
+      );
+      expect(
+        await page.evaluate(() => (window as any).renamed.payload.sourceId),
+      ).toBe("draft-frame-1");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it(
     "selects a board frame once when its name label is clicked",
     { timeout: 60_000 },
     async () => {
-      const browser = await chromium.launch({ headless: true });
+      const browser = await launchBrowser();
       try {
         expect(await clickLabelSelection(browser)).toEqual(["draft-frame-1"]);
       } finally {
@@ -124,7 +162,7 @@ describe("editor chrome frame name labels", () => {
   );
 
   it("drags a board frame by its name label", { timeout: 60_000 }, async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await launchBrowser();
     try {
       const { before, during } = await dragFrameByLabel(browser);
       expect(during).not.toBeNull();
@@ -141,7 +179,7 @@ describe("editor chrome frame name labels", () => {
       timeout: 60_000,
     },
     async () => {
-      const browser = await chromium.launch({ headless: true });
+      const browser = await launchBrowser();
       try {
         const { before, during } = await dragFrameByLabel(browser, true);
         expect(during).toEqual(before);
@@ -155,7 +193,7 @@ describe("editor chrome frame name labels", () => {
     "labels a top-level board frame but nothing inside a screen document",
     { timeout: 60_000 },
     async () => {
-      const browser = await chromium.launch({ headless: true });
+      const browser = await launchBrowser();
       try {
         expect(await frameLabelTexts(browser, true)).toEqual([
           "Imported frame",

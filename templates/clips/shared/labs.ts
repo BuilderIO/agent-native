@@ -58,8 +58,16 @@ export const CLIPS_LOOKBACK_CONTEXT = defineLab({
   displayName: "Include earlier screen time",
   description:
     "Attach up to five minutes of screen time from before a recording as passive context.",
-  defaultEnabled: true,
+  defaultEnabled: false,
   keywords: "rewind lookback context history earlier screen before recording",
+});
+
+export const CLIPS_SCREENSHOTS = defineLab({
+  key: "clips.screenshots",
+  displayName: "Screenshots",
+  description: "Take screenshots.",
+  defaultEnabled: false,
+  keywords: "screenshots screenshot capture image",
 });
 
 export const CLIPS_LABS = defineLabs([
@@ -68,4 +76,5 @@ export const CLIPS_LABS = defineLabs([
   CLIPS_VOICE_DICTATION,
   CLIPS_RESILIENT_RECORDING,
   CLIPS_LOOKBACK_CONTEXT,
+  CLIPS_SCREENSHOTS,
 ]);

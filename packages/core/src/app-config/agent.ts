@@ -17,6 +17,37 @@ export const agentConfig = z.object({
       env: ["AGENT_MODEL"],
       doc: "Model the agent runs with, when the caller does not pass one.",
     }),
+  questionIntake: z
+    .object({
+      enabled: z
+        .boolean()
+        .default(false)
+        .meta({
+          env: ["AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED"],
+          doc: "Enable signup-time assignment and run-level question-intake experimentation for this app.",
+        }),
+      disabled: z
+        .boolean()
+        .default(false)
+        .meta({
+          env: ["AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED"],
+          doc: "Emergency switch that disables this app's question-intake experiment, including when enabled by app config.",
+        }),
+      experimentId: z.string().trim().min(1),
+      questionToolNames: z.array(z.string().trim().min(1)).default([]),
+      treatmentInstructions: z.string().trim().min(1),
+      trackedEventNames: z.array(z.string().trim().min(1)).default([]),
+      clientTrackedEventNames: z
+        .array(z.string().trim().min(1))
+        .default([])
+        .meta({
+          doc: "Client-originated event names allowed to receive experiment assignment metadata. Keep outcome events restricted to server-confirmed behavior.",
+        }),
+    })
+    .optional()
+    .meta({
+      doc: "App-specific settings for the reusable question-intake experiment. Only new users created while enabled receive an assignment.",
+    }),
   builtInEngines: z
     .array(z.string().min(1))
     .min(1)

@@ -15,6 +15,7 @@ import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { RouteTransitionIndicator } from "@agent-native/toolkit/app/shared";
+import { buildContentPublicDocumentPath } from "@shared/agent-readable";
 import {
   IconDeviceDesktop,
   IconHierarchy2,
@@ -134,6 +135,17 @@ export function computeSessionBypass(pathname: string): boolean {
       isContentSuggestionReviewPath(pathname)) &&
     Boolean(getEmbedAuthToken())
   );
+}
+
+// A signed-out visitor on a page's editor link goes to the page's public view
+// rather than sign-in. That view shows a public page, and sends everyone else
+// on to sign-in with this link, query and hash included, as the way back.
+export function signedOutPublicViewHref(): string | null {
+  const { pathname, search, hash } = window.location;
+  const id = /^\/page\/([^/]+)\/?$/.exec(appPathname(pathname))?.[1];
+  return id
+    ? `${appBasePath()}${buildContentPublicDocumentPath(id)}${search}${hash}`
+    : null;
 }
 
 // The startup shell draws before the i18n provider exists, so it reads its
@@ -498,6 +510,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         sessionBypass={computeSessionBypass(location.pathname)}
+        signedOutHref={signedOutPublicViewHref}
         clientOnlyFallback={
           <ContentStartupShell
             pathname={location.pathname}

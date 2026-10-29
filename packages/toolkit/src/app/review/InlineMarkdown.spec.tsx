@@ -97,6 +97,27 @@ describe("InlineMarkdown", () => {
 
     expect(container.querySelector("ol")?.className).toContain("list-decimal");
     expect(container.querySelector("ul")?.className).toContain("list-disc");
+    expect(container.querySelector("blockquote")?.textContent?.trim()).toBe(
+      "quoted text",
+    );
+    expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
+    expect(container.querySelector("p.font-semibold")?.textContent).toBe(
+      "Heading",
+    );
+
+    act(() => {
+      root.render(
+        <InlineMarkdown
+          renderLists
+          content={"5. fifth\n6. sixth\n\n```\nconst x = 1;\n```"}
+        />,
+      );
+    });
+
+    expect(container.querySelector("ol")?.getAttribute("start")).toBe("5");
+    expect(container.querySelector("pre > code")?.textContent).toBe(
+      "const x = 1;\n",
+    );
 
     act(() => {
       root.render(

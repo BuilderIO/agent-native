@@ -90,9 +90,12 @@ const { schema } = await import("../db/index.js");
 const {
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
   CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
+  CONTENT_CLIP_COMMENT_TEXT_CHARS,
   CONTENT_CLIP_GRANT_EXPIRED,
   CONTENT_CLIP_MAX_COMMENT_THREADS,
+  CONTENT_CLIP_MAX_LISTED_REPLIES,
   CONTENT_CLIP_NOT_CONFIGURED,
+  CONTENT_CLIP_OPEN_THREADS_VIEW,
   CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
   CONTENT_CLIP_PUBLIC_READER,
   CONTENT_CLIP_RECORDING_TITLE_CHARS,
@@ -374,8 +377,12 @@ function listComments(
   recordingId: string,
   bearer?: string,
   limit: string | null = "500",
+  view?: string,
 ) {
-  const query = limit === null ? "" : `?limit=${limit}`;
+  const params = new URLSearchParams();
+  if (limit !== null) params.set("limit", limit);
+  if (view !== undefined) params.set("view", view);
+  const query = params.size ? `?${params}` : "";
   return respond(
     listCommentsRoute,
     peerEvent(`/api/content-clips/${recordingId}/comments${query}`, {
@@ -1240,6 +1247,162 @@ describe("video comments through a doc", () => {
       expect(result.status).toBe(400);
       expect(JSON.stringify(result.body)).not.toContain("owner-comment");
     }
+  });
+
+  describe("in the open-threads view", () => {
+    function listOpenThreads(bearer: string, limit = "500") {
+      return listComments(
+        "rec-upload",
+        bearer,
+        limit,
+        CONTENT_CLIP_OPEN_THREADS_VIEW,
+      );
+    }
+
+    it("lists open threads with their replies, oldest first", async () => {
+      await seedComment("early", { content: "C".repeat(5_000) });
+      await seedComment("done", { videoTimestampMs: 2_000, resolved: true });
+      await seedComment("late", { videoTimestampMs: 9_000 });
+      await seedComment("second-reply", {
+        parentId: "first-reply",
+        threadId: "early",
+        content: "Second",
+        createdAt: "2026-10-03T00:00:00.000Z",
+      });
+      await seedComment("first-reply", {
+        parentId: "early",
+        threadId: "early",
+        authorEmail: READER,
+        authorName: "Rae Reader",
+        content: "R".repeat(5_000),
+        createdAt: "2026-10-02T00:00:00.000Z",
+      });
+      await seedComment("done-reply", {
+        parentId: "done",
+        threadId: "done",
+        createdAt: "2026-10-02T00:00:00.000Z",
+      });
+
+      const listed = await listOpenThreads(await token());
+      expect(listed.status).toBe(200);
+      expect(listed.body).toEqual({
+        comments: [
+          {
+            id: "early",
+            authorEmail: OWNER,
+            authorName: "Owner",
+            content: "C".repeat(CONTENT_CLIP_COMMENT_TEXT_CHARS),
+            videoTimestampMs: 1_000,
+            createdAt: "2026-10-01T00:00:00.000Z",
+            replyCount: 2,
+            replies: [
+              {
+                id: "first-reply",
+                authorEmail: READER,
+                authorName: "Rae Reader",
+                content: "R".repeat(CONTENT_CLIP_COMMENT_TEXT_CHARS),
+                createdAt: "2026-10-02T00:00:00.000Z",
+              },
+              {
+                id: "second-reply",
+                authorEmail: OWNER,
+                authorName: "Owner",
+                content: "Second",
+                createdAt: "2026-10-03T00:00:00.000Z",
+              },
+            ],
+          },
+          expect.objectContaining({ id: "late", replyCount: 0, replies: [] }),
+        ],
+        truncated: false,
+      });
+    });
+
+    it("holds replies back past the contract's bound, from the latest thread", async () => {
+      await seedComment("first");
+      await seedComment("second", { videoTimestampMs: 2_000 });
+      await state.db.insert(schema.recordingComments).values(
+        Array.from({ length: CONTENT_CLIP_MAX_LISTED_REPLIES }, (_, i) => ({
+          id: `first-reply-${i}`,
+          recordingId: "rec-upload",
+          organizationId: "clips-org",
+          threadId: "first",
+          parentId: "first",
+          authorEmail: OWNER,
+          authorName: "Owner",
+          content: `Reply ${i}`,
+          videoTimestampMs: 1_000,
+          emojiReactionsJson: "{}",
+          resolved: false,
+          createdAt: "2026-10-02T00:00:00.000Z",
+          updatedAt: "2026-10-02T00:00:00.000Z",
+        })),
+      );
+      await seedComment("second-reply", {
+        parentId: "second",
+        threadId: "second",
+        createdAt: "2026-10-02T00:00:00.000Z",
+      });
+
+      const listed = await listOpenThreads(await token());
+      const [first, second] = listed.body.comments;
+      expect(first.replies).toHaveLength(CONTENT_CLIP_MAX_LISTED_REPLIES);
+      expect(first.replyCount).toBe(CONTENT_CLIP_MAX_LISTED_REPLIES);
+      expect(second).toEqual(
+        expect.objectContaining({ replyCount: 1, replies: [] }),
+      );
+    });
+
+    it("gives a signed-out reader no replier's email, nor a name made from one", async () => {
+      await seedComment("start");
+      await seedComment("named-reply", {
+        parentId: "start",
+        threadId: "start",
+        authorEmail: READER,
+        authorName: "Rae Reader",
+      });
+      await seedComment("address-reply", {
+        parentId: "start",
+        threadId: "start",
+        authorEmail: "sam@content.example.test",
+        authorName: "sam@content.example.test",
+        createdAt: "2026-10-02T00:00:00.000Z",
+      });
+
+      const listed = await listOpenThreads(await publicReaderToken());
+      expect(
+        listed.body.comments[0].replies.map(
+          (reply: { authorEmail: unknown; authorName: unknown }) => [
+            reply.authorEmail,
+            reply.authorName,
+          ],
+        ),
+      ).toEqual([
+        [null, "Rae Reader"],
+        [null, null],
+      ]);
+    });
+
+    it("bounds the threads as the plain list does", async () => {
+      await seedComment("early");
+      await seedComment("late", { videoTimestampMs: 9_000 });
+      const listed = await listOpenThreads(await token(), "1");
+      expect(listed.body.comments.map((c: { id: string }) => c.id)).toEqual([
+        "early",
+      ]);
+      expect(listed.body.truncated).toBe(true);
+    });
+
+    it("refuses a view it doesn't know", async () => {
+      await seedComment("owner-comment");
+      const result = await listComments(
+        "rec-upload",
+        await token(),
+        "500",
+        "everything",
+      );
+      expect(result.status).toBe(400);
+    });
   });
 
   it("refuses to change another person's comment", async () => {

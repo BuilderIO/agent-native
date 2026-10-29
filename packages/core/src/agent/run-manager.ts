@@ -40,6 +40,10 @@ import {
   type ExecutionFence,
 } from "./execution-fence.js";
 import {
+  AGENT_RUN_NO_OUTPUT_ERROR_CODE,
+  RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+} from "./run-errors.js";
+import {
   type AgentTurnInitiator,
   AgentRunEventNotPersistedError,
   insertRun,
@@ -401,6 +405,8 @@ function shouldCaptureRunError(err: unknown): boolean {
   const normalizedCode = errorCode.toLowerCase();
   return (
     !normalizedCode.startsWith("credits-limit") &&
+    normalizedCode !== AGENT_RUN_NO_OUTPUT_ERROR_CODE &&
+    normalizedCode !== RUN_BUDGET_EXHAUSTED_ERROR_CODE &&
     normalizedCode !== "builder_gateway_network_error" &&
     normalizedCode !== "builder_gateway_stream_ended" &&
     normalizedCode !== PROVIDER_NETWORK_ERROR_CODE &&
@@ -865,6 +871,7 @@ export function startRun(
   }
 
   const abort = new AbortController();
+  const isRunAborted = (): boolean => abort.signal.aborted;
   const recoverChunkBoundaries = options?.recoverChunkBoundaries === true;
   let chunkAbort: AbortController | null = recoverChunkBoundaries
     ? new AbortController()
@@ -1701,39 +1708,50 @@ export function startRun(
   let ownTerminalStatusEstablished = false;
   let terminalStatusWrite: Promise<boolean> | null = null;
   let terminalStatusWriteOutcomeUnknown = false;
-  const checkSqlAbort = () => {
+  const inspectSqlAbortState = async (
+    includeTerminalStatus: boolean,
+  ): Promise<void> => {
+    // raw-sql-ok: getRunAbortState binds runId through its query args.
+    const state = await getRunAbortState(runId);
+    if (state.aborted && !abort.signal.aborted) {
+      abortInMemoryRun(run, state.reason ?? "user");
+      return;
+    }
+    let status: string | null = null;
+    if (
+      includeTerminalStatus &&
+      !abort.signal.aborted &&
+      !ownTerminalStatusEstablished
+    ) {
+      status = await getRunStatus(runId);
+      if (status !== null && status !== "running") {
+        const pendingStatusWrite = terminalStatusWrite;
+        if (pendingStatusWrite) {
+          try {
+            await pendingStatusWrite;
+          } catch (error) {
+            if (!terminalStatusWriteOutcomeUnknown) throw error;
+            return;
+          }
+        }
+        if (terminalStatusWriteOutcomeUnknown) return;
+      }
+    }
+    if (
+      status !== null &&
+      status !== "running" &&
+      !abort.signal.aborted &&
+      !ownTerminalStatusEstablished
+    ) {
+      abortInMemoryRun(run, "displaced");
+    }
+  };
+
+  const checkSqlAbort = (): Promise<void> => {
     const now = Date.now();
-    if (now - lastAbortCheck < 3000) return;
+    if (now - lastAbortCheck < 3000) return Promise.resolve();
     lastAbortCheck = now;
-    getRunAbortState(runId)
-      .then(async (state) => {
-        if (state.aborted && !abort.signal.aborted) {
-          abortInMemoryRun(run, state.reason ?? "user");
-          return;
-        }
-        if (!abort.signal.aborted && !ownTerminalStatusEstablished) {
-          const status = await getRunStatus(runId);
-          if (status !== null && status !== "running") {
-            const pendingStatusWrite = terminalStatusWrite;
-            if (pendingStatusWrite) {
-              try {
-                await pendingStatusWrite;
-              } catch (error) {
-                if (!terminalStatusWriteOutcomeUnknown) throw error;
-                return;
-              }
-            }
-            if (terminalStatusWriteOutcomeUnknown) return;
-          }
-          if (
-            status !== null &&
-            status !== "running" &&
-            !ownTerminalStatusEstablished
-          ) {
-            abortInMemoryRun(run, "displaced");
-          }
-        }
-      })
+    return inspectSqlAbortState(true)
       .then(() => {
         consecutiveAbortCheckFailures = 0;
       })
@@ -1783,12 +1801,11 @@ export function startRun(
           }
         })
         .catch((error) => {
-          if (
-            options?.executionLease &&
-            error?.code === "stale_execution_fence" &&
-            !completionInProgress
-          ) {
-            abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
+          if (error instanceof StaleExecutionFenceError) {
+            if (!completionInProgress) {
+              abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
+            }
+            return;
           }
           consecutiveHeartbeatFailures += 1;
           if (consecutiveHeartbeatFailures >= 3) {
@@ -1808,7 +1825,7 @@ export function startRun(
           heartbeatInFlight = false;
         });
     }
-    checkSqlAbort();
+    void checkSqlAbort();
     checkNoProgressBackstop();
   }, 1500);
   const softTimeoutMs = resolveRunSoftTimeoutMs(options?.softTimeoutMs, {
@@ -2054,7 +2071,7 @@ export function startRun(
 
     if (!options?.surfacePersistenceError) publication.catch(() => {});
 
-    checkSqlAbort();
+    void checkSqlAbort();
     return publication;
   };
 
@@ -2094,14 +2111,18 @@ export function startRun(
       if (executionLeaseClaimFailed || abort.signal.aborted) return;
       await withWorkerFence(async () => {
         if (executionLeaseClaimFailed || abort.signal.aborted) return;
+        await inspectSqlAbortState(false);
+        consecutiveAbortCheckFailures = 0;
+        if (isRunAborted()) return;
         await runFn(send, runControl.chunkSignal, runControl);
       });
       return;
     }
-    if (servicePrincipalRunStart) {
-      await insertRunPromise;
-      if (abort.signal.aborted) return;
-    }
+    if (servicePrincipalRunStart) await insertRunPromise;
+    if (abort.signal.aborted) return;
+    await inspectSqlAbortState(false);
+    consecutiveAbortCheckFailures = 0;
+    if (isRunAborted()) return;
     await runFn(send, runControl.chunkSignal, runControl);
   };
 

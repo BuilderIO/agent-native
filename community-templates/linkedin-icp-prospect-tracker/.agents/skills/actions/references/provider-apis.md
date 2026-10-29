@@ -93,3 +93,16 @@ cross-source joins, multi-page provider sweeps, and heavy analysis scripts;
 keep quick scripts in the default foreground mode. Agents should continue
 other work between polls, and on `failed`/`timed_out` split the computation or
 persist intermediate progress with `workspaceWrite` and re-run.
+
+## HubSpot API versions
+
+Write new HubSpot code against a date-based API version (2026-09 or later),
+for example `POST /crm/objects/2026-09/contacts`, not `/crm/v3/...`. Only the
+date-based versions apply the portal's required-property rules to API writes:
+a create that leaves out a property the portal's create form requires, or a
+stage change missing a conditionally required property, is rejected with a
+400, while the same request on `/crm/v3/` succeeds. HubSpot also stops
+supporting v1-v3 after September 2027. Moving existing write code to a dated
+version changes its behavior, because writes that pass today can start failing
+validation, so migrate one app at a time and surface those 400s to the user.
+Reads behave the same on either version.

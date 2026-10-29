@@ -1685,12 +1685,15 @@ function reachingAssignments(
   const candidates = (analysis.assignments.get(symbol) ?? []).filter(
     (assignment) => {
       const assignedBlock = assignmentBlock(assignment);
+      if (analysis.activeAssignments.has(assignment.node)) {
+        noteSqlTraceCut(assignment.node);
+        return false;
+      }
       return (
-        !analysis.activeAssignments.has(assignment.node) &&
-        (!block ||
-          assignedBlock !== block ||
-          assignment.node.end <= position ||
-          repeatedBlock)
+        !block ||
+        assignedBlock !== block ||
+        assignment.node.end <= position ||
+        repeatedBlock
       );
     },
   );
@@ -1867,12 +1870,93 @@ function unionSources(...sets: ReadonlySet<ts.Node>[]): Set<ts.Node> {
   return sources;
 }
 
+// A trace is cut short by cycle guards (seen symbol/function, active
+// assignment), so its result depends on which of them were live. Tracing
+// without a memo is exponential on large files, so each result is cached with
+// the guards it was cut by (`deps`, must be live to reuse it) and the ones it
+// introduced itself (`expanded`, must not be live to reuse it).
+interface SqlTraceFrame {
+  deps: Set<object>;
+  expanded: Set<object>;
+}
+interface SqlTraceEntry extends SqlTraceFrame {
+  result: Set<ts.Node>;
+}
+let sqlTraceFrame: SqlTraceFrame | undefined;
+const unsafeSqlSourceCache = new WeakMap<
+  SqlAnalysis,
+  Map<ts.Node, [SqlTraceEntry[], SqlTraceEntry[]]>
+>();
+
+function noteSqlTraceCut(guard: object): void {
+  sqlTraceFrame?.deps.add(guard);
+}
+
+function noteSqlTraceExpanded(guard: object): void {
+  sqlTraceFrame?.expanded.add(guard);
+}
+
 function findUnsafeSqlSources(
   expression: ts.Expression,
   analysis: SqlAnalysis,
   seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
   seenFunctions: ReadonlySet<ts.Symbol> = new Set(),
   traceTemplateSpans = false,
+): Set<ts.Node> {
+  let byNode = unsafeSqlSourceCache.get(analysis);
+  if (!byNode) {
+    byNode = new Map();
+    unsafeSqlSourceCache.set(analysis, byNode);
+  }
+  let entries = byNode.get(expression);
+  if (!entries) {
+    entries = [[], []];
+    byNode.set(expression, entries);
+  }
+  const slot = entries[traceTemplateSpans ? 1 : 0];
+  const live = (guard: object) =>
+    seenSymbols.has(guard as ts.Symbol) ||
+    seenFunctions.has(guard as ts.Symbol) ||
+    analysis.activeAssignments.has(guard as ts.Node);
+  const hit = slot.find(
+    (entry) => [...entry.deps].every(live) && ![...entry.expanded].some(live),
+  );
+  if (hit) {
+    for (const guard of hit.deps) noteSqlTraceCut(guard);
+    for (const guard of hit.expanded) noteSqlTraceExpanded(guard);
+    return new Set(hit.result);
+  }
+
+  const parent = sqlTraceFrame;
+  const frame: SqlTraceFrame = { deps: new Set(), expanded: new Set() };
+  sqlTraceFrame = frame;
+  let result: Set<ts.Node>;
+  try {
+    result = computeUnsafeSqlSources(
+      expression,
+      analysis,
+      seenSymbols,
+      seenFunctions,
+      traceTemplateSpans,
+    );
+  } finally {
+    sqlTraceFrame = parent;
+  }
+  for (const guard of frame.expanded) frame.deps.delete(guard);
+  slot.push({ ...frame, result: new Set(result) });
+  if (parent) {
+    for (const guard of frame.deps) parent.deps.add(guard);
+    for (const guard of frame.expanded) parent.expanded.add(guard);
+  }
+  return result;
+}
+
+function computeUnsafeSqlSources(
+  expression: ts.Expression,
+  analysis: SqlAnalysis,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+  seenFunctions: ReadonlySet<ts.Symbol>,
+  traceTemplateSpans: boolean,
 ): Set<ts.Node> {
   let current = expression;
   while (
@@ -1920,7 +2004,11 @@ function findUnsafeSqlSources(
   }
   if (ts.isIdentifier(current)) {
     const symbol = analysis.checker.getSymbolAtLocation(current);
-    if (!symbol || seenSymbols.has(symbol)) return new Set();
+    if (!symbol) return new Set();
+    if (seenSymbols.has(symbol)) {
+      noteSqlTraceCut(symbol);
+      return new Set();
+    }
     if (
       isSqlFragmentDeclaration(
         symbol,
@@ -1936,11 +2024,14 @@ function findUnsafeSqlSources(
     if (reaching.assignments.length > 0) {
       const nextSymbols = new Set(seenSymbols);
       nextSymbols.add(symbol);
+      noteSqlTraceExpanded(symbol);
       const assignmentSources = reaching.assignments.map((assignment) => {
         if (analysis.activeAssignments.has(assignment.node)) {
+          noteSqlTraceCut(assignment.node);
           return new Set<ts.Node>();
         }
         analysis.activeAssignments.add(assignment.node);
+        noteSqlTraceExpanded(assignment.node);
         let sources = new Set<ts.Node>();
         try {
           if (assignment.iteration === "in") {
@@ -2057,9 +2148,13 @@ function findUnsafeSqlSources(
       });
     });
     if (resolvedSymbol && declarations.length > 0) {
-      if (seenFunctions.has(resolvedSymbol)) return new Set();
+      if (seenFunctions.has(resolvedSymbol)) {
+        noteSqlTraceCut(resolvedSymbol);
+        return new Set();
+      }
       const nextFunctions = new Set(seenFunctions);
       nextFunctions.add(resolvedSymbol);
+      noteSqlTraceExpanded(resolvedSymbol);
       return unionSources(
         ...[...new Set(declarations)].flatMap((declaration) =>
           returnExpressions(declaration).map((returned) => {
@@ -2286,6 +2381,83 @@ const executeWrapperSummaryResultCache = new WeakMap<
   WeakMap<ts.FunctionLikeDeclaration, number[]>
 >();
 
+const executeReachCache = new WeakMap<
+  SqlAnalysis,
+  WeakMap<ts.FunctionLikeDeclaration, boolean>
+>();
+
+/**
+ * Whether a function, or any function it calls, makes an execute call. One
+ * that does not has an empty wrapper summary, so its calls' arguments are never
+ * traced: in a large function that trace is what takes minutes.
+ */
+function reachesExecuteSink(
+  declaration: ts.FunctionLikeDeclaration,
+  analysis: SqlAnalysis,
+): boolean {
+  const visited: Array<[ts.FunctionLikeDeclaration, SqlAnalysis]> = [];
+  const visiting = new Set<ts.FunctionLikeDeclaration>();
+  const remember = (
+    current: ts.FunctionLikeDeclaration,
+    currentAnalysis: SqlAnalysis,
+    reaches: boolean,
+  ) => {
+    const byDeclaration =
+      executeReachCache.get(currentAnalysis) ?? new WeakMap();
+    byDeclaration.set(current, reaches);
+    executeReachCache.set(currentAnalysis, byDeclaration);
+  };
+  const reaches = (
+    current: ts.FunctionLikeDeclaration,
+    currentAnalysis: SqlAnalysis,
+  ): boolean => {
+    const known = executeReachCache.get(currentAnalysis)?.get(current);
+    if (known !== undefined) return known;
+    if (!current.body || visiting.has(current)) return false;
+    visiting.add(current);
+    visited.push([current, currentAnalysis]);
+    let found = false;
+    const visit = (node: ts.Node) => {
+      if (found) return;
+      if (ts.isCallExpression(node)) {
+        if (
+          isExecuteCall(
+            node.expression,
+            currentAnalysis.checker,
+            node.getSourceFile(),
+            currentAnalysis.executeAliases,
+          )
+        ) {
+          found = true;
+          return;
+        }
+        for (const nested of callableDeclarations(node, currentAnalysis)) {
+          const nestedAnalysis =
+            currentAnalysis.relatedAnalyses?.get(nested.getSourceFile()) ??
+            currentAnalysis;
+          if (reaches(nested, nestedAnalysis)) {
+            found = true;
+            return;
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(current.body);
+    // A "no" is only final once the whole search from the root says no: a
+    // function cut off by a cycle may still reach a sink through its caller.
+    if (found) remember(current, currentAnalysis, true);
+    return found;
+  };
+  const result = reaches(declaration, analysis);
+  if (!result) {
+    for (const [current, currentAnalysis] of visited) {
+      remember(current, currentAnalysis, false);
+    }
+  }
+  return result;
+}
+
 function executeWrapperSummaryTemplate(
   declaration: ts.FunctionLikeDeclaration,
   wrapperAnalysis: SqlAnalysis,
@@ -2312,7 +2484,10 @@ function executeWrapperSummaryTemplate(
     }
   });
 
-  if (parameterIndexes.size > 0) {
+  if (
+    parameterIndexes.size > 0 &&
+    reachesExecuteSink(declaration, wrapperAnalysis)
+  ) {
     const indexesForExpression = (expression: ts.Expression): Set<number> => {
       const indexes = new Set<number>();
       const current = ts.isSpreadElement(expression)
@@ -2368,6 +2543,9 @@ function executeWrapperSummaryTemplate(
               wrapperAnalysis.relatedAnalyses?.get(
                 nestedDeclaration.getSourceFile(),
               ) ?? wrapperAnalysis;
+            if (!reachesExecuteSink(nestedDeclaration, nestedAnalysis)) {
+              continue;
+            }
             const argumentIndexes = new Map<number, Set<number>>();
             nestedDeclaration.parameters.forEach((parameter, nestedIndex) => {
               const nestedArgumentIndexes = parameter?.dotDotDotToken
@@ -2977,25 +3155,31 @@ export function findRawSqlInterpolationViolationsInSources(
           analysis.executeAliases,
         )
       ) {
-        const callChanged = touchesChangedLines(node);
-        const hasChangedSqlSource = node.arguments.some((argument) => {
-          if (isStaticSqlValue(argument)) return false;
-          const unsafeSqlSources = findUnsafeSqlSources(
-            argument,
-            analysis,
-            new Set(),
-            new Set(),
-            true,
-          );
-          return (
-            unsafeSqlSources.size > 0 &&
-            (callChanged || [...unsafeSqlSources].some(touchesChangedLines))
-          );
-        });
-        if (hasChangedSqlSource) {
-          for (const index of executeWrapperArgumentIndexes(node, analysis)) {
-            const argument = node.arguments[index];
-            if (argument) reportUnsafeSqlValue(analysis, node, argument);
+        // Only a call into an execute wrapper can carry SQL to a sink. Tracing
+        // every other call's arguments made any change to a large file with an
+        // execute sink, such as the agent loop, run for tens of minutes.
+        const wrapperIndexes = executeWrapperArgumentIndexes(node, analysis);
+        if (wrapperIndexes.length > 0) {
+          const callChanged = touchesChangedLines(node);
+          const hasChangedSqlSource = node.arguments.some((argument) => {
+            if (isStaticSqlValue(argument)) return false;
+            const unsafeSqlSources = findUnsafeSqlSources(
+              argument,
+              analysis,
+              new Set(),
+              new Set(),
+              true,
+            );
+            return (
+              unsafeSqlSources.size > 0 &&
+              (callChanged || [...unsafeSqlSources].some(touchesChangedLines))
+            );
+          });
+          if (hasChangedSqlSource) {
+            for (const index of wrapperIndexes) {
+              const argument = node.arguments[index];
+              if (argument) reportUnsafeSqlValue(analysis, node, argument);
+            }
           }
         }
       }
@@ -3646,7 +3830,12 @@ export function addChangedSqlExecuteWrapperModules(
       };
 
       const visitForwardedCalls = (node: ts.Node) => {
-        if (ts.isCallExpression(node)) {
+        // Only a call into another module can forward a tracked parameter
+        // there, so other calls skip the argument trace.
+        if (
+          ts.isCallExpression(node) &&
+          importedSqlCallTarget(node, sourceFile, new Set(), new Set())
+        ) {
           const argumentIndexes = new Set<number>();
           const spreadArgumentIndexes = new Set<number>();
           node.arguments.forEach((argument, index) => {
@@ -3716,15 +3905,15 @@ function addChangedSqlHelperCallers(
         `could not read ${path.relative(rootDir, file)}: ${message}`,
       );
     }
-    sources.set(file, {
+    const traceSqlCallLines = changedSqlHelperCallsiteLines(
       source,
-      addedLines: new Set(),
-      traceSqlCallLines: changedSqlHelperCallsiteLines(
-        source,
-        file,
-        new Set(helperNames),
-      ),
-    });
+      file,
+      helperNames,
+    );
+    // The grep is by bare word, so a common helper name like `run` matches
+    // thousands of files; loading them all into one program runs out of memory.
+    if (traceSqlCallLines.size === 0) continue;
+    sources.set(file, { source, addedLines: new Set(), traceSqlCallLines });
   }
 }
 

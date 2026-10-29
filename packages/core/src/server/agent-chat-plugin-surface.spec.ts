@@ -264,17 +264,7 @@ describe("request-scoped action surface", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it("does not import the release migration script during dev discovery", () => {
-    const source = readFileSync(agentChatPluginSourceUrl, {
-      encoding: "utf-8",
-    });
-    const skipFiles = source.match(
-      /const skipFiles = new Set\(\[[\s\S]*?\]\);/,
-    )?.[0];
-
-    expect(skipFiles).toContain('"migrate-production"');
-  });
-
+  // oracle-change: the migrate-production skip now lives in listDevActionFiles and is asserted in action-discovery.spec.ts
   it("restores the durable worker from the persisted turn initiator", () => {
     const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",

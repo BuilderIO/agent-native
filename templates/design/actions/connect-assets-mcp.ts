@@ -1,5 +1,5 @@
-import { defineAction } from "@agent-native/core/action";
-import { fetchOrgApps } from "@agent-native/core/mcp";
+import { defineAction, NoWriteError } from "@agent-native/core/action";
+import { fetchOrgAppsResult } from "@agent-native/core/mcp";
 import {
   addFirstPartyRemoteServer,
   isFirstPartyRemoteEndpointTrusted,
@@ -64,10 +64,24 @@ export default defineAction({
     }
     await assertCanManageOrgMcp(orgId, userEmail);
 
-    const apps = await fetchOrgApps({ selfId: "design" });
-    const assets = apps.find((app) => app.id === "assets");
+    const directory = await fetchOrgAppsResult({ selfId: "design" });
+    if (directory.status === "unavailable") {
+      throw new NoWriteError(
+        `The organization app directory is unavailable (${directory.reason}), so Assets could not be checked. Restore directory access and retry.`,
+        {
+          errorCode: "org_app_directory_unavailable",
+          statusCode: 503,
+          details: { reason: directory.reason },
+        },
+      );
+    }
+
+    const assets = directory.apps.find((app) => app.id === "assets");
     if (!assets?.url) {
-      throw new Error("Could not find the Assets app in this organization.");
+      throw new NoWriteError("Assets is not listed in this organization.", {
+        errorCode: "assets_app_not_available",
+        statusCode: 404,
+      });
     }
     const currentUrl = assetsMcpUrl(assets.url);
 

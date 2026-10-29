@@ -4,12 +4,7 @@ import {
   useSwitchOrg,
   useCreateOrg,
 } from "@agent-native/core/client/org";
-import {
-  IconChevronDown,
-  IconCheck,
-  IconPlus,
-  IconUsersGroup,
-} from "@tabler/icons-react";
+import { IconChevronDown, IconCheck } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -86,10 +81,7 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
           </DropdownMenuLabel>
           {orgs.length === 0 && (
             <DropdownMenuItem disabled>
-              <IconUsersGroup className="h-3.5 w-3.5 me-2" />
-              <span className="text-xs">
-                {t("organizationSwitcher.noOrganizations")}
-              </span>
+              <span>{t("organizationSwitcher.noOrganizations")}</span>
             </DropdownMenuItem>
           )}
           {orgs.map((o) => (
@@ -106,10 +98,7 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
               }}
               className="flex items-center"
             >
-              <div className="flex h-5 w-5 items-center justify-center rounded text-[10px] font-semibold bg-muted text-muted-foreground me-2">
-                {o.orgName.slice(0, 1).toUpperCase()}
-              </div>
-              <span className="flex-1 truncate text-xs">{o.orgName}</span>
+              <span className="flex-1 truncate">{o.orgName}</span>
               {o.orgId === currentId && (
                 <IconCheck className="h-3.5 w-3.5 text-primary" />
               )}
@@ -117,10 +106,7 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
           ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setCreateOpen(true)}>
-            <IconPlus className="h-3.5 w-3.5 me-2" />
-            <span className="text-xs">
-              {t("organizationSwitcher.newOrganization")}
-            </span>
+            <span>{t("organizationSwitcher.newOrganization")}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

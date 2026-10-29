@@ -16,6 +16,11 @@ import {
   isFirstPartyRemoteEndpointTrusted,
   parseMergedKey,
 } from "./remote-store.js";
+import {
+  isWorkspaceConnectionMcpServer,
+  resolveWorkspaceConnectionMcpBearer,
+  type McpWorkspaceConnectionAuth,
+} from "./workspace-connection-servers.js";
 
 export const MCP_TOOL_PREFIX = "mcp__";
 
@@ -188,11 +193,14 @@ function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolean {
     return (
       a.url === b.url &&
       JSON.stringify(a.headers ?? {}) === JSON.stringify(b.headers ?? {}) &&
+      a.oauthAccessRefresh?.identity === b.oauthAccessRefresh?.identity &&
       errorIdentity(a.configurationError) ===
         errorIdentity(b.configurationError) &&
       a.firstParty === b.firstParty &&
       a.firstPartyAppId === b.firstPartyAppId &&
-      a.firstPartyOrgId === b.firstPartyOrgId
+      a.firstPartyOrgId === b.firstPartyOrgId &&
+      JSON.stringify(a.workspaceConnection ?? null) ===
+        JSON.stringify(b.workspaceConnection ?? null)
     );
   }
   if (a.type !== "http" && b.type !== "http") {
@@ -463,7 +471,23 @@ export class McpClientManager {
       const requestInit: Record<string, unknown> = {};
       const staticHeaders = { ...(cfg.headers ?? {}) };
       const transportOptions: Record<string, unknown> = { requestInit };
-      if (this.shouldInjectFirstPartyIdentity(entry)) {
+      if (isWorkspaceConnectionMcpServer(cfg)) {
+        removeAuthorizationHeaders(staticHeaders);
+        if (Object.keys(staticHeaders).length > 0) {
+          requestInit.headers = staticHeaders;
+        }
+        const auth = cfg.workspaceConnection;
+        const nativeFetch = fetch.bind(globalThis);
+        transportOptions.fetch = async (input: unknown, init?: unknown) =>
+          nativeFetch(
+            input as Parameters<typeof fetch>[0],
+            await buildWorkspaceConnectionRequestInit(
+              staticHeaders,
+              init,
+              auth,
+            ),
+          );
+      } else if (this.shouldInjectFirstPartyIdentity(entry)) {
         const baselineHeaders = { ...staticHeaders };
         removeAuthorizationHeaders(baselineHeaders);
         if (Object.keys(baselineHeaders).length > 0) {
@@ -483,6 +507,51 @@ export class McpClientManager {
         }
       } else if (Object.keys(staticHeaders).length > 0) {
         requestInit.headers = staticHeaders;
+      }
+      if (
+        !this.shouldInjectFirstPartyIdentity(entry) &&
+        cfg.oauthAccessRefresh &&
+        typeof fetch === "function"
+      ) {
+        const nativeFetch = fetch.bind(globalThis);
+        const refreshAccessToken = cfg.oauthAccessRefresh.refresh;
+        let refreshedAuthorization: string | undefined;
+        transportOptions.fetch = async (
+          input: RequestInfo | URL,
+          init?: RequestInit,
+        ) => {
+          const request = new Request(input, init);
+          if (refreshedAuthorization) {
+            request.headers.set("Authorization", refreshedAuthorization);
+          }
+          const retryRequest = request.clone();
+          const response = await nativeFetch(request);
+          if (response.status !== 401) return response;
+
+          let accessToken: string | null;
+          try {
+            accessToken = await refreshAccessToken();
+          } catch {
+            if (this.debug) {
+              console.warn(
+                `[mcp-client] OAuth refresh failed for ${entry.id}; preserving 401`,
+              );
+            }
+            return response;
+          }
+          if (
+            !accessToken ||
+            request.headers.get("authorization") === `Bearer ${accessToken}`
+          ) {
+            return response;
+          }
+
+          await response.body?.cancel();
+          const headers = new Headers(retryRequest.headers);
+          headers.set("Authorization", `Bearer ${accessToken}`);
+          refreshedAuthorization = `Bearer ${accessToken}`;
+          return nativeFetch(new Request(retryRequest, { headers }));
+        };
       }
       transport = new sdk.StreamableHTTPClientTransport(
         new URL(cfg.url),
@@ -1089,6 +1158,23 @@ function headersToRecord(value: unknown): Record<string, string> {
     );
   }
   return {};
+}
+
+async function buildWorkspaceConnectionRequestInit(
+  staticHeaders: Record<string, string>,
+  rawInit: unknown,
+  auth: McpWorkspaceConnectionAuth,
+): Promise<RequestInit> {
+  const init =
+    rawInit && typeof rawInit === "object" ? (rawInit as RequestInit) : {};
+  const headers = {
+    ...headersToRecord(staticHeaders),
+    ...headersToRecord(init.headers),
+  };
+  removeAuthorizationHeaders(headers);
+  // Resolved per request so a refreshed token is used as soon as it exists.
+  headers.Authorization = `Bearer ${await resolveWorkspaceConnectionMcpBearer(auth)}`;
+  return { ...init, headers };
 }
 
 async function buildFirstPartyRequestInit(

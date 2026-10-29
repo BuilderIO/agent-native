@@ -89,6 +89,7 @@ let currentClient = makeRawClient(true);
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => currentClient,
+  getScopedDbExec: () => undefined,
   getScopedTransactionDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
