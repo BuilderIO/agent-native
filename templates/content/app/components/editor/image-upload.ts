@@ -284,6 +284,7 @@ export async function uploadImageFile(
     credentials: "include",
     body: form,
   });
+  // coercion-ok: a body that isn't JSON still fails below, on the status or the missing URL.
   const body = (await response.json().catch(() => ({}))) as UploadResponse;
   if (!response.ok) {
     throw new Error(uploadResponseMessage(response, body, "image"));

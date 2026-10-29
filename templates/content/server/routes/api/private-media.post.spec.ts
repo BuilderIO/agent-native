@@ -22,7 +22,6 @@ vi.mock("@agent-native/core/server", () => ({
   getSession: mocks.getSession,
   runWithRequestContext: (_context: unknown, run: () => unknown) => run(),
 }));
-vi.mock("../../db/index.js", () => ({ getDb: () => "db" }));
 vi.mock("../../lib/private-icon-target.js", () => ({
   resolveEditablePrivateIconOrgId: mocks.resolveEditablePrivateIconOrgId,
 }));
@@ -80,7 +79,7 @@ describe("Content private image upload", () => {
       mimeType: "image/png",
       filename: "shot.png",
     });
-    expect(mocks.bindUploadedPrivateMedia).toHaveBeenCalledWith("db", {
+    expect(mocks.bindUploadedPrivateMedia).toHaveBeenCalledWith({
       documentId: "document-1",
       mediaId: MEDIA_ID,
     });

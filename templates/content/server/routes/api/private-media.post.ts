@@ -12,7 +12,6 @@ import {
   setResponseStatus,
 } from "h3";
 
-import { getDb } from "../../db/index.js";
 import { resolveEditablePrivateIconOrgId } from "../../lib/private-icon-target.js";
 import {
   bindUploadedPrivateMedia,
@@ -61,10 +60,7 @@ export default defineEventHandler(async (event) => {
           mimeType: file.type,
           filename: file.name,
         });
-        await bindUploadedPrivateMedia(getDb(), {
-          documentId,
-          mediaId: media.id,
-        });
+        await bindUploadedPrivateMedia({ documentId, mediaId: media.id });
         setResponseStatus(event, 201);
         return { id: media.id, url: privateMediaPath(media.id) };
       },

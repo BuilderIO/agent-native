@@ -23,11 +23,11 @@ export {
 const REFERENCE_PAGE_SIZE = 100;
 
 /** Records that an image uploaded into a page belongs to it. */
-export async function bindUploadedPrivateMedia(
-  db: Database,
-  input: { documentId: string; mediaId: string },
-): Promise<void> {
-  await db
+export async function bindUploadedPrivateMedia(input: {
+  documentId: string;
+  mediaId: string;
+}): Promise<void> {
+  await getDb()
     .insert(schema.privateMediaReferences)
     .values({ documentId: input.documentId, mediaId: input.mediaId })
     .onConflictDoNothing();

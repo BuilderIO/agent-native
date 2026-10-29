@@ -16,16 +16,14 @@ export function privateMediaPath(mediaId: string): string {
 export function privateMediaIdsInContent(content: string): Set<string> {
   const found = new Set<string>();
   if (!content.includes(PRIVATE_MEDIA_PATH_PREFIX)) return found;
-  for (const match of content.matchAll(PRIVATE_MEDIA_LINK)) {
-    found.add(match[1]!);
+  for (const [, id] of content.matchAll(PRIVATE_MEDIA_LINK)) {
+    if (id) found.add(id);
   }
   return found;
 }
 
 /** The image ID when `src` is a stored private image link, else null. */
 export function privateMediaIdFromSrc(src: string): string | null {
-  const match = /^\/api\/private-media\/([0-9a-f-]{36})$/u.exec(src);
-  return match && privateMediaIdsInContent(src).has(match[1]!)
-    ? match[1]!
-    : null;
+  const id = /^\/api\/private-media\/([0-9a-f-]{36})$/u.exec(src)?.[1];
+  return id && privateMediaIdsInContent(src).has(id) ? id : null;
 }

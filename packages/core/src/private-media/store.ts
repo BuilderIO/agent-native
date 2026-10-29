@@ -137,7 +137,7 @@ export function isPrivateMediaImageType(
 }
 
 function normalizeEmail(email: string): string {
-  const normalized = email?.trim().toLowerCase();
+  const normalized = email.trim().toLowerCase();
   if (!normalized) throw new Error("Private media owner is required");
   return normalized;
 }
@@ -169,6 +169,7 @@ function isSvgDocument(data: Uint8Array): boolean {
   let source: string;
   try {
     source = new TextDecoder("utf-8", { fatal: true }).decode(data);
+    // coercion-ok: bytes that aren't valid UTF-8 aren't an SVG document, which is the answer.
   } catch {
     return false;
   }
@@ -184,7 +185,8 @@ function isSvgDocument(data: Uint8Array): boolean {
         (key) => key.startsWith("?") || key === "#comment",
       ),
   );
-  return elements.length === 1 && Object.hasOwn(elements[0]!, "svg");
+  const root = elements.length === 1 ? elements.at(0) : undefined;
+  return root !== undefined && Object.hasOwn(root, "svg");
 }
 
 /** The image type the bytes actually are, which must match the declared one. */
@@ -235,14 +237,19 @@ export function validatePrivateMediaImage(
   return declared;
 }
 
+function isPrivateBlobHandle(value: unknown): value is PrivateBlobHandle {
+  if (typeof value !== "object" || value === null) return false;
+  const handle = value as Record<string, unknown>;
+  return (
+    typeof handle.id === "string" &&
+    typeof handle.provider === "string" &&
+    handle.opaque === true
+  );
+}
+
 function parseHandle(row: PrivateMediaRow): PrivateBlobHandle {
-  const handle = JSON.parse(row.blobHandleJson) as PrivateBlobHandle;
-  if (
-    !handle ||
-    typeof handle.id !== "string" ||
-    typeof handle.provider !== "string" ||
-    handle.opaque !== true
-  ) {
+  const handle: unknown = JSON.parse(row.blobHandleJson);
+  if (!isPrivateBlobHandle(handle)) {
     throw new Error("Private media has an invalid private blob handle");
   }
   return handle;
@@ -251,12 +258,12 @@ function parseHandle(row: PrivateMediaRow): PrivateBlobHandle {
 async function findRow(id: string): Promise<PrivateMediaRow | null> {
   if (!isPrivateMediaId(id)) return null;
   await privateMediaStore.ready();
-  const [row] = await getDb()
+  const rows = await getDb()
     .select()
     .from(privateMedia)
     .where(eq(privateMedia.id, id))
     .limit(1);
-  return row ?? null;
+  return rows.at(0) ?? null;
 }
 
 /**
