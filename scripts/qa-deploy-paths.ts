@@ -1294,7 +1294,11 @@ async function exerciseScheduledStaleChatContinuation(
       await insertRun(runId, threadId, turnId, {
         dispatchMode: "background",
         dispatchPayload: JSON.stringify({ message: prompt, threadId, turnId }),
-        turnInitiator: { email: ownerEmail, anonymous: false },
+        turnInitiator: {
+          email: ownerEmail,
+          orgScope: "personal",
+          anonymous: false,
+        },
       });
       assert.equal(
         await claimBackgroundRun(runId),
