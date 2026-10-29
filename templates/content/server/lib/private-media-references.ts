@@ -4,8 +4,8 @@ import {
 } from "@agent-native/core/private-media";
 import { and, asc, eq, inArray, isNull, like } from "drizzle-orm";
 
-import { isSoftDeletedDatabaseDocument } from "../../actions/_database-utils.js";
 import { resolveDocumentAccess } from "../../actions/_document-access.js";
+import { softDeletedDatabaseDocumentExclusions } from "../../actions/_document-discovery-query.js";
 import {
   PRIVATE_MEDIA_PATH_PREFIX,
   privateMediaIdsInContent,
@@ -41,9 +41,10 @@ export async function bindUploadedPrivateMedia(input: {
  * `get-document` refuses it. Runs inside the caller's request context, so
  * space membership counts.
  *
- * The query skips pages in Trash and pages whose body no longer mentions the
- * image, so a refusal costs one access check per live page that links the
- * image, and only people who can see an image can add such pages.
+ * The query skips pages in Trash or in a deleted collection and pages whose
+ * body no longer mentions the image, so a refusal costs one access check per
+ * live page that links the image, and only people who can see an image can
+ * add such pages.
  */
 export async function canReadPrivateMediaThroughDocument(
   mediaId: string,
@@ -62,6 +63,7 @@ export async function canReadPrivateMediaThroughDocument(
         and(
           eq(schema.privateMediaReferences.mediaId, mediaId),
           isNull(schema.documents.trashedAt),
+          ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
           // The ID is a validated UUID, so it holds no LIKE wildcards.
           like(schema.documents.content, `%${privateMediaPath(mediaId)}%`),
         ),
@@ -75,8 +77,7 @@ export async function canReadPrivateMediaThroughDocument(
         access &&
         !access.resource.trashedAt &&
         typeof access.resource.content === "string" &&
-        privateMediaIdsInContent(access.resource.content).has(mediaId) &&
-        !(await isSoftDeletedDatabaseDocument(documentId))
+        privateMediaIdsInContent(access.resource.content).has(mediaId)
       ) {
         return true;
       }
