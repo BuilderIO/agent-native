@@ -78,6 +78,7 @@ export function isLosslessEventType(type: string): boolean {
 
 export const AGENTKIT_PROFILE_EVENT_TYPES = [
   "run.cancelled",
+  "message.replaced",
   "approval.resolved",
   "agent.updated",
   "agent.interaction",
