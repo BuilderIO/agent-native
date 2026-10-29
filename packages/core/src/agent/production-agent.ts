@@ -15911,12 +15911,17 @@ export function createProductionAgentHandler(
     let durableDispatchPayload: string | undefined;
     if (dispatchToBackground) {
       try {
-        durableDispatchPayload = serializeDurableDispatchPayload({
+        const dispatchBody = {
           ...body,
           ...(Array.isArray(attachments) || requestAttachments.length > 0
             ? { attachments: requestAttachments }
             : {}),
-        } as unknown as Record<string, unknown>);
+        } as unknown as Record<string, unknown>;
+        if (isQueuedPromotion) {
+          // onRunPrepared consumes this one-time claim before worker replay.
+          delete dispatchBody.queuedMessageClaimId;
+        }
+        durableDispatchPayload = serializeDurableDispatchPayload(dispatchBody);
       } catch (error) {
         if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
           throw error;
