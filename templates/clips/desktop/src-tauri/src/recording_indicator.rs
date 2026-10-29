@@ -386,6 +386,8 @@ fn build_pill_window(app: &AppHandle, expanded: bool) -> Result<WebviewWindow, S
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
     set_capture_excluded(&win);
+    // Prewarm builds the pill long before it is shown, so convert it at creation.
+    configure_recording_overlay(&win);
     Ok(win)
 }
 
@@ -431,7 +433,6 @@ pub async fn recording_pill_show(
 
     PILL_EXPANDED.store(false, Ordering::SeqCst);
     let win = build_pill_window(&app, false)?;
-    configure_recording_overlay(&win);
     show_without_activation(&win);
     raise_to_status_level(&win);
     start_pill_hover_tracking(&app);
