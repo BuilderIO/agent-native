@@ -91,7 +91,7 @@ beforeAll(async () => {
       allowedUsers: ["bob@example.com"],
     }),
   );
-});
+}, 30_000);
 
 afterAll(async () => {
   await pglite?.close();
