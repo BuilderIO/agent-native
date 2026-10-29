@@ -610,20 +610,26 @@ export function CommentHistoryScrollContainer({
 }: HTMLAttributes<HTMLDivElement>) {
   const { historyScrollTopRef } = useCommentPanelSession();
   const ref = useRef<HTMLDivElement>(null);
+  // The page's rail keeps this scroller mounted and drops the threads while
+  // it's closed. Emptied, the scroller falls back to the top, and that isn't
+  // where the reader left it.
+  const hasThreads = children != null && children !== false;
 
-  // Restore only when the panel mounts. The browser owns the position while
+  // Restore only when the threads appear. The browser owns the position while
   // the reader scrolls; writing it back from a render that ran behind a
   // trackpad or wheel scroll makes the list jump.
   useLayoutEffect(() => {
-    if (ref.current) ref.current.scrollTop = historyScrollTopRef.current;
-  }, [historyScrollTopRef]);
+    if (hasThreads && ref.current)
+      ref.current.scrollTop = historyScrollTopRef.current;
+  }, [hasThreads, historyScrollTopRef]);
 
   return (
     <div
       {...props}
       ref={ref}
       onScroll={(event) => {
-        historyScrollTopRef.current = event.currentTarget.scrollTop;
+        if (hasThreads)
+          historyScrollTopRef.current = event.currentTarget.scrollTop;
         onScroll?.(event);
       }}
     >

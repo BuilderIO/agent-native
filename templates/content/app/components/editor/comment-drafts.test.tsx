@@ -132,7 +132,7 @@ describe("comment drafts", () => {
       return null;
     }
 
-    function renderDiscussion(showPanel = true) {
+    function renderDiscussion(showPanel = true, showThreads = true) {
       const host = (container ??= document.createElement("div"));
       if (!host.isConnected) document.body.appendChild(host);
       const reactRoot = (root ??= createRoot(host));
@@ -146,7 +146,7 @@ describe("comment drafts", () => {
             <RenderCounter />
             {showPanel ? (
               <CommentHistoryScrollContainer data-testid="discussion">
-                <div style={{ height: 4000 }} />
+                {showThreads ? <div style={{ height: 4000 }} /> : null}
               </CommentHistoryScrollContainer>
             ) : null}
           </CommentDraftProvider>,
@@ -190,6 +190,17 @@ describe("comment drafts", () => {
       act(() => scrollTo(panel, 184));
       renderDiscussion(false);
       expect(openDiscussion().scrollTop).toBe(184);
+    });
+
+    it("reopens where the reader left it when only the threads unmount", () => {
+      const panel = openDiscussion();
+      act(() => scrollTo(panel, 184));
+      // The page's Discussion rail keeps its scroller and drops the threads
+      // while closed, which pulls the emptied scroller back to the top.
+      renderDiscussion(true, false);
+      act(() => scrollTo(panel, 0));
+      renderDiscussion();
+      expect(panel.scrollTop).toBe(184);
     });
   });
 
