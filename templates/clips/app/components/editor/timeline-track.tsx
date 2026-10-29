@@ -78,6 +78,8 @@ interface RangeDragState {
   /** "new" and "resize" grow from `startMs`; "move" slides `from` by the pointer delta. */
   mode: "new" | "resize" | "move";
   startMs: number;
+  /** Where the pointer went down; `startMs` is the far edge when resizing. */
+  pressMs: number;
   from: { startMs: number; endMs: number } | null;
   /** Set when the drag began on a removed section, so a plain click selects it. */
   gapCutId: string | null;
@@ -338,8 +340,8 @@ export function TimelineTrack({
         } else if (drag.gapCutId) {
           onSelectionChange({ kind: "gap", cutId: drag.gapCutId });
         } else {
-          onSelectionChange({ kind: "clip", anchorMs: drag.startMs });
-          onSeek?.(drag.startMs);
+          onSelectionChange({ kind: "clip", anchorMs: drag.pressMs });
+          onSeek?.(drag.pressMs);
         }
         return;
       }
@@ -383,6 +385,7 @@ export function TimelineTrack({
       startClientX: e.clientX,
       mode,
       startMs,
+      pressMs: at,
       from,
       gapCutId,
       moved: false,
