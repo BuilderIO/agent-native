@@ -503,7 +503,9 @@ describe("notifyPlanCommentRecipients side effects", () => {
     const evil = notifyComment("evil", {
       authorEmail: "evil@example.com",
       authorName: "Evil",
-      message: `<img src=x onerror=alert(1)> & "quoted"`,
+      // The raw tag is dropped from the excerpt, as the renderer skips it; the
+      // same tag as inline code stays as text and must arrive escaped.
+      message: '<img src=x onerror=alert(1)> & "quoted" `<img>`',
     });
     selectPlanMock.mockResolvedValue([
       { id: "plan_1", title: "Launch Plan", ownerEmail: "owner@example.com" },
@@ -514,7 +516,10 @@ describe("notifyPlanCommentRecipients side effects", () => {
     });
     const args = renderEmailMock.mock.calls[0]?.[0] as { paragraphs: string[] };
     expect(args.paragraphs[1]).not.toContain("<img");
-    expect(args.paragraphs[1]).toContain("&lt;img");
+    expect(args.paragraphs[1]).not.toContain("onerror");
+    expect(args.paragraphs[1]).toContain(
+      "&amp; &quot;quoted&quot; &lt;img&gt;",
+    );
   });
 
   it("truncates a huge comment body to a bounded excerpt", async () => {
@@ -531,7 +536,7 @@ describe("notifyPlanCommentRecipients side effects", () => {
     });
     const args = renderEmailMock.mock.calls[0]?.[0] as { paragraphs: string[] };
     expect(args.paragraphs[1].length).toBeLessThan(400);
-    expect(args.paragraphs[1]).toContain("...");
+    expect(args.paragraphs[1]).toContain("…");
   });
 
   it("never emails the owner about their own comment via notify path", async () => {
