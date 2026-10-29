@@ -1,5 +1,4 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { isUniqueViolation } from "@agent-native/core/db";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -12,6 +11,20 @@ import { getDb, schema } from "../server/db/index.js";
 import { repairDeckSlideReferences } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 import { trackDeckCreated } from "./_deck-tracking.js";
+
+// The 23505 code sits on the driver error that Drizzle wraps, not on the top-level error.
+function isUniqueViolation(error: unknown): boolean {
+  let current = error;
+  for (
+    let depth = 0;
+    depth < 4 && current && typeof current === "object";
+    depth++
+  ) {
+    if ("code" in current && current.code === "23505") return true;
+    current = "cause" in current ? current.cause : undefined;
+  }
+  return false;
+}
 
 export default defineAction({
   description:

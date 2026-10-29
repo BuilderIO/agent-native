@@ -80,10 +80,16 @@ describe("duplicate-deck", () => {
   });
 
   it("maps a newId collision to a 409 without leaking the SQL", async () => {
+    // Drizzle wraps the driver error: the SQL text is on the outer message and the 23505 code on its cause.
     mocks.insertValues.mockRejectedValueOnce(
-      Object.assign(new Error('insert into "decks" params: ["deck-taken"]'), {
-        code: "23505",
-      }),
+      Object.assign(
+        new Error('Failed query: insert into "decks" params: ["deck-taken"]'),
+        {
+          cause: Object.assign(new Error("duplicate key value"), {
+            code: "23505",
+          }),
+        },
+      ),
     );
 
     const failure = await action
