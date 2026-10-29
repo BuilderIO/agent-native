@@ -12,7 +12,11 @@ import {
   AppSidebarFooter,
   AppSidebarHeader,
 } from "@agent-native/toolkit/app/shared";
-import { CLIPS_MEETINGS, CLIPS_VOICE_DICTATION } from "@shared/labs";
+import {
+  CLIPS_MEETINGS,
+  CLIPS_SCREENSHOTS,
+  CLIPS_VOICE_DICTATION,
+} from "@shared/labs";
 import {
   IconInbox,
   IconPhoto,
@@ -195,6 +199,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const t = useT();
   const isRecordingRoute = location.pathname.startsWith("/r/");
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS);
+  const screenshotsLabEnabled = useLab(CLIPS_SCREENSHOTS);
   const voiceDictationLabEnabled = useLab(CLIPS_VOICE_DICTATION);
   const recordingScope = useMemo(() => {
     const match = location.pathname.match(/^\/(?:r|share)\/([^/]+)/);
@@ -564,7 +569,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   ];
 
   const primaryNavItems = navItems.filter(
-    ({ to }) => to !== "/archive" && to !== "/trash",
+    ({ to }) =>
+      to !== "/archive" &&
+      to !== "/trash" &&
+      (to !== "/screenshots" || screenshotsLabEnabled),
   );
   const lifecycleNavItems = navItems.filter(
     ({ to }) => to === "/archive" || to === "/trash",
