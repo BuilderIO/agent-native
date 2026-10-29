@@ -9,7 +9,10 @@ import {
   markdownSuggestionOperationsForReplacements,
   suggestionDiffParts,
 } from "./suggestion-diff.js";
-import { suggestionMarkedSourceRanges } from "./suggestion-formatting.js";
+import {
+  suggestionMarkedSourceRanges,
+  SuggestionFormattingMappingError,
+} from "./suggestion-formatting.js";
 import { resolveMarkdownSuggestionRange } from "./suggestion-rebase.js";
 
 function proposedFrom(
@@ -63,6 +66,118 @@ function expectIntactOperations(
 }
 
 describe("suggestion decomposition", () => {
+  describe("localized edits on large synthetic pages", () => {
+    const embed = `![Chart](data:image/svg+xml;base64,${"A".repeat(70_000)})`;
+    const link = "[Reference](https://example.test)";
+    const find =
+      "First paragraph to shorten.\n\nSecond paragraph to shorten.\n\nThird paragraph to shorten.";
+    const replace = "Short summary.\n\nSecond summary.\n\nThird summary.";
+
+    it.each([
+      ["leading embed, nearby link", [embed, link, "Opener."]],
+      ["trailing embed, nearby link", ["Opener.", link, embed]],
+      ["leading embed, remote link", [`${link}\n\n${embed}`, "Closing.", ""]],
+      ["trailing embed before remote link", ["Opener.", embed, link]],
+    ] as const)("shortens three paragraphs with %s", (_label, blocks) => {
+      const before = [blocks[0], find, blocks[1], blocks[2]].join("\n\n");
+      const after = before.replace(find, replace);
+      const operations = markdownSuggestionOperationsForFindReplace({
+        before,
+        find,
+        replace,
+        start: before.indexOf(find),
+      });
+      expect(operations.length).toBeGreaterThanOrEqual(3);
+      expectIntactOperations(before, after, operations);
+      for (const operation of operations) {
+        expect(operation.anchor.from).toBeGreaterThanOrEqual(
+          before.indexOf(find),
+        );
+        expect(operation.anchor.to).toBeLessThanOrEqual(
+          before.indexOf(find) + find.length,
+        );
+        expect(operation.after.markdown).toContain(embed);
+        expect(operation.after.markdown).toContain(link);
+      }
+    });
+
+    it.each([
+      ["Use 𐐀x𐐀 and café here.", "Use 𐐨x𐐨 and cafés here."],
+      [
+        "Alpha<br>bravo and **marked text**.",
+        "Alpha bravo and **revised text**.",
+      ],
+      [
+        "[Old label](https://example.test) stays.",
+        "[New label](https://example.test) stays.",
+      ],
+      ["Repeat.\n\nRepeat.\n\nKeep.", "Repeat.\n\nKeep."],
+      [
+        "First word.\n\nMiddle stays.\n\nLast word.",
+        "First phrase.\n\nMiddle stays.\n\nLast phrase.",
+      ],
+    ])(
+      "preserves small-page hunk alignment for %s",
+      (beforeText, afterText) => {
+        const prefix = `${embed}\n\n`;
+        const suffix = `\n\n${link}\n\n${embed}`;
+        const before = prefix + beforeText + suffix;
+        const after = prefix + afterText + suffix;
+        const operations = markdownSuggestionOperations(before, after);
+        const small = markdownSuggestionOperations(beforeText, afterText);
+        expect(
+          operations.map(({ anchor, before, after }) => [
+            anchor.from - prefix.length,
+            anchor.to - prefix.length,
+            before.changedText,
+            after.changedText,
+          ]),
+        ).toEqual(
+          small.map(({ anchor, before, after }) => [
+            anchor.from,
+            anchor.to,
+            before.changedText,
+            after.changedText,
+          ]),
+        );
+        expectIntactOperations(before, after, operations);
+      },
+    );
+
+    it("retains identical large sources as one equality", () => {
+      expect(suggestionDiffParts(embed, embed)).toEqual([
+        { type: "equal", text: embed },
+      ]);
+    });
+
+    it("inserts a paragraph before an unchanged leading atom", () => {
+      const before = `${embed}\n\n${link}`;
+      const after = `New paragraph.\n\n${before}`;
+      const operations = markdownSuggestionOperations(before, after);
+      expect(operations).toHaveLength(1);
+      expect(operations[0].anchor).toMatchObject({ from: 0, to: 0 });
+      expect(operations[0].after.changedText).toBe("New paragraph.\n\n");
+      expectIntactOperations(before, after, operations);
+    });
+
+    it("retains length and edit-distance refusals for the changed window", () => {
+      for (const [beforeText, afterText] of [
+        [
+          `Start.\n${"x".repeat(33_000)}\nEnd.`,
+          `Changed.\n${"x".repeat(33_000)}\nFinish.`,
+        ],
+        ["x".repeat(1_100), "y".repeat(1_100)],
+      ]) {
+        const before = `${embed}\n\n${beforeText}\n\n${link}`;
+        const after = `${embed}\n\n${afterText}\n\n${link}`;
+        expect(suggestionDiffParts(before, after)).toBeNull();
+        expect(() => markdownSuggestionOperations(before, after)).toThrow(
+          SuggestionFormattingMappingError,
+        );
+      }
+    });
+  });
+
   it("keeps a typed sentence whole when the author also edits elsewhere", () => {
     const before = [
       "It means I'd just learned three things about drawing.",

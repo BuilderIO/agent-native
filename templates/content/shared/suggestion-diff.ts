@@ -374,6 +374,51 @@ function diffParts(
   beforeSource: string,
   afterSource: string,
 ): DiffPart[] | null {
+  if (beforeSource === afterSource)
+    return beforeSource ? [{ type: "equal", text: beforeSource }] : [];
+  if (beforeSource.length + afterSource.length <= MAX_DOCUMENT_LENGTH)
+    return boundedDiffParts(beforeSource, afterSource);
+
+  let prefix = 0;
+  const sharedLength = Math.min(beforeSource.length, afterSource.length);
+  while (prefix < sharedLength && beforeSource[prefix] === afterSource[prefix])
+    prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < sharedLength - prefix &&
+    beforeSource[beforeSource.length - suffix - 1] ===
+      afterSource[afterSource.length - suffix - 1]
+  )
+    suffix += 1;
+
+  // Keep the changed lines intact: character cuts can split Unicode, words,
+  // or hard-break tokens and change the existing diff's alignment choices.
+  const from = Math.max(0, beforeSource.lastIndexOf("\n", prefix - 1));
+  const suffixStart = beforeSource.length - suffix;
+  const newline = beforeSource.indexOf("\n", suffixStart);
+  const to =
+    suffixStart === 0 || beforeSource[suffixStart - 1] === "\n"
+      ? suffixStart
+      : newline === -1
+        ? beforeSource.length
+        : newline + 1;
+  const afterTo = afterSource.length - (beforeSource.length - to);
+  const parts = boundedDiffParts(
+    beforeSource.slice(from, to),
+    afterSource.slice(from, afterTo),
+  );
+  if (!parts) return null;
+  return coalesce([
+    { type: "equal", text: beforeSource.slice(0, from) },
+    ...parts,
+    { type: "equal", text: beforeSource.slice(to) },
+  ]);
+}
+
+function boundedDiffParts(
+  beforeSource: string,
+  afterSource: string,
+): DiffPart[] | null {
   if (beforeSource.length + afterSource.length > MAX_DOCUMENT_LENGTH)
     return null;
 
