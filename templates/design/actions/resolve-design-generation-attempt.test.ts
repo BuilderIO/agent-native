@@ -63,12 +63,37 @@ describe("generation attempt resolution", () => {
     expect(await action.run(args)).toEqual({ status: "pending", result: null });
   });
   it("stops on a terminal failed turn without requesting a receipt", async () => {
-    mocks.status.mockResolvedValue("errored");
+    mocks.status.mockResolvedValue("aborted");
     expect(await action.run(args)).toEqual({
       status: "terminal",
       result: null,
     });
     expect(mocks.receipt).not.toHaveBeenCalled();
+  });
+  it.each(["truncated", "errored"])(
+    "waits for a possible continuation after %s",
+    async (status) => {
+      mocks.status.mockResolvedValue(status);
+      expect(await action.run(args)).toEqual({
+        status: "pending",
+        result: null,
+      });
+      expect(mocks.receipt).not.toHaveBeenCalled();
+    },
+  );
+  it("resolves after a truncated run is followed by a completed continuation", async () => {
+    mocks.runIds
+      .mockResolvedValueOnce(["earlier-run"])
+      .mockResolvedValueOnce(["earlier-run", "completed-run"]);
+    mocks.status
+      .mockResolvedValueOnce("truncated")
+      .mockResolvedValueOnce("completed");
+    mocks.receipt.mockResolvedValue({ status: "has_output" });
+    expect(await action.run(args)).toEqual({ status: "pending", result: null });
+    expect(await action.run(args)).toEqual({
+      status: "ready",
+      result: { runId: "completed-run", turnId: "turn-1" },
+    });
   });
   it("stops after a completed turn with no output", async () => {
     mocks.status.mockResolvedValue("completed");

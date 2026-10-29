@@ -40,7 +40,13 @@ export default defineAction({
       },
       ctx,
     );
-    if (receipt.status !== "has_output") return { variant: null };
+    if (receipt.status === "unknown") {
+      fail("Generation output verification is temporarily unavailable", {
+        errorCode: "generation_output_unavailable",
+        statusCode: 503,
+      });
+    }
+    if (receipt.status === "no_output") return { variant: null };
     const variant: "control" | "next_step" =
       createHash("sha256")
         .update(`${EXPERIMENT_ID}\0${authUserId}`)

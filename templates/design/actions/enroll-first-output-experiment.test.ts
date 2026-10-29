@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (value: unknown) => value,
+  fail: (message: string) => {
+    throw new Error(message);
+  },
 }));
 vi.mock("drizzle-orm", () => ({ eq: vi.fn() }));
 vi.mock("../server/db/index.js", () => ({
@@ -87,6 +90,13 @@ describe("first output experiment enrollment", () => {
     ]);
     expect(await action.run(args)).toEqual(initial);
     expect(mocks.track).toHaveBeenCalledTimes(1);
+  });
+  it("reports uncertain output verification as retryable instead of a control outcome", async () => {
+    mocks.receipt.mockResolvedValue({ status: "unknown" });
+    await expect(action.run(args)).rejects.toThrow(
+      "Generation output verification is temporarily unavailable",
+    );
+    expect(mocks.insert).not.toHaveBeenCalled();
   });
   it("does not enroll a non-owner, unverified output, or a prior enrollee", async () => {
     mocks.access.mockResolvedValueOnce({ role: "editor" });
