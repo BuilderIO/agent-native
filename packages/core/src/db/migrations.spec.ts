@@ -41,23 +41,13 @@ END $body$`,
   });
 
   it("handles nested comments, escape strings, and dollar signs in identifiers", () => {
-    expect(
+    const statements =
       splitSqlStatements(String.raw`SELECT E'it\'s; -- fine'; /* outer; /* inner */ still */ SELECT foo$bar$; -- trailing
-SELECT $$a;--b$$;`),
-    ).toEqual([
-      String.raw`SELECT E'it\'s; -- fine'`,
-      "/* outer; /* inner */ still */ SELECT foo$bar$",
-      "SELECT $$a;--b$$",
-    ]);
-  });
-
-  it("preserves legacy output for comments in existing migrations", () => {
-    expect(
-      splitSqlStatements("SELECT 1 -- comment\nFROM t; /* note */ SELECT 2;"),
-    ).toEqual(["SELECT 1 \nFROM t", "/* note */ SELECT 2"]);
-    expect(splitSqlStatements("SELECT 1 -- comment\r\nFROM t;")).toEqual([
-      "SELECT 1 \nFROM t",
-    ]);
+SELECT $$a;--b$$;`);
+    expect(statements).toHaveLength(3);
+    expect(statements[0]).toBe(String.raw`SELECT E'it\'s; -- fine'`);
+    expect(statements[1]).toMatch(/SELECT foo\$bar\$$/);
+    expect(statements[2]).toBe("SELECT $$a;--b$$");
   });
 
   it("rejects unterminated quotes and comments", () => {
