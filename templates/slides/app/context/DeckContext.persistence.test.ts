@@ -1862,6 +1862,85 @@ describe("DeckContext deck creation persistence", () => {
     });
   });
 
+  it("keeps a collaborator's title in a verified full replacement sent on pagehide", async () => {
+    window.history.pushState({}, "", "/deck/flush-verified-replace-title");
+    const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
+      deferredPatch: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "flush-verified-replace-title",
+      title: "Original title",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before one", notes: "", layout: "title" },
+        { id: "slide-2", content: "Before two", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-2",
+        { content: "Active edit" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      flushPendingSaves();
+    });
+    act(() => {
+      result.current.setDeckSlides(
+        initial.id,
+        [
+          {
+            id: "slide-1",
+            content: "Replaced one",
+            notes: "",
+            layout: "title",
+          },
+          { id: "slide-2", content: "Before two", notes: "", layout: "title" },
+        ],
+        { persistence: "immediate" },
+      );
+    });
+    setAccessibleDeck({
+      ...initial,
+      title: "Collaborator title",
+      updatedAt: "2026-05-12T00:01:00.000Z",
+    });
+    resolveDeferredPatch(409, "slide_content_stale");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const keepaliveSaves = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
+        init?.keepalive === true,
+    );
+    expect(keepaliveSaves).toHaveLength(1);
+    expect(actionCallBody(keepaliveSaves[0]?.[1]).deck).toMatchObject({
+      title: "Collaborator title",
+    });
+  });
+
   it("requeues a failed keepalive flush for a normal retry", async () => {
     window.history.pushState({}, "", "/deck/flush-retry-deck");
     const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({

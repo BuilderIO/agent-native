@@ -2379,10 +2379,14 @@ function drainPendingDeckOps(
               remoteDeck,
               ops,
             );
+            const fields = remoteDeck
+              ? mergeFullReplaceDeckFields(deckId, replacement.deck, remoteDeck)
+              : null;
             if (
               staleContentConflicts.has(deckId) ||
               conflicts === null ||
-              conflicts.size > 0
+              conflicts.size > 0 ||
+              (fields !== null && fields.conflicts.length > 0)
             ) {
               const heldSlideIds = conflicts ?? new Set<string>();
               if (conflicts === null) {
@@ -2425,12 +2429,16 @@ function drainPendingDeckOps(
                 deckId,
                 replacementDraft ?? replacement.deck,
                 conflicts,
+                fields?.conflicts,
               );
               deckSaveRetryAttempts.delete(deckId);
               deckRevisionConflictRetryAttempts.delete(deckId);
               return;
             }
 
+            // A page-hide save sends a verified replacement without reading
+            // the deck again, so it must already carry the merged fields.
+            if (fields) replacement.deck = fields.deck;
             verifiedFullReplaceOps.add(replacement);
             pendingOpsQueue.set(deckId, latestPending);
             if (latestPendingHandlers.length > 0) {

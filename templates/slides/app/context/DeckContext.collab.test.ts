@@ -163,6 +163,12 @@ async function openClient() {
   return { mod, decks: () => result.current };
 }
 
+function deckSaveRequests(server: ReturnType<typeof sharedDeckServer>) {
+  return server.fetchMock.mock.calls.filter(([url]) =>
+    String(url).includes("/save-deck"),
+  );
+}
+
 function slideIds(deck: Deck | undefined) {
   return deck?.slides.map((slide) => slide.id) ?? [];
 }
@@ -338,6 +344,31 @@ describe("two people editing one deck", () => {
 
     expect(david.mod.getDeckSaveError(initialDeck.id)).toBeUndefined();
     expect(server.deck().title).toBe("Ashley's title");
+  });
+
+  it("sends a whole-deck save once when it starts behind a collaborator's change", async () => {
+    const { server, david, ashley } = await openTwoClients();
+
+    act(() => {
+      ashley.decks().updateDeck(initialDeck.id, { title: "Ashley's title" });
+    });
+    await waitFor(() => expect(server.deck().title).toBe("Ashley's title"));
+
+    // David saves before his client has seen Ashley's revision.
+    const davidsCopy = requireDeck(david.decks().getDeck(initialDeck.id));
+    expect(davidsCopy.title).toBe(initialDeck.title);
+    const savesBefore = deckSaveRequests(server).length;
+    act(() => {
+      david.decks().setDeckSlides(initialDeck.id, davidsCopy.slides, {
+        persistence: "immediate",
+        forcePersistence: true,
+      });
+    });
+    await settle();
+
+    expect(david.mod.getDeckSaveError(initialDeck.id)).toBeUndefined();
+    expect(server.deck().title).toBe("Ashley's title");
+    expect(deckSaveRequests(server).length - savesBefore).toBe(1);
   });
 
   it("holds a whole-deck save that changes a title a collaborator also changed", async () => {
