@@ -355,6 +355,30 @@ describe("generate-design action tool schema", () => {
     );
   });
 
+  it("does not offer frameType to the model, but still validates it", () => {
+    const fileProps = (
+      parameters.properties.files?.items as {
+        properties?: Record<string, unknown>;
+      }
+    ).properties;
+    expect(Object.keys(fileProps ?? {}).sort()).toEqual([
+      "content",
+      "fileType",
+      "filename",
+    ]);
+    const withFrameType = {
+      ...validInput(),
+      files: [
+        {
+          filename: "email.html",
+          content: html,
+          frameType: "hubspot-email",
+        },
+      ],
+    };
+    expect((action as any).schema.safeParse(withFrameType).success).toBe(true);
+  });
+
   it("keeps the placement and routing guidance in the field descriptions", () => {
     const { files, devices } = parameters.properties;
     expect(files?.description).toContain(

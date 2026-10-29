@@ -438,20 +438,20 @@ async function finalizeGenerationForSavedFiles(
 
 // The model is shown these typed fields as they are, and the validating schema
 // wraps the structured ones in `jsonField` so a JSON string still parses.
-const designFileSchema = z.object({
+const agentFileSchema = z.object({
   filename: z.string().describe("Filename (e.g. 'index.html')"),
   content: z.string().min(1).describe("File content"),
-  frameType: z
-    .literal("hubspot-email")
-    .optional()
-    .describe(
-      "Optional internal email authoring type; when supplied, include its meta marker and email-safe HTML. Any HTML frame can be validated and exported with export-hubspot-html.",
-    ),
   fileType: z
     .enum(["html", "css", "jsx", "asset"])
     .optional()
     .default("html")
     .describe("Type of file"),
+});
+
+// `frameType` stays accepted but is never shown to the model: models set it on
+// ordinary screens, omit the email meta marker, and every write is rejected.
+const designFileSchema = agentFileSchema.extend({
+  frameType: z.literal("hubspot-email").optional(),
 });
 
 const canvasFrameSchema = z
@@ -487,14 +487,17 @@ const promptField = z
       'e.g. "Instagram story, 1080x1920 canvas"; a bare "make it taller" reads as a responsive app.',
   );
 
-const filesField = z
-  .array(designFileSchema)
+const filesDescription =
+  "Files to save. Pass one compact, complete, renderable index.html first, with a flat layer tree (no single-child wrapper divs) and whole-pixel lengths. " +
+  'For HubSpot email HTML author email-safe tables with `<meta name="agent-native:frame-type" content="hubspot-email">` in the head; the marker is not required for export. ' +
+  "Do not use generate-design to replace a selected variant screen after a variant pick; snapshot that fileId and use edit-design instead.";
+
+const filesField = z.array(designFileSchema).min(1).describe(filesDescription);
+
+const agentFilesField = z
+  .array(agentFileSchema)
   .min(1)
-  .describe(
-    "Files to save. Pass one compact, complete, renderable index.html first, with a flat layer tree (no single-child wrapper divs) and whole-pixel lengths. " +
-      'For HubSpot email HTML author email-safe tables; optional frameType:"hubspot-email" requires its internal meta marker but is not required for export. ' +
-      "Do not use generate-design to replace a selected variant screen after a variant pick; snapshot that fileId and use edit-design instead.",
-  );
+  .describe(filesDescription);
 
 const designSystemIdField = z
   .string()
@@ -664,7 +667,7 @@ const generateDesignAction = defineAction({
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
     "and numeric x/y/width/height so the new screens appear placed on the " +
-    "overview canvas. For HubSpot email output, author email-safe table HTML without browser runtimes; optional frameType hubspot-email requires its internal meta marker. Any HTML frame can be validated with export-hubspot-html before reporting compatibility.",
+    "overview canvas. For HubSpot email output, author email-safe table HTML without browser runtimes, with the `agent-native:frame-type` meta marker in the head. Any HTML frame can be validated with export-hubspot-html before reporting compatibility.",
   schema: z.object({
     designId: designIdField,
     prompt: promptField,
@@ -684,7 +687,7 @@ const generateDesignAction = defineAction({
   agentInputSchema: z.object({
     designId: designIdField,
     prompt: promptField,
-    files: filesField,
+    files: agentFilesField,
     designSystemId: designSystemIdField,
     projectType: projectTypeField,
     tweaks: tweaksField,
