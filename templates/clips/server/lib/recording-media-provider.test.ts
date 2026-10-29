@@ -50,7 +50,7 @@ describe("Builder deletion evidence", () => {
     },
     {
       source: "legacy",
-      authorization: "Bearer fake-personal-access-token",
+      authorization: "Bearer fake-pat",
       legacyPublicKey: space,
     },
     {

@@ -1,5 +1,5 @@
 // guard:allow-unscoped — integrity triggers enforce cross-owner deletion/reference fences and return no recording data.
-export const recordingMediaCleanupMigration = `
+const cleanupDdl = `
 CREATE TABLE IF NOT EXISTS recording_media_cleanups (
   id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, org_id TEXT, storage_mode TEXT,
   allowance_user_id TEXT, manifest TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
@@ -136,3 +136,9 @@ BEGIN
 END $$;
 CREATE OR REPLACE TRIGGER clips_recording_activity_media_fence BEFORE INSERT OR UPDATE OF app_activity_blob_json ON recording_browser_diagnostics FOR EACH ROW EXECUTE FUNCTION clips_fence_deleted_activity_media();
 `;
+
+// The migration runner preserves single-quoted bodies but splits dollar-quoted bodies at internal semicolons.
+export const recordingMediaCleanupMigration = cleanupDdl.replace(
+  /\$\$([\s\S]*?)\$\$/g,
+  (_delimiter, body: string) => "'" + body.replace(/'/g, "''") + "'",
+);

@@ -10,6 +10,11 @@ import {
 } from "../shared/media-cleanup.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "List your pending, blocked or shared-retained recording media cleanups. A removed recording does not imply that its stored media has been deleted.",
   schema: z.object({

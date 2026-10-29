@@ -15,6 +15,11 @@ import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { mediaCleanupSummarySchema } from "../shared/media-cleanup.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Queue another attempt for one of your retained media cleanup intents. This does not confirm storage deletion; check its pending or blocked state afterward.",
   schema: z.object({
