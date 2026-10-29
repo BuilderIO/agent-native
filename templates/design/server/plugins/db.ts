@@ -603,16 +603,6 @@ CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
   },
-  {
-    version: 48,
-    name: "design-generation-attempt-provenance",
-    sql: `CREATE TABLE IF NOT EXISTS design_generation_attempts (
-      attempt_id TEXT PRIMARY KEY,
-      design_id TEXT NOT NULL,
-      thread_id TEXT NOT NULL,
-      turn_id TEXT NOT NULL
-    )`,
-  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =

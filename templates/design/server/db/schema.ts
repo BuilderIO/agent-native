@@ -441,10 +441,3 @@ export const firstOutputExperimentClaims = table(
     createdAt: text("created_at").notNull().default(now()),
   },
 );
-
-export const designGenerationAttempts = table("design_generation_attempts", {
-  attemptId: text("attempt_id").primaryKey(),
-  designId: text("design_id").notNull(),
-  threadId: text("thread_id").notNull(),
-  turnId: text("turn_id").notNull(),
-});

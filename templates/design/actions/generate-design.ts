@@ -767,14 +767,6 @@ const generateDesignAction = defineAction({
       await assertAccess("design-system", designSystemId, "viewer");
     }
     const db = getDb();
-    if (context?.threadId && context.turnId) {
-      await db.insert(schema.designGenerationAttempts).values({
-        attemptId: generationAttemptId,
-        designId,
-        threadId: context.threadId,
-        turnId: context.turnId,
-      });
-    }
     const now = new Date().toISOString();
 
     for (const file of files) {

@@ -209,15 +209,12 @@ export function useDesignReadyViewTracking({
     () => (designId ? readUrlGenerationAttemptId() : null),
     [designId, search],
   );
-  const hasGenerationOutput = generationOutputFiles(files).length > 0;
   const latest = useRef({ designId, isOwner, designLoaded, files });
   latest.current = { designId, isOwner, designLoaded, files };
   const runsRef = useRef(new Map<string, TrackedAgentRun>());
   const cancelSendsRef = useRef(new Set<() => void>());
   const receiptRetryTimersRef = useRef(new Map<string, number>());
   const lifecycleRef = useRef(0);
-  const attemptDeadlinesRef = useRef(new Map<string, number>());
-  const resolvedAttemptsRef = useRef(new Set<string>());
 
   const send = useRef((callback: () => void) => {
     // runWhenTabVisible calls back synchronously when the tab is visible, so
@@ -511,86 +508,6 @@ export function useDesignReadyViewTracking({
   useEffect(() => {
     flushCompletedRunsRef.current();
   }, [designId, designLoaded, files, isOwner]);
-
-  useEffect(() => {
-    if (
-      !designId ||
-      !designLoaded ||
-      !isOwner ||
-      !urlAttemptId ||
-      !hasGenerationOutput
-    )
-      return;
-    let cancelled = false;
-    const isCancelled = () => cancelled;
-    let timer: number | undefined;
-    let cancelVisible: (() => void) | undefined;
-    let checks = 0;
-    let loggedError = false;
-    const key = `${designId}:${urlAttemptId}`;
-    if (resolvedAttemptsRef.current.has(key)) return;
-    const deadline =
-      attemptDeadlinesRef.current.get(key) ?? Date.now() + 10 * 60 * 1000;
-    attemptDeadlinesRef.current.set(key, deadline);
-    const resolveAttempt = async () => {
-      if (isCancelled() || Date.now() >= deadline) return;
-      try {
-        const { status, result } = await callAction<{
-          status: "missing" | "pending" | "ready" | "unavailable" | "terminal";
-          result: { runId: string; turnId: string } | null;
-        }>(
-          "resolve-design-generation-attempt" as never,
-          { designId, attemptId: urlAttemptId } as never,
-          { method: "GET", uiOnly: true },
-        );
-        if (isCancelled() || Date.now() >= deadline) return;
-        if (
-          status === "missing" ||
-          status === "unavailable" ||
-          status === "terminal"
-        ) {
-          resolvedAttemptsRef.current.add(key);
-          return;
-        }
-        if (status === "ready" && result) {
-          cancelVisible = runWhenTabVisible(() => {
-            if (isCancelled()) return;
-            resolvedAttemptsRef.current.add(key);
-            window.dispatchEvent(
-              new CustomEvent("design:verified-generation-ready", {
-                detail: { designId, ...result },
-              }),
-            );
-          });
-          return;
-        }
-      } catch (error) {
-        if (!loggedError) {
-          console.warn("Could not resolve generation attempt", error);
-          loggedError = true;
-        }
-      }
-      if (!isCancelled() && Date.now() < deadline) {
-        checks += 1;
-        timer = window.setTimeout(
-          () => {
-            void resolveAttempt();
-          },
-          Math.min(
-            2000 * 2 ** Math.min(checks - 1, 3),
-            15000,
-            deadline - Date.now(),
-          ),
-        );
-      }
-    };
-    void resolveAttempt();
-    return () => {
-      cancelled = true;
-      cancelVisible?.();
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [designId, designLoaded, hasGenerationOutput, isOwner, urlAttemptId]);
 
   useEffect(() => {
     try {

@@ -51,6 +51,5 @@ same identity and timestamp for return visits and next actions. Use the private
 including users without a later event: telemetry is best-effort, and an exposure
 event can be lost after a durable claim. This is an intention-to-treat analysis;
 a claim does not prove that the bar rendered. Eligibility includes verified
-completed runs observed in the editor and new result links with recorded attempt
-provenance. Older links without provenance and historical first generations
-cannot be identified by this experiment.
+completed runs observed in the editor. Result links opened separately and
+historical first generations cannot be identified by this experiment.
