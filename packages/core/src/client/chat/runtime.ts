@@ -34,6 +34,7 @@ import {
 } from "../sse-event-processor.js";
 import { runOutcomeForCode, type ServerRunState } from "./run-outcome.js";
 import {
+  acceptedPromptForMetadata,
   DEFAULT_TURN_SURFACE,
   type TurnInitiator,
   type TurnSubmittedReport,
@@ -5128,10 +5129,16 @@ export function createAgentNativeChatRuntime(
     onTurnAccepted: ({ session, turn, requestTurnId, runId }) => {
       const metadata = turn.metadata;
       const custom = asRecord(metadata?.custom) ?? undefined;
+      const initiator = agentNativeTurnInitiator(metadata);
       const requestMode =
         metadataString(metadata, "requestMode") ??
         metadataString(metadata, "mode") ??
         options.mode;
+      const promptForMetadata = acceptedPromptForMetadata({
+        initiator,
+        ...(turn.prompt !== undefined ? { prompt: turn.prompt } : {}),
+        ...(turn.messages ? { messages: turn.messages } : {}),
+      });
       telemetry.onTurnSubmitted?.({
         turnId: requestTurnId,
         threadId: session.threadId ?? options.threadId,
@@ -5139,13 +5146,14 @@ export function createAgentNativeChatRuntime(
         surface:
           metadataString(metadata, "agentNativeSurface") ??
           DEFAULT_TURN_SURFACE,
-        initiator: agentNativeTurnInitiator(metadata),
+        initiator,
         submitMessageId: metadataString(metadata, "submitMessageId"),
         recoveryOfRunId:
           metadataString(custom, "agentNativeRecoveryOfRunId") ??
           metadataString(metadata, CONTINUE_OF_RUN_METADATA_KEY) ??
           metadataString(metadata, AUTO_CONTINUE_OF_RUN_METADATA_KEY),
         requestMode,
+        ...(promptForMetadata ? { promptForMetadata } : {}),
       });
     },
     beforeStartTurn: async ({ session, turn, turnId }) => {

@@ -739,6 +739,67 @@ describe("MCP OAuth client", () => {
     );
   });
 
+  it("clears stale expiry when a refresh response omits expires_in", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokenExpiresAt: Date.now() - 1,
+    });
+    refreshAuthorizationMock.mockResolvedValueOnce({
+      access_token: "<NEW_ACCESS_TOKEN>",
+      token_type: "bearer",
+    });
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "org",
+        scopeId: "org-test",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toBe("<NEW_ACCESS_TOKEN>");
+
+    const saved = saveOAuthTokensMock.mock.calls[0]?.[2] as any;
+    expect(saved).toMatchObject({
+      tokens: { access_token: "<NEW_ACCESS_TOKEN>" },
+    });
+    expect(saved).not.toHaveProperty("tokenExpiresAt");
+    expect(
+      (saveOAuthTokensMock.mock.calls[0]?.[2] as any).tokens.expires_in,
+    ).toBeUndefined();
+  });
+
+  it("force-refreshes an unbounded token after a provider rejects it", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokens: {
+        ...credentials.tokens,
+        expires_in: undefined,
+      },
+      tokenExpiresAt: undefined,
+    });
+    refreshAuthorizationMock.mockResolvedValueOnce({
+      access_token: "<REFRESHED_ACCESS_TOKEN>",
+      token_type: "bearer",
+    });
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "org",
+        scopeId: "org-test",
+        serverUrl: "https://mcp.example.com/mcp",
+        forceRefresh: true,
+      }),
+    ).resolves.toBe("<REFRESHED_ACCESS_TOKEN>");
+
+    expect(refreshAuthorizationMock).toHaveBeenCalledTimes(1);
+    const saved = saveOAuthTokensMock.mock.calls[0]?.[2] as any;
+    expect(saved).toMatchObject({
+      tokens: { access_token: "<REFRESHED_ACCESS_TOKEN>" },
+    });
+    expect(saved).not.toHaveProperty("tokenExpiresAt");
+  });
+
   it("refreshes with the advertised resource identifier, not the WHATWG href", async () => {
     getOAuthTokensMock.mockResolvedValue({
       ...credentials,

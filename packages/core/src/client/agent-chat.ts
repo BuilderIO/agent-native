@@ -1271,6 +1271,7 @@ function trackRoutedSend(
     surface: opts.preset ?? DEFAULT_TURN_SURFACE,
     submitMessageId,
     requestMode,
+    promptForMetadata: opts.message,
   });
 }
 
