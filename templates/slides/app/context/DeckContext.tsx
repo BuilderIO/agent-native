@@ -1792,18 +1792,21 @@ function holdStaleFullReplace(
   conflictingDeckFields: readonly string[] = [],
 ) {
   staleFullReplaceDrafts.set(deckId, deck);
+  // Re-holding the draft after another edit passes no fields, so the
+  // collision already held is what keeps it a deck conflict.
+  const heldDeckFields = [
+    ...new Set([
+      ...(staleDeckFieldConflicts.get(deckId) ?? []),
+      ...conflictingDeckFields,
+    ]),
+  ];
+  if (heldDeckFields.length > 0) {
+    staleDeckFieldConflicts.set(deckId, heldDeckFields);
+  }
   const deckFieldsOnly =
     conflictingSlideIds !== null &&
     conflictingSlideIds.size === 0 &&
-    conflictingDeckFields.length > 0;
-  if (conflictingDeckFields.length > 0) {
-    staleDeckFieldConflicts.set(deckId, [
-      ...new Set([
-        ...(staleDeckFieldConflicts.get(deckId) ?? []),
-        ...conflictingDeckFields,
-      ]),
-    ]);
-  }
+    heldDeckFields.length > 0;
   const previous = staleContentConflicts.get(deckId);
   if (previous === null || conflictingSlideIds === null) {
     staleContentConflicts.set(deckId, null);
@@ -1828,7 +1831,7 @@ function holdStaleFullReplace(
     markDeckSaveFailed(
       deckId,
       { errorCode: "deck_revision_conflict" },
-      `Failed to save deck ${deckId}: another writer changed ${conflictingDeckFields.join(", ")}; local draft retained`,
+      `Failed to save deck ${deckId}: another writer changed ${heldDeckFields.join(", ")}; local draft retained`,
     );
   } else {
     markDeckSaveFailed(

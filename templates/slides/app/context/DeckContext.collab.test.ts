@@ -397,6 +397,36 @@ describe("two people editing one deck", () => {
     expect(david.mod.getDeckContentConflicts(initialDeck.id)).toEqual([]);
   });
 
+  it("keeps a held title collision a deck conflict after another edit", async () => {
+    const { david, ashley } = await openTwoClients();
+
+    act(() => {
+      ashley.decks().updateDeck(initialDeck.id, { title: "Ashley's title" });
+    });
+    await settle();
+
+    const davidsCopy = requireDeck(david.decks().getDeck(initialDeck.id));
+    act(() => {
+      david.decks().setDeckSlides(initialDeck.id, davidsCopy.slides, {
+        deckFields: { title: "David's title" },
+        persistence: "immediate",
+        forcePersistence: true,
+      });
+    });
+    await settle();
+    expect(david.mod.getDeckContentConflicts(initialDeck.id)).toEqual([]);
+
+    act(() => {
+      david.decks().updateSlide(initialDeck.id, "outro", { notes: "Close" });
+    });
+    await settle();
+
+    expect(david.mod.getDeckSaveError(initialDeck.id)).toMatchObject({
+      errorCode: "deck_revision_conflict",
+    });
+    expect(david.mod.getDeckContentConflicts(initialDeck.id)).toEqual([]);
+  });
+
   it("keeps a collaborator's star when a whole-deck save did not change it", async () => {
     const { server, david, ashley } = await openTwoClients();
 
