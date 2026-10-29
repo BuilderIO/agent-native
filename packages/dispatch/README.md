@@ -119,6 +119,21 @@ import { Layout } from "@agent-native/dispatch/components";
 
 ## Verify a community template branch
 
+When a branch verification fails, an organization owner or admin can call
+`inspect-community-builder-backup` with only `branchName`. It reads bounded
+backup and branch status metadata from the organization's saved Builder project
+to show whether the backup is partial, valid, complete and current, whether the
+branch is active, archived, deleted or unknown, and whether it is idle or has
+unpushed changes. It only reads existing status metadata; it does not request a
+backup, download a bundle, or verify app files.
+`backupPartial` returns `missing` or `invalid` when the provider flag is absent
+or malformed; it never coerces those cases to `false`.
+`verificationPerformed` is always `false`. Use
+`verify-curated-community-app` for the separate hash verification step.
+The verifier requests a bundle-download URL and may refresh provider backup
+state; this status action does not. Status metadata is diagnostic only and
+never authorizes an install or a retry.
+
 Organization owners and admins can call `verify-curated-community-app` with
 `sourceId`, `appId`, and `branchName` to check an existing Builder branch in
 the organization's configured Builder project. Project selection and reviewed

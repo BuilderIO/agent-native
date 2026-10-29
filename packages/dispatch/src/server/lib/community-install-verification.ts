@@ -2,6 +2,7 @@ import { defineActionErrors } from "@agent-native/core/action";
 import {
   BuilderBranchFilesError,
   getRequestContext,
+  readBuilderBranchBackupStatus,
   readBuilderBranchFiles,
   readOrgMemberRole,
 } from "@agent-native/core/server";
@@ -231,6 +232,41 @@ function failBranchReadback(error: unknown): never {
       details: { readbackStage: readbackStage(error) },
     },
   );
+}
+
+export async function inspectCommunityBuilderBackup(input: {
+  branchName: string;
+}) {
+  const { orgId, ownerEmail } = requireHumanOrgOwner();
+  await requireOrganizationOwnerOrAdmin(orgId, ownerEmail);
+
+  const branchName = requireBranchName(input.branchName);
+  let settings: Awaited<ReturnType<typeof getAppCreationSettings>>;
+  try {
+    settings = await getAppCreationSettings();
+  } catch {
+    verificationFail(
+      "The organization Builder project setting could not be read. Try again shortly.",
+      "community_verification_project_unavailable",
+      { statusCode: 503 },
+    );
+  }
+  const projectId = settings.savedBuilderProjectId?.trim();
+  if (!projectId || settings.builderProjectId !== projectId) {
+    verificationFail(
+      "Configure a Builder project for this organization before inspecting a branch backup.",
+      "community_verification_project_required",
+      { statusCode: 409 },
+    );
+  }
+
+  let status: Awaited<ReturnType<typeof readBuilderBranchBackupStatus>>;
+  try {
+    status = await readBuilderBranchBackupStatus({ projectId, branchName });
+  } catch (error) {
+    failBranchReadback(error);
+  }
+  return { branchName, ...status };
 }
 
 export async function verifyCuratedCommunityApp(input: {

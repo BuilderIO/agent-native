@@ -26,6 +26,7 @@ vi.mock("./builder-branch-git.js", async (importOriginal) => ({
 import { ActionContractError } from "../action.js";
 import {
   BuilderBranchFilesError,
+  readBuilderBranchBackupStatus,
   readBuilderBranchFiles,
 } from "./builder-branch-files.js";
 import { BuilderGitBundleError } from "./builder-branch-git.js";
@@ -110,8 +111,8 @@ function status(
       code: {
         state: "valid",
         outcome: "valid",
-        backup: currentBackup,
         ...overrides.check,
+        backup: currentBackup,
       },
     },
   };
@@ -632,5 +633,250 @@ describe("readBuilderBranchFiles", () => {
       "unavailable",
     );
     expect(error.message).not.toContain("unavailable");
+  });
+});
+
+describe("readBuilderBranchBackupStatus", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.resolveAuthorization.mockResolvedValue(oauthAuthorization);
+    mocks.ssrfSafeFetch.mockReset();
+    mocks.readBuilderGitBundle.mockReset();
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reads and returns only bound backup status metadata without downloading the bundle", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(status({ check: { backup: { partial: true } } })),
+    );
+
+    const result = await readBuilderBranchBackupStatus(input);
+
+    expect(result).toEqual({
+      branchState: "active",
+      backupPartial: true,
+      backupValid: true,
+      backupComplete: true,
+      backupCurrent: true,
+      agentIdle: true,
+      hasUnpushedChanges: false,
+      verificationPerformed: false,
+    });
+    expect(mocks.resolveAuthorization).toHaveBeenCalledWith({
+      requiredScope: "builder:projects:read",
+      legacyCredentialKeys: [],
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    const [url, options] = vi.mocked(fetch).mock.calls[0]!;
+    expect(new URL(String(url)).pathname).toBe("/projects/branch/status");
+    expect(options?.method).toBe("GET");
+    expect(options?.redirect).toBe("error");
+    expect(JSON.stringify(result)).not.toMatch(
+      /signedUrl|contentMd5|lastCommitHash|ownerId|size|git\.bundle/i,
+    );
+    expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
+    expect(mocks.readBuilderGitBundle).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["branch name", { branchName: "other-branch" }],
+    ["project", { projectId: "other-project" }],
+    ["owner", { ownerId: "other-owner" }],
+  ])(
+    "fails when the returned backup has a mismatched %s",
+    async (_name, binding) => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(status({ check: { backup: binding } })),
+      );
+
+      await expectCode(readBuilderBranchBackupStatus(input), "unverified").then(
+        (error) =>
+          expect(error).toMatchObject({ readbackStage: "status_binding" }),
+      );
+    },
+  );
+
+  it("checks identity binding before parsing commit currentness", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        status({
+          branch: { projectId: "other-project", lastCommitHash: "malformed" },
+        }),
+      ),
+    );
+
+    await expectCode(readBuilderBranchBackupStatus(input), "unverified").then(
+      (error) =>
+        expect(error).toMatchObject({ readbackStage: "status_binding" }),
+    );
+  });
+
+  it("fails when the status response omits backup metadata", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({ status: "ok", branch: status().branch }),
+    );
+
+    await expectCode(readBuilderBranchBackupStatus(input), "unverified").then(
+      (error) => expect(error).toMatchObject({ readbackStage: "status_shape" }),
+    );
+  });
+
+  it("preserves missing and malformed partial metadata as fixed markers", async () => {
+    const malformedValue = "provider-fixture-private-detail";
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse(status({ check: { backup: { partial: undefined } } })),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          status({ check: { backup: { partial: malformedValue } } }),
+        ),
+      );
+
+    const missing = await readBuilderBranchBackupStatus(input);
+    const malformed = await readBuilderBranchBackupStatus(input);
+
+    expect(missing.backupPartial).toBe("missing");
+    expect(malformed.backupPartial).toBe("invalid");
+    expect(JSON.stringify([missing, malformed])).not.toContain(malformedValue);
+  });
+
+  it("fails with a typed shape error for an unknown provider status", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(status({ check: { state: "future-state" } })),
+    );
+
+    await expectCode(readBuilderBranchBackupStatus(input), "unverified").then(
+      (error) => expect(error).toMatchObject({ readbackStage: "status_shape" }),
+    );
+  });
+
+  it("rejects impossible backup state and outcome combinations", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(status({ check: { state: "valid", outcome: "no-backup" } })),
+    );
+
+    await expectCode(readBuilderBranchBackupStatus(input), "unverified").then(
+      (error) => expect(error).toMatchObject({ readbackStage: "status_shape" }),
+    );
+  });
+
+  it("reports a known invalid backup state without implying verification", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(status({ check: { state: "invalid", outcome: "error" } })),
+    );
+
+    await expect(readBuilderBranchBackupStatus(input)).resolves.toMatchObject({
+      backupPartial: false,
+      backupValid: false,
+      backupComplete: true,
+      verificationPerformed: false,
+    });
+  });
+
+  it.each([
+    ["stale hash mismatch", "stale", "hash-mismatch"],
+    ["forced backup", "forced-backup", "forced-offline-full-backup"],
+    ["submodule change", "submodule-changes", "submodule-changes"],
+  ])("reports %s as nonvalid metadata", async (_label, state, outcome) => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        status({ check: { state, outcome, backup: { partial: true } } }),
+      ),
+    );
+
+    await expect(readBuilderBranchBackupStatus(input)).resolves.toMatchObject({
+      backupPartial: true,
+      backupValid: false,
+      backupComplete: true,
+      verificationPerformed: false,
+    });
+  });
+
+  it("fails explicitly when an invalid provider status has no backup object", async () => {
+    const value = status();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        ...value,
+        backupStatuses: {
+          code: { state: "invalid", outcome: "no-backup" },
+        },
+      }),
+    );
+
+    await expectCode(readBuilderBranchBackupStatus(input), "unverified").then(
+      (error) => expect(error).toMatchObject({ readbackStage: "status_shape" }),
+    );
+  });
+
+  it("reports backup currentness and branch activity without verifying files", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        status({
+          branch: { agentState: "running", hasUnpushedChanges: true },
+          check: { backup: { at: BACKUP_AT - 10 } },
+        }),
+      ),
+    );
+
+    await expect(readBuilderBranchBackupStatus(input)).resolves.toMatchObject({
+      backupCurrent: false,
+      agentIdle: false,
+      hasUnpushedChanges: true,
+      verificationPerformed: false,
+    });
+  });
+
+  it("preserves archived branch state in the bounded projection", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(status({ branch: { state: "archived" } })),
+    );
+
+    await expect(readBuilderBranchBackupStatus(input)).resolves.toMatchObject({
+      branchState: "archived",
+      verificationPerformed: false,
+    });
+  });
+
+  it("preserves missing branch state as unknown instead of assuming active", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(status({ branch: { state: undefined } })),
+    );
+
+    await expect(readBuilderBranchBackupStatus(input)).resolves.toMatchObject({
+      branchState: "unknown",
+      verificationPerformed: false,
+    });
+  });
+
+  it("fails when branch state contradicts the deleted flag", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(status({ branch: { state: "archived", deleted: true } })),
+    );
+
+    await expectCode(readBuilderBranchBackupStatus(input), "unverified").then(
+      (error) =>
+        expect(error).toMatchObject({ readbackStage: "status_binding" }),
+    );
+  });
+
+  it("rejects legacy Builder credentials", async () => {
+    mocks.resolveAuthorization.mockResolvedValueOnce(legacyAuthorization);
+
+    await expectCode(readBuilderBranchBackupStatus(input), "not_connected");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("fails loudly when Builder status is unavailable", async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("private detail"));
+
+    await expectCode(readBuilderBranchBackupStatus(input), "unavailable").then(
+      (error) =>
+        expect(error).toMatchObject({ readbackStage: "status_request" }),
+    );
   });
 });

@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => {
       | undefined,
     getAppCreationSettings: vi.fn(),
     readBuilderBranchFiles: vi.fn(),
+    readBuilderBranchBackupStatus: vi.fn(),
     readOrgMemberRole: vi.fn(),
     curatedSources: [
       {
@@ -59,6 +60,7 @@ vi.mock("@agent-native/core/server", () => ({
   BuilderBranchFilesError: mocks.BuilderBranchFilesError,
   getRequestContext: () => mocks.context,
   readBuilderBranchFiles: mocks.readBuilderBranchFiles,
+  readBuilderBranchBackupStatus: mocks.readBuilderBranchBackupStatus,
   readOrgMemberRole: mocks.readOrgMemberRole,
 }));
 
@@ -81,7 +83,10 @@ vi.mock("./dispatch-store.js", () => ({
 
 import { BuilderBranchFilesError } from "@agent-native/core/server";
 
-import { verifyCuratedCommunityApp } from "./community-install-verification.js";
+import {
+  inspectCommunityBuilderBackup,
+  verifyCuratedCommunityApp,
+} from "./community-install-verification.js";
 
 const content = new TextEncoder().encode("reviewed bytes\n");
 const baseSnapshot = {
@@ -127,6 +132,16 @@ describe("verifyCuratedCommunityApp", () => {
       savedBuilderProjectId: "builder-project-1",
     });
     mocks.readOrgMemberRole.mockResolvedValue("owner");
+    mocks.readBuilderBranchBackupStatus.mockResolvedValue({
+      branchState: "active",
+      backupPartial: false,
+      backupValid: true,
+      backupComplete: true,
+      backupCurrent: true,
+      agentIdle: true,
+      hasUnpushedChanges: false,
+      verificationPerformed: false,
+    });
     mocks.readBuilderBranchFiles.mockResolvedValue(baseSnapshot);
   });
 
@@ -176,6 +191,33 @@ describe("verifyCuratedCommunityApp", () => {
     expect(mocks.readBuilderBranchFiles).not.toHaveBeenCalled();
   });
 
+  it("denies non-owner members before inspecting backup metadata", async () => {
+    mocks.readOrgMemberRole.mockResolvedValueOnce("member");
+
+    await expect(
+      inspectCommunityBuilderBackup({ branchName: input.branchName }),
+    ).rejects.toMatchObject({
+      errorCode: "community_verification_owner_required",
+    });
+    expect(mocks.readBuilderBranchBackupStatus).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["integration caller", { isIntegrationCaller: true }],
+    ["synthetic traffic", { isSyntheticTraffic: true }],
+    ["A2A identity", { a2aIdentityAssurance: "organization" as const }],
+  ])("denies %s before inspecting backup metadata", async (_name, override) => {
+    mocks.context = { ...authenticatedOwnerContext(), ...override };
+
+    await expect(
+      inspectCommunityBuilderBackup({ branchName: input.branchName }),
+    ).rejects.toMatchObject({
+      errorCode: "community_verification_identity_required",
+    });
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
+    expect(mocks.readBuilderBranchBackupStatus).not.toHaveBeenCalled();
+  });
+
   it("denies non-owner members before reading Builder", async () => {
     mocks.readOrgMemberRole.mockResolvedValue("member");
 
@@ -193,6 +235,51 @@ describe("verifyCuratedCommunityApp", () => {
       statusCode: 503,
     });
     expect(mocks.readBuilderBranchFiles).not.toHaveBeenCalled();
+  });
+
+  it("inspects only bound backup status for the saved Builder project", async () => {
+    mocks.readBuilderBranchBackupStatus.mockResolvedValueOnce({
+      branchState: "active",
+      backupPartial: true,
+      backupValid: true,
+      backupComplete: true,
+      backupCurrent: false,
+      agentIdle: true,
+      hasUnpushedChanges: false,
+      verificationPerformed: false,
+    });
+
+    await expect(
+      inspectCommunityBuilderBackup({ branchName: input.branchName }),
+    ).resolves.toEqual({
+      branchName: input.branchName,
+      branchState: "active",
+      backupPartial: true,
+      backupValid: true,
+      backupComplete: true,
+      backupCurrent: false,
+      agentIdle: true,
+      hasUnpushedChanges: false,
+      verificationPerformed: false,
+    });
+    expect(mocks.readBuilderBranchBackupStatus).toHaveBeenCalledExactlyOnceWith(
+      { projectId: "builder-project-1", branchName: input.branchName },
+    );
+    expect(mocks.readBuilderBranchFiles).not.toHaveBeenCalled();
+  });
+
+  it("requires the explicitly saved Builder project for status inspection", async () => {
+    mocks.getAppCreationSettings.mockResolvedValueOnce({
+      builderProjectId: "deployment-project",
+      savedBuilderProjectId: null,
+    });
+
+    await expect(
+      inspectCommunityBuilderBackup({ branchName: input.branchName }),
+    ).rejects.toMatchObject({
+      errorCode: "community_verification_project_required",
+    });
+    expect(mocks.readBuilderBranchBackupStatus).not.toHaveBeenCalled();
   });
 
   it.each([

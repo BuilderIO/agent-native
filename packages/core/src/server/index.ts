@@ -867,6 +867,7 @@ export {
 } from "./builder-branch.js";
 export {
   BuilderBranchFilesError,
+  readBuilderBranchBackupStatus,
   readBuilderBranchFiles,
 } from "./builder-branch-files.js";
 export {
