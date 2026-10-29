@@ -546,7 +546,7 @@ describe("tracking registry", () => {
     expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
   });
 
-  it("does not emit experiment funnel events when assignment lookup fails", async () => {
+  it("emits tracked events without attribution when assignment lookup fails", async () => {
     const events = captureEvents();
     const pending: Promise<unknown>[] = [];
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -573,7 +573,10 @@ describe("tracking registry", () => {
     );
     await Promise.all(pending);
 
-    expect(events).toHaveLength(0);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.name).toBe("design_prompt_submitted");
+    expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+    expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
     expect(error).toHaveBeenCalledWith(
       "[tracking] question-intake assignment lookup failed",
       {

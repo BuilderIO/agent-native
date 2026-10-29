@@ -146,6 +146,7 @@ import {
   singleNonHostedAssignment,
 } from "../observability/hosted-model-experiment.js";
 import {
+  questionIntakeExposureProperties,
   resolveQuestionIntakeExperimentAssignment,
   treatmentInstructionsForQuestionIntake,
 } from "../observability/question-intake-experiment.js";
@@ -16973,16 +16974,11 @@ export function createProductionAgentHandler(
           ? trackExperimentExposureAtDispatch(guardedBeforeModelDispatch, () =>
               track(
                 "agent_experiment_exposed",
-                {
-                  experiment_id: exposureAssignment.experimentId,
-                  experiment_variant: exposureAssignment.variantId,
-                  exposure_surface: "agent_run",
-                  app_id: options.appId ?? "app",
-                  templateId: options.appId ?? "app",
-                  agent_native_app: options.appId ?? "app",
-                  ...(threadId ? { thread_id: threadId } : {}),
-                  ...(requestTurnId ? { turn_id: requestTurnId } : {}),
-                },
+                questionIntakeExposureProperties(exposureAssignment, {
+                  appId: options.appId ?? "app",
+                  threadId,
+                  turnId: effectiveTurnId,
+                }),
                 {
                   ...(ownerEmail ? { userId: ownerEmail } : {}),
                   authUserId: exposureAssignment.authUserId,

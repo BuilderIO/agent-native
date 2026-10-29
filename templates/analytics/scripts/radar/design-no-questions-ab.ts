@@ -82,7 +82,7 @@ exposures AS (
   FROM exposure_rows WHERE exposure_number = 1
 ),
 prompts AS (
-  SELECT person_key, happened_at,
+  SELECT id, person_key, happened_at, properties ->> 'output_id' AS output_id,
     properties ->> 'experiment_id' AS experiment_id,
     properties ->> 'experiment_variant' AS variant
   FROM base_events
@@ -96,7 +96,12 @@ cohort AS (
   SELECT x.person_key, x.variant, x.exposed_at, x.exposed_turn_id,
     min(p.happened_at) FILTER (WHERE p.happened_at BETWEEN
       x.exposed_at - interval '${PROMPT_EXPOSURE_JOIN_WINDOW}' AND
-      x.exposed_at + interval '${PROMPT_EXPOSURE_JOIN_WINDOW}') AS first_prompt_at
+      x.exposed_at + interval '${PROMPT_EXPOSURE_JOIN_WINDOW}') AS first_prompt_at,
+    (array_agg(p.output_id ORDER BY p.happened_at, p.id) FILTER (WHERE
+      p.happened_at BETWEEN
+        x.exposed_at - interval '${PROMPT_EXPOSURE_JOIN_WINDOW}' AND
+        x.exposed_at + interval '${PROMPT_EXPOSURE_JOIN_WINDOW}'))[1]
+      AS first_prompt_output_id
   FROM exposures x
   LEFT JOIN prompts p ON p.person_key = x.person_key AND p.variant = x.variant
   GROUP BY x.person_key, x.variant, x.exposed_at, x.exposed_turn_id
@@ -115,6 +120,8 @@ ready AS (
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < a.anchor_at + interval '24 hours'
     AND e.happened_at <= $4::timestamptz
+    AND a.first_prompt_output_id IS NOT NULL
+    AND e.properties ->> 'output_id' = a.first_prompt_output_id
     AND e.properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND e.properties ->> 'experiment_variant' = a.variant
   GROUP BY a.person_key
@@ -147,6 +154,8 @@ exports AS (
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < a.anchor_at + interval '24 hours'
     AND e.happened_at <= $4::timestamptz
+    AND a.first_prompt_output_id IS NOT NULL
+    AND e.properties ->> 'output_id' = a.first_prompt_output_id
     AND e.properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND e.properties ->> 'experiment_variant' = a.variant
     AND e.properties ->> 'status' = 'completed'
@@ -217,7 +226,8 @@ exposures AS (
   FROM exposure_rows WHERE exposure_number = 1
 ),
 prompts AS (
-  SELECT person_key, happened_at,
+  SELECT id, person_key, happened_at,
+    json_value(properties, '$.output_id') AS output_id,
     json_value(properties, '$.experiment_id') AS experiment_id,
     json_value(properties, '$.experiment_variant') AS variant
   FROM base_events
@@ -229,7 +239,13 @@ prompts AS (
 ),
 cohort AS (
   SELECT x.person_key, x.variant, x.exposed_at, x.exposed_turn_id,
-    min(p.happened_at) AS first_prompt_at
+    min(p.happened_at) AS first_prompt_at,
+    ARRAY_AGG(STRUCT(
+      p.happened_at AS happened_at,
+      p.id AS id,
+      p.output_id AS output_id
+    ) ORDER BY p.happened_at, p.id LIMIT 1)[SAFE_OFFSET(0)].output_id
+      AS first_prompt_output_id
   FROM exposures x
   LEFT JOIN prompts p ON p.person_key = x.person_key AND p.variant = x.variant
     AND p.happened_at BETWEEN timestamp_sub(x.exposed_at, INTERVAL 10 MINUTE)
@@ -250,6 +266,8 @@ ready AS (
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
     AND e.happened_at <= @as_of
+    AND a.first_prompt_output_id IS NOT NULL
+    AND json_value(e.properties, '$.output_id') = a.first_prompt_output_id
     AND json_value(e.properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(e.properties, '$.experiment_variant') = a.variant
   GROUP BY a.person_key
@@ -281,6 +299,8 @@ exports AS (
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
     AND e.happened_at <= @as_of
+    AND a.first_prompt_output_id IS NOT NULL
+    AND json_value(e.properties, '$.output_id') = a.first_prompt_output_id
     AND json_value(e.properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(e.properties, '$.experiment_variant') = a.variant
     AND json_value(e.properties, '$.status') = 'completed'
@@ -561,7 +581,7 @@ export function formatDesignNoQuestionsReadout(
   }
   lines.push(
     "",
-    `Design-ready and completed-export rates use the mature exposed cohort. Exports count only completed server-recorded exports; browser-local exports are not attributed because their completion cannot be verified server-side. The second-prompt rate uses mature exposed users with a joined first prompt. The return rate uses only users with a full 8-day observation window. Exposure joins to a stamped Design prompt within ±${PROMPT_EXPOSURE_JOIN_WINDOW}; when that prompt event is missing, time-based outcomes use the server exposure timestamp. Design-ready and export outcomes require matching experiment id and variant.`,
+    `Design-ready and completed-export rates use the mature exposed cohort. Exports count only completed server-recorded exports; browser-local exports are not attributed because their completion cannot be verified server-side. Ready and export events must match the first prompt's Design output id. The second-prompt rate uses mature exposed users with a joined first prompt. The return rate uses only users with a full 8-day observation window. Exposure joins to a stamped Design prompt within ±${PROMPT_EXPOSURE_JOIN_WINDOW}; when that prompt event is missing, time-based outcomes use the server exposure timestamp. Design-ready and export outcomes require matching experiment id and variant.`,
   );
   return lines.join("\n");
 }

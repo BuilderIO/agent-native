@@ -78,6 +78,17 @@ describe("Design no-questions readout query", () => {
       expect(sql).toContain("design_prompt_submitted");
       expect(sql).toContain("design_ready_viewed");
       expect(sql).toContain("design_exported");
+      expect(sql).toContain("first_prompt_output_id");
+      expect(sql.match(/first_prompt_output_id IS NOT NULL/g)).toHaveLength(2);
+      if (_name === "PostgreSQL") {
+        expect(sql).toContain(
+          "e.properties ->> 'output_id' = a.first_prompt_output_id",
+        );
+      } else {
+        expect(sql).toContain(
+          "json_value(e.properties, '$.output_id') = a.first_prompt_output_id",
+        );
+      }
       expect(sql).toContain("event_name = '$ai_generation'");
       expect(sql).toContain("exposed_turn_id");
       expect(sql).toContain("<> a.exposed_turn_id");

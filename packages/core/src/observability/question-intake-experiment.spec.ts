@@ -12,6 +12,7 @@ import {
   QuestionIntakeAssignmentError,
   QUESTION_INTAKE_CONTROL_VARIANT,
   QUESTION_INTAKE_TREATMENT_VARIANT,
+  questionIntakeExposureProperties,
   resolveQuestionIntakeExperimentAssignment,
   treatmentInstructionsForQuestionIntake,
   type QuestionIntakeExperimentConfig,
@@ -31,6 +32,23 @@ beforeEach(() => {
 });
 
 describe("signup-time question-intake assignments", () => {
+  it("records the effective turn ID with every exposure", () => {
+    expect(
+      questionIntakeExposureProperties(
+        {
+          authUserId: "user-1",
+          experimentId: "design_no_questions",
+          variantId: "control",
+        },
+        { appId: "design", turnId: "effective-run-id" },
+      ),
+    ).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "control",
+      turn_id: "effective-run-id",
+    });
+  });
+
   it("makes treatment instructions override conflicting intake directives", () => {
     expect(
       treatmentInstructionsForQuestionIntake(config, {

@@ -219,6 +219,7 @@ export function track(
             experimentId: config.experimentId,
             eventName: name,
           });
+          emitTrackedEvent(name, experimentProperties, source);
         },
       )
       .catch(() => {

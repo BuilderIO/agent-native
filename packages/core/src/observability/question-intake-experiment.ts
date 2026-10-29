@@ -23,6 +23,22 @@ export interface QuestionIntakeExperimentAssignment {
     | typeof QUESTION_INTAKE_TREATMENT_VARIANT;
 }
 
+export function questionIntakeExposureProperties(
+  assignment: QuestionIntakeExperimentAssignment,
+  context: { appId: string; threadId?: string; turnId: string },
+): Record<string, string> {
+  return {
+    experiment_id: assignment.experimentId,
+    experiment_variant: assignment.variantId,
+    exposure_surface: "agent_run",
+    app_id: context.appId,
+    templateId: context.appId,
+    agent_native_app: context.appId,
+    ...(context.threadId ? { thread_id: context.threadId } : {}),
+    turn_id: context.turnId,
+  };
+}
+
 export class QuestionIntakeAssignmentError extends Error {
   readonly code = "question_intake_assignment_failed";
 
