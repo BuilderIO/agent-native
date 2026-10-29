@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { ActionRunContext } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
+  questionIntakeExposureProperties,
   resolveQuestionIntakeExperimentAssignment,
   type QuestionIntakeExperimentAssignment,
 } from "../observability/question-intake-experiment.js";
@@ -247,6 +248,25 @@ export function track(
   }
 
   emitTrackedEvent(name, properties, source);
+}
+
+export function trackQuestionIntakeExposure(
+  assignment: QuestionIntakeExperimentAssignment,
+  context: {
+    appId: string;
+    threadId?: string;
+    turnId: string;
+    userId?: string;
+  },
+): void {
+  track(
+    "agent_experiment_exposed",
+    questionIntakeExposureProperties(assignment, context),
+    {
+      ...(context.userId ? { userId: context.userId } : {}),
+      authUserId: assignment.authUserId,
+    },
+  );
 }
 
 function emitTrackedEvent(

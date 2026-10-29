@@ -147,7 +147,6 @@ import {
 } from "../observability/hosted-model-experiment.js";
 import {
   InvalidQuestionIntakeExperimentAssignmentError,
-  questionIntakeExposureProperties,
   resolveQuestionIntakeExperimentAssignment,
   treatmentInstructionsForQuestionIntake,
 } from "../observability/question-intake-experiment.js";
@@ -242,7 +241,7 @@ import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,
 } from "../shared/test-traffic.js";
-import { track } from "../tracking/index.js";
+import { trackQuestionIntakeExposure } from "../tracking/index.js";
 import type { TrackingMeta } from "../tracking/registry.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
 import { agentErrorDetails } from "./action-error-details.js";
@@ -16892,6 +16891,7 @@ export function createProductionAgentHandler(
       return { ok: true, skipped: "setup-deadline" };
     }
 
+    // raw-sql-ok: run callback IDs and prompts reach static queries as bound arguments.
     const startedRun = startRun(
       runId,
       effectiveThreadId,
@@ -16991,18 +16991,12 @@ export function createProductionAgentHandler(
             : null;
         const beforeModelDispatch = exposureAssignment
           ? trackExperimentExposureAtDispatch(guardedBeforeModelDispatch, () =>
-              track(
-                "agent_experiment_exposed",
-                questionIntakeExposureProperties(exposureAssignment, {
-                  appId: options.appId ?? "app",
-                  ...(threadId === undefined ? {} : { threadId }),
-                  turnId: effectiveTurnId,
-                }),
-                {
-                  ...(ownerEmail ? { userId: ownerEmail } : {}),
-                  authUserId: exposureAssignment.authUserId,
-                },
-              ),
+              trackQuestionIntakeExposure(exposureAssignment, {
+                appId: options.appId ?? "app",
+                ...(threadId === undefined ? {} : { threadId }),
+                turnId: effectiveTurnId,
+                ...(ownerEmail ? { userId: ownerEmail } : {}),
+              }),
             )
           : guardedBeforeModelDispatch;
 

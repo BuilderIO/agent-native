@@ -20,6 +20,7 @@ import {
   identify,
   registerTrackingProvider,
   track,
+  trackQuestionIntakeExposure,
   unregisterTrackingProvider,
 } from "./registry.js";
 import type { TrackingEvent } from "./types.js";
@@ -38,9 +39,15 @@ vi.mock("../observability/tracing.js", async (importOriginal) => {
 });
 
 vi.mock("../observability/store.js", () => mockExperimentAssignments);
-vi.mock("../observability/question-intake-experiment.js", () => ({
-  resolveQuestionIntakeExperimentAssignment: mockQuestionIntakeAssignment,
-}));
+vi.mock(
+  "../observability/question-intake-experiment.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../observability/question-intake-experiment.js")
+    >()),
+    resolveQuestionIntakeExperimentAssignment: mockQuestionIntakeAssignment,
+  }),
+);
 
 function captureEvents(): TrackingEvent[] {
   const events: TrackingEvent[] = [];
@@ -421,6 +428,55 @@ describe("tracking registry", () => {
       expect.objectContaining({ experimentId: "design_no_questions" }),
       "better-auth-user-3",
     );
+  });
+
+  it("tracks a run exposure with the assigned arm and effective turn ID", async () => {
+    const events = captureEvents();
+    const assignment = {
+      authUserId: "better-auth-user-3",
+      experimentId: "design_no_questions",
+      variantId: "no_questions" as const,
+    };
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["agent_experiment_exposed"],
+        },
+      },
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: "carol@example.com",
+        authUserId: "better-auth-user-3",
+        run: { questionIntakeExperimentAssignment: assignment },
+      },
+      () =>
+        trackQuestionIntakeExposure(assignment, {
+          appId: "design",
+          threadId: "thread-3",
+          turnId: "turn-3",
+          userId: "carol@example.com",
+        }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      name: "agent_experiment_exposed",
+      userId: "carol@example.com",
+      properties: {
+        experiment_id: "design_no_questions",
+        experiment_variant: "no_questions",
+        app_id: "design",
+        thread_id: "thread-3",
+        turn_id: "turn-3",
+      },
+    });
+    expect(mockQuestionIntakeAssignment).not.toHaveBeenCalled();
   });
 
   it("attributes only allowlisted client experiment events and preserves client provenance", async () => {
