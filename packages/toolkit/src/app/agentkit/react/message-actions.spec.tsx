@@ -548,6 +548,7 @@ describe("assistant reply toolbar", () => {
     expect(writeText).toHaveBeenCalledOnce();
     expect(requestId.disabled).toBe(false);
     expect(requestId.getAttribute("aria-busy")).toBe("true");
+    expect(requestId.querySelector(".animate-spin")).not.toBeNull();
     expect(document.activeElement).toBe(requestId);
 
     await press(requestId);

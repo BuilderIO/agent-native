@@ -5545,7 +5545,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     <MessageActionButton
       label={copied ? labels.copied : labels.copy}
       icon={
-        copied ? (
+        copyAction.pending ? (
+          <IconLoader2 aria-hidden="true" className="animate-spin" />
+        ) : copied ? (
           <IconCircleCheck aria-hidden="true" />
         ) : (
           <IconCopy aria-hidden="true" />
@@ -5754,7 +5756,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
               <MessageActionButton
                 label={requestIdCopied ? labels.copied : labels.copyRequestId}
                 icon={
-                  requestIdCopied ? (
+                  requestIdAction.pending ? (
+                    <IconLoader2 aria-hidden="true" className="animate-spin" />
+                  ) : requestIdCopied ? (
                     <IconCircleCheck aria-hidden="true" />
                   ) : (
                     <IconId aria-hidden="true" />
