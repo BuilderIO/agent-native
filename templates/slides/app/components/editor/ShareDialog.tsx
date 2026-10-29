@@ -1,5 +1,5 @@
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { useSession } from "@agent-native/core/client/hooks";
+import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
 import { ShareDialog as CoreShareDialog } from "@agent-native/toolkit/app/sharing";
@@ -49,15 +49,24 @@ export default function ShareDialog({
     [onOpenChange],
   );
 
+  // The card's deck prop goes stale when the dialog changes visibility, so read it live.
+  const liveDeck = useActionQuery<{ visibility?: Deck["visibility"] }>(
+    "get-deck",
+    { id: deck.id, compact: "true" },
+    { enabled: open },
+  );
+  const isPublic = (liveDeck.data?.visibility ?? deck.visibility) === "public";
+
   const shareToken =
     shareLink?.deckId === deck.id ? shareLink.token : undefined;
-  const primaryShareLink = shareToken
-    ? withShareLinkAttribution(
-        `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`,
-        "deck_share",
-        session?.userId,
-      )
-    : undefined;
+  const primaryShareLink =
+    shareToken && isPublic
+      ? withShareLinkAttribution(
+          `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`,
+          "deck_share",
+          session?.userId,
+        )
+      : undefined;
   const openShareDialog = useCallback(async () => {
     if (shareToken) {
       setDialogOpen(true);
@@ -138,7 +147,9 @@ export default function ShareDialog({
         title={t("share.title")}
         resourceTitle={deck.title}
         shareUrl={primaryShareLink}
-        linkTabExtras={<SnapshotShareLinks deckId={deck.id} />}
+        linkTabExtras={
+          isPublic ? <SnapshotShareLinks deckId={deck.id} /> : undefined
+        }
       />
     </>
   );

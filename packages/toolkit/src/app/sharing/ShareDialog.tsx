@@ -194,14 +194,16 @@ function LinkTab({
   const Icon = VIS_ICONS[controller.visibility.value];
   return (
     <div className="space-y-3">
-      <ShareCopyRow
-        label={controller.labels.shareLink}
-        value={controller.shareUrl!}
-        copyLabel={controller.labels.copy}
-        copiedLabel={controller.labels.copied}
-        onCopy={(value) => controller.copy("share-link", value)}
-        className="mb-4"
-      />
+      {controller.shareUrl ? (
+        <ShareCopyRow
+          label={controller.labels.shareLink}
+          value={controller.shareUrl}
+          copyLabel={controller.labels.copy}
+          copiedLabel={controller.labels.copied}
+          onCopy={(value) => controller.copy("share-link", value)}
+          className="mb-4"
+        />
+      ) : null}
       <div>
         <div className="mb-2 text-xs font-medium text-muted-foreground">
           {controller.labels.generalAccess}
