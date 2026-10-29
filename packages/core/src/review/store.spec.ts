@@ -653,4 +653,65 @@ describe("review store", () => {
     expect(live.map((comment) => comment.id)).toEqual([reply.id]);
     expect(live[0].threadId).toBe(root.threadId);
   });
+
+  it("keeps metadata another write adds while a comment is being deleted", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete-race",
+      body: "Racing",
+      authorEmail: "alice@example.com",
+      metadata: {
+        source: "pin",
+        attachments: [
+          { url: "https://cdn.builder.io/api/v1/image/y", name: "shot" },
+        ],
+      },
+    });
+    const run = rawClient.execute.getMockImplementation();
+    if (!run) throw new Error("The test client has no implementation");
+    let raced = false;
+    rawClient.execute.mockImplementation(async (input) => {
+      if (
+        !raced &&
+        typeof input !== "string" &&
+        input.sql.includes("status = 'deleted'")
+      ) {
+        raced = true;
+        // Another write lands between the deletion's read and its update.
+        const read = await pglite.prepare(
+          "SELECT metadata_json FROM agent_review_comments WHERE id = ?",
+        );
+        const current = await read.all(root.id);
+        const metadata = JSON.parse(
+          String((current[0] as { metadata_json: string }).metadata_json),
+        ) as Record<string, unknown>;
+        const write = await pglite.prepare(
+          "UPDATE agent_review_comments SET metadata_json = ? WHERE id = ?",
+        );
+        await write.run(
+          JSON.stringify({ ...metadata, resolutionNote: "kept" }),
+          root.id,
+        );
+      }
+      return run(input);
+    });
+    try {
+      expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(1);
+    } finally {
+      rawClient.execute.mockImplementation(run);
+    }
+
+    expect(raced).toBe(true);
+    const stored = await getReviewCommentById(
+      root.id,
+      {},
+      { bypassScope: true },
+    );
+    expect(stored).toMatchObject({
+      status: "deleted",
+      body: "",
+      metadata: { source: "pin", resolutionNote: "kept" },
+    });
+    expect(stored?.metadata).not.toHaveProperty("attachments");
+  });
 });

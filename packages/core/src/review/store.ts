@@ -1278,6 +1278,9 @@ export async function sendReviewThreadToAgent(
   return routeReviewThread(threadId, "agent", resource);
 }
 
+/** How many times a deletion rereads a comment that changed under it. */
+const DELETE_COMMENT_ATTEMPTS = 5;
+
 /**
  * Soft-deletes a comment: the row stays so its replies keep their thread, but
  * the text, mentions and image attachments are cleared, as they are in apps
@@ -1289,29 +1292,39 @@ export async function deleteReviewComment(
 ): Promise<number> {
   await ensureReviewTables();
   const client = getDbExec();
-  const existing = await client.execute(sql`SELECT metadata_json
-       FROM agent_review_comments
-      WHERE id = ${sql.value(id)}
-      LIMIT 1`);
-  const row = existing.rows[0] as Record<string, unknown> | undefined;
-  if (!row) return 0;
-  const metadata = parseObject(row.metadata_json);
-  if (metadata) delete metadata.attachments;
-  const remainingMetadata =
-    metadata && Object.keys(metadata).length > 0
-      ? JSON.stringify(metadata)
-      : null;
-  const now = new Date().toISOString();
-  const result = await client.execute(sql`UPDATE agent_review_comments
-        SET status = 'deleted',
-            body = '',
-            mentions_json = NULL,
-            metadata_json = ${sql.value(remainingMetadata)},
-            deleted_by = ${sql.value(deletedBy ?? null)},
-            deleted_at = ${sql.value(now)},
-            updated_at = ${sql.value(now)}
-      WHERE id = ${sql.value(id)}`);
-  return result.rowsAffected;
+  // Another write, such as a resolution note, can change the metadata between
+  // the read and the update. The update only lands on the metadata it read,
+  // and reads again when that changed, so the other write isn't lost.
+  for (let attempt = 0; attempt < DELETE_COMMENT_ATTEMPTS; attempt += 1) {
+    const existing = await client.execute(sql`SELECT metadata_json
+         FROM agent_review_comments
+        WHERE id = ${sql.value(id)}
+        LIMIT 1`);
+    const row = existing.rows[0] as Record<string, unknown> | undefined;
+    if (!row) return 0;
+    const read = typeof row.metadata_json === "string" ? row.metadata_json : "";
+    const metadata = parseObject(row.metadata_json);
+    if (metadata) delete metadata.attachments;
+    const remainingMetadata =
+      metadata && Object.keys(metadata).length > 0
+        ? JSON.stringify(metadata)
+        : null;
+    const now = new Date().toISOString();
+    const result = await client.execute(sql`UPDATE agent_review_comments
+          SET status = 'deleted',
+              body = '',
+              mentions_json = NULL,
+              metadata_json = ${sql.value(remainingMetadata)},
+              deleted_by = ${sql.value(deletedBy ?? null)},
+              deleted_at = ${sql.value(now)},
+              updated_at = ${sql.value(now)}
+        WHERE id = ${sql.value(id)}
+          AND COALESCE(metadata_json, '') = ${sql.value(read)}`);
+    if (result.rowsAffected > 0) return result.rowsAffected;
+  }
+  throw new Error(
+    `Comment ${id} kept changing while it was being deleted; try again.`,
+  );
 }
 
 /** Distinct authors of a thread's live comments, for reply emails. */
