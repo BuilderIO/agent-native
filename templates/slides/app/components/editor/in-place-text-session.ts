@@ -278,14 +278,7 @@ function ownsFlowSlot(el: HTMLElement) {
   return !isFitFreeformFrame(el);
 }
 
-/** Drops the size containment earlier sessions persisted onto editor-owned freeform boxes. */
-export function stripFreeformReservation(el: HTMLElement) {
-  if (
-    !el.hasAttribute("data-slide-object-id") ||
-    !(el.classList.contains("fmd-text-box") || !ownsFlowSlot(el))
-  ) {
-    return;
-  }
+function dropSizeLock(el: HTMLElement) {
   const tokens = el.style.getPropertyValue("contain").split(/\s+/u);
   if (!tokens.includes("size")) return;
   const rest = tokens.filter((token) => token && token !== "size");
@@ -300,6 +293,29 @@ export function stripFreeformReservation(el: HTMLElement) {
   }
   el.style.removeProperty("contain-intrinsic-size");
   if (!el.getAttribute("style")) el.removeAttribute("style");
+}
+
+/** Drops the size containment earlier sessions persisted onto editor-owned freeform boxes. */
+export function stripFreeformReservation(el: HTMLElement) {
+  if (
+    !el.hasAttribute("data-slide-object-id") ||
+    !(el.classList.contains("fmd-text-box") || !ownsFlowSlot(el))
+  ) {
+    return;
+  }
+  dropSizeLock(el);
+}
+
+/**
+ * Applied to every serialized slide: flow blocks keep their size lock on the
+ * live element, and saving it would pin a paragraph that grew to its old height.
+ */
+export function stripSizeLocks(root: ParentNode) {
+  for (const el of root.querySelectorAll<HTMLElement>("[style*='contain']")) {
+    dropSizeLock(el);
+    el.style.removeProperty("contain-intrinsic-size");
+    if (!el.getAttribute("style")) el.removeAttribute("style");
+  }
 }
 
 /**

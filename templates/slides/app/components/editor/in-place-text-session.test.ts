@@ -8,6 +8,7 @@ import {
   IN_PLACE_TEXT_UNDO_LIMIT,
   type InPlaceTextSession,
   startInPlaceTextSession,
+  stripSizeLocks,
 } from "./in-place-text-session";
 
 let session: InPlaceTextSession | null = null;
@@ -565,6 +566,21 @@ describe("in-place text session: entering and ending", () => {
     expect(el.style.getPropertyValue("contain")).toBe("");
     expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe("");
     expect(el.style.top).toBe("20px");
+  });
+
+  it("saved HTML drops the size lock a grown flow paragraph holds on the live element", () => {
+    const el = mount('<p id="t" style="margin: 0">Alpha</p>');
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+    type(el, " beta gamma");
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+
+    const saved = document.createElement("div");
+    saved.append(el.cloneNode(true));
+    stripSizeLocks(saved);
+
+    expect(saved.innerHTML).not.toContain("contain");
   });
 
   it("keeps an author's other contain tokens when stripping the size token", () => {

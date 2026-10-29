@@ -181,6 +181,7 @@ import ImageOverlay from "./ImageOverlay";
 import {
   startInPlaceTextSession,
   stripFreeformReservation,
+  stripSizeLocks,
   type InPlaceTextSession,
 } from "./in-place-text-session";
 import {
@@ -808,6 +809,7 @@ function prepareSerializationRoot(root: ParentNode): void {
   root.querySelectorAll("[data-slide-crop-overlay]").forEach((overlay) => {
     overlay.remove();
   });
+  stripSizeLocks(root);
   for (const child of Array.from(root.children)) {
     stripTransientSlideLayoutSpacers(child);
   }
