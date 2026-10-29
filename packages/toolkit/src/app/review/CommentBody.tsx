@@ -269,12 +269,14 @@ const MAX_MENTION_LABEL = 200;
 
 interface LabelNode {
   next: Map<string, LabelNode>;
-  mention?: CommentBodyMention;
+  /** The mention a label names, or null when it names more than one. */
+  mention?: CommentBodyMention | null;
 }
 
 /**
  * Unpinned mention labels in a character tree, so matching at an `@` walks
- * at most one label's length, however many mentions a comment lists.
+ * at most one label's length, however many mentions a comment lists. A label
+ * two people share stays text, rather than draw one of them for both.
  */
 class MentionLabels {
   private readonly root: LabelNode = { next: new Map() };
@@ -290,29 +292,42 @@ class MentionLabels {
       }
       node = child;
     }
-    node.mention ??= mention;
+    if (node.mention === undefined) node.mention = mention;
+    else if (node.mention && !sameIdentity(node.mention, mention)) {
+      node.mention = null;
+    }
     this.empty = false;
   }
 
   /**
    * The longest label that starts at `start` and ends on a word boundary, so
-   * `@Sam` isn't read inside `@Samantha`.
+   * `@Sam` isn't read inside `@Samantha`. If two people share that label,
+   * none: a shorter one, like `@Sam` in `@Sam Lee`, would name someone else.
    */
   longestAt(body: string, start: number): CommentBodyMention | undefined {
     let node: LabelNode | undefined = this.root;
-    let longest: CommentBodyMention | undefined;
+    let longest: CommentBodyMention | null | undefined;
     let end = start;
     for (const char of body.slice(start, start + MAX_MENTION_LABEL)) {
       node = node.next.get(char);
       if (!node) break;
       end += char.length;
-      if (!node.mention) continue;
+      if (node.mention === undefined) continue;
       const next = codePointAt(body, end);
       const endsWord = !(NAME_CHAR.test(char) && next && NAME_CHAR.test(next));
       if (endsWord) longest = node.mention;
     }
-    return longest;
+    return longest ?? undefined;
   }
+}
+
+/** Whether two listed mentions name the same person or agent. */
+function sameIdentity(a: CommentBodyMention, b: CommentBodyMention): boolean {
+  return (
+    (a.id ?? null) === (b.id ?? null) &&
+    (a.email?.toLowerCase() ?? null) === (b.email?.toLowerCase() ?? null) &&
+    (a.kind ?? null) === (b.kind ?? null)
+  );
 }
 
 const LINK_PATTERNS = [

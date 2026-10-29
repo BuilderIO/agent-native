@@ -67,6 +67,26 @@ describe("CommentBody", () => {
     expect(container.textContent).toContain("mail@Sam");
   });
 
+  it("keeps a label two people share as text", () => {
+    render(
+      <CommentBody
+        body="@Sam Lee, @Sam and @Alex"
+        mentions={[
+          { label: "Sam", email: "sam@example.com" },
+          { label: "Sam Lee", email: "sam.lee@example.com" },
+          { label: "Sam Lee", email: "sam.lee@example.org" },
+          // The same person listed twice is still one mention.
+          { label: "Alex", email: "alex@example.com" },
+          { label: "Alex", email: "ALEX@example.com" },
+        ]}
+      />,
+    );
+
+    // `@Sam Lee` isn't read as `@Sam`, who is someone else.
+    expect(chips()).toEqual(["@Sam", "@Alex"]);
+    expect(container.textContent).toContain("@Sam Lee,");
+  });
+
   it("draws inline mailto mentions and keeps their address as a title", () => {
     render(
       <CommentBody body="Ask @[Alex Kim](mailto:alex%40example.com) first" />,
