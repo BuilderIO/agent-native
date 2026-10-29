@@ -217,7 +217,7 @@ Never remove or clean up another person's or this workflow's reaction. When
 new evidence changes the meaning of an existing mark, preserve it and update
 the internal disposition and inventory. Read back every new reaction and reply.
 
-An unanswered request for a reporter-provided URL, access grant, evidence, or
+An unanswered request for a reporter-provided URL, evidence, or
 clarification is **Asked** or **Clarification needed** and remains an open
 requested human action: record it in `reporterRequests[]`, keep `👀`, and
 add/read back `🎫`. Ask the direct question in the short reply that accompanies
