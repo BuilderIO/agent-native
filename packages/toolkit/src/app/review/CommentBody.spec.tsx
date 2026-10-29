@@ -226,7 +226,7 @@ describe("CommentBody", () => {
     );
   });
 
-  it("skips raw HTML and unsafe links", () => {
+  it("draws no raw HTML or unsafe links", () => {
     render(
       <CommentBody
         body={"<img src=x onerror=alert(1)> [x](javascript:alert(1))"}
@@ -235,6 +235,30 @@ describe("CommentBody", () => {
 
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
+    expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
+  });
+
+  it("shows raw HTML as written, but hides HTML comments", () => {
+    render(
+      <CommentBody
+        body={
+          "Array<string> is wrong, use <Button> here<!-- note -->\n\n" +
+          "<div>\n@Sam kept\n</div>\n\n<!--\nhidden\n-->\n\n> <b>quoted</b>"
+        }
+        mentions={[{ label: "Sam" }]}
+      />,
+    );
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Array<string> is wrong, use <Button> here");
+    // A mention inside raw HTML shows as written, like the rest of it.
+    expect(text).toContain("<div>\n@Sam kept\n</div>");
+    expect(container.querySelector("blockquote")?.textContent).toBe(
+      "<b>quoted</b>",
+    );
+    expect(text).not.toContain("note");
+    expect(text).not.toContain("hidden");
+    expect(container.querySelector("b, button")).toBeNull();
   });
 
   it("shows a paragraph nested thousands deep as written", () => {

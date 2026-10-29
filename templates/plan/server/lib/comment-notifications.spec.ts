@@ -226,7 +226,7 @@ describe("plan comment notification recipients", () => {
     const newComment = comment("reviewer", {
       authorEmail: "reviewer@example.com",
       authorName: "Reviewer",
-      message: `This <b>needs</b> "escaping" & 2 > 1 < 3.`,
+      message: `This <needs> "escaping" & a look.`,
     });
     selectPlanMock.mockResolvedValue([
       {
@@ -255,7 +255,7 @@ describe("plan comment notification recipients", () => {
       paragraphs: string[];
     };
     expect(emailArgs.paragraphs[1]).toContain(
-      "This needs &quot;escaping&quot; &amp; 2 &gt; 1 &lt; 3.",
+      "This &lt;needs&gt; &quot;escaping&quot; &amp; a look.",
     );
     expect(sendEmailMock).toHaveBeenCalledWith({
       to: "owner@example.com",

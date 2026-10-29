@@ -44,9 +44,10 @@ export interface CommentBodyProps {
 /**
  * A comment body, drawn the same way in every app: paragraphs, bold, italic,
  * strikethrough, code, links, lists, quotes, code blocks and mention chips.
- * Headings show as bold lines, and raw HTML is skipped. A comment past the
- * Markdown limit, or a paragraph nested or tangled far past what people write,
- * shows the rest as written.
+ * Headings show as bold lines, and raw HTML shows as written, but for HTML
+ * comments, which stay hidden. A comment past the Markdown limit, or a
+ * paragraph nested or tangled far past what people write, shows the rest as
+ * written.
  */
 export function CommentBody({
   body,
@@ -70,6 +71,7 @@ export function CommentBody({
       content={markdown}
       inline={compact}
       renderLists
+      showRawHtml
       // A compact body is one run of text: the newlines Markdown leaves
       // between paragraphs, list items and lines read as spaces, so they
       // don't spend a clamped preview's lines.

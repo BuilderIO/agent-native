@@ -254,12 +254,12 @@ function isDigit(char: string): boolean {
 
 /**
  * A comment as plain text. Emphasis, heading, quote and code markers go;
- * links keep their text, so `@[Name](mailto:…)` mentions read `@Name`; raw
- * HTML, images, rules and task checkboxes drop, as the renderer skips them.
- * Code, list markers and line breaks stay, and blocks keep the blank lines
- * the author put between them. Where the Markdown stops, at the limit or a
- * paragraph too tangled to read quickly, the rest stays as written, as the
- * renderer shows it.
+ * links keep their text, so `@[Name](mailto:…)` mentions read `@Name`; HTML
+ * comments, images, rules and task checkboxes drop, as the renderer skips
+ * them. Other raw HTML, code, list markers and line breaks stay as written,
+ * and blocks keep the blank lines the author put between them. Where the
+ * Markdown stops, at the limit or a paragraph too tangled to read quickly,
+ * the rest stays as written, as the renderer shows it.
  */
 export function commentPlainText(markdown: string): string {
   const text = markdown.replace(/\r\n?/g, "\n");
@@ -360,11 +360,11 @@ function blockText(node: RootContent): string | null {
         )
         .join("\n");
     case "html":
+      return isHtmlComment(node.value) ? null : node.value;
     case "thematicBreak":
     case "definition":
     case "yaml":
-      // The renderer skips raw HTML and draws no text for rules or link
-      // definitions.
+      // The renderer draws no text for rules or link definitions.
       return null;
     case "listItem":
     case "tableRow":
@@ -407,11 +407,20 @@ function phrasingText(node: PhrasingContent): string {
     case "linkReference":
       return phrasing(node.children);
     case "html":
+      return isHtmlComment(node.value) ? "" : node.value;
     case "image":
     case "imageReference":
     case "footnoteReference":
-      // The renderer skips raw HTML and draws no text for images or
-      // footnote references.
+      // The renderer draws no text for images or footnote references.
       return "";
   }
+}
+
+/**
+ * Whether raw HTML is a comment, which the renderer hides. Other raw HTML in
+ * a comment is usually prose about markup, like `use <Button> here`, so it
+ * shows as written.
+ */
+function isHtmlComment(html: string): boolean {
+  return html.trimStart().startsWith("<!--");
 }

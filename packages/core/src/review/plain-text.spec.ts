@@ -71,9 +71,18 @@ describe("commentPlainText", () => {
     expect(commentPlainText("use `**` for bold")).toBe("use ** for bold");
   });
 
-  it("drops raw HTML tags, as the renderer does", () => {
-    expect(commentPlainText("<b>hi</b> there<br>")).toBe("hi there");
-    expect(commentPlainText('<a href="x" data-y=1>link</a>')).toBe("link");
+  it("keeps raw HTML other than comments as written, as the renderer does", () => {
+    expect(commentPlainText("Array<string> is wrong, use <Button> here")).toBe(
+      "Array<string> is wrong, use <Button> here",
+    );
+    expect(commentPlainText("<b>hi</b> there<br>")).toBe("<b>hi</b> there<br>");
+    // A line that opens an HTML block shows as written too.
+    expect(commentPlainText("<p> tags should be spans")).toBe(
+      "<p> tags should be spans",
+    );
+    expect(commentPlainText("<div>\ninternal note\n</div>\n\nshown")).toBe(
+      "<div>\ninternal note\n</div>\n\nshown",
+    );
   });
 
   it("drops HTML comments, as the renderer does", () => {
@@ -94,10 +103,7 @@ describe("commentPlainText", () => {
     );
   });
 
-  it("hides raw HTML blocks, as the renderer does", () => {
-    expect(commentPlainText("<div>\ninternal note\n</div>\n\nshown")).toBe(
-      "shown",
-    );
+  it("hides HTML comments that run across lines", () => {
     // A comment in a list item runs to its `-->`, past a blank line.
     expect(
       commentPlainText("Note:\n\n- <!-- hidden\n\n  still hidden -->\n- shown"),

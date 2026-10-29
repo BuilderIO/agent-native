@@ -503,9 +503,7 @@ describe("notifyPlanCommentRecipients side effects", () => {
     const evil = notifyComment("evil", {
       authorEmail: "evil@example.com",
       authorName: "Evil",
-      // The raw tag is dropped from the excerpt, as the renderer skips it; the
-      // same tag as inline code stays as text and must arrive escaped.
-      message: '<img src=x onerror=alert(1)> & "quoted" `<img>`',
+      message: `<img src=x onerror=alert(1)> & "quoted"`,
     });
     selectPlanMock.mockResolvedValue([
       { id: "plan_1", title: "Launch Plan", ownerEmail: "owner@example.com" },
@@ -516,10 +514,7 @@ describe("notifyPlanCommentRecipients side effects", () => {
     });
     const args = renderEmailMock.mock.calls[0]?.[0] as { paragraphs: string[] };
     expect(args.paragraphs[1]).not.toContain("<img");
-    expect(args.paragraphs[1]).not.toContain("onerror");
-    expect(args.paragraphs[1]).toContain(
-      "&amp; &quot;quoted&quot; &lt;img&gt;",
-    );
+    expect(args.paragraphs[1]).toContain("&lt;img");
   });
 
   it("truncates a huge comment body to a bounded excerpt", async () => {

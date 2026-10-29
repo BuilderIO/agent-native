@@ -40,6 +40,11 @@ export interface InlineMarkdownProps {
   codeClassName?: string | undefined;
   inline?: boolean;
   renderLists?: boolean;
+  /**
+   * Shows raw HTML as the text it was written as, rather than skip it, so a
+   * note like `use <Button> here` keeps its tag. HTML comments stay hidden.
+   */
+  showRawHtml?: boolean;
   renderLink?:
     | ((href: string, children: ReactNode, className: string) => ReactNode)
     | undefined;
@@ -66,6 +71,7 @@ export function InlineMarkdown({
   codeClassName,
   inline = false,
   renderLists = false,
+  showRawHtml = false,
   renderLink,
   protectedSpans = [],
   renderProtectedSpan,
@@ -168,7 +174,9 @@ export function InlineMarkdown({
           blocks ? BLOCK_MARKDOWN_ELEMENTS : INLINE_MARKDOWN_ELEMENTS
         }
         components={components}
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={
+          showRawHtml ? [remarkGfm, rawHtmlAsText(protectedSpans)] : [remarkGfm]
+        }
         rehypePlugins={blocks ? [dropNewlinesBetweenBlocks] : []}
         skipHtml
         unwrapDisallowed
@@ -226,6 +234,48 @@ function dropNewlinesBetweenBlocks() {
     node.children.forEach(visit);
   };
   return (tree: HastNode) => visit(tree);
+}
+
+interface MdastNode {
+  type: string;
+  value?: string;
+  children?: MdastNode[];
+}
+
+// Nodes whose children are blocks, where text needs a paragraph to sit in.
+const FLOW_PARENTS = new Set([
+  "blockquote",
+  "footnoteDefinition",
+  "listItem",
+  "root",
+]);
+
+// Turns raw HTML other than comments into text before `skipHtml` drops it.
+function rawHtmlAsText(spans: readonly InlineMarkdownProtectedSpan[]) {
+  return () => {
+    const visit = (node: MdastNode) => {
+      if (!node.children) return;
+      node.children = node.children.map((child) => {
+        if (
+          child.type !== "html" ||
+          child.value === undefined ||
+          child.value.trimStart().startsWith("<!--")
+        ) {
+          visit(child);
+          return child;
+        }
+        // A span protected inside the HTML shows its original text.
+        const text = {
+          type: "text",
+          value: restoreProtectedSpanSource(child.value, spans),
+        };
+        return FLOW_PARENTS.has(node.type)
+          ? { type: "paragraph", children: [text] }
+          : text;
+      });
+    };
+    return (tree: MdastNode) => visit(tree);
+  };
 }
 
 const PROTECTED_SPAN_PREFIX = "https://inline-markdown-protected.invalid/span/";
