@@ -63,9 +63,6 @@ export default defineAction({
     const latestRunId = runIds[runIds.length - 1];
     if (!latestRunId) return { status: "pending" as const, result: null };
     const status = await getRunStatus(latestRunId);
-    if (status === "aborted") {
-      return { status: "terminal" as const, result: null };
-    }
     if (status !== "completed")
       return { status: "pending" as const, result: null };
     const receipt = await getDesignGenerationOutput.run(

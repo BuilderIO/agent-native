@@ -62,15 +62,7 @@ describe("generation attempt resolution", () => {
   it("does not resolve a pending or unverified run", async () => {
     expect(await action.run(args)).toEqual({ status: "pending", result: null });
   });
-  it("stops on a terminal failed turn without requesting a receipt", async () => {
-    mocks.status.mockResolvedValue("aborted");
-    expect(await action.run(args)).toEqual({
-      status: "terminal",
-      result: null,
-    });
-    expect(mocks.receipt).not.toHaveBeenCalled();
-  });
-  it.each(["truncated", "errored"])(
+  it.each(["truncated", "errored", "aborted"])(
     "waits for a possible continuation after %s",
     async (status) => {
       mocks.status.mockResolvedValue(status);
