@@ -10770,6 +10770,7 @@ export async function runAgentLoop(opts: {
           }
           if (executionStepIntent) {
             executionStepFinalizationAttempted = true;
+            // raw-sql-ok: Journal JSON is bound to result_json; completeAgentExecutionStep uses static SQL.
             await completeAgentExecutionStep(
               executionStepIntent,
               JSON.stringify({
