@@ -1750,13 +1750,31 @@ describe("DatabaseView UI regressions", () => {
     });
   }
 
-  it("redraws only the rows whose data changed when a chip opens, a row changes, or a row goes", async () => {
+  it("redraws only the rows whose data changed when a chip opens, the table is sorted, a row changes, or a row goes", async () => {
     const { chip, row, first, third } = await renderStatusFilteredTable();
     expect(cellRendersByItemId.get("item-a")).toBeGreaterThan(0);
 
     cellRendersByItemId.clear();
     await mousePointerDown(chip);
     expect(chip.getAttribute("aria-expanded")).toBe("true");
+    expect([...cellRendersByItemId.keys()]).toEqual([]);
+
+    // Sorting rebuilds the view but leaves every row's data as it was.
+    const sortButton = container.querySelector('button[aria-label="Sort"]');
+    if (!sortButton) throw new Error("The toolbar has no Sort button.");
+    await mousePointerDown(sortButton);
+    const statusItem = [...document.querySelectorAll("[role=menuitem]")].find(
+      (item) => item.textContent.trim() === "Status",
+    );
+    if (!statusItem) throw new Error("The Sort menu doesn't offer Status.");
+    await act(async () => {
+      statusItem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(sortButton.getAttribute("aria-label")).toBe("1 active sorts");
+    expect(
+      container.querySelectorAll("[data-database-row-id]").length,
+    ).toBeGreaterThanOrEqual(3);
     expect([...cellRendersByItemId.keys()]).toEqual([]);
 
     // A refetch after one agent write: structural sharing keeps the other
@@ -1773,7 +1791,7 @@ describe("DatabaseView UI regressions", () => {
     expect([...cellRendersByItemId.keys()]).toEqual([]);
   });
 
-  it("keeps a filter chip's menu open when focus moves outside it", async () => {
+  it("closes a filter chip's menu and its click shield when focus moves outside it", async () => {
     const { chip } = await renderStatusFilteredTable();
     await mousePointerDown(chip);
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -1783,8 +1801,34 @@ describe("DatabaseView UI regressions", () => {
       outside.focus();
       await Promise.resolve();
     });
-    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      document.querySelector("[data-menu-outside-click-shield]"),
+    ).toBeNull();
     outside.remove();
+  });
+
+  it("opens the menu of a filter added from the Filter button", async () => {
+    await renderStatusFilteredTable();
+    const addButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent.trim() === "Filter",
+    );
+    if (!addButton) throw new Error("The bar's Filter button did not render.");
+    await mousePointerDown(addButton);
+    const nameItem = [...document.querySelectorAll("[role=menuitem]")].find(
+      (item) => item.textContent.trim() === "Name",
+    );
+    if (!nameItem) throw new Error("The Filter menu doesn't offer Name.");
+    await act(async () => {
+      nameItem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const nameChip = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent.trim() === "Name",
+    );
+    expect(nameChip?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("keeps a filter chip's click shield in place until an outside click lands, then closes the menu", async () => {

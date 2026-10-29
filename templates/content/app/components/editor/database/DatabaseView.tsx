@@ -261,6 +261,7 @@ import {
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useStableCallback } from "@/hooks/use-stable-callback";
+import { useStableRecord } from "@/hooks/use-stable-record";
 import { messagesByLocale } from "@/i18n-data";
 import { readPageShapeHint, rememberPageShape } from "@/lib/page-startup-hints";
 import { startupAnchor } from "@/lib/startup-timing";
@@ -1324,9 +1325,16 @@ function DatabaseTable({
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
   );
+  // Every view edit rebuilds the view, so keying this on the view itself would
+  // hand each memoized table row a new property list on every filter, sort or
+  // wrap change.
+  const propertyOrderKey = (activeView.propertyOrderIds ?? []).join("\n");
   const orderedProperties = useMemo(
-    () => orderDatabasePropertiesForView(properties, activeView),
-    [properties, activeView],
+    () =>
+      orderDatabasePropertiesForView(properties, {
+        propertyOrderIds: propertyOrderKey.split("\n"),
+      }),
+    [properties, propertyOrderKey],
   );
   const sorts = activeView.sorts;
   const filters = activeView.filters;
@@ -1335,7 +1343,11 @@ function DatabaseTable({
   const workspaceCreationPropertyValues = isWorkspaceCatalog
     ? databasePropertyValuesForNewItem(filters, properties, filterMode)
     : undefined;
-  const columnWidths = activeView.columnWidths;
+  // Rebuilt with the view as well, and every memoized table row reads them.
+  const columnWidths = useStableRecord(activeView.columnWidths);
+  const columnWrapOverrides = useStableRecord(
+    activeView.columnWrapOverrides ?? NO_COLUMN_WRAP_OVERRIDES,
+  );
   const databaseGroupProperty = useMemo(
     () => databaseViewGroupingProperty(activeView, orderedProperties),
     [activeView, orderedProperties],
@@ -3858,9 +3870,7 @@ function DatabaseTable({
               )
             }
             onEffectiveFrozenColumnsChange={setEffectiveFrozenColumnIds}
-            columnWrapOverrides={
-              activeView.columnWrapOverrides ?? NO_COLUMN_WRAP_OVERRIDES
-            }
+            columnWrapOverrides={columnWrapOverrides}
             frozenThroughColumnId={activeView.frozenThroughColumnId}
             onWrapColumn={(id, wrapped) =>
               updateActiveView((view) => ({
@@ -7143,6 +7153,38 @@ function DatabaseInlineSortControl({
   );
 }
 
+// Adding a filter opens the new chip's menu while the add menu is still
+// animating closed. The new chip can shift that menu under the pointer, which
+// focuses it; that focus shouldn't close the chip's menu.
+function ignoreFocusInClosingMenu(event: Event) {
+  if (
+    event.target instanceof Element &&
+    event.target.closest('[role="menu"][data-state="closed"]')
+  ) {
+    event.preventDefault();
+  }
+}
+
+// Adding a filter opens the new chip's menu, which takes focus. Closing, the
+// add menu would return focus to its own button, and the chip's menu closes
+// when focus leaves it.
+function useAddFilterMenuFocus(
+  onAddFilter: (key: "name" | (string & {}), label: string) => void,
+) {
+  const filterAdded = useRef(false);
+  return {
+    onAddFilter: (key: "name" | (string & {}), label: string) => {
+      filterAdded.current = true;
+      onAddFilter(key, label);
+    },
+    onCloseAutoFocus: (event: Event) => {
+      if (!filterAdded.current) return;
+      filterAdded.current = false;
+      event.preventDefault();
+    },
+  };
+}
+
 export function DatabaseAddFilterButton({
   open,
   filters,
@@ -7162,6 +7204,7 @@ export function DatabaseAddFilterButton({
     properties,
     filters.filter(isActiveFilter),
   );
+  const addFilterFocus = useAddFilterMenuFocus(onAddFilter);
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -7176,14 +7219,18 @@ export function DatabaseAddFilterButton({
           {dbText("filter")}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64">
+      <DropdownMenuContent
+        align="start"
+        className="w-64"
+        onCloseAutoFocus={addFilterFocus.onCloseAutoFocus}
+      >
         <div onKeyDown={(event) => event.stopPropagation()}>
           <DatabasePropertyPickerMenuItems
             properties={properties}
             includeName
             placeholder={dbText("filterBy")}
             closeOnSelect
-            onSelect={onAddFilter}
+            onSelect={addFilterFocus.onAddFilter}
           />
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -7907,6 +7954,7 @@ function DatabaseInlineFilterControl({
         align="start"
         className="w-[260px] p-0"
         {...outsideClickShield.contentProps}
+        onFocusOutside={ignoreFocusInClosingMenu}
       >
         <div
           className="grid gap-1 p-1"
@@ -8047,8 +8095,7 @@ function DatabaseInlineFilterControl({
 // Covers the page under an open non-modal menu so the click that dismisses it
 // doesn't also open the cell beneath, as a modal menu's blocking would. The
 // shield sits just under the menu layer (z-[290]), above everything else.
-// Spread `contentProps` onto the menu's content: with them, the menu also stays
-// open when focus moves out of it, as a modal menu does.
+// Spread `contentProps` onto the menu's content.
 function useMenuOutsideClickShield(
   open: boolean,
   onOpenChange: (open: boolean) => void,
@@ -8079,9 +8126,6 @@ function useMenuOutsideClickShield(
         event.preventDefault();
       }
     },
-    // Adding a filter opens its chip while the add menu, closing, returns
-    // focus to its own button; that would dismiss the chip's menu at once.
-    onFocusOutside: (event: Event) => event.preventDefault(),
     // Leave focus where the click put it, as an outside click on a non-modal
     // menu does. In WebKit, moving focus off the chip when it reopens restyles
     // much of the page.
@@ -18230,6 +18274,7 @@ export function FilterMenu({
     properties,
     activeFilters,
   );
+  const addFilterFocus = useAddFilterMenuFocus(onAddFilter);
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -18247,14 +18292,18 @@ export function FilterMenu({
           <IconFilter className="size-3.5" />
         </ContentTableToolbarButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent
+        align="end"
+        className="w-64"
+        onCloseAutoFocus={addFilterFocus.onCloseAutoFocus}
+      >
         <div onKeyDown={(event) => event.stopPropagation()}>
           <DatabasePropertyPickerMenuItems
             properties={properties}
             includeName
             placeholder={dbText("filterBy")}
             closeOnSelect
-            onSelect={onAddFilter}
+            onSelect={addFilterFocus.onAddFilter}
           />
           <DropdownMenuSeparator />
           <DropdownMenuItem
