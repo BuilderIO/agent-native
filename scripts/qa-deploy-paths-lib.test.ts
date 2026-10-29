@@ -9,6 +9,7 @@ import {
   captureDeployReadyBaseline,
   containerReachableDatabaseUrl,
   databaseUrlFor,
+  diagnosticStageName,
   DEPLOY_DATABASE_NAME_PATTERN,
   DEPLOY_DOC_CONTRACTS,
   DEPLOY_GUIDE_PATHS,
@@ -26,6 +27,7 @@ import {
   observeDeployMarkerResponse,
   PRESET_SHAPES,
   redactSecrets,
+  routeFailureEvidenceSummary,
   schedulerCheckIsAfter,
   secretsInUrl,
   selectReapable,
@@ -251,6 +253,52 @@ describe("scheduled wake observation", () => {
       () => schedulerCheckIsAfter("not-a-timestamp", 0),
       /invalid check timestamp/,
     );
+  });
+});
+
+describe("route failure diagnostics", () => {
+  it("summarizes allowlisted error metadata without logging the raw detail", () => {
+    const summary = routeFailureEvidenceSummary(
+      JSON.stringify({
+        stage: "route_threw",
+        detail: "failure=private provider response",
+        evidence: {
+          format: "route_failure_v1",
+          errorName: "OwnerEngineError",
+          errorCode: "provider_unavailable",
+          httpStatus: "503",
+          causeName: "TimeoutError",
+        },
+      }),
+    );
+    assert.equal(
+      summary,
+      "routeFailure=errorName=OwnerEngineError errorCode=provider_unavailable httpStatus=503 causeName=TimeoutError",
+    );
+    assert.doesNotMatch(summary ?? "", /private provider response/);
+  });
+
+  it("ignores non-route diagnostics and malformed values", () => {
+    assert.equal(
+      routeFailureEvidenceSummary(
+        JSON.stringify({ stage: "worker_setup_step", detail: "apikey_start" }),
+      ),
+      null,
+    );
+    assert.equal(
+      routeFailureEvidenceSummary("not json"),
+      "routeFailure=unreadable",
+    );
+  });
+
+  it("returns only a safe stage name from run diagnostics", () => {
+    assert.equal(
+      diagnosticStageName(
+        JSON.stringify({ stage: "route_threw", detail: "provider response" }),
+      ),
+      "route_threw",
+    );
+    assert.equal(diagnosticStageName("not json"), "unavailable");
   });
 });
 

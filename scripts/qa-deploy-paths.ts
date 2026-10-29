@@ -65,6 +65,7 @@ import {
   deployDatabaseName,
   deployProjectName,
   deployProjectSlot,
+  diagnosticStageName,
   dockerfileBaseImages,
   extractFencedBlock,
   findFileUrls,
@@ -72,6 +73,7 @@ import {
   observeDeployMarkerResponse,
   PRESET_SHAPES,
   redactSecrets,
+  routeFailureEvidenceSummary,
   schedulerCheckIsAfter,
   secretsInUrl,
   VENDOR_DIR,
@@ -1334,11 +1336,29 @@ async function exerciseScheduledStaleChatContinuation(
 
     const observationStartedAt = Date.now();
     let terminalFailure: string | null = null;
+    let observedRouteFailure: string | null = null;
     await waitFor(
       "the naturally scheduled sweep to complete exactly one stale Chat continuation",
       SCHEDULER_WAKE_TIMEOUT_MS,
       async () =>
         withDbExec(db, async () => {
+          const runRows = await db.execute({
+            sql: `SELECT id, status, terminal_reason, error_code, diag_stage, worker_stage,
+                         dispatch_mode, continuation_order
+                  FROM agent_runs
+                  WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
+                  ORDER BY started_at, id`,
+            args: [threadId, turnId],
+          });
+          if (runRows.rows.length >= 2) {
+            const observedSuccessor = runRows.rows.find(
+              (row) => (row as { id?: unknown }).id !== runId,
+            ) as { diag_stage?: unknown } | undefined;
+            observedRouteFailure ??= routeFailureEvidenceSummary(
+              observedSuccessor?.diag_stage,
+            );
+          }
+
           const health = await db.execute({
             sql: `SELECT last_checked_at, last_error
                   FROM automation_scheduler_health
@@ -1363,14 +1383,6 @@ async function exerciseScheduledStaleChatContinuation(
             "The scheduled recovery check must not record an error.",
           );
 
-          const runRows = await db.execute({
-            sql: `SELECT id, status, terminal_reason, error_code, diag_stage, worker_stage,
-                         dispatch_mode, continuation_order
-                  FROM agent_runs
-                  WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
-                  ORDER BY started_at, id`,
-            args: [threadId, turnId],
-          });
           if (runRows.rows.length < 2) return false;
           assert.equal(
             runRows.rows.length,
@@ -1412,8 +1424,9 @@ async function exerciseScheduledStaleChatContinuation(
               `successor ended ${String(successor.status)}`,
               `errorCode=${String(successor.error_code ?? "unknown")}`,
               `terminalReason=${String(successor.terminal_reason ?? "unknown")}`,
-              `diagStage=${String(successor.diag_stage ?? "unknown")}`,
+              `diagStage=${diagnosticStageName(successor.diag_stage)}`,
               `workerStage=${String(successor.worker_stage ?? "unknown")}`,
+              ...(observedRouteFailure ? [observedRouteFailure] : []),
             ].join(" ");
             return false;
           }
