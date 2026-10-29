@@ -24,7 +24,10 @@ import {
   withCanonicalTrackingProperties,
 } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
-import { assignFirstRunBuilderCreditsV2 } from "../shared/first-run-builder-credits-experiment.js";
+import {
+  assignFirstRunBuilderCreditsV2,
+  FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES,
+} from "../shared/first-run-builder-credits-experiment.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 export { isQaTestEmail } from "../shared/qa-test-email.js";
@@ -277,7 +280,10 @@ function emitTrackedEvent(
   }
   if (authUserId) safeProperties.auth_user_id = authUserId;
   const firstRunExperiment =
-    authUserId && FIRST_RUN_EXPERIMENT_EVENT_NAMES.has(name)
+    authUserId &&
+    (FIRST_RUN_EXPERIMENT_EVENT_NAMES.has(name) ||
+      (FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES.has(name) &&
+        safeProperties.flow === "first_run"))
       ? requestFirstRunExperiment(authUserId)
       : null;
   const trackedProperties = withCanonicalTrackingProperties({

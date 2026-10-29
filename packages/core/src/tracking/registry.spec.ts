@@ -268,6 +268,88 @@ describe("tracking registry", () => {
     });
   });
 
+  it("restores stored attribution on first-run onboarding client events", async () => {
+    const events = captureEvents();
+    const authUserId = "better-auth-user-onboarding";
+    const expected = assignFirstRunBuilderCreditsV2(authUserId);
+    mockExperimentAssignments.getAssignment.mockResolvedValue({
+      experimentId: "first_run_builder_credits_v2",
+      userId: authUserId,
+      variantId: expected?.experiment_variant,
+      assignedAt: 123,
+    });
+
+    await runWithRequestContext(
+      { userEmail: "first-run@example.com", authUserId },
+      async () => {
+        await loadFirstRunBuilderCreditsV2Assignment();
+        track(
+          "onboarding_method_clicked",
+          {
+            flow: "first_run",
+            experiment_id: "client-spoof",
+            experiment_variant: "control",
+          },
+          {
+            userId: "first-run@example.com",
+            authUserId,
+            telemetryOrigin: "client",
+          },
+        );
+        track(
+          "onboarding_step_viewed",
+          { flow: "checklist", experiment_id: "client-spoof" },
+          {
+            userId: "first-run@example.com",
+            authUserId,
+            telemetryOrigin: "client",
+          },
+        );
+      },
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.properties).toMatchObject({
+      flow: "first_run",
+      experiment_id: "first_run_builder_credits_v2",
+      experiment_variant: expected?.experiment_variant,
+    });
+    expect(events[1]?.properties).not.toHaveProperty("experiment_id");
+    expect(events[1]?.properties).not.toHaveProperty("experiment_variant");
+  });
+
+  it("does not trust first-run onboarding tags without a stored assignment", async () => {
+    const events = captureEvents();
+    mockExperimentAssignments.getAssignment.mockResolvedValue(null);
+
+    await runWithRequestContext(
+      {
+        userEmail: "unassigned@example.com",
+        authUserId: "better-auth-unassigned",
+      },
+      async () => {
+        await loadFirstRunBuilderCreditsV2Assignment();
+        track(
+          "onboarding_experiment_exposed",
+          {
+            flow: "first_run",
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+          {
+            userId: "unassigned@example.com",
+            authUserId: "better-auth-unassigned",
+            telemetryOrigin: "client",
+          },
+        );
+      },
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+    expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
+  });
+
   it("keeps unassigned events joinable without reading the arm on every run", async () => {
     const events = captureEvents();
 

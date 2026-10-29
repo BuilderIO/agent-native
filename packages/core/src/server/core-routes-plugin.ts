@@ -153,6 +153,7 @@ import {
   resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import { FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES } from "../shared/first-run-builder-credits-experiment.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import {
@@ -6296,15 +6297,49 @@ export function createCoreRoutesPlugin(
           };
           if (orgId) properties.org_id = orgId;
 
+          // The browser cannot supply experiment attribution. Restore an
+          // exposed first-run arm from server storage before tracking onboarding
+          // events so the registry can replace, rather than trust, client tags.
+          const isFirstRunOnboardingEvent =
+            FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES.has(
+              validation.name as string,
+            ) && validation.properties?.flow === "first_run";
+
           // Best-effort — server `track()` swallows provider errors. We still
           // guard here so an unexpected throw can't surface to the browser.
           try {
-            track(validation.name as string, properties, {
-              userId: userEmail,
-              authUserId: session.authUserId,
-              sessionId: readBrowserSessionIdHeader(event),
-              telemetryOrigin: "client",
-            });
+            const trackClientEvent = () =>
+              track(validation.name as string, properties, {
+                userId: userEmail,
+                authUserId: session.authUserId,
+                sessionId: readBrowserSessionIdHeader(event),
+                telemetryOrigin: "client",
+              });
+            if (isFirstRunOnboardingEvent) {
+              await runWithRequestContext(
+                {
+                  userEmail,
+                  ...(session.authUserId
+                    ? { authUserId: session.authUserId }
+                    : {}),
+                },
+                async () => {
+                  try {
+                    const { loadFirstRunBuilderCreditsV2Assignment } =
+                      await import("../onboarding/first-run-builder-credits-experiment.js");
+                    await loadFirstRunBuilderCreditsV2Assignment();
+                  } catch {
+                    console.error(
+                      "[tracking] first-run onboarding assignment lookup failed",
+                      { eventName: validation.name },
+                    );
+                  }
+                  trackClientEvent();
+                },
+              );
+            } else {
+              trackClientEvent();
+            }
           } catch {
             // best-effort
           }
