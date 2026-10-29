@@ -42,7 +42,13 @@ import {
 import {
   assertSingleCanvasOutput,
   requestedCanvasDeviceVariants,
+  DEFAULT_GENERATION_VIEWPORT,
+  devicesForPrimaryViewport,
+  GENERATED_FRAME_GAP,
+  GENERATION_VIEWPORT_SIZES,
+  type GenerationViewport,
   resolveCanvasIntent,
+  widestGenerationDevice,
 } from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
@@ -139,45 +145,11 @@ function noWriteValidationError(error: unknown): NoWriteError {
   );
 }
 
-type GenerationViewport = "mobile" | "tablet" | "desktop";
-
-const DEFAULT_GENERATION_VIEWPORT: GenerationViewport = "desktop";
-const GENERATION_VIEWPORT_SIZES: Record<
-  GenerationViewport,
-  { width: number; height: number }
-> = {
-  mobile: { width: 390, height: 844 },
-  tablet: { width: 768, height: 1024 },
-  desktop: { width: 1440, height: 900 },
-};
 const GENERATION_VIEWPORT_LABELS: Record<GenerationViewport, string> = {
   mobile: "Mobile",
   tablet: "Tablet",
   desktop: "Desktop",
 };
-const DEVICE_WIDTH_ORDER: readonly GenerationViewport[] = [
-  "desktop",
-  "tablet",
-  "mobile",
-];
-const GENERATED_FRAME_GAP = 96;
-
-function widestGenerationDevice(
-  devices: readonly GenerationViewport[],
-): GenerationViewport {
-  return (
-    DEVICE_WIDTH_ORDER.find((device) => devices.includes(device)) ??
-    DEFAULT_GENERATION_VIEWPORT
-  );
-}
-
-function devicesForPrimaryViewport(
-  primaryViewport: GenerationViewport,
-): GenerationViewport[] {
-  return primaryViewport === "mobile"
-    ? ["mobile"]
-    : [primaryViewport, "mobile"];
-}
 
 function breakpointSetForDevices(devices: readonly GenerationViewport[]) {
   const primaryWidth =
@@ -563,10 +535,12 @@ const generateDesignAction = defineAction({
     "A file rejected by a concurrent edit or an HTML-integrity check does not " +
     "fail the whole call — it is listed in `fileErrors` instead, while every " +
     "other file in the same call still saves; resend just the named file(s). " +
-    "Keep the first save compact and working; for large designs, persist a minimal " +
-    "version then refine individual files with `edit-design` (search/replace) rather " +
-    "than resending a big multi-file payload — a single oversized payload can get cut " +
-    "off mid-stream and stall the turn. " +
+    "Build a new screen with several sections skeleton-first: save the document shell " +
+    "with one sized, unstyled placeholder per section (each marked `data-skeleton` with a " +
+    "`data-layer-name`), then fill one section per `edit-design` call, top to bottom, so " +
+    "the canvas drafts each section in as it lands (steps in the design-generation skill). " +
+    "This also keeps every payload small: a single oversized payload can get cut off " +
+    "mid-stream and stall the turn. " +
     "Do not use this action to replace a selected variant screen after a " +
     "variant pick; call `get-design-snapshot` for the selected `fileId` and " +
     "`edit-design` that same `fileId` instead. " +

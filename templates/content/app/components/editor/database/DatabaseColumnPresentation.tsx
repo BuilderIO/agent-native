@@ -1,9 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconFreezeColumn,
-  IconPinnedOff,
-  IconTextWrap,
-} from "@tabler/icons-react";
 import { createContext, useContext, type ReactNode } from "react";
 
 import {
@@ -58,7 +53,6 @@ export function ColumnPresentationMenuItems({
         disabled={!presentation.canEdit}
         onSelect={() => presentation.onFreezeThrough(columnId)}
       >
-        <IconFreezeColumn className="mr-2 size-4 text-muted-foreground" />
         {t("database.freezeThroughColumn")}
       </DropdownMenuItem>
       {presentation.frozenThroughColumnId !== null ? (
@@ -66,7 +60,6 @@ export function ColumnPresentationMenuItems({
           disabled={!presentation.canEdit}
           onSelect={() => presentation.onFreezeThrough(null)}
         >
-          <IconPinnedOff className="mr-2 size-4 text-muted-foreground" />
           {t("database.unfreezeColumns")}
         </DropdownMenuItem>
       ) : null}
@@ -78,7 +71,6 @@ export function ColumnPresentationMenuItems({
         }
         onSelect={(event) => event.preventDefault()}
       >
-        <IconTextWrap className="mr-2 size-4 text-muted-foreground" />
         {t("database.wrapContent")}
       </DropdownMenuCheckboxItem>
     </>

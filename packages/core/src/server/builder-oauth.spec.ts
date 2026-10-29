@@ -9,6 +9,7 @@ const readMock = vi.hoisted(() => vi.fn());
 const saveMock = vi.hoisted(() => vi.fn());
 const revokeMock = vi.hoisted(() => vi.fn());
 const getAccessTokenMock = vi.hoisted(() => vi.fn());
+const resolveAccessStateMock = vi.hoisted(() => vi.fn());
 const markReconnectMock = vi.hoisted(() => vi.fn());
 const validateIssuerMock = vi.hoisted(() => vi.fn());
 const getRawTokensMock = vi.hoisted(() => vi.fn());
@@ -29,6 +30,7 @@ vi.mock("../mcp-client/oauth-client.js", () => ({
   saveMcpOAuthCredentials: saveMock,
   revokeMcpOAuthCredentials: revokeMock,
   getMcpOAuthAccessToken: getAccessTokenMock,
+  resolveMcpOAuthCredentialAccess: resolveAccessStateMock,
   McpOAuthReauthorizationRequiredError:
     MockMcpOAuthReauthorizationRequiredError,
   McpOAuthRefreshUnavailableError: MockMcpOAuthRefreshUnavailableError,
@@ -80,6 +82,7 @@ import {
   listUsersWithStoredBuilderOAuthGrant,
   markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
+  resolveBuilderOAuthRequestAccessState,
   saveBuilderOAuthCredentials,
   startBuilderOAuthAuthorization,
 } from "./builder-oauth.js";
@@ -138,6 +141,11 @@ beforeEach(() => {
   saveMock.mockReset();
   revokeMock.mockReset();
   getAccessTokenMock.mockReset();
+  resolveAccessStateMock.mockReset();
+  resolveAccessStateMock.mockResolvedValue({
+    state: { kind: "missing" },
+    accessToken: null,
+  });
   markReconnectMock.mockReset();
   markReconnectMock.mockResolvedValue(true);
   validateIssuerMock.mockReset();
@@ -533,6 +541,123 @@ describe("Builder hosted user OAuth", () => {
         requiredScope: BUILDER_OAUTH_SCOPE,
       }),
     ).resolves.toMatchObject({ ownerEmail: "bob@example.com" });
+  });
+
+  it("reports no custody from the same access resolution used for dispatch", async () => {
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: null,
+      }),
+    ).resolves.toEqual({ kind: "not_connected" });
+    expect(resolveAccessStateMock).toHaveBeenCalledTimes(1);
+    expect(resolveAccessStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "user",
+        scopeId: ownerEmail,
+        serverUrl: BUILDER_OAUTH_RESOURCE,
+      }),
+    );
+  });
+
+  it("keeps malformed stored custody fail-closed", async () => {
+    resolveAccessStateMock.mockResolvedValue({
+      state: {
+        kind: "malformed",
+        revision: 1,
+        legacyRevision: 0,
+        reason: "structure",
+      },
+      accessToken: null,
+    });
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: null,
+      }),
+    ).resolves.toEqual({ kind: "unusable" });
+  });
+
+  it("returns usable access and scope from one credential resolution", async () => {
+    resolveAccessStateMock.mockResolvedValue({
+      state: { kind: "connected", credential: credentials() },
+      accessToken: "<ACCESS_TOKEN_EXAMPLE>",
+    });
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail: "Alice@Example.com",
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: null,
+      }),
+    ).resolves.toMatchObject({
+      kind: "available",
+      access: {
+        accessToken: "<ACCESS_TOKEN_EXAMPLE>",
+        ownerEmail,
+        scope: "user",
+        scopes: [BUILDER_OAUTH_SCOPE],
+      },
+    });
+    expect(resolveAccessStateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes a forced refresh through to the MCP OAuth credential boundary", async () => {
+    resolveAccessStateMock.mockResolvedValue({
+      state: { kind: "connected", credential: credentials() },
+      accessToken: "<ACCESS_TOKEN_EXAMPLE>",
+    });
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: null,
+        forceRefresh: true,
+      }),
+    ).resolves.toMatchObject({ kind: "available" });
+
+    expect(resolveAccessStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ forceRefresh: true }),
+    );
+  });
+
+  it("force-refreshes only the Builder grant selected for the request", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    resolveAccessStateMock.mockResolvedValue({
+      state: { kind: "connected", credential: credentials() },
+      accessToken: "<ACCESS_TOKEN_EXAMPLE>",
+    });
+
+    const initial = await resolveBuilderOAuthRequestAccessState({
+      ownerEmail,
+      requiredScope: BUILDER_OAUTH_SCOPE,
+      orgId: "org-acme",
+    });
+    expect(initial.kind).toBe("available");
+    if (initial.kind !== "available")
+      throw new Error("Expected Builder access");
+    const selectedConnectionId = initial.access.connectionId;
+    resolveAccessStateMock.mockClear();
+
+    await resolveBuilderOAuthRequestAccessState({
+      ownerEmail,
+      requiredScope: BUILDER_OAUTH_SCOPE,
+      orgId: "org-acme",
+      forceRefresh: true,
+      connectionId: selectedConnectionId,
+    });
+
+    expect(resolveAccessStateMock).toHaveBeenCalledTimes(1);
+    expect(resolveAccessStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: selectedConnectionId,
+        forceRefresh: true,
+      }),
+    );
   });
 
   it("does not return a stored access token after reconnect is required", async () => {

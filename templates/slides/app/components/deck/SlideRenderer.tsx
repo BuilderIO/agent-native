@@ -1,12 +1,20 @@
 import { captureError } from "@agent-native/core/client/analytics";
+import {
+  createDraftOutlines,
+  morphChildren,
+  STREAMED_IN_ATTRIBUTE,
+  type DraftOutlines,
+} from "@agent-native/core/client/generation-stream";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  createContext,
   useState,
   useEffect,
   useMemo,
   useRef,
   useLayoutEffect,
   useCallback,
+  useContext,
   useId,
   type ReactNode,
 } from "react";
@@ -57,8 +65,8 @@ interface SlideRendererProps {
   className?: string;
   thumbnail?: boolean;
   disableVideoAutoplay?: boolean;
-  designSystem?: DesignSystemData;
-  aspectRatio?: AspectRatio;
+  designSystem?: DesignSystemData | undefined;
+  aspectRatio?: AspectRatio | undefined;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
   onAutofitSettled?: () => void;
   stampSource?: boolean;
@@ -396,6 +404,7 @@ function useSlideAutofit(
   fitKey: string,
   onOverflowChange?: (info: SlideOverflowInfo) => void,
   onAutofitSettled?: () => void,
+  enabled = true,
 ) {
   const overflowCallbackRef = useRef(onOverflowChange);
   overflowCallbackRef.current = onOverflowChange;
@@ -404,7 +413,7 @@ function useSlideAutofit(
 
   useIsomorphicLayoutEffect(() => {
     const root = ref.current;
-    if (!root || typeof ResizeObserver === "undefined") return;
+    if (!root || !enabled || typeof ResizeObserver === "undefined") return;
 
     let raf = 0;
     let disposed = false;
@@ -559,7 +568,7 @@ function useSlideAutofit(
       root.removeEventListener("load", scheduleMeasure, true);
       document.fonts?.removeEventListener("loadingdone", scheduleMeasure);
     };
-  }, [canvasWidth, canvasHeight, fitKey, ref]);
+  }, [canvasWidth, canvasHeight, fitKey, ref, enabled]);
 }
 
 function AutoFitContent({
@@ -582,6 +591,10 @@ function AutoFitContent({
   onAutofitSettled?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // A streaming preview is patched in place and drafted with overlay frames;
+  // fitting it would wrap the content the patch matches against and re-measure
+  // on every frame drawn. The saved slide that replaces it is fitted.
+  const streaming = useContext(SlideStreamingContext);
   useSlideAutofit(
     ref,
     canvasWidth,
@@ -589,6 +602,7 @@ function AutoFitContent({
     fitKey,
     onOverflowChange,
     onAutofitSettled,
+    !streaming,
   );
 
   return (
@@ -946,6 +960,24 @@ export function renderRawSlideHtml(
   };
 }
 
+/**
+ * Inside a streaming slide preview, content grows by patching the DOM in place
+ * so elements already shown keep their place and new ones animate in.
+ */
+export const SlideStreamingContext = createContext(false);
+
+function createSlideDraftOutlines(root: HTMLElement): DraftOutlines | null {
+  const container = root.parentElement;
+  const accent = getComputedStyle(root)
+    .getPropertyValue("--an-generating-accent")
+    .trim();
+  if (!container || !accent) return null;
+  if (getComputedStyle(container).position === "static") {
+    container.style.position = "relative";
+  }
+  return createDraftOutlines(container, accent);
+}
+
 function RawSlideHtmlContent({
   html,
   scopeId,
@@ -962,15 +994,33 @@ function RawSlideHtmlContent({
   disableVideoAutoplay?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
-  const renderedHtmlRef = useRef(html);
-  const dangerousHtmlRef = useRef({ __html: html });
+  const streaming = useContext(SlideStreamingContext);
+  // Mounting a streamed slide empty lets the first patch draft whatever has
+  // already arrived instead of rendering it static.
+  const renderedHtmlRef = useRef(streaming ? "" : html);
+  const dangerousHtmlRef = useRef({ __html: renderedHtmlRef.current });
   const [mermaidSlots, setMermaidSlots] = useState<HTMLElement[]>([]);
+  const draftOutlinesRef = useRef<DraftOutlines | null>(null);
+  useEffect(() => () => draftOutlinesRef.current?.dispose(), []);
 
   useLayoutEffect(() => {
     const root = contentRef.current;
     if (!root) return;
     renderedVideoAutoplayDisabled.set(root, disableVideoAutoplay === true);
-    if (renderedHtmlRef.current !== html) {
+    if (streaming && renderedHtmlRef.current !== html) {
+      const next = document.createElement("template");
+      next.innerHTML = html;
+      draftOutlinesRef.current ??= createSlideDraftOutlines(root);
+      morphChildren(
+        root,
+        next.content,
+        STREAMED_IN_ATTRIBUTE,
+        draftOutlinesRef.current?.track,
+        // A Mermaid slot's diagram is a React portal; the stream has it empty.
+        (element) => element.hasAttribute("data-mermaid-index"),
+      );
+      renderedHtmlRef.current = html;
+    } else if (renderedHtmlRef.current !== html) {
       const currentSource = getRenderedSlideSource(root);
       const sameSlide = currentSource?.nonce === source?.nonce;
       if (source && currentSource?.base === html) {
@@ -1050,7 +1100,7 @@ function RawSlideHtmlContent({
         ? prev
         : slots,
     );
-  }, [html, source, mermaidBlocks]);
+  }, [html, source, mermaidBlocks, streaming]);
 
   return (
     <>

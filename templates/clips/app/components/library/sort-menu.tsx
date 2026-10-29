@@ -51,7 +51,7 @@ export function SortMenu({ value, onChange }: SortMenuProps) {
             onSelect={() => onChange(key)}
             className="flex items-center justify-between"
           >
-            <span className="text-xs">{LABELS[key]}</span>
+            <span>{LABELS[key]}</span>
             {value === key && <IconCheck className="h-3.5 w-3.5" />}
           </DropdownMenuItem>
         ))}

@@ -436,6 +436,31 @@ pnpm action generate-design \
   --canvasFrames '[{"filename":"index.html","x":0,"y":0,"width":1440,"height":900}]'
 ```
 
+#### Build multi-section screens skeleton-first
+
+The canvas drafts each call's content in as it lands, so a screen built in
+stages reads like a designer blocking it out, and the user sees its structure
+within seconds instead of a blank frame until the last byte. Build a new
+screen with several sections (a page, a dashboard, a library view) in this
+order:
+
+1. Call `generate-design` with the skeleton: the real document shell (head,
+   fonts, runtimes, `:root` tokens, the `<body>` background) and one
+   placeholder per section, each holding placeholders for its main parts. Size
+   and lay out every placeholder (`w-`, `h-`, `min-h-`, `flex`, `grid`, `gap`)
+   with no other styling and no content, and mark each with `data-skeleton`
+   and a `data-layer-name` naming the part it becomes ("Album Grid", "Filter
+   Chips"). Keep each section's skeleton on one line so its later `search` is
+   short and exact.
+2. Fill one section per `edit-design` call, top to bottom: replace that
+   section's skeleton line with its finished markup. Repeated items stay one
+   list (an Alpine `x-for` or static rows) inside their section.
+3. No `data-skeleton` element survives the last call. Then continue with Phase
+   5 as usual.
+
+Write a single component, a fixed-format artwork, an email, or an edit to an
+existing screen in one pass.
+
 Pass the `devices` param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`) so a new design renders the right device frames: the widest device becomes the primary `canvasFrames` placement and each narrower device is added as a breakpoint frame of the SAME document — not an extra file. Default to Desktop + Mobile when the form factor is unspecified; never auto-add a tablet or a redundant desktop. When you also pass `canvasFrames` explicitly, size the primary to the widest device (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — a screen saved without a placement falls back to a generic default that won't match the intended device. For genuinely distinct screens generated together (Home / Dashboard / Checkout — NOT per-device copies of one page), call `generate-screens` first; it returns the matching `canvasFrame` to forward to each `generate-design` call.
 
 #### Non-web sizes — ad units, print one-pagers, social sizes
@@ -1195,3 +1220,17 @@ tokened SVG/CSS, not photos.
   to place the chosen image, then do one `edit-design` pass (using
   `get-design-snapshot` first) to adjust surrounding layout/spacing if the
   inserted figure doesn't sit flush with the rest of the design.
+- **Vector illustrations stay inline `<svg>`.** When `generate-design`,
+  `present-design-variants`, or `edit-design` saves an `<svg>` with an edge of
+  64px or more, each shape and `<text>` becomes its own layer, and each `<use>`
+  is replaced by a copy of the shapes it points to. Users can then select,
+  move, recolor, and retype each part. Icons smaller than that stay one layer.
+  A `<use>` stays one layer when a stylesheet selects it by tag, sizes or
+  transforms it, or selects its symbol's parts by `#id`, so style artwork
+  with attributes and classes.
+  Never rebuild an illustration as divs or export a PNG to make it editable.
+  To convert an SVG saved before this, rewrite it with `edit-design`.
+- **A moved SVG part keeps its `translate`.** The editor moves a shape inside
+  an SVG with an inline CSS `translate` in the SVG's own units, applied
+  outside the shape's `transform`. Keep it when you edit the shape. Remove it
+  only to fold the same offset into the shape's geometry or `transform`.

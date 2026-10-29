@@ -1670,10 +1670,10 @@ const messages = {
     openDesktopApp: "Open desktop app (مترجم)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (مترجم)",
+    untitled: "مقطع بدون عنوان",
     renameFailed: "Failed to rename clip (مترجم)",
     emptyTitle: "Title cannot be empty (مترجم)",
-    generatingTitle: "Generating title (مترجم)",
+    generatingTitle: "توليد العنوان",
     placeholder: "Clip title (مترجم)",
     editLabel: "Edit clip title (مترجم)",
   },

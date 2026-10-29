@@ -1245,6 +1245,19 @@
       ]
     },
     {
+      "id": "toolkit/app-generation",
+      "label": "Toolkit app Generation",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["app-generation"],
+      "entrypoints": ["./app/generation"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/generation"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["@agent-native/core", "react"],
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/generation-stream"]
+    },
+    {
       "id": "toolkit/app-progress",
       "label": "Toolkit app Progress",
       "catalog": "toolkit-ui",

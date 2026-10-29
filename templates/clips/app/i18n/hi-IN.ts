@@ -1649,10 +1649,10 @@ const messages = {
     openDesktopApp: "Open desktop app (स्थानीयकृत)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (स्थानीयकृत)",
+    untitled: "शीर्षक रहित क्लिप",
     renameFailed: "Failed to rename clip (स्थानीयकृत)",
     emptyTitle: "Title cannot be empty (स्थानीयकृत)",
-    generatingTitle: "Generating title (स्थानीयकृत)",
+    generatingTitle: "शीर्षक उत्पन्न करना",
     placeholder: "Clip title (स्थानीयकृत)",
     editLabel: "Edit clip title (स्थानीयकृत)",
   },
