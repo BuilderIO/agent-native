@@ -1,6 +1,6 @@
 import { splitCommentAtMarkdownLimit } from "@agent-native/core/review/plain-text";
 import type { ReviewMention } from "@agent-native/core/review/types";
-import type { ReactNode } from "react";
+import { Component, type ReactNode } from "react";
 
 import { cn } from "../../utils.js";
 import { InlineMarkdown, type InlineMarkdownProps } from "./InlineMarkdown.js";
@@ -44,7 +44,9 @@ export interface CommentBodyProps {
 /**
  * A comment body, drawn the same way in every app: paragraphs, bold, italic,
  * strikethrough, code, links, lists, quotes, code blocks and mention chips.
- * Headings show as bold lines, and raw HTML is skipped.
+ * Headings show as bold lines, and raw HTML is skipped. A comment past the
+ * Markdown limit, or a paragraph nested or tangled far past what people write,
+ * shows the rest as written.
  */
 export function CommentBody({
   body,
@@ -56,12 +58,13 @@ export function CommentBody({
   renderLink,
   renderMention,
 }: CommentBodyProps) {
-  // Past the limit the rest shows as plain text, so one huge comment can't
-  // stall the page. Emails and webhooks split it the same way.
+  // Past the limit, or from a paragraph that would take the parser seconds,
+  // the rest shows as plain text, so one comment can't stall the page. Emails
+  // and webhooks split it the same way.
   const { markdown, rest } = splitCommentAtMarkdownLimit(body);
   const found = findCommentBodyMentions(markdown, mentions);
   const mentionAt = new Map(found.map(({ at, mention }) => [at, mention]));
-  const wrapsRest = Boolean(rest) && !compact;
+  const wrapsRest = Boolean(rest);
   const rendered = (
     <InlineMarkdown
       content={markdown}
@@ -112,13 +115,79 @@ export function CommentBody({
       }
     />
   );
-  if (!wrapsRest) return rendered;
   return (
-    <div className={cn("flex min-w-0 flex-col gap-2", className)}>
-      {rendered}
-      <p className="m-0 whitespace-pre-wrap break-words">{rest}</p>
-    </div>
+    <CommentMarkdownBoundary
+      body={body}
+      fallback={
+        compact ? (
+          <span className={cn("whitespace-normal", className)}>{body}</span>
+        ) : (
+          <p className={cn("m-0 whitespace-pre-wrap break-words", className)}>
+            {body}
+          </p>
+        )
+      }
+    >
+      {!wrapsRest ? (
+        rendered
+      ) : compact ? (
+        <span className={cn("whitespace-normal", className)}>
+          {rendered}
+          {markdown ? " " : null}
+          {rest}
+        </span>
+      ) : (
+        <div className={cn("flex min-w-0 flex-col gap-2", className)}>
+          {rendered}
+          <p className="m-0 whitespace-pre-wrap break-words">{rest}</p>
+        </div>
+      )}
+    </CommentMarkdownBoundary>
   );
+}
+
+interface CommentMarkdownBoundaryProps {
+  body: string;
+  fallback: ReactNode;
+  children: ReactNode;
+}
+
+interface CommentMarkdownBoundaryState {
+  body: string;
+  failed: boolean;
+}
+
+/**
+ * Shows a comment as written should drawing it fail, so one comment can't
+ * break the list it sits in. The email and webhook text falls back the same
+ * way.
+ */
+class CommentMarkdownBoundary extends Component<
+  CommentMarkdownBoundaryProps,
+  CommentMarkdownBoundaryState
+> {
+  override state: CommentMarkdownBoundaryState = {
+    body: this.props.body,
+    failed: false,
+  };
+
+  static getDerivedStateFromProps(
+    props: CommentMarkdownBoundaryProps,
+    state: CommentMarkdownBoundaryState,
+  ): Partial<CommentMarkdownBoundaryState> | null {
+    // An edited comment gets another try.
+    return props.body === state.body
+      ? null
+      : { body: props.body, failed: false };
+  }
+
+  static getDerivedStateFromError(): Partial<CommentMarkdownBoundaryState> {
+    return { failed: true };
+  }
+
+  override render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
 }
 
 const NAME_CHAR = /[\p{L}\p{M}\p{N}_]/u;

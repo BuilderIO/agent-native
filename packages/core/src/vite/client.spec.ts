@@ -4413,6 +4413,13 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).toContain("@agent-native/toolkit > shiki/core");
     expect(deps).toContain("html2canvas");
     expect(deps).not.toContain("@agent-native/core > html2canvas");
+    expect(deps).toEqual(
+      expect.arrayContaining([
+        "@agent-native/core > mdast-util-from-markdown",
+        "@agent-native/core > mdast-util-gfm",
+        "@agent-native/core > micromark-extension-gfm",
+      ]),
+    );
     expect(deps).toContain("react-dom/server");
     expect(deps).toContain("react-router");
     expect(deps).not.toContain("@agent-native/core > react-router");

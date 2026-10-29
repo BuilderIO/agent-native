@@ -195,7 +195,7 @@ describe("CommentBody", () => {
   });
 
   it("shows plain text past the Markdown limit", () => {
-    const head = `${"**bold** ".repeat(1_000)}\n\n`;
+    const head = "**bold**\n\n".repeat(1_000);
     const filler = "x".repeat(COMMENT_MARKDOWN_LIMIT - head.length - 10);
     const tail = "\n\n**not bold** after the limit";
     render(<CommentBody body={`${head}${filler}${tail}`} />);
@@ -215,5 +215,48 @@ describe("CommentBody", () => {
 
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("shows a paragraph nested thousands deep as written", () => {
+    const deep = `${"- ".repeat(8_000)}deep`;
+    render(<CommentBody body={`**Intro**\n\n${deep}`} />);
+
+    expect(container.querySelector("strong")?.textContent).toBe("Intro");
+    expect(container.querySelector("li")).toBeNull();
+    expect(container.firstElementChild?.lastElementChild?.textContent).toBe(
+      deep,
+    );
+  });
+
+  it("keeps a compact preview's text when its first paragraph is tangled", () => {
+    const tangled = "*a".repeat(2_000);
+    render(<CommentBody body={tangled} compact />);
+
+    expect(container.textContent).toBe(tangled);
+    expect(container.querySelector("em")).toBeNull();
+  });
+
+  it("shows a comment as written if drawing it fails", () => {
+    // React reports the error it recovers from.
+    const report = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const body = "See [the brief](https://example.com/brief)";
+      render(
+        <CommentBody
+          body={body}
+          renderLink={() => {
+            throw new Error("broken link renderer");
+          }}
+        />,
+      );
+      expect(container.textContent).toBe(body);
+      expect(container.querySelector("a")).toBeNull();
+
+      // An edited comment gets another try.
+      render(<CommentBody body="**fixed**" />);
+      expect(container.querySelector("strong")?.textContent).toBe("fixed");
+    } finally {
+      report.mockRestore();
+    }
   });
 });

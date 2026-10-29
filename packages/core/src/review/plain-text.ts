@@ -17,25 +17,45 @@ import { gfm } from "micromark-extension-gfm";
  */
 export const COMMENT_MARKDOWN_LIMIT = 20_000;
 
+/*
+ * The parser's time grows with the square of a paragraph's emphasis markers,
+ * and faster still with brackets, quotes and lists nested inside each other:
+ * a few thousand characters of them take it seconds, or overflow its stack. A
+ * paragraph past any of these, far beyond what people write, shows as written.
+ */
+/** `*`, `_` and `~` in one paragraph. */
+const MAX_EMPHASIS_MARKERS = 1_000;
+/** `<!--` in one paragraph; the parser looks ahead from each for its end. */
+const MAX_HTML_COMMENTS = 64;
+/** Brackets open inside each other. */
+const MAX_BRACKET_DEPTH = 16;
+/** Quote and list markers opening one line, as in `> > - 1. text`. */
+const MAX_LINE_NESTING = 16;
+
 /**
- * Splits a long comment at a paragraph break near the limit, so the Markdown
- * part doesn't end inside a block when it can help it.
+ * Splits a comment where its Markdown stops: before the first paragraph too
+ * tangled for the parser to read quickly, or else at a paragraph break near
+ * the limit, so the Markdown part doesn't end inside a block when it can help
+ * it.
  */
 export function splitCommentAtMarkdownLimit(body: string): {
   markdown: string;
   rest: string;
 } {
-  if (body.length <= COMMENT_MARKDOWN_LIMIT) {
-    return { markdown: body, rest: "" };
+  let cut = tangledParagraphAt(body);
+  if (cut === undefined) {
+    if (body.length <= COMMENT_MARKDOWN_LIMIT) {
+      return { markdown: body, rest: "" };
+    }
+    const head = body.slice(0, COMMENT_MARKDOWN_LIMIT);
+    const paragraphBreak = head.lastIndexOf("\n\n");
+    cut =
+      paragraphBreak > COMMENT_MARKDOWN_LIMIT / 2
+        ? paragraphBreak
+        : COMMENT_MARKDOWN_LIMIT;
+    const last = body.charCodeAt(cut - 1);
+    if (last >= 0xd800 && last <= 0xdbff) cut -= 1;
   }
-  const head = body.slice(0, COMMENT_MARKDOWN_LIMIT);
-  const paragraphBreak = head.lastIndexOf("\n\n");
-  let cut =
-    paragraphBreak > COMMENT_MARKDOWN_LIMIT / 2
-      ? paragraphBreak
-      : COMMENT_MARKDOWN_LIMIT;
-  const last = body.charCodeAt(cut - 1);
-  if (last >= 0xd800 && last <= 0xdbff) cut -= 1;
   return {
     markdown: body.slice(0, cut),
     rest: body.slice(cut).replace(/^\n+/, ""),
@@ -43,22 +63,117 @@ export function splitCommentAtMarkdownLimit(body: string): {
 }
 
 /**
+ * Where the first paragraph within the limit that passes the limits above
+ * starts, if one does. A blank line always ends a paragraph, so counting
+ * between blank lines never counts too few, even across code blocks.
+ */
+function tangledParagraphAt(body: string): number | undefined {
+  let paragraph = 0;
+  let emphasis = 0;
+  let htmlComments = 0;
+  let brackets = 0;
+  let start = 0;
+  while (start < body.length && start < COMMENT_MARKDOWN_LIMIT) {
+    // Lines end as the parser ends them: at `\n`, `\r\n` or a lone `\r`.
+    let end = start;
+    while (end < body.length && !isLineEnding(body.charAt(end))) end += 1;
+    const next = end + (body.startsWith("\r\n", end) ? 2 : 1);
+    let at = start;
+    while (at < end && isSpace(body.charAt(at))) at += 1;
+    if (at === end) {
+      paragraph = next;
+      emphasis = 0;
+      htmlComments = 0;
+      brackets = 0;
+    } else {
+      if (lineNesting(body, at, end) > MAX_LINE_NESTING) return paragraph;
+      for (let index = at; index < end; index += 1) {
+        const char = body.charAt(index);
+        if (char === "*" || char === "_" || char === "~") {
+          emphasis += 1;
+          if (emphasis > MAX_EMPHASIS_MARKERS) return paragraph;
+        } else if (char === "[") {
+          brackets += 1;
+          if (brackets > MAX_BRACKET_DEPTH) return paragraph;
+        } else if (char === "]") {
+          brackets = Math.max(0, brackets - 1);
+        } else if (char === "<" && body.startsWith("<!--", index)) {
+          htmlComments += 1;
+          if (htmlComments > MAX_HTML_COMMENTS) return paragraph;
+        }
+      }
+    }
+    start = next;
+  }
+  return undefined;
+}
+
+/** How many quote and list markers open the line from `at` to `end`. */
+function lineNesting(body: string, at: number, end: number): number {
+  let nesting = 0;
+  for (;;) {
+    while (at < end && isSpace(body.charAt(at))) at += 1;
+    const char = body.charAt(at);
+    if (char === ">") {
+      nesting += 1;
+      at += 1;
+      continue;
+    }
+    let marker = at;
+    if (char === "-" || char === "+" || char === "*") {
+      marker += 1;
+    } else {
+      while (marker - at < 9 && isDigit(body.charAt(marker))) marker += 1;
+      const delimiter = body.charAt(marker);
+      if (marker === at || (delimiter !== "." && delimiter !== ")")) {
+        return nesting;
+      }
+      marker += 1;
+    }
+    // A list marker is followed by a space or ends the line.
+    if (marker < end && !isSpace(body.charAt(marker))) return nesting;
+    nesting += 1;
+    at = marker;
+  }
+}
+
+function isSpace(char: string): boolean {
+  return char === " " || char === "\t";
+}
+
+function isLineEnding(char: string): boolean {
+  return char === "\n" || char === "\r";
+}
+
+function isDigit(char: string): boolean {
+  return char >= "0" && char <= "9";
+}
+
+/**
  * A comment as plain text. Emphasis, heading, quote and code markers go;
  * links keep their text, so `@[Name](mailto:…)` mentions read `@Name`; raw
  * HTML, images, rules and task checkboxes drop, as the renderer skips them.
  * Code, list markers and line breaks stay, and blocks keep the blank lines
- * the author put between them. Past the Markdown limit the rest stays as
- * written, as the renderer shows it.
+ * the author put between them. Where the Markdown stops, at the limit or a
+ * paragraph too tangled to read quickly, the rest stays as written, as the
+ * renderer shows it.
  */
 export function commentPlainText(markdown: string): string {
-  const { markdown: head, rest } = splitCommentAtMarkdownLimit(
-    markdown.replace(/\r\n?/g, "\n"),
-  );
-  const tree = fromMarkdown(head, {
-    extensions: [gfm()],
-    mdastExtensions: [gfmFromMarkdown()],
-  });
-  return [blocks(tree.children), rest]
+  const text = markdown.replace(/\r\n?/g, "\n");
+  const { markdown: head, rest } = splitCommentAtMarkdownLimit(text);
+  let read: string;
+  try {
+    const tree = fromMarkdown(head, {
+      extensions: [gfm()],
+      mdastExtensions: [gfmFromMarkdown()],
+    });
+    read = blocks(tree.children);
+  } catch {
+    // Should the parser fail on something the split didn't catch, the
+    // renderer shows the comment as written, and so does this.
+    return text.trim();
+  }
+  return [read, rest]
     .join("\n\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
