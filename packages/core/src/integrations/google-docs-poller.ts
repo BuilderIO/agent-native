@@ -35,7 +35,7 @@ import {
   listDocComments,
 } from "./adapters/google-docs.js";
 import {
-  deleteIntegrationConfig,
+  deleteIntegrationConfigIfUnchanged,
   getIntegrationConfig,
   integrationConfigWriteEpoch,
   listIntegrationConfigs,
@@ -599,39 +599,51 @@ async function setPageToken(token: string): Promise<void> {
 const COMMENT_CHECK_MAX_ATTEMPTS = 5;
 const COMMENT_RETRY_KEY_PREFIX = "comment-retry:";
 
+interface CommentCheckRetry {
+  attempts: number;
+  /** The row as read, so clearing it never removes a newer failure. */
+  row: IntegrationConfig;
+}
+
 /**
  * Documents whose comment check failed, with how many times it has. Each has
  * its own row, so polls running at once never overwrite each other's.
  */
-async function getCommentCheckRetries(): Promise<Map<string, number>> {
-  const retries = new Map<string, number>();
-  for (const config of await listIntegrationConfigs(PLATFORM)) {
-    if (!config.configKey.startsWith(COMMENT_RETRY_KEY_PREFIX)) continue;
-    const attempts = config.configData?.attempts;
-    retries.set(
-      config.configKey.slice(COMMENT_RETRY_KEY_PREFIX.length),
+async function getCommentCheckRetries(): Promise<
+  Map<string, CommentCheckRetry>
+> {
+  const retries = new Map<string, CommentCheckRetry>();
+  for (const row of await listIntegrationConfigs(PLATFORM)) {
+    if (!row.configKey.startsWith(COMMENT_RETRY_KEY_PREFIX)) continue;
+    const attempts = row.configData?.attempts;
+    retries.set(row.configKey.slice(COMMENT_RETRY_KEY_PREFIX.length), {
       // Count a malformed row as one failure rather than skipping or trusting it.
-      typeof attempts === "number" && Number.isInteger(attempts) && attempts > 0
-        ? attempts
-        : 1,
-    );
+      attempts:
+        typeof attempts === "number" &&
+        Number.isInteger(attempts) &&
+        attempts > 0
+          ? attempts
+          : 1,
+      row,
+    });
   }
   return retries;
 }
 
 async function recordCommentCheckFailure(
   fileId: string,
-  attempts: number,
+  retry: CommentCheckRetry | undefined,
 ): Promise<void> {
   const key = COMMENT_RETRY_KEY_PREFIX + fileId;
-  if (attempts < COMMENT_CHECK_MAX_ATTEMPTS) {
+  const attempts = (retry?.attempts ?? 0) + 1;
+  if (!retry || attempts < COMMENT_CHECK_MAX_ATTEMPTS) {
     await saveIntegrationConfig(PLATFORM, { attempts }, key);
     return;
   }
   console.warn(
     `[google-docs] Giving up on comments in ${fileId} after ${attempts} failed checks`,
   );
-  await deleteIntegrationConfig(PLATFORM, key);
+  await deleteIntegrationConfigIfUnchanged(PLATFORM, key, retry.row);
 }
 
 function isAgentMention(commentText: string, triggerKeyword: string): boolean {
@@ -776,7 +788,7 @@ export async function processChanges(
       "[google-docs] Could not read documents to check again:",
       err,
     );
-    return new Map<string, number>();
+    return new Map<string, CommentCheckRetry>();
   });
   const docFileIds = new Set<string>(retries.keys());
   for (const change of changes) {
@@ -790,20 +802,19 @@ export async function processChanges(
   }
 
   for (const fileId of docFileIds) {
+    const retry = retries.get(fileId);
     try {
       await checkDocumentComments(fileId, accessToken, options);
-      if (retries.has(fileId)) {
-        await deleteIntegrationConfig(
+      if (retry) {
+        await deleteIntegrationConfigIfUnchanged(
           PLATFORM,
           COMMENT_RETRY_KEY_PREFIX + fileId,
+          retry.row,
         );
       }
     } catch (err) {
       console.error(`[google-docs] Error checking comments on ${fileId}:`, err);
-      await recordCommentCheckFailure(
-        fileId,
-        (retries.get(fileId) ?? 0) + 1,
-      ).catch((saveErr) => {
+      await recordCommentCheckFailure(fileId, retry).catch((saveErr) => {
         console.error(
           `[google-docs] Could not record the failed check on ${fileId}:`,
           saveErr,

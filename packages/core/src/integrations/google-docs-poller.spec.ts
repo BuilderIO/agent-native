@@ -173,11 +173,14 @@ describe("Google Docs change processing", () => {
         saved.set(key, configData);
       },
     );
-    vi.spyOn(configStore, "deleteIntegrationConfig").mockImplementation(
-      async (_platform, key = "default") => {
-        saved.delete(key);
-      },
-    );
+    // A save stores a new object, so an unchanged row is the same object.
+    vi.spyOn(
+      configStore,
+      "deleteIntegrationConfigIfUnchanged",
+    ).mockImplementation(async (_platform, key, expected) => {
+      if (saved.get(key) !== expected.configData) return false;
+      return saved.delete(key);
+    });
     vi.spyOn(googleDocs, "getServiceAccountAccessToken").mockResolvedValue(
       "access-token",
     );
@@ -256,6 +259,26 @@ describe("Google Docs change processing", () => {
 
     expect(saved.get("comment-retry:doc-1")).toEqual({ attempts: 2 });
     expect(saved.get("comment-retry:doc-2")).toEqual({ attempts: 2 });
+  });
+
+  it("keeps a newer failure on the same document while this poll checks it", async () => {
+    const saved = useConfig({
+      "page-token": { pageToken: "token-1" },
+      "comment-retry:doc-1": { attempts: 1 },
+    });
+    vi.spyOn(googleDocs, "listChanges").mockResolvedValue({
+      changes: [],
+      nextPageToken: "token-2",
+    });
+    vi.spyOn(googleDocs, "listDocComments").mockImplementation(async () => {
+      // A push notification's poll fails on a newer change to doc-1.
+      saved.set("comment-retry:doc-1", { attempts: 2 });
+      return [];
+    });
+
+    await processChanges(pollerOptions);
+
+    expect(saved.get("comment-retry:doc-1")).toEqual({ attempts: 2 });
   });
 
   it("still checks new changes when the retry rows can't be read", async () => {

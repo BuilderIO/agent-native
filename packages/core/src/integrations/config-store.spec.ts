@@ -83,6 +83,35 @@ describe("integration config compare-and-swap", () => {
     );
   });
 
+  it("deletes a row only while it matches the snapshot", async () => {
+    const { deleteIntegrationConfigIfUnchanged } =
+      await import("./config-store.js");
+    executeMock.mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+
+    const deleted = await deleteIntegrationConfigIfUnchanged(
+      "google-docs",
+      "comment-retry:doc-1",
+      {
+        platform: "google-docs",
+        configKey: "comment-retry:doc-1",
+        configData: { attempts: 1 },
+        owner: null,
+        updatedAt: 100,
+      },
+    );
+
+    expect(deleted).toBe(false);
+    expect(executeMock).toHaveBeenCalledWith({
+      sql: expect.stringContaining("AND config_data = ? AND updated_at = ?"),
+      args: [
+        "google-docs",
+        "comment-retry:doc-1",
+        JSON.stringify({ attempts: 1 }),
+        100,
+      ],
+    });
+  });
+
   it("lists configs only for the requested platform with a bounded query", async () => {
     const { listIntegrationConfigPage } = await import("./config-store.js");
     executeMock.mockResolvedValueOnce({
