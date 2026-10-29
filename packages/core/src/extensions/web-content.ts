@@ -1,6 +1,6 @@
 import safeRegex from "safe-regex2";
 
-import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { isMissingPeer, loadOptionalPeer } from "../shared/optional-peer.js";
 
 export type WebResponseMode =
   | "auto"
@@ -185,11 +185,14 @@ export async function processWebContent(
           200_000,
         );
 
+  // Skip HTML extraction entirely when responseMode is raw, search.source is
+  // explicitly "raw", and no save is needed — no point loading linkedom or
+  // readability just to search the original body.
   const shouldExtract =
     html &&
     !emptyHtmlBody &&
     (mode !== "raw" ||
-      hasWebContentSearch(search) ||
+      (hasWebContentSearch(search) && search?.source !== "raw") ||
       options.saveContentFormat);
   // Gate Markdown conversion on the selected corpus / response path. Explicit
   // source:"raw" searches the original body and must not load optional Turndown.
@@ -639,18 +642,25 @@ function htmlToPlainText(
 }
 
 async function htmlToMarkdown(html: string): Promise<string> {
-  const { default: TurndownService } = await loadOptionalPeer(
-    "turndown",
-    () => import("turndown"),
-  );
-  const turndown = new TurndownService({
-    headingStyle: "atx",
-    bulletListMarker: "-",
-    codeBlockStyle: "fenced",
-    linkStyle: "inlined",
-  });
-  turndown.remove(["script", "style", "noscript"]);
-  return normalizeMarkdown(turndown.turndown(html));
+  try {
+    const { default: TurndownService } = await loadOptionalPeer(
+      "turndown",
+      () => import("turndown"),
+    );
+    const turndown = new TurndownService({
+      headingStyle: "atx",
+      bulletListMarker: "-",
+      codeBlockStyle: "fenced",
+      linkStyle: "inlined",
+    });
+    turndown.remove(["script", "style", "noscript"]);
+    return normalizeMarkdown(turndown.turndown(html));
+  } catch (error) {
+    if (isMissingPeer(error, "turndown")) {
+      return "";
+    }
+    throw error;
+  }
 }
 
 function removeNonContentNodes(document: Document) {

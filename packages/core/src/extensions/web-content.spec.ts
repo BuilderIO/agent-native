@@ -582,6 +582,52 @@ describe("processWebContent", () => {
       expect(result.rawBodyFallback).toBeUndefined();
     },
   );
+
+  it("falls back to plain-text search when Turndown is missing and search.source is omitted", async () => {
+    vi.doMock("turndown", () => {
+      const error = new Error("Cannot find module 'turndown'");
+      (error as Error & { code: string }).code = "ERR_MODULE_NOT_FOUND";
+      throw error;
+    });
+    const { processWebContent } = await import("./web-content.js");
+
+    const result = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+      search: { query: "Readable content" },
+    });
+
+    expect(result.searchSource).toBe("extracted");
+    expect(result.matches?.length).toBeGreaterThan(0);
+    expect(
+      result.matches?.some((match) => match.match === "Readable content"),
+    ).toBe(true);
+  });
+
+  it("does not load linkedom when responseMode raw searches with explicit source raw and no save", async () => {
+    vi.doMock("linkedom/worker", () => {
+      throw new Error("linkedom should not be loaded for raw-source search.");
+    });
+    vi.doMock("turndown", () => {
+      throw new Error("Turndown should not be loaded for raw-source search.");
+    });
+    const { processWebContent } = await import("./web-content.js");
+
+    const result = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+      search: { query: "unsafe()", source: "raw" },
+    });
+
+    expect(result.searchSource).toBe("raw");
+    expect(result.matches?.some((match) => match.match === "unsafe()")).toBe(
+      true,
+    );
+  });
 });
 
 describe("formatWebContentResult", () => {
