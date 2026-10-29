@@ -55,7 +55,7 @@ export default function ShareDialog({
     { id: deck.id, compact: "true" },
     { enabled: open },
   );
-  const isPublic = (liveDeck.data?.visibility ?? deck.visibility) === "public";
+  const isPublic = liveDeck.data?.visibility === "public";
 
   const shareToken =
     shareLink?.deckId === deck.id ? shareLink.token : undefined;
@@ -147,9 +147,7 @@ export default function ShareDialog({
         title={t("share.title")}
         resourceTitle={deck.title}
         shareUrl={primaryShareLink}
-        linkTabExtras={
-          isPublic ? <SnapshotShareLinks deckId={deck.id} /> : undefined
-        }
+        linkTabExtras={<SnapshotShareLinks deckId={deck.id} />}
       />
     </>
   );
