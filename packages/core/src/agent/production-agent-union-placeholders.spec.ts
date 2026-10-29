@@ -32,7 +32,7 @@ const viewSchema = z.discriminatedUnion("operation", [
 
 describe("root-union tool placeholders", () => {
   it.each([false, true])(
-    "repairs the selected branch before the action runs (normalized root %s)",
+    "refuses ambiguous clears and accepts a sparse retry (normalized root %s)",
     async (normalizedRoot) => {
       const run = vi.fn(async (input: z.infer<typeof viewSchema>) => input);
       const action = defineAction({
@@ -49,6 +49,7 @@ describe("root-union tool placeholders", () => {
       const result = await executeAgentToolCall({
         actions: { "update-view": action as unknown as ActionEntry },
         name: "update-view",
+        callId: "mixed-input",
         input: {
           operation: "update",
           view: null,
@@ -62,7 +63,26 @@ describe("root-union tool placeholders", () => {
           },
         },
       });
-      expect(result.status).toBe("completed");
+      expect(result.status).toBe("failed");
+      expect(result.output).toContain("No action was run");
+      expect(run).not.toHaveBeenCalled();
+      const retry = await executeAgentToolCall({
+        actions: { "update-view": action as unknown as ActionEntry },
+        name: "update-view",
+        callId: "sparse-retry",
+        input: {
+          operation: "update",
+          view: null,
+          viewId: "view-1",
+          patch: {
+            icon: null,
+            filters: [{ key: "context" }],
+            hiddenIds: [],
+            wrap: false,
+          },
+        },
+      });
+      expect(retry.status).toBe("completed");
       expect(run).toHaveBeenCalledOnce();
       expect(run.mock.calls[0]?.[0]).toEqual({
         operation: "update",
@@ -89,6 +109,7 @@ describe("root-union tool placeholders", () => {
       const result = await executeAgentToolCall({
         actions: { "update-view": action as unknown as ActionEntry },
         name: "update-view",
+        callId: "invalid-extra",
         input: {
           operation: "update",
           viewId: "view-1",

@@ -32,6 +32,8 @@ export type PriorTurnToolCallSequenceEntry =
       isError: boolean;
       completedSideEffect?: boolean;
       replayed?: true;
+      approvalPause?: true;
+      notExecuted?: true;
       matchedStart: boolean;
     };
 
@@ -496,6 +498,8 @@ export async function loadPriorTurnToolCallJournal(
           ? { completedSideEffect: true }
           : {}),
         ...(event.replayed === true ? { replayed: true } : {}),
+        ...(event.approvalPause === true ? { approvalPause: true } : {}),
+        ...(event.notExecuted === true ? { notExecuted: true } : {}),
         matchedStart: call !== undefined,
       });
       const artifacts = event.artifacts?.filter(isArtifactReceipt);
@@ -682,6 +686,8 @@ export function seedRepeatedToolErrorCountsFromJournal(
   const failureStreaks = new Map<string, number>();
   for (const call of calls) {
     if (call.event === "start") continue;
+
+    if (call.approvalPause || call.notExecuted) continue;
 
     if (call.replayed) {
       if (call.completedSideEffect === true) {

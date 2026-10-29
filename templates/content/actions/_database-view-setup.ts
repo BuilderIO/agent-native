@@ -228,6 +228,30 @@ export const updateContentDatabaseViewAgentSchema = z.discriminatedUnion(
         patch: updateViewPatchSchema,
       })
       .strict(),
+    setupGuardSchema
+      .extend({
+        expectedConfigurationRevision: z.string().min(1),
+        operation: z.literal("copy-settings"),
+        sourceViewId: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("Saved table view whose settings to copy"),
+        viewId: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("Target table view; its name and icon stay unchanged"),
+        filters: z
+          .array(filterSchema)
+          .max(100)
+          .describe(
+            "Complete replacement filters, including any source filters to retain",
+          ),
+      })
+      .strict(),
   ],
 );
 
@@ -638,11 +662,18 @@ export async function runUpdateContentDatabaseView(
     payload:
       input.operation === "create"
         ? { operation: input.operation, view: input.view }
-        : {
-            operation: input.operation,
-            viewId: input.viewId,
-            patch: input.patch,
-          },
+        : input.operation === "copy-settings"
+          ? {
+              operation: input.operation,
+              sourceViewId: input.sourceViewId,
+              viewId: input.viewId,
+              filters: input.filters,
+            }
+          : {
+              operation: input.operation,
+              viewId: input.viewId,
+              patch: input.patch,
+            },
     apply: async (tx, context) => {
       const rawConfig = parseRawConfig(context.database.viewConfigJson);
       const normalized = parseDatabaseViewConfig(
@@ -682,8 +713,32 @@ export async function runUpdateContentDatabaseView(
             404,
           );
         }
-        const patchKeys = Object.keys(input.patch);
-        let patch: Record<string, unknown> = input.patch;
+        let inputPatch: z.infer<typeof updateViewPatchSchema>;
+        if (input.operation === "copy-settings") {
+          const source = normalized.views.find(
+            (view) => view.id === input.sourceViewId,
+          );
+          if (source?.type !== "table" || existing.type !== "table") {
+            setupError(
+              "INVALID_VIEW_REFERENCE",
+              "Copy settings requires an available source and target table view.",
+              400,
+            );
+          }
+          const {
+            id: _id,
+            name: _name,
+            icon: _icon,
+            type: _type,
+            itemLayout: _itemLayout,
+            ...settings
+          } = source;
+          inputPatch = { ...settings, filters: input.filters };
+        } else {
+          inputPatch = input.patch;
+        }
+        const patchKeys = Object.keys(inputPatch);
+        let patch: Record<string, unknown> = inputPatch;
         if (existing.type === "list") {
           const unsupported = patchKeys.find(
             (key) => !LIST_VIEW_PATCH_KEYS.has(key),
@@ -695,9 +750,9 @@ export async function runUpdateContentDatabaseView(
               400,
             );
           }
-          const { itemLayoutPreset: _preset, ...rest } = input.patch;
+          const { itemLayoutPreset: _preset, ...rest } = inputPatch;
           const itemLayout = nextListItemLayout(
-            input.patch,
+            inputPatch,
             existing,
             context.definitions,
           );
@@ -711,11 +766,7 @@ export async function runUpdateContentDatabaseView(
               400,
             );
           }
-          validateTablePatch(
-            input.patch,
-            context.definitions,
-            existing.filters,
-          );
+          validateTablePatch(inputPatch, context.definitions, existing.filters);
         } else {
           setupError(
             "UNSUPPORTED_SCHEMA_CHANGE",

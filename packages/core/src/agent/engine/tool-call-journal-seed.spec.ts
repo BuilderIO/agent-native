@@ -262,6 +262,38 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
   const seedErrors = (calls: PriorTurnToolCallSequenceEntry[]) =>
     seedRepeatedToolErrorCountsFromJournal(calls, keyForCall, (error) => error);
 
+  it("does not treat approval pauses or skipped calls as successful executions", () => {
+    const calls: PriorTurnToolCallSequenceEntry[] = [
+      {
+        event: "done",
+        name: "edit",
+        input: {},
+        result: "bad input",
+        isError: true,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "edit",
+        input: {},
+        result: "approval required",
+        isError: false,
+        approvalPause: true,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "edit",
+        input: {},
+        result: "not executed",
+        isError: false,
+        notExecuted: true,
+        matchedStart: true,
+      },
+    ];
+    expect(seedErrors(calls).failureStreaks.get("edit")).toBe(1);
+  });
+
   it("keeps changing errors across continuation and resets only a successful tool", () => {
     const calls: PriorTurnToolCallSequenceEntry[] = [
       {

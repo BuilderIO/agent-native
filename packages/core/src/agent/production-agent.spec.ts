@@ -19228,7 +19228,7 @@ describe("runAgentLoop", () => {
     ]);
   });
 
-  it("recovers schema-invalid empty placeholders in optional tool fields", async () => {
+  it("refuses schema-invalid placeholders mixed with valid clears", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -19312,23 +19312,15 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(run).toHaveBeenCalledOnce();
-    // oracle-change: repairing an invalid enum must preserve schema-valid clears.
-    expect(run).toHaveBeenCalledWith(
-      {
-        id: "ext-1",
-        description: "",
-        patches: [{}],
-        edits: [{}],
-        format: false,
-      },
-      expect.any(Object),
-    );
-    expect(events).not.toContainEqual(
+    // oracle-change: refusing ambiguous input avoids inferring which valid clears were intended.
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
         tool: "update-extension",
         isError: true,
+        errorCode: "ambiguous_tool_placeholders",
+        completedSideEffect: false,
       }),
     );
   });

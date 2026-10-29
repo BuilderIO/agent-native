@@ -459,6 +459,8 @@ export type AgentChatEvent =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      /** The call was skipped without executing or serving a result. */
+      notExecuted?: true;
       /** Compact action write evidence retained even when `result` is truncated. */
       receipt?: WriteReceipt;
       /**

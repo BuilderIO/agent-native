@@ -11,6 +11,101 @@ import { classifyToolCallJournal } from "./tool-call-journal.js";
 import type { AgentChatEvent } from "./types.js";
 
 describe("failed tool attempts", () => {
+  it.each([0, 4, 5])(
+    "bounds parallel dispatch with %s durable failures already recorded",
+    async (previousFailures) => {
+      const read = vi
+        .spyOn(journalSeed, "loadPriorTurnToolCallJournal")
+        .mockResolvedValue({
+          status: "read",
+          events: [],
+          toolCallJournal: classifyToolCallJournal([]),
+          priorToolCalls: [],
+          priorToolResults: [],
+          priorToolCallSequence: Array.from(
+            { length: previousFailures },
+            (_, attempt) => ({
+              event: "done" as const,
+              name: "check-view",
+              input: { attempt: -attempt - 1 },
+              result: `Earlier failure ${attempt}`,
+              isError: true,
+              matchedStart: true,
+            }),
+          ),
+        });
+      const run = vi.fn(async ({ attempt }: { attempt: number }) => {
+        throw new Error(`Failure variant ${attempt}`);
+      });
+      const action = defineAction({
+        description: "Check a view",
+        readOnly: true,
+        schema: z.object({ attempt: z.number() }),
+        run,
+      });
+      let step = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test",
+        supportedModels: ["test"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (step++ === 0) {
+            for (let attempt = 0; attempt < 30; attempt++) {
+              yield {
+                type: "tool-call",
+                id: `batch-${attempt}`,
+                name: "check-view",
+                input: { attempt },
+              };
+            }
+            yield { type: "stop", reason: "tool_use" };
+          } else {
+            yield { type: "stop", reason: "end_turn" };
+          }
+        },
+      };
+      const events: AgentChatEvent[] = [];
+      try {
+        await runAgentLoop({
+          engine,
+          model: "test",
+          systemPrompt: "Test",
+          tools: [],
+          messages: [
+            { role: "user", content: [{ type: "text", text: "Check views" }] },
+          ],
+          actions: { "check-view": action as unknown as ActionEntry },
+          threadId: "fixture-thread",
+          turnId: "fixture-turn",
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        });
+      } finally {
+        read.mockRestore();
+      }
+      expect(run).toHaveBeenCalledTimes(5 - previousFailures);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "repeated_tool_failure",
+        }),
+      );
+      expect(
+        events.filter(
+          (event) => event.type === "tool_done" && event.notExecuted,
+        ),
+      ).toHaveLength(25 + previousFailures);
+    },
+  );
+
   it.each([
     { varied: false, limit: 3, interruptedCloseout: false },
     { varied: false, limit: 3, interruptedCloseout: true },

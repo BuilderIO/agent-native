@@ -133,8 +133,8 @@ async function runPatchDeck(
 describe.each(["oneOf", "anyOf"] as const)(
   "discriminated-union tool input (%s)",
   (unionKeyword) => {
-    it("strips gateway placeholders nested inside a union branch", async () => {
-      const { run } = await runPatchDeck(unionKeyword, {
+    it("refuses mixed placeholders before writing a union branch", async () => {
+      const { run, result } = await runPatchDeck(unionKeyword, {
         deckId: "MB8Yb3BKQe",
         operations: [
           {
@@ -152,22 +152,11 @@ describe.each(["oneOf", "anyOf"] as const)(
         ],
       });
 
-      expect(run).toHaveBeenCalledTimes(1);
-      expect((run.mock.calls[0] as any)[0]).toEqual({
-        deckId: "MB8Yb3BKQe",
-        operations: [
-          // oracle-change: schema-valid clears retain their meaning beside invalid placeholders.
-          {
-            op: "patch-deck-fields",
-            fields: {
-              title: "Giraffes vs Horses",
-              designSystemId: "",
-              shareToken: "",
-              starred: false,
-            },
-          },
-        ],
-      });
+      // oracle-change: mixed invalid placeholders and valid clears have no safe inferred intent.
+      expect(run).not.toHaveBeenCalled();
+      expect(result).toContain("unclear which fields should be cleared");
+      expect(result).toContain("No action was run");
+      expect(result).toContain("sparse JSON");
     });
 
     it("keeps intentional clears when every empty value is schema-valid", async () => {

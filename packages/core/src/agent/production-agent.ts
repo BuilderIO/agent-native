@@ -5486,6 +5486,21 @@ export interface TerminalActionStop {
   blockedBy?: UnknownOutcomeCause;
 }
 
+function repeatedToolFailureStop(
+  name: string,
+  count: number,
+  lastError: string,
+): TerminalActionStop {
+  return {
+    message:
+      `I stopped because ${name} failed ${count} times without a successful call. ` +
+      `Last error: ${clipHead(stopErrorLine(lastError), MAX_STOP_ERROR_LINE_CHARS)}\n\n` +
+      "Anything completed before this is saved.",
+    errorCode: "repeated_tool_failure",
+    details: lastError,
+  };
+}
+
 const LOOP_BREAKER_STOP_CODES = new Set([
   "repeated_tool_call",
   "repeated_identical_tool_error",
@@ -7066,6 +7081,7 @@ function resolveObjectSchemaBranch(
 function stripOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   value: unknown,
+  emptyValues: { valid: boolean; invalid: boolean },
 ): { value: unknown; changed: boolean } {
   if (!schema) return { value, changed: false };
 
@@ -7074,7 +7090,11 @@ function stripOptionalToolPlaceholders(
     if (!itemSchema) return { value, changed: false };
     let changed = false;
     const items = value.map((item) => {
-      const result = stripOptionalToolPlaceholders(itemSchema, item);
+      const result = stripOptionalToolPlaceholders(
+        itemSchema,
+        item,
+        emptyValues,
+      );
       if (result.changed) changed = true;
       return result.value;
     });
@@ -7114,15 +7134,20 @@ function stripOptionalToolPlaceholders(
       }
       continue;
     }
-    if (
-      !required.has(key) &&
-      isStructurallyEmptyToolValue(entry) &&
-      schemaRejectsToolValue(propertySchema, entry)
-    ) {
-      placeholders.push(key);
-      continue;
+    if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
+      if (schemaRejectsToolValue(propertySchema, entry)) {
+        emptyValues.invalid = true;
+        placeholders.push(key);
+        continue;
+      }
+      if (schemaAcceptsToolValue(propertySchema, entry))
+        emptyValues.valid = true;
     }
-    const nested = stripOptionalToolPlaceholders(propertySchema, entry);
+    const nested = stripOptionalToolPlaceholders(
+      propertySchema,
+      entry,
+      emptyValues,
+    );
     if (nested.changed) {
       normalized ??= { ...record };
       normalized[key] = nested.value;
@@ -7139,11 +7164,30 @@ function stripOptionalToolPlaceholders(
     : { value, changed: false };
 }
 
+class AmbiguousToolPlaceholdersError extends ActionInputValidationError {
+  readonly errorCode = "ambiguous_tool_placeholders";
+
+  constructor() {
+    super(
+      "Tool input mixes invalid placeholders with valid empty values, so it is unclear which fields should be cleared. " +
+        "No action was run. Retry the native tool with sparse JSON containing only the intended changes. " +
+        "If the transport keeps adding unused fields, use a dedicated operation that expresses the intended change or report this error. Mutating actions cannot run through run-code.",
+    );
+    this.name = "AmbiguousToolPlaceholdersError";
+  }
+}
+
+interface ToolInputRepair {
+  input: unknown;
+  changed: boolean;
+  error?: AmbiguousToolPlaceholdersError;
+}
+
 /** The repairs the loop makes to a model's tool input before anything reads it. */
 function repairToolCallInput(
   entry: ActionEntry | undefined,
   input: unknown,
-): { input: unknown; changed: boolean } {
+): ToolInputRepair {
   if (!entry || getStrictToolInputValidator(entry)) {
     return { input, changed: false };
   }
@@ -7151,6 +7195,7 @@ function repairToolCallInput(
     entry.tool.parameters,
     input,
   );
+  if (placeholders.error) return placeholders;
   const json = coerceStringifiedJsonToolValues(
     entry.tool.parameters,
     placeholders.input,
@@ -7167,10 +7212,10 @@ function toolCallIntent(
   entry: ActionEntry,
   input: unknown,
 ): Promise<ActionCallIntent> {
-  return actionCallIntent(
-    entry,
-    coerceRawToolInput(entry, repairToolCallInput(entry, input).input),
-  );
+  const repaired = repairToolCallInput(entry, input);
+  if (repaired.error)
+    return Promise.resolve({ valid: false, error: repaired.error });
+  return actionCallIntent(entry, coerceRawToolInput(entry, repaired.input));
 }
 
 /**
@@ -7261,12 +7306,20 @@ function isBoundedTaskWait(toolName: string, input: unknown): boolean {
 function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
-): { input: unknown; changed: boolean } {
+): ToolInputRepair {
   if (!schema || !input || typeof input !== "object") {
     return { input, changed: false };
   }
   if (Array.isArray(input)) return { input, changed: false };
-  const result = stripOptionalToolPlaceholders(schema, input);
+  const emptyValues = { valid: false, invalid: false };
+  const result = stripOptionalToolPlaceholders(schema, input, emptyValues);
+  if (emptyValues.valid && emptyValues.invalid) {
+    return {
+      input,
+      changed: false,
+      error: new AmbiguousToolPlaceholdersError(),
+    };
+  }
   return { input: result.value, changed: result.changed };
 }
 
@@ -9544,9 +9597,10 @@ export async function runAgentLoop(opts: {
         isError: boolean,
         artifacts?: ArtifactReceipt[],
         receipt?: WriteReceipt,
-        replayed = false,
+        resetsFailureStreak = true,
       ) => {
-        if (!isError && !replayed) failureStreaks.delete(toolCall.name);
+        if (!isError && resetsFailureStreak)
+          failureStreaks.delete(toolCall.name);
         toolResultHistory.push({
           toolCallId: toolCall.id,
           name: toolCall.name,
@@ -9602,14 +9656,11 @@ export async function runAgentLoop(opts: {
           count < MAX_IDENTICAL_TOOL_ERRORS &&
           anyArgsCount < MAX_SAME_ERROR_ACROSS_ARGUMENTS
         ) {
-          requestedActionStop ??= {
-            message:
-              `I stopped because ${toolCall.name} failed ${failureCount} times without a successful call. ` +
-              `Last error: ${clipHead(stopErrorLine(sanitizedResult), MAX_STOP_ERROR_LINE_CHARS)}\n\n` +
-              "Anything completed before this is saved.",
-            errorCode: "repeated_tool_failure",
-            details: sanitizedResult,
-          };
+          requestedActionStop ??= repeatedToolFailureStop(
+            toolCall.name,
+            failureCount,
+            sanitizedResult,
+          );
           return sanitizedResult;
         }
         if (
@@ -9709,6 +9760,7 @@ export async function runAgentLoop(opts: {
         isError = false,
         errorClass?: ToolErrorClass,
         invalidPaths?: string[],
+        errorCode?: string,
       ): Promise<EngineContentPart> => {
         const result = finalizeToolErrorResult(guidance);
         return (async () => {
@@ -9728,6 +9780,7 @@ export async function runAgentLoop(opts: {
             completedSideEffect: false,
             ...(errorClass ? { errorClass } : {}),
             ...(invalidPaths ? { invalidPaths } : {}),
+            ...(errorCode ? { errorCode } : {}),
           });
           recordToolResult(result, true);
           return {
@@ -9838,7 +9891,11 @@ export async function runAgentLoop(opts: {
       }
 
       const toolCallSchemaError = toolCallSchemaErrorsByCall.get(toolCall);
-      if (toolCallSchemaError && !repairedInput.changed) {
+      if (
+        toolCallSchemaError &&
+        !repairedInput.changed &&
+        !repairedInput.error
+      ) {
         return declineToolCall(
           toolInputSchemaErrorResult(
             toolCall.name,
@@ -9851,10 +9908,9 @@ export async function runAgentLoop(opts: {
           "input_invalid",
         );
       }
-      const rawToolInputError = validateRawToolInput(
-        actionEntry,
-        toolCall.input,
-      );
+      const rawToolInputError = repairedInput.error
+        ? null
+        : validateRawToolInput(actionEntry, toolCall.input);
       if (rawToolInputError) {
         return declineToolCall(
           toolInputSchemaErrorResult(
@@ -9886,6 +9942,9 @@ export async function runAgentLoop(opts: {
           "input_invalid",
           intent?.error instanceof ActionInputValidationError
             ? telemetryInvalidPaths(intent.error.paths)
+            : undefined,
+          intent?.error instanceof AmbiguousToolPlaceholdersError
+            ? intent.error.errorCode
             : undefined,
         );
       }
@@ -10053,7 +10112,7 @@ export async function runAgentLoop(opts: {
             completedSideEffect: false,
             approvalPause: true,
           });
-          recordToolResult(result, false);
+          recordToolResult(result, false, undefined, undefined, false);
           turnYieldedToUser = true;
           return {
             type: "tool-result" as const,
@@ -10265,7 +10324,7 @@ export async function runAgentLoop(opts: {
             : {}),
           ...(fileMutation ? { fileMutation } : {}),
         });
-        recordToolResult(result, isError, artifacts, receipt, true);
+        recordToolResult(result, isError, artifacts, receipt, false);
         if (!isError) {
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
         }
@@ -10419,7 +10478,7 @@ export async function runAgentLoop(opts: {
             replayedFailure,
             journaled.artifacts,
             undefined,
-            true,
+            false,
           );
           if (!replayedFailure) {
             noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
@@ -10548,7 +10607,7 @@ export async function runAgentLoop(opts: {
             false,
             ledgerResult.artifacts,
             undefined,
-            true,
+            false,
           );
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
@@ -11480,6 +11539,7 @@ export async function runAgentLoop(opts: {
         input: toolCall.input as Record<string, unknown>,
         result,
         completedSideEffect: false,
+        notExecuted: true,
       });
       toolResultHistory.push({
         toolCallId: toolCall.id,
@@ -11497,13 +11557,34 @@ export async function runAgentLoop(opts: {
     };
 
     for (const toolCall of toolCallParts) {
+      const failureCount = failureStreaks.get(toolCall.name) ?? 0;
+      if (failureCount >= MAX_TOOL_FAILURE_STREAK && !requestedActionStop) {
+        const lastError = [...toolResultHistory]
+          .reverse()
+          .find(
+            (result) => result.name === toolCall.name && result.isError,
+          )?.content;
+        requestedActionStop = repeatedToolFailureStop(
+          toolCall.name,
+          failureCount,
+          lastError ?? "Earlier failures were recorded without error details.",
+        );
+      }
       if (turnYieldedToUser || requestedActionStop) {
         toolResultParts.push(skipToolCallAfterStop(toolCall));
         continue;
       }
       const batchKind = await getParallelBatchKind(toolCall);
       if (batchKind) {
-        if (parallelBatchKind && parallelBatchKind !== batchKind) {
+        const pendingForTool = parallelBatch.filter(
+          (pending) => pending.name === toolCall.name,
+        ).length;
+        const remainingAttempts =
+          MAX_TOOL_FAILURE_STREAK - (failureStreaks.get(toolCall.name) ?? 0);
+        if (
+          (parallelBatchKind && parallelBatchKind !== batchKind) ||
+          pendingForTool >= remainingAttempts
+        ) {
           await flushParallelBatch();
           if (turnYieldedToUser || requestedActionStop) {
             toolResultParts.push(skipToolCallAfterStop(toolCall));

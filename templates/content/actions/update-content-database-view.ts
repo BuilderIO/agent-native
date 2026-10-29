@@ -153,7 +153,7 @@ const guardedViewReplacementSchema = setupGuardSchema
 
 export default defineAction({
   description:
-    "Create one named ordinary table view, or sparsely update one exact saved table view or a list view's name, icon, and row layout (itemLayout, itemLayoutPreset), using stable property IDs, fresh schema and configuration revisions, and an idempotency key.",
+    "Create a table view, sparsely update a saved view, or use operation copy-settings to make a target table view match sourceViewId with explicit replacement filters while keeping the target's name and icon. Prefer copy-settings for matching views: it copies the saved settings on the server without repeating optional patch fields. List views support name, icon, and row layout (itemLayout, itemLayoutPreset). Use stable IDs, fresh schema and configuration revisions, and an idempotency key.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: updateContentDatabaseViewAgentSchema,
