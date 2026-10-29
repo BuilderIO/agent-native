@@ -520,6 +520,44 @@ describe("assistant reply toolbar", () => {
     expect(more.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("keeps Copy focused and enabled with a spinner while a slow copy runs", async () => {
+    const write = Promise.withResolvers<void>();
+    const writeText = vi.fn(() => write.promise);
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    cleanups.push(async () => {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    });
+    const { toolbar } = await renderChat();
+    const copy = toolbar("assistant-latest").querySelector<HTMLButtonElement>(
+      'button[aria-label="Copy message"]',
+    )!;
+
+    await act(async () => {
+      copy.focus();
+      copy.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(copy.disabled).toBe(false);
+    expect(copy.getAttribute("aria-busy")).toBe("true");
+    expect(copy.querySelector(".animate-spin")).not.toBeNull();
+    expect(document.activeElement).toBe(copy);
+
+    await press(copy);
+    expect(writeText).toHaveBeenCalledOnce();
+    await act(async () => {
+      write.resolve();
+      await write.promise;
+    });
+    expect(copy.getAttribute("aria-busy")).toBeNull();
+    expect(copy.getAttribute("aria-label")).toBe("Copied");
+  });
+
   it("keeps a copy in progress focused and enabled, so Escape still closes the set", async () => {
     const write = Promise.withResolvers<void>();
     const writeText = vi.fn(() => write.promise);
