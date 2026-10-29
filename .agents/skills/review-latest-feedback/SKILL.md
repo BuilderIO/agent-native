@@ -336,8 +336,9 @@ status line while it runs: every turn re-sends your whole context, and on
 10/28 polling CI was half the main thread's cost.
 
 Fix each review round's findings in one batch. If a second round still finds
-a problem in the same fix, take that fix out of the PR, 🎫 its report with
-what review found, and merge the rest. Close the PR only when nothing verified
+a problem in the same fix, take that fix out of the PR, remove its link from
+the PR's `Reports` section (close-out marks every listed report fixed), 🎫 its
+report with what review found, and merge the rest. Close the PR only when nothing verified
 is left in it.
 
 Merge it the way this repo merges PRs. In a Factory workspace, that means
