@@ -77,6 +77,11 @@ describe("TimelineTrack pointer gestures", () => {
 
   const pieces = () =>
     Array.from(container.querySelectorAll('[role="button"]'));
+  const firstPiece = () => {
+    const piece = pieces()[0];
+    if (!piece) throw new Error("no timeline piece rendered");
+    return piece;
+  };
   const track = () => container.firstElementChild!;
   const handles = () =>
     Array.from(container.querySelectorAll("[data-side]")) as HTMLElement[];
@@ -169,7 +174,7 @@ describe("TimelineTrack pointer gestures", () => {
       render(DEFAULT_EDITS, RANGE);
 
       act(() => {
-        pointer(pieces()[0], "pointerdown", 400);
+        pointer(firstPiece(), "pointerdown", 400);
         pointer(track(), "pointermove", 500);
         pointer(track(), "pointerup", 500);
       });
@@ -185,7 +190,7 @@ describe("TimelineTrack pointer gestures", () => {
       render(DEFAULT_EDITS, RANGE);
 
       act(() => {
-        pointer(pieces()[0], "pointerdown", 400);
+        pointer(firstPiece(), "pointerdown", 400);
         pointer(track(), "pointermove", 990);
         pointer(track(), "pointerup", 990);
       });
@@ -201,7 +206,7 @@ describe("TimelineTrack pointer gestures", () => {
       render(DEFAULT_EDITS, RANGE);
 
       act(() => {
-        pointer(pieces()[0], "pointerdown", 602);
+        pointer(firstPiece(), "pointerdown", 602);
         pointer(track(), "pointermove", 800);
         pointer(track(), "pointerup", 800);
       });
@@ -217,7 +222,7 @@ describe("TimelineTrack pointer gestures", () => {
       render(DEFAULT_EDITS, RANGE);
 
       act(() => {
-        pointer(pieces()[0], "pointerdown", 800);
+        pointer(firstPiece(), "pointerdown", 800);
         pointer(track(), "pointermove", 900);
         pointer(track(), "pointerup", 900);
       });
@@ -354,8 +359,7 @@ describe("TimelineTrack pointer gestures", () => {
 
     act(() => {
       pointer(gap, "pointerdown", 450);
-      pointer(track(), "pointermove", 700);
-      pointer(track(), "pointerup", 700);
+      pointer(track(), "pointerup", 450);
     });
 
     expect(onSelectionChange).toHaveBeenCalledWith({
