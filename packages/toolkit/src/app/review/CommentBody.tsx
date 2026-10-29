@@ -1,15 +1,10 @@
+import { splitCommentAtMarkdownLimit } from "@agent-native/core/review/plain-text";
 import type { ReviewMention } from "@agent-native/core/review/types";
 import type { ReactNode } from "react";
 
 import { cn } from "../../utils.js";
 import { InlineMarkdown, type InlineMarkdownProps } from "./InlineMarkdown.js";
 import { ReviewMentionChip } from "./ReviewMentionChip.js";
-
-/**
- * A comment shows Markdown for this many characters and plain text after, so
- * one huge comment can't stall the page that renders it.
- */
-export const COMMENT_BODY_MARKDOWN_LIMIT = 20_000;
 
 export interface CommentBodyMention extends ReviewMention {
   /**
@@ -61,7 +56,9 @@ export function CommentBody({
   renderLink,
   renderMention,
 }: CommentBodyProps) {
-  const { markdown, rest } = splitAtMarkdownLimit(body);
+  // Past the limit the rest shows as plain text, so one huge comment can't
+  // stall the page. Emails and webhooks split it the same way.
+  const { markdown, rest } = splitCommentAtMarkdownLimit(body);
   const found = findCommentBodyMentions(markdown, mentions);
   const mentionAt = new Map(found.map(({ at, mention }) => [at, mention]));
   const wrapsRest = Boolean(rest) && !compact;
@@ -122,31 +119,6 @@ export function CommentBody({
       <p className="m-0 whitespace-pre-wrap break-words">{rest}</p>
     </div>
   );
-}
-
-/**
- * Splits a long body at a paragraph break near the limit, so the Markdown
- * part doesn't end inside a block when it can help it.
- */
-function splitAtMarkdownLimit(body: string): {
-  markdown: string;
-  rest: string;
-} {
-  if (body.length <= COMMENT_BODY_MARKDOWN_LIMIT) {
-    return { markdown: body, rest: "" };
-  }
-  const head = body.slice(0, COMMENT_BODY_MARKDOWN_LIMIT);
-  const paragraphBreak = head.lastIndexOf("\n\n");
-  let cut =
-    paragraphBreak > COMMENT_BODY_MARKDOWN_LIMIT / 2
-      ? paragraphBreak
-      : COMMENT_BODY_MARKDOWN_LIMIT;
-  const last = body.charCodeAt(cut - 1);
-  if (last >= 0xd800 && last <= 0xdbff) cut -= 1;
-  return {
-    markdown: body.slice(0, cut),
-    rest: body.slice(cut).replace(/^\n+/, ""),
-  };
 }
 
 const NAME_CHAR = /[\p{L}\p{M}\p{N}_]/u;

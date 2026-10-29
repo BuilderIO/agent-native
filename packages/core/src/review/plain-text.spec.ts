@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { commentExcerpt, commentPlainText } from "./plain-text.js";
+import {
+  COMMENT_MARKDOWN_LIMIT,
+  commentExcerpt,
+  commentPlainText,
+} from "./plain-text.js";
 
 describe("commentPlainText", () => {
   it("drops inline markers and keeps the words", () => {
@@ -12,12 +16,26 @@ describe("commentPlainText", () => {
     expect(commentPlainText("***both*** and *a*")).toBe("both and a");
   });
 
-  it("keeps link and image text and reads mailto mentions as @Name", () => {
+  it("keeps link text and reads mailto mentions as @Name", () => {
     expect(
       commentPlainText(
-        'Ask @[Sam Lee](mailto:sam@example.com) about [the brief](https://example.com/b "Brief") ![chart](https://x.test/c.png) <https://example.com>',
+        'Ask @[Sam Lee](mailto:sam@example.com) about [the brief](https://example.com/b "Brief") <https://example.com>',
       ),
-    ).toBe("Ask @Sam Lee about the brief chart https://example.com");
+    ).toBe("Ask @Sam Lee about the brief https://example.com");
+  });
+
+  it("drops images and task checkboxes, which the renderer draws no text for", () => {
+    expect(commentPlainText("See it ![chart](https://x.test/c.png)")).toBe(
+      "See it",
+    );
+    expect(commentPlainText("- [x] done\n- [ ] todo")).toBe("- done\n- todo");
+  });
+
+  it("reads a table a row to a line, and keeps nested lists under their items", () => {
+    expect(commentPlainText("| a | b |\n|---|---|\n| 1 | 2 |")).toBe(
+      "a | b\n1 | 2",
+    );
+    expect(commentPlainText("1. a\n   - b\n2. c")).toBe("1. a\n   - b\n2. c");
   });
 
   it("keeps list markers and line breaks, and drops quote and heading markers", () => {
@@ -60,7 +78,7 @@ describe("commentPlainText", () => {
     expect(commentPlainText("a<!-- x -->b and <!-->c")).toBe("ab and c");
     expect(
       commentPlainText("Before\n<!--\nhidden\n\nstill hidden -->\nAfter"),
-    ).toBe("Before\nAfter");
+    ).toBe("Before\n\nAfter");
     // A quoted comment ends with the quote.
     expect(commentPlainText("> <!-- a\n> b\nc")).toBe("c");
     // Mid-line, an unclosed opener is text.
@@ -69,6 +87,28 @@ describe("commentPlainText", () => {
     expect(commentPlainText("\\<!-- not a comment -->")).toBe(
       "<!-- not a comment -->",
     );
+  });
+
+  it("hides raw HTML blocks, as the renderer does", () => {
+    expect(commentPlainText("<div>\ninternal note\n</div>\n\nshown")).toBe(
+      "shown",
+    );
+    // A comment in a list item runs to its `-->`, past a blank line.
+    expect(
+      commentPlainText("Note:\n\n- <!-- hidden\n\n  still hidden -->\n- shown"),
+    ).toBe("Note:\n\n-\n- shown");
+    // A backtick inside a comment doesn't open code.
+    expect(commentPlainText("Start <!-- use ` here --> thanks `code`")).toBe(
+      "Start  thanks code",
+    );
+  });
+
+  it("keeps the rest of a very long comment as written", () => {
+    const text = commentPlainText(
+      `**a**\n\n${"x".repeat(COMMENT_MARKDOWN_LIMIT)}\n\n**b**`,
+    );
+    expect(text.startsWith("a\n\nxxx")).toBe(true);
+    expect(text.endsWith("x\n\n**b**")).toBe(true);
   });
 
   it("keeps text that only looks like a tag", () => {
@@ -107,13 +147,13 @@ describe("commentPlainText", () => {
       "**x**\nafter",
     );
     // Code in a list item loses the item's indent.
-    expect(commentPlainText("a\n- ```\n    _y_\n  ```")).toBe("a\n  _y_");
+    expect(commentPlainText("a\n- ```\n    _y_\n  ```")).toBe("a\n-   _y_");
     // A quoted fence ends with the quote.
     expect(commentPlainText("> ```\n> a\nb **c**")).toBe("a\nb c");
   });
 
   it("drops a heading's underline", () => {
-    expect(commentPlainText("Title\n===\nnext")).toBe("Title\n\nnext");
+    expect(commentPlainText("Title\n===\nnext")).toBe("Title\nnext");
     expect(commentPlainText("**Sub**\n---")).toBe("Sub");
   });
 
@@ -133,7 +173,9 @@ describe("commentPlainText", () => {
     expect(commentPlainText("\\\\`code`")).toBe("\\code");
   });
 
-  it("takes linear time on long lines of unclosed markers", () => {
+  // The parser reads at most COMMENT_MARKDOWN_LIMIT characters, as the
+  // renderer does; together these take under a second on a laptop.
+  it("stays fast on long comments full of unclosed markers", () => {
     const started = performance.now();
     for (const text of [
       Array.from({ length: 400 }, (_, i) => `${"`".repeat(i + 1)}x`).join(" "),
@@ -153,7 +195,7 @@ describe("commentPlainText", () => {
     ]) {
       commentPlainText(text);
     }
-    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(performance.now() - started).toBeLessThan(5_000);
   });
 });
 

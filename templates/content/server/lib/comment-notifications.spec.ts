@@ -198,7 +198,7 @@ describe("content comment notifications", () => {
         ...BASE,
         submissionSource,
         authorName: '<img src=x onerror="alert(1)"> & Writer',
-        content: "<script>alert(2)</script> 1 < 2 & comment",
+        content: "1 < 2 & <b>comment</b> <script>alert(2)</script>",
       });
       await notifyArgs().send("owner@example.com");
       const email = mocks.sendEmail.mock.calls[0][0];
@@ -207,7 +207,7 @@ describe("content comment notifications", () => {
       expect(email.html).toContain("&lt;img src=x");
       // The quote is the comment's plain text, which skips raw HTML tags as
       // the app does, and escapes what's left.
-      expect(email.html).toContain("alert(2) 1 &lt; 2 &amp; comment");
+      expect(email.html).toContain("1 &lt; 2 &amp; comment alert(2)");
       if (submissionSource)
         expect(email.html).toContain("Posted via AI on behalf of &lt;img");
     },

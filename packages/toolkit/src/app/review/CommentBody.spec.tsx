@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
+import { COMMENT_MARKDOWN_LIMIT } from "@agent-native/core/review/plain-text";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { COMMENT_BODY_MARKDOWN_LIMIT, CommentBody } from "./CommentBody.js";
+import { CommentBody } from "./CommentBody.js";
 
 describe("CommentBody", () => {
   let container: HTMLDivElement;
@@ -154,7 +155,7 @@ describe("CommentBody", () => {
     const body = Array.from({ length: 1_500 }, (_, i) => `@Person ${i}`).join(
       " ",
     );
-    expect(body.length).toBeLessThan(COMMENT_BODY_MARKDOWN_LIMIT);
+    expect(body.length).toBeLessThan(COMMENT_MARKDOWN_LIMIT);
     render(<CommentBody body={body} mentions={mentions} />);
 
     const drawn = chips();
@@ -195,7 +196,7 @@ describe("CommentBody", () => {
 
   it("shows plain text past the Markdown limit", () => {
     const head = `${"**bold** ".repeat(1_000)}\n\n`;
-    const filler = "x".repeat(COMMENT_BODY_MARKDOWN_LIMIT - head.length - 10);
+    const filler = "x".repeat(COMMENT_MARKDOWN_LIMIT - head.length - 10);
     const tail = "\n\n**not bold** after the limit";
     render(<CommentBody body={`${head}${filler}${tail}`} />);
 
