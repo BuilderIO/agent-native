@@ -329,8 +329,8 @@ When a reply is explicitly requested, send it even without an author update.
 When a reply is needed to resolve a review thread without an explicit request, on
 the exact PR the current invocation authorizes, reply only if the author has
 updated since the last message. For an external author, begin by thanking them for
-the PR, or for their update. Verified BuilderIO members and the active user's own
-PR get the disposition only, with no thank-you. Never write “I have no further feedback” or another vague closing;
+the PR, or for their update. The active user's own PR gets the disposition only, with no thank-you. Verified
+BuilderIO members get no reply here; see the no-draft rule below. Never write “I have no further feedback” or another vague closing;
 state the disposition and the next actor and action, such as the exact change
 requested, that no changes are requested and the PR is ready for maintainer
 merge, or which named check is still pending. If the next step is a product,
