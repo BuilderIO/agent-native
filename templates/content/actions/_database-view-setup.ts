@@ -60,7 +60,7 @@ const filterSchema = z
       .enum(CONTENT_DATABASE_FILTER_OPERATORS)
       .describe(
         `Operators depend on the property's type. For multi_select use ${contentDatabaseFilterOperatorsForType("multi_select").join(", ")}. ` +
-          "To exclude several options, AND together one does_not_equal condition per option. does_not_contain applies to text.",
+          'To exclude several options, use one does_not_equal condition per option and explicitly set filterMode to "and" (patch.filterMode alongside patch.filters for update). does_not_contain applies to text.',
       ),
     value: z.string(),
     filterGroupId: z.string().max(200).optional(),
@@ -73,7 +73,12 @@ const filterSchema = z
 const tablePatchFields = {
   sorts: z.array(sortSchema).max(100).optional(),
   filters: z.array(filterSchema).max(100).optional(),
-  filterMode: z.enum(["and", "or"]).optional(),
+  filterMode: z
+    .enum(["and", "or"])
+    .optional()
+    .describe(
+      'How to combine filters. A sparse update preserves the saved mode when omitted; explicitly set "and" when replacing filters with multiple exclusions.',
+    ),
   columnWidths: z
     .record(
       z.string().trim().min(1).max(200),

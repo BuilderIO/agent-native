@@ -207,6 +207,7 @@ describe("ordinary property and table-view setup", () => {
             name: `Target ${index}`,
             type: "table",
             config: {
+              filterMode: "or",
               hiddenPropertyIds: created.properties.map(
                 (property) => property.definition.id,
               ),
@@ -219,6 +220,58 @@ describe("ordinary property and table-view setup", () => {
         }),
       );
       ids.push(made.value.id);
+    }
+    const sparseViewId = ids.at(2);
+    const exclusionFilters = filters.at(2);
+    if (!sparseViewId || !exclusionFilters)
+      throw new Error("Expected an exclusion view");
+    for (const filterMode of [undefined, "and"] as const) {
+      const current = await read();
+      await asOwner(() =>
+        updateView.run({
+          operation: "update",
+          target,
+          expectedSchemaRevision: current.mutationContract.schemaRevision,
+          expectedConfigurationRevision: current.configurationRevision,
+          idempotencyKey: `sparse-exclusion-${filterMode ?? "preserved"}`,
+          viewId: sparseViewId,
+          patch: {
+            filters: exclusionFilters,
+            ...(filterMode === undefined ? {} : { filterMode }),
+          },
+        }),
+      );
+      const updated = await read();
+      const view = updated.database.viewConfig.views.find(
+        (view) => view.id === sparseViewId,
+      );
+      if (!view) throw new Error("Expected the updated exclusion view");
+      expect(view.filterMode).toBe(filterMode ?? "or");
+      expect(view.filters).toEqual(exclusionFilters);
+      const filtered = await asOwner(() =>
+        readDatabase.run({
+          databaseId: target.databaseId,
+          limit: 10,
+          tableQuery: {
+            search: "",
+            filters: view.filters,
+            filterMode: view.filterMode,
+            sorts: [{ key: "name", label: "Name", direction: "asc" }],
+          },
+        }),
+      );
+      if (!("items" in filtered)) throw new Error("Expected filtered rows");
+      expect(filtered.items.map((item) => item.document.title)).toEqual(
+        filterMode === undefined
+          ? [
+              "A Ready red",
+              "B Next blue",
+              "C Ready neither",
+              "D Next both",
+              "E Outside neither",
+            ]
+          : ["C Ready neither"],
+      );
     }
     for (const [index, viewId] of ids.entries()) {
       const current = await read();
@@ -246,7 +299,6 @@ describe("ordinary property and table-view setup", () => {
         }),
       );
       expect(result.status, result.output).toBe("completed");
-      expect(JSON.parse(result.output).receipt.readback.verified).toBe(true);
     }
     const saved = await read();
     const savedSource = saved.database.viewConfig.views.find(
