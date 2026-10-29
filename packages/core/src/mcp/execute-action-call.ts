@@ -47,8 +47,10 @@ import type { MCPCallerIdentity } from "./build-server.js";
 import {
   CIRCULAR_RESULT,
   EMBED_RESULT_SENSITIVE_KEYS,
+  DATABASE_FAILURE_MESSAGE,
   HIDDEN_EMBED_URL,
   IMAGE_BYTES,
+  isDatabaseQueryFailure,
   isEmbedCredentialKey,
   readString,
   redactEmbedText,
@@ -839,10 +841,6 @@ async function refuseOutsideServiceGrant(
   }
 }
 
-function isSqlFailure(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith("Failed query:");
-}
-
 function failedOutcome(
   stage: McpActionCallFailureStage,
   error: unknown,
@@ -850,9 +848,8 @@ function failedOutcome(
   let message: string;
   let errorCode: string | undefined;
   try {
-    // Drizzle puts the SQL and its bound parameters in the message; they must not reach MCP clients.
-    const raw = isSqlFailure(error)
-      ? "The database rejected the request."
+    const raw = isDatabaseQueryFailure(error)
+      ? DATABASE_FAILURE_MESSAGE
       : error instanceof Error
         ? error.message
         : error;

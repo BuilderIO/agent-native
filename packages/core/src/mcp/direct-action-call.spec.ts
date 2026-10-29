@@ -310,6 +310,14 @@ const actions: Record<string, any> = {
       throw new Error("boom");
     },
   }),
+  "fail-write": act({
+    description: "Fails inside a database write",
+    run: async () => {
+      throw new Error(
+        'Failed query: insert into "decks" params: ["deck-taken"]',
+      );
+    },
+  }),
   "partial-then-fail": act({
     description: "Writes, then fails",
     run: async () => {
@@ -776,6 +784,24 @@ describe("direct tools/call wire output", () => {
       expect(snapshot(wire)).toMatchSnapshot();
     },
   );
+
+  it("full catalog: a database failure reaches the client without its SQL", async () => {
+    const { client } = await connect({
+      ...(await oauthHeaders()),
+      "x-agent-native-mcp-full-catalog": "1",
+    });
+    try {
+      const result = await client.callTool({
+        name: "fail-write",
+        arguments: {},
+      });
+      const text = JSON.stringify(result);
+      expect(text).toContain("The database rejected the request.");
+      expect(text).not.toContain("insert into");
+    } finally {
+      await client.close();
+    }
+  });
 
   it("full catalog, read-only OAuth scope: a write is refused by scope", async () => {
     const { client, wire } = await connect({
