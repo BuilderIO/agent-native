@@ -34,13 +34,19 @@ vi.mock("../server/app-url.js", () => ({
   getAppProductionUrl: () => "https://app.test",
 }));
 
-vi.mock("../server/email-template.js", () => ({
-  emailStrong: (value: string) => value,
-  renderEmail: (args: { heading: string; paragraphs: string[] }) => ({
-    html: `<h1>${args.heading}</h1>`,
-    text: [args.heading, ...args.paragraphs].join("\n"),
-  }),
-}));
+vi.mock("../server/email-template.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../server/email-template.js")
+  >("../server/email-template.js");
+  return {
+    emailStrong: (value: string) => value,
+    escapeEmailHtml: actual.escapeEmailHtml,
+    renderEmail: (args: { heading: string; paragraphs: string[] }) => ({
+      html: `<h1>${args.heading}</h1>`,
+      text: [args.heading, ...args.paragraphs].join("\n"),
+    }),
+  };
+});
 
 vi.mock("../server/email.js", () => ({
   sendEmail: (...args: unknown[]) => mocks.sendEmail(...args),
@@ -296,6 +302,17 @@ describe("notifyReviewComment", () => {
     const email = mocks.sendEmail.mock.calls[0][0] as { text: string };
     expect(email.text).toContain("The spacing here is off");
     expect(mocks.getReviewableResource).toHaveBeenCalledWith("design");
+  });
+
+  it("escapes the quoted comment, since email paragraphs are HTML", async () => {
+    await notifyReviewComment(
+      comment({ body: "Ship if x<y & <img src=x onerror=alert(1)" }),
+    );
+    await notifyArgs().send("owner@example.com");
+
+    const email = mocks.sendEmail.mock.calls[0][0] as { text: string };
+    expect(email.text).toContain("x&lt;y &amp; &lt;img src=x");
+    expect(email.text).not.toContain("<img");
   });
 
   it("drops recipients who can no longer open the resource", async () => {

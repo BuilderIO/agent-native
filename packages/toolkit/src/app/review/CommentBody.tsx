@@ -70,7 +70,13 @@ export function CommentBody({
       content={markdown}
       inline={compact}
       renderLists
-      className={wrapsRest ? undefined : className}
+      // A compact body is one run of text: the newlines Markdown leaves
+      // between paragraphs, list items and lines read as spaces, so they
+      // don't spend a clamped preview's lines.
+      className={cn(
+        compact && "whitespace-normal",
+        wrapsRest ? undefined : className,
+      )}
       linkClassName={linkClassName}
       codeClassName={codeClassName}
       protectedSpans={found.map(({ at, source, mention }) => ({
@@ -163,12 +169,15 @@ function findCommentBodyMentions(
 ): FoundMention[] {
   const found: FoundMention[] = [];
   const claimed = new Set<number>();
+  const byEmail = new Map<string, CommentBodyMention>();
+  for (const mention of mentions) {
+    const email = mention.email?.toLowerCase();
+    if (email && !byEmail.has(email)) byEmail.set(email, mention);
+  }
   for (const match of body.matchAll(MAILTO_MENTION)) {
     const [source, name = "", encodedEmail = ""] = match;
     const email = safeDecodeURIComponent(encodedEmail);
-    const listed = mentions.find(
-      (mention) => mention.email?.toLowerCase() === email.toLowerCase(),
-    );
+    const listed = byEmail.get(email.toLowerCase());
     found.push({
       at: match.index,
       source,
@@ -176,42 +185,134 @@ function findCommentBodyMentions(
     });
     claimed.add(match.index);
   }
-  const unpinned: CommentBodyMention[] = [];
+  // A mention inside a link's text or address, or inside a bare URL, stays
+  // part of that link.
+  const inLink = linkRanges(body);
+  const unpinned = new MentionLabels();
   for (const mention of mentions) {
     if (!mention.label) continue;
     if (mention.at === undefined) {
-      unpinned.push(mention);
+      if (mention.label.length <= MAX_MENTION_LABEL) unpinned.add(mention);
       continue;
     }
     const source = `@${mention.label}`;
-    if (!claimed.has(mention.at) && body.startsWith(source, mention.at)) {
+    if (
+      !claimed.has(mention.at) &&
+      !inLink(mention.at) &&
+      body.startsWith(source, mention.at)
+    ) {
       found.push({ at: mention.at, source, mention });
       claimed.add(mention.at);
     }
   }
-  unpinned.sort((a, b) => b.label.length - a.label.length);
-  if (unpinned.length) {
+  if (!unpinned.empty) {
     for (
       let index = body.indexOf("@");
       index !== -1;
       index = body.indexOf("@", index + 1)
     ) {
-      if (claimed.has(index)) continue;
+      if (claimed.has(index) || inLink(index)) continue;
       const previous = codePointBefore(body, index);
       if (previous && NAME_CHAR.test(previous)) continue;
-      const mention = unpinned.find((candidate) => {
-        const source = `@${candidate.label}`;
-        if (!body.startsWith(source, index)) return false;
-        const next = codePointAt(body, index + source.length);
-        const last = codePointBefore(body, index + source.length);
-        return !(last && NAME_CHAR.test(last) && next && NAME_CHAR.test(next));
-      });
+      const mention = unpinned.longestAt(body, index + 1);
       if (mention) {
         found.push({ at: index, source: `@${mention.label}`, mention });
       }
     }
   }
   return found.sort((a, b) => a.at - b.at);
+}
+
+/** Longer labels aren't names; skipping them bounds the scan per `@`. */
+const MAX_MENTION_LABEL = 200;
+
+interface LabelNode {
+  next: Map<string, LabelNode>;
+  mention?: CommentBodyMention;
+}
+
+/**
+ * Unpinned mention labels in a character tree, so matching at an `@` walks
+ * at most one label's length, however many mentions a comment lists.
+ */
+class MentionLabels {
+  private readonly root: LabelNode = { next: new Map() };
+  empty = true;
+
+  add(mention: CommentBodyMention) {
+    let node = this.root;
+    for (const char of mention.label) {
+      let child = node.next.get(char);
+      if (!child) {
+        child = { next: new Map() };
+        node.next.set(char, child);
+      }
+      node = child;
+    }
+    node.mention ??= mention;
+    this.empty = false;
+  }
+
+  /**
+   * The longest label that starts at `start` and ends on a word boundary, so
+   * `@Sam` isn't read inside `@Samantha`.
+   */
+  longestAt(body: string, start: number): CommentBodyMention | undefined {
+    let node: LabelNode | undefined = this.root;
+    let longest: CommentBodyMention | undefined;
+    let end = start;
+    for (const char of body.slice(start, start + MAX_MENTION_LABEL)) {
+      node = node.next.get(char);
+      if (!node) break;
+      end += char.length;
+      if (!node.mention) continue;
+      const next = codePointAt(body, end);
+      const endsWord = !(NAME_CHAR.test(char) && next && NAME_CHAR.test(next));
+      if (endsWord) longest = node.mention;
+    }
+    return longest;
+  }
+}
+
+const LINK_PATTERNS = [
+  // `[text](address)` and images, the same shapes InlineMarkdown links.
+  /!?\[[^[\]]*\]\([^()]*\)/g,
+  // `<https://…>` autolinks.
+  /<(?:https?|mailto):[^\s<>]*>/gi,
+  // Bare URLs, which GitHub-flavored Markdown links.
+  /\b(?:https?:\/\/|www\.)[^\s<]*/gi,
+];
+
+/** Whether an offset falls inside a link, with the links found once. */
+function linkRanges(body: string): (at: number) => boolean {
+  const ranges: { start: number; end: number }[] = [];
+  for (const pattern of LINK_PATTERNS) {
+    for (const match of body.matchAll(pattern)) {
+      ranges.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  ranges.sort((a, b) => a.start - b.start);
+  // Overlaps merge, so at most one range can hold an offset.
+  const merged: { start: number; end: number }[] = [];
+  for (const range of ranges) {
+    const last = merged.at(-1);
+    if (last && range.start <= last.end)
+      last.end = Math.max(last.end, range.end);
+    else merged.push({ ...range });
+  }
+  return (at) => {
+    let low = 0;
+    let high = merged.length - 1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      const range = merged[middle];
+      if (!range) return false;
+      if (at < range.start) high = middle - 1;
+      else if (at >= range.end) low = middle + 1;
+      else return true;
+    }
+    return false;
+  };
 }
 
 function codePointBefore(text: string, index: number): string | undefined {

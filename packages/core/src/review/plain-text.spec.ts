@@ -50,6 +50,19 @@ describe("commentPlainText", () => {
 
   it("drops raw HTML tags, as the renderer does", () => {
     expect(commentPlainText("<b>hi</b> there<br>")).toBe("hi there");
+    expect(commentPlainText('<a href="x" data-y=1>link</a>')).toBe("link");
+  });
+
+  it("keeps text that only looks like a tag", () => {
+    expect(commentPlainText("x<y+1 and y>2")).toBe("x<y+1 and y>2");
+    expect(commentPlainText("a <3 b > c")).toBe("a <3 b > c");
+  });
+
+  it("drops a heading's closing hashes but keeps hashes in prose", () => {
+    expect(commentPlainText("## Title ##")).toBe("Title");
+    expect(commentPlainText("# C#")).toBe("C#");
+    expect(commentPlainText("Ship it #")).toBe("Ship it #");
+    expect(commentPlainText("see issue #")).toBe("see issue #");
   });
 
   it("takes linear time on long lines of unclosed markers", () => {
@@ -61,6 +74,10 @@ describe("commentPlainText", () => {
       "[a](".repeat(50_000),
       "[".repeat(100_000),
       "<a ".repeat(70_000),
+      `<a${" b".repeat(50_000)}`,
+      `# x${" ".repeat(100_000)}y`,
+      `# x${" #".repeat(50_000)}y`,
+      `\` ${"a".repeat(100_000)}\``,
     ]) {
       commentPlainText(text);
     }

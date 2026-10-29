@@ -9,6 +9,14 @@
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const ESCAPED = /\\([!-/:-@[-`{-~])/g;
+const HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/;
+/**
+ * An HTML open or closing tag as CommonMark reads one. Text that only looks
+ * like a tag, such as `x<y+1 and y>2`, stays: the renderer shows it too. No
+ * part can cross a `<` or `>`, so each scan stops at the next one.
+ */
+const HTML_TAG =
+  /<(?:[A-Za-z][A-Za-z0-9-]*(?:\s+[A-Za-z_:][\w.:-]*(?:\s*=\s*(?:[^\s"'=<>`]+|'[^'<>]*'|"[^"<>]*"))?)*\s*\/?|\/[A-Za-z][A-Za-z0-9-]*\s*)>/g;
 
 /**
  * A comment as plain text. Emphasis, heading, quote and code markers go;
@@ -63,19 +71,42 @@ export function commentExcerpt(markdown: string, limit = 240): string {
 
 function plainLine(line: string): string {
   if (/^ {0,3}([-*_])(?: *\1){2,} *$/.test(line)) return "";
-  const text = line
-    .replace(/^(?: {0,3}> ?)+/, "")
-    .replace(/^ {0,3}#{1,6}(?:\s+|$)/, "")
-    .replace(/\s+#+\s*$/, "");
+  let text = line.replace(/^(?: {0,3}> ?)+/, "");
+  const heading = HEADING.exec(text);
+  if (heading) text = withoutClosingHashes(text.slice(heading[0].length));
   let plain = "";
   let cursor = 0;
   for (const span of codeSpans(text)) {
     plain += plainInline(text.slice(cursor, span.start));
     const code = text.slice(span.start + span.ticks, span.end - span.ticks);
-    plain += /^ .*[^ ].* $/.test(code) ? code.slice(1, -1) : code;
+    // One space comes off each side when both sides have one and the code
+    // isn't all spaces, as CommonMark reads `` ` a ` ``.
+    const padded =
+      code.length > 2 &&
+      code.startsWith(" ") &&
+      code.endsWith(" ") &&
+      /[^ ]/.test(code);
+    plain += padded ? code.slice(1, -1) : code;
     cursor = span.end;
   }
   return plain + plainInline(text.slice(cursor));
+}
+
+/**
+ * A heading's text without its optional closing `#`s, which only count after
+ * a space or tab. Scanned from the end, so a long run of spaces or `#`s
+ * can't make a pattern backtrack.
+ */
+function withoutClosingHashes(text: string): string {
+  const trimmed = text.trimEnd();
+  let end = trimmed.length;
+  while (end > 0 && trimmed[end - 1] === "#") end -= 1;
+  if (end === trimmed.length) return trimmed;
+  if (end === 0) return "";
+  const before = trimmed[end - 1];
+  return before === " " || before === "\t"
+    ? trimmed.slice(0, end).trimEnd()
+    : trimmed;
 }
 
 /**
@@ -125,7 +156,7 @@ function plainInline(text: string): string {
       .replace(/!\[([^[\]]*)\]\([^()]*\)/g, "$1")
       .replace(/\[([^[\]]+)\]\([^()]*\)/g, "$1")
       .replace(/<((?:https?|mailto):[^\s<>]+)>/gi, "$1")
-      .replace(/<\/?[a-z][^<>]*>/gi, "")
+      .replace(HTML_TAG, "")
       .replace(/(\*\*|__)(?!\s)((?:(?!\1)[\s\S])*?\S)\1/g, "$2")
       .replace(/~~(?!\s)((?:(?!~~)[\s\S])*?\S)~~/g, "$1")
       .replace(/\*([^\s*](?:[^*]*?[^\s*])?)\*/g, "$1")

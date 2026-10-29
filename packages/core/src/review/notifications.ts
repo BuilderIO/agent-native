@@ -4,7 +4,11 @@ import {
   type ActivityNotificationResult,
 } from "../server/activity-notifications.js";
 import { getAppProductionUrl } from "../server/app-url.js";
-import { emailStrong, renderEmail } from "../server/email-template.js";
+import {
+  emailStrong,
+  escapeEmailHtml,
+  renderEmail,
+} from "../server/email-template.js";
 import { sendEmail } from "../server/email.js";
 import { filterRecipientsByResourceAccess } from "../sharing/recipients.js";
 import { commentExcerpt } from "./plain-text.js";
@@ -149,7 +153,11 @@ async function deliverReviewCommentEmails(
           : isReply
             ? "New reply in a review thread"
             : "New review comment",
-        paragraphs: [lead, `"${commentExcerpt(comment.body)}"`],
+        // Paragraphs are HTML; the excerpt is the commenter's own text.
+        paragraphs: [
+          lead,
+          `"${escapeEmailHtml(commentExcerpt(comment.body))}"`,
+        ],
         cta: { label: "Open review", url },
         footer:
           "You received this because you own, were mentioned in, or participated in this review thread.",

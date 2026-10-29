@@ -1,6 +1,7 @@
 import { commentExcerpt } from "@agent-native/core/review/plain-text";
 import {
   emailStrong,
+  escapeEmailHtml,
   notifyActivity,
   renderEmail,
   runActivityNotification,
@@ -100,7 +101,8 @@ export function renderDeckCommentEmail({
         isReply
           ? `${emailStrong(actor)} replied in a comment thread on ${emailStrong(title)}.`
           : `${emailStrong(actor)} commented on ${emailStrong(title)}.`,
-        `"${commentExcerpt(content)}"`,
+        // Paragraphs are HTML; the excerpt is the commenter's own text.
+        `"${escapeEmailHtml(commentExcerpt(content))}"`,
       ],
       cta: { label: "Open deck", url },
       footer:
