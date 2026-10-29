@@ -1333,6 +1333,7 @@ async function exerciseScheduledStaleChatContinuation(
     });
 
     const observationStartedAt = Date.now();
+    let terminalFailure: string | null = null;
     await waitFor(
       "the naturally scheduled sweep to complete exactly one stale Chat continuation",
       SCHEDULER_WAKE_TIMEOUT_MS,
@@ -1363,7 +1364,8 @@ async function exerciseScheduledStaleChatContinuation(
           );
 
           const runRows = await db.execute({
-            sql: `SELECT id, status, terminal_reason, dispatch_mode, continuation_order
+            sql: `SELECT id, status, terminal_reason, error_code, diag_stage, worker_stage,
+                         dispatch_mode, continuation_order
                   FROM agent_runs
                   WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
                   ORDER BY started_at, id`,
@@ -1381,6 +1383,7 @@ async function exerciseScheduledStaleChatContinuation(
             | {
                 status?: unknown;
                 terminal_reason?: unknown;
+                error_code?: unknown;
                 continuation_order?: unknown;
               }
             | undefined;
@@ -1390,6 +1393,10 @@ async function exerciseScheduledStaleChatContinuation(
             | {
                 id?: unknown;
                 status?: unknown;
+                terminal_reason?: unknown;
+                error_code?: unknown;
+                diag_stage?: unknown;
+                worker_stage?: unknown;
                 dispatch_mode?: unknown;
                 continuation_order?: unknown;
               }
@@ -1400,9 +1407,18 @@ async function exerciseScheduledStaleChatContinuation(
           );
           assert.ok(successor, "The recovered successor must be persisted.");
           if (successor.status === "running") return false;
+          if (successor.status !== "completed") {
+            terminalFailure = [
+              `successor ended ${String(successor.status)}`,
+              `errorCode=${String(successor.error_code ?? "unknown")}`,
+              `terminalReason=${String(successor.terminal_reason ?? "unknown")}`,
+              `diagStage=${String(successor.diag_stage ?? "unknown")}`,
+              `workerStage=${String(successor.worker_stage ?? "unknown")}`,
+            ].join(" ");
+            return false;
+          }
           assert.equal(predecessor.status, "truncated");
           assert.equal(predecessor.terminal_reason, "run_timeout");
-          assert.equal(successor.status, "completed");
           assert.ok(
             successor.dispatch_mode === "background" ||
               successor.dispatch_mode === "background-processing",
@@ -1471,6 +1487,7 @@ async function exerciseScheduledStaleChatContinuation(
           );
           return true;
         }),
+      () => terminalFailure,
     );
   } finally {
     try {
