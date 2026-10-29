@@ -254,6 +254,13 @@ jobs:
       - name: Allow the downloaded Chromium sandbox
         uses: ./.github/actions/allow-playwright-sandbox
 
+      - name: Restore Vitest filesystem module cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.experimental-vitest-cache
+          key: vitest-fs-${{ matrix.lane }}-${{ github.sha }}
+          restore-keys: vitest-fs-${{ matrix.lane }}-
+
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
         run: >-
@@ -363,6 +370,13 @@ jobs:
 
       - name: Allow the downloaded Chromium sandbox
         uses: ./.github/actions/allow-playwright-sandbox
+
+      - name: Restore Vitest filesystem module cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.experimental-vitest-cache
+          key: vitest-fs-${{ matrix.lane }}-${{ github.sha }}
+          restore-keys: vitest-fs-${{ matrix.lane }}-
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''

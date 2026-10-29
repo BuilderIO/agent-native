@@ -49,6 +49,9 @@ const vitestBaseConfig: ViteUserConfig = {
     // bundle inside a test takes several times longer, and which test crosses
     // the limit changes from run to run.
     testTimeout: 30_000,
+    // Transforms and imports are keyed by file content, so a restored cache
+    // can only skip work, never serve stale modules.
+    experimental: { fsModuleCache: true },
   },
 };
 
