@@ -36,6 +36,9 @@ function excerpt(body: string): string {
 
 async function resourceUrl(comment: ReviewComment): Promise<string> {
   const registration = getReviewableResource(comment.resourceType);
+  const threadUrl =
+    await registration?.commentNotifications?.resolveThreadUrl?.(comment);
+  if (threadUrl?.trim()) return threadUrl.trim();
   const resolved = await registration?.resolveUrl?.(comment.resourceId);
   return resolved?.trim() || getAppProductionUrl();
 }
@@ -133,45 +136,59 @@ async function deliverReviewCommentEmails(
   const actor = comment.authorName?.trim() || comment.authorEmail || "Someone";
   const label = resourceLabel(comment);
   const url = await resourceUrl(comment);
+  const options = getReviewableResource(
+    comment.resourceType,
+  )?.commentNotifications;
 
   return notifyActivity({
     candidates: isReply
       ? await filterUnmutedReviewThreadRecipients(comment.threadId, allowed)
       : allowed,
     actorEmail: comment.authorEmail,
-    preferenceKey: REVIEW_NOTIFICATION_PREFS_KEY,
+    preferenceKey: options?.preferenceKey ?? REVIEW_NOTIFICATION_PREFS_KEY,
     logLabel: LOG_LABEL,
     send: async (to) => {
       const wasMentioned = mentioned.has(to);
-      const lead = wasMentioned
-        ? `${emailStrong(actor)} mentioned you in a review comment on this ${label}.`
-        : isReply
-          ? `${emailStrong(actor)} replied in a review thread on this ${label}.`
-          : `${emailStrong(actor)} left a review comment on this ${label}.`;
-
-      const { html, text } = renderEmail({
-        preheader: `${actor} commented on this ${label}.`,
-        heading: wasMentioned
-          ? "You were mentioned in a review"
+      const email = (await options?.renderEmail?.({
+        comment,
+        kind: wasMentioned ? "mention" : isReply ? "reply" : "comment",
+        actor,
+        url,
+        recipientEmail: to,
+      })) ?? {
+        subject: wasMentioned
+          ? `${actor} mentioned you in a review comment`
           : isReply
-            ? "New reply in a review thread"
-            : "New review comment",
-        paragraphs: [lead, `"${excerpt(comment.body)}"`],
-        cta: { label: "Open review", url },
-        footer:
-          "You received this because you own, were mentioned in, or participated in this review thread.",
-      });
+            ? `${actor} replied to a review thread`
+            : `${actor} left a review comment`,
+        ...renderEmail({
+          preheader: `${actor} commented on this ${label}.`,
+          heading: wasMentioned
+            ? "You were mentioned in a review"
+            : isReply
+              ? "New reply in a review thread"
+              : "New review comment",
+          paragraphs: [
+            wasMentioned
+              ? `${emailStrong(actor)} mentioned you in a review comment on this ${label}.`
+              : isReply
+                ? `${emailStrong(actor)} replied in a review thread on this ${label}.`
+                : `${emailStrong(actor)} left a review comment on this ${label}.`,
+            `"${excerpt(comment.body)}"`,
+          ],
+          cta: { label: "Open review", url },
+          footer:
+            "You received this because you own, were mentioned in, or participated in this review thread.",
+        }),
+      };
 
       const deliver = () =>
         sendEmail({
           to,
-          subject: wasMentioned
-            ? `${actor} mentioned you in a review comment`
-            : isReply
-              ? `${actor} replied to a review thread`
-              : `${actor} left a review comment`,
-          html,
-          text,
+          subject: email.subject,
+          html: email.html,
+          text: email.text,
+          ...(options?.templateId ? { templateId: options.templateId } : {}),
         });
       if (!withReceipt) {
         await deliver();

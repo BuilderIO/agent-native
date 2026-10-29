@@ -1,180 +1,116 @@
+import type { ReviewCommentReaction } from "@agent-native/core/review";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type Row = {
-  id: string;
-  deckId: string;
-  emojiReactionsJson: string;
-  updatedAt: string;
-};
-
-const state = vi.hoisted(() => ({ rows: [] as Row[] }));
-const mockAssertAccess = vi.hoisted(() => vi.fn());
-const mockGetUserEmail = vi.hoisted(() =>
-  vi.fn<() => string | undefined>(() => "viewer@example.com"),
-);
-
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+const core = vi.hoisted(() => ({
+  assertAccess: vi.fn(),
+  list: vi.fn(),
+  react: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: () => mockGetUserEmail(),
+vi.mock("@agent-native/core/review", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/review")>()),
+  assertReviewableResourceAccess: core.assertAccess,
 }));
-
-vi.mock("drizzle-orm", () => ({
-  and: (...conditions: unknown[]) => ({ __and: conditions }),
-  eq: (column: unknown, value: unknown) => ({ __eq: [column, value] }),
+vi.mock("@agent-native/core/review/actions/list-review-comments", () => ({
+  default: { run: core.list },
 }));
-
-function matches(row: Row, condition: any): boolean {
-  if (condition.__and) {
-    return condition.__and.every((child: any) => matches(row, child));
-  }
-  if (condition.__eq) {
-    const [column, value] = condition.__eq;
-    const key = String(column).split(".").pop() as keyof Row;
-    return row[key] === value;
-  }
-  return true;
-}
-
-vi.mock("../server/db/index.js", () => {
-  const column = (name: string) => `slideComments.${name}`;
-  const schema = {
-    slideComments: {
-      id: column("id"),
-      deckId: column("deckId"),
-      emojiReactionsJson: column("emojiReactionsJson"),
-      updatedAt: column("updatedAt"),
-    },
-  };
-  const db = {
-    select: (projection?: Record<string, unknown>) => ({
-      from: () => ({
-        where: (condition: unknown) => ({
-          limit: async (count: number) =>
-            state.rows
-              .filter((row) => matches(row, condition))
-              .slice(0, count)
-              .map((row) => {
-                if (!projection) return row;
-                const result: Record<string, unknown> = {};
-                for (const [key, selectedColumn] of Object.entries(
-                  projection,
-                )) {
-                  const field = String(selectedColumn)
-                    .split(".")
-                    .pop() as keyof Row;
-                  result[key] = row[field];
-                }
-                return result;
-              }),
-        }),
-      }),
-    }),
-    update: () => ({
-      set: (patch: Partial<Row>) => ({
-        where: (condition: unknown) => ({
-          returning: async () => {
-            const updated = state.rows.filter((row) => matches(row, condition));
-            for (const row of updated) Object.assign(row, patch);
-            return updated.map((row) => ({ id: row.id }));
-          },
-        }),
-      }),
-    }),
-  };
-
-  return { getDb: () => db, schema };
-});
+vi.mock("@agent-native/core/review/actions/react-to-review-comment", () => ({
+  default: { run: core.react },
+}));
 
 import action from "./toggle-slide-comment-reaction";
 
-function run(args: { commentId: string; deckId: string; emoji: string }) {
-  return (action as any).run(args);
+const CTX = { caller: "http", userEmail: "viewer@example.com" } as const;
+const COMMENT = {
+  id: "c-1",
+  resourceId: "deck-1",
+  threadId: "c-1",
+  parentCommentId: null,
+  targetId: "slide-1",
+  status: "open",
+  anchor: { kind: "slide", slideId: "slide-1" },
+  body: "Hi",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+function listing(reactions: ReviewCommentReaction[]) {
+  return {
+    comments: [COMMENT],
+    discussion: { reactions: { "c-1": reactions } },
+  };
 }
 
-beforeEach(() => {
-  vi.resetAllMocks();
-  mockGetUserEmail.mockReturnValue("viewer@example.com");
-  state.rows = [
-    {
-      id: "comment-1",
-      deckId: "deck-1",
-      emojiReactionsJson: JSON.stringify({ "👍": ["other@example.com"] }),
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    },
-  ];
-});
+beforeEach(() => vi.clearAllMocks());
 
+// oracle-change: reactions moved to the core review store's reaction rows.
 describe("toggle-slide-comment-reaction", () => {
-  it("announces its change to every collaborator on the deck", () => {
-    expect((action as any).changeResource({ deckId: "deck-1" })).toEqual({
-      resourceType: "deck",
-      resourceId: "deck-1",
-    });
-  });
+  it("adds a reaction the caller has not made", async () => {
+    core.list
+      .mockResolvedValueOnce(
+        listing([{ reaction: "👍", count: 1, reactedByMe: false }]),
+      )
+      .mockResolvedValueOnce(
+        listing([{ reaction: "👍", count: 2, reactedByMe: true }]),
+      );
 
-  it("adds a reaction with commenter access and returns viewer state", async () => {
-    const result = await run({
-      commentId: "comment-1",
-      deckId: "deck-1",
-      emoji: " 👍 ",
-    });
-
-    expect(mockAssertAccess).toHaveBeenCalledWith(
-      "deck",
-      "deck-1",
-      "commenter",
+    const result = await action.run(
+      { commentId: "c-1", deckId: "deck-1", emoji: " 👍 " },
+      CTX,
     );
-    expect(result).toMatchObject({
-      id: "comment-1",
+
+    expect(core.react).toHaveBeenCalledWith(
+      {
+        resourceType: "deck",
+        resourceId: "deck-1",
+        commentId: "c-1",
+        reaction: "👍",
+        active: true,
+      },
+      expect.objectContaining({ userEmail: "viewer@example.com" }),
+    );
+    expect(result).toEqual({
+      id: "c-1",
       emoji: "👍",
       reacted: true,
+      reactions: [{ emoji: "👍", count: 2, reacted: true }],
     });
-    expect(result.reactions).toEqual([
-      { emoji: "👍", count: 2, reacted: true },
-    ]);
   });
 
-  it("removes the current user's existing reaction on the second toggle", async () => {
-    state.rows[0]!.emojiReactionsJson = JSON.stringify({
-      "🎉": ["viewer@example.com"],
-    });
+  it("removes a reaction the caller already made", async () => {
+    core.list
+      .mockResolvedValueOnce(
+        listing([{ reaction: "🎉", count: 1, reactedByMe: true }]),
+      )
+      .mockResolvedValueOnce(listing([]));
 
-    const result = await run({
-      commentId: "comment-1",
-      deckId: "deck-1",
-      emoji: "🎉",
-    });
-
-    expect(result).toMatchObject({
-      id: "comment-1",
-      emoji: "🎉",
-      reacted: false,
-      reactions: [],
-    });
-    expect(state.rows[0]!.emojiReactionsJson).toBe("{}");
-  });
-
-  it("does not expose or mutate a comment outside the requested deck", async () => {
-    await expect(
-      run({ commentId: "comment-1", deckId: "deck-2", emoji: "👍" }),
-    ).rejects.toThrow("Comment not found");
-    expect(mockAssertAccess).toHaveBeenCalledWith(
-      "deck",
-      "deck-2",
-      "commenter",
+    const result = await action.run(
+      { commentId: "c-1", deckId: "deck-1", emoji: "🎉" },
+      CTX,
     );
-    expect(state.rows[0]!.emojiReactionsJson).toContain("other@example.com");
+
+    expect(core.react).toHaveBeenCalledWith(
+      expect.objectContaining({ reaction: "🎉", active: false }),
+      expect.objectContaining({ userEmail: CTX.userEmail }),
+    );
+    expect(result).toMatchObject({ reacted: false, reactions: [] });
   });
 
-  it("requires an authenticated user", async () => {
-    mockGetUserEmail.mockReturnValue(undefined);
-
+  it("returns 404 for a comment that is not on the deck", async () => {
+    core.list.mockResolvedValue(listing([]));
     await expect(
-      run({ commentId: "comment-1", deckId: "deck-1", emoji: "👍" }),
+      action.run({ commentId: "c-9", deckId: "deck-1", emoji: "👍" }, CTX),
+    ).rejects.toMatchObject({ errorCode: "not_found", statusCode: 404 });
+    expect(core.react).not.toHaveBeenCalled();
+  });
+
+  it("requires a signed-in caller", async () => {
+    await expect(
+      action.run(
+        { commentId: "c-1", deckId: "deck-1", emoji: "👍" },
+        { caller: "http" },
+      ),
     ).rejects.toThrow("Sign in required");
-    expect(mockAssertAccess).not.toHaveBeenCalled();
+    expect(core.react).not.toHaveBeenCalled();
   });
 });

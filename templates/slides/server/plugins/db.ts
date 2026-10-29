@@ -337,6 +337,41 @@ ON uploaded_assets (owner_email, upload_session_id)`,
       name: "slides-uploaded-assets-org-id",
       sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS org_id TEXT`,
     },
+    {
+      version: 35,
+      name: "slides-review-comment-store",
+      sql: `CREATE TABLE IF NOT EXISTS slide_comment_review_migrations (
+  deck_id TEXT PRIMARY KEY,
+  imported_count INTEGER NOT NULL DEFAULT 0,
+  migrated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS slide_review_agent_requests (
+  id TEXT PRIMARY KEY,
+  deck_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  root_comment_id TEXT NOT NULL,
+  trigger_comment_id TEXT,
+  slide_id TEXT,
+  requester_email TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  agent_thread_id TEXT NOT NULL,
+  agent_turn_id TEXT NOT NULL,
+  model TEXT,
+  engine TEXT,
+  reply_comment_id TEXT,
+  error_code TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS slide_review_agent_requests_deck_updated_idx
+ON slide_review_agent_requests (deck_id, updated_at);
+CREATE INDEX IF NOT EXISTS slide_review_agent_requests_agent_thread_idx
+ON slide_review_agent_requests (agent_thread_id);
+CREATE UNIQUE INDEX IF NOT EXISTS slide_review_agent_requests_active_thread_uidx
+ON slide_review_agent_requests (deck_id, thread_id)
+WHERE status IN ('queued', 'running')`,
+    },
   ],
   { table: "slides_migrations" },
 );

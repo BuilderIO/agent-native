@@ -34,6 +34,15 @@
 @import "tw-animate-css";
 
 :root {
+  /* Review avatars: a person's initial on one of six colors picked from their email. */
+  --review-avatar-1: 24 71% 42%;
+  --review-avatar-2: 247 84% 65%;
+  --review-avatar-3: 160 47% 35%;
+  --review-avatar-4: 215 65% 51%;
+  --review-avatar-5: 336 59% 53%;
+  --review-avatar-6: 48 79% 30%;
+  --review-avatar-foreground: 0 0% 100%;
+  --review-pin-ring: 205 100% 42%;
   --agent-native-viewport-height: 100vh;
 }
 

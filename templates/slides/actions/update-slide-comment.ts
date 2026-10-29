@@ -1,14 +1,17 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import resolveReviewThread from "@agent-native/core/review/actions/resolve-review-thread";
+import updateReviewComment from "@agent-native/core/review/actions/update-review-comment";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import {
+  assertSlideReviewAccess,
+  slideReviewActionContext,
+} from "../server/lib/slide-review-legacy.js";
+import { SLIDE_REVIEW_RESOURCE_TYPE } from "../shared/slide-review.js";
 
 export default defineAction({
   description:
-    "Update a slide comment. Comment text supports inline Markdown without headings. Resolving or reopening a comment applies to the full thread.",
+    'Deprecated: use update-review-comment or resolve-review-thread with resourceType "deck". Updates a slide comment. Comment text supports inline Markdown without headings. Resolving or reopening a comment applies to the full thread.',
   schema: z
     .object({
       id: z.string().describe("Comment ID"),
@@ -31,114 +34,42 @@ export default defineAction({
     resourceType: "deck",
     resourceId: deckId,
   }),
-  run: async (args) => {
-    const hasContent = args.content !== undefined;
-    const hasResolved = args.resolved !== undefined;
-    if (!hasContent && !hasResolved) {
-      fail("Provide comment content or a resolved state", {
+  run: async (args, ctx) => {
+    if ((args.content === undefined) === (args.resolved === undefined)) {
+      fail("Provide either comment content or a resolved state", {
         errorCode: "invalid_request",
         statusCode: 400,
       });
     }
-    if (hasContent && hasResolved) {
-      fail("Provide either comment content or a resolved state, not both", {
-        errorCode: "invalid_request",
-        statusCode: 400,
-      });
+    await assertSlideReviewAccess(args.deckId, ctx, "commenter");
+    const reviewCtx = slideReviewActionContext(ctx);
+    if (args.resolved !== undefined) {
+      await resolveReviewThread.run(
+        {
+          resourceType: SLIDE_REVIEW_RESOURCE_TYPE,
+          resourceId: args.deckId,
+          commentId: args.id,
+          status: args.resolved ? "resolved" : "open",
+        },
+        reviewCtx,
+      );
+      return { ok: true, resolved: args.resolved };
     }
-
-    await assertAccess("deck", args.deckId, "commenter");
-    const db = getDb();
-    const [comment] = await db
-      .select({
-        deckId: schema.slideComments.deckId,
-        slideId: schema.slideComments.slideId,
-        threadId: schema.slideComments.threadId,
-        authorEmail: schema.slideComments.authorEmail,
-      })
-      .from(schema.slideComments)
-      .where(
-        and(
-          eq(schema.slideComments.id, args.id),
-          eq(schema.slideComments.deckId, args.deckId),
-        ),
-      )
-      .limit(1);
-
-    if (!comment) {
-      fail(`Comment not found: ${args.id}`, {
-        errorCode: "not_found",
-        statusCode: 404,
-      });
-    }
-
-    const userEmail = getRequestUserEmail()?.trim().toLowerCase();
-    if (hasContent && comment.authorEmail.trim().toLowerCase() !== userEmail) {
-      await assertAccess("deck", comment.deckId, "editor");
-    }
-
-    const updatedAt = new Date().toISOString();
-    const setThreadResolved = async (resolved: boolean) => {
-      await db.transaction(async (tx) => {
-        // Reply creation takes this same thread lock before checking
-        // resolution, so resolution cannot race an insert.
-        await tx
-          .select({ id: schema.slideComments.id })
-          .from(schema.slideComments)
-          .where(
-            and(
-              eq(schema.slideComments.deckId, comment.deckId),
-              eq(schema.slideComments.slideId, comment.slideId),
-              eq(schema.slideComments.threadId, comment.threadId),
-            ),
-          )
-          .for("update");
-        await tx
-          .update(schema.slideComments)
-          .set({ resolved, updatedAt })
-          .where(
-            and(
-              eq(schema.slideComments.deckId, comment.deckId),
-              eq(schema.slideComments.slideId, comment.slideId),
-              eq(schema.slideComments.threadId, comment.threadId),
-            ),
-          );
-      });
-      return { ok: true, resolved };
-    };
-
-    if (args.resolved === true) {
-      return setThreadResolved(true);
-    }
-
-    if (args.resolved === false) {
-      return setThreadResolved(false);
-    }
-
     if (args.content === undefined) {
-      fail("Provide comment content or a resolved state", {
+      return fail("Provide comment content or a resolved state", {
         errorCode: "invalid_request",
         statusCode: 400,
       });
     }
-
-    const updated = await db
-      .update(schema.slideComments)
-      .set({ content: args.content, updatedAt })
-      .where(
-        and(
-          eq(schema.slideComments.id, args.id),
-          eq(schema.slideComments.deckId, comment.deckId),
-        ),
-      )
-      .returning({ id: schema.slideComments.id });
-    if (updated.length === 0) {
-      fail(`Comment not found: ${args.id}`, {
-        errorCode: "not_found",
-        statusCode: 404,
-      });
-    }
-
+    await updateReviewComment.run(
+      {
+        resourceType: SLIDE_REVIEW_RESOURCE_TYPE,
+        resourceId: args.deckId,
+        commentId: args.id,
+        body: args.content,
+      },
+      reviewCtx,
+    );
     return { ok: true };
   },
 });

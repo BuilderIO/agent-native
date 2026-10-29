@@ -198,6 +198,47 @@ describe("ReviewCommentComposer", () => {
     ).not.toBeNull();
   });
 
+  it("keeps a draft on one line while focused, and grows once it has content", async () => {
+    await render(
+      <ReviewCommentComposer
+        variant="draft"
+        value=""
+        onChange={() => {}}
+        onSubmit={() => {}}
+        showCommentTools
+      />,
+    );
+    const field = container.querySelector("[data-review-composer-field]");
+    expect(
+      container
+        .querySelector("p.is-editor-empty")
+        ?.getAttribute("data-placeholder"),
+    ).toBe("Add a comment");
+    act(() => {
+      editorDom().dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(field?.hasAttribute("data-expanded")).toBe(false);
+    expect(container.querySelector("[data-review-comment-tools]")).toBeNull();
+
+    await render(
+      <ReviewCommentComposer
+        variant="draft"
+        value="This"
+        onChange={() => {}}
+        onSubmit={() => {}}
+        showCommentTools
+      />,
+    );
+    expect(
+      container
+        .querySelector("[data-review-composer-field]")
+        ?.hasAttribute("data-expanded"),
+    ).toBe(true);
+    expect(
+      container.querySelector("[data-review-comment-tools]"),
+    ).not.toBeNull();
+  });
+
   it("stays expanded while the reply has content", async () => {
     await render(
       <ReviewCommentComposer

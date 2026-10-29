@@ -38,6 +38,36 @@ export interface ReviewResourceContext {
   [key: string]: unknown;
 }
 
+export type ReviewCommentNotificationKind = "mention" | "reply" | "comment";
+
+export interface ReviewCommentEmailInput {
+  comment: ReviewComment;
+  kind: ReviewCommentNotificationKind;
+  actor: string;
+  url: string;
+  recipientEmail: string;
+}
+
+export interface ReviewCommentEmail {
+  subject: string;
+  html: string;
+  text: string;
+}
+
+export interface ReviewCommentNotificationOptions {
+  /** User setting that holds `emailNotifications`. */
+  preferenceKey?: string;
+  /** Transactional email id passed to `sendEmail`. */
+  templateId?: string;
+  /** Link to the thread itself; falls back to `resolveUrl`. */
+  resolveThreadUrl?: (
+    comment: ReviewComment,
+  ) => Promise<string | null | undefined> | string | null | undefined;
+  renderEmail?: (
+    input: ReviewCommentEmailInput,
+  ) => Promise<ReviewCommentEmail> | ReviewCommentEmail;
+}
+
 export interface ReviewableResourceRegistration {
   type: string;
   displayName?: string;
@@ -48,6 +78,7 @@ export interface ReviewableResourceRegistration {
     resourceId: string,
     ctx?: ReviewResourceContext,
   ) => Promise<ReviewResourceAccess | null> | ReviewResourceAccess | null;
+  commentNotifications?: ReviewCommentNotificationOptions;
 }
 
 export interface ReviewMention {

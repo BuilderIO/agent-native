@@ -129,6 +129,10 @@ button[title="Open agent sidebar"] {
   --foreground: 0 0% 93%;
   /* Generation previews draft in the canvas selection blue, not the gray primary. */
   --agent-native-generating-accent: #609ff8;
+  /* Comment pins and the comment composer's focus ring use the same selection blue. */
+  --slides-comment-accent: #609ff8;
+  --review-composer-focus: var(--slides-comment-accent);
+  --review-pin-ring: 214 92% 67%;
 
   --card: 0 0% 15%;
   --card-foreground: 0 0% 93%;
@@ -1614,4 +1618,10 @@ button[title="Open agent sidebar"] {
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
+}
+
+/* A comment's send button turns selection blue once there is something to send. */
+[data-review-composer-field] button[type="submit"]:enabled {
+  background-color: var(--slides-comment-accent);
+  color: hsl(var(--review-avatar-foreground));
 }

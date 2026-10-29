@@ -295,7 +295,10 @@ npx @agent-native/core@latest create my-slides --standalone --template slides
 
 ### 评论
 
-- `list-slide-comments`、`add-slide-comment`、`update-slide-comment`、`delete-slide-comment`
+- `get-deck-review` — 按幻灯片分组返回未解决的评论线程，用于处理反馈
+- `list-review-comments`、`create-review-comment`、`reply-review-comment`、`resolve-review-thread`、`react-to-review-comment` — 评论是框架在演示文稿上的评审线程（`resourceType: "deck"`，`targetId` 为幻灯片 ID），因此调整顺序后仍留在原幻灯片上
+- `start-review-agent-request`、`list-review-agent-requests`、`cancel-review-agent-request` — 仅供界面使用；在评论标记了代理的线程上运行代理。运行通过 `get-review-agent-context` 读取线程，并以 `post-review-agent-reply` 或 `apply-review-agent-changes` 结束
+- `list-slide-comments`、`add-slide-comment`、`update-slide-comment`、`delete-slide-comment`、`toggle-slide-comment-reaction` — 旧操作，继续作用于同一批线程
 
 ### 导入
 

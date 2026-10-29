@@ -19,6 +19,11 @@ import {
   trackGenerationCompletedForRun,
 } from "../lib/generation-completion.js";
 import { SLIDES_REALTIME_VOICE } from "../lib/realtime-voice.js";
+import {
+  deckScopeForAgentScope,
+  finalizeSlideReviewAgentRun,
+  resolveSlideReviewAgentActionSurface,
+} from "../lib/slide-review-agent.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -36,11 +41,11 @@ const INITIAL_TOOL_NAMES = [
   "create-deck",
   "delete-deck",
   "add-slide",
-  "add-slide-comment",
-  "list-slide-comments",
-  "update-slide-comment",
-  "delete-slide-comment",
-  "toggle-slide-comment-reaction",
+  "get-deck-review",
+  "list-review-comments",
+  "create-review-comment",
+  "reply-review-comment",
+  "resolve-review-thread",
   "update-slide",
   "patch-deck",
   "generate-image-api",
@@ -148,7 +153,7 @@ function hasDeckEdit(
 }
 
 async function autosaveDeckAfterAgentTurn(
-  scope: { type: string; id: string },
+  agentScope: { type: string; id: string },
   run: {
     events: readonly unknown[];
     threadId?: string;
@@ -156,6 +161,7 @@ async function autosaveDeckAfterAgentTurn(
     turnId?: string;
   },
 ): Promise<void> {
+  const scope = await deckScopeForAgentScope(agentScope);
   if (scope.type !== "deck" || !hasDeckEdit(run, scope.id)) return;
   if (!run.threadId || !run.runId) return;
 
@@ -175,8 +181,16 @@ async function autosaveDeckAfterAgentTurn(
   });
 }
 
+async function onSlidesAgentRunComplete(
+  scope: { type: string; id: string } | null | undefined,
+  run: { runId: string; turnId?: string; threadId?: string; status: string },
+  outcome: { turnContinues: boolean },
+): Promise<void> {
+  await finalizeSlideReviewAgentRun(scope, run, outcome);
+  await reportGenerationCompletion(run, outcome);
+}
+
 async function reportGenerationCompletion(
-  _scope: unknown,
   run: { runId: string; turnId?: string; threadId?: string; status: string },
   outcome: { turnContinues: boolean },
 ): Promise<void> {
@@ -190,9 +204,10 @@ async function reportGenerationCompletion(
 }
 
 async function autosaveDeckBeforeAgentTurn(
-  scope: { type: string; id: string },
+  agentScope: { type: string; id: string },
   run: { threadId?: string; runId?: string },
 ): Promise<void> {
+  const scope = await deckScopeForAgentScope(agentScope);
   if (scope.type !== "deck" || !run.threadId || !run.runId) return;
   const access = await assertAccess("deck", scope.id, "editor");
   const deck = access.resource as {
@@ -212,7 +227,8 @@ export default createAgentChatPlugin({
   clientCompatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
   onAgentTurnStart: autosaveDeckBeforeAgentTurn,
   onAgentTurnComplete: autosaveDeckAfterAgentTurn,
-  onAgentRunComplete: reportGenerationCompletion,
+  onAgentRunComplete: onSlidesAgentRunComplete,
+  resolveActionSurface: resolveSlideReviewAgentActionSurface,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   realtimeVoice: SLIDES_REALTIME_VOICE,

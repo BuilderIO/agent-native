@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hashSlideContent } from "../shared/slide-fit";
 
 let mockRows: unknown[] = [];
-let mockCommentRows: unknown[] = [];
+let mockReviewComments: unknown[] = [];
 let navigationState: Record<string, unknown> | null = null;
 let slidesSelectionState: Record<string, unknown> | null = null;
 let slideFitState: Record<string, unknown> | null = null;
@@ -12,18 +12,7 @@ let deckFitState: Record<string, unknown> | null = null;
 const limitFn = vi.fn(async () => mockRows);
 const orderByFn = vi.fn(async () => mockRows);
 const whereFn = vi.fn(() => ({ limit: limitFn, orderBy: orderByFn }));
-const fromFn = vi.fn((table: unknown) => ({
-  where: (condition: unknown) =>
-    typeof table === "object" &&
-    table !== null &&
-    Object.values(table).includes("comment_id_col")
-      ? {
-          orderBy: () => ({
-            limit: async () => mockCommentRows,
-          }),
-        }
-      : whereFn(condition),
-}));
+const fromFn = vi.fn((_table: unknown) => ({ where: whereFn }));
 const selectFn = vi.fn((..._args: unknown[]) => ({ from: fromFn }));
 const mockDb = { select: selectFn };
 
@@ -35,20 +24,6 @@ vi.mock("../server/db/index.js", () => ({
       title: "title_col",
       ownerEmail: "owner_email_col",
       updatedAt: "updated_at_col",
-    },
-    slideComments: {
-      id: "comment_id_col",
-      slideId: "comment_slide_id_col",
-      deckId: "comment_deck_id_col",
-      threadId: "comment_thread_id_col",
-      parentId: "comment_parent_id_col",
-      content: "comment_content_col",
-      quotedText: "comment_quoted_text_col",
-      anchor: "comment_anchor_col",
-      emojiReactionsJson: "comment_reactions_col",
-      authorEmail: "comment_author_email_col",
-      resolved: "comment_resolved_col",
-      createdAt: "comment_created_at_col",
     },
     deckShares: {},
   },
@@ -67,6 +42,14 @@ vi.mock("./_tab-state.js", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestRunContext: () => undefined,
   getRequestUserEmail: () => "alice@example.com",
+}));
+
+const listSlideReviewComments = vi.hoisted(() => vi.fn());
+vi.mock("../server/lib/slide-review-legacy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/slide-review-legacy.js")
+  >()),
+  listSlideReviewComments,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -118,7 +101,11 @@ describe("template library screen context", () => {
 beforeEach(() => {
   vi.clearAllMocks();
   mockRows = [];
-  mockCommentRows = [];
+  mockReviewComments = [];
+  listSlideReviewComments.mockImplementation(async () => ({
+    comments: mockReviewComments,
+    reactions: {},
+  }));
   navigationState = null;
   slidesSelectionState = null;
   slideFitState = null;
@@ -560,17 +547,16 @@ describe("view-screen", () => {
       },
     ];
     navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
-    mockCommentRows = Array.from({ length: 101 }, (_, index) => ({
+    mockReviewComments = Array.from({ length: 101 }, (_, index) => ({
       id: `comment-${index}`,
-      slideId: "slide-a",
+      resourceId: "deck-1",
+      targetId: "slide-a",
       threadId: `thread-${index}`,
-      parentId: null,
-      content: `Comment ${index}`,
-      quotedText: null,
-      anchor: null,
-      emojiReactionsJson: "{}",
+      parentCommentId: null,
+      anchor: { kind: "slide", slideId: "slide-a" },
+      body: `Comment ${index}`,
       authorEmail: "alice@example.com",
-      resolved: false,
+      status: "open",
       createdAt: `2026-01-01T00:${String(index).padStart(2, "0")}:00.000Z`,
     }));
 
@@ -579,8 +565,11 @@ describe("view-screen", () => {
     expect(result).toContain(
       "### Comments on current slide (100; more available)",
     );
+    expect(listSlideReviewComments).toHaveBeenCalledWith("deck-1", undefined, {
+      slideId: "slide-a",
+    });
     expect(result).toContain(
-      'commentsStatus: truncated; showing the first 100. Use list-slide-comments with { deckId: "deck-1", slideId: "slide-a", limit: 100, offset: 100 } to continue.',
+      'commentsStatus: truncated; showing the first 100. Use list-review-comments with { resourceType: "deck", resourceId: "deck-1", targetId: "slide-a" } for all of them.',
     );
     expect(result).toContain("commentId: comment-0");
     expect(result).not.toContain("commentId: comment-100");

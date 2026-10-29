@@ -203,17 +203,40 @@ describe("slides comment shortcut helper", () => {
     ).toBe(true);
   });
 
-  it("ignores typing surfaces, other modifiers, and unfocused C presses", () => {
+  // oracle-change: plain C now arms comments anywhere in the editor, as the comment key does in Design, not only on the focused canvas.
+  it("accepts C with focus anywhere in the editor that is not a typing surface", () => {
+    const button = document.createElement("button");
+    expect(
+      shouldActivateComment(
+        shortcutEvent({ key: "c", target: document.body }),
+        {
+          activeElement: document.body,
+          focusedCanvas: false,
+        },
+      ),
+    ).toBe(true);
+    expect(
+      shouldActivateComment(shortcutEvent({ key: "c", target: button }), {
+        activeElement: button,
+        focusedCanvas: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores typing surfaces, open menus and other modifiers", () => {
     const textarea = document.createElement("textarea");
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
     expect(shouldActivateComment(shortcutEvent({ target: textarea }))).toBe(
       false,
     );
-    expect(shouldActivateComment(shortcutEvent({ metaKey: true }))).toBe(false);
     expect(
-      shouldActivateComment(shortcutEvent({ key: "c" }), {
+      shouldActivateComment(shortcutEvent({ key: "c", target: menu }), {
+        activeElement: menu,
         focusedCanvas: false,
       }),
     ).toBe(false);
+    expect(shouldActivateComment(shortcutEvent({ metaKey: true }))).toBe(false);
     expect(
       shouldActivateComment(shortcutEvent({ key: "m", ctrlKey: true }), {
         focusedCanvas: false,

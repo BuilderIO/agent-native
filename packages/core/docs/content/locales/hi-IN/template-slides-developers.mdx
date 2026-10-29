@@ -295,7 +295,10 @@ npx @agent-native/core@latest create my-slides --standalone --template slides
 
 ### कमेंट
 
-- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`
+- `get-deck-review` — खुले कमेंट थ्रेड, स्लाइड के अनुसार समूहित, फ़ीडबैक पर काम करने के लिए
+- `list-review-comments`, `create-review-comment`, `reply-review-comment`, `resolve-review-thread`, `react-to-review-comment` — कमेंट डेक पर फ़्रेमवर्क के रिव्यू थ्रेड हैं (`resourceType: "deck"`, `targetId` स्लाइड की id है), इसलिए क्रम बदलने पर भी वे अपनी स्लाइड पर रहते हैं
+- `start-review-agent-request`, `list-review-agent-requests`, `cancel-review-agent-request` — केवल UI के लिए; उस थ्रेड पर एजेंट चलाता है जिसकी कमेंट उसे टैग करती है। रन `get-review-agent-context` से थ्रेड पढ़ता है और `post-review-agent-reply` या `apply-review-agent-changes` से पूरा होता है
+- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`, `toggle-slide-comment-reaction` — पुराने एक्शन, जो उन्हीं थ्रेड पर काम करते रहते हैं
 
 ### इम्पोर्ट
 

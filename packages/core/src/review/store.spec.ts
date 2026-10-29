@@ -41,6 +41,8 @@ const {
   setReviewThreadUnreadPreferences,
   getReviewDiscussionStateForComments,
   filterUnmutedReviewThreadRecipients,
+  importReviewComments,
+  reviewCommentNotificationCompleted,
 } = await import("./store.js");
 
 beforeEach(async () => {
@@ -557,5 +559,78 @@ describe("review store", () => {
     });
     expect(status?.status).toBe("in_review");
     expect(status?.metadata).toEqual({ gate: "legal" });
+  });
+
+  it("imports comments once, keeping ids, timestamps, resolution and reactions", async () => {
+    const base = {
+      resourceType: "deck",
+      resourceId: "deck-1",
+      threadId: "legacy-root",
+      targetId: "slide-2",
+      body: "Tighten this headline",
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org" as const,
+      createdAt: "2026-01-02T00:00:00.000Z",
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    };
+    const input = [
+      {
+        ...base,
+        id: "legacy-root",
+        status: "resolved" as const,
+        anchor: { x: 10, y: 20 },
+        reactions: [{ actorEmail: "bob@example.com", reaction: "👍" }],
+      },
+      {
+        ...base,
+        id: "legacy-reply",
+        parentCommentId: "legacy-root",
+        status: "resolved" as const,
+        body: "Done",
+        createdAt: "2026-01-02T01:00:00.000Z",
+      },
+    ];
+
+    expect(await importReviewComments(input)).toEqual({
+      inserted: 2,
+      skipped: 0,
+    });
+    expect(await importReviewComments(input)).toEqual({
+      inserted: 0,
+      skipped: 2,
+    });
+
+    const comments = await queryReviewComments({
+      resourceType: "deck",
+      resourceId: "deck-1",
+      scope: {},
+      bypassScope: true,
+      includeResolved: true,
+    });
+    expect(comments.map((comment) => comment.id)).toEqual([
+      "legacy-root",
+      "legacy-reply",
+    ]);
+    expect(comments[0]).toMatchObject({
+      status: "resolved",
+      resolvedAt: "2026-01-03T00:00:00.000Z",
+      createdAt: "2026-01-02T00:00:00.000Z",
+      createdBy: "import",
+      targetId: "slide-2",
+      anchor: { x: 10, y: 20 },
+    });
+    expect(comments[1]?.parentCommentId).toBe("legacy-root");
+    expect(await reviewCommentNotificationCompleted("legacy-root")).toBe(true);
+
+    const discussion = await getReviewDiscussionStateForComments(
+      comments,
+      "bob@example.com",
+    );
+    expect(discussion.reactions["legacy-root"]).toEqual([
+      { reaction: "👍", count: 1, reactedByMe: true },
+    ]);
   });
 });

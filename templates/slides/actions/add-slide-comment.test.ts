@@ -1,267 +1,187 @@
-import type { ActionRunContext } from "@agent-native/core/action";
+import type { ReviewComment } from "@agent-native/core/review";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type Row = {
-  id: string;
-  deckId: string;
-  slideId: string;
-  threadId: string;
-  parentId: string | null;
-  resolved: boolean;
-};
-
-const state = vi.hoisted(() => ({
-  deckData: JSON.stringify({ slides: [{ id: "slide-1" }, { id: "slide-2" }] }),
-  deckMissingAtLock: false,
-  inserted: {} as Record<string, unknown>,
-  rows: [] as Row[],
+const core = vi.hoisted(() => ({
+  assertAccess: vi.fn(),
+  getComment: vi.fn(),
+  create: vi.fn(),
+  reply: vi.fn(),
+  deckData: "",
+  deckReads: [] as { type: string; id: string; role: string }[],
 }));
 
-vi.mock("@agent-native/core/server", () => ({
-  getRequestRunContext: () => ({ browserTabId: "tab-1" }),
-  getRequestUserEmail: () => "tiana@example.com",
-  getRequestUserName: () => "Tiana",
+vi.mock("@agent-native/core/review", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/review")>()),
+  assertReviewableResourceAccess: core.assertAccess,
+  getReviewCommentById: core.getComment,
 }));
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => undefined),
+vi.mock("@agent-native/core/review/actions/create-review-comment", () => ({
+  default: { run: core.create },
 }));
-vi.mock("drizzle-orm", () => ({
-  and: (...conds: unknown[]) => ({ __and: conds }),
-  eq: (col: unknown, value: unknown) => ({ __eq: [col, value] }),
+vi.mock("@agent-native/core/review/actions/reply-review-comment", () => ({
+  default: { run: core.reply },
 }));
-vi.mock("../server/lib/comment-notifications.js", () => ({
-  notifyDeckComment: vi.fn(async () => false),
+vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: async (type: string, id: string, role: string) => {
+    core.deckReads.push({ type, id, role });
+    return { role: "owner", resource: { id, data: core.deckData } };
+  },
 }));
-vi.mock("../server/db/index.js", () => {
-  const col = (name: string) => `slideComments.${name}`;
-  const schema = {
-    decks: { id: "decks.id", data: "decks.data" },
-    slideComments: {
-      id: col("id"),
-      deckId: col("deckId"),
-      slideId: col("slideId"),
-      threadId: col("threadId"),
-      parentId: col("parentId"),
-      resolved: col("resolved"),
-    },
-  };
-  const matches = (row: Record<string, unknown>, cond: any): boolean => {
-    if (cond.__and)
-      return cond.__and.every((child: any) => matches(row, child));
-    if (cond.__eq) {
-      const [column, value] = cond.__eq;
-      return row[String(column).split(".").pop()!] === value;
-    }
-    return true;
-  };
-  const db = {
-    select: (projection?: Record<string, unknown>) => ({
-      from: (table: unknown) => ({
-        where: (condition: any) => {
-          const rows =
-            table === schema.decks && !state.deckMissingAtLock
-              ? [{ id: "deck-1", data: state.deckData }]
-              : state.rows;
-          const matchingRows = rows.filter((row) =>
-            matches(row as Record<string, unknown>, condition),
-          );
-          const project = (row: unknown) => {
-            if (!projection) return row;
-            const result: Record<string, unknown> = {};
-            for (const [key, column] of Object.entries(projection)) {
-              result[key] =
-                table === schema.decks
-                  ? state.deckData
-                  : (row as Record<string, unknown>)[
-                      String(column).split(".").pop()!
-                    ];
-            }
-            return result;
-          };
-          const limit = async (count: number) =>
-            matchingRows.slice(0, count).map(project);
-          return {
-            limit,
-            for: async () => matchingRows.map(project),
-          };
-        },
-      }),
-    }),
-    insert: () => ({
-      values: async (value: Record<string, unknown>) => {
-        state.inserted = value;
-      },
-    }),
-  };
-  return {
-    schema,
-    getDb: () => ({
-      ...db,
-      transaction: async (run: (tx: typeof db) => Promise<unknown>) => run(db),
-    }),
-  };
-});
 
 import action from "./add-slide-comment";
 
-const run = (
-  args: Record<string, unknown>,
-  ctx: ActionRunContext = { caller: "frontend" },
-) => (action as any).run(args, ctx);
+const CTX = { caller: "http", userEmail: "tiana@example.com" } as const;
+
+function parent(overrides: Partial<ReviewComment> = {}) {
+  return {
+    id: "root-1",
+    resourceType: "deck",
+    resourceId: "deck-1",
+    threadId: "thread-1",
+    targetId: "slide-1",
+    parentCommentId: null,
+    status: "open",
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
-  state.deckData = JSON.stringify({
+  vi.clearAllMocks();
+  core.deckReads.length = 0;
+  core.deckData = JSON.stringify({
     slides: [{ id: "slide-1" }, { id: "slide-2" }],
   });
-  state.deckMissingAtLock = false;
-  state.inserted = {};
-  state.rows = [
-    {
-      id: "root-1",
-      deckId: "deck-1",
-      slideId: "slide-1",
-      threadId: "thread-1",
-      parentId: null,
-      resolved: false,
-    },
-    {
-      id: "reply-1",
-      deckId: "deck-1",
-      slideId: "slide-1",
-      threadId: "thread-1",
-      parentId: "root-1",
-      resolved: false,
-    },
-  ];
+  core.create.mockResolvedValue({ id: "c-1", threadId: "t-1", notified: true });
+  core.reply.mockResolvedValue({
+    id: "r-1",
+    threadId: "thread-1",
+    notified: false,
+  });
 });
 
+// oracle-change: comments moved to the core review store; the table locking and notification cases are core's now.
 describe("add-slide-comment", () => {
-  it("announces its change to every collaborator on the deck", () => {
-    expect((action as any).changeResource({ deckId: "deck-1" })).toEqual({
-      resourceType: "deck",
-      resourceId: "deck-1",
-    });
-  });
-
-  it("keeps the authenticated profile name for frontend comments", async () => {
-    await run({ deckId: "deck-1", slideId: "slide-1", content: "Looks good" });
-
-    expect(state.inserted.authorName).toBe("Tiana");
-    expect(state.inserted.parentId).toBeNull();
-  });
-
-  it("labels agent tool comments separately", async () => {
-    await run(
-      { deckId: "deck-1", slideId: "slide-1", content: "Looks good" },
-      { caller: "tool" },
+  it("starts a review thread anchored to the slide", async () => {
+    const result = await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-2",
+        content: "  Tighten this  ",
+        quotedText: "Revenue",
+        anchor: { x: 10, y: 20 },
+      },
+      CTX,
     );
 
-    expect(state.inserted.authorName).toBe("AI Agent");
+    expect(core.assertAccess).toHaveBeenCalledWith(
+      "deck",
+      "deck-1",
+      expect.objectContaining({ userEmail: "tiana@example.com" }),
+      "commenter",
+    );
+    expect(core.create).toHaveBeenCalledWith(
+      {
+        resourceType: "deck",
+        resourceId: "deck-1",
+        targetId: "slide-2",
+        anchor: {
+          kind: "slide",
+          slideId: "slide-2",
+          quotedText: "Revenue",
+          point: { x: 10, y: 20 },
+        },
+        body: "Tighten this",
+        resolutionTarget: "human",
+      },
+      expect.objectContaining({ userEmail: "tiana@example.com" }),
+    );
+    expect(core.reply).not.toHaveBeenCalled();
+    expect(result).toEqual({ id: "c-1", threadId: "t-1", notified: true });
   });
 
-  it("rejects a reply whose thread belongs to a different slide", async () => {
-    state.rows.push({
-      id: "root-2",
-      deckId: "deck-1",
-      slideId: "slide-2",
-      threadId: "thread-2",
-      parentId: null,
-      resolved: false,
+  it("replies through the review store when the parent is in the thread", async () => {
+    core.getComment.mockResolvedValue(parent());
+    const result = await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        content: "Done",
+        threadId: "thread-1",
+        parentId: "root-1",
+      },
+      CTX,
+    );
+
+    expect(core.reply).toHaveBeenCalledWith(
+      {
+        resourceType: "deck",
+        resourceId: "deck-1",
+        commentId: "root-1",
+        body: "Done",
+      },
+      expect.objectContaining({ userEmail: "tiana@example.com" }),
+    );
+    expect(core.create).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      id: "r-1",
+      threadId: "thread-1",
+      notified: false,
     });
+  });
 
+  it.each([
+    ["is missing", null],
+    ["is on another deck", parent({ resourceId: "deck-2" })],
+    ["is in another thread", parent({ threadId: "thread-2" })],
+    ["is on another slide", parent({ targetId: "slide-2" })],
+  ])("returns 404 when the parent %s", async (_label, found) => {
+    core.getComment.mockResolvedValue(found);
     await expect(
-      run({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        content: "Reply",
-        threadId: "thread-2",
-        parentId: "root-2",
-      }),
-    ).rejects.toThrow("Comment thread not found on this slide");
-    expect(state.inserted).toEqual({});
-  });
-
-  it("rejects a parent comment outside the requested thread", async () => {
-    await expect(
-      run({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        content: "Reply",
-        threadId: "thread-1",
-        parentId: "root-2",
-      }),
-    ).rejects.toThrow("Parent comment not found in this thread");
-    expect(state.inserted).toEqual({});
-  });
-
-  it("rejects comments for slides not present in the deck", async () => {
-    await expect(
-      run({ deckId: "deck-1", slideId: "slide-missing", content: "Comment" }),
-    ).rejects.toThrow("Slide not found in deck");
-    expect(state.inserted).toEqual({});
-  });
-
-  it("rechecks the deck under its lock before inserting", async () => {
-    state.deckMissingAtLock = true;
-
-    await expect(
-      run({ deckId: "deck-1", slideId: "slide-1", content: "Comment" }),
-    ).rejects.toThrow("Deck not found");
-    expect(state.inserted).toEqual({});
-  });
-
-  it("rejects replies to resolved threads", async () => {
-    state.rows.forEach((row) => (row.resolved = true));
-
-    await expect(
-      run({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        content: "Reply",
-        threadId: "thread-1",
-        parentId: "root-1",
-      }),
-    ).rejects.toThrow("Reopen this comment thread before replying");
-    expect(state.inserted).toEqual({});
-  });
-
-  it("requires a thread ID when the caller supplies a parent ID", () => {
-    expect(
-      (action as any).schema.safeParse({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        content: "Reply",
-        parentId: "root-1",
-      }).success,
-    ).toBe(false);
-  });
-
-  it("requires a parent ID when the caller supplies a thread ID", () => {
-    expect(
-      (action as any).schema.safeParse({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        content: "Reply",
-        threadId: "thread-1",
-      }).success,
-    ).toBe(false);
-  });
-
-  it("rejects empty relationship IDs", () => {
-    for (const args of [
-      { threadId: "", parentId: "root-1" },
-      { threadId: "thread-1", parentId: "" },
-      { threadId: "   ", parentId: "root-1" },
-      { threadId: "thread-1", parentId: "   " },
-    ]) {
-      expect(
-        (action as any).schema.safeParse({
+      action.run(
+        {
           deckId: "deck-1",
           slideId: "slide-1",
           content: "Reply",
-          ...args,
-        }).success,
-      ).toBe(false);
-    }
+          threadId: "thread-1",
+          parentId: "root-1",
+        },
+        CTX,
+      ),
+    ).rejects.toMatchObject({ errorCode: "not_found", statusCode: 404 });
+    expect(core.reply).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when replying to a resolved thread", async () => {
+    core.getComment.mockResolvedValue(parent({ status: "resolved" }));
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-1",
+          content: "Reply",
+          threadId: "thread-1",
+          parentId: "root-1",
+        },
+        CTX,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "comment_thread_resolved",
+      statusCode: 409,
+    });
+    expect(core.reply).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 for a slide that is not in the deck", async () => {
+    await expect(
+      action.run({ deckId: "deck-1", slideId: "slide-9", content: "Hi" }, CTX),
+    ).rejects.toMatchObject({ errorCode: "not_found", statusCode: 404 });
+    expect(core.create).not.toHaveBeenCalled();
+    // The slide check reads the deck through its access check, never bare.
+    expect(core.deckReads).toContainEqual({
+      type: "deck",
+      id: "deck-1",
+      role: "commenter",
+    });
   });
 });
