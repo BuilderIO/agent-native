@@ -154,18 +154,6 @@ App-specific notes:
   (append a `defineStore()` migration; see `framework-stores`). Needs a
   changeset.
 
-## Phase 2: retention (optional, per app)
-
-Not required to ship Phase 1. When an app wants it:
-
-- A `recurring-jobs` task per app that purges rows with
-  `deleted_at < now() - retention`, using the same purge path the manual
-  "Delete forever" uses so blobs and children go too.
-- Retention is an app config field (`packages/core/src/app-config/`), off by
-  default. Never run purges at startup.
-- Content's purge plan/worker is the model for large trees: plan, then purge
-  in bounded batches with an operation record.
-
 ## Verification per app PR
 
 - Delete from the UI, see the Undo toast, click Undo, and the object returns
