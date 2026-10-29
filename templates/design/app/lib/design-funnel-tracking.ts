@@ -364,6 +364,11 @@ export function useDesignReadyViewTracking({
               retryReceipt(turnKey);
               return;
             }
+            window.dispatchEvent(
+              new CustomEvent("design:verified-generation-ready", {
+                detail: { designId, runId: terminalRunId, turnId },
+              }),
+            );
             trackDesignRelay("design_ready_viewed", {
               output_id: designId,
               output_type: "design",
@@ -503,6 +508,58 @@ export function useDesignReadyViewTracking({
   useEffect(() => {
     flushCompletedRunsRef.current();
   }, [designId, designLoaded, files, isOwner]);
+
+  useEffect(() => {
+    if (
+      !designId ||
+      !designLoaded ||
+      !isOwner ||
+      !urlAttemptId ||
+      generationOutputFiles(files).length === 0
+    )
+      return;
+    let cancelled = false;
+    let timer: number | undefined;
+    let checks = 0;
+    const resolveAttempt = async () => {
+      try {
+        const { status, result } = await callAction<{
+          status: "missing" | "pending" | "ready" | "unavailable";
+          result: { runId: string; turnId: string } | null;
+        }>(
+          "resolve-design-generation-attempt" as never,
+          { designId, attemptId: urlAttemptId } as never,
+          { method: "GET", uiOnly: true },
+        );
+        if (cancelled || status === "missing" || status === "unavailable")
+          return;
+        if (status === "ready" && result) {
+          window.dispatchEvent(
+            new CustomEvent("design:verified-generation-ready", {
+              detail: { designId, ...result },
+            }),
+          );
+          return;
+        }
+      } catch (error) {
+        console.warn("Could not resolve generation attempt", error);
+      }
+      if (!cancelled) {
+        checks += 1;
+        timer = window.setTimeout(
+          () => {
+            void resolveAttempt();
+          },
+          Math.min(2000 * 2 ** Math.min(checks - 1, 3), 15000),
+        );
+      }
+    };
+    void resolveAttempt();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [designId, designLoaded, files, isOwner, urlAttemptId]);
 
   useEffect(() => {
     try {

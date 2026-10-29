@@ -592,6 +592,27 @@ CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
   CREATE INDEX IF NOT EXISTS design_review_agent_requests_requester_idx
     ON design_review_agent_requests (design_id, requester_email, created_at)`,
   },
+  {
+    version: 47,
+    name: "design-first-output-experiment-claims",
+    sql: `CREATE TABLE IF NOT EXISTS design_first_output_experiment_claims (
+      user_id TEXT PRIMARY KEY,
+      variant TEXT NOT NULL,
+      output_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+  {
+    version: 48,
+    name: "design-generation-attempt-provenance",
+    sql: `CREATE TABLE IF NOT EXISTS design_generation_attempts (
+      attempt_id TEXT PRIMARY KEY,
+      design_id TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL
+    )`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =

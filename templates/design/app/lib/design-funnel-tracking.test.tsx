@@ -661,6 +661,81 @@ describe("design_ready_viewed", () => {
     expect(readyEvents()).toHaveLength(1);
   });
 
+  it("enrolls a result link only after the server verifies its completed turn", async () => {
+    setUrl("?generation_attempt_id=attempt_1234567890abcdef");
+    const listener = vi.fn();
+    window.addEventListener("design:verified-generation-ready", listener);
+    mocks.callAction.mockResolvedValue({
+      status: "ready",
+      result: { runId: "run-2", turnId: "turn-1" },
+    });
+    await renderReady({ files: [screen("a")] });
+    await flushRunStatus();
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "resolve-design-generation-attempt",
+      { designId: "design-1", attemptId: "attempt_1234567890abcdef" },
+      { method: "GET", uiOnly: true },
+    );
+    expect(listener).toHaveBeenCalledOnce();
+    const call = listener.mock.calls.find((item) => item.length > 0);
+    expect((call?.[0] as CustomEvent | undefined)?.detail).toEqual({
+      designId: "design-1",
+      runId: "run-2",
+      turnId: "turn-1",
+    });
+    window.removeEventListener("design:verified-generation-ready", listener);
+  });
+
+  it("keeps checking result links past 30 seconds and stops after confirmation", async () => {
+    vi.useFakeTimers();
+    try {
+      setUrl("?generation_attempt_id=attempt_1234567890abcdef");
+      const listener = vi.fn();
+      window.addEventListener("design:verified-generation-ready", listener);
+      for (let i = 0; i < 5; i += 1)
+        mocks.callAction.mockResolvedValueOnce({
+          status: "pending",
+          result: null,
+        });
+      mocks.callAction.mockResolvedValue({
+        status: "ready",
+        result: { runId: "run-2", turnId: "turn-1" },
+      });
+      await renderReady({ files: [screen("a")] });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      expect(listener).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(listener).toHaveBeenCalledOnce();
+      const calls = mocks.callAction.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(mocks.callAction).toHaveBeenCalledTimes(calls);
+      window.removeEventListener("design:verified-generation-ready", listener);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not poll again when a result link has no provenance", async () => {
+    vi.useFakeTimers();
+    try {
+      setUrl("?generation_attempt_id=attempt_1234567890abcdef");
+      mocks.callAction.mockResolvedValue({ status: "missing", result: null });
+      await renderReady({ files: [screen("a")] });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reports a generate-design link's attempt once per page", async () => {
     setUrl("?generation_attempt_id=attempt_1234567890abcdef");
     await renderReady({ files: [screen("a")] });

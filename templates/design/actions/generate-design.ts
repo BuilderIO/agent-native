@@ -1720,6 +1720,22 @@ const generateDesignAction = defineAction({
       creativeContextProvenance,
     );
 
+    if (savedFiles.length > 0 && context?.threadId && context.turnId) {
+      try {
+        await db
+          .insert(schema.designGenerationAttempts)
+          .values({
+            attemptId: generationAttemptId,
+            designId,
+            threadId: context.threadId,
+            turnId: context.turnId,
+          })
+          .onConflictDoNothing();
+      } catch (error) {
+        console.warn("Could not record generation attempt provenance", error);
+      }
+    }
+
     trackDesign(
       "design_edited",
       {
