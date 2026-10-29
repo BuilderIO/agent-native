@@ -43,7 +43,9 @@ git status --short --untracked-files=all
 git log --oneline origin/main..HEAD
 ```
 
-Then pick the base:
+Then pick the base. The `git switch` commands below are for a checkout only
+this task uses; in a checkout other sessions are using, create the branch in a
+new worktree instead (`git worktree add -b "$branch" <path> <base>`).
 
 - **Nothing in the log, or every commit is from a PR that already merged**
   (squash merges leave the source commits off `main`'s history; check with
