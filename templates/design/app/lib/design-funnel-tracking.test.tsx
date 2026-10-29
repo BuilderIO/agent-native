@@ -302,22 +302,75 @@ describe("design_ready_viewed", () => {
     });
   });
 
-  it.each(["no_output", "unknown"] as const)(
-    "does not attribute existing screens when the run output is %s",
-    async (status) => {
-      mocks.callAction.mockResolvedValueOnce({ status });
-      await renderReady({ files: [screen("unrelated")] });
-      await agentRun({ isRunning: true });
-      await agentRun({ isRunning: false });
+  it("does not attribute existing screens when the run has no output receipt", async () => {
+    mocks.callAction.mockResolvedValueOnce({ status: "no_output" });
+    await renderReady({ files: [screen("unrelated")] });
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: false });
 
-      expect(readyEvents()).toHaveLength(0);
-      expect(mocks.callAction).toHaveBeenCalledWith(
-        "get-design-generation-output",
-        { designId: "design-1", runId: "run-1", turnId: "turn-1" },
-        { method: "GET", uiOnly: true },
-      );
+    expect(readyEvents()).toHaveLength(0);
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "get-design-generation-output",
+      { designId: "design-1", runId: "run-1", turnId: "turn-1" },
+      { method: "GET", uiOnly: true },
+    );
+  });
+
+  it.each(["unknown", "rejected"] as const)(
+    "retries an %s output receipt before reporting the ready view",
+    async (failure) => {
+      vi.useFakeTimers();
+      try {
+        if (failure === "unknown") {
+          mocks.callAction.mockResolvedValueOnce({ status: "unknown" });
+        } else {
+          mocks.callAction.mockRejectedValueOnce(
+            new Error("temporarily unavailable"),
+          );
+        }
+        await renderReady({ files: [screen("generated")] });
+        await agentRun({ isRunning: true });
+        await agentRun({ isRunning: false });
+
+        expect(mocks.callAction).toHaveBeenCalledTimes(1);
+        expect(readyEvents()).toHaveLength(0);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+
+        expect(mocks.callAction).toHaveBeenCalledTimes(2);
+        expect(readyEvents()).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
     },
   );
+
+  it("rechecks a verified receipt if the tab becomes hidden before it resolves", async () => {
+    let resolveReceipt: (value: unknown) => void = () => {};
+    mocks.callAction.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveReceipt = resolve)),
+    );
+    await renderReady({ files: [screen("generated")] });
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: false });
+
+    visibility = "hidden";
+    await act(async () => {
+      resolveReceipt({ status: "has_output" });
+      await Promise.resolve();
+    });
+    expect(readyEvents()).toHaveLength(0);
+
+    visibility = "visible";
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    expect(readyEvents()).toHaveLength(1);
+  });
 
   it("expires a completed run if no generated screens arrive in the bounded window", async () => {
     let now = 1_000;

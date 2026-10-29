@@ -6308,13 +6308,15 @@ export function createCoreRoutesPlugin(
           // Best-effort — server `track()` swallows provider errors. We still
           // guard here so an unexpected throw can't surface to the browser.
           try {
+            const browserSessionId = readBrowserSessionIdHeader(event);
+            const trackingSource = {
+              userId: userEmail,
+              ...(session.authUserId ? { authUserId: session.authUserId } : {}),
+              ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+              telemetryOrigin: "client" as const,
+            };
             const trackClientEvent = () =>
-              track(validation.name as string, properties, {
-                userId: userEmail,
-                authUserId: session.authUserId,
-                sessionId: readBrowserSessionIdHeader(event),
-                telemetryOrigin: "client",
-              });
+              track(validation.name as string, properties, trackingSource);
             if (isFirstRunOnboardingEvent) {
               await runWithRequestContext(
                 {

@@ -120,6 +120,7 @@ const reportedReadyViewRuns = new Set<string>();
 export function resetDesignReadyViewsForTest(): void {
   sentReadyViewAttempts.clear();
   reportedReadyViewRuns.clear();
+  readyViewChecksInFlight.clear();
 }
 
 function readUrlGenerationAttemptId(): string | null {
@@ -141,6 +142,8 @@ const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 const RUN_STATUS_ATTEMPTS = 3;
 const RUN_STATUS_RETRY_MS = 1500;
 const DESIGN_READY_VIEW_PROPAGATION_WINDOW_MS = 30_000;
+const DESIGN_READY_RECEIPT_ATTEMPTS = 3;
+const DESIGN_READY_RECEIPT_RETRY_MS = 1500;
 type CompletedAgentRun = Extract<AgentRunStatusRead, { ok: true }>;
 type TrackedAgentRun = {
   threadId: string;
@@ -148,7 +151,10 @@ type TrackedAgentRun = {
   ending: boolean;
   completed?: CompletedAgentRun;
   completedAt?: number;
+  receiptAttempts?: number;
 };
+
+const readyViewChecksInFlight = new Map<string, symbol>();
 
 /**
  * Whether the server reports this exact run as completed. The chat's own
@@ -173,28 +179,6 @@ async function completedRunStatus(
     }
   }
   return null;
-}
-
-async function completedRunOutputStatus(
-  designId: string,
-  runId: string,
-  completed: CompletedAgentRun,
-): Promise<"has_output" | "no_output" | "unknown"> {
-  if (!completed.turnId) return "unknown";
-  try {
-    const output = await callAction(
-      "get-design-generation-output",
-      {
-        designId,
-        runId: completed.runId ?? runId,
-        turnId: completed.turnId,
-      },
-      { method: "GET", uiOnly: true },
-    );
-    return output.status;
-  } catch {
-    return "unknown";
-  }
 }
 
 /**
@@ -229,6 +213,7 @@ export function useDesignReadyViewTracking({
   latest.current = { designId, isOwner, designLoaded, files };
   const runsRef = useRef(new Map<string, TrackedAgentRun>());
   const cancelSendsRef = useRef(new Set<() => void>());
+  const receiptRetryTimersRef = useRef(new Map<string, number>());
   const lifecycleRef = useRef(0);
 
   const send = useRef((callback: () => void) => {
@@ -247,6 +232,24 @@ export function useDesignReadyViewTracking({
     if (!current.designId || !current.designLoaded) return;
     const lifecycle = lifecycleRef.current;
     const screenCount = generationOutputFiles(current.files).length;
+    const clearReceiptRetry = (turnId: string) => {
+      const timer = receiptRetryTimersRef.current.get(turnId);
+      if (timer !== undefined) window.clearTimeout(timer);
+      receiptRetryTimersRef.current.delete(turnId);
+    };
+    const discardRun = (runId: string, run: TrackedAgentRun) => {
+      runsRef.current.delete(runId);
+      if (run.completed?.turnId) clearReceiptRetry(run.completed.turnId);
+    };
+    const retryReceipt = (turnId: string) => {
+      if (document.visibilityState !== "visible") return;
+      if (receiptRetryTimersRef.current.has(turnId)) return;
+      const timer = window.setTimeout(() => {
+        receiptRetryTimersRef.current.delete(turnId);
+        flushCompletedRunsRef.current();
+      }, DESIGN_READY_RECEIPT_RETRY_MS);
+      receiptRetryTimersRef.current.set(turnId, timer);
+    };
 
     for (const [runId, run] of runsRef.current) {
       if (
@@ -254,39 +257,71 @@ export function useDesignReadyViewTracking({
         current.designId &&
         current.designId !== run.designId
       ) {
-        runsRef.current.delete(runId);
+        discardRun(runId, run);
         continue;
       }
       if (!run.completed) continue;
       if (!current.isOwner) {
-        runsRef.current.delete(runId);
+        discardRun(runId, run);
         continue;
       }
       if (
         run.completedAt !== undefined &&
         Date.now() - run.completedAt >= DESIGN_READY_VIEW_PROPAGATION_WINDOW_MS
       ) {
-        runsRef.current.delete(runId);
+        discardRun(runId, run);
         continue;
       }
       if (screenCount === 0) continue;
 
       const designId = run.designId ?? current.designId;
       if (!designId) {
-        runsRef.current.delete(runId);
+        discardRun(runId, run);
         continue;
       }
       const terminalRunId = run.completed.runId ?? runId;
       const turnId = run.completed.turnId;
       if (!turnId) {
-        runsRef.current.delete(runId);
+        discardRun(runId, run);
         continue;
       }
       const turnKey = turnId;
-      runsRef.current.delete(runId);
-      if (reportedReadyViewRuns.has(turnKey)) continue;
-      reportedReadyViewRuns.add(turnKey);
+      if (reportedReadyViewRuns.has(turnKey)) {
+        discardRun(runId, run);
+        continue;
+      }
+      if (readyViewChecksInFlight.has(turnKey)) continue;
       send(() => {
+        if (
+          reportedReadyViewRuns.has(turnKey) ||
+          readyViewChecksInFlight.has(turnKey)
+        ) {
+          return;
+        }
+        if (
+          run.completedAt !== undefined &&
+          Date.now() - run.completedAt >=
+            DESIGN_READY_VIEW_PROPAGATION_WINDOW_MS
+        ) {
+          discardRun(runId, run);
+          return;
+        }
+        const ready = latest.current;
+        if (ready.designId !== designId || !ready.isOwner) {
+          discardRun(runId, run);
+          return;
+        }
+        if (
+          document.visibilityState !== "visible" ||
+          !ready.designLoaded ||
+          generationOutputFiles(ready.files).length === 0
+        ) {
+          return;
+        }
+        const checkToken = Symbol(turnKey);
+        readyViewChecksInFlight.set(turnKey, checkToken);
+        const attempt = (run.receiptAttempts ?? 0) + 1;
+        run.receiptAttempts = attempt;
         void callAction(
           "get-design-generation-output",
           {
@@ -297,21 +332,38 @@ export function useDesignReadyViewTracking({
           { method: "GET", uiOnly: true },
         )
           .then((result) => {
-            if (lifecycleRef.current !== lifecycle) return;
-            const visible = latest.current;
             if (
-              result.status !== "has_output" ||
-              visible.designId !== designId ||
-              !visible.designLoaded ||
-              !visible.isOwner ||
-              document.visibilityState !== "visible"
+              lifecycleRef.current !== lifecycle ||
+              runsRef.current.get(runId) !== run
             ) {
+              return;
+            }
+            if (result.status === "no_output") {
+              discardRun(runId, run);
+              return;
+            }
+            if (result.status !== "has_output") {
+              if (attempt < DESIGN_READY_RECEIPT_ATTEMPTS) {
+                retryReceipt(turnKey);
+              } else {
+                discardRun(runId, run);
+              }
+              return;
+            }
+            run.receiptAttempts = 0;
+            const visible = latest.current;
+            if (visible.designId !== designId || !visible.isOwner) {
+              discardRun(runId, run);
               return;
             }
             const currentScreenCount = generationOutputFiles(
               visible.files,
             ).length;
-            if (currentScreenCount === 0) return;
+            if (document.visibilityState !== "visible") return;
+            if (!visible.designLoaded || currentScreenCount === 0) {
+              retryReceipt(turnKey);
+              return;
+            }
             trackDesignRelay("design_ready_viewed", {
               output_id: designId,
               output_type: "design",
@@ -320,9 +372,26 @@ export function useDesignReadyViewTracking({
               screen_count: currentScreenCount,
               is_owner: true,
             });
+            reportedReadyViewRuns.add(turnKey);
+            discardRun(runId, run);
           })
           .catch(() => {
-            // coercion-ok: analytics failure must never affect the editor.
+            if (
+              lifecycleRef.current !== lifecycle ||
+              runsRef.current.get(runId) !== run
+            ) {
+              return;
+            }
+            if (attempt < DESIGN_READY_RECEIPT_ATTEMPTS) {
+              retryReceipt(turnKey);
+            } else {
+              discardRun(runId, run);
+            }
+          })
+          .finally(() => {
+            if (readyViewChecksInFlight.get(turnKey) === checkToken) {
+              readyViewChecksInFlight.delete(turnKey);
+            }
           });
       });
     }
@@ -389,16 +458,7 @@ export function useDesignReadyViewTracking({
               runs.delete(runId);
               return;
             }
-            const outputStatus = await completedRunOutputStatus(
-              designId,
-              runId,
-              completed,
-            );
             if (isDisposed() || runs.get(runId) !== run) return;
-            if (outputStatus !== "has_output") {
-              runs.delete(runId);
-              return;
-            }
             run.designId = designId;
             run.completed = completed;
             run.completedAt = Date.now();
@@ -412,13 +472,24 @@ export function useDesignReadyViewTracking({
         // coercion-ok: a failed analytics read must never affect the editor.
       }
     };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        flushCompletedRunsRef.current();
+      }
+    };
     window.addEventListener(AGENT_CHAT_RUNNING_EVENT, onRunning);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       disposed = true;
       if (lifecycleRef.current === lifecycle) lifecycleRef.current += 1;
       window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, onRunning);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       for (const cancel of cancelSends) cancel();
       cancelSends.clear();
+      for (const timer of receiptRetryTimersRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+      receiptRetryTimersRef.current.clear();
     };
   }, [send]);
 
