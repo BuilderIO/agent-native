@@ -837,8 +837,10 @@ export {
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
+  registerBuilderBranchProject,
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
   resolveIsBuilderBranchingEnabled,
   normalizeBuilderAgentAttachments,
   runBuilderAgent,
@@ -863,6 +865,10 @@ export {
   type SendBuilderBranchMessageOptions,
   type SendBuilderBranchMessageResult,
 } from "./builder-branch.js";
+export {
+  BuilderBranchFilesError,
+  readBuilderBranchFiles,
+} from "./builder-branch-files.js";
 export {
   ensureFusionContainer,
   sendFusionBranchMessage,

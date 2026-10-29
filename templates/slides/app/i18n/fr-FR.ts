@@ -138,7 +138,7 @@ const messages = {
     openChat: "Ouvrir le chat",
     cloudAuthToken: "Jeton d’authentification",
     cloudSetupSteps: "Étapes de configuration",
-    cloudConnectedReloading: "Connexion réussie. Rechargement...",
+    cloudConnectedReloading: "Rechargement...",
     cloudConnectionFailed: "Échec de la connexion",
     cloudTestConnect: "Tester et connecter",
     cloudServerlessPostgres: "Postgres serverless",
@@ -1089,10 +1089,154 @@ const messages = {
     chooseAnotherFile: "Choisir un autre fichier",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "Créer un pitch produit",
-      roadmap: "Créer une feuille de route produit",
-      explainer: "Expliquer un sujet dans une présentation",
+    nextStepBar: {
+      ariaLabel: "Étapes suivantes pour votre première présentation",
+      refineWithPrompt: "Améliorer avec une consigne",
+      export: "Exporter",
+      shareLink: "Partager le lien",
+      dismiss: "Fermer",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "Créez une présentation de lancement avec le problème client, les avantages, le plan et un ton assuré et centré sur le client.",
+        roadmap:
+          "Créez une feuille de route trimestrielle avec les axes stratégiques, jalons, dépendances et un ton exécutif clair.",
+        opportunity:
+          "Créez un dossier d’opportunité avec le marché, les besoins clients, la solution, les risques et un ton décisif.",
+        priorities:
+          "Créez une présentation de priorisation avec impact, effort, preuves, arbitrages et un ton propice à la décision.",
+        metrics:
+          "Créez une revue produit avec adoption, activation, rétention, enseignements et un ton analytique franc.",
+        discovery:
+          "Créez un compte rendu de recherche client avec thèmes, citations, besoins et un ton empathique fondé sur les faits.",
+        vision:
+          "Créez une présentation de vision avec l’avenir souhaité, les principes, les paris produit et un ton inspirant et concret.",
+        release:
+          "Créez une revue de lancement avec objectifs, résultats, retours clients, problèmes ouverts et un ton responsable et apprenant.",
+      },
+      design: {
+        caseStudy:
+          "Créez une étude de cas de design avec le brief, le processus, les écrans clés, les résultats et un ton éditorial chaleureux.",
+        system:
+          "Créez une présentation du système de design avec couleurs, typographie, composants, exemples et un ton visuel net.",
+        critique:
+          "Créez une critique de design avec objectifs, écrans actuels, retours, prochaines étapes et un ton constructif.",
+        research:
+          "Créez un compte rendu de recherche utilisateur avec contexte, tendances, citations, pistes et un ton empathique.",
+        concepts:
+          "Créez une exploration de concepts avec trois pistes visuelles, des écrans, des compromis et un ton ludique.",
+        accessibility:
+          "Créez une revue d’accessibilité avec obstacles, exemples annotés, corrections et un ton inclusif et clair.",
+        brand:
+          "Créez une présentation d’identité de marque avec audience, références visuelles, couleurs, typographie et un ton singulier.",
+        sprint:
+          "Créez un bilan de sprint design avec défi, idées, prototype, tests et un ton optimiste.",
+      },
+      developer: {
+        architecture:
+          "Créez une présentation d’architecture avec composants, flux de données, compromis et un ton technique précis.",
+        api: "Créez un guide de démarrage API avec configuration, authentification, exemples, erreurs et un ton accessible aux développeurs.",
+        release:
+          "Créez un plan de livraison technique avec périmètre, jalons, dépendances, déploiement et un ton pragmatique.",
+        incident:
+          "Créez une analyse d’incident avec impact, chronologie, cause racine, actions et un ton sans reproche.",
+        migration:
+          "Créez un plan de migration avec état actuel, étapes, risques, validation et un ton rassurant.",
+        security:
+          "Créez une revue de sécurité avec limites du système, menaces, contrôles, lacunes et un ton technique direct.",
+        demo: "Créez une démo technique avec problème, architecture, parcours en direct, résultats et un ton clair.",
+        metrics:
+          "Créez une revue des métriques d’ingénierie avec livraison, fiabilité, tendances et un ton franc.",
+      },
+      marketing: {
+        campaign:
+          "Créez un lancement de campagne avec audience, message, canaux, calendrier et un ton énergique.",
+        story:
+          "Créez un récit client avec défi, solution, résultats, preuves et un ton humain.",
+        content:
+          "Créez une stratégie éditoriale avec besoins de l’audience, thèmes, formats, calendrier et un ton soigné.",
+        positioning:
+          "Créez un positionnement de marque avec audience, catégorie, promesse, preuves et un ton distinctif.",
+        channels:
+          "Créez une revue des canaux avec portée, engagement, conversions, enseignements et un ton clair.",
+        messaging:
+          "Créez un discours produit avec audience, avantages, preuves, exemples et un ton persuasif.",
+        event:
+          "Créez un plan de promotion d’événement avec audience, accroche, calendrier, canaux et un ton accueillant.",
+        competition:
+          "Créez un panorama concurrentiel avec alternatives, atouts, lacunes, opportunités et un ton équilibré.",
+      },
+      sales: {
+        pitch:
+          "Créez une présentation commerciale avec objectifs client, solution, résultats, preuves et un ton assuré.",
+        proposal:
+          "Créez une proposition de solution avec besoins, approche, calendrier, investissement et un ton clair centré client.",
+        quarterlyReview:
+          "Créez une revue trimestrielle avec objectifs, résultats, adoption, prochaines étapes et un ton collaboratif.",
+        discovery:
+          "Créez un compte rendu de découverte avec priorités client, difficultés, adéquation et un ton attentif.",
+        objections:
+          "Créez un guide de traitement des objections avec questions courantes, preuves, réponses et un ton utile.",
+        demo: "Créez un scénario de démo produit avec contexte client, parcours clés, résultats et un ton persuasif et concis.",
+        renewal:
+          "Créez une présentation de renouvellement avec valeur apportée, usage, pistes et un ton partenarial.",
+        enablement:
+          "Créez un support de vente avec acheteurs types, qualification, arguments et un ton pratique.",
+      },
+      ops: {
+        weeklyReview:
+          "Créez une revue opérationnelle hebdomadaire avec objectifs, indicateurs, blocages, responsables et un ton calme et direct.",
+        process:
+          "Créez une présentation d’amélioration des processus avec étapes actuelles, irritants, flux cible et un ton pratique.",
+        capacity:
+          "Créez un plan de capacité avec demande, disponibilité, priorités, scénarios et un ton transparent.",
+        service:
+          "Créez une revue de service avec volumes, délais, escalades, corrections et un ton responsable.",
+        vendor:
+          "Créez une évaluation de fournisseurs avec critères, options, coûts, risques et un ton équilibré.",
+        metrics:
+          "Créez une présentation de tableau de bord avec indicateurs, tendances, exceptions et un ton analytique concis.",
+        onboarding:
+          "Créez un parcours d’intégration avec étapes, relais, ressources, mesures de réussite et un ton bienveillant.",
+        risk: "Créez une revue des risques avec probabilité, impact, mesures, responsables et un ton mesuré.",
+      },
+      individual: {
+        project:
+          "Créez un plan de projet personnel avec objectif, jalons, ressources, risques et un ton motivant.",
+        portfolio:
+          "Créez un portfolio personnel avec projets choisis, démarche, résultats et un ton éditorial assuré.",
+        learning:
+          "Créez un parcours d’apprentissage avec compétences, ressources, exercices, jalons et un ton encourageant.",
+        event:
+          "Créez un plan de rencontre avec intention, invités, programme, détails et un ton chaleureux.",
+        budget:
+          "Créez une revue budgétaire personnelle avec revenus, dépenses, objectifs et un ton calme et pratique.",
+        travel:
+          "Créez un itinéraire avec destinations, temps forts quotidiens, logistique et un ton visuel accueillant.",
+        community:
+          "Créez une présentation d’atelier communautaire avec sujet, activités, acquis et un ton inclusif.",
+        personalStory:
+          "Créez une présentation personnelle avec parcours, intérêts, travail et un ton naturel et convivial.",
+      },
+      general: {
+        overview:
+          "Créez une présentation claire d’un sujet avec contexte, idées clés, exemples et un ton accueillant.",
+        fundraiser:
+          "Créez une présentation de collecte de fonds avec mission, besoin, impact et un ton plein d’espoir.",
+        lesson:
+          "Créez une courte leçon avec objectifs, notions clés, exemples et un ton engageant.",
+        research:
+          "Créez un rapport de recherche avec question, méthode, résultats, implications et un ton équilibré.",
+        eventProposal:
+          "Créez une proposition d’événement avec objectif, audience, format, budget et un ton accueillant.",
+        teamStrategy:
+          "Créez une stratégie d’équipe avec priorités, indicateurs, initiatives et un ton concentré.",
+        howTo:
+          "Créez un guide visuel avec étapes claires, exemples utiles et un ton encourageant.",
+        portfolioIntro:
+          "Créez une introduction de portfolio avec projets choisis, points forts et un ton soigné.",
+      },
     },
     suggestedPrompts: "Prompts suggérés",
     importMenu: {
@@ -1315,6 +1459,89 @@ const messages = {
     createFirstDeck: "Créez votre premier deck",
     emptyDescription:
       "Créez de belles présentations avec la génération par IA.",
+
+    suggestionLabels: {
+      product: {
+        launch: "présentation de lancement",
+        roadmap: "feuille de route trimestrielle",
+        opportunity: "dossier d’opportunité",
+        priorities: "présentation de priorisation",
+        metrics: "revue produit",
+        discovery: "compte rendu de recherche",
+        vision: "présentation de vision",
+        release: "revue de lancement",
+      },
+      design: {
+        caseStudy: "étude de cas design",
+        system: "système de design",
+        critique: "critique de design",
+        research: "compte rendu de recherche",
+        concepts: "exploration de concepts",
+        accessibility: "revue d’accessibilité",
+        brand: "présentation d’identité de marque",
+        sprint: "bilan de sprint design",
+      },
+      developer: {
+        architecture: "présentation d’architecture",
+        api: "guide de démarrage API",
+        release: "plan de livraison technique",
+        incident: "analyse d’incident",
+        migration: "plan de migration",
+        security: "revue de sécurité",
+        demo: "démo technique",
+        metrics: "revue des métriques d’ingénierie",
+      },
+      marketing: {
+        campaign: "lancement de campagne",
+        story: "récit client",
+        content: "stratégie éditoriale",
+        positioning: "positionnement de marque",
+        channels: "revue des canaux",
+        messaging: "discours produit",
+        event: "plan de promotion d’événement",
+        competition: "panorama concurrentiel",
+      },
+      sales: {
+        pitch: "présentation commerciale",
+        proposal: "proposition de solution",
+        quarterlyReview: "revue trimestrielle",
+        discovery: "compte rendu de découverte",
+        objections: "guide des objections",
+        demo: "scénario de démo produit",
+        renewal: "présentation de renouvellement",
+        enablement: "support de vente",
+      },
+      ops: {
+        weeklyReview: "revue opérationnelle hebdomadaire",
+        process: "présentation d’amélioration des processus",
+        capacity: "plan de capacité",
+        service: "revue de service",
+        vendor: "évaluation de fournisseurs",
+        metrics: "tableau de métriques",
+        onboarding: "parcours d’intégration",
+        risk: "revue des risques",
+      },
+      individual: {
+        project: "plan de projet personnel",
+        portfolio: "portfolio personnel",
+        learning: "parcours d’apprentissage",
+        event: "plan de rencontre",
+        budget: "revue budgétaire personnelle",
+        travel: "itinéraire de voyage",
+        community: "présentation d’atelier communautaire",
+        personalStory: "présentation personnelle",
+      },
+      general: {
+        overview: "présentation claire d’un sujet",
+        fundraiser: "collecte de fonds",
+        lesson: "courte leçon",
+        research: "rapport de recherche",
+        eventProposal: "proposition d’événement",
+        teamStrategy: "stratégie d’équipe",
+        howTo: "guide visuel",
+        portfolioIntro: "introduction de portfolio",
+      },
+    },
   },
   agentChat: {
     setup: {

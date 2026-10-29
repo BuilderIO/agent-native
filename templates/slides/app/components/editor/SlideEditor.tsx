@@ -11406,6 +11406,7 @@ export default function SlideEditor({
               ) : null}
               <div
                 ref={scrollContainerRef}
+                data-slide-editor-viewport="true"
                 className={`h-full overflow-auto ${
                   drawMode ? "pb-24 sm:pb-28" : ""
                 } ${stacked ? SLIDE_SCROLL_CONTAINER_CLASS : ""}`}

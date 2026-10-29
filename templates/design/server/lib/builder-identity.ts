@@ -25,14 +25,21 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core/action";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { registerHostLabOverrides } from "@agent-native/core/labs/server";
 import {
   deleteAppSecret,
   readAppSecret,
   writeAppSecret,
 } from "@agent-native/core/secrets";
-import { registerDelegatedBuilderCredentials } from "@agent-native/core/server";
-import { registerHostAccessResolver } from "@agent-native/core/sharing";
+import {
+  registerBuilderBranchProject,
+  registerDelegatedBuilderCredentials,
+} from "@agent-native/core/server";
+import {
+  assertAccess,
+  registerHostAccessResolver,
+} from "@agent-native/core/sharing";
 import { deleteCookie, getCookie, type H3Event } from "h3";
 import { createRemoteJWKSet, decodeJwt, jwtVerify } from "jose";
 
@@ -483,6 +490,24 @@ if (isBuilderIdentityEnabled()) {
       if (error instanceof BuilderUnavailableError && isOwner) return undefined;
       throw error;
     }
+  });
+}
+
+if (isBuilderIdentityEnabled()) {
+  // Code-change handoffs go to the Builder project of the design the user has
+  // open, not to a deployment-wide setting. A handoff writes to that project,
+  // so it needs editor access, as creating a design branch does; a design the
+  // user can only view names no project.
+  registerBuilderBranchProject(async () => {
+    const navigation = await readAppStateForCurrentTab("navigation");
+    const designId = navigation?.["designId"];
+    if (typeof designId !== "string" || !designId) return undefined;
+    const access = await assertAccess("design", designId, "editor");
+    const app = readFusionApp(access.resource?.data);
+    // A local launch session is not bound to a Builder project, so it names
+    // none; the deployment's own project setting, if any, applies as usual.
+    if (!app || app.projectId === "local") return undefined;
+    return app.projectId;
   });
 }
 

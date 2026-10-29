@@ -52,18 +52,38 @@ vi.mock("@/components/library/tag-input", () => ({
   TagInput: ({
     value,
     onChange,
+    initialDraft,
+    onDraftChange,
+    onDismiss,
   }: {
     value: string[];
     onChange: (next: string[]) => void;
+    initialDraft?: string;
+    onDraftChange?: (draft: string) => void;
+    onDismiss?: (reason: "escape" | "blur") => void;
   }) => (
-    <button
-      type="button"
-      data-testid="tag-input"
-      data-value={value.join(",")}
-      onClick={(event) =>
-        onChange(JSON.parse((event.target as HTMLElement).dataset.emit ?? "[]"))
-      }
-    />
+    <>
+      <button
+        type="button"
+        data-testid="tag-input"
+        data-value={value.join(",")}
+        onClick={(event) =>
+          onChange(
+            JSON.parse((event.target as HTMLElement).dataset.emit ?? "[]"),
+          )
+        }
+      />
+      <input
+        data-testid="draft"
+        defaultValue={initialDraft}
+        onInput={(event) => onDraftChange?.(event.currentTarget.value)}
+      />
+      <button
+        type="button"
+        data-testid="dismiss"
+        onClick={() => onDismiss?.("escape")}
+      />
+    </>
   ),
 }));
 
@@ -92,6 +112,7 @@ function render(props: Partial<React.ComponentProps<typeof RecordingTagsBar>>) {
         recordingId="rec_1"
         tags={[]}
         canEdit={false}
+        editRequest={props.recordingId === "rec_2" ? 2 : 1}
         {...props}
       />,
     );
@@ -124,6 +145,46 @@ async function settle(count = mocks.inflight.length) {
 }
 
 describe("RecordingTagsBar", () => {
+  it("returns focus to the menu on Escape", () => {
+    const onReturnFocus = vi.fn();
+    render({ canEdit: true, editRequest: 1, onReturnFocus });
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      '[data-testid="dismiss"]',
+    );
+    if (!dismiss) throw new Error("Tag editor unavailable");
+    act(() => dismiss.click());
+    expect(onReturnFocus).toHaveBeenCalledOnce();
+  });
+  it("restores an unfinished draft after dismissing and reopening", () => {
+    render({ canEdit: true, editRequest: 1 });
+    const input = container.querySelector<HTMLInputElement>(
+      '[data-testid="draft"]',
+    );
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      '[data-testid="dismiss"]',
+    );
+    if (!input || !dismiss) throw new Error("Tag editor unavailable");
+    act(() => {
+      input.value = "unfinished";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      dismiss.click();
+    });
+    render({ canEdit: true, editRequest: 2 });
+    expect(
+      container.querySelector<HTMLInputElement>('[data-testid="draft"]')?.value,
+    ).toBe("unfinished");
+    render({ canEdit: true, recordingId: "rec_2", editRequest: 3 });
+    expect(
+      container.querySelector<HTMLInputElement>('[data-testid="draft"]')?.value,
+    ).toBe("");
+  });
+  it("closes the editor when switching recordings", () => {
+    render({ canEdit: true, editRequest: 1 });
+    expect(container.querySelector("[data-testid=tag-input]")).not.toBeNull();
+    render({ canEdit: true, recordingId: "rec_2", editRequest: 1 });
+    expect(container.querySelector("[data-testid=tag-input]")).toBeNull();
+  });
+
   it("renders nothing for a viewer with no tags", () => {
     render({ canEdit: false, tags: [] });
     expect(container.textContent).toBe("");

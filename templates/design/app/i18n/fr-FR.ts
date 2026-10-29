@@ -2758,6 +2758,159 @@ export default {
   },
   home: {
     suggestedPrompts: "Prompts suggérés",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "Créez un tableau produit avec indicateurs, conversions et activité, dans un ton assuré guidé par les données.",
+        roadmapWorkspace:
+          "Concevez une feuille de route avec calendrier trimestriel, priorités et retours, dans un ton serein et collaboratif.",
+        onboardingFlow:
+          "Créez l’accueil d’une appli budget avec étapes, objectifs et compte, dans un ton rassurant.",
+        featureComparison:
+          "Concevez une comparaison SaaS avec offres, matrice et FAQ, dans un ton direct axé sur la conversion.",
+        feedbackPortal:
+          "Créez un portail de retours avec demandes, votes et filtres, dans un ton ouvert et communautaire.",
+        releaseNotes:
+          "Concevez un espace nouveautés avec versions, fonctions et migrations, dans un ton éditorial concis.",
+        projectWorkspace:
+          "Créez un espace produit avec kanban, responsables et jalons, dans un ton axé sur la productivité.",
+        launchWaitlist:
+          "Concevez une liste d’attente de lancement avec accroche, preuves et inscription, dans un ton optimiste.",
+      },
+      design: {
+        portfolioHome:
+          "Concevez un portfolio avec présentation, projets, profil et contact, dans un ton éditorial soigné.",
+        designSystem:
+          "Créez un guide de design avec tokens, composants et notes d’usage, dans un ton documentaire précis.",
+        bankingApp:
+          "Créez l’accueil d’une banque mobile avec solde, opérations et épargne, dans un ton calme et fiable.",
+        travelBooking:
+          "Concevez une recherche de voyage avec filtres, itinéraires et carte, dans un ton léger et aventureux.",
+        coffeeShop:
+          "Créez la boutique d’un café avec mélanges, origines et abonnement, dans un ton chaleureux et tactile.",
+        musicFestival:
+          "Concevez une page de festival avec programmation, horaires et plan, dans un ton énergique d’affiche.",
+        accessibilityAudit:
+          "Créez un audit d’accessibilité avec score, problèmes et filtres, dans un ton clair à fort contraste.",
+        artBook:
+          "Concevez une page de livre d’art avec œuvres, citation et chapitres, dans un ton épuré de galerie.",
+      },
+      developer: {
+        apiDocs:
+          "Créez une documentation API avec navigation, code et requêtes, dans un ton technique précis.",
+        deploymentDashboard:
+          "Concevez un tableau de déploiement avec environnements, journaux et retour arrière, dans un ton opérationnel calme.",
+        componentPlayground:
+          "Créez un atelier de composants avec propriétés, états et code, dans un ton net pour développeurs.",
+        databaseConsole:
+          "Concevez une console de données avec requêtes, schémas et résultats, dans un ton technique sobre.",
+        issueTriage:
+          "Créez un tri des problèmes avec filtres, priorités et responsables, dans un ton clair et concentré.",
+        authSettings:
+          "Concevez les réglages d’authentification avec fournisseurs, URL de retour et permissions, dans un ton sûr.",
+        workflowBuilder:
+          "Créez un éditeur CI avec étapes, historique et branches, dans un ton technique précis.",
+        developerPortfolio:
+          "Concevez un portfolio développeur avec projets, outils et chronologie, dans un ton sombre et concentré.",
+      },
+      marketing: {
+        campaignLanding:
+          "Concevez une campagne avec accroche, bénéfices, preuves et inscription, dans un ton énergique.",
+        emailBuilder:
+          "Créez un éditeur e-mail avec objet, blocs de contenu et audience, dans un ton clair et convivial.",
+        socialCalendar:
+          "Concevez un calendrier social avec canaux, publications et métriques, dans un ton éditorial lumineux.",
+        brandCampaign:
+          "Créez une page de marque avec titre, direction artistique et ressources, dans un ton cohérent et assuré.",
+        webinarRegistration:
+          "Concevez une inscription webinaire avec intervenants, programme et formulaire, dans un ton crédible et accueillant.",
+        seoBrief:
+          "Créez un brief SEO avec mots-clés, plan et concurrents, dans un ton de recherche concentré.",
+        launchMetrics:
+          "Concevez des métriques de lancement avec canaux, conversion et campagnes, dans un ton analytique.",
+        newsletterSignup:
+          "Créez une newsletter avec aperçu éditorial, sujets et e-mail, dans un ton chaleureux et concis.",
+      },
+      sales: {
+        leadWorkspace:
+          "Créez un espace commercial avec contact, activité et qualification, dans un ton professionnel et décisif.",
+        accountBrief:
+          "Concevez un brief de compte avec entreprise, interlocuteurs et signaux récents, dans un ton exécutif clair.",
+        productDemo:
+          "Créez une démo avec cas d’usage, captures et preuves clients, dans un ton persuasif et assuré.",
+        proposalBuilder:
+          "Concevez des propositions avec périmètre, tarifs et calendrier, dans un ton consultatif soigné.",
+        pipelineDashboard:
+          "Créez un pipeline avec étapes, montants et prévisions, dans un ton professionnel concis.",
+        meetingBooking:
+          "Concevez une réservation de rendez-vous avec créneaux, ordre du jour et formulaire, dans un ton accueillant.",
+        customerStory:
+          "Créez une étude client avec défi, résultats, citation et indicateurs, dans un ton éditorial factuel.",
+        accountHandoff:
+          "Concevez une passation de compte avec objectifs, contacts et actions, dans un ton calme et collaboratif.",
+      },
+      ops: {
+        inventoryDashboard:
+          "Créez un tableau d’inventaire avec stocks, alertes de réassort et filtres, dans un ton opérationnel pratique.",
+        staffScheduler:
+          "Concevez un planning d’équipe avec shifts, disponibilités et congés, facile à parcourir.",
+        vendorPortal:
+          "Créez un portail fournisseur avec checklist, documents et contacts, dans un ton clair et rassurant.",
+        incidentResponse:
+          "Concevez une réponse aux incidents avec gravité, chronologie et responsable, dans un ton calme et concentré.",
+        expenseApprovals:
+          "Créez une validation de dépenses avec reçus, règles et montants, dans un ton neutre et efficace.",
+        warehouseReceiving:
+          "Concevez la réception d’entrepôt avec livraison, scan et articles, dans un ton très clair.",
+        automationControl:
+          "Créez un contrôle de workflows avec automatisations, historique et alertes, dans un ton opérationnel assuré.",
+        helpdeskQueue:
+          "Concevez une file de support interne avec demandes, statuts et affectations, dans un ton clair et serviable.",
+      },
+      individual: {
+        personalPortfolio:
+          "Concevez un portfolio personnel avec bio, projets, compétences et contact, dans un ton éditorial chaleureux.",
+        mealPlanner:
+          "Créez des repas hebdomadaires avec recettes, courses et filtres alimentaires, dans un ton pratique et convivial.",
+        homeBudget:
+          "Concevez un budget familial avec résumé, catégories et factures, dans un ton calme et encourageant.",
+        tripPlanner:
+          "Créez un planificateur de voyage avec chronologie, carte et réservations, dans un ton léger et aventureux.",
+        readingJournal:
+          "Concevez un journal de lecture avec couvertures, progrès et notes, dans un ton littéraire paisible.",
+        invoiceTracker:
+          "Créez un suivi de factures freelance avec clients, paiements et échéances, dans un ton professionnel ordonné.",
+        habitTracker:
+          "Concevez des habitudes quotidiennes avec bilans, séries et progrès, dans un ton doux et motivant.",
+        neighborhoodEvents:
+          "Créez des événements de quartier avec cartes, filtres et RSVP, dans un ton accueillant et communautaire.",
+      },
+      general: {
+        saasHomepage:
+          "Créez une page SaaS avec accroche, fonctionnalités et preuves clients, dans un ton clair et accueillant.",
+        analyticsDashboard:
+          "Concevez un tableau analytique avec indicateurs, tendances et activité, dans un ton calme guidé par les données.",
+        habitApp:
+          "Créez une appli mobile d’habitudes avec objectifs, progrès et rappels, dans un ton amical et encourageant.",
+        onlineStore:
+          "Concevez une boutique avec produits, catégories et avis, dans un ton chaleureux et soigné.",
+        creativePortfolio:
+          "Créez un portfolio créatif avec présentation, projets et profil, dans un ton éditorial expressif.",
+        bookingPage:
+          "Concevez une réservation avec calendrier, services et avis, dans un ton clair et fiable.",
+        adminDashboard:
+          "Créez une administration avec navigation, résumés et activité, dans un ton pratique et sobre.",
+        communityEvent:
+          "Concevez un événement local avec programme, lieu et intervenants, dans un ton festif et accueillant.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "Étapes suivantes",
+      refineWithPrompt: "Affiner avec une consigne",
+      export: "Exporter",
+      shareLink: "Partager le lien",
+      dismiss: "Ignorer",
+    },
     import: "Importer",
     importOptions: "Options d’importation",
     figmaLink: "Lien Figma",
@@ -2836,6 +2989,89 @@ export default {
     paginationPrevious: "Précédent",
     paginationNext: "Suivant",
     paginationPage: "Page {{page}} sur {{totalPages}}",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "tableau produit",
+        roadmapWorkspace: "feuille de route",
+        onboardingFlow: "l’accueil d’une appli budget",
+        featureComparison: "comparaison SaaS",
+        feedbackPortal: "portail de retours",
+        releaseNotes: "espace nouveautés",
+        projectWorkspace: "espace produit",
+        launchWaitlist: "liste d’attente de lancement",
+      },
+      design: {
+        portfolioHome: "portfolio de designer",
+        designSystem: "guide de design",
+        bankingApp: "l’accueil d’une banque mobile",
+        travelBooking: "recherche de voyage",
+        coffeeShop: "boutique d’un café",
+        musicFestival: "page de festival",
+        accessibilityAudit: "audit d’accessibilité",
+        artBook: "page de livre d’art",
+      },
+      developer: {
+        apiDocs: "documentation API",
+        deploymentDashboard: "tableau de déploiement",
+        componentPlayground: "atelier de composants",
+        databaseConsole: "console de données",
+        issueTriage: "tri des problèmes",
+        authSettings: "réglages d’authentification",
+        workflowBuilder: "éditeur CI",
+        developerPortfolio: "portfolio développeur",
+      },
+      marketing: {
+        campaignLanding: "page de campagne",
+        emailBuilder: "éditeur e-mail",
+        socialCalendar: "calendrier social",
+        brandCampaign: "page de marque",
+        webinarRegistration: "inscription webinaire",
+        seoBrief: "brief SEO",
+        launchMetrics: "métriques de lancement",
+        newsletterSignup: "inscription à la newsletter",
+      },
+      sales: {
+        leadWorkspace: "espace commercial",
+        accountBrief: "brief de compte",
+        productDemo: "démo produit",
+        proposalBuilder: "créateur de propositions",
+        pipelineDashboard: "tableau de pipeline",
+        meetingBooking: "réservation de rendez-vous",
+        customerStory: "étude client",
+        accountHandoff: "passation de compte",
+      },
+      ops: {
+        inventoryDashboard: "tableau d’inventaire",
+        staffScheduler: "planning d’équipe",
+        vendorPortal: "portail fournisseur",
+        incidentResponse: "réponse aux incidents",
+        expenseApprovals: "validation de dépenses",
+        warehouseReceiving: "réception d’entrepôt",
+        automationControl: "contrôle de workflows",
+        helpdeskQueue: "file de support interne",
+      },
+      individual: {
+        personalPortfolio: "portfolio personnel",
+        mealPlanner: "repas hebdomadaires",
+        homeBudget: "budget familial",
+        tripPlanner: "planificateur de voyage",
+        readingJournal: "journal de lecture",
+        invoiceTracker: "suivi de factures freelance",
+        habitTracker: "habitudes quotidiennes",
+        neighborhoodEvents: "événements de quartier",
+      },
+      general: {
+        saasHomepage: "page SaaS",
+        analyticsDashboard: "tableau analytique",
+        habitApp: "appli de suivi d’habitudes",
+        onlineStore: "boutique en ligne",
+        creativePortfolio: "portfolio créatif",
+        bookingPage: "page de réservation",
+        adminDashboard: "tableau d’administration",
+        communityEvent: "événement local",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "Edition visuelle",

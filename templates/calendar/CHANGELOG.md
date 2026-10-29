@@ -23,6 +23,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-22
 
+### Added
+
+- Outside assistants can open invite drafts in Calendar for review, with approval required before deleting all drafts.
+
 ### Improved
 
 - Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.

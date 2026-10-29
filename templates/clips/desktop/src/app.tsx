@@ -137,6 +137,14 @@ import {
 } from "./lib/clip-duration-limit";
 import { callClipsActionFor } from "./lib/clips-action";
 import {
+  startUnavailableAuthRecovery,
+  trackAuthRecoveryResult,
+} from "./lib/desktop-auth-recovery";
+import {
+  checkDesktopAuthSession,
+  type AuthCheckResult,
+} from "./lib/desktop-auth-session";
+import {
   authTokenStorageKey,
   loadDesktopAuthToken,
   originForServer,
@@ -262,7 +270,9 @@ import {
 } from "./lib/updater";
 import {
   DEFAULT_SERVER_URL,
+  loadStoredServerUrl,
   normalizeServerUrl,
+  persistStoredServerUrl,
   SERVER_URL_STORAGE_KEY,
 } from "./lib/url";
 import { cn } from "./lib/utils";
@@ -336,12 +346,6 @@ import {
   type LocalRecordingMode,
   type ScreenMemoryStatus,
 } from "./shared/config";
-
-type AuthCheckResult =
-  | { state: "authenticated"; token?: string }
-  | { state: "anonymous" }
-  | { state: "unavailable" }
-  | { state: "stale" };
 
 type NativeUploadProgress = {
   recordingId?: string;
@@ -672,10 +676,7 @@ function isDevOriginWebview(): boolean {
 
 function seedDesktopAuthContextFromStorage(): void {
   if (currentServerOrigin || typeof window === "undefined") return;
-  const storedServerUrl = loadString(STORAGE_KEY, DEFAULT_URL).replace(
-    /\/+$/,
-    "",
-  );
+  const storedServerUrl = loadStoredServerUrl();
   setDesktopAuthContext(storedServerUrl, loadDesktopAuthToken(storedServerUrl));
 }
 
@@ -1081,7 +1082,7 @@ export function App({
 } = {}) {
   const featureConfig = useFeatureConfig();
   const [serverUrl, setServerUrl] = useState<string>(() =>
-    loadString(STORAGE_KEY, DEFAULT_URL).replace(/\/+$/, ""),
+    loadStoredServerUrl(),
   );
   const [initialCaptureSetup] = useState(() =>
     normalizeCaptureSetup(
@@ -1262,6 +1263,7 @@ export function App({
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
+  const [authRecoveryActive, setAuthRecoveryActive] = useState(false);
   const [labValues, setLabValues] = useState<Record<string, unknown>>({});
   const [labError, setLabError] = useState<string | null>(null);
   const t = useT();
@@ -1427,6 +1429,10 @@ export function App({
   }, [refreshVideoStorageStatus]);
 
   useEffect(() => {
+    if (popoverVisible) void refreshVideoStorageStatus();
+  }, [popoverVisible, refreshVideoStorageStatus]);
+
+  useEffect(() => {
     if (
       !shouldPollVideoStorageStatus(authStatus === "authed", videoStorageStatus)
     )
@@ -1551,57 +1557,22 @@ export function App({
     const isCurrentRequest = () =>
       requestId === authCheckGenerationRef.current &&
       authServerUrlRef.current === requestServerUrl;
-    try {
-      const res = await fetch(
-        `${requestServerUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
-        { credentials: "include", cache: "no-store" },
-      );
-      if (!isCurrentRequest()) return { state: "stale" };
-      setServerReachable(true);
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          clearDesktopAuthToken(requestServerUrl);
-          setAuthStatus("anon");
-          setSignedInAs(null);
-          return { state: "anonymous" };
-        }
-        if (res.status >= 500) {
-          setServerReachable(false);
-          setAuthStatus((current) =>
-            current === "authed" ? current : "unavailable",
-          );
-          return { state: "unavailable" };
-        }
-        setAuthStatus("anon");
-        setSignedInAs(null);
-        return { state: "anonymous" };
-      }
-      const json = (await res.json().catch(() => null)) as {
-        email?: string;
-        token?: string;
-        error?: string;
-      } | null;
-      if (json?.email) {
-        if (!isCurrentRequest()) return { state: "stale" };
-        const token = json.token?.trim() || undefined;
-        if (token) saveDesktopAuthToken(requestServerUrl, token);
-        setAuthStatus("authed");
-        setSignedInAs(json.email);
-        return { state: "authenticated", ...(token ? { token } : {}) };
-      }
-      if (!isCurrentRequest()) return { state: "stale" };
-      setAuthStatus("anon");
-      setSignedInAs(null);
-      clearDesktopAuthToken(requestServerUrl);
-      return { state: "anonymous" };
-    } catch {
-      if (!isCurrentRequest()) return { state: "stale" };
-      setServerReachable(false);
-      setAuthStatus((current) =>
-        current === "authed" ? current : "unavailable",
-      );
-      return { state: "unavailable" };
-    }
+    const result = await checkDesktopAuthSession({
+      serverUrl: requestServerUrl,
+      isCurrentRequest,
+      fetchSession: fetch,
+      saveToken: saveDesktopAuthToken,
+      clearToken: clearDesktopAuthToken,
+      persistServerUrl: persistStoredServerUrl,
+      setAuthStatus,
+      setSignedInAs,
+      setServerReachable,
+    });
+    return trackAuthRecoveryResult(
+      result,
+      isCurrentRequest,
+      setAuthRecoveryActive,
+    );
   }, [serverUrl]);
 
   const pushMeetingsSession = useCallback(async () => {
@@ -1627,6 +1598,11 @@ export function App({
   useEffect(() => {
     void checkAuth();
   }, [checkAuth]);
+
+  useEffect(() => {
+    if (!authRecoveryActive) return;
+    return startUnavailableAuthRecovery(checkAuth);
+  }, [authRecoveryActive, checkAuth]);
 
   useEffect(() => {
     invoke("meetings_watcher_set_server_url", { serverUrl }).catch(() => {

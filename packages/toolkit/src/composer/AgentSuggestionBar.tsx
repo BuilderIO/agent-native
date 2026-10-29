@@ -8,6 +8,10 @@ import {
   type ReactNode,
 } from "react";
 
+import {
+  normalizeHomeSuggestionRole,
+  type HomeSuggestionClick,
+} from "../app-shell/home-suggestions.js";
 import { Button } from "../ui/button.js";
 import { Skeleton } from "../ui/skeleton.js";
 import { cn } from "../utils.js";
@@ -31,6 +35,13 @@ export interface AgentSuggestionBarProps {
   /** Visible label above the chips; it also names the group. */
   title?: string;
   onSelect: (suggestion: AgentSuggestionItem) => void;
+  homeTracking?: {
+    appId: string;
+    role?: string | null;
+    seed?: number;
+    shellHandoff?: boolean;
+  };
+  onHomeSuggestionClick?: (click: HomeSuggestionClick) => void;
   renderSuggestion?: (suggestion: AgentSuggestionItem) => ReactNode;
   className?: string;
   loading?: boolean;
@@ -147,6 +158,8 @@ export function AgentSuggestionBar({
   ariaLabel,
   title,
   onSelect,
+  homeTracking,
+  onHomeSuggestionClick,
   renderSuggestion,
   className,
   loading = false,
@@ -167,6 +180,13 @@ export function AgentSuggestionBar({
       aria-busy={loading || undefined}
       aria-live={announceUpdates ? "polite" : undefined}
       data-agent-suggestion-bar="true"
+      data-home-suggestion-app-id={homeTracking?.appId}
+      data-home-suggestion-seed={homeTracking?.seed}
+      data-home-suggestion-shell-role={
+        homeTracking?.shellHandoff
+          ? normalizeHomeSuggestionRole(homeTracking.role)
+          : undefined
+      }
       className={cn("w-full min-w-0 overflow-hidden px-3 py-2", className)}
     >
       {title ? (
@@ -205,17 +225,33 @@ export function AgentSuggestionBar({
                   className={cn("h-6 shrink-0 rounded-full", width)}
                 />
               ))
-            : items.map((suggestion) => (
+            : items.map((suggestion, index) => (
                 <Button
-                  key={suggestion.id}
+                  key={homeTracking ? index : suggestion.id}
                   type="button"
                   variant="ghost"
                   size="sm"
                   disabled={suggestion.disabled}
-                  onClick={() => onSelect(suggestion)}
+                  onClick={() => {
+                    if (homeTracking) {
+                      onHomeSuggestionClick?.({
+                        appId: homeTracking.appId,
+                        role: normalizeHomeSuggestionRole(homeTracking.role),
+                        suggestionId: suggestion.id,
+                        position: index + 1,
+                      });
+                    }
+                    onSelect(suggestion);
+                  }}
                   data-agent-suggestion-chip="true"
+                  data-home-suggestion-id={
+                    homeTracking ? suggestion.id : undefined
+                  }
+                  data-agent-suggestion-position={index + 1}
                   // The scroller clips overflow, so the focus ring sits inside.
-                  className="agent-kit-caption-copy h-6 shrink-0 snap-start whitespace-nowrap rounded-full border border-border bg-transparent px-2.5 font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0"
+                  className={cn(
+                    "agent-kit-caption-copy snap-start inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border bg-transparent px-2.5 py-0 text-center font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0 whitespace-nowrap",
+                  )}
                 >
                   <span>
                     {renderSuggestion

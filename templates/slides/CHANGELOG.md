@@ -3,11 +3,25 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-28
+
+### Fixed
+
+- A new deck that asks you a question before generating now waits for your answer instead of showing Generation failed
+- Adding a slide from chat no longer fails on a deck that has no target slide count
+
 ## 2026-10-27
 
 ### Improved
 
+- Presentation ideas appear right away, with a smoother path from prompt to finished deck.
+- Slides now arrive one at a time as the agent writes them, and the canvas follows along, drawing each element's frame in blue before its content appears
+- Start presentations with ready-to-use role-based prompts, then refine, export, or share your first result from the canvas.
 - First-run setup makes free credits the primary path while keeping personal API keys one click away
+
+### Fixed
+
+- PDFs handed off from another app now import instead of being reported as unreadable
 
 ## 2026-10-26
 
@@ -38,6 +52,10 @@ time from the command menu (Cmd+K → "What's new").
 - The agent retries a slide edit whose text it could not find instead of stopping the run with an error.
 
 ## 2026-10-22
+
+### Added
+
+- Outside assistants can clone a slide from existing context and open the copy in the Slides editor.
 
 ### Fixed
 

@@ -1593,10 +1593,10 @@ const messages = {
     openDesktopApp: "Open desktop app (已本地化)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (已本地化)",
+    untitled: "无标题剪辑",
     renameFailed: "Failed to rename clip (已本地化)",
     emptyTitle: "Title cannot be empty (已本地化)",
-    generatingTitle: "Generating title (已本地化)",
+    generatingTitle: "生成标题",
     placeholder: "Clip title (已本地化)",
     editLabel: "Edit clip title (已本地化)",
   },

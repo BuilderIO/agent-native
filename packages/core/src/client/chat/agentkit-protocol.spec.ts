@@ -1,3 +1,7 @@
+import {
+  createAgentThreadState,
+  reduceAgentEvent,
+} from "@agent-native/agentkit/client";
 import type {
   AgentApprovalResponse,
   AgentEvent,
@@ -175,6 +179,102 @@ function createRuntime(
     ...overrides,
   };
 }
+
+describe("a cleared draft", () => {
+  async function replyParts(stream: Record<string, unknown>[]) {
+    const transport = createAgentKitProtocolAdapter(
+      createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: (async () =>
+          new Response(
+            stream
+              .map(
+                (event, seq) =>
+                  `data: ${JSON.stringify({ ...event, seq })}\n\n`,
+              )
+              .join(""),
+            {
+              headers: {
+                "Content-Type": "text/event-stream",
+                "X-Run-Id": "run-cleared",
+              },
+            },
+          )) as typeof fetch,
+      }),
+    );
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Answer the question")],
+    });
+    let thread = createAgentThreadState("thread-1");
+    let beforeCompletion: AgentMessage["parts"] | undefined;
+    for await (const event of transport.subscribeToRun({
+      threadId: "thread-1",
+      runId,
+    })) {
+      if (event.type === "message.completed" && !beforeCompletion) {
+        beforeCompletion = thread.messages.find(
+          (message) => message.role === "assistant",
+        )?.parts;
+      }
+      thread = reduceAgentEvent(thread, event);
+    }
+    await transport.dispose();
+    return {
+      beforeCompletion,
+      final: thread.messages.find((message) => message.role === "assistant")
+        ?.parts,
+    };
+  }
+
+  const draft = [
+    { type: "thinking", text: "Drafting." },
+    { type: "text", text: "Answer A." },
+    { type: "clear" },
+  ];
+
+  it("leaves the stream showing only what the agent wrote after it", async () => {
+    const parts = await replyParts([
+      ...draft,
+      { type: "thinking", text: "Retrying." },
+      { type: "text", text: "Answer B." },
+      { type: "done" },
+    ]);
+    const answer = [
+      expect.objectContaining({ type: "reasoning", text: "Retrying." }),
+      expect.objectContaining({ type: "text", text: "Answer B." }),
+    ];
+
+    expect(parts.beforeCompletion).toEqual(answer);
+    expect(parts.final).toEqual(answer);
+  });
+
+  it("starts the rewrite after a kept tool call as its own paragraph", async () => {
+    const parts = await replyParts([
+      { type: "text", text: "Checking." },
+      { type: "tool_start", id: "tool-1", tool: "search", input: { q: "a" } },
+      { type: "tool_done", id: "tool-1", tool: "search", result: "ok" },
+      { type: "text", text: "Answer A." },
+      { type: "clear" },
+      { type: "text", text: "Answer B." },
+      { type: "done" },
+    ]);
+
+    expect(parts.beforeCompletion).toEqual([
+      expect.objectContaining({ type: "text", text: "Checking." }),
+      expect.objectContaining({ type: "text", text: "Answer B." }),
+    ]);
+  });
+
+  it("does not come back when the run then fails", async () => {
+    const parts = await replyParts([
+      ...draft,
+      { type: "error", error: "The model stopped." },
+    ]);
+
+    expect(parts.final ?? []).toEqual([]);
+  });
+});
 
 describe("createAgentKitProtocolAdapter", () => {
   it("maps runtime suggestion IDs to the protocol run ID", async () => {

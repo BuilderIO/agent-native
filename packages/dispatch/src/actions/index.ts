@@ -104,6 +104,7 @@ import updateVaultSecret from "./update-vault-secret.js";
 import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
 import updateWorkspaceResource from "./update-workspace-resource.js";
 import upsertDestination from "./upsert-destination.js";
+import verifyCuratedCommunityApp from "./verify-curated-community-app.js";
 import viewScreen from "./view-screen.js";
 
 export const dispatchActions: Record<string, ActionEntry> = {
@@ -212,5 +213,6 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "update-vault-secret": updateVaultSecret,
   "update-workspace-resource": updateWorkspaceResource,
   "upsert-destination": upsertDestination,
+  "verify-curated-community-app": verifyCuratedCommunityApp,
   "view-screen": viewScreen,
 };

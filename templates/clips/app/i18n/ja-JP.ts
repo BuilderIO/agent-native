@@ -1695,10 +1695,10 @@ const messages = {
     openDesktopApp: "Open desktop app (ローカライズ済み)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (ローカライズ済み)",
+    untitled: "無題のクリップ",
     renameFailed: "Failed to rename clip (ローカライズ済み)",
     emptyTitle: "Title cannot be empty (ローカライズ済み)",
-    generatingTitle: "Generating title (ローカライズ済み)",
+    generatingTitle: "タイトルの生成",
     placeholder: "Clip title (ローカライズ済み)",
     editLabel: "Edit clip title (ローカライズ済み)",
   },

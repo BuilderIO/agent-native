@@ -1672,10 +1672,10 @@ const messages = {
     openDesktopApp: "Open desktop app (현지화됨)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (현지화됨)",
+    untitled: "제목 없는 클립",
     renameFailed: "Failed to rename clip (현지화됨)",
     emptyTitle: "Title cannot be empty (현지화됨)",
-    generatingTitle: "Generating title (현지화됨)",
+    generatingTitle: "제목 생성 중",
     placeholder: "Clip title (현지화됨)",
     editLabel: "Edit clip title (현지화됨)",
   },

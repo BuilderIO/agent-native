@@ -25,7 +25,7 @@ import {
 
 export interface UngroupSelectionArgs {
   applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {

@@ -1,15 +1,9 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  readAgentRunStatus as readSharedAgentRunStatus,
+  type AgentRunStatusRead,
+} from "@agent-native/core/client/agent-chat";
 
-export type AgentRunStatusRead =
-  | {
-      ok: true;
-      status: string;
-      active: boolean;
-      runId?: string;
-      turnId?: string;
-      terminalReason?: string;
-    }
-  | { ok: false };
+export type { AgentRunStatusRead };
 
 export interface PreviousRunBaseline {
   runId: string | null;
@@ -22,43 +16,14 @@ export interface PreviousRunBaseline {
  * failed or malformed read is `{ ok: false }`, never a status, so a caller
  * cannot mistake "could not tell" for a finished run.
  */
-export async function readAgentRunStatus(
+export function readAgentRunStatus(
   threadId: string,
+  runId?: string,
 ): Promise<AgentRunStatusRead> {
-  try {
-    const response = await fetch(
-      `${agentNativePath("/_agent-native/agent-chat")}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-      { credentials: "same-origin", signal: AbortSignal.timeout(10_000) },
-    );
-    if (!response.ok) return { ok: false };
-    const state = (await response.json()) as {
-      active?: unknown;
-      status?: unknown;
-      runId?: unknown;
-      turnId?: unknown;
-      terminalReason?: unknown;
-    };
-    if (typeof state.active !== "boolean" || typeof state.status !== "string") {
-      return { ok: false };
-    }
-    return {
-      ok: true,
-      status: state.status,
-      active: state.active,
-      ...(typeof state.runId === "string" && state.runId
-        ? { runId: state.runId }
-        : {}),
-      ...(typeof state.turnId === "string" && state.turnId
-        ? { turnId: state.turnId }
-        : {}),
-      ...(typeof state.terminalReason === "string" && state.terminalReason
-        ? { terminalReason: state.terminalReason }
-        : {}),
-    };
-  } catch {
-    // coercion-ok: an unreadable run state is reported as unreadable, never as a status.
-    return { ok: false };
-  }
+  return readSharedAgentRunStatus({
+    threadId,
+    ...(runId ? { runId } : {}),
+  });
 }
 
 export async function readPreviousRunBaseline(

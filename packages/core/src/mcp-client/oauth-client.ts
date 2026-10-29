@@ -25,6 +25,7 @@ import {
   revokeOAuthCredential,
   saveOAuthCredential,
   type OAuthCredential,
+  type OAuthCredentialAccessResult,
   type OAuthCredentialIdentity,
   type OAuthCredentialState,
   type OAuthRevocationResult,
@@ -33,6 +34,22 @@ import { validateRemoteUrl } from "./remote-url.js";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const MAX_OAUTH_REDIRECTS = 5;
+
+export class McpOAuthRefreshUnavailableError extends Error {
+  constructor() {
+    super(
+      "MCP OAuth token refresh failed; the saved connection can be retried.",
+    );
+    this.name = "McpOAuthRefreshUnavailableError";
+  }
+}
+
+export class McpOAuthReauthorizationRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "McpOAuthReauthorizationRequiredError";
+  }
+}
 const MAX_OAUTH_RESPONSE_BYTES = 256 * 1024;
 const MCP_OAUTH_PRIVATE_ORIGINS_ENV = "AGENT_NATIVE_MCP_OAUTH_PRIVATE_ORIGINS";
 
@@ -484,6 +501,26 @@ export interface McpOAuthCredentialBundle extends OAuthCredential {
   discoveryState?: McpOAuthDiscoveryState;
   tokens: StoredOAuthTokens;
   tokenExpiresAt?: number;
+}
+
+export interface McpOAuthCredentialAccessBundle extends OAuthCredential {
+  serverUrl: string;
+  clientInformation: StoredOAuthClientInformation;
+  discoveryState?: McpOAuthDiscoveryState;
+  tokenExpiresAt?: number;
+}
+
+function normalizedOAuthCredentialTokens(
+  tokens: StoredOAuthTokens,
+): OAuthCredential["tokens"] {
+  const tokenRecord = tokens as Record<string, unknown>;
+  const normalized: Record<string, unknown> = Object.fromEntries(
+    Object.entries(tokenRecord).filter(([, value]) => value !== undefined),
+  );
+  if (typeof normalized.access_token !== "string") {
+    throw new Error("MCP OAuth credential is missing its access token.");
+  }
+  return normalized as OAuthCredential["tokens"];
 }
 
 export interface McpOAuthStartResult {
@@ -1142,71 +1179,114 @@ export async function revokeMcpOAuthCredentials(options: {
  * a network request for every connector. `forceRefresh` is for a caller whose
  * request was just refused with 401 by a token that had not expired yet.
  */
+export async function resolveMcpOAuthCredentialAccess(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+  forceRefresh?: boolean;
+  shouldMarkReconnectRequiredOnRefreshFailure?: (error: unknown) => boolean;
+}): Promise<OAuthCredentialAccessResult<McpOAuthCredentialAccessBundle>> {
+  const validation = validateRemoteUrl(options.serverUrl);
+  if (!validation.ok || !validation.url) {
+    return { state: { kind: "missing" }, accessToken: null };
+  }
+  const serverUrl = validation.url.toString();
+  const result =
+    await resolveOAuthCredentialAccess<McpOAuthCredentialAccessBundle>(
+      credentialIdentity({ ...options, serverUrl }),
+      {
+        allowLegacy: true,
+        legacyAccountKey: true,
+        validateCredential: (credential) =>
+          serverUrlsMatch(credential.serverUrl, serverUrl),
+        expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
+        ...(options.shouldMarkReconnectRequiredOnRefreshFailure
+          ? {
+              shouldMarkReconnectRequiredOnRefreshFailure:
+                options.shouldMarkReconnectRequiredOnRefreshFailure,
+            }
+          : {}),
+        ...(options.forceRefresh !== undefined
+          ? { forceRefresh: options.forceRefresh }
+          : {}),
+        refresh: async ({ credential: storedCredential }) => {
+          const credentials = storedCredential as McpOAuthCredentialBundle;
+          const refreshToken = credentials.tokens.refresh_token;
+          const discovery = credentials.discoveryState;
+          if (!refreshToken || !discovery?.authorizationServerUrl) {
+            throw new McpOAuthReauthorizationRequiredError(
+              "MCP OAuth refresh is unavailable.",
+            );
+          }
+          const expectedIssuer = issuerForDiscovery(discovery);
+          if (
+            !expectedIssuer ||
+            credentials.clientInformation.issuer !== expectedIssuer ||
+            credentials.tokens.issuer !== expectedIssuer
+          ) {
+            throw new McpOAuthReauthorizationRequiredError(
+              "MCP OAuth refresh issuer binding is invalid.",
+            );
+          }
+          const resource = discovery.resourceMetadata?.resource
+            ? rfc8707ResourceUrl(discovery.resourceMetadata.resource)
+            : undefined;
+          const authorizationServerUrl = checkedRemoteUrl(
+            discovery.authorizationServerUrl,
+            "authorization server",
+          );
+          const refreshed = await refreshAuthorization(authorizationServerUrl, {
+            ...(discovery.authorizationServerMetadata
+              ? { metadata: discovery.authorizationServerMetadata }
+              : {}),
+            clientInformation: credentials.clientInformation,
+            refreshToken,
+            ...(resource ? { resource } : {}),
+            fetchFn: guardedOAuthFetch(),
+          });
+          const nextTokens: StoredOAuthTokens = {
+            ...credentials.tokens,
+            ...refreshed,
+            issuer: expectedIssuer,
+            ...(refreshed.refresh_token
+              ? { refresh_token: refreshed.refresh_token }
+              : credentials.tokens.refresh_token
+                ? { refresh_token: credentials.tokens.refresh_token }
+                : {}),
+          };
+          if (refreshed.expires_in === undefined) {
+            delete nextTokens.expires_in;
+          }
+          const expiresAt = tokenExpiresAt(nextTokens);
+          const next: McpOAuthCredentialAccessBundle = {
+            ...credentials,
+            tokens: normalizedOAuthCredentialTokens(nextTokens),
+          };
+          if (expiresAt === undefined) delete next.tokenExpiresAt;
+          else next.tokenExpiresAt = expiresAt;
+          return next;
+        },
+      },
+    );
+  return result;
+}
+
 export async function getMcpOAuthAccessToken(options: {
   key: string;
   scope: "user" | "org";
   scopeId: string;
   serverUrl: string;
   forceRefresh?: boolean;
+  throwOnTransientRefreshFailure?: boolean;
+  shouldMarkReconnectRequiredOnRefreshFailure?: (error: unknown) => boolean;
 }): Promise<string | null> {
-  const validation = validateRemoteUrl(options.serverUrl);
-  if (!validation.ok || !validation.url) return null;
-  const serverUrl = validation.url.toString();
-  const result = await resolveOAuthCredentialAccess<McpOAuthCredentialBundle>(
-    credentialIdentity({ ...options, serverUrl }),
-    {
-      allowLegacy: true,
-      legacyAccountKey: true,
-      validateCredential: (credential) =>
-        serverUrlsMatch(credential.serverUrl, serverUrl),
-      expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
-      forceRefresh: options.forceRefresh,
-      refresh: async ({ credential: credentials }) => {
-        const refreshToken = credentials.tokens.refresh_token;
-        const discovery = credentials.discoveryState;
-        if (!refreshToken || !discovery?.authorizationServerUrl) {
-          throw new Error("MCP OAuth refresh is unavailable.");
-        }
-        const expectedIssuer = issuerForDiscovery(discovery);
-        if (
-          !expectedIssuer ||
-          credentials.clientInformation.issuer !== expectedIssuer ||
-          credentials.tokens.issuer !== expectedIssuer
-        ) {
-          throw new Error("MCP OAuth refresh issuer binding is invalid.");
-        }
-        const resource = discovery.resourceMetadata?.resource
-          ? rfc8707ResourceUrl(discovery.resourceMetadata.resource)
-          : undefined;
-        const authorizationServerUrl = checkedRemoteUrl(
-          discovery.authorizationServerUrl,
-          "authorization server",
-        );
-        const refreshed = await refreshAuthorization(authorizationServerUrl, {
-          metadata: discovery.authorizationServerMetadata,
-          clientInformation: credentials.clientInformation,
-          refreshToken,
-          resource,
-          fetchFn: guardedOAuthFetch(),
-        });
-        const nextTokens: StoredOAuthTokens = {
-          ...credentials.tokens,
-          ...refreshed,
-          issuer: expectedIssuer,
-          ...(refreshed.refresh_token
-            ? { refresh_token: refreshed.refresh_token }
-            : credentials.tokens.refresh_token
-              ? { refresh_token: credentials.tokens.refresh_token }
-              : {}),
-        };
-        const next: McpOAuthCredentialBundle = {
-          ...credentials,
-          tokens: nextTokens,
-          tokenExpiresAt: tokenExpiresAt(nextTokens),
-        };
-        return next;
-      },
-    },
-  );
+  const result = await resolveMcpOAuthCredentialAccess(options);
+  if (
+    options.throwOnTransientRefreshFailure &&
+    result.refreshFailure === "transient"
+  ) {
+    throw new McpOAuthRefreshUnavailableError();
+  }
   return result.accessToken;
 }
