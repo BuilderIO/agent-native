@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { getDbExec } from "@agent-native/core/db";
 import {
   deletePrivateBlob,
   type PrivateBlobHandle,
@@ -40,6 +41,7 @@ import {
   deleteBuilderMediaForCleanup,
   type MediaCleanupStep,
 } from "./recording-media-provider.js";
+import { recordingMediaReferenceIndexesReady } from "./recording-media-reference-indexes.js";
 import { deleteS3MediaForCleanup } from "./s3-upload-provider.js";
 import {
   adjustHostedClipRecordingBytes,
@@ -304,6 +306,15 @@ export async function runRecordingMediaCleanup(
           return;
         }
         const manifest = openCleanupPayload<CleanupManifest>(intent.manifest);
+        // raw-sql-ok: the readiness helper supplies one fixed catalog SELECT with no runtime interpolation.
+        if (
+          !(await recordingMediaReferenceIndexesReady((statement) =>
+            getDbExec().execute(statement),
+          ))
+        ) {
+          failureReason = "reference_index_unavailable";
+          return;
+        }
         await assertLease();
         await underLease(async (tx) => {
           const finished = await tx
@@ -381,7 +392,11 @@ export async function runRecordingMediaCleanup(
               notInArray(objects.phase, ["complete", "external"]),
             ),
           )
-          .orderBy(asc(objects.attempts), asc(objects.updatedAt))
+          .orderBy(
+            asc(objects.updatedAt),
+            asc(objects.attempts),
+            asc(objects.objectKey),
+          )
           .limit(10);
         for (const object of work) {
           if (Date.now() + 45_000 > deadlineAt || options.signal?.aborted)

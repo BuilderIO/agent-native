@@ -7,9 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as schema from "../server/db/schema.js";
 import { recordingMediaCleanupMigration } from "../server/lib/recording-media-cleanup-schema.js";
+import { buildRecordingMediaReferenceIndexes } from "../server/lib/recording-media-reference-indexes.js";
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
+vi.mock("@agent-native/core/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/db")>()),
+  getDbExec: () => ({
+    execute: (statement: string) => client.query(statement),
+  }),
+}));
 const mocks = vi.hoisted(() => ({
   owner: "owner@example.test",
   remove: vi.fn(),
@@ -159,6 +166,9 @@ beforeEach(async () => {
     "CREATE TABLE application_state(session_id TEXT,key TEXT,value TEXT,updated_at BIGINT,PRIMARY KEY(session_id,key))",
   );
   await client.exec(recordingMediaCleanupMigration);
+  await buildRecordingMediaReferenceIndexes((statement) =>
+    client.query(statement),
+  );
   await insertRecording();
 });
 afterEach(async () => {
@@ -166,6 +176,41 @@ afterEach(async () => {
 });
 
 describe("permanent recording deletion with durable media cleanup", () => {
+  it("blocks provider work until the reference indexes are ready", async () => {
+    await client.exec("DROP INDEX clips_recording_media_reference_idx");
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "blocked",
+      reason: "reference_index_unavailable",
+      deleted: 0,
+    });
+  });
+  it("retries owned objects even when ten shared objects are skipped", async () => {
+    const urls = Array.from({ length: 10 }, (_, index) =>
+      video.replace("video.mp4", `shared-${index}.png`),
+    );
+    await insertRecording("shared", video + "-other");
+    await client.query(
+      "UPDATE recordings SET edits_json=$1 WHERE id='shared'",
+      [JSON.stringify({ leftoverImageUrls: urls })],
+    );
+    for (const [index, url] of urls.entries())
+      await client.query(
+        "INSERT INTO recording_agent_frames(id,recording_id,storage_url) VALUES ($1,'rec-1',$2)",
+        [`shared-${index}`, url],
+      );
+    mocks.remove.mockResolvedValue({
+      phase: "pending",
+      reason: "still_stored",
+    });
+    await action.run({ id: "rec-1" });
+    for (let round = 0; round < 3; round++)
+      await runRecordingMediaCleanup("rec-1");
+    expect(mocks.remove.mock.calls.length).toBeGreaterThan(1);
+    expect(mocks.remove.mock.calls.every(([url]) => url === video)).toBe(true);
+  });
   it.each([false, true])(
     "handles malformed legacy edits while protecting known references (%s)",
     async (shared) => {
@@ -240,6 +285,9 @@ describe("permanent recording deletion with durable media cleanup", () => {
         recordingMediaCleanupMigration,
       ))
         await client.exec(statement);
+      await buildRecordingMediaReferenceIndexes((statement) =>
+        client.query(statement),
+      );
       const key = await client.query<{ key: string }>(
         "SELECT clips_media_object_key($1) AS key",
         [url],

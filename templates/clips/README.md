@@ -34,4 +34,8 @@ pnpm dev
 
 Clips needs a video storage backend (Builder.io or an S3-compatible bucket)
 before recordings can upload — see the docs for setup.
+Before enabling permanent media cleanup on a self-hosted database, run
+`pnpm migrate:production`. The release command builds reference indexes concurrently;
+request startup does not build them. Cleanup stays blocked until both indexes are ready.
+If an interrupted build leaves an invalid index, repair it before retrying the release.
 Full docs: [agent-native.com/docs/template-clips](https://agent-native.com/docs/template-clips?utm_source=github&utm_medium=referral&utm_content=clips-readme).

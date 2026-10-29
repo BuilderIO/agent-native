@@ -97,8 +97,6 @@ LANGUAGE plpgsql IMMUTABLE SET search_path FROM CURRENT AS $$
 BEGIN
   RETURN clips_media_keys(jsonb_build_object('video_url',video,'thumbnail_url',thumbnail,'animated_thumbnail_url',animated,'filmstrip_url',filmstrip,'image_url',image,'base_image_url',base_image,'edits_json',edits));
 END $$;
-CREATE INDEX IF NOT EXISTS clips_recording_media_reference_idx ON recordings USING gin(clips_recording_media_keys(video_url,thumbnail_url,animated_thumbnail_url,filmstrip_url,image_url,base_image_url,edits_json));
-CREATE INDEX IF NOT EXISTS clips_frame_media_reference_idx ON recording_agent_frames(clips_media_object_key(storage_url));
 
 CREATE OR REPLACE FUNCTION clips_fence_deleted_media() RETURNS TRIGGER
 LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
