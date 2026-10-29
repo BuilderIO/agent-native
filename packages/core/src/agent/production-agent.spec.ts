@@ -7632,6 +7632,7 @@ describe("createProductionAgentHandler", () => {
       claimed: true,
       activeRunId: null,
     });
+    mockInsertRun.mockClear();
     mockFireInternalDispatch.mockClear();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -7670,6 +7671,13 @@ describe("createProductionAgentHandler", () => {
       const dispatchPayload = JSON.parse(slotOptions.dispatchPayload);
       expect(dispatchPayload.queuedMessageId).toBe("queued-background-replay");
       expect(dispatchPayload).not.toHaveProperty("queuedMessageClaimId");
+      expect(mockInsertRun).not.toHaveBeenCalled();
+      const dispatchedBody = (mockFireInternalDispatch.mock.calls[0] as any)[0]
+        .body;
+      expect(dispatchedBody[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
+        payloadRef: true,
+      });
+      expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
       expect(mockFireInternalDispatch).toHaveBeenCalledOnce();
     } finally {
       resolveThreadAccess.mockRestore();
