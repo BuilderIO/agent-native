@@ -4,6 +4,7 @@ import type { NodeKind } from "@/lib/workflow-editor";
 
 import {
   openingTab,
+  recordedStepsKey,
   runOverlay,
   stepOverlayFromSteps,
 } from "./workflow-run-overlay";
@@ -353,5 +354,37 @@ describe("runOverlay", () => {
       { nodeId: "b", status: "succeeded" as const, startedAt: T1, ports: {} },
     ];
     expect(runOverlay(done)?.currentNodeId).toBeUndefined();
+  });
+});
+
+describe("recordedStepsKey", () => {
+  const filter = (status: "running" | "succeeded", match: number) => ({
+    status,
+    ports: { match: { count: match }, otherwise: { count: 0 } },
+    passes: 1,
+  });
+
+  it("is empty until a step is recorded", () => {
+    expect(recordedStepsKey(undefined)).toBe("");
+    expect(recordedStepsKey({})).toBe("");
+  });
+
+  it("changes when a step finishes, so a read made before it did is read again", () => {
+    const beforeFinish = recordedStepsKey({ pick: filter("running", 0) });
+    const afterFinish = recordedStepsKey({ pick: filter("succeeded", 2) });
+    expect(afterFinish).not.toBe(beforeFinish);
+  });
+
+  it("changes when only a count does", () => {
+    expect(recordedStepsKey({ pick: filter("succeeded", 1) })).not.toBe(
+      recordedStepsKey({ pick: filter("succeeded", 2) }),
+    );
+  });
+
+  it("is the same for the same record, whatever order it is listed in", () => {
+    const a = { status: "succeeded" as const, ports: { out: { count: 2 } } };
+    expect(recordedStepsKey({ src: a, pick: filter("succeeded", 2) })).toBe(
+      recordedStepsKey({ pick: filter("succeeded", 2), src: a }),
+    );
   });
 });

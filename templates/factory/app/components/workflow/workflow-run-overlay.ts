@@ -74,6 +74,27 @@ export function stepOverlayFromSteps(
   return byNode;
 }
 
+/**
+ * What a run has recorded so far, as a string that changes when any step's
+ * status or port counts do. A read of a step's items made before the step
+ * finished differs from one made after it, and this tells the two apart
+ * without having watched the run go by. Empty when nothing is recorded.
+ */
+export function recordedStepsKey(
+  byNode: Readonly<Record<string, StepOverlay>> | undefined,
+): string {
+  return Object.entries(byNode ?? {})
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([nodeId, step]) => {
+      const counts = Object.entries(step.ports)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([port, { count }]) => `${port}=${count}`)
+        .join(",");
+      return `${nodeId}:${step.status}:${step.passes ?? 1}:${counts}`;
+    })
+    .join(";");
+}
+
 /** The node of the step that started last. A tie goes to the step listed later. */
 function latestNodeId(steps: readonly StepLike[]): string | undefined {
   let latest: StepLike | undefined;

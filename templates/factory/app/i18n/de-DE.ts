@@ -380,9 +380,6 @@ const messages = {
       connectionsNeeded: "{{count}} zu verbinden",
       connectionsListName: "Benötigte Verbindungen",
       jumpToProblem: "Im Canvas anzeigen",
-      testRun: "Probelauf",
-      testing: "Wird gestartet",
-      saveAndTest: "Speichern und Probelauf",
       moreActions: "Weitere Aktionen",
       runNow: "Jetzt ausführen",
       runNowSaveFirst:
@@ -461,6 +458,15 @@ const messages = {
       body: "Dieser Workflow hat Änderungen, die nicht gespeichert sind.",
       stay: "Weiter bearbeiten",
       discard: "Verwerfen",
+    },
+    draft: {
+      restored:
+        "Deine nicht gespeicherten Änderungen wurden wiederhergestellt.",
+      saveFailed:
+        "Der Entwurf deiner Änderungen konnte nicht gespeichert werden. {{reason}}",
+      unreadable:
+        "Deine nicht gespeicherten Änderungen konnten nicht wiederhergestellt werden, daher ist die gespeicherte Version geöffnet.",
+      discardFailed: "Der Entwurf konnte nicht verworfen werden. {{reason}}",
     },
     liveRun: {
       dialogTitle: "Diesen Workflow wirklich ausführen?",

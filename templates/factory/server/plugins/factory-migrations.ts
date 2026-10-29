@@ -803,6 +803,24 @@ const migrations = [
       ALTER TABLE factory_workflow_receipts ADD COLUMN IF NOT EXISTS output_truncated INTEGER;
     `,
   },
+  {
+    version: 36,
+    name: "factory-workflow-drafts",
+    sql: `
+      CREATE TABLE IF NOT EXISTS factory_workflow_drafts (
+        workflow_id TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        base_version INTEGER NOT NULL,
+        graph_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (workflow_id, owner_email)
+      );
+      CREATE INDEX IF NOT EXISTS factory_workflow_drafts_workflow_idx
+        ON factory_workflow_drafts (org_id, factory_id, workflow_id);
+    `,
+  },
 ];
 
 /** Exposed so the PGlite specs build the schema from the same DDL a fresh install runs. */
