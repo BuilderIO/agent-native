@@ -2050,7 +2050,7 @@ function DatabaseTable({
         key: ++previewCommentIntentSequenceRef.current,
         documentId: item.document.id,
         threadId,
-        propertyId,
+        ...(propertyId ? { propertyId } : {}),
       };
       if (item.document.id === previewDocumentId) {
         setPreviewCommentIntent(intent);

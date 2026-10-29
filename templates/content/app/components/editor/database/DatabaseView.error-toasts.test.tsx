@@ -1694,11 +1694,18 @@ describe("DatabaseView UI regressions", () => {
       id: `item-${id}`,
       databaseId: "database-1",
       document: {
-        ...fakeDocument,
         id: `document-${id}`,
         parentId: "document-1",
         title: id,
-        database: undefined,
+        content: "",
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        canEdit: true,
+        canManage: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
       },
       position: 0,
       properties: [{ ...status, value }],
@@ -1757,6 +1764,7 @@ describe("DatabaseView UI regressions", () => {
     // A refetch after one agent write: structural sharing keeps the other
     // rows' objects, so only the rewritten row redraws.
     const [first, , third] = databaseResponse.items;
+    if (!first || !third) throw new Error("The table needs three rows.");
     databaseResponse.items = [first, row("b", "done"), third];
     cellRendersByItemId.clear();
     await renderDatabaseView();
