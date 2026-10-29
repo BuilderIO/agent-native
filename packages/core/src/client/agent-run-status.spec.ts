@@ -61,6 +61,33 @@ describe("readAgentRunStatus", () => {
     expect(request.searchParams.has("runId")).toBe(false);
   });
 
+  it("reports a run waiting for its continuation to be redispatched", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              active: false,
+              status: "completed",
+              runId: "deferred-run",
+              awaitingRedispatch: true,
+            }),
+          ),
+      ),
+    );
+
+    await expect(readAgentRunStatus({ threadId: "thread-1" })).resolves.toEqual(
+      {
+        ok: true,
+        status: "completed",
+        active: false,
+        runId: "deferred-run",
+        awaitingRedispatch: true,
+      },
+    );
+  });
+
   it("keeps unreadable or malformed status separate from an idle run", async () => {
     const fetchMock = vi
       .fn()

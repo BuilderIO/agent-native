@@ -1872,6 +1872,165 @@ describe("useAgentGenerating", () => {
     container.remove();
   });
 
+  it("follows the run a skipped question form submitted instead of going stale", async () => {
+    const onComplete = vi.fn();
+    const onStale = vi.fn();
+    const onRunConfirmed = vi.fn();
+    let skipRunFinished = false;
+    let polls = 0;
+    const fetchMock = vi.fn(async () => {
+      polls += 1;
+      const state =
+        polls === 1
+          ? {
+              active: false,
+              status: "completed",
+              runId: "question-run",
+              turnId: "question-turn",
+              terminalReason: "done",
+            }
+          : !skipRunFinished
+            ? {
+                active: true,
+                status: "running",
+                runId: "skip-run",
+                turnId: "skip-turn",
+              }
+            : polls % 2 === 0
+              ? {
+                  active: false,
+                  status: "completed",
+                  runId: "skip-run",
+                  turnId: "skip-turn",
+                  terminalReason: "done",
+                }
+              : { active: false, status: "idle" };
+      return { ok: true, json: async () => state };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onStale={onStale}
+          onRunConfirmed={onRunConfirmed}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest?.track("design_tab", {
+        ignorePreviousRun: true,
+        previousRunId: "question-run",
+        previousRunBaselineVerified: true,
+        currentTurnId: "question-turn",
+      });
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            threadId: "design_tab",
+            tabId: "design_tab",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            threadId: "design_tab",
+            tabId: "design_tab",
+            runId: "skip-run",
+            reason: "run.submitted",
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(65_000);
+    });
+
+    expect(onStale).not.toHaveBeenCalled();
+    expect(latest?.generating).toBe(true);
+    expect(onRunConfirmed).toHaveBeenCalledWith(
+      "design_tab",
+      "skip-run",
+      undefined,
+    );
+
+    skipRunFinished = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(onStale).not.toHaveBeenCalled();
+    expect(onComplete).toHaveBeenCalledWith("design_tab");
+    expect(latest?.generating).toBe(false);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("keeps a resumed run when another submitted run starts on its tab", async () => {
+    const onRunConfirmed = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        active: true,
+        status: "running",
+        runId: "tracked-run",
+        turnId: "tracked-turn",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={vi.fn()}
+          onRunConfirmed={onRunConfirmed}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest?.track("design_tab", {
+        currentRunId: "tracked-run",
+        currentTurnId: "tracked-turn",
+      });
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            threadId: "design_tab",
+            tabId: "design_tab",
+            runId: "other-run",
+            reason: "run.submitted",
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+
+    expect(onRunConfirmed).not.toHaveBeenCalledWith(
+      "design_tab",
+      "other-run",
+      expect.anything(),
+    );
+    expect(onRunConfirmed).toHaveBeenCalledWith(
+      "design_tab",
+      "tracked-run",
+      "tracked-turn",
+    );
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("clears an unconfirmed generation after the start timeout", async () => {
     const onComplete = vi.fn();
     const onStale = vi.fn();
