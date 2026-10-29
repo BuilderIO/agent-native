@@ -11,10 +11,12 @@ that account, or a root listed under "Claimed, not yet answered" in memory.md. A
 matching reaction without that evidence is a manual mark: leave it alone. Keep
 the disposition, evidence, scopes, and human actions in the internal inventory.
 Post a reporter reply when this run adds a root reaction, or when a newer human
-reporter message needs a direct answer. If the root asks a question, the reply answers it first. A reaction reply then uses one
-short, plain-language sentence to explain only the reaction(s) added in this run. An
-answer to a newer human message answers only that message. Do
-not send progress, merge, or deployment updates. Never explain absent or
+reporter message needs a direct answer. If the root asks a question, the reply
+answers it first. A reaction reply then uses one short, plain-language sentence to
+explain only the reaction(s) added in this run. An answer to a newer human message
+answers only that message. Skip the reply when the only reaction added is the merged
+`✅` close-out after an earlier "in review" reply; that close-out gets no second
+reply. Do not send progress, merge, or deployment updates. Never explain absent or
 unchanged reactions or whether a tracker ticket exists. If reporter input is
 needed, add `🎫` and ask one direct question in that reply. Read back each new
 reaction and reply.
