@@ -115,10 +115,12 @@ async function startRetryGeneration(
   if (mode === "auto" && previousRunTabId) {
     // A stale mark is only a missed signal; resubmitting while the first run
     // still writes puts two agents on the same design. Only a settled thread
-    // is safe to submit to.
+    // is safe to submit to; an unsettled run the server names is followed,
+    // since a continuation it has not started yet still writes this design.
     const run = await readAgentRunStatus(previousRunTabId);
     if (!run.ok) return;
-    if (run.active || run.awaitingRedispatch) {
+    const settled = isAgentRunSettled(run);
+    if (!settled && (run.active || run.awaitingRedispatch || run.runId)) {
       clearGenerationCompleteTimer();
       setGenerationIssue(null);
       const { autoRetry: _autoRetry, ...retained } = promptState;
@@ -141,7 +143,7 @@ async function startRetryGeneration(
       trackActiveRun(previousRunTabId, runIds);
       return;
     }
-    if (!isAgentRunSettled(run)) return;
+    if (!settled) return;
   }
   const fileContext = formatUploadedFileContext(promptState.files);
   let images: string[];

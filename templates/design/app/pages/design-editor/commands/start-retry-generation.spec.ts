@@ -193,6 +193,26 @@ describe("runStartRetryGeneration auto retry", () => {
     });
   });
 
+  it("follows a run that ended to continue instead of submitting", async () => {
+    mocks.readAgentRunStatus.mockResolvedValue({
+      ok: true,
+      status: "completed",
+      active: false,
+      runId: "continuing-run",
+      turnId: "continuing-turn",
+      terminalReason: "auto_continue",
+    });
+    const args = createArgs({ previousRunTabId: "question-tab" });
+
+    await runStartRetryGeneration(args, promptState, 2, "auto");
+
+    expect(args.agentSubmit).not.toHaveBeenCalled();
+    expect(args.trackActiveRun).toHaveBeenCalledWith("question-tab", {
+      currentRunId: "continuing-run",
+      currentTurnId: "continuing-turn",
+    });
+  });
+
   it("submits the retry once the previous run is idle", async () => {
     mocks.readAgentRunStatus.mockResolvedValue({
       ok: true,
