@@ -164,6 +164,7 @@ import {
   useNewDeckGenerationRun,
 } from "@/hooks/use-new-deck-generation";
 import { useNewDeckGenerationSignal } from "@/hooks/use-new-deck-generation-signal";
+import { useOpenCommentFromUrl } from "@/hooks/use-open-comment-from-url";
 import {
   useSlideComments,
   type CommentThread,
@@ -5003,6 +5004,17 @@ export default function DeckEditor() {
     deck ? (id ?? null) : null,
     activeSlideId,
   );
+  const deckSlideIds = useMemo(
+    () => deck?.slides.map((slide) => slide.id),
+    [deck?.slides],
+  );
+  useOpenCommentFromUrl({
+    deckId: deck ? (id ?? null) : null,
+    slideIds: deckSlideIds,
+    activeSlideId,
+    onSelectSlide: handleSlideSelection,
+    onSelectThread: selectCommentThread,
+  });
   const currentSlideThreads: CommentThread[] =
     currentSlideCommentsQuery.data ?? [];
   const unresolvedCommentCount = currentSlideThreads.filter(
@@ -6195,6 +6207,7 @@ export default function DeckEditor() {
           <SlideCommentsPanel
             deckId={id}
             slideId={currentSlide?.id ?? null}
+            slideIds={deckSlideIds}
             canComment={canComment}
             canEdit={canEdit}
             currentUserEmail={session?.email ?? null}

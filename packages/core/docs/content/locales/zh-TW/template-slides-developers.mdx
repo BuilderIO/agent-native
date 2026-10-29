@@ -295,7 +295,10 @@ npx @agent-native/core@latest create my-slides --standalone --template slides
 
 ### 評論
 
-- `list-slide-comments`、`add-slide-comment`、`update-slide-comment`、`delete-slide-comment`
+- `get-deck-review` — 依幻燈片分組傳回未解決的評論串，用於處理回饋
+- `list-review-comments`、`create-review-comment`、`reply-review-comment`、`resolve-review-thread`、`react-to-review-comment` — 評論是框架在簡報上的審閱串（`resourceType: "deck"`，`targetId` 為幻燈片 ID），因此調整順序後仍留在原幻燈片上
+- `start-review-agent-request`、`list-review-agent-requests`、`cancel-review-agent-request` — 僅供介面使用；在評論標記了代理的評論串上執行代理。執行會以 `get-review-agent-context` 讀取評論串，並以 `post-review-agent-reply` 或 `apply-review-agent-changes` 結束
+- `list-slide-comments`、`add-slide-comment`、`update-slide-comment`、`delete-slide-comment`、`toggle-slide-comment-reaction` — 舊操作，繼續作用於同一批評論串
 
 ### 匯入
 

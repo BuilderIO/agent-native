@@ -8,15 +8,17 @@ import {
   loadAgentDesignSystemContext,
 } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  legacySlideComments,
+  listSlideReviewComments,
+} from "../server/lib/slide-review-legacy.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { summarizeDeckStyle } from "../shared/representative-slide.js";
-import { parseSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
-import { summarizeSlideCommentReactions } from "../shared/slide-comment-reactions.js";
 import {
   hashSlideContent,
   slideFitMeasurementMatchesSlide,
@@ -105,7 +107,7 @@ export default defineAction({
     "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). For a short exact selectedText browser-range edit, use this result directly with one update-slide literal replacement and expectedMatches=1. When a selected element has an objectId but no exact selectedText, use that objectId with one update-slide replace edit to change only its inner content; do not load the full deck for either focused path.",
   schema: z.object({}),
   http: false,
-  run: async (_args) => {
+  run: async (_args, ctx) => {
     const navigation = (await readAppStateForCurrentTab("navigation")) as {
       view?: string;
       deckId?: string;
@@ -205,7 +207,7 @@ export default defineAction({
             ? effectiveNavigation.slideNumber - 1
             : 0;
       const slideNumber = slideIndex + 1;
-      const currentSlide = slides[slideIndex] ?? null;
+      const currentSlide = slides.at(slideIndex) ?? null;
 
       const lines: string[] = [];
       lines.push(`## Current Screen`);
@@ -291,69 +293,57 @@ export default defineAction({
         lines.push("```");
       }
 
-      const fetchedCommentRows = currentSlide
-        ? await db
-            .select({
-              id: schema.slideComments.id,
-              slideId: schema.slideComments.slideId,
-              threadId: schema.slideComments.threadId,
-              parentId: schema.slideComments.parentId,
-              content: schema.slideComments.content,
-              quotedText: schema.slideComments.quotedText,
-              anchor: schema.slideComments.anchor,
-              emojiReactionsJson: schema.slideComments.emojiReactionsJson,
-              authorEmail: schema.slideComments.authorEmail,
-              resolved: schema.slideComments.resolved,
-              createdAt: schema.slideComments.createdAt,
-            })
-            .from(schema.slideComments)
-            .where(
-              and(
-                eq(schema.slideComments.deckId, rows[0].id),
-                eq(schema.slideComments.slideId, currentSlide.id),
-              ),
-            )
-            .orderBy(asc(schema.slideComments.createdAt))
-            .limit(CURRENT_SLIDE_COMMENT_LIMIT + 1)
+      const deckId = effectiveNavigation.deckId;
+      const slideReview = currentSlide
+        ? await listSlideReviewComments(deckId, ctx, {
+            slideId: currentSlide.id,
+          })
+        : null;
+      const slideComments = slideReview
+        ? legacySlideComments(slideReview.comments, slideReview.reactions)
         : [];
       const commentsTruncated =
-        fetchedCommentRows.length > CURRENT_SLIDE_COMMENT_LIMIT;
-      const commentRows = commentsTruncated
-        ? fetchedCommentRows.slice(0, CURRENT_SLIDE_COMMENT_LIMIT)
-        : fetchedCommentRows;
+        slideComments.length > CURRENT_SLIDE_COMMENT_LIMIT ||
+        Boolean(slideReview?.truncated);
+      const commentRows = slideComments.slice(0, CURRENT_SLIDE_COMMENT_LIMIT);
       lines.push(``);
       lines.push(
         `### Comments on current slide (${commentRows.length}${commentsTruncated ? "; more available" : ""})`,
       );
       if (commentsTruncated) {
         lines.push(
-          `commentsStatus: truncated; showing the first ${CURRENT_SLIDE_COMMENT_LIMIT}. Use list-slide-comments with { deckId: "${rows[0].id}", slideId: "${currentSlide?.id}", limit: ${CURRENT_SLIDE_COMMENT_LIMIT}, offset: ${CURRENT_SLIDE_COMMENT_LIMIT} } to continue.`,
+          `commentsStatus: truncated; showing the first ${CURRENT_SLIDE_COMMENT_LIMIT}. Use list-review-comments with { resourceType: "deck", resourceId: "${deckId}", targetId: "${currentSlide?.id}" } for all of them.`,
         );
       }
       if (commentRows.length === 0) {
         lines.push(`(no comments)`);
       } else {
         for (const comment of commentRows) {
-          const anchor = parseSlideCommentAnchor(comment.anchor);
-          const reactions = summarizeSlideCommentReactions(
-            comment.emojiReactionsJson,
-            getRequestUserEmail(),
+          lines.push(
+            `commentId: ${comment.id}  threadId: ${comment.thread_id}  parentId: ${comment.parent_id ?? "(root)"}`,
           );
           lines.push(
-            `commentId: ${comment.id}  threadId: ${comment.threadId}  parentId: ${comment.parentId ?? "(root)"}`,
-          );
-          lines.push(
-            `author: ${comment.authorEmail}  resolved: ${comment.resolved ? "true" : "false"}  createdAt: ${comment.createdAt}`,
+            `author: ${comment.author_email ?? comment.author_name ?? "unknown"}  resolved: ${comment.resolved ? "true" : "false"}  createdAt: ${comment.created_at}`,
           );
           lines.push(`content: ${comment.content}`);
-          if (comment.quotedText)
-            lines.push(`quotedText: ${comment.quotedText}`);
-          if (anchor) lines.push(`anchor: ${JSON.stringify(anchor)}`);
-          if (reactions.length > 0) {
-            lines.push(`reactions: ${JSON.stringify(reactions)}`);
+          if (comment.quoted_text)
+            lines.push(`quotedText: ${comment.quoted_text}`);
+          if (comment.anchor)
+            lines.push(`anchor: ${JSON.stringify(comment.anchor)}`);
+          if (comment.reactions.length > 0) {
+            lines.push(`reactions: ${JSON.stringify(comment.reactions)}`);
           }
         }
       }
+      const commentsState = (await readAppStateForCurrentTab(
+        "slides-comments",
+        { fallbackToGlobal: false },
+      )) as { open?: boolean; threadId?: string | null } | null;
+      lines.push(
+        commentsState
+          ? `openCommentThread: ${commentsState.open && commentsState.threadId ? commentsState.threadId : "none"}`
+          : `openCommentThread: unknown`,
+      );
 
       const panels = (await readAppStateForCurrentTab("slides-panels", {
         fallbackToGlobal: false,

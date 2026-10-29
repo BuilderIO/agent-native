@@ -295,7 +295,10 @@ Cada slide dentro de `decks.data` é:
 
 ### Comentários
 
-- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`
+- `get-deck-review` — threads de comentários abertas agrupadas por slide, para trabalhar o feedback
+- `list-review-comments`, `create-review-comment`, `reply-review-comment`, `resolve-review-thread`, `react-to-review-comment` — comentários são as threads de revisão do framework na apresentação (`resourceType: "deck"`, `targetId` é o id do slide), então continuam no slide após reordenar
+- `start-review-agent-request`, `list-review-agent-requests`, `cancel-review-agent-request` — só para a interface; executa o agente em uma thread cujo comentário o menciona. A execução lê a thread com `get-review-agent-context` e termina com `post-review-agent-reply` ou `apply-review-agent-changes`
+- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`, `toggle-slide-comment-reaction` — ações antigas que continuam funcionando sobre as mesmas threads
 
 ### Importação
 

@@ -295,7 +295,10 @@ Jede Folie innerhalb von `decks.data` sieht so aus:
 
 ### Kommentare
 
-- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`
+- `get-deck-review` — offene Kommentar-Threads nach Folie gruppiert, um Feedback abzuarbeiten
+- `list-review-comments`, `create-review-comment`, `reply-review-comment`, `resolve-review-thread`, `react-to-review-comment` — Kommentare sind die Review-Threads des Frameworks auf der Präsentation (`resourceType: "deck"`, `targetId` ist die Folien-ID) und bleiben beim Umsortieren bei ihrer Folie
+- `start-review-agent-request`, `list-review-agent-requests`, `cancel-review-agent-request` — nur für die UI; startet den Agenten in einem Thread, dessen Kommentar ihn erwähnt. Der Lauf liest den Thread mit `get-review-agent-context` und endet mit `post-review-agent-reply` oder `apply-review-agent-changes`
+- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`, `toggle-slide-comment-reaction` — alte Aktionen, als Brücke zu denselben Threads erhalten
 
 ### Import
 

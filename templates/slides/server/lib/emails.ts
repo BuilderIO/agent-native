@@ -23,10 +23,10 @@ export function registerSlidesEmails(): void {
     id: SLIDES_DECK_COMMENT_EMAIL_ID,
     name: "Deck comment",
     trigger:
-      "Someone posts a comment or a thread reply on a slide. Subject and copy differ slightly for a reply; both send under this id.",
-    recipientLabel: "Deck owner and authors",
+      "Someone posts a comment or a thread reply on a slide, or mentions a teammate in one. Subject and copy differ for a mention and a reply; all three send under this id.",
+    recipientLabel: "Deck owner, mentioned people, and thread authors",
     recipient:
-      "The deck owner, plus every prior author in the thread when the new comment is a reply. The list is re-checked against the deck's live ACL and filtered by each user's `emailNotifications` preference; the comment's own author never receives it.",
+      "The deck owner and everyone mentioned in the comment, plus every prior author in the thread when the new comment is a reply. The list is re-checked against the deck's live ACL, muted threads are skipped, and each user's `emailNotifications` preference applies; the comment's own author never receives it.",
     senderLabel: "Default sender",
     sender:
       "The configured default sender. This call site sets no `from`, `fromName`, `replyTo`, or `appSender`.",
@@ -34,9 +34,9 @@ export function registerSlidesEmails(): void {
       renderDeckCommentEmail({
         actor: "Sam Rivera",
         title: "Series A narrative",
-        url: "https://example.com/decks/deck_sample?slide=3",
+        url: "https://example.com/deck/deck_sample?comment=thread_sample",
         content: "Slide 3 needs the updated revenue chart before Thursday.",
-        isReply: false,
+        kind: "mention",
       }),
   });
 

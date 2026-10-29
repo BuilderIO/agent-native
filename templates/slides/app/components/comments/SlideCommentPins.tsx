@@ -1,15 +1,23 @@
-import {
-  actionErrorMessage,
-  useAvatarUrl,
-} from "@agent-native/core/client/hooks";
+import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useCreateReviewComment } from "@agent-native/core/client/review";
+import type {
+  ReviewDiscussionState,
+  ReviewMention,
+} from "@agent-native/core/review";
+import {
+  resolveReviewAgent,
+  ReviewAuthorAvatar,
+  ReviewCommentComposer,
+  ReviewThreadCardFrame,
+  type ReviewMentionOption,
+} from "@agent-native/toolkit/app/review";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
-  IconCheck,
-  IconMessageCircle,
-  IconRefresh,
-  IconX,
-} from "@tabler/icons-react";
+  SLIDE_REVIEW_RESOURCE_TYPE,
+  slideReviewAnchor,
+} from "@shared/slide-review";
+import { IconMessageCircle } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -18,34 +26,28 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { toast } from "sonner";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  emailToColor,
   type CommentThread,
-  useDeleteSlideComment,
-  useCreateSlideComment,
-  useResolveSlideComment,
+  useSlideComments,
 } from "@/hooks/use-slide-comments";
+import {
+  useSlideReviewSurface,
+  type SlideReviewSurface,
+} from "@/hooks/use-slide-review-surface";
 import {
   slideCommentAnchorAtPoint,
   slideCommentAnchorPosition,
   slideCommentTextRange,
 } from "@/lib/slide-comment-anchor";
-import { cn } from "@/lib/utils";
 
-import { CommentItem, ReplyInput } from "./SlideCommentsPanel";
+import { SlideReviewThreadCard } from "./SlideReviewThreadCard";
 
 interface SlideCommentPinsProps {
   active: boolean;
@@ -79,16 +81,6 @@ function keepPopoverOpenDuringComposition(event: KeyboardEvent) {
   if (event.isComposing || event.keyCode === 229) event.preventDefault();
 }
 
-function initials(name: string | null | undefined, email: string) {
-  return (name || email)
-    .split(/[@.\s]/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("")
-    .slice(0, 2);
-}
-
 function findCommentObject(
   target: Element | null,
   canvasSelector: string,
@@ -112,33 +104,7 @@ function findCommentObject(
   return null;
 }
 
-function CommentAvatar({
-  email,
-  name,
-  className,
-}: {
-  email: string;
-  name: string | null | undefined;
-  className?: string;
-}) {
-  const avatarUrl = useAvatarUrl(email);
-  return (
-    <Avatar
-      className={cn("size-8 border border-background shadow-sm", className)}
-      title={name || email}
-    >
-      {avatarUrl ? <AvatarImage src={avatarUrl} alt={name || email} /> : null}
-      <AvatarFallback
-        className="text-[10px] font-semibold text-primary-foreground"
-        style={{ backgroundColor: emailToColor(email) }}
-      >
-        {initials(name, email)}
-      </AvatarFallback>
-    </Avatar>
-  );
-}
-
-function CommentThreadPopover({
+function CommentThreadPin({
   thread,
   open,
   onOpenChange,
@@ -146,8 +112,9 @@ function CommentThreadPopover({
   canEdit,
   currentUserEmail,
   deckId,
+  discussion,
+  surface,
   onBeforeCommentSubmit,
-  slideId,
 }: {
   thread: CommentThread;
   open: boolean;
@@ -155,171 +122,62 @@ function CommentThreadPopover({
   canComment: boolean;
   canEdit: boolean;
   currentUserEmail: string | null;
-  deckId: string | null;
-  onBeforeCommentSubmit?: () => Promise<void>;
-  slideId: string;
+  deckId: string;
+  discussion: ReviewDiscussionState | undefined;
+  surface: SlideReviewSurface;
+  onBeforeCommentSubmit?: (() => Promise<void>) | undefined;
 }) {
   const t = useT();
-  const [replyOpen, setReplyOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const resolveComment = useResolveSlideComment();
-  const deleteComment = useDeleteSlideComment();
-  const root = thread.comments[0];
-  if (!root || !thread.anchor) return null;
-
-  const canManageRoot =
-    canEdit ||
-    root.author_email.trim().toLowerCase() ===
-      currentUserEmail?.trim().toLowerCase();
-  const handleResolve = () => {
-    if (!deckId) return;
-    setError(null);
-    resolveComment.mutate(
-      { id: root.id, deckId, resolved: !thread.resolved },
-      {
-        onError: (caught) =>
-          setError(actionErrorMessage(caught) ?? t("comments.updateFailed")),
-      },
-    );
-  };
-  const handleDelete = () => {
-    if (!deckId) return;
-    setError(null);
-    deleteComment.mutate(
-      { id: root.id, deckId },
-      {
-        onError: (caught) =>
-          setError(actionErrorMessage(caught) ?? t("comments.deleteFailed")),
-      },
-    );
-  };
+  const root = thread.review.root;
+  const count = 1 + thread.review.replies.length;
+  const authorName =
+    root.authorName?.trim() || root.authorEmail || t("comments.reviewer");
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="pointer-events-auto inline-flex">
-          <Popover open={open} onOpenChange={onOpenChange}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                data-slide-comment-marker
-                data-thread-id={thread.threadId}
-                className="relative inline-flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full shadow-2xl shadow-black/35 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label={root.content}
-              >
-                <CommentAvatar
-                  email={root.author_email}
-                  name={root.author_name}
-                />
-                {thread.comments.length > 1 && (
-                  <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-foreground px-1 text-[9px] font-semibold leading-4 text-background">
-                    {thread.comments.length > 99
-                      ? "99+"
-                      : thread.comments.length}
-                  </span>
-                )}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              side="right"
-              align="start"
-              className="z-[300] w-80 p-3"
-              data-slide-comment-popover
-              onEscapeKeyDown={keepPopoverOpenDuringComposition}
-            >
-              <div className="space-y-3">
-                <CommentItem
-                  comment={root}
-                  deckId={deckId ?? ""}
-                  onDelete={handleDelete}
-                  canManage={canManageRoot}
-                  canReact={canComment}
-                />
-                {thread.comments.length > 1 && (
-                  <div className="space-y-2 border-t border-border/70 pt-2">
-                    {thread.comments.slice(1).map((reply) => (
-                      <CommentItem
-                        key={reply.id}
-                        comment={reply}
-                        deckId={deckId ?? ""}
-                        onDelete={() => {
-                          if (!deckId) return;
-                          deleteComment.mutate(
-                            { id: reply.id, deckId },
-                            {
-                              onError: (caught) =>
-                                setError(
-                                  actionErrorMessage(caught) ??
-                                    t("comments.deleteFailed"),
-                                ),
-                            },
-                          );
-                        }}
-                        canManage={
-                          canEdit ||
-                          reply.author_email.trim().toLowerCase() ===
-                            currentUserEmail?.trim().toLowerCase()
-                        }
-                        canReact={canComment}
-                      />
-                    ))}
-                  </div>
-                )}
-                {canComment && !thread.resolved && !replyOpen && (
-                  <button
-                    type="button"
-                    onClick={() => setReplyOpen(true)}
-                    className="text-[11px] text-muted-foreground hover:text-foreground"
-                  >
-                    {t("comments.reply")}
-                  </button>
-                )}
-                {replyOpen && canComment && deckId && (
-                  <ReplyInput
-                    deckId={deckId}
-                    slideId={slideId}
-                    threadId={thread.threadId}
-                    parentId={root.id}
-                    onBeforeSubmit={onBeforeCommentSubmit}
-                    onDone={() => setReplyOpen(false)}
-                  />
-                )}
-                <div className="flex items-center justify-between border-t border-border/70 pt-2">
-                  {canComment && (
-                    <button
-                      type="button"
-                      aria-label={
-                        thread.resolved
-                          ? t("comments.reopenThread")
-                          : t("comments.resolveThread")
-                      }
-                      onClick={handleResolve}
-                      className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                    >
-                      {thread.resolved ? (
-                        <IconRefresh className="size-3" />
-                      ) : (
-                        <IconCheck className="size-3" />
-                      )}
-                      {thread.resolved
-                        ? t("comments.reopenThread")
-                        : t("comments.resolveThread")}
-                    </button>
-                  )}
-                  {error && (
-                    <span role="alert" className="text-[10px] text-destructive">
-                      {error}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-64">
-        {root.content}
-      </TooltipContent>
-    </Tooltip>
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-slide-comment-marker
+          data-thread-id={thread.threadId}
+          className="pointer-events-auto relative inline-flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full rounded-bl-none bg-popover shadow-2xl shadow-black/35 ring-1 ring-border transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          aria-label={t("comments.openThreadBy", { author: authorName })}
+          title={root.body}
+        >
+          <ReviewAuthorAvatar
+            name={authorName}
+            email={root.authorEmail}
+            agent={resolveReviewAgent(root)}
+            size={24}
+          />
+          {count > 1 && (
+            <span className="absolute -end-1 -top-1 min-w-4 rounded-full bg-foreground px-1 text-[9px] font-semibold leading-4 text-background">
+              {count > 99 ? "99+" : count}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="right"
+        align="start"
+        className="z-[270] w-auto border-0 bg-transparent p-0 shadow-none"
+        data-slide-comment-popover
+        onEscapeKeyDown={keepPopoverOpenDuringComposition}
+      >
+        <SlideReviewThreadCard
+          thread={thread}
+          deckId={deckId}
+          discussion={discussion}
+          canComment={canComment}
+          canEdit={canEdit}
+          currentUserEmail={currentUserEmail}
+          peopleMentionOptions={surface.peopleMentionOptions}
+          agent={surface.agent}
+          onBeforeCommentSubmit={onBeforeCommentSubmit}
+          onClose={() => onOpenChange(false)}
+          onResolved={() => onOpenChange(false)}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -337,12 +195,14 @@ export function SlideCommentPins({
   onSelectThread,
 }: SlideCommentPinsProps) {
   const t = useT();
-  const createComment = useCreateSlideComment();
+  const createComment = useCreateReviewComment();
+  const surface = useSlideReviewSurface({ deckId, canEdit });
+  const { discussion } = useSlideComments(deckId, slideId);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const [canvasRect, setCanvasRect] = useState<DOMRect | null>(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
   const [text, setText] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [mentions, setMentions] = useState<ReviewMention[]>([]);
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [textHighlightRects, setTextHighlightRects] = useState<
     Array<{ x: number; y: number; width: number; height: number }>
@@ -454,20 +314,24 @@ export function SlideCommentPins({
     return () => registry?.delete(COMMENT_TEXT_HIGHLIGHT);
   }, [canvasRect, canvasSelector, comments, slideId]);
 
+  const clearDraft = useCallback(() => {
+    setPending(null);
+    setText("");
+    setMentions([]);
+  }, []);
+
   useEffect(() => {
     if (!active) {
-      setPending(null);
-      setText("");
-      setError(null);
+      clearDraft();
       if (wasActive.current) focusCanvas();
     }
     wasActive.current = active;
-  }, [active, focusCanvas]);
+  }, [active, clearDraft, focusCanvas]);
 
   useEffect(() => {
     setPending((current) => (current?.slideId === slideId ? current : null));
     setText("");
-    setError(null);
+    setMentions([]);
   }, [slideId]);
 
   const createAnchor = useCallback(
@@ -521,34 +385,51 @@ export function SlideCommentPins({
       setOpenThreadId(null);
       setPending({ slideId, anchor });
       setText("");
-      setError(null);
+      setMentions([]);
     },
     [active, canComment, createAnchor, deckId, slideId],
   );
 
-  const submit = async () => {
+  const submit = async (resolutionTarget: "agent" | "human") => {
     const trimmed = text.trim();
     if (!trimmed || !pending || !deckId || createComment.isPending) return;
     if (pending.slideId !== slideId) {
-      setPending(null);
-      setText("");
+      clearDraft();
       return;
     }
-    setError(null);
+    const submittedMentions = mentions;
     try {
       await onBeforeCommentSubmit?.();
-      await createComment.mutateAsync({
-        deckId,
-        slideId,
-        content: trimmed,
-        anchor: pending.anchor,
+      const created = await createComment.mutateAsync({
+        resourceType: SLIDE_REVIEW_RESOURCE_TYPE,
+        resourceId: deckId,
+        targetId: slideId,
+        anchor: slideReviewAnchor({ slideId, point: pending.anchor }),
+        body: trimmed,
+        mentions: submittedMentions,
+        resolutionTarget,
+        clientOperationId: crypto.randomUUID(),
       });
-      setPending(null);
-      setText("");
+      clearDraft();
+      focusCanvas();
+      const outcome = await surface.agent.startIfTagged({
+        threadId: created.threadId,
+        commentId: created.id,
+        mentions: submittedMentions,
+      });
+      if (outcome === "busy") toast.error(t("comments.agentBusy"));
+      else if (outcome === "setup-required")
+        toast.error(t("comments.agentSetupRequired"));
+      else if (outcome === "failed")
+        toast.error(t("comments.agentStartFailed"));
     } catch (err) {
-      setError(actionErrorMessage(err) ?? t("comments.saveCommentFailed"));
+      toast.error(actionErrorMessage(err) ?? t("comments.saveCommentFailed"));
     }
   };
+
+  const draftMentionOptions: readonly ReviewMentionOption[] = canEdit
+    ? [...surface.peopleMentionOptions, ...surface.agent.mentionOptions]
+    : surface.peopleMentionOptions;
 
   if (!canvasRect || (!active && comments.every((thread) => !thread.anchor))) {
     return null;
@@ -647,21 +528,24 @@ export function SlideCommentPins({
               };
             })()}
           >
-            <CommentThreadPopover
-              thread={thread}
-              open={openThreadId === thread.threadId}
-              canComment={canComment}
-              canEdit={canEdit}
-              currentUserEmail={currentUserEmail}
-              deckId={deckId}
-              onBeforeCommentSubmit={onBeforeCommentSubmit}
-              slideId={slideId}
-              onOpenChange={(open) => {
-                setOpenThreadId(open ? thread.threadId : null);
-                if (open) onSelectThread?.(thread.threadId);
-                else focusCanvas();
-              }}
-            />
+            {deckId ? (
+              <CommentThreadPin
+                thread={thread}
+                open={openThreadId === thread.threadId}
+                canComment={canComment}
+                canEdit={canEdit}
+                currentUserEmail={currentUserEmail}
+                deckId={deckId}
+                discussion={discussion}
+                surface={surface}
+                onBeforeCommentSubmit={onBeforeCommentSubmit}
+                onOpenChange={(open) => {
+                  setOpenThreadId(open ? thread.threadId : null);
+                  if (open) onSelectThread?.(thread.threadId);
+                  else focusCanvas();
+                }}
+              />
+            ) : null}
           </div>
         ))}
 
@@ -677,7 +561,7 @@ export function SlideCommentPins({
               open
               onOpenChange={(open) => {
                 if (!open) {
-                  setPending(null);
+                  clearDraft();
                   focusCanvas();
                 }
               }}
@@ -686,7 +570,7 @@ export function SlideCommentPins({
                 <button
                   type="button"
                   aria-label={t("comments.addComment")}
-                  className="inline-flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-2xl shadow-black/35 ring-2 ring-background"
+                  className="inline-flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full rounded-bl-none bg-primary text-primary-foreground shadow-2xl shadow-black/35 ring-2 ring-background"
                 >
                   <IconMessageCircle className="size-4" />
                 </button>
@@ -694,83 +578,54 @@ export function SlideCommentPins({
               <PopoverContent
                 side="right"
                 align="start"
-                className="z-[300] w-80 p-3"
+                className="z-[270] w-auto border-0 bg-transparent p-0 shadow-none"
                 data-pin-popover
                 onEscapeKeyDown={keepPopoverOpenDuringComposition}
               >
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium">
-                      {t("comments.addComment")}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={t("comments.cancel")}
-                      className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                      onClick={() => {
-                        setPending(null);
+                <ReviewThreadCardFrame
+                  title={t("comments.addComment")}
+                  closeLabel={t("comments.cancel")}
+                  onClose={() => {
+                    if (createComment.isPending) return;
+                    clearDraft();
+                    focusCanvas();
+                  }}
+                >
+                  <div className="flex items-start gap-2 px-3 py-4">
+                    <ReviewAuthorAvatar
+                      className="mt-0.5"
+                      name={currentUserEmail ?? t("comments.reviewer")}
+                      email={currentUserEmail}
+                      size={24}
+                    />
+                    <ReviewCommentComposer
+                      className="min-w-0 flex-1"
+                      autoFocus
+                      value={text}
+                      mentions={mentions}
+                      onMentionsChange={setMentions}
+                      mentionOptions={draftMentionOptions}
+                      agentsLabel={t("comments.agentsSection")}
+                      showCommentTools
+                      emojiLabel={t("comments.addEmoji")}
+                      mentionLabel={t("comments.mention")}
+                      noMentionsLabel={t("comments.noMentions")}
+                      disabled={createComment.isPending}
+                      onChange={setText}
+                      onSubmit={(target) => void submit(target)}
+                      submittingTarget={
+                        createComment.isPending ? "human" : null
+                      }
+                      placeholder={t("comments.addCommentPlaceholder")}
+                      commentLabel={t("comments.comment")}
+                      submitOnEnter
+                      onEscape={() => {
+                        clearDraft();
                         focusCanvas();
                       }}
-                    >
-                      <IconX className="size-3.5" />
-                    </button>
+                    />
                   </div>
-                  <Textarea
-                    autoFocus
-                    value={text}
-                    onChange={(event) => {
-                      setText(event.target.value);
-                      if (error) setError(null);
-                    }}
-                    onKeyDown={(event) => {
-                      if (
-                        event.nativeEvent.isComposing ||
-                        event.nativeEvent.keyCode === 229
-                      ) {
-                        return;
-                      }
-                      if (
-                        event.key === "Enter" &&
-                        (event.metaKey || event.ctrlKey)
-                      ) {
-                        event.preventDefault();
-                        void submit();
-                      }
-                      if (event.key === "Escape") {
-                        setPending(null);
-                        focusCanvas();
-                      }
-                    }}
-                    placeholder={t("comments.addCommentPlaceholder")}
-                    rows={3}
-                    className="resize-none text-xs"
-                  />
-                  {error && (
-                    <p className="text-[11px] text-destructive">{error}</p>
-                  )}
-                  <div className="flex justify-end gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPending(null);
-                        focusCanvas();
-                      }}
-                      className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                    >
-                      {t("comments.cancel")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void submit()}
-                      disabled={!text.trim() || createComment.isPending}
-                      className="rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
-                    >
-                      {createComment.isPending
-                        ? t("comments.saving")
-                        : t("comments.comment")}
-                    </button>
-                  </div>
-                </div>
+                </ReviewThreadCardFrame>
               </PopoverContent>
             </Popover>
           </div>

@@ -129,3 +129,45 @@ export const deckAccessRequestLimits = table("deck_access_request_limits", {
   windowStartedAt: text("window_started_at").notNull(),
   requestCount: integer("request_count").notNull().default(0),
 });
+
+/** One row per deck whose `slide_comments` were copied into the review store. */
+export const slideCommentReviewMigrations = table(
+  "slide_comment_review_migrations",
+  {
+    deckId: text("deck_id").primaryKey(),
+    importedCount: integer("imported_count").notNull().default(0),
+    migratedAt: text("migrated_at").notNull(),
+  },
+);
+
+export const slideReviewAgentRequests = table(
+  "slide_review_agent_requests",
+  {
+    id: text("id").primaryKey(),
+    deckId: text("deck_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    rootCommentId: text("root_comment_id").notNull(),
+    triggerCommentId: text("trigger_comment_id"),
+    slideId: text("slide_id"),
+    requesterEmail: text("requester_email").notNull(),
+    status: text("status").notNull().default("queued"),
+    agentThreadId: text("agent_thread_id").notNull(),
+    agentTurnId: text("agent_turn_id").notNull(),
+    model: text("model"),
+    engine: text("engine"),
+    replyCommentId: text("reply_comment_id"),
+    errorCode: text("error_code"),
+    error: text("error"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (request) => ({
+    deckUpdatedIdx: index("slide_review_agent_requests_deck_updated_idx").on(
+      request.deckId,
+      request.updatedAt,
+    ),
+    agentThreadIdx: index("slide_review_agent_requests_agent_thread_idx").on(
+      request.agentThreadId,
+    ),
+  }),
+);

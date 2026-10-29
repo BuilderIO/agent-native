@@ -325,3 +325,52 @@ describe("notifyReviewComment", () => {
     expect(result.status).toBe("notification-error");
   });
 });
+
+describe("resource comment notification options", () => {
+  it("uses the resource's thread link, preference key, template and renderer", async () => {
+    mocks.getReviewableResource.mockReturnValue({
+      type: "deck",
+      displayName: "Deck",
+      resolveUrl: () => "https://app.test/deck/deck_1",
+      commentNotifications: {
+        preferenceKey: "slides-user-prefs",
+        templateId: "slides.deck-comment",
+        resolveThreadUrl: (entry: ReviewComment) =>
+          `https://app.test/deck/deck_1?slideId=${entry.targetId}&thread=${entry.threadId}`,
+        renderEmail: ({
+          kind,
+          actor,
+          url,
+        }: {
+          kind: string;
+          actor: string;
+          url: string;
+        }) => ({ subject: `${kind}:${actor}`, html: url, text: url }),
+      },
+    });
+    await notifyReviewComment(
+      comment({
+        resourceType: "deck",
+        targetId: "slide_9",
+        mentions: [{ label: "Sam", email: "sam@example.com" }],
+      }),
+    );
+    const args = notifyArgs();
+    expect(args.preferenceKey).toBe("slides-user-prefs");
+    await args.send("sam@example.com");
+    await args.send("owner@example.com");
+    expect(mocks.sendEmail.mock.calls.map(([input]) => input)).toEqual([
+      {
+        to: "sam@example.com",
+        subject: "mention:Reviewer",
+        html: "https://app.test/deck/deck_1?slideId=slide_9&thread=t1",
+        text: "https://app.test/deck/deck_1?slideId=slide_9&thread=t1",
+        templateId: "slides.deck-comment",
+      },
+      expect.objectContaining({
+        to: "owner@example.com",
+        subject: "comment:Reviewer",
+      }),
+    ]);
+  });
+});

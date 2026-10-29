@@ -295,7 +295,10 @@ Chaque diapositive à l'intérieur de `decks.data` est :
 
 ### Commentaires
 
-- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`
+- `get-deck-review` — fils de commentaires ouverts, groupés par diapositive, pour traiter les retours
+- `list-review-comments`, `create-review-comment`, `reply-review-comment`, `resolve-review-thread`, `react-to-review-comment` — les commentaires sont les fils de revue du framework sur la présentation (`resourceType: "deck"`, `targetId` est l’id de la diapositive) ; ils restent sur leur diapositive après un réordonnancement
+- `start-review-agent-request`, `list-review-agent-requests`, `cancel-review-agent-request` — interface uniquement ; lance l’agent sur un fil dont un commentaire le mentionne. L’exécution lit le fil avec `get-review-agent-context` et se termine par `post-review-agent-reply` ou `apply-review-agent-changes`
+- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`, `toggle-slide-comment-reaction` — anciennes actions, conservées comme passerelles vers les mêmes fils
 
 ### Importation
 

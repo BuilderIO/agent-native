@@ -295,7 +295,10 @@ npx @agent-native/core@latest create my-slides --standalone --template slides
 
 ### 댓글
 
-- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`
+- `get-deck-review` — 열린 댓글 스레드를 슬라이드별로 묶어 반환합니다. 피드백을 처리할 때 사용합니다
+- `list-review-comments`, `create-review-comment`, `reply-review-comment`, `resolve-review-thread`, `react-to-review-comment` — 댓글은 덱에 있는 프레임워크의 리뷰 스레드입니다(`resourceType: "deck"`, `targetId`는 슬라이드 ID). 순서를 바꿔도 해당 슬라이드에 남습니다
+- `start-review-agent-request`, `list-review-agent-requests`, `cancel-review-agent-request` — UI 전용. 댓글에서 에이전트를 태그한 스레드에서 에이전트를 실행합니다. 실행은 `get-review-agent-context`로 스레드를 읽고 `post-review-agent-reply` 또는 `apply-review-agent-changes`로 끝납니다
+- `list-slide-comments`, `add-slide-comment`, `update-slide-comment`, `delete-slide-comment`, `toggle-slide-comment-reaction` — 같은 스레드를 다루는 이전 액션(호환용)
 
 ### 가져오기
 

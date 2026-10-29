@@ -33,12 +33,12 @@ export const slideCommentAnchorSchema = z
 export interface SlideCommentAnchor {
   x: number;
   y: number;
-  targetText?: string;
-  objectId?: string;
-  objectX?: number;
-  objectY?: number;
-  textStartOffset?: number;
-  textEndOffset?: number;
+  targetText?: string | undefined;
+  objectId?: string | undefined;
+  objectX?: number | undefined;
+  objectY?: number | undefined;
+  textStartOffset?: number | undefined;
+  textEndOffset?: number | undefined;
 }
 
 export function parseSlideCommentAnchor(

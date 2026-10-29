@@ -295,7 +295,10 @@ npx @agent-native/core@latest create my-slides --standalone --template slides
 
 ### コメント
 
-- `list-slide-comments`、`add-slide-comment`、`update-slide-comment`、`delete-slide-comment`
+- `get-deck-review` — 未解決のコメントスレッドをスライドごとにまとめて返します。フィードバックの対応に使います
+- `list-review-comments`、`create-review-comment`、`reply-review-comment`、`resolve-review-thread`、`react-to-review-comment` — コメントはデッキ上のフレームワークのレビュースレッドです（`resourceType: "deck"`、`targetId` はスライド ID）。並べ替えてもスライドに付いたままです
+- `start-review-agent-request`、`list-review-agent-requests`、`cancel-review-agent-request` — UI 専用。コメントでエージェントがタグ付けされたスレッドでエージェントを実行します。実行は `get-review-agent-context` でスレッドを読み、`post-review-agent-reply` または `apply-review-agent-changes` で終わります
+- `list-slide-comments`、`add-slide-comment`、`update-slide-comment`、`delete-slide-comment`、`toggle-slide-comment-reaction` — 同じスレッドを扱う旧アクション（互換用）
 
 ### インポート
 

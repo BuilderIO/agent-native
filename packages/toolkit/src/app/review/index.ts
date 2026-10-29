@@ -11,3 +11,4 @@ export * from "./ReviewThreadCardFrame.js";
 export * from "./ReviewThreadMenu.js";
 export * from "./ReviewMentionChip.js";
 export * from "./ReviewMentionPicker.js";
+export * from "./use-review-agent-mentions.js";

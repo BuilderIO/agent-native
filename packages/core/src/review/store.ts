@@ -616,6 +616,118 @@ async function assertMatchingReplyRouteTarget(
   }
 }
 
+export interface ImportReviewCommentInput {
+  id: string;
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
+  parentCommentId?: string | null;
+  targetId?: string | null;
+  kind?: ReviewCommentKind;
+  status: Exclude<ReviewCommentStatus, "deleted">;
+  anchor?: unknown;
+  body: string;
+  authorEmail?: string | null;
+  authorName?: string | null;
+  createdBy?: ReviewActorKind;
+  resolutionTarget?: ReviewResolutionTarget | null;
+  mentions?: ReviewMention[];
+  ownerEmail?: string | null;
+  orgId?: string | null;
+  visibility?: Visibility | null;
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown> | null;
+  reactions?: readonly { actorEmail: string; reaction: string }[];
+}
+
+export interface ImportReviewCommentsResult {
+  inserted: number;
+  skipped: number;
+}
+
+/**
+ * Copies comments from another store, keeping their ids, timestamps, status
+ * and reactions. Rows that already exist are left alone, so a rerun after a
+ * partial import inserts only what is missing. Imported comments are marked
+ * notified: an import never emails anyone.
+ */
+export async function importReviewComments(
+  comments: readonly ImportReviewCommentInput[],
+): Promise<ImportReviewCommentsResult> {
+  await ensureReviewTables();
+  if (!comments.length) return { inserted: 0, skipped: 0 };
+  const run = async (client: DbExec) => {
+    let inserted = 0;
+    const importedAt = new Date().toISOString();
+    for (const comment of comments) {
+      // raw-sql-ok: a fixed statement; every value is a bound parameter.
+      const result = await client.execute({
+        sql: `INSERT INTO agent_review_comments (
+          id, resource_type, resource_id, thread_id, parent_comment_id,
+          target_id, kind, status, anchor_json, body, author_email,
+          author_name, created_by, resolution_target, reply_route_target,
+          notification_completed_at, mentions_json, owner_email, org_id,
+          visibility, resolved_by, resolved_at, consumed_at, deleted_by,
+          deleted_at, created_at, updated_at, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO NOTHING`,
+        args: [
+          comment.id,
+          comment.resourceType,
+          comment.resourceId,
+          comment.threadId,
+          comment.parentCommentId ?? null,
+          comment.targetId ?? null,
+          comment.kind ?? "comment",
+          comment.status,
+          stringifyOptionalJson(comment.anchor ?? null),
+          comment.body,
+          comment.authorEmail ?? null,
+          comment.authorName ?? null,
+          comment.createdBy ?? "import",
+          comment.resolutionTarget ?? null,
+          null,
+          importedAt,
+          stringifyOptionalJson(comment.mentions ?? []),
+          comment.ownerEmail ?? null,
+          comment.orgId ?? null,
+          normalizeVisibility(comment.visibility),
+          comment.status === "resolved" ? (comment.resolvedBy ?? null) : null,
+          comment.status === "resolved"
+            ? (comment.resolvedAt ?? comment.updatedAt)
+            : null,
+          null,
+          null,
+          null,
+          comment.createdAt,
+          comment.updatedAt,
+          stringifyOptionalJson(comment.metadata ?? null),
+        ],
+      });
+      if (result.rowsAffected < 1) continue;
+      inserted += 1;
+      for (const reaction of comment.reactions ?? []) {
+        // raw-sql-ok: a fixed statement; every value is a bound parameter.
+        await client.execute({
+          sql: "INSERT INTO agent_review_comment_reactions (comment_id,actor_email,reaction,created_at) VALUES (?,?,?,?) ON CONFLICT (comment_id,actor_email,reaction) DO NOTHING",
+          args: [
+            comment.id,
+            reaction.actorEmail.trim(),
+            reaction.reaction,
+            comment.updatedAt,
+          ],
+        });
+      }
+    }
+    return { inserted, skipped: comments.length - inserted };
+  };
+  const client = getDbExec();
+  return client.transaction ? client.transaction(run) : run(client);
+}
+
 export async function insertReviewCommentWithClient(
   input: InsertReviewCommentInput,
   client: DbExec,

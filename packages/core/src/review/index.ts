@@ -15,6 +15,10 @@ export type {
   ReviewStatus,
   ReviewStatusEntry,
   ReviewableResourceRegistration,
+  ReviewCommentEmail,
+  ReviewCommentEmailInput,
+  ReviewCommentNotificationKind,
+  ReviewCommentNotificationOptions,
 } from "./types.js";
 export {
   redactPublicReviewCommentIdentity,
@@ -23,6 +27,13 @@ export {
   shouldRedactReviewIdentity,
 } from "./identity.js";
 export { extractReviewMentions, normalizeReviewMentions } from "./mentions.js";
+export {
+  agentMentionId,
+  isReviewAgentMention,
+  modelDisplayName,
+  REVIEW_AGENT_MENTION_ID_PREFIX,
+  reviewAgentAuthorName,
+} from "./agent-identity.js";
 export {
   notifyReviewComment,
   REVIEW_NOTIFICATION_PREFS_KEY,
@@ -43,6 +54,7 @@ export {
   getReviewStatus,
   getReviewThreadSummary,
   getReviewThreadRoot,
+  importReviewComments,
   queryReviewComments,
   routeReviewThread,
   sendReviewThreadToAgent,
@@ -69,5 +81,7 @@ export {
 } from "./suggestions/actor-kind.js";
 export type {
   GetReviewThreadSummaryInput,
+  ImportReviewCommentInput,
+  ImportReviewCommentsResult,
   ReviewThreadSummary,
 } from "./store.js";

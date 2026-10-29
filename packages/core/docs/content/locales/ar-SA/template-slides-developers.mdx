@@ -308,7 +308,10 @@ npx @agent-native/core@latest create my-slides --standalone --template slides
 
 ### التعليقات
 
-- `list-slide-comments`، `add-slide-comment`، `update-slide-comment`، `delete-slide-comment`
+- `get-deck-review` — سلاسل التعليقات المفتوحة مجمّعة حسب الشريحة، للعمل على الملاحظات
+- `list-review-comments`، `create-review-comment`، `reply-review-comment`، `resolve-review-thread`، `react-to-review-comment` — التعليقات هي سلاسل المراجعة الخاصة بإطار العمل على العرض (`resourceType: "deck"`، و`targetId` هو معرّف الشريحة)، لذا تبقى على شريحتها بعد إعادة الترتيب
+- `start-review-agent-request`، `list-review-agent-requests`، `cancel-review-agent-request` — للواجهة فقط؛ يشغّل الوكيل على سلسلة يشير إليه تعليق فيها. يقرأ التشغيل السلسلة باستخدام `get-review-agent-context` وينتهي باستخدام `post-review-agent-reply` أو `apply-review-agent-changes`
+- `list-slide-comments`، `add-slide-comment`، `update-slide-comment`، `delete-slide-comment`، `toggle-slide-comment-reaction` — إجراءات قديمة تواصل العمل على السلاسل نفسها
 
 ### الاستيراد
 

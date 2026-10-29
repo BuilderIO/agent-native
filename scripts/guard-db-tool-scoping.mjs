@@ -148,6 +148,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "slides:deck_access_request_limits":
     "internal anonymous access-request throttling buckets",
   "slides:slide_comments": "child rows scoped through decks",
+  "slides:slide_comment_review_migrations":
+    "per-deck migration markers written by the deck review access resolver",
+  "slides:slide_review_agent_requests":
+    "request rows scoped through decks and the requester; read via list-review-agent-requests",
   "slides-2:deck_share_links":
     "public share-token snapshots scoped by token and created through authorized deck actions",
   "slides-2:deck_events":
