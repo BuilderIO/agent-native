@@ -88,20 +88,24 @@ export class DraftSync {
     this.drain();
   }
 
-  /** The page is being hidden: what waits goes out in a request that survives it. */
+  /** The page is being hidden: what waits goes out now, in a request that survives it when one can. */
   flushOnHide(): void {
     if (this.pending?.kind !== "write") return;
+    this.stopTimer();
+    // A write in flight sends what waits the moment it settles, so the two cannot reach the server out of order.
+    if (this.inFlight > 0) return;
     const wire = this.serialize(this.pending.draft);
     if (this.sameAsPersisted(wire)) {
       this.pending = undefined;
-      this.stopTimer();
       return;
     }
     const sent = this.options.writeOnHide(wire);
-    // Too large for such a request: it stays queued for the timer.
-    if (!sent) return;
+    // Too large for such a request: send it the ordinary way now, since a timer may never run on a page that is going away.
+    if (!sent) {
+      this.drain();
+      return;
+    }
     this.pending = undefined;
-    this.stopTimer();
     this.inFlight += 1;
     this.held = true;
     this.trackWrite(wire, sent);

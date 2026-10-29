@@ -236,14 +236,15 @@ function WorkflowEditorLoader({
 
   let plan = opened.current;
   if (!plan && !draftQuery.isFetching) {
-    const read: DraftRead | null = draftQuery.data
-      ? { status: "read", draft: draftQuery.data.draft }
-      : draftQuery.isError
-        ? {
-            status: "failed",
-            errorCode: readActionFailure(draftQuery.error, ws.errors.unknown)
-              .errorCode,
-          }
+    // A failed read wins over data the query kept from an earlier one.
+    const read: DraftRead | null = draftQuery.isError
+      ? {
+          status: "failed",
+          errorCode: readActionFailure(draftQuery.error, ws.errors.unknown)
+            .errorCode,
+        }
+      : draftQuery.data
+        ? { status: "read", draft: draftQuery.data.draft }
         : null;
     if (read) plan = planRestore(read, workflow.graph);
     if (plan && plan.kind !== "failed") opened.current = plan;

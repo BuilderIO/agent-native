@@ -263,14 +263,35 @@ describe("DraftSync when the page is hidden", () => {
     expect(writes).toHaveLength(0);
   });
 
-  it("leaves a draft the client will not send that way for the timer", async () => {
+  it("sends a draft the client will not send that way the ordinary way at once, not on the timer", () => {
     const { sync, writes, hideWrites, state } = harness();
     state.hideAccepts = false;
     sync.schedule({ baseVersion: 2, graph: graphOf("a") });
     sync.flushOnHide();
     expect(hideWrites).toHaveLength(0);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.wire).toEqual({
+      baseVersion: 2,
+      graph: JSON.stringify(graphOf("a")),
+    });
+  });
+
+  it("waits for a write in flight instead of racing it, then sends what waits at once", async () => {
+    const { sync, writes, hideWrites } = harness();
+    sync.schedule({ baseVersion: 2, graph: graphOf("a") });
     await vi.advanceTimersByTimeAsync(DRAFT_DELAY_MS);
     expect(writes).toHaveLength(1);
+
+    sync.schedule({ baseVersion: 2, graph: graphOf("a", "b") });
+    sync.flushOnHide();
+    // The older write is still out: nothing else goes until it settles, so the two cannot arrive out of order.
+    expect(hideWrites).toHaveLength(0);
+    expect(writes).toHaveLength(1);
+
+    writes[0]?.done.resolve();
+    await settle();
+    expect(writes).toHaveLength(2);
+    expect(writes[1]?.wire.graph).toBe(JSON.stringify(graphOf("a", "b")));
   });
 
   it("counts a draft sent that way as one the server may hold", async () => {
