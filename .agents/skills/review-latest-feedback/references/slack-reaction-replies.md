@@ -166,8 +166,9 @@ commitment to the recorded action in the thread. That person becomes its owner: 
 their Slack ID and exact reply, and change the status to
 `"accepted"`; when the accepted action is done, use `status: "completed"` with
 completion evidence. The `🎫` reaction remains as history after completion and
-no longer counts as an open blocker. Only a later owner withdrawal removes an
-accepted action from current handoffs and uses the historical-mark record. An
+no longer counts as an open blocker. An owner withdrawal sets the handoff back to `status: "unassigned"` and keeps it in
+`handoffs[]` with its `🎫`, so unfinished work stays tracked. It leaves current
+handoffs only when the action is completed. An
 unambiguous contextual “yes”/“sure” may accept a
 preceding direct request when it names the human and exact action. That request
 may ask whether the named person's TODO or PR already includes the action; a
