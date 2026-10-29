@@ -550,7 +550,7 @@ describe("writeLayoutChange — freeform to auto layout", () => {
     });
   });
 
-  it("replaces padding and alignment a frame kept from an earlier layout, zero included", () => {
+  it("replaces padding, alignment and wrapping a frame kept from an earlier layout, zero included", () => {
     const write = ok(
       writeLayoutChange(
         model(
@@ -561,6 +561,7 @@ describe("writeLayoutChange — freeform to auto layout", () => {
               padding: "16px",
               justifyContent: "center",
               alignItems: "center",
+              flexWrap: "wrap",
             },
             declaredSize: { width: "168px", height: "104px" },
             resolvedSize: { horizontal: 200, vertical: 136 },
@@ -582,6 +583,7 @@ describe("writeLayoutChange — freeform to auto layout", () => {
       height: "136px",
       alignItems: "flex-start",
       justifyContent: "flex-start",
+      flexWrap: "nowrap",
     });
   });
 

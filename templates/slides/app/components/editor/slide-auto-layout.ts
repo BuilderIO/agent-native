@@ -621,7 +621,8 @@ export function setSlideLayoutSizing(
 
 /**
  * Pins the axes a resize changed on a member in flow: a resized member is
- * Fixed at its new size, and the insets a resize writes mean nothing in flow.
+ * Fixed at its new size. Its insets are left alone, since a relatively
+ * positioned member was authored with them.
  */
 export function fixSlideLayoutSizing(
   element: HTMLElement,
@@ -629,9 +630,6 @@ export function fixSlideLayoutSizing(
   measure: SlideLayoutMeasure = measureSlideLayoutBox,
 ): SlideAutoLayoutResult {
   if (!slideAutoLayoutGroupOf(element)) return refused("not-in-layout");
-  for (const property of ["left", "top", "right", "bottom"]) {
-    element.style.removeProperty(property);
-  }
   const model = readModel(element, measure, "sizing-box");
   const sizing: Partial<Record<LayoutAxis, LayoutSizing>> = {};
   for (const axis of axes) sizing[axis] = "fixed";

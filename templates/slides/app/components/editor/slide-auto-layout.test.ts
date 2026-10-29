@@ -367,18 +367,19 @@ describe("auto layout sizing", () => {
     expect(second.style.flexGrow).toBe("0");
   });
 
-  it("makes a resized member Fixed and drops the insets the resize wrote", () => {
+  it("makes a resized member Fixed and keeps its authored offsets", () => {
     const { group, second, boxes, measure } = rowFixture();
     enableSlideGroupAutoLayout(group, measure);
     setSlideLayoutSizing(second, "horizontal", "fill", measure);
-    second.style.left = "140px";
-    second.style.top = "20px";
+    second.style.position = "relative";
+    second.style.left = "4px";
+    second.style.top = "2px";
     boxes.set(second, { x: 130, y: 20, width: 150.6, height: 40 });
 
     fixSlideLayoutSizing(second, ["horizontal"], measureFrom(boxes));
 
-    expect(second.style.left).toBe("");
-    expect(second.style.top).toBe("");
+    expect(second.style.left).toBe("4px");
+    expect(second.style.top).toBe("2px");
     expect(second.style.width).toBe("151px");
     expect(second.style.flexGrow).toBe("0");
   });

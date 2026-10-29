@@ -937,8 +937,9 @@ function writeEnable(
     arrangement.direction === "horizontal" ? "row" : "column";
   frame.gap = `${arrangement.gap}px`;
   // The inferred arrangement is the whole flow. A frame that laid out before
-  // keeps its padding and alignment while freeform, and either would move
-  // the children it was inferred from, so each is overwritten, zero included.
+  // keeps its padding, alignment and wrapping while freeform, and each would
+  // move the children it was inferred from, so each is overwritten, zero
+  // included.
   const styles = model.node.styles;
   const current = model.frame.padding;
   const hadPadding = [
@@ -987,6 +988,7 @@ function writeEnable(
   if (!PACKED_AT_START.has(lower(styles.justifyContent))) {
     frame.justifyContent = "flex-start";
   }
+  if (lower(styles.flexWrap).startsWith("wrap")) frame.flexWrap = "nowrap";
   return { status: "ok", frame, children, order: arrangement.order };
 }
 

@@ -7082,6 +7082,14 @@ export default function SlideEditor({
       const selector = getBuilderSelector(element);
       if (selector) selectElementForStyling(element, selector);
       const startIndex = slideFlowIndexOf(group, element);
+      // The flow index alone does not say which side of a placed sibling the
+      // member sat on, and that side is its paint order.
+      const startNext = element.nextSibling;
+      const restoreStartSlot = () => {
+        if (element.nextSibling === startNext) return false;
+        group.insertBefore(element, startNext);
+        return true;
+      };
 
       const measureOverlay = () => {
         const rect = element.getBoundingClientRect();
@@ -7108,7 +7116,9 @@ export default function SlideEditor({
           return { handled: true };
         },
         commit: () => {
-          if (slideFlowIndexOf(group, element) !== startIndex) {
+          if (slideFlowIndexOf(group, element) === startIndex) {
+            if (restoreStartSlot()) measureOverlay();
+          } else {
             refreshLayerNodes();
             const html = readCurrentSlideContentHtml();
             if (html !== null) {
@@ -7123,7 +7133,7 @@ export default function SlideEditor({
           return { handled: true };
         },
         cancel: () => {
-          if (moveSlideFlowMember(group, element, startIndex)) measureOverlay();
+          if (restoreStartSlot()) measureOverlay();
           return { handled: true };
         },
       });
@@ -7622,12 +7632,22 @@ export default function SlideEditor({
       let groupResizeOriginalStyles = new Map<HTMLElement, string | null>();
       let fitResize = false;
       let fitFloorHeight: number | undefined;
-      // The group places a member in flow; the left and top a resize writes
-      // would offset a relatively positioned one from its slot.
-      const dropFlowInsets = () => {
+      // The group places a member in flow, so the left and top a resize
+      // writes would offset it from its slot; a relatively positioned one
+      // keeps the offsets it was authored with.
+      const flowInsets = ["left", "top", "right", "bottom"].map(
+        (property) =>
+          [
+            property,
+            element.style.getPropertyValue(property),
+            element.style.getPropertyPriority(property),
+          ] as const,
+      );
+      const restoreFlowInsets = () => {
         if (!inFlowLayout) return;
-        for (const property of ["left", "top", "right", "bottom"]) {
-          element.style.removeProperty(property);
+        for (const [property, value, priority] of flowInsets) {
+          if (value) element.style.setProperty(property, value, priority);
+          else element.style.removeProperty(property);
         }
       };
       let began: "pending" | "ready" | "failed" = "pending";
@@ -7759,7 +7779,7 @@ export default function SlideEditor({
             { x: next.x, y: next.y, width: next.width },
             { overrideSizeCaps: true },
           );
-          dropFlowInsets();
+          restoreFlowInsets();
           if (next.minHeight !== undefined) {
             element.style.minHeight = `${next.minHeight}px`;
           }
@@ -7819,7 +7839,7 @@ export default function SlideEditor({
               ) && resizeTransform.transform === "none",
           },
         );
-        dropFlowInsets();
+        restoreFlowInsets();
         if (memberPlans) {
           for (const member of groupResizeMembers) {
             const plan = memberPlans.get(member.element);
