@@ -26,7 +26,7 @@ export function ReviewPinBadge({
   ...buttonProps
 }: {
   authors: ReviewPinAuthor[];
-  // Total comments in the thread. A count of one is implied by the avatar.
+  // Threads merged into a cluster pin. A single thread's pin shows no number.
   count?: number;
   selected?: boolean;
   resolved?: boolean;

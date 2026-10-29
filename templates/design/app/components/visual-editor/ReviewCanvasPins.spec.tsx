@@ -2097,7 +2097,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       );
     });
 
-    it("stacks unique authors and counts every comment in the thread", async () => {
+    // oracle-change: a thread's pin no longer shows its comment count; only its label says it.
+    it("stacks unique authors and keeps the comment count out of the pin", async () => {
       reviewComments = [
         comment,
         reply("reply-1", "second@example.com"),
@@ -2106,13 +2107,13 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       await renderPinsOnly();
 
       // The root author replied too, so two avatars and a total of three.
-      expect(pin()?.textContent).toBe("RS3");
+      expect(pin()?.textContent).toBe("RS");
       expect(pin()?.getAttribute("aria-label")).toBe(
         "Thread by reviewer@example.com and second@example.com, 3 comments",
       );
     });
 
-    it("shows at most three authors but still counts every comment", async () => {
+    it("shows at most three authors", async () => {
       reviewComments = [
         comment,
         reply("reply-1", "second@example.com"),
@@ -2121,7 +2122,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       ];
       await renderPinsOnly();
 
-      expect(pin()?.textContent).toBe("RST4");
+      expect(pin()?.textContent).toBe("RST");
     });
 
     it("draws an agent author with its brand mark instead of an initial", async () => {

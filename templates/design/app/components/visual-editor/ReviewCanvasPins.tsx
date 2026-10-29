@@ -3510,7 +3510,6 @@ function ReviewPin({
         data-review-pin
         data-review-unread={unread ? "true" : undefined}
         authors={authors}
-        {...(commentCount !== undefined ? { count: commentCount } : {})}
         ref={pinRef}
         selected={active}
         resolved={resolved}

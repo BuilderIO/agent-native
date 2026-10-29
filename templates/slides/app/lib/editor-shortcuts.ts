@@ -112,13 +112,14 @@ export function shouldActivateSlidesCommentShortcut(
     );
   }
 
+  // Plain C works anywhere in the editor, as the comment tool key does in
+  // Design; only typing surfaces and open menus or dialogs keep the letter.
   return (
     !event.defaultPrevented &&
     !event.repeat &&
     !event.isComposing &&
     !event.shiftKey &&
     plainCanvasShortcut &&
-    focusedCanvas &&
     !isEditableOrBlockingTarget(event.target) &&
     !isEditableOrBlockingTarget(activeElement)
   );

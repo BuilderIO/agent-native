@@ -139,7 +139,6 @@ function CommentThreadPin({
 }) {
   const t = useT();
   const root = thread.review.root;
-  const count = 1 + thread.review.replies.length;
   const authorName =
     root.authorName?.trim() || root.authorEmail || t("comments.reviewer");
   return (
@@ -156,7 +155,6 @@ function CommentThreadPin({
               agent: resolveReviewAgent(comment),
             }),
           )}
-          count={count}
           selected={open}
           resolved={thread.resolved}
           unread={Boolean(
