@@ -523,6 +523,7 @@ export function useDesignReadyViewTracking({
     let cancelled = false;
     const isCancelled = () => cancelled;
     let timer: number | undefined;
+    let cancelVisible: (() => void) | undefined;
     let checks = 0;
     let loggedError = false;
     const key = `${designId}:${urlAttemptId}`;
@@ -551,12 +552,15 @@ export function useDesignReadyViewTracking({
           return;
         }
         if (status === "ready" && result) {
-          resolvedAttemptsRef.current.add(key);
-          window.dispatchEvent(
-            new CustomEvent("design:verified-generation-ready", {
-              detail: { designId, ...result },
-            }),
-          );
+          cancelVisible = runWhenTabVisible(() => {
+            if (isCancelled()) return;
+            resolvedAttemptsRef.current.add(key);
+            window.dispatchEvent(
+              new CustomEvent("design:verified-generation-ready", {
+                detail: { designId, ...result },
+              }),
+            );
+          });
           return;
         }
       } catch (error) {
@@ -582,6 +586,7 @@ export function useDesignReadyViewTracking({
     void resolveAttempt();
     return () => {
       cancelled = true;
+      cancelVisible?.();
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [designId, designLoaded, files, isOwner, urlAttemptId]);

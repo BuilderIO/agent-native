@@ -689,6 +689,47 @@ describe("design_ready_viewed", () => {
     window.removeEventListener("design:verified-generation-ready", listener);
   });
 
+  it("waits for a result link to become visible before enrollment", async () => {
+    setUrl("?generation_attempt_id=attempt_1234567890abcdef");
+    visibility = "hidden";
+    const listener = vi.fn();
+    window.addEventListener("design:verified-generation-ready", listener);
+    mocks.callAction.mockResolvedValue({
+      status: "ready",
+      result: { runId: "run-2", turnId: "turn-1" },
+    });
+    await renderReady({ files: [screen("a")] });
+    await flushRunStatus();
+    expect(listener).not.toHaveBeenCalled();
+    visibility = "visible";
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener("design:verified-generation-ready", listener);
+  });
+
+  it("cancels deferred result-link enrollment when the view closes", async () => {
+    setUrl("?generation_attempt_id=attempt_1234567890abcdef");
+    visibility = "hidden";
+    const listener = vi.fn();
+    window.addEventListener("design:verified-generation-ready", listener);
+    mocks.callAction.mockResolvedValue({
+      status: "ready",
+      result: { runId: "run-2", turnId: "turn-1" },
+    });
+    await renderReady({ files: [screen("a")] });
+    await flushRunStatus();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    visibility = "visible";
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(listener).not.toHaveBeenCalled();
+    window.removeEventListener("design:verified-generation-ready", listener);
+  });
+
   it("keeps checking result links past 30 seconds and stops after confirmation", async () => {
     vi.useFakeTimers();
     try {
