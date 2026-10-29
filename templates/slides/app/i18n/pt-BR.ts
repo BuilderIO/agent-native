@@ -731,7 +731,7 @@ const messages = {
     align: "Alinhamento",
     decreaseSize: "Diminuir tamanho da fonte",
     increaseSize: "Aumentar tamanho da fonte",
-    fontSizes: "Tamanhos de fonte",
+    fontSizes: "Escala tipográfica",
     deckSizes: "Apresentação",
     mixed: "Misto",
     textColor: "Cor do texto",

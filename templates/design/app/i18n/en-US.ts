@@ -364,7 +364,7 @@ export default {
       font: "Font",
       baseSize: "Base Size",
       size: "Size",
-      fontSizes: "Font sizes",
+      fontSizes: "Type scale",
       weight: "Weight",
       color: "Color",
       align: "Align",

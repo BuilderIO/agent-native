@@ -585,7 +585,7 @@ export default {
       font: "字型",
       baseSize: "底座尺寸",
       size: "尺寸",
-      fontSizes: "字型大小",
+      fontSizes: "字級階梯",
       weight: "重量",
       color: "顏色",
       align: "對齊",

@@ -725,7 +725,7 @@ const messages = {
     align: "المحاذاة",
     decreaseSize: "تصغير حجم الخط",
     increaseSize: "تكبير حجم الخط",
-    fontSizes: "أحجام الخط",
+    fontSizes: "مقياس الخطوط",
     deckSizes: "العرض",
     mixed: "مختلط",
     textColor: "لون النص",

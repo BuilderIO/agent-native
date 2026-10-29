@@ -430,7 +430,7 @@ export default {
       font: "फ़ॉन्ट",
       baseSize: "आधार आकार",
       size: "आकार",
-      fontSizes: "फ़ॉन्ट आकार",
+      fontSizes: "टाइप स्केल",
       weight: "वज़न",
       color: "रंग",
       align: "संरेखित",

@@ -444,7 +444,7 @@ export default {
       font: "Schriftart",
       baseSize: "Basisgröße",
       size: "Größe",
-      fontSizes: "Schriftgrößen",
+      fontSizes: "Schriftskala",
       weight: "Gewicht",
       color: "Farbe",
       align: "Ausrichten",

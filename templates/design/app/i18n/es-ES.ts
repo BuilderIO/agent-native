@@ -440,7 +440,7 @@ export default {
       font: "Fuente",
       baseSize: "Tamaño básico",
       size: "Tamaño",
-      fontSizes: "Tamaños de fuente",
+      fontSizes: "Escala tipográfica",
       weight: "Peso",
       color: "Color",
       align: "Alinear",

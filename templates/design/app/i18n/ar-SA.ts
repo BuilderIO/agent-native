@@ -430,7 +430,7 @@ export default {
       font: "الخط",
       baseSize: "حجم القاعدة",
       size: "مقاس",
-      fontSizes: "أحجام الخط",
+      fontSizes: "مقياس الخطوط",
       weight: "وزن",
       color: "لون",
       align: "محاذاة",

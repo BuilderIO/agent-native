@@ -718,7 +718,7 @@ const messages = {
     align: "Align",
     decreaseSize: "Decrease font size",
     increaseSize: "Increase font size",
-    fontSizes: "Font sizes",
+    fontSizes: "Type scale",
     deckSizes: "Deck",
     mixed: "Mixed",
     textColor: "Text color",

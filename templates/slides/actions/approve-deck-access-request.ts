@@ -205,73 +205,86 @@ export default defineAction({
       throw httpError("This access request is invalid or expired.", 404);
     }
 
-    let grantedShareId: string;
-    if (existingShare) {
-      const raisedShare = (
-        await db
-          .update(schema.deckShares)
-          .set({ role })
+    // The share and the request's granted record commit together: a share
+    // written without its record would leave the request pending and a later
+    // click on the link would report "already allowed" without notifying.
+    const granted = await db.transaction(async (tx) => {
+      let grantedShareId: string;
+      if (existingShare) {
+        const raisedShare = (
+          await tx
+            .update(schema.deckShares)
+            .set({ role })
+            .where(
+              and(
+                eq(schema.deckShares.id, existingShare.id),
+                eq(schema.deckShares.role, existingShare.role),
+              ),
+            )
+            .returning({ id: schema.deckShares.id })
+        ).at(0);
+        if (!raisedShare) {
+          throw httpError(
+            "This requester's access changed. Reload to see it.",
+            409,
+          );
+        }
+        grantedShareId = raisedShare.id;
+      } else {
+        const insertedShare = (
+          await tx
+            .insert(schema.deckShares)
+            .values({
+              id: deckViewerShareId(deckId, requesterEmail),
+              resourceId: deckId,
+              principalType: "user",
+              principalId: requesterEmail,
+              role,
+              createdBy: normalizedApproverEmail,
+              createdAt: new Date().toISOString(),
+            })
+            .onConflictDoNothing()
+            .returning({ id: schema.deckShares.id })
+        ).at(0);
+        if (!insertedShare) return null;
+        grantedShareId = insertedShare.id;
+      }
+      const markedRequest = (
+        await tx
+          .update(schema.deckEvents)
+          .set({
+            payload: JSON.stringify({
+              ...requestPayload,
+              accessGrantedAt: new Date().toISOString(),
+              accessShareId: grantedShareId,
+              grantedRole: role,
+            }),
+          })
           .where(
             and(
-              eq(schema.deckShares.id, existingShare.id),
-              eq(schema.deckShares.role, existingShare.role),
+              eq(schema.deckEvents.id, request.id),
+              eq(schema.deckEvents.payload, request.payload ?? ""),
             ),
           )
-          .returning({ id: schema.deckShares.id })
+          .returning({ id: schema.deckEvents.id })
       ).at(0);
-      if (!raisedShare) {
+      if (!markedRequest) {
         throw httpError(
-          "This requester's access changed. Reload to see it.",
+          "This access request changed while it was being approved. Reload to see it.",
           409,
         );
       }
-      grantedShareId = raisedShare.id;
-    } else {
-      const insertedShare = (
-        await db
-          .insert(schema.deckShares)
-          .values({
-            id: deckViewerShareId(deckId, requesterEmail),
-            resourceId: deckId,
-            principalType: "user",
-            principalId: requesterEmail,
-            role,
-            createdBy: normalizedApproverEmail,
-            createdAt: new Date().toISOString(),
-          })
-          .onConflictDoNothing()
-          .returning({ id: schema.deckShares.id })
-      ).at(0);
-      if (!insertedShare) {
-        const shareAfterConflict = await findShare();
-        if (!shareAfterConflict) {
-          // guard:allow-bare-error — invariant: an insert conflict on a deterministic share id means that share exists.
-          throw new Error("Deck access share conflict could not be resolved.");
-        }
-        return alreadyAllowed(shareAfterConflict);
+      return { shareId: grantedShareId };
+    });
+    if (!granted) {
+      const shareAfterConflict = await findShare();
+      if (!shareAfterConflict) {
+        // guard:allow-bare-error — invariant: an insert conflict on a deterministic share id means that share exists.
+        throw new Error("Deck access share conflict could not be resolved.");
       }
-      grantedShareId = insertedShare.id;
+      return alreadyAllowed(shareAfterConflict);
     }
-    const [markedRequest] = await db
-      .update(schema.deckEvents)
-      .set({
-        payload: JSON.stringify({
-          ...requestPayload,
-          accessGrantedAt: new Date().toISOString(),
-          accessShareId: grantedShareId,
-          grantedRole: role,
-        }),
-      })
-      .where(
-        and(
-          eq(schema.deckEvents.id, request.id),
-          eq(schema.deckEvents.payload, request.payload ?? ""),
-        ),
-      )
-      .returning({ id: schema.deckEvents.id });
-    if (!markedRequest) {
-      throw new Error("Deck access request approval could not be recorded.");
-    }
+    const grantedShareId = granted.shareId;
     invalidateCollabAccessCache("deck", deckId);
 
     // Only the approval that granted the role emails, so repeat clicks on

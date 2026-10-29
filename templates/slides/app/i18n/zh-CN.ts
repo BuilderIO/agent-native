@@ -699,7 +699,7 @@ const messages = {
     align: "对齐",
     decreaseSize: "减小字号",
     increaseSize: "增大字号",
-    fontSizes: "字号",
+    fontSizes: "字号阶梯",
     deckSizes: "演示",
     mixed: "混合",
     textColor: "文本颜色",

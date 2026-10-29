@@ -698,7 +698,7 @@ const messages = {
     align: "對齊",
     decreaseSize: "縮小字型",
     increaseSize: "放大字型",
-    fontSizes: "字型大小",
+    fontSizes: "字級階梯",
     deckSizes: "簡報",
     mixed: "混合",
     textColor: "文字顏色",

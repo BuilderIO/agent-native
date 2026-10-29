@@ -420,7 +420,7 @@ export default {
       font: "字体",
       baseSize: "底座尺寸",
       size: "尺寸",
-      fontSizes: "字号",
+      fontSizes: "字号阶梯",
       weight: "重量",
       color: "颜色",
       align: "对齐",

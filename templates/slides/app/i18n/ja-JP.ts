@@ -726,7 +726,7 @@ const messages = {
     align: "配置",
     decreaseSize: "フォントサイズを小さく",
     increaseSize: "フォントサイズを大きく",
-    fontSizes: "フォントサイズ",
+    fontSizes: "タイプスケール",
     deckSizes: "デッキ",
     mixed: "混在",
     textColor: "文字色",

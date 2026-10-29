@@ -710,7 +710,7 @@ const messages = {
     align: "संरेखण",
     decreaseSize: "फ़ॉन्ट आकार घटाएँ",
     increaseSize: "फ़ॉन्ट आकार बढ़ाएँ",
-    fontSizes: "फ़ॉन्ट आकार",
+    fontSizes: "टाइप स्केल",
     deckSizes: "डेक",
     mixed: "मिश्रित",
     textColor: "टेक्स्ट का रंग",

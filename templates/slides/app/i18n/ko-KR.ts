@@ -720,7 +720,7 @@ const messages = {
     align: "정렬",
     decreaseSize: "글꼴 크기 줄이기",
     increaseSize: "글꼴 크기 늘리기",
-    fontSizes: "글꼴 크기",
+    fontSizes: "타입 스케일",
     deckSizes: "덱",
     mixed: "혼합",
     textColor: "텍스트 색상",

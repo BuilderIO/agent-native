@@ -734,7 +734,7 @@ const messages = {
     align: "Ausrichtung",
     decreaseSize: "Schrift verkleinern",
     increaseSize: "Schrift vergrößern",
-    fontSizes: "Schriftgrößen",
+    fontSizes: "Schriftskala",
     deckSizes: "Präsentation",
     mixed: "Gemischt",
     textColor: "Textfarbe",

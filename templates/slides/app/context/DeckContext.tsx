@@ -1040,6 +1040,76 @@ function confirmedSlideBaseContent(deckId: string, slideId: string) {
     : undefined;
 }
 
+// Deck-level fields a whole-deck save writes beside its slides.
+const FULL_REPLACE_DECK_FIELDS = [
+  "title",
+  "designSystemId",
+  "tweaks",
+  "aspectRatio",
+  "sourceImport",
+  "generationContext",
+] as const;
+type FullReplaceDeckField = (typeof FULL_REPLACE_DECK_FIELDS)[number];
+
+// The deck-level values this client last confirmed with the server: the
+// baseline that tells a field this client changed from one another writer
+// changed, as confirmedSlideContentHashes does for slides.
+const confirmedDeckFields = new Map<
+  string,
+  Map<FullReplaceDeckField, string>
+>();
+
+function deckFieldValue(value: unknown): string {
+  return stableStringify(value ?? null);
+}
+
+function rememberConfirmedDeckFields(
+  deckId: string,
+  values: Partial<Record<FullReplaceDeckField, unknown>>,
+  fields: readonly FullReplaceDeckField[] = FULL_REPLACE_DECK_FIELDS,
+) {
+  const confirmed = confirmedDeckFields.get(deckId) ?? new Map();
+  for (const field of fields) {
+    confirmed.set(field, deckFieldValue(values[field]));
+  }
+  confirmedDeckFields.set(deckId, confirmed);
+}
+
+/**
+ * A whole-deck save carries every deck-level field. Each field this client
+ * did not change since it last confirmed the deck takes the latest server
+ * value, so the save cannot revert another writer's title or design system;
+ * a field both changed is a conflict.
+ */
+function mergeFullReplaceDeckFields(
+  deckId: string,
+  replacement: Deck,
+  remoteDeck: Deck,
+): { deck: Deck; conflicts: FullReplaceDeckField[] } {
+  const confirmed = confirmedDeckFields.get(deckId);
+  const deck: Deck = { ...replacement };
+  const conflicts: FullReplaceDeckField[] = [];
+  for (const field of FULL_REPLACE_DECK_FIELDS) {
+    const local = deckFieldValue(replacement[field]);
+    const latest = deckFieldValue(remoteDeck[field]);
+    if (local === latest) continue;
+    const base = confirmed?.get(field);
+    if (base === local) {
+      Object.assign(deck, { [field]: remoteDeck[field] });
+    } else if (base !== latest) {
+      conflicts.push(field);
+    }
+  }
+  return { deck, conflicts };
+}
+
+function hasPendingDeckFieldWrite(deckId: string): boolean {
+  return [
+    ...(pendingOpsQueue.get(deckId) ?? []),
+    ...(inFlightOpSlides.get(deckId) ?? []),
+  ].some((op) => op.op === "patch-deck-fields" || op.op === "full-replace");
+}
+
 function fullReplaceConflictSlides(
   deckId: string,
   replacement: Deck,
@@ -1173,6 +1243,12 @@ function rememberPersistedSlideContent(deckId: string, ops: GranularOp[]) {
       if (retries?.size === 0) staleContentRetrySlides.delete(deckId);
     } else if (op.op === "add-slide") {
       rememberConfirmedSlideContent(deckId, op.slideId, op.fields.content);
+    } else if (op.op === "patch-deck-fields") {
+      rememberConfirmedDeckFields(
+        deckId,
+        op.fields,
+        FULL_REPLACE_DECK_FIELDS.filter((field) => field in op.fields),
+      );
     } else if (op.op === "delete-slide") {
       const hashes = confirmedSlideContentHashes.get(deckId);
       hashes?.delete(op.slideId);
@@ -1309,21 +1385,23 @@ async function assertFullReplaceCurrent(
   deckId: string,
   replacement: Deck,
   ops: GranularOp[],
-): Promise<void> {
+): Promise<Deck> {
   const latest = await readDeckFromAPI(deckId);
   // No server copy yet (a create still landing): there is nothing to remove.
-  if (latest.status === "not-found") return;
+  if (latest.status === "not-found") return replacement;
   if (latest.status !== "ok") throw latest.error;
-  const conflicts = fullReplaceConflictSlides(
-    deckId,
-    replacement,
-    latest.deck,
-    ops,
-  );
-  if (!conflicts || conflicts.size === 0) return;
+  const conflicts =
+    fullReplaceConflictSlides(deckId, replacement, latest.deck, ops) ??
+    new Set<string>();
+  const fields = mergeFullReplaceDeckFields(deckId, replacement, latest.deck);
+  if (conflicts.size === 0 && fields.conflicts.length === 0) {
+    return fields.deck;
+  }
   throw Object.assign(
     new Error(
-      `Deck ${deckId} changed on the server; the full-deck save would remove or overwrite another writer's slides`,
+      `Deck ${deckId} changed on the server; the full-deck save would remove or overwrite another writer's ${
+        conflicts.size > 0 ? "slides" : fields.conflicts.join(", ")
+      }`,
     ),
     {
       errorCode: "full_replace_conflict" as const,
@@ -1869,9 +1947,9 @@ async function persistDeckOps(
   }
 
   const results: unknown[] = [];
-  if (ops[0].op === "full-replace") {
-    const deck = ops[0].deck;
-    await assertFullReplaceCurrent(deckId, deck, ops);
+  const firstOp = ops.at(0);
+  if (firstOp?.op === "full-replace") {
+    const deck = await assertFullReplaceCurrent(deckId, firstOp.deck, ops);
     results.push(
       await callDeckWriteAction<unknown>(
         "save-deck",
@@ -1880,6 +1958,7 @@ async function persistDeckOps(
         { method: "PUT", signal },
       ),
     );
+    rememberConfirmedDeckFields(deckId, deck);
     const trailingOps = collapseKeepaliveSlidePatches(
       ops.slice(1),
     ) as PatchDeckOp[];
@@ -3368,6 +3447,7 @@ function discardPendingDeckOps(deckId: string) {
   staleSlideFieldDrafts.delete(deckId);
   confirmedSlideContentHashes.delete(deckId);
   confirmedSlideContents.delete(deckId);
+  confirmedDeckFields.delete(deckId);
   immediateFlushRequests.delete(deckId);
   notifySaveListeners();
 }
@@ -5908,6 +5988,9 @@ export function DeckProvider({
           confirmedContents.set(slide.id, slide.content);
         }
       }
+      if (!hasPendingDeckFieldWrite(updated.id)) {
+        rememberConfirmedDeckFields(updated.id, updated);
+      }
       if (confirmedHashes.size > 0) {
         confirmedSlideContentHashes.set(updated.id, confirmedHashes);
         confirmedSlideContents.set(updated.id, confirmedContents);
@@ -6387,15 +6470,24 @@ export function DeckProvider({
     [syncOpenDeck],
   );
 
+  // A failed resync is retried by the next poll, but it is reported rather
+  // than dropped so a reconnect that keeps failing is visible.
   const resyncDeckState = useCallback(async () => {
     try {
       await refetchDeckListIfChanged();
-    } catch {}
+    } catch (error) {
+      captureError(error, { tags: { area: "slides-resync", step: "list" } });
+    }
     const currentOpenId = currentOpenDeckIdFromWindow();
     if (!currentOpenId) return;
     try {
       await refetchOpenDeckIfChanged(currentOpenId);
-    } catch {}
+    } catch (error) {
+      captureError(error, {
+        tags: { area: "slides-resync", step: "open-deck" },
+        extra: { deckId: currentOpenId },
+      });
+    }
   }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged]);
 
   const resetDeckBaseline = useCallback(
@@ -6453,6 +6545,7 @@ export function DeckProvider({
             deck.id,
             new Map(deck.slides.map((slide) => [slide.id, slide.content])),
           );
+          rememberConfirmedDeckFields(deck.id, deck);
         }
       }
       setDecks((prev) => {

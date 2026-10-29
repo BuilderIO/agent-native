@@ -90,6 +90,7 @@ function createDb(
   requestRows: unknown[],
   shareRows: unknown[],
   insertConflict = false,
+  requestUpdateConflict = false,
 ) {
   const rowsBySelect = [deckRows, requestRows, shareRows];
   let selectIndex = 0;
@@ -122,13 +123,20 @@ function createDb(
     update: vi.fn(() => ({
       set: vi.fn((row: Record<string, unknown>) => {
         db.updatedRows.push(row);
+        const isRequestUpdate = typeof row.payload === "string";
         return {
           where: vi.fn(() => ({
-            returning: async () => [{ id: "updated-row" }],
+            returning: async () =>
+              isRequestUpdate && requestUpdateConflict
+                ? []
+                : [{ id: "updated-row" }],
           })),
         };
       }),
     })),
+    transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) =>
+      run(db),
+    ),
   };
   return db;
 }
@@ -466,5 +474,20 @@ describe("approve-deck-access-request", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 404 });
     expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it("grants and records the approval in one transaction, and reports a request that changed", async () => {
+    const db = createDb([privateDeck()], [accessRequest()], [], false, true);
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      runApproval({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(db.insertedRows).toHaveLength(1);
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 });

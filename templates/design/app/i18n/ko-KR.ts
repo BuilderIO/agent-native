@@ -434,7 +434,7 @@ export default {
       font: "세례반",
       baseSize: "기본 크기",
       size: "크기",
-      fontSizes: "글꼴 크기",
+      fontSizes: "타입 스케일",
       weight: "무게",
       color: "색상",
       align: "맞추다",

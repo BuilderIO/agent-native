@@ -441,7 +441,7 @@ export default {
       font: "Fonte",
       baseSize: "Taille du socle",
       size: "Taille",
-      fontSizes: "Tailles de police",
+      fontSizes: "Échelle typographique",
       weight: "Poids",
       color: "Couleur",
       align: "Aligner",

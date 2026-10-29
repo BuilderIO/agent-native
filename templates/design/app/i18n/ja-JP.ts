@@ -443,7 +443,7 @@ export default {
       font: "フォント",
       baseSize: "ベースサイズ",
       size: "サイズ",
-      fontSizes: "フォントサイズ",
+      fontSizes: "タイプスケール",
       weight: "重さ",
       color: "色",
       align: "整列",

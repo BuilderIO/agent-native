@@ -318,6 +318,52 @@ describe("two people editing one deck", () => {
     });
   });
 
+  it("keeps a collaborator's title when a whole-deck save did not change it", async () => {
+    const { server, david, ashley } = await openTwoClients();
+
+    act(() => {
+      ashley.decks().updateDeck(initialDeck.id, { title: "Ashley's title" });
+    });
+    await settle();
+
+    const davidsCopy = requireDeck(david.decks().getDeck(initialDeck.id));
+    expect(davidsCopy.title).toBe(initialDeck.title);
+    act(() => {
+      david.decks().setDeckSlides(initialDeck.id, davidsCopy.slides, {
+        persistence: "immediate",
+        forcePersistence: true,
+      });
+    });
+    await settle();
+
+    expect(david.mod.getDeckSaveError(initialDeck.id)).toBeUndefined();
+    expect(server.deck().title).toBe("Ashley's title");
+  });
+
+  it("holds a whole-deck save that changes a title a collaborator also changed", async () => {
+    const { server, david, ashley } = await openTwoClients();
+
+    act(() => {
+      ashley.decks().updateDeck(initialDeck.id, { title: "Ashley's title" });
+    });
+    await settle();
+
+    const davidsCopy = requireDeck(david.decks().getDeck(initialDeck.id));
+    act(() => {
+      david.decks().setDeckSlides(initialDeck.id, davidsCopy.slides, {
+        deckFields: { title: "David's title" },
+        persistence: "immediate",
+        forcePersistence: true,
+      });
+    });
+    await settle();
+
+    expect(server.deck().title).toBe("Ashley's title");
+    expect(david.mod.getDeckSaveError(initialDeck.id)).toMatchObject({
+      errorCode: "slide_content_conflict",
+    });
+  });
+
   it("tells the editor plainly when a collaborator deleted the slide it was skipping", async () => {
     const { server, david, ashley } = await openTwoClients();
 
