@@ -233,4 +233,31 @@ describe("CommentComposer mention autocomplete", () => {
     escape({});
     expect(onEscape).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the mention menu open on an input method's Escape", async () => {
+    const { textarea } = renderComposer(members);
+    const escape = async (init: KeyboardEventInit) => {
+      await act(async () => {
+        textarea.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+            ...init,
+          }),
+        );
+        await Promise.resolve();
+      });
+    };
+    const options = () => container.querySelectorAll('[role="option"]');
+
+    act(() => typeInto(textarea, "@m"));
+    expect(options()).toHaveLength(members.length);
+
+    await escape({ isComposing: true });
+    expect(options()).toHaveLength(members.length);
+
+    await escape({});
+    expect(options()).toHaveLength(0);
+  });
 });

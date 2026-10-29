@@ -308,6 +308,11 @@ export const CommentComposer = forwardRef<
           portalled={false}
           className="w-80 max-w-[calc(100vw-2rem)] p-1"
           onOpenAutoFocus={(event) => event.preventDefault()}
+          // The popover hears Escape on the document before the textarea does.
+          // An input method's Escape cancels its candidate, so the menu stays.
+          onEscapeKeyDown={(event) => {
+            if (isComposingKey(event)) event.preventDefault();
+          }}
         >
           <div role="listbox">
             {filtered.map((member, index) => (
