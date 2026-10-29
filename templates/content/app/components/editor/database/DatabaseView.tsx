@@ -143,6 +143,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -333,6 +334,11 @@ import {
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
 import { DatabaseCellComments } from "./database-cell-comments";
 import {
+  createConstraintMenus,
+  useConstraintMenusState,
+  type ConstraintMenus,
+} from "./database-constraint-menus";
+import {
   DatabaseItemCommentsContext,
   DatabaseRowCommentCount,
   type OpenDatabaseItemComments,
@@ -394,8 +400,10 @@ export interface DatabaseViewProps {
 
 const CONTENT_DATABASE_PAGE_SIZE = 100;
 const CONTENT_DATABASE_MAX_ITEM_LIMIT = 5_000;
-// Table rows are memoized; a fresh `{}` each render would re-render them all.
+// Table rows are memoized, and their grids read the column order through
+// context; a fresh `{}` or `[]` each render would re-render them all.
 const NO_COLUMN_WRAP_OVERRIDES: Record<string, boolean> = {};
+const NO_COLUMN_ORDER: string[] = [];
 
 export function createDatabaseViewSaveQueue() {
   let previous: Promise<unknown> = Promise.resolve();
@@ -1199,16 +1207,8 @@ function DatabaseTable({
   const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
-  const [inlineAddFilterOpen, setInlineAddFilterOpen] = useState(false);
   const [toolbarFilterOpen, setToolbarFilterOpen] = useState(false);
-  const [inlineFilterOpenIndex, setInlineFilterOpenIndex] = useState<
-    number | null
-  >(null);
-  const [inlineAdvancedFilterOpen, setInlineAdvancedFilterOpen] =
-    useState(false);
-  const [inlineSortOpenIndex, setInlineSortOpenIndex] = useState<number | null>(
-    null,
-  );
+  const [constraintMenus] = useState(createConstraintMenus);
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
 
   const [builderReviewSourceId, setBuilderReviewSourceId] = useState<
@@ -3370,8 +3370,10 @@ function DatabaseTable({
                   createDatabaseFilterForField(key, label, orderedProperties),
                 ]);
                 setInlineFilterControlsOpen(true);
-                setInlineAddFilterOpen(false);
-                setInlineFilterOpenIndex(filters.length);
+                constraintMenus.set({
+                  addFilter: false,
+                  filterIndex: filters.length,
+                });
                 setToolbarFilterOpen(false);
               }}
               onAddAdvancedFilter={(key, label) => {
@@ -3386,8 +3388,7 @@ function DatabaseTable({
                   ),
                 ]);
                 setInlineFilterControlsOpen(true);
-                setInlineAddFilterOpen(false);
-                setInlineAdvancedFilterOpen(true);
+                constraintMenus.set({ addFilter: false, advancedFilter: true });
                 setToolbarFilterOpen(false);
               }}
             />
@@ -3505,7 +3506,8 @@ function DatabaseTable({
       </div>
 
       {!canEditWidgetRows ? (
-        <DatabaseActiveConstraintsBar
+        <DatabaseActiveConstraintsBarWithMenus
+          menus={constraintMenus}
           documentId={document.id}
           items={items}
           searchQuery={searchQuery}
@@ -3515,32 +3517,25 @@ function DatabaseTable({
           properties={properties}
           constraintCount={visibleConstraintCount}
           forceShow={inlineFilterControlsOpen}
-          addFilterOpen={inlineAddFilterOpen}
-          openSortIndex={inlineSortOpenIndex}
-          openFilterIndex={inlineFilterOpenIndex}
-          advancedFilterOpen={inlineAdvancedFilterOpen}
           hasPersonalQueryChanges={personalQueryDirty}
           savePending={updateView.isPending}
           onAddFilterOpenChange={(open) => {
-            setInlineAddFilterOpen(open);
+            constraintMenus.set({ addFilter: open });
             if (open) setInlineFilterControlsOpen(true);
           }}
-          onSortOpenIndexChange={setInlineSortOpenIndex}
-          onFilterOpenIndexChange={setInlineFilterOpenIndex}
-          onAdvancedFilterOpenChange={setInlineAdvancedFilterOpen}
           onClearSearch={() => {
             setSearchQuery("");
             setSearchOpen(false);
           }}
           onRemoveSort={(index) => {
             setActiveSorts(sorts.filter((_, sortIndex) => sortIndex !== index));
-            setInlineSortOpenIndex(null);
+            constraintMenus.set({ sortIndex: null });
           }}
           onRemoveFilter={(index) => {
             setActiveFilters(
               filters.filter((_, filterIndex) => filterIndex !== index),
             );
-            setInlineFilterOpenIndex(null);
+            constraintMenus.set({ filterIndex: null });
           }}
           onFiltersChange={setActiveFilters}
           onSortsChange={setActiveSorts}
@@ -3552,10 +3547,7 @@ function DatabaseTable({
             setActiveSorts([]);
             setActiveFilters([]);
             setInlineFilterControlsOpen(false);
-            setInlineAddFilterOpen(false);
-            setInlineFilterOpenIndex(null);
-            setInlineAdvancedFilterOpen(false);
-            setInlineSortOpenIndex(null);
+            constraintMenus.closeAll();
           }}
           onResetPersonalChanges={resetPersonalQueryChanges}
           onSaveForEveryone={() => void savePersonalQueryForEveryone()}
@@ -3837,7 +3829,7 @@ function DatabaseTable({
         >
           <DatabaseTableView
             startupAnchored={renderMode === "page"}
-            columnOrderIds={activeView.tableColumnOrderIds ?? []}
+            columnOrderIds={activeView.tableColumnOrderIds ?? NO_COLUMN_ORDER}
             databaseId={databaseId}
             databaseSystemRole={data?.database.systemRole}
             newRowLabel={newDatabaseRowLabel}
@@ -5762,6 +5754,10 @@ function DatabaseTableView({
     selectedItemIds.length > 0,
   );
   const { gutterWidth } = selectionGutter;
+  const tableLayout = useMemo(
+    () => ({ frozenThroughColumnId, viewportWidth, gutterWidth }),
+    [frozenThroughColumnId, viewportWidth, gutterWidth],
+  );
   const observedFrozenIds = databaseFrozenColumnIds(
     { frozenThroughColumnId },
     databaseTableColumnIds(
@@ -6329,9 +6325,7 @@ function DatabaseTableView({
         },
       }}
     >
-      <DatabaseTableLayout.Provider
-        value={{ frozenThroughColumnId, viewportWidth, gutterWidth }}
-      >
+      <DatabaseTableLayout.Provider value={tableLayout}>
         <DatabaseTableColumnOrder.Provider value={columnOrderIds}>
           <div
             {...(startupAnchored ? startupAnchor("database-table") : {})}
@@ -6749,6 +6743,36 @@ export function databaseConstraintsBarIsVisible(args: {
     args.constraintCount > 0 ||
     args.filterCount > 0 ||
     args.hasPersonalQueryChanges
+  );
+}
+
+function DatabaseActiveConstraintsBarWithMenus({
+  menus,
+  ...props
+}: Omit<
+  ComponentProps<typeof DatabaseActiveConstraintsBar>,
+  | "addFilterOpen"
+  | "advancedFilterOpen"
+  | "openFilterIndex"
+  | "openSortIndex"
+  | "onAdvancedFilterOpenChange"
+  | "onFilterOpenIndexChange"
+  | "onSortOpenIndexChange"
+> & { menus: ConstraintMenus }) {
+  const open = useConstraintMenusState(menus);
+  return (
+    <DatabaseActiveConstraintsBar
+      {...props}
+      addFilterOpen={open.addFilter}
+      advancedFilterOpen={open.advancedFilter}
+      openFilterIndex={open.filterIndex}
+      openSortIndex={open.sortIndex}
+      onAdvancedFilterOpenChange={(advancedFilter) =>
+        menus.set({ advancedFilter })
+      }
+      onFilterOpenIndexChange={(filterIndex) => menus.set({ filterIndex })}
+      onSortOpenIndexChange={(sortIndex) => menus.set({ sortIndex })}
+    />
   );
 }
 

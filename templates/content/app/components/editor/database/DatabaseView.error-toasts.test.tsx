@@ -307,6 +307,22 @@ vi.mock("./database-cell-comments", async (importOriginal) => ({
   },
 }));
 
+// The header and every row lay out their cells through one, so its render
+// count shows whether an update reached the table at all.
+const tableGridRenders = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./DatabaseTableGrid", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./DatabaseTableGrid")>();
+  return {
+    ...actual,
+    DatabaseTableGrid: (
+      props: Parameters<typeof actual.DatabaseTableGrid>[0],
+    ) => {
+      tableGridRenders.count += 1;
+      return actual.DatabaseTableGrid(props);
+    },
+  };
+});
+
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { messagesByLocale } from "@/i18n-data";
@@ -1833,6 +1849,24 @@ describe("DatabaseView UI regressions", () => {
       (button) => button.textContent.trim() === "Name",
     );
     expect(nameChip?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("opens and closes a filter chip without re-rendering the table", async () => {
+    const { chip } = await renderStatusFilteredTable();
+    expect(tableGridRenders.count).toBeGreaterThan(0);
+
+    tableGridRenders.count = 0;
+    await mousePointerDown(chip);
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const shield = document.querySelector("[data-menu-outside-click-shield]");
+    if (!shield) throw new Error("No click shield covers the page.");
+    await act(async () => {
+      shield.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(tableGridRenders.count).toBe(0);
   });
 
   it("keeps a filter chip's click shield in place until an outside click lands, then closes the menu", async () => {
