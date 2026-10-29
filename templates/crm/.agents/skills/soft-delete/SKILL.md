@@ -62,37 +62,38 @@ with a separate permanent action (`trash-recording`, `restore-recording`,
 3. **Restore action.** `restore-<thing>` sets `deletedAt` back to null after
    the same access check. The agent needs it as much as the UI does: undo is
    how it recovers from its own mistake.
-4. **Every read filters.** Add `isNull(table.deletedAt)` to list, get, search,
-   count, export, public/SSR, share-link, embed, and agent-context reads.
-   Missing one is the main bug this pattern causes: a deleted deck that still
-   renders from its public link, or a deleted comment the agent still quotes.
-   A get of a deleted row returns not-found, except the restore action and the
-   trash list. Children filter on their own `deletedAt` when they can be
-   deleted on their own.
-   **Children are not hidden by the parent's stamp.** Child actions usually
-   call `assertAccess("deck", deckId)` and then query comments by `deckId`,
-   and `assertAccess` still passes for a stamped deck (step 5). Put one
-   app-level helper in front of the parent's access check that also rejects a
-   stamped parent, and route every action that takes a parent id through it:
-   reads and writes, so nobody can add a comment to a trashed deck either.
-5. **Share links.** If the resource is registered with
-   `registerShareableResource`, add
-   `availability: { columns: ["deletedAt"], isAvailable: (r) => !r.deletedAt }`
-   so a link tells someone who can open it that it is in the trash. This only
-   changes link status; `accessFilter` and `resolveAccess` still return the
-   row, so step 4 is still required.
+4. **Register the stamp.** If the resource is registered with
+   `registerShareableResource`, add `deletedAtColumn: "deletedAt"`. Stamped
+   rows then drop out of `accessFilter`, and `resolveAccess` / `assertAccess`
+   return no access to them, so every action that checks the parent
+   (comments, slides, files) stops at a deleted one for reads and writes
+   alike. Links say "in the trash" to people who could open it. The restore
+   action and the Trash list opt back in with `{ includeDeleted: true }`.
+5. **Filter what skips the access check.** Add `isNull(table.deletedAt)` to
+   reads that don't go through `accessFilter` or `assertAccess` on this row:
+   public/SSR and embed routes that load by id or slug, counts, exports,
+   search indexes, jobs, agent-context and A2A reads, and child-table reads
+   that only join on the parent id. Missing one is the main bug this pattern
+   causes: a deleted deck that still renders from its public link, or a
+   deleted comment the agent still quotes. Children that can be deleted on
+   their own filter on their own `deletedAt`. A resource that isn't
+   registered for sharing gets no help from step 4, so its parent-id actions
+   need one app helper that rejects a stamped parent.
 6. **Uniqueness.** A stamped row still holds its slug or unique name. Scope a
    unique index to `deleted_at IS NULL`, or make restore fail with a clear
    error when the name is taken.
 7. **UI.** Delete is instant and optimistic: no confirm dialog, and a toast
-   with an Undo button that calls the restore action. A top-level artifact
-   with many rows also gets a Trash (or Archive) view listing deleted rows with
-   Restore and Delete forever. Copy goes through the app's i18n catalog
-   (`internationalization`).
+   with an Undo button that calls the restore action:
+   `toast.success(t("…deleted"), { action: { label: t("…undo"), onClick: () => restore.mutate({ id }) } })`
+   (`sonner`). A top-level artifact with many rows also gets a Trash (or
+   Archive) view listing deleted rows with Restore and Delete forever. Copy
+   goes through the app's i18n catalog (`internationalization`).
 8. **Purge.** Only the purge path removes rows: a `--purge` flag or a
    `delete-<thing>-permanent` action that requires the row to already be
    stamped, keeps `needsApproval`, and also deletes blobs and child rows.
-   Automatic retention (purge rows stamped more than N days ago) belongs in a
+   In the agent-native repo, `guard:no-new-hard-delete` fails every new hard
+   delete in app code, so mark purge deletes and the exemptions above with
+   `// guard:allow-hard-delete — <why>`. Automatic retention (purge rows stamped more than N days ago) belongs in a
    `recurring-jobs` task, not in a request path or at startup.
 
 ## Checklist
@@ -100,9 +101,9 @@ with a separate permanent action (`trash-recording`, `restore-recording`,
 - [ ] `deletedAt` column added (or the existing `trashedAt` reused)
 - [ ] Delete action stamps instead of deleting; children untouched
 - [ ] Restore action exists and the agent can call it
-- [ ] Every read path filters stamped rows, including public and agent reads
+- [ ] Share registration has `deletedAtColumn`, if shareable
+- [ ] Reads that skip the access check filter stamped rows (public, counts, agent)
 - [ ] Actions that take a parent id reject a stamped parent (reads and writes)
-- [ ] Share registration has an `availability` rule, if shareable
 - [ ] Unique slugs/names don't block a new row or a restore
 - [ ] UI: optimistic delete with Undo; Trash view for top-level artifacts
 - [ ] Purge is separate and approval-gated, and removes blobs too

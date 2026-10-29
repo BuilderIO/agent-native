@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-New apps ship a `soft-delete` skill: delete features stamp `deletedAt`, hide stamped rows from every read, and offer restore, with permanent removal as a separate purge step.
+Soft delete support: `registerShareableResource` takes `deletedAtColumn`, so stamped rows drop out of `accessFilter` and read as no access in `resolveAccess`/`assertAccess` unless the caller passes `includeDeleted`, and new apps ship a `soft-delete` skill describing the stamp, restore, and purge pattern.

@@ -122,6 +122,10 @@ Use both for resources that execute code or expose privileged data with the *vie
 
 Defaults match historical behaviour: `allowPublic: true`, `requireOrgMemberForUserShares: false`. Resources that don't set the flags work as before.
 
+### Soft-deleted resources
+
+`deletedAtColumn: "deletedAt"` names the resource's soft-delete stamp. A stamped row drops out of `accessFilter`, `resolveAccess` and `assertAccess` return no access to it, and its link status reads `trashed` to people who could open it. Restore and Trash views pass `{ includeDeleted: true }` to `resolveAccess`/`assertAccess`, or `includeDeleted: true` in `accessFilter`'s options. See `soft-delete`.
+
 ### Reusable organization groups
 
 The workspace organization model stores reusable groups in

@@ -76,35 +76,27 @@ Per the skill's exemptions; each action's description should say why:
   `delete-analytics-alert-rule`, `delete-generation-preset`,
   `delete-data-dictionary-entry`. Revisit only if users ask.
 
-## Phase 0: foundation
+## Phase 0: foundation (done)
 
-1. **Skill** (done in this change): `soft-delete` in `.agents/skills`, listed
-   in `STANDALONE_APP_SKILLS` so every template and scaffold gets it, linked
-   from `adding-a-feature`.
-2. **Guard** `no-new-hard-delete`: diff-scoped like the other guards. It flags
-   added `.delete(` / `DELETE FROM` lines under `templates/*/actions`,
-   `templates/*/server`, and `packages/core/src` unless the line carries
-   `// hard-delete-ok: <reason>`. The skill alone is guidance; this is what
-   makes "new delete features soft-delete" hold. Purge actions and the
-   exemptions above use the pragma.
-3. **Decide whether `accessFilter` / `resolveAccess` should honor
-   `availability`.** Today `availability` only changes what a share link says;
-   every app must also add `isNull(deletedAt)` to each read, and one missed
-   read path leaks a deleted object through a public link or the agent. A core
-   option on the registration (e.g. `availability.hideFromAccess: true`) that
-   adds the predicate inside `accessFilter` and makes `resolveAccess` return
-   null for stamped rows would remove most of that per-app surface. Restore and
-   trash-list actions would read through an explicit `includeDeleted` path.
-   It would also close the child-row gap for free: child actions call
-   `assertAccess` on the parent id and then query children by that id, so
-   today a stamped deck still serves its comments and accepts new ones unless
-   each app adds its own stamped-parent check (the skill's step 4). This
-   touches every ownable read, so it needs its own design review before app
-   migrations start; apps migrated before it lands keep their explicit checks,
-   which stay correct afterward.
-4. **Undo toast.** Check the toolkit organization kit (archive, trash) first.
-   If nothing fits, add one shared `toastWithUndo(message, onUndo)` client
-   helper so every app's delete reads the same and goes through i18n once.
+1. **Skill**: `soft-delete` in `.agents/skills`, listed in
+   `STANDALONE_APP_SKILLS` so every template and scaffold gets it, linked from
+   `adding-a-feature`.
+2. **Guard** `guard:no-new-hard-delete`: diff-scoped like the other guards.
+   It flags added Drizzle deletes on a database handle and `DELETE FROM` SQL
+   under `templates|community-templates|apps/*/{actions,server}` unless the
+   statement carries `// guard:allow-hard-delete — <why>`. Purge actions and
+   the exemptions above use the pragma. Core source is out of scope: its
+   deletes are almost all runtime bookkeeping, so core chat threads are
+   handled by hand in Phase 1.
+3. **Core access honors soft delete.** `registerShareableResource` takes
+   `deletedAtColumn`. Stamped rows drop out of `accessFilter`, and
+   `resolveAccess` / `assertAccess` return no access to them, so child actions
+   that check the parent id (comments, slides, files) stop at a deleted parent
+   with no per-app code. Restore and Trash views pass `includeDeleted`. Link
+   status reports `trashed` to people who could open the row.
+4. **Undo toast**: no new helper. Apps already use sonner's
+   `toast(message, { action: { label, onClick } })` (Mail's undo send), and
+   the skill shows the one-liner.
 
 ## Phase 1: per-app migration
 
@@ -117,11 +109,11 @@ recipe:
 2. Delete action stamps instead of deleting; cascade code moves into the purge
    path unchanged.
 3. Restore action, callable by the agent.
-4. Every read path filters: list, get, search, counts, exports, public/SSR
-   routes, share links, embeds, view-screen, agent context, A2A. Every action
-   that takes a parent id (comments, slides, files, runs) goes through one
-   app helper that rejects a stamped parent, for writes as well as reads.
-5. `availability` on the share registration.
+4. `deletedAtColumn` on the share registration.
+5. Reads that skip the access check filter stamped rows: public/SSR and embed
+   routes, counts, exports, search, jobs, view-screen, agent context, A2A.
+   Resources not registered for sharing (Tasks, Factory, Analytics monitors)
+   need one app helper that rejects a stamped parent.
 6. Partial unique indexes where a slug/name is unique (e.g. Calendar
    `booking_links.slug`); audit each app's `.unique()` columns.
 7. UI: optimistic delete with an Undo toast; a Trash view for top-level

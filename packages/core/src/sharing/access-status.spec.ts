@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { ownableColumns, table, text } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { resolveAccessStatus } from "./access.js";
+import { accessFilter, resolveAccess, resolveAccessStatus } from "./access.js";
 import getResourceAccessStatus from "./actions/get-resource-access-status.js";
 import { registerShareableResource } from "./registry.js";
 import { createSharesTable } from "./schema.js";
@@ -29,6 +29,12 @@ const docs = table("qa_status_docs", {
   ...ownableColumns(),
 });
 const docShares = createSharesTable("qa_status_doc_shares");
+const softDocs = table("qa_status_soft_docs", {
+  id: text("id").primaryKey(),
+  deletedAt: text("deleted_at"),
+  ...ownableColumns(),
+});
+const softType = "qa-status-soft";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: ReturnType<typeof drizzle>;
@@ -103,6 +109,13 @@ beforeEach(async () => {
       created_at TEXT NOT NULL,
       notified_at TEXT
     );
+    CREATE TABLE qa_status_soft_docs (
+      id TEXT PRIMARY KEY,
+      deleted_at TEXT,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    );
     CREATE TABLE organizations (
       id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT
     );
@@ -123,6 +136,14 @@ beforeEach(async () => {
       columns: ["trashedAt"],
       isAvailable: (doc) => !doc.trashedAt,
     },
+  });
+  registerShareableResource({
+    type: softType,
+    resourceTable: softDocs,
+    sharesTable: docShares,
+    displayName: "QA Soft Doc",
+    getDb: () => db,
+    deletedAtColumn: "deletedAt",
   });
   registerShareableResource({
     type: plainType,
@@ -461,5 +482,60 @@ describe("get-resource-access-status", () => {
     expect(JSON.stringify([denied, allowed])).not.toMatch(
       /Secret title|owner\+status|private|public/,
     );
+  });
+});
+
+describe("a registration with deletedAtColumn", () => {
+  it("hides a soft-deleted row from every access path except an explicit opt-in", async () => {
+    await db.insert(softDocs).values([
+      { id: "live", ownerEmail, orgId: null, visibility: "private" },
+      {
+        id: "gone",
+        deletedAt: new Date().toISOString(),
+        ownerEmail,
+        orgId: null,
+        visibility: "public",
+      },
+    ]);
+    await shareWith("gone", viewerEmail);
+
+    const asOwner = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: ownerEmail }, run);
+    const listIds = (includeDeleted?: boolean) =>
+      asOwner(async () =>
+        (
+          await db
+            .select({ id: softDocs.id })
+            .from(softDocs)
+            .where(
+              accessFilter(softDocs, docShares, undefined, "viewer", {
+                includePublic: true,
+                includeDeleted,
+              }),
+            )
+        )
+          .map((row) => row.id)
+          .sort(),
+      );
+
+    expect(await listIds()).toEqual(["live"]);
+    expect(await listIds(true)).toEqual(["gone", "live"]);
+    expect(await asOwner(() => resolveAccess(softType, "gone"))).toBeNull();
+    expect(
+      (
+        await asOwner(() =>
+          resolveAccess(softType, "gone", undefined, { includeDeleted: true }),
+        )
+      )?.role,
+    ).toBe("owner");
+    expect(await statusAs(viewerEmail, "gone", softType)).toEqual({
+      state: "trashed",
+      role: "viewer",
+    });
+    expect(
+      await runWithRequestContext({ userEmail: outsiderEmail }, () =>
+        resolveAccess(softType, "gone"),
+      ),
+    ).toBeNull();
   });
 });
