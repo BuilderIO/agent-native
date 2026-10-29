@@ -21,13 +21,115 @@
 // Exit 0: every report proven. Exit 1: a report has no proof, or a proof
 // did not hold on re-run. Exit 2: could not run.
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type Report = { link: string; proven: string[]; visual: boolean };
 
 const PROVEN =
   /fix-proof: proven, red at [0-9a-f]+ \(exit \d+\), green at ([0-9a-f]{7,40}): (.+)$/;
+
+const TEST_FILE =
+  /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_./@-]+\.(?:test|spec)\.[cm]?[jt]sx?$/;
+const WORKSPACE = /^(?:@[a-z0-9-]+\/)?[a-z0-9-]+$/;
+
+export function parseProofCommand(command: string): string[] | null {
+  const args = command.split(/\s+/);
+  if (args.some((arg) => !arg || /[;&|`$<>]/.test(arg))) return null;
+
+  if (
+    args[0] === "node" &&
+    args[1] === "--test" &&
+    args.length === 3 &&
+    TEST_FILE.test(args[2]!)
+  )
+    return args;
+
+  if (args[0] !== "pnpm") return null;
+  let index = 1;
+  if (args[index] === "--filter") {
+    if (!WORKSPACE.test(args[index + 1] ?? "")) return null;
+    index += 2;
+  }
+  if (
+    args[index] !== "exec" ||
+    args[index + 1] !== "vitest" ||
+    !["run", "--run"].includes(args[index + 2] ?? "") ||
+    !TEST_FILE.test(args[index + 3] ?? "")
+  )
+    return null;
+  const options = args.slice(index + 4);
+  if (options.some((arg) => !/^--maxWorkers=\d+$/.test(arg))) return null;
+  return args;
+}
+
+export function isTrackedRepositoryTest(
+  args: string[],
+  cwd = process.cwd(),
+): boolean {
+  const rootResult = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd,
+    encoding: "utf8",
+  });
+  if (rootResult.status !== 0) return false;
+  const root = rootResult.stdout.trim();
+
+  let workspaceRoot = root;
+  let testPath: string;
+  if (args[0] === "node") {
+    testPath = args[2]!;
+  } else {
+    let index = 1;
+    if (args[index] === "--filter") {
+      const workspace = args[index + 1]!;
+      const files = spawnSync(
+        "git",
+        ["ls-files", "-z", "--", "package.json", "**/package.json"],
+        { cwd: root, encoding: "utf8" },
+      );
+      if (files.status !== 0) return false;
+      const matches = files.stdout
+        .split("\0")
+        .filter(Boolean)
+        .flatMap((file) => {
+          const manifest = resolve(root, file);
+          try {
+            return JSON.parse(readFileSync(manifest, "utf8")).name === workspace
+              ? [dirname(manifest)]
+              : [];
+          } catch {
+            return [];
+          }
+        });
+      if (matches.length !== 1) return false;
+      workspaceRoot = matches[0]!;
+      index += 2;
+    }
+    testPath = args[index + 3]!;
+  }
+
+  const candidate = resolve(workspaceRoot, testPath);
+  let realRoot: string;
+  let realCandidate: string;
+  try {
+    if (!existsSync(candidate)) return false;
+    realRoot = realpathSync(workspaceRoot);
+    realCandidate = realpathSync(candidate);
+  } catch {
+    return false;
+  }
+  if (!realCandidate.startsWith(`${realRoot}${sep}`)) return false;
+
+  const repoPath = relative(root, candidate);
+  return (
+    !repoPath.startsWith(`..${sep}`) &&
+    spawnSync("git", ["ls-files", "--error-unmatch", "--", repoPath], {
+      cwd: root,
+      stdio: "ignore",
+    }).status === 0
+  );
+}
 
 export function parseReports(body: string): Report[] | null {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
@@ -116,6 +218,21 @@ function main() {
   let worst = missing.length ? 1 : 0;
   for (const proof of new Set(reports.flatMap((r) => r.proven))) {
     const [fix, command] = proof.split("\t");
+    const commandArgs = parseProofCommand(command ?? "");
+    if (!commandArgs) {
+      console.error(
+        `feedback-fix-proof: could not run: unsupported proof command; use a repository Vitest test or node --test <test-file>: ${command}`,
+      );
+      worst = Math.max(worst, 2);
+      continue;
+    }
+    if (!isTrackedRepositoryTest(commandArgs)) {
+      console.error(
+        `feedback-fix-proof: could not run: the proof test must be tracked inside its repository workspace: ${command}`,
+      );
+      worst = Math.max(worst, 2);
+      continue;
+    }
     if (!isAncestor(fix, "HEAD") || isAncestor(fix, base)) {
       console.log(`NOT IN THIS PR: proof commit ${fix} is not on this branch`);
       worst = Math.max(worst, 1);
@@ -133,7 +250,7 @@ function main() {
         "--fix",
         fix,
         "--",
-        ...command.split(/\s+/),
+        ...commandArgs,
       ],
       { stdio: "inherit" },
     );

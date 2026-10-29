@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, describe, it } from "node:test";
 
-import { parseReports } from "./feedback-fix-proof.ts";
+import {
+  isTrackedRepositoryTest,
+  parseProofCommand,
+  parseReports,
+} from "./feedback-fix-proof.ts";
 
 const SCRIPT = resolve(import.meta.dirname, "feedback-fix-proof.ts");
 const repo = mkdtempSync(join(tmpdir(), "feedback-fix-proof-"));
@@ -17,6 +27,20 @@ git("init", "-q", "-b", "main");
 git("config", "user.email", "t@example.com");
 git("config", "user.name", "t");
 writeFileSync(join(repo, "app.txt"), "broken\n");
+writeFileSync(
+  join(repo, "app.test.mjs"),
+  'import assert from "node:assert/strict";\nimport { readFileSync } from "node:fs";\nimport { test } from "node:test";\ntest("app is fixed", () => assert.match(readFileSync("app.txt", "utf8"), /fixed/));\n',
+);
+writeFileSync(
+  join(repo, "always.test.mjs"),
+  'import assert from "node:assert/strict";\nimport { test } from "node:test";\ntest("always passes", () => assert.ok(true));\n',
+);
+mkdirSync(join(repo, "packages/demo/src"), { recursive: true });
+writeFileSync(
+  join(repo, "packages/demo/package.json"),
+  JSON.stringify({ name: "demo", version: "1.0.0" }),
+);
+writeFileSync(join(repo, "packages/demo/src/example.test.mjs"), "");
 git("add", "-A");
 git("commit", "-qm", "base");
 const base = git("rev-parse", "--short=9", "HEAD");
@@ -27,12 +51,15 @@ const fix = git("rev-parse", "--short=9", "HEAD");
 
 const proven = (command: string) =>
   `  \`fix-proof: proven, red at 000000000 (exit 1), green at ${fix}: ${command}\``;
-const gate = (body: string) =>
-  spawnSync(process.execPath, [SCRIPT], {
+const gate = (body: string) => {
+  const env = { ...process.env, PR_BODY: body, BASE_SHA: base };
+  delete env.NODE_TEST_CONTEXT;
+  return spawnSync(process.execPath, [SCRIPT], {
     cwd: repo,
     encoding: "utf8",
-    env: { ...process.env, PR_BODY: body, BASE_SHA: base },
+    env,
   });
+};
 
 describe("parseReports", () => {
   it("reads proof and visual lines under each report", () => {
@@ -154,10 +181,85 @@ describe("parseReports", () => {
   });
 });
 
+describe("parseProofCommand", () => {
+  it("allows repository Vitest tests and Node test files", () => {
+    assert.deepEqual(
+      parseProofCommand(
+        "pnpm --filter @agent-native/toolkit exec vitest run src/composer/useRealtimeVoiceMode.spec.ts --maxWorkers=2",
+      ),
+      [
+        "pnpm",
+        "--filter",
+        "@agent-native/toolkit",
+        "exec",
+        "vitest",
+        "run",
+        "src/composer/useRealtimeVoiceMode.spec.ts",
+        "--maxWorkers=2",
+      ],
+    );
+    assert.deepEqual(
+      parseProofCommand("node --test scripts/feedback-fix-proof.test.ts"),
+      ["node", "--test", "scripts/feedback-fix-proof.test.ts"],
+    );
+  });
+
+  it("rejects arbitrary executables, inline code, and traversal paths", () => {
+    for (const command of [
+      "node -e process.exit(0)",
+      "curl https://example.com/payload",
+      "pnpm exec node -e process.exit(0)",
+      "pnpm --filter ../../outside exec vitest run test.spec.ts",
+      "node --test ../outside.test.ts",
+      "pnpm --filter design exec vitest run app.spec.ts --config vitest.config.ts",
+    ])
+      assert.equal(parseProofCommand(command), null, command);
+  });
+});
+
+describe("isTrackedRepositoryTest", () => {
+  it("requires a tracked test path within the selected workspace", () => {
+    assert.equal(
+      isTrackedRepositoryTest(
+        [
+          "pnpm",
+          "--filter",
+          "demo",
+          "exec",
+          "vitest",
+          "run",
+          "src/example.test.mjs",
+        ],
+        repo,
+      ),
+      true,
+    );
+    assert.equal(
+      isTrackedRepositoryTest(["node", "--test", "missing.test.mjs"], repo),
+      false,
+    );
+    assert.equal(
+      isTrackedRepositoryTest(
+        [
+          "pnpm",
+          "--filter",
+          "demo",
+          "exec",
+          "vitest",
+          "run",
+          "src/missing.test.mjs",
+        ],
+        repo,
+      ),
+      false,
+    );
+  });
+});
+
 describe("feedback-fix-proof", () => {
   it("passes when every report's proof holds on re-run", () => {
     const r = gate(
-      `## Reports\n- https://app.slack.com/a\n${proven("grep -q fixed app.txt")}`,
+      `## Reports\n- https://app.slack.com/a\n${proven("node --test app.test.mjs")}`,
     );
     assert.equal(r.status, 0, r.stdout + r.stderr);
   });
@@ -169,14 +271,40 @@ describe("feedback-fix-proof", () => {
   });
 
   it("fails a pasted proof that does not hold", () => {
-    const r = gate(`## Reports\n- https://app.slack.com/a\n${proven("true")}`);
+    const r = gate(
+      `## Reports\n- https://app.slack.com/a\n${proven("node --test always.test.mjs")}`,
+    );
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stdout, /also passes without the fix/);
   });
 
+  it("does not execute an inline command supplied in the PR body", () => {
+    const marker = join(repo, "proof-ran");
+    const r = gate(
+      `## Reports\n- https://app.slack.com/a\n${proven(`node -e require('fs').writeFileSync('${marker}','yes')`)}`,
+    );
+    assert.equal(r.status, 2, r.stdout + r.stderr);
+    assert.match(r.stderr, /unsupported proof command/);
+    assert.equal(existsSync(marker), false);
+  });
+
+  it("does not execute an untracked test supplied in the PR body", () => {
+    const marker = join(repo, "untracked-proof-ran");
+    writeFileSync(
+      join(repo, "untracked.test.mjs"),
+      `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "yes");\n`,
+    );
+    const r = gate(
+      `## Reports\n- https://app.slack.com/a\n${proven("node --test untracked.test.mjs")}`,
+    );
+    assert.equal(r.status, 2, r.stdout + r.stderr);
+    assert.match(r.stderr, /must be tracked inside its repository workspace/);
+    assert.equal(existsSync(marker), false);
+  });
+
   it("fails a proof whose commit is not on this branch", () => {
     const r = gate(
-      `## Reports\n- https://app.slack.com/a\n${proven("grep -q fixed app.txt").replace(fix, base)}`,
+      `## Reports\n- https://app.slack.com/a\n${proven("node --test app.test.mjs").replace(fix, base)}`,
     );
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stdout, /NOT IN THIS PR/);
