@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -33,7 +33,10 @@ export default defineAction({
   run: async ({ commentId, deckId, emoji }) => {
     const viewerEmail = getRequestUserEmail()?.trim().toLowerCase();
     if (!viewerEmail) {
-      throw new Error("Sign in required to react to comments.");
+      fail("Sign in required to react to comments.", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
     }
     await assertAccess("deck", deckId, "commenter");
     const normalizedEmoji = emoji.trim();
@@ -52,7 +55,11 @@ export default defineAction({
           ),
         )
         .limit(1);
-      if (!comment) throw new Error(`Comment not found: ${commentId}`);
+      if (!comment)
+        fail(`Comment not found: ${commentId}`, {
+          errorCode: "comment_not_found",
+          statusCode: 404,
+        });
 
       const previousJson = comment.emojiReactionsJson || "{}";
       const reactions = parseSlideCommentReactionBuckets(previousJson);
@@ -95,8 +102,9 @@ export default defineAction({
       }
     }
 
-    throw new Error(
+    fail(
       `Could not toggle reaction on comment ${commentId} after ${MAX_CAS_ATTEMPTS} concurrent attempts.`,
+      { errorCode: "reaction_conflict", statusCode: 409 },
     );
   },
 });

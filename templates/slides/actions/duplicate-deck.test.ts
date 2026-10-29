@@ -12,7 +12,8 @@ vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
 }));
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (definition: unknown) => definition,
 }));
 
@@ -76,6 +77,23 @@ describe("duplicate-deck", () => {
     expect(insertedData.slides).toEqual([
       { id: "slide-copy", content: "<div />" },
     ]);
+  });
+
+  it("maps a newId collision to a 409 without leaking the SQL", async () => {
+    mocks.insertValues.mockRejectedValueOnce(
+      Object.assign(new Error('insert into "decks" params: ["deck-taken"]'), {
+        code: "23505",
+      }),
+    );
+
+    const failure = await action
+      .run({ deckId: "deck-source", newId: "deck-taken" })
+      .catch(
+        (error: unknown) => error as { statusCode?: number; message: string },
+      );
+
+    expect(failure.statusCode).toBe(409);
+    expect(failure.message).not.toContain("insert into");
   });
 
   it("reports the copy as a duplicated deck", async () => {

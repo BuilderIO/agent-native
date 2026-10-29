@@ -1,4 +1,5 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
+import { isUniqueViolation } from "@agent-native/core/db";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -44,7 +45,11 @@ export default defineAction({
   },
   run: async ({ deckId, title, newId: clientNewId, slideIds }, ctx) => {
     const access = await resolveAccess("deck", deckId);
-    if (!access) throw new Error(`Deck not found: ${deckId}`);
+    if (!access)
+      fail(`Deck not found: ${deckId}`, {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
 
     const source = access.resource;
     const db = getDb();
@@ -62,7 +67,10 @@ export default defineAction({
     if (
       new Set(slides.map((s: { id: string }) => s.id)).size !== slides.length
     ) {
-      throw new Error("slideIds must be unique");
+      fail("slideIds must be unique", {
+        errorCode: "invalid_slide_ids",
+        statusCode: 400,
+      });
     }
 
     const newTitle = title || `Copy of ${source.title}`;
@@ -75,20 +83,33 @@ export default defineAction({
     deckData.updatedAt = now;
     deckData.designSystemId = source.designSystemId ?? deckData.designSystemId;
 
-    await db.insert(schema.decks).values({
-      id: newId,
-      title: newTitle,
-      data: JSON.stringify(deckData),
-      designSystemId: source.designSystemId ?? null,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail: (() => {
-        const e = getRequestUserEmail();
-        if (!e) throw new Error("no authenticated user");
-        return e;
-      })(),
-      orgId: getRequestOrgId() || null,
-    });
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
+
+    try {
+      await db.insert(schema.decks).values({
+        id: newId,
+        title: newTitle,
+        data: JSON.stringify(deckData),
+        designSystemId: source.designSystemId ?? null,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail,
+        orgId: getRequestOrgId() || null,
+      });
+    } catch (error) {
+      // The raw driver error names the SQL and its parameters, which must not reach callers.
+      if (isUniqueViolation(error))
+        fail(`A deck with id ${newId} already exists.`, {
+          errorCode: "deck_id_conflict",
+          statusCode: 409,
+        });
+      throw error;
+    }
 
     await trackDeckCreated(
       newId,
