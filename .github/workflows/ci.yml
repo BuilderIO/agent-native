@@ -143,10 +143,21 @@ jobs:
   lint:
     name: Lint & format
     needs: change-scope
-    if: needs.change-scope.outputs.lint == 'true' || needs.change-scope.outputs.has_reports == 'true'
+    # Required check: run when selected, and also when change-scope did not
+    # succeed so the feedback proof gate fails closed instead of being skipped.
+    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.lint == 'true' || needs.change-scope.outputs.has_reports == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Require a successful change scope
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+        run: |
+          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
+            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            exit 1
+          fi
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false

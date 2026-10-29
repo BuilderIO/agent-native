@@ -899,6 +899,10 @@ export default defineAction({
           throw new Error("Factory item disappeared during approval recovery.");
         }
         const existingMetadata = parseTriageMetadata(existingItem.metadataJson);
+        previouslyFinalized =
+          existingItem.status === "auto_approved" &&
+          existingMetadata.autoApprovalHeadSha === pullRequest.headSha &&
+          typeof existingMetadata.autoApprovalUrl === "string";
         let livePullRequest;
         try {
           livePullRequest = await github.getPullRequestSummary(
@@ -948,13 +952,27 @@ export default defineAction({
         if (forkHasVerifiedBuilderAssignee) {
           const reason =
             "A verified BuilderIO member is assigned to this fork; the existing approval remains unreconciled and requires manual handling.";
-          await reconcileClaim(pullRequest.headSha, reason);
+          if (previouslyFinalized) {
+            const disposition = await recordManualPullRequestDisposition({
+              factoryId,
+              headSha: pullRequest.headSha,
+              itemId,
+              orgId,
+              ownerEmail: userEmail,
+              reason,
+            });
+            if (disposition.kind === "terminal") {
+              return {
+                ok: true,
+                action: "skipped",
+                reason: `The assigned fork requires manual handling, but the Factory item is already ${disposition.status}; no manual disposition was recorded.`,
+              };
+            }
+          } else {
+            await reconcileClaim(pullRequest.headSha, reason);
+          }
           return { ok: true, action: "needs_manual", reason };
         }
-        previouslyFinalized =
-          existingItem.status === "auto_approved" &&
-          existingMetadata.autoApprovalHeadSha === pullRequest.headSha &&
-          typeof existingMetadata.autoApprovalUrl === "string";
         const decisionId = stableId(
           "pr-governance",
           orgId,

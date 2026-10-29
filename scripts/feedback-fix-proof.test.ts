@@ -176,9 +176,15 @@ describe("feedback-fix-proof", () => {
       workflow,
       /has_reports: \$\{\{ steps\.feedback\.outputs\.has_reports \}\}/,
     );
+    const lintJob = /^  lint:\n([\s\S]*?)(?=^  [\w-]+:\n)/m.exec(workflow)?.[1];
+    assert.ok(lintJob, "the required Lint & format job exists");
     assert.match(
-      workflow,
-      /if: needs\.change-scope\.outputs\.lint == 'true' \|\| needs\.change-scope\.outputs\.has_reports == 'true'/,
+      lintJob,
+      /if: \$\{\{ !cancelled\(\) && \(needs\.change-scope\.result != 'success' \|\| needs\.change-scope\.outputs\.lint == 'true' \|\| needs\.change-scope\.outputs\.has_reports == 'true'\) \}\}/,
+    );
+    assert.match(
+      lintJob,
+      /steps:\s*\n\s+- name: Require a successful change scope[\s\S]*?CHANGE_SCOPE_RESULT: \$\{\{ needs\.change-scope\.result \}\}[\s\S]*?exit 1[\s\S]*?- uses: actions\/checkout/,
     );
     assert.match(
       workflow,

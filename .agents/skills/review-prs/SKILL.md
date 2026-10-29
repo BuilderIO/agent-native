@@ -501,8 +501,8 @@ true for 10 consecutive minutes on that same head:
 Reset the 10-minute gate after a push, failed check, new actionable feedback,
 new commit, or merge conflict. Do not treat this skill or a ready disposition
 as standing merge authorization. For an external or membership-unknown author,
-never submit an approval review through this skill. The “Merge as is” direction
-in `community-prs` describes a human Builder dev's approval; it does not
+never submit an approval review through this skill. The “Ready for maintainer
+review” path in `community-prs` describes a human Builder dev's approval; it does not
 authorize the agent to submit that approval. Follow its ordinary merge
 requirements and leave the PR unmerged until a human has approved the reviewed
 head and all required checks pass. Never use `--admin` for those PRs. For
