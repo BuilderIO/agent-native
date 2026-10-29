@@ -163,9 +163,21 @@ checkout, or the expected worktree is missing, create one
 to stop.
 
 Window: roots posted in the last 5 days (or since the timestamp or permalink
-the invocation gives), for new reports and open items alike. Older threads
-are left as they are, except reports listed under `Reports` in a sweep PR
-opened or merged in that window: those always get their close-out.
+the invocation gives), for new reports and open items alike. An older thread
+is in the window too when we have already replied in it and a person has
+replied since the window began: a channel read only shows roots, so search for
+recent thread replies (`in:<#channel> is:thread after:<date>`) to find them.
+On 10/29 a teammate's vote and question sat unanswered under a 3-week-old
+root. Other older threads are left as they are, except reports listed under
+`Reports` in a sweep PR opened or merged in that window: those always get
+their close-out.
+
+Reading a source is a good job for a helper: give each source below its own
+helper on the cheapest model (Luna in Codex, Haiku in Claude Code), ask for a
+short list of candidates with links, and close it as soon as it reports. On
+10/29 the three source reads cost $0.44 together; reusing those same helpers
+for fixes afterwards cost $6.36, because each new job paid for its whole
+growing history.
 
 - **Read the channels.** Use `slack_read_channel` with
   `response_format: detailed` (paginate) back 5 days. Its output shows
@@ -259,8 +271,9 @@ apart from Steve's own 👀.
 ## 3. Fix as many as you can
 
 - Group related reports so one cause gets one fix. Give each independent
-  group a subagent on a cheaper model with disjoint files. The main thread
-  plans, reviews diffs, and integrates.
+  group a fresh subagent on your own model and effort, with disjoint files,
+  or fix it in the main thread. Never hand a finished helper a new job; start
+  a fresh one. The main thread plans, reviews diffs, and integrates.
 - **Reproduce before you edit.** Get the failure on screen first: a test
   that fails, the action returning the wrong thing, a stack trace, or the
   flow broken in a signed-in local app. Reading code is not an attempt:
@@ -295,9 +308,12 @@ apart from Steve's own 👀.
   green, stop editing and capture the real failure first (stack, logs, the
   reporter's actual data). If that doesn't settle it within about 30
   minutes, it becomes 🎫 with one line on what you learned.
-- **Second opinion before the PR.** Give a fresh subagent only the report
-  text, the diff, and the proof, and ask: does the check exercise what the
-  reporter saw, and is this the cause or a symptom? Fix what it finds.
+- **Second opinion before the PR, every time.** Give a fresh subagent on
+  your own model only the report text, the diff, and the proof, and ask: does
+  the check exercise what the reporter saw, is this the cause or a symptom,
+  and what edge case breaks it? Fix what it finds before you open the PR. The
+  10/29 run skipped this, and PR review found the edge cases one round at a
+  time instead.
 - **Keep fixes small.** Each report's fix goes in its own commit so a bad
   one can be reverted alone. A fix that grows past about 300 lines, or into
   a new subsystem (timeouts, cancellation, retries) the reporter didn't ask
@@ -313,6 +329,16 @@ PR per item. End the PR body with a
 `## Reports` heading listing the link of every report the PR fixes: the
 Slack thread, or the Sentry, Analytics, or GitHub issue. That list is the
 only set of threads a later `/ship` may close out as fixed.
+
+Wait for CI with one blocking command, such as
+`gh pr checks <number> --watch --required --interval 60`, and don't post a
+status line while it runs: every turn re-sends your whole context, and on
+10/28 polling CI was half the main thread's cost.
+
+Fix each review round's findings in one batch. If a second round still finds
+a problem in the same fix, take that fix out of the PR, 🎫 its report with
+what review found, and merge the rest. Close the PR only when nothing verified
+is left in it.
 
 Merge it the way this repo merges PRs. In a Factory workspace, that means
 the workflow's merge step after its merge gate, never a direct merge.
