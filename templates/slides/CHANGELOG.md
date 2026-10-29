@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-29
+
+### Fixed
+
+- Deck change notifications are now only sent to people who can open the deck, so private decks no longer reveal their ids, slide ids, or editing activity to other users.
+
 ## 2026-10-28
 
 ### Fixed

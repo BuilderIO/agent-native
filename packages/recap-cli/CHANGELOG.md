@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.93
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.92
 
 ### Patch Changes
@@ -657,11 +663,5 @@
 ### Patch Changes
 
 - 2625de5: Refuse to capture PR recap screenshots until the rendered document is ready, preventing loading skeletons from being posted as previews.
-
-## 0.4.1
-
-### Patch Changes
-
-- bc29c82: Retry visual recap publishing once with a focused source-repair turn when the hosted Plan parser rejects malformed MDX.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

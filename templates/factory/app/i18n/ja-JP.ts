@@ -372,9 +372,6 @@ const messages = {
       connectionsNeeded: "接続が必要 {{count}} 件",
       connectionsListName: "接続が必要",
       jumpToProblem: "キャンバスで表示",
-      testRun: "ドライラン",
-      testing: "開始中",
-      saveAndTest: "保存してドライラン",
       moreActions: "その他のアクション",
       runNow: "今すぐ実行",
       runNowSaveFirst: "本番で実行する前に変更を保存してください。",
@@ -447,6 +444,13 @@ const messages = {
       body: "このワークフローには保存されていない変更があります。",
       stay: "編集を続ける",
       discard: "破棄",
+    },
+    draft: {
+      restored: "未保存の変更を復元しました。",
+      saveFailed: "変更の下書きを保存できませんでした。{{reason}}",
+      unreadable:
+        "未保存の変更を復元できなかったため、保存済みのバージョンを開いています。",
+      discardFailed: "下書きを破棄できませんでした。{{reason}}",
     },
     liveRun: {
       dialogTitle: "このワークフローを本番で実行しますか？",

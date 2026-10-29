@@ -604,7 +604,7 @@ test.describe("inline table controls", () => {
     await openTablePage(page, "Table border drag");
     const table = page.locator(`${EDITOR} table`);
     await page.locator(EDITOR).getByText("Before the table.").click();
-    await expect(table).toHaveAttribute("data-column-sizing", "content");
+    await expect(table).toHaveAttribute("data-column-sizing", "measured");
     const before = await columnWidths(page);
     const item = (await cell(page, "Item").boundingBox())!;
     const border = { x: item.x + item.width - 1, y: item.y + item.height / 2 };
@@ -614,7 +614,7 @@ test.describe("inline table controls", () => {
     // A press on the border that doesn't drag it stores no widths.
     await page.mouse.down();
     await page.mouse.up();
-    await expect(table).toHaveAttribute("data-column-sizing", "content");
+    await expect(table).toHaveAttribute("data-column-sizing", "measured");
 
     // The drag lasts longer than undo's grouping window, so the widths it
     // stores have to join the drag's own undo step.
@@ -630,10 +630,7 @@ test.describe("inline table controls", () => {
     expect(Math.abs(after[2] - before[2])).toBeLessThanOrEqual(2);
 
     await page.keyboard.press("Control+z");
-    await expect(table).toHaveAttribute(
-      "data-column-sizing",
-      /^(content|held)$/,
-    );
+    await expect(table).toHaveAttribute("data-column-sizing", "measured");
     const undone = await columnWidths(page);
     undone.forEach((width, index) =>
       expect(Math.abs(width - before[index])).toBeLessThanOrEqual(1),

@@ -840,6 +840,19 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
         setGenerating(true);
         if (tabId) {
           if (typeof detail.runId === "string") {
+            if (
+              detail.reason === "run.submitted" &&
+              !generationRunObservedRef.current &&
+              currentRunIdRef.current === null &&
+              detail.runId !== previousRunIdRef.current
+            ) {
+              // A message this tab submitted starts a new run on a new turn
+              // with no successor link, so nothing tracked can correlate it.
+              currentRunIdRef.current = detail.runId;
+              currentTurnIdRef.current =
+                typeof detail.turnId === "string" ? detail.turnId : null;
+              requireActiveRunRef.current = false;
+            }
             confirmRun(
               tabId,
               detail.runId,

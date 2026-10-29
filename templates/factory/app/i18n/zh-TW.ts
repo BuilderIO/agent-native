@@ -354,9 +354,6 @@ const messages = {
       connectionsNeeded: "{{count}} 個待連接",
       connectionsListName: "需要連接",
       jumpToProblem: "在畫布上顯示",
-      testRun: "試執行",
-      testing: "啟動中",
-      saveAndTest: "儲存並試執行",
       moreActions: "更多操作",
       runNow: "立即執行",
       runNowSaveFirst: "正式執行前請先儲存變更。",
@@ -423,6 +420,12 @@ const messages = {
       body: "此工作流程有尚未儲存的變更。",
       stay: "繼續編輯",
       discard: "捨棄",
+    },
+    draft: {
+      restored: "已還原你未儲存的變更。",
+      saveFailed: "無法儲存你變更的草稿。{{reason}}",
+      unreadable: "無法還原你未儲存的變更，因此已開啟已儲存的版本。",
+      discardFailed: "無法捨棄你的草稿。{{reason}}",
     },
     liveRun: {
       dialogTitle: "要正式執行此工作流程嗎？",
