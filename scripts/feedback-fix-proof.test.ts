@@ -168,6 +168,10 @@ describe("feedback-fix-proof", () => {
       workflow,
       /pull_request:\s*\n\s+types:\s*\[[^\]]*edited[^\]]*\]/,
     );
+    assert.equal(
+      [...workflow.matchAll(/uses: actions\/checkout@[^\n]+/g)].length,
+      [...workflow.matchAll(/persist-credentials: false/g)].length,
+    );
     assert.match(
       workflow,
       /has_reports: \$\{\{ steps\.feedback\.outputs\.has_reports \}\}/,

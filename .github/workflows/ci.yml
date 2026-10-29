@@ -74,6 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          persist-credentials: false
           fetch-depth: 0
           filter: blob:none
 
@@ -148,6 +149,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          persist-credentials: false
           fetch-depth: 0
           filter: blob:none
 
@@ -230,6 +232,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -268,6 +272,8 @@ jobs:
       matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -378,6 +384,8 @@ jobs:
       matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -528,6 +536,8 @@ jobs:
           ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/free-disk
 
@@ -637,6 +647,8 @@ jobs:
         shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_broad_workflow_shards) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/free-disk
 
@@ -819,6 +831,8 @@ jobs:
         shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_e2e_diagnostic_shards) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/free-disk
 
@@ -890,6 +904,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/free-disk
 
@@ -1090,6 +1106,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1109,6 +1127,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1144,6 +1164,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1215,6 +1237,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1439,6 +1463,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1467,6 +1493,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1483,6 +1511,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1511,6 +1541,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1539,6 +1571,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1571,6 +1605,8 @@ jobs:
         browser: [chromium, webkit]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1612,6 +1648,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1653,6 +1691,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1758,6 +1798,8 @@ jobs:
       RUN_BACKGROUND_JOBS: "0"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1827,6 +1869,8 @@ jobs:
       NODE_ENV: production
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -1843,6 +1887,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
 
@@ -1876,6 +1922,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/free-disk
 
@@ -1989,6 +2037,8 @@ jobs:
       SSR_BOOT_APPS: ${{ needs.change-scope.outputs.ssr_boot_apps }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       # Skip postinstall build chain here — core is built explicitly below so we
       # control the exact build order and avoid redundant parallel builds.
@@ -2048,6 +2098,8 @@ jobs:
           fi
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
         with:
@@ -2087,6 +2139,7 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: ./.github/actions/setup-pnpm
@@ -2107,6 +2160,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: ./.github/actions/setup-pnpm
@@ -2225,6 +2279,8 @@ jobs:
           fi
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/standalone-chat-acceptance
 
