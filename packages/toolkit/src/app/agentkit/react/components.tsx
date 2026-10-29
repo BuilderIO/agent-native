@@ -5397,7 +5397,6 @@ export const AgentMessageActions = memo(function AgentMessageActions({
   const moreToggleRef = useRef<HTMLButtonElement>(null);
   const secondaryActionsRef = useRef<HTMLDivElement>(null);
   const pendingFocusRef = useRef<"secondary" | "toggle" | null>(null);
-  const pointerPressInsideRef = useRef(false);
   const secondaryActionsId = useId();
   const copyText = messageCopyText(message, text);
   const showRetry =
@@ -5624,23 +5623,23 @@ export const AgentMessageActions = memo(function AgentMessageActions({
         event.stopPropagation();
         setMoreActions(false, "toggle");
       }}
-      onPointerDown={() => {
-        pointerPressInsideRef.current = true;
-        const release = () => {
-          setTimeout(() => {
-            pointerPressInsideRef.current = false;
-          });
-        };
-        window.addEventListener("pointerup", release, { once: true });
-        window.addEventListener("pointercancel", release, { once: true });
+      onMouseDown={(event) => {
+        // Safari does not focus a pressed button; it focuses the transcript
+        // instead, which blur below reads as leaving and collapses the set
+        // before the click lands. Keep focus on the button that was pressed.
+        const button =
+          event.target instanceof Element
+            ? event.target.closest("button")
+            : null;
+        if (!button || button.disabled) return;
+        if (!event.currentTarget.contains(button)) return;
+        event.preventDefault();
+        button.focus({ preventScroll: true });
       }}
       onBlur={(event) => {
         const next = event.relatedTarget;
         if (!moreActionsOpen || !(next instanceof Node)) return;
         if (event.currentTarget.contains(next)) return;
-        // Safari does not focus a pressed button, so a press inside moves focus
-        // to an outer focusable container. Outside presses collapse separately.
-        if (pointerPressInsideRef.current) return;
         setMoreActions(false, null);
       }}
     >

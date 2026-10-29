@@ -458,7 +458,7 @@ describe("assistant reply toolbar", () => {
     outside.remove();
   });
 
-  it("keeps a press inside the toolbar from collapsing it when the browser moves focus to the transcript", async () => {
+  it("keeps focus on a pressed toolbar button so Safari's focus move can't collapse the set", async () => {
     const writeText = vi.fn(async () => undefined);
     const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
     Object.defineProperty(navigator, "clipboard", {
@@ -475,16 +475,24 @@ describe("assistant reply toolbar", () => {
     const transcript = container.querySelector<HTMLElement>(
       ".agentkit-transcript",
     )!;
-    // Safari leaves a pressed button unfocused and focuses the nearest
-    // focusable container instead, before the click lands.
+    // Safari leaves a pressed button unfocused and, unless mousedown's default
+    // is prevented, focuses the nearest focusable container. That blur flushes
+    // before the click is dispatched.
     const pressLikeSafari = async (target: HTMLElement) => {
       await act(async () => {
         target.dispatchEvent(
           new PointerEvent("pointerdown", { bubbles: true }),
         );
-        transcript.focus();
+        const mousedown = new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+        });
+        if (target.dispatchEvent(mousedown)) transcript.focus();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await act(async () => {
+        target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
         target.click();
-        window.dispatchEvent(new PointerEvent("pointerup"));
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
     };
@@ -495,13 +503,21 @@ describe("assistant reply toolbar", () => {
     expect(more.getAttribute("aria-expanded")).toBe("false");
 
     await press(more);
-    await pressLikeSafari(
-      latest.querySelector<HTMLElement>(
-        'button[data-message-action="request-id"]',
-      )!,
-    );
+    const requestId = latest.querySelector<HTMLElement>(
+      'button[data-message-action="request-id"]',
+    )!;
+    await pressLikeSafari(requestId);
     expect(writeText).toHaveBeenCalledWith("run-latest");
     expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(latest.contains(document.activeElement)).toBe(true);
+
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("submits a thumb immediately with the message trace, ignores the same choice and switches to the other", async () => {
