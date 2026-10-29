@@ -66,6 +66,7 @@ const POSTGRES_AB_SQL = `${buildFirstTouchEventsCte({
 exposure_rows AS (
   SELECT person_key,
     properties ->> 'experiment_variant' AS variant,
+    properties ->> 'turn_id' AS exposed_turn_id,
     happened_at AS exposed_at,
     row_number() OVER (PARTITION BY person_key ORDER BY happened_at, id) AS exposure_number
   FROM base_events
@@ -77,7 +78,7 @@ exposure_rows AS (
     AND happened_at <= $4::timestamptz
 ),
 exposures AS (
-  SELECT person_key, variant, exposed_at
+  SELECT person_key, variant, exposed_at, exposed_turn_id
   FROM exposure_rows WHERE exposure_number = 1
 ),
 prompts AS (
@@ -92,13 +93,13 @@ prompts AS (
     AND happened_at <= $4::timestamptz
 ),
 cohort AS (
-  SELECT x.person_key, x.variant, x.exposed_at,
+  SELECT x.person_key, x.variant, x.exposed_at, x.exposed_turn_id,
     min(p.happened_at) FILTER (WHERE p.happened_at BETWEEN
       x.exposed_at - interval '${PROMPT_EXPOSURE_JOIN_WINDOW}' AND
       x.exposed_at + interval '${PROMPT_EXPOSURE_JOIN_WINDOW}') AS first_prompt_at
   FROM exposures x
   LEFT JOIN prompts p ON p.person_key = x.person_key AND p.variant = x.variant
-  GROUP BY x.person_key, x.variant, x.exposed_at
+  GROUP BY x.person_key, x.variant, x.exposed_at, x.exposed_turn_id
 ),
 anchors AS (
   SELECT *, coalesce(first_prompt_at, exposed_at) AS anchor_at,
@@ -119,12 +120,23 @@ ready AS (
   GROUP BY a.person_key
 ),
 second_prompts AS (
-  SELECT a.person_key, min(p.happened_at) AS second_prompt_at
+  SELECT a.person_key, min(t.happened_at) AS second_prompt_at
   FROM anchors a
-  JOIN prompts p ON p.person_key = a.person_key AND p.variant = a.variant
-    AND a.first_prompt_at IS NOT NULL
-    AND p.happened_at > a.first_prompt_at
-    AND p.happened_at < a.first_prompt_at + interval '24 hours'
+  JOIN base_events t ON t.person_key = a.person_key
+    AND t.app = 'design' AND t.event_name = '$ai_generation'
+    AND t.happened_at > a.first_prompt_at
+    AND t.happened_at < a.first_prompt_at + interval '24 hours'
+    AND t.happened_at <= $4::timestamptz
+  CROSS JOIN LATERAL unnest(
+    string_to_array(t.properties ->> 'experiment_ids', ',')
+  ) WITH ORDINALITY AS assignment(experiment_id, assignment_index)
+  WHERE a.first_prompt_at IS NOT NULL
+    AND assignment.experiment_id = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND (string_to_array(t.properties ->> 'experiment_variants', ','))[
+      assignment.assignment_index
+    ] = a.variant
+    AND nullif(t.properties ->> 'turn_id', '') IS NOT NULL
+    AND t.properties ->> 'turn_id' <> a.exposed_turn_id
   GROUP BY a.person_key
 ),
 exports AS (
@@ -189,6 +201,7 @@ const BIGQUERY_AB_SQL = (eventsTableRange: string) =>
 exposure_rows AS (
   SELECT person_key,
     json_value(properties, '$.experiment_variant') AS variant,
+    json_value(properties, '$.turn_id') AS exposed_turn_id,
     happened_at AS exposed_at,
     row_number() OVER (PARTITION BY person_key ORDER BY happened_at, id) AS exposure_number
   FROM base_events
@@ -200,7 +213,7 @@ exposure_rows AS (
     AND happened_at <= @as_of
 ),
 exposures AS (
-  SELECT person_key, variant, exposed_at
+  SELECT person_key, variant, exposed_at, exposed_turn_id
   FROM exposure_rows WHERE exposure_number = 1
 ),
 prompts AS (
@@ -215,13 +228,13 @@ prompts AS (
     AND happened_at <= @as_of
 ),
 cohort AS (
-  SELECT x.person_key, x.variant, x.exposed_at,
+  SELECT x.person_key, x.variant, x.exposed_at, x.exposed_turn_id,
     min(p.happened_at) AS first_prompt_at
   FROM exposures x
   LEFT JOIN prompts p ON p.person_key = x.person_key AND p.variant = x.variant
     AND p.happened_at BETWEEN timestamp_sub(x.exposed_at, INTERVAL 10 MINUTE)
       AND timestamp_add(x.exposed_at, INTERVAL 10 MINUTE)
-  GROUP BY x.person_key, x.variant, x.exposed_at
+  GROUP BY x.person_key, x.variant, x.exposed_at, x.exposed_turn_id
 ),
 anchors AS (
   SELECT *, coalesce(first_prompt_at, exposed_at) AS anchor_at,
@@ -242,12 +255,22 @@ ready AS (
   GROUP BY a.person_key
 ),
 second_prompts AS (
-  SELECT a.person_key, min(p.happened_at) AS second_prompt_at
+  SELECT a.person_key, min(t.happened_at) AS second_prompt_at
   FROM anchors a
-  JOIN prompts p ON p.person_key = a.person_key AND p.variant = a.variant
-    AND a.first_prompt_at IS NOT NULL
-    AND p.happened_at > a.first_prompt_at
-    AND p.happened_at < timestamp_add(a.first_prompt_at, INTERVAL 24 HOUR)
+  JOIN base_events t ON t.person_key = a.person_key
+    AND t.app = 'design' AND t.event_name = '$ai_generation'
+    AND t.happened_at > a.first_prompt_at
+    AND t.happened_at < timestamp_add(a.first_prompt_at, INTERVAL 24 HOUR)
+    AND t.happened_at <= @as_of
+  CROSS JOIN UNNEST(SPLIT(json_value(t.properties, '$.experiment_ids'), ','))
+    AS experiment_id WITH OFFSET AS assignment_index
+  WHERE a.first_prompt_at IS NOT NULL
+    AND experiment_id = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND SPLIT(json_value(t.properties, '$.experiment_variants'), ',')[
+      SAFE_OFFSET(assignment_index)
+    ] = a.variant
+    AND nullif(json_value(t.properties, '$.turn_id'), '') IS NOT NULL
+    AND json_value(t.properties, '$.turn_id') <> a.exposed_turn_id
   GROUP BY a.person_key
 ),
 exports AS (

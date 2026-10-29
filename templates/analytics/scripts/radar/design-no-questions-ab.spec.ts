@@ -78,6 +78,11 @@ describe("Design no-questions readout query", () => {
       expect(sql).toContain("design_prompt_submitted");
       expect(sql).toContain("design_ready_viewed");
       expect(sql).toContain("design_exported");
+      expect(sql).toContain("event_name = '$ai_generation'");
+      expect(sql).toContain("exposed_turn_id");
+      expect(sql).toContain("<> a.exposed_turn_id");
+      expect(sql).toContain("experiment_ids");
+      expect(sql).toContain("experiment_variants");
       expect(sql).toContain("render_location");
       expect(sql).toContain("no_questions");
       expect(sql).toContain("mature_1to7d");

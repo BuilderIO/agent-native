@@ -186,7 +186,7 @@ async function completedRunOutputStatus(
         runId: completed.runId ?? runId,
         turnId: completed.turnId,
       },
-      { method: "GET" },
+      { method: "GET", uiOnly: true },
     );
     return output.status;
   } catch {
@@ -290,7 +290,7 @@ export function useDesignReadyViewTracking({
             turnId,
             recordReadyView: true,
           },
-          { method: "GET" },
+          { method: "GET", uiOnly: true },
         ).catch(() => {
           // coercion-ok: an analytics failure must never affect the editor.
         });

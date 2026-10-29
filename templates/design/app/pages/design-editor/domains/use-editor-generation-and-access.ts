@@ -357,7 +357,7 @@ export function useEditorGenerationAndAccess({
                 runId: completedRunId,
                 turnId: completedTurnId,
               },
-              { method: "GET" },
+              { method: "GET", uiOnly: true },
             )
               .then((result) =>
                 result?.status === "has_output" ||

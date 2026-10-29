@@ -29,6 +29,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   agentTool: false,
+  uiOnly: true,
   run: async ({ designId, runId, turnId, recordReadyView }, ctx) => {
     try {
       const access = await resolveAccess("design", designId);

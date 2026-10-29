@@ -252,7 +252,7 @@ describe("design_ready_viewed", () => {
         turnId: "turn-1",
         recordReadyView: true,
       },
-      { method: "GET" },
+      { method: "GET", uiOnly: true },
     );
   });
 
@@ -317,7 +317,7 @@ describe("design_ready_viewed", () => {
       expect(mocks.callAction).toHaveBeenCalledWith(
         "get-design-generation-output",
         { designId: "design-1", runId: "run-1", turnId: "turn-1" },
-        { method: "GET" },
+        { method: "GET", uiOnly: true },
       );
     },
   );

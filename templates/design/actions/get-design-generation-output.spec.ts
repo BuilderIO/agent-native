@@ -75,6 +75,10 @@ beforeEach(() => {
 });
 
 describe("get-design-generation-output ready tracking", () => {
+  it("requires a proven UI call at the action boundary", () => {
+    expect(getDesignGenerationOutput.uiOnly).toBe(true);
+  });
+
   it("records a frontend ready view only after the persisted run receipt confirms output", async () => {
     const result = await getDesignGenerationOutput.run(
       { designId: "design-1", runId, turnId, recordReadyView: true },
