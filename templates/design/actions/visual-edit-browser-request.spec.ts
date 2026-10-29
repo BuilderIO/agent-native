@@ -48,14 +48,17 @@ describe("isSameOriginVisualEditBrowserRequest", () => {
   });
 
   it("accepts a same-origin Builder host page behind the proxy", () => {
-    expect(
-      isSameOriginVisualEditBrowserRequest(
-        request({
-          origin: "https://beta.builder.io",
-          "sec-fetch-site": "same-origin",
-        }),
-      ),
-    ).toBe(true);
+    for (const origin of [
+      "https://beta.builder.io",
+      "https://www.builder.io",
+      "https://builder.io",
+    ]) {
+      expect(
+        isSameOriginVisualEditBrowserRequest(
+          request({ origin, "sec-fetch-site": "same-origin" }),
+        ),
+      ).toBe(true);
+    }
   });
 
   it("rejects a Builder host origin that is not same-origin", () => {
