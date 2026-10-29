@@ -1514,7 +1514,7 @@ async function finishLinkedWorkspaceAppCreation(args: {
   appId: string;
   selectedKeys: string[];
   resourceIds: string[];
-  communitySourceId?: string;
+  communitySourceId?: string | undefined;
 }): Promise<string | null> {
   try {
     await requestSelectedVaultKeys({
@@ -1525,10 +1525,11 @@ async function finishLinkedWorkspaceAppCreation(args: {
       appId: args.appId,
       resourceIds: args.resourceIds,
     });
-    if (normalizeCommunitySourceId(args.communitySourceId)) {
+    const { communitySourceId } = args;
+    if (communitySourceId && normalizeCommunitySourceId(communitySourceId)) {
       await writeWorkspaceAppMetadataOverride({
         appId: args.appId,
-        communitySourceId: args.communitySourceId,
+        communitySourceId,
       });
     }
     return null;
@@ -3614,7 +3615,7 @@ export async function startWorkspaceAppCreation(input: {
         appId: built.appId,
         name: titleFromWorkspaceAppId(built.appId),
         description: appDescription,
-        attachments: input.attachments,
+        ...(input.attachments ? { attachments: input.attachments } : {}),
       });
     } catch (err) {
       return builderUnavailable({
