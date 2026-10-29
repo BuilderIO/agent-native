@@ -65,8 +65,7 @@ export default {
     recordingStarted: "Gravação iniciada",
     appBandHeading: "{app} · {count} sessões",
     journeyTitleSummary: "{app} · {from} a {to} · {count} sessões{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} a {to} · coortes separadas por aplicativo{partial}",
+    journeyTitleAppBandsSummary: "{from} a {to} · coortes separadas{partial}",
     sessionCount: "{count} sessões",
     otherPaths: "Outros caminhos",
     otherBranchesShown: "Exibindo {shown} de {total} ramificações",
@@ -2735,6 +2734,159 @@ export default {
   },
   home: {
     suggestedPrompts: "Prompts sugeridos",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "Crie um painel de análise de produto com indicadores, conversão e atividade, em um tom seguro e orientado por dados.",
+        roadmapWorkspace:
+          "Desenhe um espaço de roadmap com linha do tempo trimestral, prioridades e feedback de clientes, em um tom calmo e colaborativo.",
+        onboardingFlow:
+          "Crie a integração inicial de um app de orçamento com etapas, metas e conta, em um tom tranquilizador.",
+        featureComparison:
+          "Crie uma comparação SaaS com cartões de planos, matriz de recursos e FAQ, em um tom direto para conversão.",
+        feedbackPortal:
+          "Desenhe um portal de feedback com quadro de pedidos, votos e filtros de status, em um tom aberto e comunitário.",
+        releaseNotes:
+          "Crie uma central de novidades com versões, destaques e notas de migração, em um tom editorial conciso.",
+        projectWorkspace:
+          "Desenhe um espaço de produto com colunas kanban, responsáveis e marcos, em um tom produtivo.",
+        launchWaitlist:
+          "Crie uma lista de espera de lançamento com destaque, provas e cadastro, em um tom otimista.",
+      },
+      design: {
+        portfolioHome:
+          "Desenhe um portfólio com apresentação breve, projetos, perfil e contato, em um tom editorial refinado.",
+        designSystem:
+          "Crie uma referência de sistema visual com tokens, componentes e notas de uso, em um tom documental preciso.",
+        bankingApp:
+          "Crie a tela inicial de um app bancário móvel com saldo, transações e metas, em um tom calmo e confiável.",
+        travelBooking:
+          "Desenhe uma busca de viagens com filtros, roteiros e mapa, em um tom leve e aventureiro.",
+        coffeeShop:
+          "Crie uma loja de café com blends, origem e assinatura, em um tom acolhedor e tátil.",
+        musicFestival:
+          "Desenhe uma página de festival com atrações, horários e mapa, em um tom energético de pôster.",
+        accessibilityAudit:
+          "Crie um painel de acessibilidade com nota, problemas e filtros, em um tom claro e de alto contraste.",
+        artBook:
+          "Desenhe uma página editorial de arte com obras imersivas, citação e capítulos, em um tom de galeria discreto.",
+      },
+      developer: {
+        apiDocs:
+          "Crie um portal de documentação de API com navegação, exemplos de código e construtor de requisições, em um tom técnico preciso.",
+        deploymentDashboard:
+          "Desenhe um painel de deploy com ambientes, logs ao vivo e reversão, em um tom operacional tranquilo.",
+        componentPlayground:
+          "Crie um playground de componentes com controles de props, estados e código, em um tom limpo para desenvolvimento.",
+        databaseConsole:
+          "Desenhe um console de banco de dados com editor de consultas, esquema e resultados, em um tom técnico sóbrio.",
+        issueTriage:
+          "Crie um quadro de triagem com filtros, prioridades e responsáveis, em um tom claro e focado.",
+        authSettings:
+          "Desenhe configurações de autenticação com provedores, URL de retorno e permissões, em um tom seguro.",
+        workflowBuilder:
+          "Crie um editor de fluxo CI com etapas, histórico e seleção de branches, em um tom técnico preciso.",
+        developerPortfolio:
+          "Desenhe um portfólio de desenvolvedor com projetos, ferramentas e linha do tempo, em um tom escuro e focado.",
+      },
+      marketing: {
+        campaignLanding:
+          "Desenhe uma página de campanha com destaque, benefícios, provas e cadastro, em um tom energético.",
+        emailBuilder:
+          "Crie um editor de e-mail com assunto, blocos de conteúdo e público, em um tom claro e amigável.",
+        socialCalendar:
+          "Desenhe um calendário social com canais, publicações e métricas, em um tom editorial vibrante.",
+        brandCampaign:
+          "Crie uma campanha de marca com chamada, direção de arte e galeria, em um tom seguro e coerente.",
+        webinarRegistration:
+          "Desenhe uma inscrição para webinar com palestrantes, agenda e formulário, em um tom confiável e acolhedor.",
+        seoBrief:
+          "Crie um briefing de SEO com palavras-chave, estrutura e concorrentes, em um tom de pesquisa focado.",
+        launchMetrics:
+          "Desenhe métricas de lançamento com canais, conversão e campanhas, em um tom analítico.",
+        newsletterSignup:
+          "Crie uma página de newsletter com prévia editorial, temas e e-mail, em um tom caloroso e conciso.",
+      },
+      sales: {
+        leadWorkspace:
+          "Crie um espaço de vendas com contatos, histórico e qualificação, em um tom profissional e decisivo.",
+        accountBrief:
+          "Desenhe um resumo de conta com empresa, envolvidos e sinais recentes, em um tom executivo claro.",
+        productDemo:
+          "Crie uma demo de produto com casos de uso, capturas e provas de clientes, em um tom persuasivo e confiante.",
+        proposalBuilder:
+          "Desenhe uma proposta com escopo, preços e cronograma, em um tom consultivo refinado.",
+        pipelineDashboard:
+          "Crie um painel de pipeline com etapas, valores e previsão, em um tom de negócios conciso.",
+        meetingBooking:
+          "Desenhe uma reserva de reunião com horários, pauta e formulário, em um tom profissional acolhedor.",
+        customerStory:
+          "Crie uma história de cliente com desafio, resultados, citação e métricas, em um tom editorial baseado em evidências.",
+        accountHandoff:
+          "Desenhe uma passagem de conta com metas, contatos e tarefas abertas, em um tom calmo e colaborativo.",
+      },
+      ops: {
+        inventoryDashboard:
+          "Crie um painel de estoque com níveis, alertas de reposição e filtros, em um tom operacional prático.",
+        staffScheduler:
+          "Desenhe uma escala de equipe com turnos, disponibilidade e folgas, fácil de consultar.",
+        vendorPortal:
+          "Crie um portal de fornecedores com checklist, documentos e contatos, em um tom claro e tranquilizador.",
+        incidentResponse:
+          "Desenhe uma tela de incidentes com gravidade, linha do tempo e responsável, em um tom calmo e focado.",
+        expenseApprovals:
+          "Crie aprovações de despesas com recibos, políticas e totais, em um tom neutro e eficiente.",
+        warehouseReceiving:
+          "Desenhe o recebimento de estoque com envio, leitura e itens, em um tom muito claro.",
+        automationControl:
+          "Crie um painel de fluxos com automações, histórico e alertas de falha, em um tom operacional seguro.",
+        helpdeskQueue:
+          "Desenhe uma fila de suporte interno com pedidos, status e responsáveis, em um tom claro e prestativo.",
+      },
+      individual: {
+        personalPortfolio:
+          "Desenhe um portfólio pessoal com bio, trabalhos, habilidades e contato, em um tom editorial acolhedor.",
+        mealPlanner:
+          "Crie refeições semanais com receitas, lista de compras e filtros alimentares, em um tom prático e amigável.",
+        homeBudget:
+          "Desenhe um orçamento doméstico com resumo mensal, categorias e contas, em um tom calmo e encorajador.",
+        tripPlanner:
+          "Crie um planejador de viagem com linha do tempo, mapa e reservas, em um tom leve e aventureiro.",
+        readingJournal:
+          "Desenhe um diário de leitura com capas, progresso e avaliações, em um tom literário tranquilo.",
+        invoiceTracker:
+          "Crie um controle de faturas freelancer com clientes, pagamentos e prazos, em um tom profissional organizado.",
+        habitTracker:
+          "Desenhe um app de hábitos com registros diários, sequências e progresso, em um tom gentil e motivador.",
+        neighborhoodEvents:
+          "Crie uma página de eventos do bairro com cartões, filtros locais e RSVP, em um tom acolhedor e comunitário.",
+      },
+      general: {
+        saasHomepage:
+          "Crie uma página inicial SaaS com destaque, recursos e provas de clientes, em um tom claro e acolhedor.",
+        analyticsDashboard:
+          "Desenhe um painel analítico com indicadores, tendências e atividade, em um tom calmo orientado por dados.",
+        habitApp:
+          "Crie a tela inicial de um app de hábitos com metas, progresso e lembretes, em um tom amigável e encorajador.",
+        onlineStore:
+          "Desenhe uma loja virtual com produtos, categorias e avaliações, em um tom acolhedor e refinado.",
+        creativePortfolio:
+          "Crie um portfólio criativo com apresentação, projetos e perfil, em um tom editorial expressivo.",
+        bookingPage:
+          "Desenhe uma página de reservas com calendário, serviços e avaliações, em um tom claro e confiável.",
+        adminDashboard:
+          "Crie um painel administrativo com navegação, resumos e atividade recente, em um tom prático e discreto.",
+        communityEvent:
+          "Desenhe uma página de evento comunitário com agenda, local e palestrantes, em um tom festivo e acolhedor.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "Próximas etapas",
+      refineWithPrompt: "Aprimorar com um prompt",
+      export: "Exportar",
+      shareLink: "Compartilhar link",
+      dismiss: "Dispensar",
+    },
     import: "Importar",
     importOptions: "Opções de importação",
     figmaLink: "Link do Figma",
@@ -2813,6 +2965,89 @@ export default {
     paginationPrevious: "Anterior",
     paginationNext: "Próximo",
     paginationPage: "Página {{page}} de {{totalPages}}",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "painel de análise de produto",
+        roadmapWorkspace: "espaço de roadmap",
+        onboardingFlow: "onboarding de app de orçamento",
+        featureComparison: "comparação SaaS",
+        feedbackPortal: "portal de feedback",
+        releaseNotes: "central de novidades",
+        projectWorkspace: "espaço de produto",
+        launchWaitlist: "lista de espera",
+      },
+      design: {
+        portfolioHome: "portfólio de designer",
+        designSystem: "referência de sistema visual",
+        bankingApp: "app de banco móvel",
+        travelBooking: "busca de viagens",
+        coffeeShop: "loja de café",
+        musicFestival: "página de festival",
+        accessibilityAudit: "painel de acessibilidade",
+        artBook: "página editorial de arte",
+      },
+      developer: {
+        apiDocs: "portal de documentação da API",
+        deploymentDashboard: "painel de deploy",
+        componentPlayground: "playground de componentes",
+        databaseConsole: "console de banco de dados",
+        issueTriage: "quadro de triagem",
+        authSettings: "configurações de autenticação",
+        workflowBuilder: "editor de fluxo CI",
+        developerPortfolio: "portfólio de desenvolvedor",
+      },
+      marketing: {
+        campaignLanding: "página de campanha",
+        emailBuilder: "editor de e-mail",
+        socialCalendar: "calendário social",
+        brandCampaign: "campanha de marca",
+        webinarRegistration: "inscrição para webinar",
+        seoBrief: "briefing de SEO",
+        launchMetrics: "métricas de lançamento",
+        newsletterSignup: "inscrição na newsletter",
+      },
+      sales: {
+        leadWorkspace: "espaço de vendas",
+        accountBrief: "resumo de conta",
+        productDemo: "demo de produto",
+        proposalBuilder: "criador de propostas",
+        pipelineDashboard: "painel de pipeline",
+        meetingBooking: "reserva de reunião",
+        customerStory: "história de cliente",
+        accountHandoff: "passagem de conta",
+      },
+      ops: {
+        inventoryDashboard: "painel de estoque",
+        staffScheduler: "escala de equipe",
+        vendorPortal: "portal de fornecedores",
+        incidentResponse: "tela de incidentes",
+        expenseApprovals: "aprovações de despesas",
+        warehouseReceiving: "recebimento de estoque",
+        automationControl: "painel de fluxos",
+        helpdeskQueue: "fila de suporte interno",
+      },
+      individual: {
+        personalPortfolio: "portfólio pessoal",
+        mealPlanner: "refeições semanais",
+        homeBudget: "orçamento doméstico",
+        tripPlanner: "planejador de viagem",
+        readingJournal: "diário de leitura",
+        invoiceTracker: "controle de faturas freelancer",
+        habitTracker: "app de hábitos",
+        neighborhoodEvents: "eventos do bairro",
+      },
+      general: {
+        saasHomepage: "página inicial SaaS",
+        analyticsDashboard: "painel analítico",
+        habitApp: "app de hábitos",
+        onlineStore: "loja virtual",
+        creativePortfolio: "portfólio criativo",
+        bookingPage: "página de reservas",
+        adminDashboard: "painel administrativo",
+        communityEvent: "página de evento comunitário",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "Edicao visual",
@@ -3239,6 +3474,77 @@ export default {
     searching: "Pesquisando…",
     reactionFailed: "Não foi possível atualizar a reação",
     moveFailed: "Não foi possível mover o comentário",
+    threadTitle: "Comentário",
+    agentBadge: "Agente",
+    closeThread: "Fechar conversa",
+    deleteThread: "Excluir conversa",
+    deleteThreadTitle: "Excluir conversa?",
+    deleteThreadDescription: "Isso remove a conversa da revisão.",
+    pin: {
+      thread_one: "Conversa de {{authors}}, {{count}} comentário",
+      thread_many: "Conversa de {{authors}}, {{count}} comentários",
+      thread_other: "Conversa de {{authors}}, {{count}} comentários",
+      authorsOther_one: "{{count}} outra pessoa",
+      authorsOther_many: "{{count}} outras pessoas",
+      authorsOther_other: "{{count}} outras pessoas",
+      unread: "não lido",
+      resolved: "resolvido",
+      draft: "Comentário em rascunho",
+    },
+    reaction: {
+      label_one: "{{emoji}}, {{count}} reação",
+      label_many: "{{emoji}}, {{count}} reações",
+      label_other: "{{emoji}}, {{count}} reações",
+      labelMine_one: "{{emoji}}, {{count}} reação, incluindo a sua",
+      labelMine_many: "{{emoji}}, {{count}} reações, incluindo a sua",
+      labelMine_other: "{{emoji}}, {{count}} reações, incluindo a sua",
+    },
+    filtersActive: "Filtros aplicados",
+    suggestChanges: "Sugerir alterações",
+    replyInThread: "Responder na conversa",
+    applyChangesAndResolve: "Aplicar alterações e resolver",
+    agent: {
+      sectionLabel: "Agentes",
+      queued: "{{agent}} está na fila",
+      working: "{{agent}} está trabalhando…",
+      replied: "{{agent}} respondeu",
+      suggested: "{{agent}} sugeriu alterações",
+      applied: "{{agent}} aplicou as alterações e resolveu a conversa",
+      needsInput: "{{agent}} precisa da sua contribuição",
+      failed: "{{agent}} não conseguiu concluir",
+      cancelled: "Interrompido",
+      cancel: "Cancelar",
+      openChat: "Abrir chat",
+      retry: "Tentar novamente",
+      fallbackName: "IA",
+      setupRequired: "Conecte um modelo de IA para usar agentes",
+      startFailed: "Não foi possível iniciar o agente",
+      cancelFailed: "Não foi possível interromper o agente",
+      busy: "Um agente já está trabalhando nesta conversa",
+      error: {
+        engineNotConfigured: "Nenhum modelo de IA está conectado",
+        noResult: "O agente terminou sem responder",
+        timeout: "O agente não respondeu a tempo",
+        permission: "Você não tem mais acesso de edição",
+        threadUnavailable: "Esta conversa não está mais aberta",
+        targetChanged: "O design mudou enquanto o agente trabalhava",
+        applyUnavailable: "Um agente não pode editar esta tela",
+        applyIncomplete:
+          "O design foi editado, mas a conversa não foi resolvida. Revise a alteração.",
+        cancelledAfterEdit:
+          "Interrompido após a edição do design. Revise a alteração.",
+        generic: "Algo deu errado",
+      },
+    },
+    newThread: "Nova conversa",
+    threadsCount_one: "{{count}} conversa",
+    threadsCount_many: "{{count}} conversas",
+    threadsCount_other: "{{count}} conversas",
+    boardGroup: "Tela",
+    send: "Enviar",
+    pinLabel_one: "Conversa de comentários com {{count}} comentário",
+    pinLabel_many: "Conversa de comentários com {{count}} comentários",
+    pinLabel_other: "Conversa de comentários com {{count}} comentários",
     status: {
       draft: "Rascunho",
       in_review: "Em revisão",

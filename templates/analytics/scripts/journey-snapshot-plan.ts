@@ -14,8 +14,8 @@ export const SNAPSHOT_PRESET = Object.freeze({
   maxTotalBytesBilled: 275_000_000_000,
   minWidth: 1100,
   maxWidth: 1920,
-  minAspect: 1.25,
-  maxAspect: 1.8,
+  minAspect: 1.2,
+  maxAspect: 2.1,
   requireKnownViewport: true,
   recency: "newest" as const,
   settleMs: 300,
@@ -32,6 +32,7 @@ export interface SnapshotExample {
 
 export interface SnapshotNode {
   key: string;
+  cohortKey?: string;
   label: string;
   parentKey: string | null;
   depth: number;
@@ -47,7 +48,9 @@ export interface SnapshotNode {
 export interface SnapshotTree {
   window: { from: string; to: string };
   app: string;
+  populationGrain?: "sessions" | "signup_events";
   rootN: number;
+  appRootN?: Record<string, number>;
   coverage: {
     sessionsWithEvents: number;
     sessionsWithReplay: number | null;
@@ -60,12 +63,61 @@ export interface SnapshotTree {
   [key: string]: unknown;
 }
 
+export function snapshotPopulationUnit(
+  tree: Pick<SnapshotTree, "populationGrain">,
+): "sessions" | "signup events" {
+  return tree.populationGrain === "signup_events"
+    ? "signup events"
+    : "sessions";
+}
+
 export interface SnapshotBand {
   key: string;
   tree: SnapshotTree;
 }
 
-function arrayItemAt<T>(items: readonly T[], index: number): T | undefined {
+export interface SnapshotSummaryBand extends SnapshotBand {
+  label: string;
+  previousTree?: SnapshotTree;
+}
+
+export function snapshotSummaryBands(
+  bands: readonly (SnapshotBand & { label: string })[],
+  previousTrees: ReadonlyMap<string, SnapshotTree>,
+): SnapshotSummaryBand[] {
+  return bands.map(({ key, label, tree }) => {
+    const previousTree = previousTrees.get(key);
+    return {
+      key,
+      label,
+      tree,
+      ...(previousTree ? { previousTree } : {}),
+    };
+  });
+}
+
+export function snapshotCanvasTitle(input: {
+  app: string;
+  week: string;
+  experimentId?: string;
+  singleBand?: Pick<SnapshotSummaryBand, "key" | "label">;
+  hasFirstTouchBands: boolean;
+}): string {
+  const suffixes = [
+    ...(input.experimentId ? [`Experiment ${input.experimentId}`] : []),
+    ...(input.singleBand && input.singleBand.key !== input.app
+      ? [input.singleBand.label]
+      : input.hasFirstTouchBands
+        ? ["first-touch cohorts"]
+        : []),
+  ];
+  return `Onboarding snapshot · ${input.app} · ${input.week}${suffixes.length ? ` · ${suffixes.join(" · ")}` : ""}`;
+}
+
+export function arrayItemAt<T>(
+  items: readonly T[],
+  index: number,
+): T | undefined {
   return items.slice(index, index + 1)[0];
 }
 
@@ -93,6 +145,12 @@ export function validateSnapshotCostEstimate(
     throw new Error("cost estimate is incomplete or exceeds the pinned budget");
   }
   return estimatedBytes as number;
+}
+
+export function isBuilderCdnUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !URL.canParse(value)) return false;
+  const url = new URL(value);
+  return url.protocol === "https:" && url.hostname === "cdn.builder.io";
 }
 
 export function defaultSnapshotWeek(now = new Date()): string {
@@ -173,9 +231,21 @@ export function snapshotCanvasCacheKey(input: {
   designUrl: string;
   designScopeHash: string;
   analyticsScopeHash: string;
+  layout: {
+    experimentId: string | null;
+    cohortKeys: readonly string[];
+  };
 }): string {
   return createHash("sha256")
-    .update(JSON.stringify(input))
+    .update(
+      JSON.stringify({
+        ...input,
+        layout: {
+          ...input.layout,
+          cohortKeys: [...input.layout.cohortKeys].sort(),
+        },
+      }),
+    )
     .digest("hex")
     .slice(0, 20);
 }
@@ -360,6 +430,80 @@ export function selectCaptureTree<T extends SnapshotTree>(
       })),
     },
     frameCount,
+  };
+}
+
+export function combineSnapshotBands(
+  bands: readonly SnapshotBand[],
+  sourceApp?: string,
+): SnapshotTree {
+  const first = arrayItemAt(bands, 0);
+  if (bands.length < 2 || !first) {
+    throw new Error(
+      "At least two cohorts are required for a side-by-side tree.",
+    );
+  }
+  if (sourceApp !== undefined && !/^[a-z][a-z0-9-]{0,127}$/.test(sourceApp)) {
+    throw new Error(
+      `Invalid source app for side-by-side cohorts: ${sourceApp}`,
+    );
+  }
+  const appRootN: Record<string, number> = {};
+  const nodes: SnapshotNode[] = [];
+  const nodeKeys = new Set<string>();
+
+  for (const band of bands) {
+    if (!/^[a-z][a-z0-9-]{0,127}$/.test(band.key)) {
+      throw new Error(`Invalid side-by-side cohort key: ${band.key}`);
+    }
+    if (
+      band.tree.window.from !== first.tree.window.from ||
+      band.tree.window.to !== first.tree.window.to
+    ) {
+      throw new Error("Side-by-side journey cohorts must use the same window.");
+    }
+    if (!Number.isSafeInteger(band.tree.rootN) || band.tree.rootN < 1) {
+      throw new Error(`Cohort ${band.key} needs a positive root denominator.`);
+    }
+    const rootKey = sourceApp ? `${sourceApp}::${band.key}` : band.key;
+    if (Object.prototype.hasOwnProperty.call(appRootN, rootKey)) {
+      throw new Error(`Duplicate side-by-side cohort key: ${rootKey}`);
+    }
+    appRootN[rootKey] = band.tree.rootN;
+    const prefix = sourceApp ? `${sourceApp}::${band.key}` : band.key;
+    for (const node of band.tree.nodes) {
+      const key = `${prefix}::${node.key}`;
+      if (key.length > 2048 || nodeKeys.has(key)) {
+        throw new Error(`Side-by-side journey node key is invalid: ${key}`);
+      }
+      nodeKeys.add(key);
+      nodes.push({
+        ...node,
+        key,
+        ...(sourceApp ? { cohortKey: band.key } : {}),
+        parentKey: node.parentKey ? `${prefix}::${node.parentKey}` : null,
+      });
+    }
+  }
+
+  const sessionsWithReplay = bands.reduce<number | null>((total, band) => {
+    const count = band.tree.coverage.sessionsWithReplay;
+    return total === null || count === null ? null : total + count;
+  }, 0);
+  return {
+    window: first.tree.window,
+    app: "all",
+    rootN: bands.reduce((total, band) => total + band.tree.rootN, 0),
+    appRootN,
+    coverage: {
+      sessionsWithEvents: bands.reduce(
+        (total, band) => total + band.tree.coverage.sessionsWithEvents,
+        0,
+      ),
+      sessionsWithReplay,
+      truncated: bands.some((band) => band.tree.coverage.truncated),
+    },
+    nodes,
   };
 }
 

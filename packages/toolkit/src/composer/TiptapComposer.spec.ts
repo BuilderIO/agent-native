@@ -494,6 +494,78 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("lets a first-paint handoff override a saved prompt when requested", async () => {
+    const scope = "draft-recovery:first-paint";
+    localStorage.setItem(getComposerDraftKey(scope), "<p>Saved prompt</p>");
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            initialText: "Typed before hydration",
+            initialTextKey: "first-paint",
+            initialTextOverridesSavedDraft: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Typed before hydration");
+  });
+
+  it("can suppress only initial text notifications for the first-paint shell", async () => {
+    const onTextChange = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: "first-paint-notification",
+            initialTextOverridesSavedDraft: true,
+            suppressInitialTextChange: true,
+            includeDefaultSlashSkills: false,
+            onTextChange,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onTextChange).not.toHaveBeenCalled();
+
+    act(() => focusRef.current?.setText("Typed while loading"));
+    expect(onTextChange).toHaveBeenCalledWith("Typed while loading");
+  });
+
   it("does not restore a stale draft after the composer is cleared", async () => {
     const scope = "draft-recovery:clear";
     localStorage.setItem(getComposerDraftKey(scope), "<p>d</p>");

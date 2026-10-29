@@ -1,5 +1,7 @@
 import { Tabs } from "@agent-native/toolkit/design-system";
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
+
+import { useFirstRunOnboardingGateOwnsSurface } from "../app/onboarding/first-run-startup-gate.js";
 
 export interface PromptHomeProps {
   title: ReactNode;
@@ -8,6 +10,7 @@ export interface PromptHomeProps {
   connection?: ReactNode;
   connectionAttached?: boolean;
   quickActions?: ReactNode;
+  focusComposer?: () => void;
   children?: ReactNode;
 }
 
@@ -18,9 +21,60 @@ export function PromptHome({
   connection,
   connectionAttached,
   quickActions,
+  focusComposer,
   children,
 }: PromptHomeProps) {
   const titleId = useId();
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
+  const firstRunOwnsSurfaceRef = useRef(firstRunOwnsSurface);
+  const pendingFocusRef = useRef(false);
+  const focusComposerRef = useRef(focusComposer);
+  firstRunOwnsSurfaceRef.current = firstRunOwnsSurface;
+  focusComposerRef.current = focusComposer;
+
+  useEffect(() => {
+    if (!focusComposer) return;
+    const focusWhenAvailable = () => {
+      pendingFocusRef.current = true;
+      if (firstRunOwnsSurfaceRef.current) return;
+      requestAnimationFrame(() => {
+        if (!firstRunOwnsSurfaceRef.current && pendingFocusRef.current) {
+          pendingFocusRef.current = false;
+          focusComposerRef.current?.();
+        }
+      });
+    };
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      focusWhenAvailable,
+    );
+    window.addEventListener(
+      "agent-engine:configured-changed",
+      focusWhenAvailable,
+    );
+    return () => {
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        focusWhenAvailable,
+      );
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        focusWhenAvailable,
+      );
+    };
+  }, [focusComposer]);
+
+  useEffect(() => {
+    if (firstRunOwnsSurface || !pendingFocusRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      if (!firstRunOwnsSurfaceRef.current && pendingFocusRef.current) {
+        pendingFocusRef.current = false;
+        focusComposerRef.current?.();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [firstRunOwnsSurface]);
+
   return (
     <div className="agent-prompt-home mx-auto w-full min-w-0 px-4 pb-14 sm:px-6 lg:px-8">
       {mobileToolbar ? (
@@ -36,9 +90,10 @@ export function PromptHome({
           {title}
         </h2>
         <div
-          className={`agent-prompt-home-composer mt-4 text-start${
+          className={`agent-prompt-home-composer agent-prompt-home-input text-start${
             connectionAttached ? " agent-composer-area--attached-above" : ""
           }`}
+          data-connection-visible={connection ? "true" : undefined}
         >
           <div
             className="agent-prompt-home-connection"

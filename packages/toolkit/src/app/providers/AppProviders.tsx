@@ -635,7 +635,6 @@ export function AppProviders({
           <AgentEngineReadinessBootstrap />
           <FirstRunOnboardingStartupGate
             suppressSurface={skipFirstRunOnboarding}
-            fallback={fallback}
           >
             {children}
           </FirstRunOnboardingStartupGate>

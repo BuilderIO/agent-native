@@ -13,7 +13,7 @@ import { shouldMirrorSelectedElementToAgentChat } from "@/pages/design-editor/se
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
 export interface MirrorSelectionToAgentChatArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   activeProjectionContent: string;
   composerContextHasOurKeyRef: RefObject<boolean>;
   design: DesignData | null;
@@ -41,7 +41,11 @@ export function runMirrorSelectionToAgentChat({
 }: MirrorSelectionToAgentChatArgs) {
   const key = "design:selected-element";
   if (!isSignedIn) return;
-  if (!id || !shouldMirrorSelectedElementToAgentChat(selectedElement)) {
+  if (
+    !id ||
+    !activeFile ||
+    !shouldMirrorSelectedElementToAgentChat(selectedElement)
+  ) {
     mirroredSelectionIdRef.current = null;
     mirroredExcerptRef.current = null;
     sentSelectionIdRef.current = null;

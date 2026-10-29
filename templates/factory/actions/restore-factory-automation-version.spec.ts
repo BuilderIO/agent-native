@@ -4,6 +4,7 @@ import { runWithoutExecutionFence } from "../../../packages/core/src/agent/execu
 import { executeAgentToolCall } from "../../../packages/core/src/agent/production-agent.js";
 import { withMigrationRuntime } from "../../../packages/core/src/db/migrations.js";
 import { settingsStore } from "../../../packages/core/src/settings/store.js";
+import { FACTORY_ALIGNMENT_REVISION } from "../server/triage/review-skill-alignment.js";
 
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const resolveMock = vi.hoisted(() => vi.fn());
@@ -167,15 +168,14 @@ describe("restore-factory-automation-version", () => {
           liveContent: "Current legacy prompt.\r\nSecond paragraph.\r\n",
           historical:
             "---\npromptVersion: 1\nfactoryId: myfact\n---\nHistorical prompt.\n",
-          expected:
-            "---\npromptVersion: 3\nfactoryId: myfact\nalignmentRevision: 3\nconfigSavedAt: 2026-10-23T12:00:00.000Z\n---\nHistorical prompt.\n",
+          expected: `---\npromptVersion: 3\nfactoryId: myfact\nalignmentRevision: ${FACTORY_ALIGNMENT_REVISION}\nconfigSavedAt: 2026-10-23T12:00:00.000Z\n---\nHistorical prompt.\n`,
           meta: {
             schedule: "",
             enabled: true,
             _extraFrontmatterLines: [
               "promptVersion: 3",
               "factoryId: myfact",
-              "alignmentRevision: 3",
+              `alignmentRevision: ${FACTORY_ALIGNMENT_REVISION}`,
               "configSavedAt: 2026-10-23T12:00:00.000Z",
             ],
           },

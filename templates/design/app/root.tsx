@@ -11,25 +11,47 @@ import {
   isEmbedAuthActive,
   setAgentNativeApiDisabled,
 } from "@agent-native/core/client/host";
-import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  getLocaleInitScript,
+  useT,
+  type LocaleCode,
+} from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import {
+  createHomeSuggestionOrder,
+  createHomeSuggestionRandom,
+  HomeSuggestionSeedProvider,
+  pickHomeSuggestions,
+  readHomeSuggestionRole,
+  useHomeSuggestionSeedForHome,
+} from "@agent-native/toolkit/app-shell";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
+import {
+  AppShellSkeleton,
+  type AppShellFirstPaintHome,
+} from "@agent-native/toolkit/app/shared";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
+  IconArrowRight,
   IconArrowsMaximize,
+  IconComponents,
+  IconHome,
   IconHierarchy2,
   IconHistory,
   IconSun,
   IconMoon,
+  IconTemplate,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Links,
   Meta,
   Outlet,
+  Link,
   Scripts,
   ScrollRestoration,
   useLocation,
@@ -37,9 +59,20 @@ import {
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
+import {
+  DesignHomeLibrary,
+  type DesignHomeLibraryTab,
+} from "@/components/home/DesignHomeLibrary";
+import { DesignRecentSkeleton } from "@/components/home/DesignRecentSkeleton";
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { DesignTemplateGrid } from "@/components/templates/DesignTemplateGrid";
+import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import {
+  DESIGN_HOME_SUGGESTION_POOLS,
+  trackDesignHomeSuggestionClick,
+} from "@/home-suggestions";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
 import { useDesignVariantPickTracking } from "@/lib/design-funnel-tracking";
@@ -51,11 +84,20 @@ import {
 
 import changelog from "../CHANGELOG.md?raw";
 import { getDesignGenerationPageviewProvenanceFromProperties } from "../shared/generation-provenance.js";
+import {
+  DESIGN_HOME_LIBRARY_TAB_HANDOFF_INIT_SCRIPT,
+  readDesignHomeLibraryInitialState,
+  setDesignHomeLibraryTab,
+} from "./home-library-state";
 import { i18nCatalog } from "./i18n";
+import designEnglish from "./i18n/en-US";
 import { OpenVisualEditWebMcp } from "./OpenVisualEditWebMcp";
 import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
+
+const loadFirstPaintSuggestionMessages = (locale: string) =>
+  i18nCatalog.loadMessages(locale as LocaleCode);
 
 if (isBuilderHostEmbed()) setAgentNativeApiDisabled("builder shell canvas");
 
@@ -88,6 +130,156 @@ export const links: LinksFunction = () => [
 const THEME_INIT_SCRIPT = getThemeInitScript();
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 const DESIGN_WEBMCP_EXCLUDED_ACTIONS = ["open-visual-edit"] as const;
+function designFirstPaintSuggestions(
+  seed: number,
+  order: readonly number[],
+  role: string,
+) {
+  return pickHomeSuggestions(
+    DESIGN_HOME_SUGGESTION_POOLS,
+    role,
+    createHomeSuggestionRandom(seed),
+    order,
+  ).map(({ id, label, prompt: messageKey }) => {
+    if (!messageKey)
+      throw new Error(`Missing Design home suggestion prompt key: ${label}`);
+    const [, , roleKey, labelKey] = label.split(".");
+    const [, , , promptKey] = messageKey.split(".");
+    const roleLabels = designEnglish.home.suggestionLabels as Record<
+      string,
+      Record<string, string>
+    >;
+    const rolePrompts = designEnglish.home.suggestions as Record<
+      string,
+      Record<string, string>
+    >;
+    const shortLabel =
+      roleKey && labelKey ? roleLabels[roleKey]?.[labelKey] : undefined;
+    const prompt =
+      roleKey && promptKey ? rolePrompts[roleKey]?.[promptKey] : undefined;
+    if (!shortLabel || !prompt)
+      throw new Error(`Missing Design home suggestion copy: ${label}`);
+    return {
+      id,
+      label: shortLabel,
+      prompt,
+      labelMessageKey: label,
+      messageKey,
+    };
+  });
+}
+
+function DesignFirstPaintLibrary({
+  messages,
+}: {
+  messages: typeof designEnglish;
+}) {
+  const location = useLocation();
+  const [value, setValue] = useState<DesignHomeLibraryTab>(
+    () =>
+      readDesignHomeLibraryInitialState(
+        new URLSearchParams(location.search).get("gettingStarted") ===
+          "save-template",
+      ).tab,
+  );
+  return (
+    <DesignHomeLibrary
+      value={value}
+      onValueChange={(nextValue) => {
+        setValue(nextValue);
+        setDesignHomeLibraryTab(nextValue);
+      }}
+      labels={{
+        templates: messages.navigation.templates,
+        recent: messages.home.recent,
+      }}
+      browseAll={
+        <Button
+          variant="ghost"
+          size="sm"
+          className="min-w-[111px] justify-center"
+          asChild
+        >
+          <Link to="/templates">
+            {messages.home.browseAllTemplates}
+            <IconArrowRight />
+          </Link>
+        </Button>
+      }
+      templates={
+        <DesignTemplateGrid
+          templates={[]}
+          loading
+          pendingId={null}
+          pendingLabel={messages.templatesPage.opening}
+          disabled={false}
+          loadingLabel={messages.templatesPage.loading}
+          emptyLabel={messages.promptDialog.noTemplatesFound}
+          onSelect={() => {}}
+        />
+      }
+      recent={<DesignRecentSkeleton />}
+    />
+  );
+}
+
+function designFirstPaintCopy(messages: typeof designEnglish) {
+  return {
+    appName: messages.navigation.brand,
+    pageTitle: messages.home.pageTitle,
+    promptTitle: messages.home.designPromptTitle,
+    promptPlaceholder: messages.home.describeBuild,
+    suggestedPromptsLabel: messages.home.suggestedPrompts,
+    sidebarItems: [
+      {
+        label: messages.navigation.home,
+        to: "/home",
+        icon: IconHome,
+      },
+      {
+        label: messages.navigation.templates,
+        to: "/templates",
+        icon: IconTemplate,
+      },
+      {
+        label: messages.navigation.designSystems,
+        to: "/design-systems",
+        icon: IconComponents,
+      },
+    ],
+    templatesLabel: messages.navigation.templates,
+    recentLabel: messages.home.recent,
+    browseAllLabel: messages.home.browseAllTemplates,
+    library: <DesignFirstPaintLibrary messages={messages} />,
+    skipPromptLabel: messages.promptDialog.skipPrompt,
+  };
+}
+
+const designFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
+  appId: "design",
+  ...designFirstPaintCopy(designEnglish),
+  headerHeight: 56,
+  localizeMessages: (messages) =>
+    designFirstPaintCopy(messages as typeof designEnglish),
+  suggestionRole: "general",
+  renderComposer: (props) => (
+    <div data-design-inline-prompt data-agentkit-composer-size="large">
+      <PromptComposer
+        {...props}
+        autoFocus
+        attachmentsEnabled
+        className="design-home-prompt-composer-area"
+        layoutVariant="hero"
+        modelStatusChecksEnabled
+        requireAgentEngine
+        showMissingApiKeySetup={false}
+        showModelSelector
+        voiceChatEnabled={false}
+        voiceEnabled
+      />
+    </div>
+  ),
+};
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -106,6 +298,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-locale-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+        />
+        <script
+          data-design-home-library-tab-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: DESIGN_HOME_LIBRARY_TAB_HANDOFF_INIT_SCRIPT,
+          }}
         />
         <meta name="theme-color" content="#71717A" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -297,30 +496,90 @@ function supportsUnsupportedDeviceNotice(pathname: string): boolean {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
+  const homeSuggestionSeed = useHomeSuggestionSeedForHome(
+    location.pathname === "/" || location.pathname === "/home",
+    "design",
+  );
+  const { session } = useSession();
+  const homeSuggestionRoleScope =
+    session?.authUserId || session?.userId
+      ? JSON.stringify([
+          session.authUserId ?? session.userId,
+          session.orgId ?? "",
+        ])
+      : null;
+  const homeSuggestionDraftScope = homeSuggestionRoleScope ?? "anonymous";
+  const homeSuggestionRole = useMemo(
+    () => readHomeSuggestionRole("design", homeSuggestionRoleScope),
+    [homeSuggestionRoleScope, location.pathname],
+  );
+  const homeSuggestionOrder = useMemo(() => {
+    const rolePool = DESIGN_HOME_SUGGESTION_POOLS[homeSuggestionRole];
+    const pool = rolePool?.length
+      ? rolePool
+      : DESIGN_HOME_SUGGESTION_POOLS.general;
+    return createHomeSuggestionOrder(
+      pool.length,
+      createHomeSuggestionRandom(homeSuggestionSeed),
+    );
+  }, [homeSuggestionRole, homeSuggestionSeed]);
   const sessionBypass = computeSessionBypass(location.pathname);
+  const firstPaintSuggestions = useMemo(
+    () =>
+      designFirstPaintSuggestions(
+        homeSuggestionSeed,
+        homeSuggestionOrder,
+        homeSuggestionRole,
+      ),
+    [homeSuggestionOrder, homeSuggestionRole, homeSuggestionSeed],
+  );
+  const firstPaintHome =
+    location.pathname === "/" || location.pathname === "/home" ? (
+      <QueryClientProvider client={queryClient}>
+        <AppShellSkeleton
+          layout="prompt-library"
+          firstPaintHome={{
+            ...designFirstPaintHome,
+            promptDraftScope: `design:new:0:${homeSuggestionDraftScope}`,
+            promptHandoffScope: homeSuggestionDraftScope,
+            suggestions: firstPaintSuggestions,
+            suggestionRole: homeSuggestionRole,
+            suggestionSeed: homeSuggestionSeed,
+            loadSuggestionMessages: loadFirstPaintSuggestionMessages,
+            onHomeSuggestionClick: trackDesignHomeSuggestionClick,
+          }}
+        />
+      </QueryClientProvider>
+    ) : undefined;
   return (
-    <AppToolkitProvider>
-      <AppProviders
-        queryClient={queryClient}
-        skeletonLayout="prompt-library"
-        sessionBypass={sessionBypass}
-        unsupportedDevice={
-          supportsUnsupportedDeviceNotice(location.pathname)
+    <HomeSuggestionSeedProvider
+      seed={homeSuggestionSeed}
+      role={homeSuggestionRole}
+    >
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          skeletonLayout="prompt-library"
+          {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}
+          sessionBypass={sessionBypass}
+          {...(supportsUnsupportedDeviceNotice(location.pathname)
             ? {
-                appName: "Design",
-                subject: isPrivateDesignEditorPath(location.pathname)
-                  ? "design"
-                  : undefined,
+                unsupportedDevice: {
+                  appName: "Design",
+                  ...(isPrivateDesignEditorPath(location.pathname)
+                    ? { subject: "design" }
+                    : {}),
+                },
               }
-            : undefined
-        }
-        webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
-        i18n={{ catalog: i18nCatalog }}
-        toaster={<DesignToaster />}
-      >
-        <PrivateRootContent />
-      </AppProviders>
-    </AppToolkitProvider>
+            : {})}
+          webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
+          i18n={{ catalog: i18nCatalog }}
+          toaster={<DesignToaster />}
+        >
+          <PrivateRootContent />
+        </AppProviders>
+      </AppToolkitProvider>
+    </HomeSuggestionSeedProvider>
   );
 }
 

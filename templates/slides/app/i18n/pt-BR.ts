@@ -136,7 +136,7 @@ const messages = {
     openChat: "Abrir chat",
     cloudAuthToken: "Token de autenticação",
     cloudSetupSteps: "Etapas de configuração",
-    cloudConnectedReloading: "Conectado com sucesso. Recarregando...",
+    cloudConnectedReloading: "Recarregando...",
     cloudConnectionFailed: "Falha na conexão",
     cloudTestConnect: "Testar e conectar",
     cloudServerlessPostgres: "Postgres serverless",
@@ -1076,10 +1076,154 @@ const messages = {
     chooseAnotherFile: "Escolher outro arquivo",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "Criar um pitch de produto",
-      roadmap: "Criar um roadmap de produto",
-      explainer: "Explicar um tema em uma apresentação",
+    nextStepBar: {
+      ariaLabel: "Próximas etapas da sua primeira apresentação",
+      refineWithPrompt: "Refinar com uma instrução",
+      export: "Exportar",
+      shareLink: "Compartilhar link",
+      dismiss: "Dispensar",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "Crie uma apresentação de lançamento com o problema do cliente, os benefícios, o plano e um tom confiante e centrado no cliente.",
+        roadmap:
+          "Crie um roadmap trimestral com temas estratégicos, marcos, dependências e um tom executivo claro.",
+        opportunity:
+          "Crie um resumo de oportunidade com mercado, problemas dos clientes, solução, riscos e um tom decisivo.",
+        priorities:
+          "Crie uma apresentação de priorização com impacto, esforço, evidências, escolhas e um tom direto para decidir.",
+        metrics:
+          "Crie uma análise de métricas de produto com adoção, ativação, retenção, aprendizados e um tom analítico e franco.",
+        discovery:
+          "Crie um relatório de descoberta com temas de pesquisa, citações, necessidades e um tom empático baseado em evidências.",
+        vision:
+          "Crie uma apresentação de visão com futuro desejado, princípios, apostas de produto e um tom inspirador e prático.",
+        release:
+          "Crie uma revisão de lançamento com metas, resultados, feedback, pendências e um tom responsável e reflexivo.",
+      },
+      design: {
+        caseStudy:
+          "Crie um estudo de caso de design com briefing, processo, telas principais, resultados e um tom editorial acolhedor.",
+        system:
+          "Crie uma apresentação do sistema de design com cores, tipografia, componentes, exemplos e um tom visual preciso.",
+        critique:
+          "Crie uma crítica de design com objetivos, telas atuais, temas de feedback, próximos passos e um tom construtivo.",
+        research:
+          "Crie um relatório de pesquisa com contexto, padrões, citações, oportunidades e um tom empático.",
+        concepts:
+          "Crie uma exploração de conceitos com três direções visuais, telas de exemplo, escolhas e um tom descontraído.",
+        accessibility:
+          "Crie uma revisão de acessibilidade com barreiras, exemplos anotados, melhorias e um tom inclusivo e claro.",
+        brand:
+          "Crie uma apresentação de marca com público, referências visuais, cores, tipografia e um tom marcante.",
+        sprint:
+          "Crie um resumo do sprint de design com desafio, ideias, protótipo, descobertas e um tom otimista.",
+      },
+      developer: {
+        architecture:
+          "Crie uma apresentação de arquitetura com componentes, fluxo de dados, escolhas e um tom técnico preciso.",
+        api: "Crie um guia inicial da API com configuração, autenticação, exemplos, erros e um tom acessível a desenvolvedores.",
+        release:
+          "Crie um plano técnico de lançamento com escopo, marcos, dependências, implantação e um tom prático.",
+        incident:
+          "Crie uma revisão de incidente com impacto, cronologia, causa raiz, ações e um tom sem culpabilização.",
+        migration:
+          "Crie um plano de migração com estado atual, etapas, riscos, validação e um tom tranquilizador.",
+        security:
+          "Crie uma revisão de segurança com limites do sistema, ameaças, controles, lacunas e um tom técnico direto.",
+        demo: "Crie uma demonstração técnica com problema, arquitetura, fluxo ao vivo, resultados e um tom claro.",
+        metrics:
+          "Crie uma análise de métricas de engenharia com entregas, confiabilidade, tendências e um tom franco.",
+      },
+      marketing: {
+        campaign:
+          "Crie um lançamento de campanha com público, mensagem, canais, cronograma e um tom energético.",
+        story:
+          "Crie uma história de cliente com desafio, solução, resultados, evidências e um tom humano.",
+        content:
+          "Crie uma estratégia de conteúdo com necessidades do público, temas, formatos, calendário e um tom editorial.",
+        positioning:
+          "Crie um posicionamento de marca com público, categoria, promessa, evidências e um tom marcante.",
+        channels:
+          "Crie uma análise de canais com alcance, engajamento, conversão, aprendizados e um tom claro.",
+        messaging:
+          "Crie uma apresentação de mensagens de produto com público, benefícios, provas, exemplos e um tom persuasivo.",
+        event:
+          "Crie um plano de divulgação de evento com público, chamada, cronograma, canais e um tom acolhedor.",
+        competition:
+          "Crie uma análise competitiva com alternativas, pontos fortes, lacunas, oportunidades e um tom equilibrado.",
+      },
+      sales: {
+        pitch:
+          "Crie uma apresentação comercial com objetivos do cliente, solução, resultados, provas e um tom confiante.",
+        proposal:
+          "Crie uma proposta de solução com necessidades, abordagem, cronograma, investimento e um tom claro e centrado no cliente.",
+        quarterlyReview:
+          "Crie uma revisão trimestral com metas, resultados, adoção, próximos passos e um tom colaborativo.",
+        discovery:
+          "Crie um relatório de descoberta com prioridades, problemas, adequação e um tom atento.",
+        objections:
+          "Crie um guia para objeções com dúvidas comuns, evidências, respostas e um tom prestativo.",
+        demo: "Crie uma narrativa de demonstração com contexto do cliente, fluxos principais, resultados e um tom conciso e persuasivo.",
+        renewal:
+          "Crie uma apresentação de renovação com valor entregue, uso, oportunidades e um tom de parceria.",
+        enablement:
+          "Crie um material de capacitação comercial com compradores ideais, qualificação, argumentos e um tom prático.",
+      },
+      ops: {
+        weeklyReview:
+          "Crie uma revisão semanal de operações com metas, métricas, bloqueios, responsáveis e um tom calmo e direto.",
+        process:
+          "Crie uma apresentação de melhoria de processo com etapas atuais, atritos, fluxo futuro e um tom prático.",
+        capacity:
+          "Crie um plano de capacidade com demanda, disponibilidade da equipe, prioridades, cenários e um tom transparente.",
+        service:
+          "Crie uma revisão de serviço com volume, tempos de resposta, escalonamentos, correções e um tom responsável.",
+        vendor:
+          "Crie uma avaliação de fornecedores com requisitos, opções, custos, riscos e um tom equilibrado.",
+        metrics:
+          "Crie uma apresentação de painel operacional com métricas, tendências, exceções e um tom analítico e conciso.",
+        onboarding:
+          "Crie um fluxo de integração com etapas, transições, recursos, medidas de sucesso e um tom acolhedor.",
+        risk: "Crie uma revisão de riscos com probabilidade, impacto, mitigações, responsáveis e um tom ponderado.",
+      },
+      individual: {
+        project:
+          "Crie um plano de projeto pessoal com objetivo, marcos, recursos, riscos e um tom motivador.",
+        portfolio:
+          "Crie um portfólio pessoal com trabalhos escolhidos, processo, resultados e um tom editorial confiante.",
+        learning:
+          "Crie um roteiro de aprendizagem com habilidades, recursos, prática, marcos e um tom encorajador.",
+        event:
+          "Crie um plano de encontro com propósito, convidados, agenda, detalhes e um tom caloroso.",
+        budget:
+          "Crie uma revisão de orçamento pessoal com receitas, gastos, objetivos e um tom prático e tranquilo.",
+        travel:
+          "Crie um itinerário com destinos, destaques diários, logística e um tom visual convidativo.",
+        community:
+          "Crie uma apresentação de oficina comunitária com tema, atividades, aprendizados e um tom inclusivo.",
+        personalStory:
+          "Crie uma apresentação pessoal com trajetória, interesses, trabalho e um tom natural e conversacional.",
+      },
+      general: {
+        overview:
+          "Crie uma visão geral clara de um tema com contexto, ideias principais, exemplos e um tom acolhedor.",
+        fundraiser:
+          "Crie uma apresentação de arrecadação com missão, necessidade, impacto e um tom esperançoso.",
+        lesson:
+          "Crie uma aula curta com objetivos, conceitos principais, exemplos e um tom envolvente.",
+        research:
+          "Crie um relatório de pesquisa com pergunta, método, descobertas, implicações e um tom equilibrado.",
+        eventProposal:
+          "Crie uma proposta de evento com propósito, público, formato, orçamento e um tom convidativo.",
+        teamStrategy:
+          "Crie uma estratégia de equipe com prioridades, métricas, iniciativas e um tom focado.",
+        howTo:
+          "Crie um guia visual com etapas claras, exemplos úteis e um tom encorajador.",
+        portfolioIntro:
+          "Crie uma introdução de portfólio com projetos escolhidos, pontos fortes e um tom refinado.",
+      },
     },
     suggestedPrompts: "Prompts sugeridos",
     importMenu: {
@@ -1298,6 +1442,89 @@ const messages = {
     emptyTitle: "Ainda não há decks",
     createFirstDeck: "Crie seu primeiro deck",
     emptyDescription: "Crie belas apresentações com geração por IA.",
+
+    suggestionLabels: {
+      product: {
+        launch: "apresentação de lançamento",
+        roadmap: "roadmap trimestral",
+        opportunity: "resumo de oportunidade",
+        priorities: "apresentação de priorização",
+        metrics: "revisão de métricas",
+        discovery: "relatório de descoberta",
+        vision: "apresentação de visão",
+        release: "revisão de lançamento",
+      },
+      design: {
+        caseStudy: "estudo de caso",
+        system: "sistema de design",
+        critique: "crítica de design",
+        research: "relatório de pesquisa",
+        concepts: "exploração de conceitos",
+        accessibility: "revisão de acessibilidade",
+        brand: "apresentação de marca",
+        sprint: "resumo do sprint",
+      },
+      developer: {
+        architecture: "apresentação de arquitetura",
+        api: "guia inicial da API",
+        release: "plano técnico de lançamento",
+        incident: "revisão de incidente",
+        migration: "plano de migração",
+        security: "revisão de segurança",
+        demo: "demonstração técnica",
+        metrics: "revisão de métricas",
+      },
+      marketing: {
+        campaign: "lançamento de campanha",
+        story: "história de cliente",
+        content: "estratégia de conteúdo",
+        positioning: "posicionamento de marca",
+        channels: "análise de canais",
+        messaging: "mensagens de produto",
+        event: "plano de divulgação de evento",
+        competition: "análise competitiva",
+      },
+      sales: {
+        pitch: "apresentação comercial",
+        proposal: "proposta de solução",
+        quarterlyReview: "revisão trimestral",
+        discovery: "relatório de descoberta",
+        objections: "guia de objeções",
+        demo: "narrativa de demonstração",
+        renewal: "apresentação de renovação",
+        enablement: "material de capacitação comercial",
+      },
+      ops: {
+        weeklyReview: "revisão semanal de operações",
+        process: "melhoria de processos",
+        capacity: "plano de capacidade",
+        service: "revisão de serviço",
+        vendor: "avaliação de fornecedores",
+        metrics: "apresentação de painel operacional",
+        onboarding: "fluxo de integração",
+        risk: "revisão de riscos",
+      },
+      individual: {
+        project: "plano de projeto pessoal",
+        portfolio: "portfólio pessoal",
+        learning: "roteiro de aprendizagem",
+        event: "plano de encontro",
+        budget: "revisão de orçamento pessoal",
+        travel: "itinerário de viagem",
+        community: "apresentação de oficina comunitária",
+        personalStory: "apresentação pessoal",
+      },
+      general: {
+        overview: "visão geral do tema",
+        fundraiser: "apresentação de arrecadação",
+        lesson: "aula curta",
+        research: "relatório de pesquisa",
+        eventProposal: "proposta de evento",
+        teamStrategy: "estratégia de equipe",
+        howTo: "guia visual",
+        portfolioIntro: "introdução de portfólio",
+      },
+    },
   },
   agentChat: {
     setup: {

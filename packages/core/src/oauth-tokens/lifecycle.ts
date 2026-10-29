@@ -93,6 +93,7 @@ export interface OAuthCredentialAccessResult<
 > {
   state: OAuthCredentialState<T>;
   accessToken: string | null;
+  refreshFailure?: "transient";
 }
 
 export interface OAuthRefreshContext<T extends OAuthCredential> {
@@ -544,12 +545,35 @@ export async function resolveOAuthCredentialAccess<
     return { state, accessToken: null };
   }
   if (!state.credential.tokens.refresh_token) {
+    if (state.kind === "expired" || options.forceRefresh) {
+      await markReconnectRequired(
+        identity,
+        state,
+        options.legacyAccountKey === true,
+      );
+      state = await readStoredOAuthCredentialState<T>(identity, {
+        ...(options.allowLegacy !== undefined
+          ? { allowLegacy: options.allowLegacy }
+          : {}),
+        ...(options.legacyAccountKey !== undefined
+          ? { legacyAccountKey: options.legacyAccountKey }
+          : {}),
+        now: dependencies.now(),
+        ...(options.validateCredential
+          ? { validateCredential: options.validateCredential }
+          : {}),
+      });
+      return {
+        state,
+        accessToken:
+          state.kind === "connected"
+            ? state.credential.tokens.access_token
+            : null,
+      };
+    }
     return {
       state,
-      accessToken:
-        state.kind === "connected"
-          ? state.credential.tokens.access_token
-          : null,
+      accessToken: state.credential.tokens.access_token,
     };
   }
 
@@ -707,6 +731,54 @@ export async function resolveOAuthCredentialAccess<
           validateCredential: options.validateCredential,
         });
         if (latest.kind === "connected") {
+          if (options.forceRefresh && latest.revision === baselineRevision) {
+            if (
+              options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
+              true
+            ) {
+              await markReconnectRequired(
+                identity,
+                latest,
+                options.legacyAccountKey === true,
+              );
+              const reconnect = await readStoredOAuthCredentialState<T>(
+                identity,
+                {
+                  ...(options.allowLegacy !== undefined
+                    ? { allowLegacy: options.allowLegacy }
+                    : {}),
+                  ...(options.legacyAccountKey !== undefined
+                    ? { legacyAccountKey: options.legacyAccountKey }
+                    : {}),
+                  now: dependencies.now(),
+                  ...(options.validateCredential
+                    ? { validateCredential: options.validateCredential }
+                    : {}),
+                },
+              );
+              if (
+                reconnect.kind === "connected" &&
+                reconnect.revision !== latest.revision
+              ) {
+                return {
+                  state: reconnect,
+                  accessToken: reconnect.credential.tokens.access_token,
+                };
+              }
+              return { state: reconnect, accessToken: null };
+            }
+            if (
+              options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
+              false
+            ) {
+              return {
+                state: latest,
+                accessToken: null,
+                refreshFailure: "transient",
+              };
+            }
+            return { state: latest, accessToken: null };
+          }
           return {
             state: latest,
             accessToken: latest.credential.tokens.access_token,
@@ -717,7 +789,11 @@ export async function resolveOAuthCredentialAccess<
             options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
             false
           ) {
-            return { state: latest, accessToken: null };
+            return {
+              state: latest,
+              accessToken: null,
+              refreshFailure: "transient",
+            };
           }
           await markReconnectRequired(
             identity,
@@ -730,6 +806,15 @@ export async function resolveOAuthCredentialAccess<
             now: dependencies.now(),
             validateCredential: options.validateCredential,
           });
+          if (
+            reconnect.kind === "connected" &&
+            reconnect.revision !== latest.revision
+          ) {
+            return {
+              state: reconnect,
+              accessToken: reconnect.credential.tokens.access_token,
+            };
+          }
           return { state: reconnect, accessToken: null };
         }
         return { state: latest, accessToken: null };
@@ -748,7 +833,16 @@ export async function resolveOAuthCredentialAccess<
   return {
     state,
     accessToken:
-      state.kind === "connected" ? state.credential.tokens.access_token : null,
+      state.kind === "connected" &&
+      (!options.forceRefresh || state.revision !== initialRevision)
+        ? state.credential.tokens.access_token
+        : null,
+    ...(state.kind === "expired" ||
+    (options.forceRefresh &&
+      state.kind === "connected" &&
+      state.revision === initialRevision)
+      ? { refreshFailure: "transient" as const }
+      : {}),
   };
 }
 

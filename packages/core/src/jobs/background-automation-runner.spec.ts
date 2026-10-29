@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
@@ -1859,6 +1867,11 @@ describe("default selection reaches new chats and background runs", () => {
 });
 
 describe("runBackgroundAutomation — background-run self-claim", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
   it.each([
     { triggerType: undefined, manual: false, timezone: "America/New_York" },
     {

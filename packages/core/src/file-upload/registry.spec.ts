@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { McpOAuthRefreshUnavailableError } from "../mcp-client/oauth-client.js";
 import { builderFileUploadProvider } from "./builder.js";
 import {
   findFileUploadProviderOwningUrl,
@@ -353,6 +354,20 @@ describe("file-upload registry", () => {
       await expect(uploadFile({ data: new Uint8Array([1]) })).rejects.toThrow(
         "db down",
       );
+    });
+
+    it("keeps transient Builder OAuth refresh failures distinct from missing storage", async () => {
+      canAuthorizeBuilderApiRequestMock.mockRejectedValue(
+        new McpOAuthRefreshUnavailableError(),
+      );
+
+      await expect(
+        uploadFile({ data: new Uint8Array([1]) }),
+      ).rejects.toMatchObject({
+        name: "FileUploadProviderUnavailableError",
+        errorCode: "file_upload_provider_unavailable",
+        statusCode: 503,
+      });
     });
 
     it("does NOT swallow a real upload failure as a fallback", async () => {

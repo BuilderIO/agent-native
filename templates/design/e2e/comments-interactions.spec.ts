@@ -104,9 +104,11 @@ test("comments toolbar opens an anchored composer", async ({ app }) => {
   await page.mouse.click(click.x, click.y);
 
   const draftForm = page
-    .locator('form:has(textarea[placeholder="Leave feedback…"])')
+    .locator('form:has([role="textbox"][aria-label="Leave feedback…"])')
     .first();
-  const composer = draftForm.locator('textarea[placeholder="Leave feedback…"]');
+  const composer = draftForm.getByRole("textbox", {
+    name: "Leave feedback…",
+  });
   await expect(composer).toBeVisible();
   const commentButton = draftForm.getByRole("button", {
     name: "Comment",
@@ -115,15 +117,17 @@ test("comments toolbar opens an anchored composer", async ({ app }) => {
   await expect(commentButton).toBeDisabled();
   await composer.fill("Browser comment check ");
   await composer.press("@");
-  const mentionMenu = page.getByRole("menu", { name: "Mention someone" });
+  const mentionMenu = page.getByRole("listbox", { name: "Mention someone" });
   await expect(mentionMenu).toBeVisible();
-  await expect(composer).toHaveValue("Browser comment check @");
+  await expect(composer).toHaveText("Browser comment check @");
   await composer.pressSequentially("Ali");
-  await expect(
-    mentionMenu.getByRole("textbox", { name: "Mention someone" }),
-  ).toHaveValue("Ali");
-  await mentionMenu.getByRole("menuitem").first().click();
-  await expect(composer).toHaveValue("Browser comment check @alice+e2e");
+  await expect(mentionMenu.getByRole("option").first()).toContainText(
+    "alice+e2e",
+  );
+  await mentionMenu.getByRole("option").first().click();
+  await expect(composer.locator("[data-review-mention-chip]")).toHaveText(
+    "@alice+e2e",
+  );
 
   const tools = (await draftForm
     .locator("[data-review-comment-tools]")
@@ -142,7 +146,7 @@ test("comments toolbar opens an anchored composer", async ({ app }) => {
   expect(attach.x + attach.width).toBeLessThanOrEqual(tools.x + tools.width);
   await expect(
     draftForm.getByRole("button", { name: "Send to agent" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 
   const createResponse = page.waitForResponse(
     (response) =>
@@ -186,10 +190,10 @@ test("comments toolbar opens an anchored composer", async ({ app }) => {
   await expect(threadPopover(page)).toBeVisible();
   await expect(
     page
-      .locator("[data-review-comments-panel] article")
-      .getByText("Browser comment check @alice+e2e", { exact: true }),
+      .locator("[data-review-comments-panel] [data-review-thread-row]")
+      .filter({ hasText: "Browser comment check @alice+e2e" }),
   ).toBeVisible();
-  const replyInput = page.locator("textarea[data-review-reply-input]:visible");
+  const replyInput = page.locator("[data-review-reply-input]:visible");
   await replyInput.fill("Browser comment reply");
   const replyResponse = page.waitForResponse(
     (response) =>

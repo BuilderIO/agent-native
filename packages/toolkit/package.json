@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.221.0",
+  "version": "0.222.1",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -473,6 +473,13 @@
       "import": "./dist/app/onboarding/first-run-builder-credits-flag.js",
       "default": "./dist/app/onboarding/first-run-builder-credits-flag.js"
     },
+    "./app/generation": {
+      "types": "./dist/app/generation/index.d.ts",
+      "browser": "./dist/app/generation/index.js",
+      "development": "./dist/app/generation/index.js",
+      "import": "./dist/app/generation/index.js",
+      "default": "./dist/app/generation/index.js"
+    },
     "./app/progress": {
       "types": "./dist/app/progress/index.d.ts",
       "browser": "./dist/app/progress/index.js",
@@ -736,7 +743,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.221.0",
+    "@agent-native/core": ">=0.222.0-0",
     "@excalidraw/excalidraw": ">=0.18",
     "@excalidraw/mermaid-to-excalidraw": ">=2",
     "@tanstack/react-query": "^5.99.2",
