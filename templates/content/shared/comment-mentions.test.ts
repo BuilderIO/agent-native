@@ -169,36 +169,6 @@ describe("comment mentions", () => {
     ).toBeUndefined();
   });
 
-  it("never matches an @name in a fenced code block", () => {
-    const sam = {
-      kind: "person" as const,
-      email: "sam@example.com",
-      name: "Sam",
-    };
-    const text = [
-      "~~~",
-      "@Sam",
-      "~~~",
-      "ask @Sam",
-      "```js",
-      "@Sam",
-      "````",
-      "then @Sam",
-      "~~~~",
-      "@Sam",
-      "~~~",
-      "@Sam, still in the unclosed fence",
-    ].join("\n");
-
-    expect(findCommentMentions(text, [sam]).map(({ start }) => start)).toEqual([
-      text.indexOf("ask @Sam") + 4,
-      text.indexOf("then @Sam") + 5,
-    ]);
-    expect(
-      findCommentMentions("``` @Sam ```", [sam]).map(({ start }) => start),
-    ).toEqual([]);
-  });
-
   it("never matches an @name in a link the comment defines by reference", () => {
     const sam = {
       kind: "person" as const,

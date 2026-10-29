@@ -275,46 +275,14 @@ function codeSpans(text: string): { start: number; end: number }[] {
 }
 
 /**
- * Markdown's fenced code blocks: a line opening with three or more backticks or
- * tildes through the next line of at least as many of the same, or to the end
- * of the text when nothing closes it. Inline code spans miss a `~~~` fence and
- * an unclosed one.
- */
-function fencedCodeBlocks(text: string): { start: number; end: number }[] {
-  const blocks: { start: number; end: number }[] = [];
-  let open: { start: number; marks: string } | undefined;
-  for (const line of text.matchAll(/^.*$/gm)) {
-    const [, marks = "", rest = ""] =
-      /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line[0]) ?? [];
-    if (!marks) continue;
-    if (!open) {
-      // A backtick after the fence makes the line inline code, not a fence.
-      if (!(marks.startsWith("`") && rest.includes("`")))
-        open = { start: line.index, marks };
-    } else if (
-      marks[0] === open.marks[0] &&
-      marks.length >= open.marks.length &&
-      !rest.trim()
-    ) {
-      blocks.push({ start: open.start, end: line.index + line[0].length });
-      open = undefined;
-    }
-  }
-  if (open) blocks.push({ start: open.start, end: text.length });
-  return blocks;
-}
-
-/**
- * Tests whether an `@` in `text` is literal: in code, a Markdown link, or a
- * URL, where it is code, a link, or part of the address, never a mention.
+ * Tests whether an `@` in `text` is literal: in inline code, a Markdown link,
+ * or a URL, where it is code, a link, or part of the address, never a mention.
  * Every comment write runs this, so it reads the text once; a scan per `@` is
  * quadratic in a long run of `@`s.
  */
 export function literalAtSignTest(text: string): (at: number) => boolean {
   const literal = new Uint8Array(text.length);
   for (const span of codeSpans(text)) literal.fill(1, span.start + 1, span.end);
-  for (const block of fencedCodeBlocks(text))
-    literal.fill(1, block.start, block.end);
   for (const link of linkSpans(text)) literal.fill(1, link.start, link.end);
   for (const url of urlRanges(text)) literal.fill(1, url.start, url.end);
   return (at) => literal[at] === 1;
@@ -392,8 +360,8 @@ function longestNameAt(
 /**
  * Where stored mentions' `@name`s appear in the text. A name counts only as a
  * whole token, so `@Sam` is not inside `@Samantha` or `me@Sam.com`, and where
- * two names start at the same `@` the longer wins. An `@name` in code or a URL
- * is code or part of the address, never a mention. The k-th `@name`
+ * two names start at the same `@` the longer wins. An `@name` in inline code
+ * or a URL is code or part of the address, never a mention. The k-th `@name`
  * is the k-th mention listed under that name and later ones repeat the last,
  * so two people who share a name each keep their own pill. Saving and
  * rendering both use this, so a pill is drawn exactly where a saved mention

@@ -162,19 +162,6 @@ describe("sent comment mentions", () => {
     expect(host.textContent).not.toContain("](");
   });
 
-  it("leaves an @name in a fenced code block as the code typed", () => {
-    const pills = render(
-      "~~~\nping @Sam\n~~~\n\nthen ask @Sam",
-      JSON.stringify([
-        { kind: "person", email: "sam@example.com", name: "Sam" },
-      ]),
-    );
-
-    expect(pills.map((pill) => spokenText(pill))).toEqual(["@Sam"]);
-    expect(host.querySelector("pre > code")?.textContent).toBe("ping @Sam\n");
-    expect(host.textContent).not.toContain("](");
-  });
-
   it("leaves an @name in a Markdown link's label as the link", () => {
     const pills = render(
       "See [@Sam](https://x.com/profile), [@Sam](https://x.com/Sam_(name)), and ask @Sam",
