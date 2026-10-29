@@ -1,5 +1,14 @@
 # @agent-native/scheduling
 
+## 0.2.49
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [39cb8ce]
+  - @agent-native/toolkit@0.222.2
+
 ## 0.2.48
 
 ### Patch Changes
@@ -1211,13 +1220,5 @@
 - b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
 - Updated dependencies [b6d7f87]
   - @agent-native/toolkit@0.5.0
-
-## 0.1.25
-
-### Patch Changes
-
-- 38ca6fa: Require host identity (or the booking's capability token) before mutating bookings, revoking private links, duplicating event types, and returning reschedule tokens, closing cross-tenant write/disclosure gaps.
-- Updated dependencies [38ca6fa]
-  - @agent-native/toolkit@0.4.7
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -1,3 +1,9 @@
+## 0.31.1
+
+### Patch Changes
+
+- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
+
 ## 0.31.0
 
 ### Minor Changes
