@@ -11,9 +11,9 @@ that account, or a root listed under "Claimed, not yet answered" in memory.md. A
 matching reaction without that evidence is a manual mark: leave it alone. Keep
 the disposition, evidence, scopes, and human actions in the internal inventory.
 Post a reporter reply when this run adds a root reaction, or when a newer human
-reporter message needs a direct answer. If the root asks a question, the reply
-answers it first. A reaction reply then uses one short, plain-language sentence to
-explain only the reaction(s) added in this run. An answer to a newer human message
+reporter message needs a direct answer. The reply is one short, plain-language sentence (about 25 words at most). If the
+root asks a question, that sentence answers it first and also explains only the
+reaction(s) added in this run. An answer to a newer human message
 answers only that message. Skip the reply when the only reaction added is the merged
 `✅` close-out after an earlier "in review" reply; that close-out gets no second
 reply. Do not send progress, merge, or deployment updates. Never explain absent or
@@ -183,11 +183,12 @@ A partial fix with a separately unfinished human/team action can have both
 `✅` and `🎫`.
 Work that remains with this workflow is active and needs no `🎫` by itself, but a fix
 this workflow could not land gets `🎫` as a human handoff, matching the parent skill.
-Requests for a reporter-provided URL, access, evidence, or clarification are
-separate human actions, not team handoffs. Record them only in
+Requests for a reporter-provided URL, evidence, or clarification are separate human
+actions, not team handoffs. Access, credentials, admin rights, and account changes
+are never asked of the reporter; they are Steve's and get a `🎫` handoff. Record them only in
 `reporterRequests[]`; they still get `🎫` while outstanding, as described below.
 Do not duplicate a reporter request in `handoffs[]`.
-When this workflow asks a reporter for a URL, access, evidence, or clarification,
+When this workflow asks a reporter for a URL, evidence, or clarification,
 record the requested action in `reporterRequests[]` and add/read back `🎫` while
 that request is open. This tracks a requested human action; it is not a team
 handoff and does not claim accepted ownership. When the reporter answers, or
