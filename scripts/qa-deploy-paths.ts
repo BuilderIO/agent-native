@@ -1511,6 +1511,10 @@ async function exerciseScheduledStaleChatContinuation(
           args: [threadId, turnId],
         });
         await db.execute({
+          sql: "DELETE FROM agent_tool_ledger WHERE thread_id = ?",
+          args: [threadId],
+        });
+        await db.execute({
           sql: "DELETE FROM agent_execution_leases WHERE thread_id = ? AND turn_id = ?",
           args: [threadId, turnId],
         });
