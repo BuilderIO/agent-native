@@ -190,9 +190,10 @@ Work that remains with this workflow is active and needs no `🎫` by itself, bu
 this workflow could not land gets `🎫` as a human handoff, matching the parent skill.
 Requests for a reporter-provided URL, evidence, or clarification are separate human
 actions, not team handoffs. Access, credentials, admin rights, and account changes
-are never asked of the reporter. They are Steve's internal work: record them in
-`handoffs[]` with a `🎫`, not in `reporterRequests[]`, so they do not expire with
-the reporter-request lifecycle.
+are never asked of the reporter. They are Steve's internal work: record them in `handoffs[]` with a `🎫`, owner set to
+Steve, and `status: "unassigned"` until Steve explicitly commits in the thread. They
+are not in `reporterRequests[]`, so they do not expire with the reporter-request
+lifecycle.
 When this workflow asks a reporter for a URL, evidence, or clarification,
 record the requested action in `reporterRequests[]` and add/read back `🎫` while
 that request is open. This tracks a requested human action; it is not a team
