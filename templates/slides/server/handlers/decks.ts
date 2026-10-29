@@ -19,10 +19,7 @@ type GlobalWithClients = typeof globalThis & {
   [GLOBAL_KEY]?: Set<SSEClient>;
 };
 const globalRef = globalThis as GlobalWithClients;
-if (!globalRef[GLOBAL_KEY]) {
-  globalRef[GLOBAL_KEY] = new Set<SSEClient>();
-}
-const sseClients: Set<SSEClient> = globalRef[GLOBAL_KEY]!;
+const sseClients: Set<SSEClient> = (globalRef[GLOBAL_KEY] ??= new Set());
 
 export interface NotifyClientsOptions {
   type?: string;
@@ -125,7 +122,7 @@ export async function notifyClients(
           : Boolean(
               await resolveAccess("deck", deckId, {
                 userEmail: client.email,
-                orgId: client.orgId,
+                ...(client.orgId ? { orgId: client.orgId } : {}),
               }),
             );
         if (canReceive) client.push(message);
