@@ -337,9 +337,9 @@ status line while it runs: every turn re-sends your whole context, and on
 
 Fix each review round's findings in one batch. If a second round still finds
 a problem in the same fix, take that fix out of the PR, remove its whole entry
-from the PR's `Reports` section, the link and its proof lines (close-out
-marks every listed report fixed, and a stray proof line counts toward the
-report above it), 🎫 its
+from the PR's `Reports` section: the link and its `fix-proof:` and `visual:`
+lines (close-out marks every listed report fixed, and a stray evidence line
+counts toward the report above it). Then 🎫 its
 report with what review found, and merge the rest. Close the PR only when nothing verified
 is left in it.
 
