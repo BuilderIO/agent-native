@@ -814,7 +814,8 @@ export function ImageBlock({
   function handleImageFileSelectionStart() {
     if (!canMutateMediaNow()) return;
     if (isUploading) return;
-    if (!fileStorageConfigured) {
+    // Private uploads report missing private storage from their own route.
+    if (!fileStorageConfigured && !options.usesPrivateImageUploads?.()) {
       setStorageSetupOpen(true);
       return;
     }

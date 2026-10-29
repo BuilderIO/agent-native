@@ -2169,6 +2169,7 @@ interface VisualEditorExtensionOptions {
   onVideoComment?: ContentVideoOptions["onVideoComment"];
   canCommentOnVideo?: ContentVideoOptions["canCommentOnVideo"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
+  usesPrivateImageUploads?: () => boolean;
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
@@ -2621,6 +2622,22 @@ const VisualEditorPlaceholder = Extension.create<{
   },
 });
 
+/**
+ * True when some of these files go to the public file store, so they wait
+ * for its setup. Private image uploads go to the page's own image route,
+ * which reports missing private storage itself.
+ */
+function mediaNeedsFileStorage(
+  files: { imageFiles: File[]; videoFiles: File[]; audioFiles: File[] },
+  privateImages: boolean,
+): boolean {
+  return (
+    (files.imageFiles.length > 0 && !privateImages) ||
+    files.videoFiles.length > 0 ||
+    files.audioFiles.length > 0
+  );
+}
+
 export async function uploadAndInsertImageFiles(
   view: EditorView,
   files: File[],
@@ -2815,6 +2832,7 @@ export function createVisualEditorExtensions({
   onVideoComment,
   canCommentOnVideo,
   onImageFilePickerRequest,
+  usesPrivateImageUploads,
   canMutateMedia,
   isSuggesting,
   onJoinTitle,
@@ -2873,6 +2891,7 @@ export function createVisualEditorExtensions({
         documentId,
         onImageComment,
         onImageFilePickerRequest,
+        usesPrivateImageUploads,
         canMutateMedia,
       }),
       VideoNode.configure({
@@ -3329,6 +3348,11 @@ export function VisualEditor({
   const privateImageTargetRef = useRef<{ documentId: string } | null>(null);
   privateImageTargetRef.current =
     privateImageUploads && documentId ? { documentId } : null;
+  const privateImagesEnabled = privateImageTargetRef.current !== null;
+  const usesPrivateImageUploads = useCallback(
+    () => privateImageTargetRef.current !== null,
+    [],
+  );
   const uploadBodyImage = useCallback(
     (file: File) => uploadImageFile(file, privateImageTargetRef.current),
     [],
@@ -3520,7 +3544,10 @@ export function VisualEditor({
     (request: PendingImagePicker) => {
       runIfMediaCreationAllowed(suggestingRef.current, () => {
         if (pendingImagePickerRef.current) return;
-        if (fileStorageStateRef.current !== "configured") {
+        if (
+          !privateImageTargetRef.current &&
+          fileStorageStateRef.current !== "configured"
+        ) {
           if (editor) restorePendingImagePicker(editor.view, request);
           setIsFileStorageSetupOpen(true);
           return;
@@ -3617,6 +3644,7 @@ export function VisualEditor({
         onVideoComment,
         canCommentOnVideo,
         onImageFilePickerRequest,
+        usesPrivateImageUploads,
         canMutateMedia,
         isSuggesting,
         onJoinTitle,
@@ -3665,6 +3693,7 @@ export function VisualEditor({
       onVideoComment,
       canCommentOnVideo,
       onImageFilePickerRequest,
+      usesPrivateImageUploads,
       canMutateMedia,
       isSuggesting,
       onJoinTitle,
@@ -3863,7 +3892,13 @@ export function VisualEditor({
             );
             if (imageFiles.length === 0 && audioFiles.length === 0) return;
           }
-          if (fileStorageStateRef.current !== "configured") {
+          if (
+            fileStorageStateRef.current !== "configured" &&
+            mediaNeedsFileStorage(
+              { imageFiles, videoFiles: storedVideoFiles, audioFiles },
+              privateImageTargetRef.current !== null,
+            )
+          ) {
             pendingMediaFilesRef.current = {
               view,
               documentId: documentId ?? null,
@@ -3919,7 +3954,13 @@ export function VisualEditor({
             );
             if (imageFiles.length === 0 && audioFiles.length === 0) return;
           }
-          if (fileStorageStateRef.current !== "configured") {
+          if (
+            fileStorageStateRef.current !== "configured" &&
+            mediaNeedsFileStorage(
+              { imageFiles, videoFiles: storedVideoFiles, audioFiles },
+              privateImageTargetRef.current !== null,
+            )
+          ) {
             pendingMediaFilesRef.current = {
               view,
               documentId: documentId ?? null,
@@ -4411,7 +4452,10 @@ export function VisualEditor({
       pendingImagePickerRef.current = null;
       if (suggestingRef.current) return;
       if (!editor || !file || !request) return;
-      if (fileStorageStateRef.current !== "configured") {
+      if (
+        !privateImageTargetRef.current &&
+        fileStorageStateRef.current !== "configured"
+      ) {
         restorePendingImagePicker(editor.view, request);
         setIsFileStorageSetupOpen(true);
         return;
@@ -5433,7 +5477,7 @@ export function VisualEditor({
       <input
         ref={imageFileInputRef}
         type="file"
-        disabled={!fileStorageConfigured}
+        disabled={!fileStorageConfigured && !privateImagesEnabled}
         className="hidden"
         tabIndex={-1}
         aria-hidden="true"
