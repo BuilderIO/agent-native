@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   notifyActivity: vi.fn(),
   sendEmail: vi.fn(),
-  queryReviewComments: vi.fn(),
+  listReviewThreadParticipantEmails: vi.fn(),
   getReviewableResource: vi.fn(),
   resolveReviewableResourceAccess: vi.fn(),
   filterRecipientsByResourceAccess: vi.fn(),
@@ -66,8 +66,8 @@ vi.mock("./store.js", () => ({
     mocks.markReviewCommentNotificationCompleted(...args),
   filterUnmutedReviewThreadRecipients: (...args: unknown[]) =>
     mocks.filterUnmutedReviewThreadRecipients(...args),
-  queryReviewComments: (...args: unknown[]) =>
-    mocks.queryReviewComments(...args),
+  listReviewThreadParticipantEmails: (...args: unknown[]) =>
+    mocks.listReviewThreadParticipantEmails(...args),
 }));
 
 import {
@@ -122,7 +122,7 @@ beforeEach(() => {
     status: "claimed",
     token: "claim-1",
   });
-  mocks.queryReviewComments.mockResolvedValue([]);
+  mocks.listReviewThreadParticipantEmails.mockResolvedValue([]);
   mocks.filterUnmutedReviewThreadRecipients.mockImplementation(
     async (_threadId: string, recipients: string[]) => recipients,
   );
@@ -227,8 +227,8 @@ describe("notifyReviewComment", () => {
     mocks.filterUnmutedReviewThreadRecipients.mockResolvedValue([
       "participant@example.com",
     ]);
-    mocks.queryReviewComments.mockResolvedValue([
-      { threadId: "t1", authorEmail: "participant@example.com" },
+    mocks.listReviewThreadParticipantEmails.mockResolvedValue([
+      "participant@example.com",
     ]);
     await notifyReviewComment(
       comment({
@@ -266,17 +266,21 @@ describe("notifyReviewComment", () => {
     expect(args.candidates).toEqual(["owner@example.com", "dana@example.com"]);
     expect(args.actorEmail).toBe("reviewer@example.com");
     expect(args.preferenceKey).toBe(REVIEW_NOTIFICATION_PREFS_KEY);
-    expect(mocks.queryReviewComments).not.toHaveBeenCalled();
+    expect(mocks.listReviewThreadParticipantEmails).not.toHaveBeenCalled();
   });
 
-  it("adds thread participants on a reply", async () => {
-    mocks.queryReviewComments.mockResolvedValue([
-      { threadId: "t1", authorEmail: "first@example.com" },
-      { threadId: "other", authorEmail: "unrelated@example.com" },
+  it("adds thread participants on a reply, looked up by thread", async () => {
+    mocks.listReviewThreadParticipantEmails.mockResolvedValue([
+      "first@example.com",
     ]);
 
     await notifyReviewComment(comment({ parentCommentId: "c0" }));
 
+    expect(mocks.listReviewThreadParticipantEmails).toHaveBeenCalledWith({
+      resourceType: "design",
+      resourceId: "design_1",
+      threadId: "t1",
+    });
     expect(notifyArgs().candidates).toEqual([
       "owner@example.com",
       "first@example.com",

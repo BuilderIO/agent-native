@@ -14,7 +14,8 @@ const schema = z.object({
 });
 
 export default defineAction({
-  description: "Soft-delete a review comment.",
+  description:
+    "Delete a review comment. Its text, mentions and image attachments are cleared; replies stay in the thread.",
   schema,
   mcpAnnotations: {
     readOnlyHint: false,

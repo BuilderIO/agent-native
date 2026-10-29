@@ -52,4 +52,30 @@ describe("review composer text", () => {
     ]);
     expect(chipLabels(roundTrip("@Samantha mail@Sam").doc)).toEqual([]);
   });
+
+  it("reads a whole code point on each side of a mention", () => {
+    expect(chipLabels(roundTrip("\u{1F600}@Sam").doc)).toEqual(["Sam"]);
+    expect(chipLabels(roundTrip("@Sam\u{1F600}").doc)).toEqual(["Sam"]);
+    expect(chipLabels(roundTrip("\u{1D400}@Sam").doc)).toEqual([]);
+    expect(chipLabels(roundTrip("@Sam\u{1D400}").doc)).toEqual([]);
+  });
+
+  it("parses a long line full of @ signs in linear time", () => {
+    const unmatched = "x@".repeat(100_000);
+    const matched = "@Sam ".repeat(40_000);
+    const started = performance.now();
+    const unmatchedDoc = parseReviewComposerText(unmatched, people);
+    const matchedDoc = parseReviewComposerText(matched, people);
+    const elapsedMs = performance.now() - started;
+
+    expect(unmatchedDoc.content?.[0]?.content).toEqual([
+      { type: "text", text: unmatched },
+    ]);
+    expect(
+      matchedDoc.content?.[0]?.content?.filter(
+        (node) => node.type === "reviewMention",
+      ),
+    ).toHaveLength(40_000);
+    expect(elapsedMs).toBeLessThan(1_000);
+  });
 });

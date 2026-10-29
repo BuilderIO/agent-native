@@ -4,6 +4,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { sql } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
@@ -1277,22 +1278,60 @@ export async function sendReviewThreadToAgent(
   return routeReviewThread(threadId, "agent", resource);
 }
 
+/**
+ * Soft-deletes a comment: the row stays so its replies keep their thread, but
+ * the text, mentions and image attachments are cleared, as they are in apps
+ * that remove the row.
+ */
 export async function deleteReviewComment(
   id: string,
   deletedBy?: string | null,
 ): Promise<number> {
   await ensureReviewTables();
+  const client = getDbExec();
+  const existing = await client.execute(sql`SELECT metadata_json
+       FROM agent_review_comments
+      WHERE id = ${sql.value(id)}
+      LIMIT 1`);
+  const row = existing.rows[0] as Record<string, unknown> | undefined;
+  if (!row) return 0;
+  const metadata = parseObject(row.metadata_json);
+  if (metadata) delete metadata.attachments;
+  const remainingMetadata =
+    metadata && Object.keys(metadata).length > 0
+      ? JSON.stringify(metadata)
+      : null;
   const now = new Date().toISOString();
-  const result = await getDbExec().execute({
-    sql: `UPDATE agent_review_comments
+  const result = await client.execute(sql`UPDATE agent_review_comments
         SET status = 'deleted',
-            deleted_by = ?,
-            deleted_at = ?,
-            updated_at = ?
-      WHERE id = ?`,
-    args: [deletedBy ?? null, now, now, id],
-  });
-  return result.rowsAffected ?? 0;
+            body = '',
+            mentions_json = NULL,
+            metadata_json = ${sql.value(remainingMetadata)},
+            deleted_by = ${sql.value(deletedBy ?? null)},
+            deleted_at = ${sql.value(now)},
+            updated_at = ${sql.value(now)}
+      WHERE id = ${sql.value(id)}`);
+  return result.rowsAffected;
+}
+
+/** Distinct authors of a thread's live comments, for reply emails. */
+export async function listReviewThreadParticipantEmails(input: {
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
+}): Promise<string[]> {
+  await ensureReviewTables();
+  const result = await getDbExec().execute(sql`SELECT DISTINCT author_email
+       FROM agent_review_comments
+      WHERE resource_type = ${sql.value(input.resourceType)}
+        AND resource_id = ${sql.value(input.resourceId)}
+        AND thread_id = ${sql.value(input.threadId)}
+        AND author_email IS NOT NULL
+        AND deleted_at IS NULL
+        AND status <> 'deleted'`);
+  return result.rows
+    .map((row) => nullableString((row as Record<string, unknown>).author_email))
+    .filter((email): email is string => Boolean(email));
 }
 
 export async function updateReviewComment(

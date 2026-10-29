@@ -29,9 +29,12 @@ vi.mock("../db/client.js", () => ({
 const {
   __resetReviewInitForTests,
   consumeReviewFeedback,
+  deleteReviewComment,
   ensureReviewTables,
+  getReviewCommentById,
   getReviewStatus,
   insertReviewComment,
+  listReviewThreadParticipantEmails,
   queryReviewComments,
   resolveReviewThread,
   sendReviewThreadToAgent,
@@ -557,5 +560,97 @@ describe("review store", () => {
     });
     expect(status?.status).toBe("in_review");
     expect(status?.metadata).toEqual({ gate: "legal" });
+  });
+
+  it("finds a thread's participants on a resource with more comments than a page", async () => {
+    for (let index = 0; index < 205; index += 1) {
+      await insertReviewComment({
+        resourceType: "doc",
+        resourceId: "busy",
+        body: `Older thread ${index}`,
+        authorEmail: "early@example.com",
+      });
+    }
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "busy",
+      body: "Newer thread",
+      authorEmail: "root@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "busy",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "First reply",
+      authorEmail: "replier@example.com",
+    });
+    const deleted = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "busy",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Withdrawn reply",
+      authorEmail: "withdrawn@example.com",
+    });
+    await deleteReviewComment(deleted.id, "withdrawn@example.com");
+
+    const participants = await listReviewThreadParticipantEmails({
+      resourceType: "doc",
+      resourceId: "busy",
+      threadId: root.threadId,
+    });
+    expect(participants.sort()).toEqual([
+      "replier@example.com",
+      "root@example.com",
+    ]);
+  });
+
+  it("clears a deleted comment's text, mentions and attachments but keeps its thread", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete",
+      body: "Ask @Bob about this",
+      authorEmail: "alice@example.com",
+      mentions: [{ label: "Bob", email: "bob@example.com" }],
+      metadata: {
+        source: "pin",
+        attachments: [
+          { url: "https://cdn.builder.io/api/v1/image/x", name: "shot" },
+        ],
+      },
+    });
+    const reply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "On it",
+      authorEmail: "bob@example.com",
+    });
+
+    expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(1);
+    expect(await deleteReviewComment("missing", "alice@example.com")).toBe(0);
+
+    const stored = await getReviewCommentById(
+      root.id,
+      {},
+      { bypassScope: true },
+    );
+    expect(stored).toMatchObject({
+      status: "deleted",
+      body: "",
+      mentions: [],
+      metadata: { source: "pin" },
+      deletedBy: "alice@example.com",
+    });
+    const live = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "d-delete",
+      scope: {},
+      bypassScope: true,
+    });
+    expect(live.map((comment) => comment.id)).toEqual([reply.id]);
+    expect(live[0].threadId).toBe(root.threadId);
   });
 });

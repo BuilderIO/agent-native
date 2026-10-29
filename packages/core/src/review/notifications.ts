@@ -15,8 +15,8 @@ import {
   claimReviewNotificationDelivery,
   filterUnmutedReviewThreadRecipients,
   finishReviewNotificationDelivery,
+  listReviewThreadParticipantEmails,
   markReviewCommentNotificationCompleted,
-  queryReviewComments,
   releaseReviewNotificationDelivery,
   reviewCommentNotificationCompleted,
 } from "./store.js";
@@ -50,18 +50,13 @@ function resourceLabel(comment: ReviewComment): string {
 async function threadParticipants(comment: ReviewComment): Promise<string[]> {
   // Scope is already established by the action that inserted the comment;
   // participants are read unscoped so a viewer's narrower scope cannot hide a
-  // person who is genuinely in the thread.
-  const comments = await queryReviewComments({
+  // person who is genuinely in the thread. The lookup is by thread, so a busy
+  // resource's other threads can't push this thread's people out of a page.
+  return listReviewThreadParticipantEmails({
     resourceType: comment.resourceType,
     resourceId: comment.resourceId,
-    scope: { userEmail: null, orgId: null },
-    bypassScope: true,
-    includeResolved: true,
+    threadId: comment.threadId,
   });
-  return comments
-    .filter((entry) => entry.threadId === comment.threadId)
-    .map((entry) => entry.authorEmail)
-    .filter((email): email is string => Boolean(email));
 }
 
 export type ReviewNotificationResult = ActivityNotificationResult;
