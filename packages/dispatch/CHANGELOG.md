@@ -1,5 +1,16 @@
 # @agent-native/dispatch
 
+## 0.40.43
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 25daf38: Expose bounded stage codes when Builder branch readback cannot be verified.
+- Updated dependencies [86af196]
+- Updated dependencies [c96a41d]
+- Updated dependencies
+  - @agent-native/toolkit@0.222.1
+
 ## 0.40.42
 
 ### Patch Changes
@@ -1423,11 +1434,5 @@
 ### Patch Changes
 
 - 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
-
-## 0.31.0
-
-### Minor Changes
-
-- 8690e40: Make automation details inspectable in Dispatch, including the prompt, trigger configuration, capabilities, and past runs.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

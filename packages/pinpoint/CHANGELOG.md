@@ -1,5 +1,11 @@
 # @agent-native/pinpoint
 
+## 0.1.104
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.103
 
 ### Patch Changes
@@ -615,13 +621,5 @@
 ### Patch Changes
 
 - 1ba9738: Keep the pinpoint toolbar inside the viewport when the agent sidebar is open by tracking the visible sidebar width via MutationObserver + ResizeObserver and clamping toolbar position + drag bounds.
-
-## 0.1.4
-
-### Patch Changes
-
-- Updated dependencies [bcb2069]
-- Updated dependencies [e375642]
-  - @agent-native/core@0.8.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
