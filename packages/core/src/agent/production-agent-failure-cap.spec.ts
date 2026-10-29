@@ -7,6 +7,7 @@ import * as journalSeed from "./engine/tool-call-journal-seed.js";
 import { EngineError } from "./engine/types.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import { runAgentLoop, type ActionEntry } from "./production-agent.js";
+import * as runStore from "./run-store.js";
 import { classifyToolCallJournal } from "./tool-call-journal.js";
 import type { AgentChatEvent } from "./types.js";
 
@@ -81,26 +82,29 @@ describe("failed tool attempts", () => {
   it.each([0, 4, 5])(
     "bounds parallel dispatch with %s durable failures already recorded",
     async (previousFailures) => {
+      const priorEvents: AgentChatEvent[] = Array.from(
+        { length: previousFailures },
+        (_, attempt): AgentChatEvent[] => [
+          {
+            type: "tool_start",
+            id: `prior-${attempt}`,
+            tool: "check-view",
+            input: { attempt: -attempt - 1 },
+          },
+          {
+            type: "tool_done",
+            id: `prior-${attempt}`,
+            tool: "check-view",
+            input: { attempt: -attempt - 1 },
+            result: `Earlier failure ${attempt}`,
+            isError: true,
+            completedSideEffect: false,
+          },
+        ],
+      ).flat();
       const read = vi
-        .spyOn(journalSeed, "loadPriorTurnToolCallJournal")
-        .mockResolvedValue({
-          status: "read",
-          events: [],
-          toolCallJournal: classifyToolCallJournal([]),
-          priorToolCalls: [],
-          priorToolResults: [],
-          priorToolCallSequence: Array.from(
-            { length: previousFailures },
-            (_, attempt) => ({
-              event: "done" as const,
-              name: "check-view",
-              input: { attempt: -attempt - 1 },
-              result: `Earlier failure ${attempt}`,
-              isError: true,
-              matchedStart: true,
-            }),
-          ),
-        });
+        .spyOn(runStore, "getCurrentTurnEventsForThread")
+        .mockResolvedValue(priorEvents);
       const run = vi.fn(async ({ attempt }: { attempt: number }) => {
         throw new Error(`Failure variant ${attempt}`);
       });
@@ -163,6 +167,9 @@ describe("failed tool attempts", () => {
         expect.objectContaining({
           type: "error",
           errorCode: "repeated_tool_failure",
+          error: expect.stringContaining(
+            previousFailures === 5 ? "Earlier failure 4" : "Failure variant",
+          ),
         }),
       );
       expect(
