@@ -461,11 +461,12 @@ describe("plan comment thread UI model", () => {
         "**Two fixes** for @[Sam Lee](mailto:sam@example.com):\n\n- rename `step-1`",
     });
     const [thread] = buildCommentThreads([root]);
-    if (!thread) throw new Error("expected a thread");
+    const annotation = thread && runtimeAnnotationFromThread(thread, 0, {});
+    if (!annotation) throw new Error("expected a pinned thread");
 
-    expect(
-      runtimeAnnotationMarkerTitle(runtimeAnnotationFromThread(thread, 0, {})),
-    ).toBe("1 comment by Damian: Two fixes for @Sam Lee: - rename step-1");
+    expect(runtimeAnnotationMarkerTitle(annotation)).toBe(
+      "1 comment by Damian: Two fixes for @Sam Lee: - rename step-1",
+    );
   });
 
   it("collects unique comment author emails for avatar image lookup", () => {
