@@ -11,8 +11,8 @@ that account, or a root listed under "Claimed, not yet answered" in memory.md. A
 matching reaction without that evidence is a manual mark: leave it alone. Keep
 the disposition, evidence, scopes, and human actions in the internal inventory.
 Post a reporter reply when this run adds a root reaction, or when a newer human
-reporter message needs a direct answer. A reaction reply uses one short,
-plain-language sentence to explain only the reaction(s) added in this run. An
+reporter message needs a direct answer. If the root asks a question, the reply answers it first. A reaction reply then uses one
+short, plain-language sentence to explain only the reaction(s) added in this run. An
 answer to a newer human message answers only that message. Do
 not send progress, merge, or deployment updates. Never explain absent or
 unchanged reactions or whether a tracker ticket exists. If reporter input is
@@ -179,7 +179,8 @@ is not acceptance, but it still gets `🎫` when a distinct team action remains
 unfinished. Ambiguous or hedged assent does not change `status: "unassigned"`.
 A partial fix with a separately unfinished human/team action can have both
 `✅` and `🎫`.
-Work that remains with this workflow is active and needs no `🎫` by itself.
+Work that remains with this workflow is active and needs no `🎫` by itself, but a fix
+this workflow could not land gets `🎫` as a human handoff, matching the parent skill.
 Requests for a reporter-provided URL, access, evidence, or clarification are
 separate human actions, not team handoffs. Record them only in
 `reporterRequests[]`; they still get `🎫` while outstanding, as described below.

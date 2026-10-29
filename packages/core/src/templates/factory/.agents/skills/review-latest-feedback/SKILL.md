@@ -21,6 +21,10 @@ not judged by ledgers, receipts, or checker output, so don't produce them.
 
 ## The contract
 
+The detailed Slack reaction and reply rules are in
+[slack-reaction-replies.md](references/slack-reaction-replies.md); read it before
+marking, replying to, or closing any Slack report.
+
 Slack reactions on a report's root message mean exactly this:
 
 | Mark | Meaning                                   | When to add                                                                                      |
