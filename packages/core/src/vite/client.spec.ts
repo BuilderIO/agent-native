@@ -4188,10 +4188,7 @@ describe("Vite SSR optional dependencies", () => {
 
   it("keeps the browser-only Tabler icon loader out of SSR chunks", async () => {
     const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-tabler-ssr-"));
-    const coreRoot = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../..",
-    );
+    const coreRoot = path.join(repositoryRoot(), "packages/core");
     fs.writeFileSync(
       path.join(appRoot, "package.json"),
       JSON.stringify({
@@ -4361,7 +4358,7 @@ describe("local-core dev aliases and router dedupe", () => {
 
   it("pre-optimizes core client deps when core is source-aliased", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-optimize-"));
-    const coreRoot = path.resolve(import.meta.dirname, "../..");
+    const coreRoot = path.join(repositoryRoot(), "packages/core");
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
       JSON.stringify({
@@ -5133,11 +5130,7 @@ describe("local-core dev aliases and router dedupe", () => {
 
   it("aliases file:@agent-native/toolkit conditional exports to source", () => {
     const previousCwd = process.cwd();
-    const toolkitRoot = path.resolve(
-      import.meta.dirname,
-      "../../..",
-      "toolkit",
-    );
+    const toolkitRoot = path.join(repositoryRoot(), "packages/toolkit");
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-toolkit-"));
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
@@ -5177,17 +5170,9 @@ describe("local-core dev aliases and router dedupe", () => {
 
   it("source-aliases workspace package dependencies during app builds", () => {
     const previousCwd = process.cwd();
-    const agentkitRoot = path.resolve(
-      import.meta.dirname,
-      "../../..",
-      "agentkit",
-    );
-    const toolkitRoot = path.resolve(
-      import.meta.dirname,
-      "../../..",
-      "toolkit",
-    );
-    const workspaceRoot = path.resolve(import.meta.dirname, "../../../..");
+    const workspaceRoot = repositoryRoot();
+    const agentkitRoot = path.join(workspaceRoot, "packages/agentkit");
+    const toolkitRoot = path.join(workspaceRoot, "packages/toolkit");
     const tmpDir = fs.mkdtempSync(
       path.join(workspaceRoot, ".tmp-an-vite-workspace-"),
     );
