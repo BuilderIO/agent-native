@@ -2,7 +2,7 @@ import {
   isPrivateMediaId,
   ownsPrivateMedia,
 } from "@agent-native/core/private-media";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, like } from "drizzle-orm";
 
 import { isSoftDeletedDatabaseDocument } from "../../actions/_database-utils.js";
 import { resolveDocumentAccess } from "../../actions/_document-access.js";
@@ -40,6 +40,10 @@ export async function bindUploadedPrivateMedia(input: {
  * A page in Trash, or in a collection that was deleted, is not live, just as
  * `get-document` refuses it. Runs inside the caller's request context, so
  * space membership counts.
+ *
+ * The query skips pages in Trash and pages whose body no longer mentions the
+ * image, so a refusal costs one access check per live page that links the
+ * image, and only people who can see an image can add such pages.
  */
 export async function canReadPrivateMediaThroughDocument(
   mediaId: string,
@@ -50,7 +54,18 @@ export async function canReadPrivateMediaThroughDocument(
     const references = await db
       .select({ documentId: schema.privateMediaReferences.documentId })
       .from(schema.privateMediaReferences)
-      .where(eq(schema.privateMediaReferences.mediaId, mediaId))
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.privateMediaReferences.documentId),
+      )
+      .where(
+        and(
+          eq(schema.privateMediaReferences.mediaId, mediaId),
+          isNull(schema.documents.trashedAt),
+          // The ID is a validated UUID, so it holds no LIKE wildcards.
+          like(schema.documents.content, `%${privateMediaPath(mediaId)}%`),
+        ),
+      )
       .orderBy(asc(schema.privateMediaReferences.documentId))
       .limit(REFERENCE_PAGE_SIZE)
       .offset(offset);

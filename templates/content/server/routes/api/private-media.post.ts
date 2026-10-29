@@ -1,6 +1,7 @@
 import {
   PrivateMediaStorageUnavailableError,
   PrivateMediaValidationError,
+  deletePrivateMedia,
   putPrivateMedia,
   readPrivateMediaUploadFormData,
 } from "@agent-native/core/private-media";
@@ -50,7 +51,10 @@ export default defineEventHandler(async (event) => {
       });
     }
     return await runWithRequestContext(
-      { userEmail: session.email, orgId: session.orgId },
+      {
+        userEmail: session.email,
+        ...(session.orgId ? { orgId: session.orgId } : {}),
+      },
       async () => {
         const orgId = await resolveEditablePrivateIconOrgId(documentId);
         const media = await putPrivateMedia({
@@ -60,7 +64,21 @@ export default defineEventHandler(async (event) => {
           mimeType: file.type,
           filename: file.name,
         });
-        await bindUploadedPrivateMedia({ documentId, mediaId: media.id });
+        try {
+          await bindUploadedPrivateMedia({ documentId, mediaId: media.id });
+        } catch (error) {
+          // The uploader never gets this image's ID, so nothing could reach
+          // it again: remove it rather than leave it orphaned.
+          try {
+            await deletePrivateMedia(media.id);
+          } catch (cleanupError) {
+            console.warn(
+              "[private-media] could not remove an image that failed to attach",
+              cleanupError,
+            );
+          }
+          throw error;
+        }
         setResponseStatus(event, 201);
         return { id: media.id, url: privateMediaPath(media.id) };
       },

@@ -4,6 +4,7 @@ export {
   PRIVATE_MEDIA_SVG_CSP,
   PrivateMediaStorageUnavailableError,
   PrivateMediaValidationError,
+  deletePrivateMedia,
   getPrivateMedia,
   isPrivateMediaId,
   isPrivateMediaImageType,

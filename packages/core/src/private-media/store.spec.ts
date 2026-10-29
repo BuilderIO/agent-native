@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { PrivateBlobHandle } from "../private-blob/types.js";
+import { privateMedia } from "./schema.js";
 
 const putBlob = vi.hoisted(() => vi.fn());
 const readBlob = vi.hoisted(() => vi.fn());
@@ -135,12 +136,13 @@ describe("private media store", () => {
         filename: `media-${media.id}`,
       }),
     );
-    const stored = await postgres.query(
-      "SELECT blob_handle_json, sha256 FROM private_media",
-    );
-    const row = stored.rows[0] as { blob_handle_json: string; sha256: string };
-    expect(JSON.parse(row.blob_handle_json)).toEqual(handle);
-    expect(row.sha256).toMatch(/^[0-9a-f]{64}$/u);
+    expect(await db.select().from(privateMedia)).toEqual([
+      {
+        ...media,
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        blobHandleJson: JSON.stringify(handle),
+      },
+    ]);
 
     expect(await getPrivateMedia(media.id)).toEqual(media);
     expect(await ownsPrivateMedia(media.id, "ALICE@example.com")).toBe(true);
@@ -162,8 +164,46 @@ describe("private media store", () => {
         mimeType: "image/png",
       }),
     ).rejects.toBeInstanceOf(PrivateMediaStorageUnavailableError);
-    const stored = await postgres.query("SELECT id FROM private_media");
-    expect(stored.rows).toEqual([]);
+    expect(await db.select().from(privateMedia)).toEqual([]);
+  });
+
+  it("deletes an image's bytes and then its record", async () => {
+    const { deletePrivateMedia, getPrivateMedia, putPrivateMedia } =
+      await import("./store.js");
+    const media = await putPrivateMedia({
+      ownerEmail: "alice@example.com",
+      data: png,
+      mimeType: "image/png",
+    });
+    expect(await deletePrivateMedia(media.id)).toBe(true);
+    expect(deleteBlob).toHaveBeenCalledWith(handle);
+    expect(await getPrivateMedia(media.id)).toBeNull();
+    expect(await deletePrivateMedia(media.id)).toBe(false);
+    expect(await deletePrivateMedia("not-an-id")).toBe(false);
+    expect(deleteBlob).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the record when storage refuses to delete the bytes", async () => {
+    const { deletePrivateMedia, getPrivateMedia, putPrivateMedia } =
+      await import("./store.js");
+    const media = await putPrivateMedia({
+      ownerEmail: "alice@example.com",
+      data: png,
+      mimeType: "image/png",
+    });
+    deleteBlob.mockResolvedValueOnce({
+      deleted: false,
+      reason: "blob is locked",
+      provider: "test",
+    });
+    await expect(deletePrivateMedia(media.id)).rejects.toThrow(
+      "blob is locked",
+    );
+    deleteBlob.mockResolvedValueOnce({ deleted: false, provider: "test" });
+    await expect(deletePrivateMedia(media.id)).rejects.toThrow(
+      "blob provider refused deletion",
+    );
+    expect(await getPrivateMedia(media.id)).toEqual(media);
   });
 
   it("validates before touching storage", async () => {

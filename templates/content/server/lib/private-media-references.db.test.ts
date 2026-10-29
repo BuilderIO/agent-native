@@ -112,7 +112,7 @@ async function references(documentId: string, id: string) {
 }
 
 function canRead(id: string, userEmail?: string) {
-  return runWithRequestContext({ userEmail }, () =>
+  return runWithRequestContext(userEmail ? { userEmail } : {}, () =>
     refs.canReadPrivateMediaThroughDocument(id),
   );
 }

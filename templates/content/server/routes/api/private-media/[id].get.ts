@@ -39,7 +39,10 @@ export default defineEventHandler(async (event) => {
   if (!isPrivateMediaId(id)) throw notFound();
   const session = await getSession(event);
   return runWithRequestContext(
-    { userEmail: session?.email, orgId: session?.orgId },
+    {
+      ...(session?.email ? { userEmail: session.email } : {}),
+      ...(session?.orgId ? { orgId: session.orgId } : {}),
+    },
     async () => {
       const readable =
         (await canReadPrivateMediaThroughDocument(id)) ||

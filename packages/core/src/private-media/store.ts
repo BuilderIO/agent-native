@@ -325,6 +325,21 @@ export async function getPrivateMedia(
   return row ? metadata(row) : null;
 }
 
+/**
+ * Removes an image and its stored bytes once the caller has decided nobody
+ * needs it. The record goes last, so a failed blob deletion leaves the image
+ * whole and the deletion can be retried. False when there was no such image.
+ */
+export async function deletePrivateMedia(id: string): Promise<boolean> {
+  const row = await findRow(id);
+  if (!row) return false;
+  const deletion = await deletePrivateBlob(parseHandle(row));
+  if (!deletion.deleted)
+    throw new Error(deletion.reason ?? "blob provider refused deletion");
+  await getDb().delete(privateMedia).where(eq(privateMedia.id, id));
+  return true;
+}
+
 /** True when `ownerEmail` uploaded this file. */
 export async function ownsPrivateMedia(
   id: string,

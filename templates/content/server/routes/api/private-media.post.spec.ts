@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   putPrivateMedia: vi.fn(),
+  deletePrivateMedia: vi.fn(),
   resolveEditablePrivateIconOrgId: vi.fn(),
   bindUploadedPrivateMedia: vi.fn(),
 }));
@@ -17,6 +18,7 @@ vi.mock("@agent-native/core/private-media", async (importOriginal) => ({
     typeof import("@agent-native/core/private-media")
   >()),
   putPrivateMedia: mocks.putPrivateMedia,
+  deletePrivateMedia: mocks.deletePrivateMedia,
 }));
 vi.mock("@agent-native/core/server", () => ({
   getSession: mocks.getSession,
@@ -83,6 +85,40 @@ describe("Content private image upload", () => {
       documentId: "document-1",
       mediaId: MEDIA_ID,
     });
+  });
+
+  it("removes the stored image when it can't be attached to the page", async () => {
+    const failure = new Error("database unavailable");
+    mocks.bindUploadedPrivateMedia.mockRejectedValue(failure);
+    await expect(
+      handler(
+        upload([
+          ["documentId", "document-1"],
+          ["file", image()],
+        ]),
+      ),
+    ).rejects.toBe(failure);
+    expect(mocks.deletePrivateMedia).toHaveBeenCalledWith(MEDIA_ID);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cleanupFailure = new Error("storage unavailable");
+    mocks.deletePrivateMedia.mockRejectedValue(cleanupFailure);
+    try {
+      await expect(
+        handler(
+          upload([
+            ["documentId", "document-1"],
+            ["file", image()],
+          ]),
+        ),
+      ).rejects.toBe(failure);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("could not remove"),
+        cleanupFailure,
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("requires a session", async () => {
