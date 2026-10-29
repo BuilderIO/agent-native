@@ -1268,7 +1268,10 @@ export function shouldAttestUnchangedEditorSave(args: {
     !args.hasUpdates &&
     !args.contentChanged &&
     !!args.editorSessionId &&
+    // Generation 0 is an editor that never edited the page: closing it has
+    // nothing to settle, and the write would claim the stored page as its own.
     args.editGeneration !== undefined &&
+    args.editGeneration > 0 &&
     !args.isLinkedLocalSource &&
     !args.isLocalFile
   );

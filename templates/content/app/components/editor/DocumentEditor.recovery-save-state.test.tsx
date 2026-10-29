@@ -403,6 +403,7 @@ vi.mock("./useDocumentReconcileRecovery", async (importOriginal) => {
 });
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { trackDocumentPropertyWrite } from "@/hooks/document-property-persistence";
 
 import {
   documentContentHash,
@@ -414,6 +415,7 @@ import {
   peekBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
 import { PageEditorSurface } from "./DocumentEditor";
+import { setCommentHighlights } from "./extensions/CommentHighlight";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
 let root: Root;
@@ -1887,6 +1889,159 @@ describe("a retried save whose edit a peer's save already stored", () => {
     }));
     await retryAfterPeerStoredEdit();
     expect(journalKeys()).toHaveLength(1);
+  });
+});
+
+describe("closing a page this tab never edited", () => {
+  function mounted<T>(value: T | null): T {
+    if (value === null) throw new Error("Expected a mounted editor fixture.");
+    return value;
+  }
+
+  function refuseUnsolicitedSaves() {
+    fixture.save.mockRejectedValue(
+      Object.assign(new Error("Action update-document failed (409)"), {
+        status: 409,
+      }),
+    );
+  }
+
+  async function closeSession() {
+    let closed: unknown;
+    await act(async () => {
+      closed = await mounted(fixture.session)
+        .flush()
+        .then(
+          () => "closed",
+          (error: unknown) => error,
+        );
+    });
+    return closed;
+  }
+
+  it("closes an opened page without writing its title or body", async () => {
+    const page = mounted(fixture.page);
+    page.revision = documentRevisionToken(1, page.content);
+    refuseUnsolicitedSaves();
+    await act(async () => renderEditor());
+    const closed = await closeSession();
+    expect(fixture.save).not.toHaveBeenCalled();
+    expect(closed).toBe("closed");
+    expect(mounted(fixture.awareness).getLocalState()?.unsavedEdits).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    ["stored", "Saved body"],
+    ["legacy", "Saved body.\n\n\nCost $2.21.\n"],
+  ])(
+    "closes a real collaborative editor after selecting %s text to comment on",
+    async (_kind, storedBody) => {
+      fixture.realPrimaryEditor = true;
+      fixture.realPrimaryCollab = true;
+      const page = mounted(fixture.page);
+      page.content = storedBody;
+      page.revision = documentRevisionToken(1, storedBody);
+      refuseUnsolicitedSaves();
+      const peerDoc = new Y.Doc();
+      const peerMount = document.createElement("div");
+      document.body.append(peerMount);
+      const peer = new Editor({
+        element: peerMount,
+        extensions: createVisualEditorExtensions({ ydoc: peerDoc }),
+        content: { type: "doc", content: [{ type: "paragraph" }] },
+      });
+      peer.commands.setContent(nfmToDoc(storedBody));
+      Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(peerDoc), "peer");
+      try {
+        await act(async () => renderEditor());
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+        act(() => {
+          const editor = mounted(fixture.fieldEditor);
+          editor.commands.focus();
+          editor.commands.setTextSelection({ from: 1, to: 6 });
+          setCommentHighlights(editor.view, { pending: { from: 1, to: 6 } });
+        });
+        await act(async () => vi.advanceTimersByTimeAsync(2_000));
+        const closed = await closeSession();
+        expect(fixture.save).not.toHaveBeenCalled();
+        expect(closed).toBe("closed");
+      } finally {
+        peer.destroy();
+        peerDoc.destroy();
+        peerMount.remove();
+      }
+    },
+  );
+
+  it("still drains a property write held when the page closes", async () => {
+    refuseUnsolicitedSaves();
+    await act(async () => renderEditor());
+    let finishWrite: () => void = () => {
+      throw new Error("The property write has not started.");
+    };
+    const write = trackDocumentPropertyWrite(
+      mounted(fixture.page).id,
+      "status",
+      () =>
+        new Promise<void>((resolve) => {
+          finishWrite = resolve;
+        }),
+    );
+    let closed = false;
+    const close = mounted(fixture.session)
+      .flush()
+      .then(() => {
+        closed = true;
+      });
+    await act(async () => realDelay(10));
+    expect(closed).toBe(false);
+    await act(async () => {
+      finishWrite();
+      await write;
+      await close;
+    });
+    expect(closed).toBe(true);
+    expect(fixture.save).not.toHaveBeenCalled();
+  });
+
+  it.each(["title", "body"] as const)(
+    "still saves a %s edited just before closing",
+    async (field) => {
+      acknowledgeCurrentSaves();
+      await act(async () => renderEditor());
+      if (field === "title") pasteTitle("Renamed before closing");
+      else act(() => mounted(fixture.editor).onChange("Edited before closing"));
+      await act(async () => {
+        await expect(mounted(fixture.session).flush()).resolves.toBeUndefined();
+      });
+      expect(fixture.save.mock.calls[0][0]).toMatchObject(
+        field === "title"
+          ? { title: "Renamed before closing" }
+          : { content: "Edited before closing" },
+      );
+      expect(fixture.page).toMatchObject(
+        field === "title"
+          ? { title: "Renamed before closing" }
+          : { content: "Edited before closing" },
+      );
+    },
+  );
+
+  it("keeps a real edit's refused save visible when the page closes", async () => {
+    refuseUnsolicitedSaves();
+    await act(async () => renderEditor());
+    act(() => mounted(fixture.editor).onChange("Edited before closing"));
+    await act(async () => {
+      await expect(mounted(fixture.session).flush()).rejects.toThrow(
+        "editor.pageSaveBeforeNavigationFailed",
+      );
+    });
+    expect(fixture.save.mock.calls[0][0]).toMatchObject({
+      content: "Edited before closing",
+    });
+    expect(mounted(fixture.awareness).getLocalState()?.unsavedEdits).toBe(true);
   });
 });
 

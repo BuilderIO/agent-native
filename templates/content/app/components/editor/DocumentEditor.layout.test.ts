@@ -204,6 +204,9 @@ describe("document editor layout", () => {
       shouldAttestUnchangedEditorSave({ ...base, editorSessionId: undefined }),
     ).toBe(false);
     expect(
+      shouldAttestUnchangedEditorSave({ ...base, editGeneration: 0 }),
+    ).toBe(false);
+    expect(
       shouldAttestUnchangedEditorSave({ ...base, contentChanged: true }),
     ).toBe(false);
     expect(
