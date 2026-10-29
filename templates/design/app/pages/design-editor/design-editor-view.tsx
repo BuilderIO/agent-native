@@ -153,6 +153,7 @@ import { TOP_BAR_HEIGHT_PX, getTopBarModes, isTopBarVisible } from "./top-bar";
 import { type EditorMode } from "./types";
 import { renderEditorCanvasArea } from "./view/editor-canvas-area";
 import { renderEditorDialogs } from "./view/editor-dialogs";
+import { DesignFirstOutputNextStep } from "./view/first-output-next-step";
 import { renderLeftSidebar } from "./view/left-sidebar";
 import { renderMobileInspectorSheet } from "./view/mobile-inspector-sheet";
 import { renderMotionDockPanel } from "./view/motion-dock-panel";
@@ -269,6 +270,7 @@ export function renderDesignEditorView({
     id,
     isSignedIn,
     sessionResolved,
+    session,
     shellMode,
     embedded,
     isVisualEditSurface,
@@ -1337,7 +1339,18 @@ export function renderDesignEditorView({
 
   const shareSegmentClassName =
     "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
-  const renderShareControl = (dense: boolean) => {
+  const firstOutputActionsAvailable =
+    !hostEmbeddedEditor &&
+    !uiHidden &&
+    (widgetEmbed
+      ? shouldRenderDesignShareControl({
+          widgetEmbed,
+          canShareDesign,
+          canRenderAuthenticatedShare,
+        })
+      : canRenderAuthenticatedShare);
+  const nextStepShareActionEvent = "design:first-output-next-step-share";
+  const renderShareControl = (dense: boolean, actionEvent?: string) => {
     if (hostEmbeddedEditor) return null;
     if (widgetEmbed) {
       if (
@@ -1359,6 +1372,7 @@ export function renderDesignEditorView({
           resourceType="design"
           resourceId={id}
           resourceTitle={design.title}
+          actionEvent={actionEvent}
           hideTriggerIcon
           defaultOpen={shouldOpenShare}
           shareUrl={editorShareUrl}
@@ -1481,6 +1495,13 @@ export function renderDesignEditorView({
       </div>
     ) : null;
 
+  const topBarVisible = isTopBarVisible({
+    embedded,
+    isVisualEditSurface,
+    minimalUi,
+    uiHidden,
+  });
+
   // Minimal UI hides the top bar, so its floating right bar carries the same
   // controls.
   const rightSidebarActions = renderRightSidebarActions({
@@ -1491,16 +1512,14 @@ export function renderDesignEditorView({
     publishWaitlistControl,
     presenceControl,
     reviewFeedbackControl,
-    renderShareControl,
+    renderShareControl: (dense) =>
+      renderShareControl(
+        dense,
+        !topBarVisible ? nextStepShareActionEvent : undefined,
+      ),
     localPreviewRow,
   });
 
-  const topBarVisible = isTopBarVisible({
-    embedded,
-    isVisualEditSurface,
-    minimalUi,
-    uiHidden,
-  });
   const topBarControlsVisible = !initialGenerationChromeLimited;
   // The mode switch used to live in the bottom toolbar, so it keeps that
   // toolbar's gating.
@@ -1519,7 +1538,10 @@ export function renderDesignEditorView({
       {renderPendingNodeRewriteControl(isMobileViewport)}
       {reviewFeedbackControl}
       {publishWaitlistControl}
-      {renderShareControl(true)}
+      {renderShareControl(
+        true,
+        topBarVisible ? nextStepShareActionEvent : undefined,
+      )}
     </>
   );
 
@@ -2353,6 +2375,43 @@ export function renderDesignEditorView({
           editPanelProps,
         })}
       </div>
+
+      <DesignFirstOutputNextStep
+        key={id}
+        outputId={id}
+        actionsAvailable={firstOutputActionsAvailable}
+        {...(session && (session.userId ?? session.email)
+          ? { userScope: session.userId ?? session.email }
+          : {})}
+        generationActive={generating}
+        outputReady={getActiveFileId(activeFile) !== undefined}
+        labels={{
+          ariaLabel: t("home.nextStepBar.ariaLabel"),
+          refineWithPrompt: t("home.nextStepBar.refineWithPrompt"),
+          export: t("home.nextStepBar.export"),
+          shareLink: t("home.nextStepBar.shareLink"),
+          dismiss: t("home.nextStepBar.dismiss"),
+        }}
+        onRefine={() =>
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+          )
+        }
+        onExport={() =>
+          window.dispatchEvent(
+            new CustomEvent(nextStepShareActionEvent, {
+              detail: { tab: "export" },
+            }),
+          )
+        }
+        onShareLink={() =>
+          window.dispatchEvent(
+            new CustomEvent(nextStepShareActionEvent, {
+              detail: { tab: "share" },
+            }),
+          )
+        }
+      />
 
       {/* ── Render: mobile inspector sheet ── */}
       {renderMobileInspectorSheet({

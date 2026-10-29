@@ -4,6 +4,30 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const firstRunGate = vi.hoisted(() => ({
+  ownsSurface: false,
+  listeners: new Set<() => void>(),
+  update(ownsSurface: boolean) {
+    this.ownsSurface = ownsSurface;
+    for (const listener of this.listeners) listener();
+  },
+}));
+
+vi.mock("../app/onboarding/first-run-startup-gate-context.js", async () => {
+  const React = await import("react");
+  return {
+    useFirstRunOnboardingGateOwnsSurface: () =>
+      React.useSyncExternalStore(
+        (listener) => {
+          firstRunGate.listeners.add(listener);
+          return () => firstRunGate.listeners.delete(listener);
+        },
+        () => firstRunGate.ownsSurface,
+        () => false,
+      ),
+  };
+});
+
 import { PromptComposer } from "./PromptComposer.js";
 import type { TiptapComposerHandle } from "./TiptapComposer.js";
 
@@ -12,6 +36,7 @@ let root: Root;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  firstRunGate.update(false);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -57,6 +82,19 @@ describe("autoFocus", () => {
       handle = next;
     });
     expect(handle).not.toBeNull();
+    expect(document.activeElement).toBe(editor());
+  });
+
+  it("waits to focus until first-run onboarding releases the app", async () => {
+    firstRunGate.update(true);
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    await render(composerRef);
+    expect(document.activeElement).not.toBe(editor());
+
+    firstRunGate.update(false);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
     expect(document.activeElement).toBe(editor());
   });
 

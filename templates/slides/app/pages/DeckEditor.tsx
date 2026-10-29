@@ -30,7 +30,9 @@ import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { FirstOutputNextStepBar } from "@agent-native/toolkit/app-shell";
 import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
+import type { ShareButtonActionHandle } from "@agent-native/toolkit/app/sharing";
 import {
   DndContext,
   DragOverlay,
@@ -86,7 +88,10 @@ import EditorSidebar, {
 import EditorToolbar, {
   type PresentRequest,
 } from "@/components/editor/EditorToolbar";
-import { canExportPptxFromServer } from "@/components/editor/ExportMenu";
+import {
+  canExportPptxFromServer,
+  type ExportDropdownActionHandle,
+} from "@/components/editor/ExportMenu";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import {
   createGeneratingSlideContentStore,
@@ -940,6 +945,11 @@ export default function DeckEditor() {
   const generationTerminalAttemptRef = useRef<string | null>(null);
   const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
   const deckReadyViewCancelRef = useRef<(() => void) | null>(null);
+  const [firstOutputReadyId, setFirstOutputReadyId] = useState<string | null>(
+    null,
+  );
+  const firstOutputExportRef = useRef<ExportDropdownActionHandle>(null);
+  const firstOutputShareRef = useRef<ShareButtonActionHandle>(null);
   const openDeckIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     openDeckIdRef.current = id;
@@ -2694,6 +2704,7 @@ export default function DeckEditor() {
           deckReadyViewCancelRef.current = runWhenTabVisible(() => {
             deckReadyViewCancelRef.current = null;
             if (openDeckIdRef.current !== id) return;
+            setFirstOutputReadyId(id);
             if (firstDeckReadyView(generationAttemptId)) {
               trackSlidesRelay("deck_ready_viewed", readyProperties);
             }
@@ -5420,6 +5431,8 @@ export default function DeckEditor() {
             ? () => handleDuplicateSlideFromRail(menuSlideIds)
             : undefined
         }
+        exportActionRef={firstOutputExportRef}
+        shareActionRef={firstOutputShareRef}
         onDeleteSlides={
           canEdit && canDeleteMenuSlides
             ? () => handleDeleteSlideFromRail(menuSlideIds)
@@ -6232,6 +6245,41 @@ export default function DeckEditor() {
           />
         )}
       </div>
+
+      {!widgetEmbed && (
+        <FirstOutputNextStepBar
+          key={id}
+          appId="slides"
+          positionTargetSelector="[data-slide-editor-viewport]"
+          bottomOffset={77}
+          {...(session && (session.userId ?? session.email)
+            ? { userScope: session.userId ?? session.email }
+            : {})}
+          outputId={id}
+          ready={firstOutputReadyId === id}
+          labels={{
+            ariaLabel: t("home.nextStepBar.ariaLabel"),
+            refineWithPrompt: t("home.nextStepBar.refineWithPrompt"),
+            export: t("home.nextStepBar.export"),
+            shareLink: t("home.nextStepBar.shareLink"),
+            dismiss: t("home.nextStepBar.dismiss"),
+          }}
+          onRefine={() =>
+            window.dispatchEvent(
+              new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+            )
+          }
+          onExport={() => {
+            firstOutputExportRef.current?.open();
+          }}
+          onShareLink={() => {
+            firstOutputShareRef.current?.open("share");
+          }}
+          onTrack={(event, properties) => {
+            trackEvent(event, properties);
+          }}
+        />
+      )}
 
       {/* Hidden upload input */}
       <input
