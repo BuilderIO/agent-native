@@ -1,6 +1,7 @@
 import {
   closeDbExec,
-  getDbExec,
+  createDbExec,
+  getMigrationDatabaseUrl,
   withMigrationRuntime,
 } from "@agent-native/core/db";
 import { loadEnv } from "@agent-native/core/scripts";
@@ -15,10 +16,15 @@ async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
     await runFrameworkReleaseMigrations(null);
     await runClipsMigrations(null);
-    // raw-sql-ok: the release helper supplies only fixed index DDL and a fixed catalog query, without runtime interpolation.
-    await buildRecordingMediaReferenceIndexes((statement) =>
-      getDbExec().execute(statement),
-    );
+    const indexDb = await createDbExec({ url: getMigrationDatabaseUrl() });
+    try {
+      // raw-sql-ok: the release helper supplies only fixed index DDL and a fixed catalog query, without runtime interpolation.
+      await buildRecordingMediaReferenceIndexes((statement) =>
+        indexDb.execute(statement),
+      );
+    } finally {
+      await indexDb.close?.();
+    }
   });
 }
 
