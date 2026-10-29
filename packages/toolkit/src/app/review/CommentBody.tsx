@@ -27,23 +27,23 @@ export interface CommentBodyProps {
    * People and agents the comment mentions as `@label`. A mention written
    * inline as `@[Name](mailto:…)` needs no entry.
    */
-  mentions?: readonly CommentBodyMention[];
+  mentions?: readonly CommentBodyMention[] | undefined;
   /**
    * One run of inline text for previews: blocks flatten, and links show as
    * text, because a preview usually sits inside a row or card that opens the
    * comment.
    */
-  compact?: boolean;
-  className?: string;
-  linkClassName?: string;
-  codeClassName?: string;
+  compact?: boolean | undefined;
+  className?: string | undefined;
+  linkClassName?: string | undefined;
+  codeClassName?: string | undefined;
   /** Draws a link in a full body. The default opens it in a new tab. */
   renderLink?: InlineMarkdownProps["renderLink"];
   /**
    * Draws a mention. Return nothing to draw the kit's mention chip, which is
    * also the default.
    */
-  renderMention?: (mention: CommentBodyMention) => ReactNode;
+  renderMention?: ((mention: CommentBodyMention) => ReactNode) | undefined;
 }
 
 /**

@@ -35,16 +35,14 @@ const BLOCK_MARKDOWN_ELEMENTS = [
 
 export interface InlineMarkdownProps {
   content: string;
-  className?: string;
-  linkClassName?: string;
-  codeClassName?: string;
+  className?: string | undefined;
+  linkClassName?: string | undefined;
+  codeClassName?: string | undefined;
   inline?: boolean;
   renderLists?: boolean;
-  renderLink?: (
-    href: string,
-    children: ReactNode,
-    className: string,
-  ) => ReactNode;
+  renderLink?:
+    | ((href: string, children: ReactNode, className: string) => ReactNode)
+    | undefined;
   protectedSpans?: readonly InlineMarkdownProtectedSpan[];
   renderProtectedSpan?: (
     span: InlineMarkdownProtectedSpan,
