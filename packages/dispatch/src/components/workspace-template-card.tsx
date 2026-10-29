@@ -10,11 +10,11 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { cn } from "../lib/utils";
-import { notifyBuildInBuilder } from "./build-in-builder";
 import { AppIcon } from "./app-icon";
 import { AppListRow } from "./app-list-row";
 import { AppOpenActions } from "./app-open-actions";
 import { AppRowSettings } from "./app-row-settings";
+import { useNotifyBuildInBuilder } from "./build-in-builder";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -139,6 +139,7 @@ export function WorkspaceTemplateCard({
   const isInstalled = Boolean(template.installed || template.installedAppId);
   const liveUrl = template.liveUrl || template.productUrl;
   const setupNote = template.integrationSetup || template.setupNote;
+  const notifyBuildInBuilder = useNotifyBuildInBuilder();
   const remix = useActionMutation("remix-workspace-template", {
     onSuccess: (result) => {
       const mode = (result as { mode?: string } | null)?.mode;

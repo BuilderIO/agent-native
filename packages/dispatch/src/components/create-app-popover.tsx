@@ -30,8 +30,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
   BuildInBuilderPanel,
-  notifyBuildInBuilder,
   useBuilderWorkspaceUrl,
+  useNotifyBuildInBuilder,
 } from "./build-in-builder";
 import { Button } from "./ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -109,6 +109,7 @@ export function CreateAppFlow({
   onCreated?: () => void;
   className?: string;
 }) {
+  const notifyBuildInBuilder = useNotifyBuildInBuilder();
   const [step, setStep] = useState<"prompt" | "access">("prompt");
   const [prompt, setPrompt] = useState("");
   const [selectedSecretIds, setSelectedSecretIds] = useState<string[]>([]);
@@ -683,6 +684,14 @@ function CreateAppPopoverBody({
   onCreated?: (() => void) | undefined;
 }) {
   const builderWorkspaceUrl = useBuilderWorkspaceUrl();
+  // Until the lookup settles, show nothing rather than a flow that may not apply.
+  if (builderWorkspaceUrl === undefined) {
+    return (
+      <div className="flex justify-center p-4">
+        <IconLoader2 size={18} className="animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
   if (builderWorkspaceUrl)
     return <BuildInBuilderPanel url={builderWorkspaceUrl} />;
   return (

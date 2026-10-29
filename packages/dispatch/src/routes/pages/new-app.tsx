@@ -19,7 +19,7 @@ export default function NewAppRoute() {
       title={t("dispatch.pages.newApp")}
       description={t("dispatch.pages.newAppDescription")}
     >
-      {builderWorkspaceUrl ? (
+      {builderWorkspaceUrl === undefined ? null : builderWorkspaceUrl ? (
         <BuildInBuilderPanel url={builderWorkspaceUrl} />
       ) : (
         <NewWorkspaceAppFlow sourceApp="dispatch" className="px-0 py-0" />

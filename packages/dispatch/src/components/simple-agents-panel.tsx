@@ -44,9 +44,9 @@ import {
   buildSimpleAgentContent,
   slugifyAgentName,
 } from "../lib/simple-agent-profile.js";
-import { notifyBuildInBuilder } from "./build-in-builder";
 import { ActionQueryError } from "./action-query-error";
 import { AppIcon } from "./app-icon";
+import { useNotifyBuildInBuilder } from "./build-in-builder";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1158,6 +1158,7 @@ function AgentRow({
     { agentId: resource.id },
     { enabled: false },
   );
+  const notifyBuildInBuilder = useNotifyBuildInBuilder();
   const promote = useActionMutation<
     AgentAppCreationResult,
     AgentAppCreationInput

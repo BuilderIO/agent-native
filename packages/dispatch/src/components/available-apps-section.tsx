@@ -24,10 +24,16 @@ import {
   AppList,
   AppListRow,
 } from "./app-list-row";
+import { useNotifyBuildInBuilder } from "./build-in-builder";
 import { Button } from "./ui/button";
 
 interface CustomizeAppResult {
-  mode: "builder" | "local-agent" | "builder-unavailable" | "coming-soon";
+  mode:
+    | "builder"
+    | "builder-managed"
+    | "local-agent"
+    | "builder-unavailable"
+    | "coming-soon";
   message: string;
   prompt?: string;
   url?: string;
@@ -96,11 +102,16 @@ function AvailableAppRow({
   onConnected?: () => void;
 }) {
   const t = useT();
+  const notifyBuildInBuilder = useNotifyBuildInBuilder();
   const customize = useActionMutation<
     CustomizeAppResult,
     { appId: string; description: string; prompt: string }
   >("start-workspace-app-creation", {
     onSuccess: (result) => {
+      if (result.mode === "builder-managed" && result.url) {
+        notifyBuildInBuilder(result.url);
+        return;
+      }
       if (result.mode === "builder" && result.url) {
         const builderUrl = withBuilderUtmTrackingParams(result.url, {
           campaign: "product",
