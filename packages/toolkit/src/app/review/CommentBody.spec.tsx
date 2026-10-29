@@ -122,6 +122,21 @@ describe("CommentBody", () => {
     expect(container.textContent).toContain("docs");
   });
 
+  it("draws a compact preview's mention chips in the line's color", () => {
+    render(
+      <CommentBody
+        compact
+        body="Ask @[Alex Kim](mailto:alex@example.com) first"
+      />,
+    );
+
+    // Previews sit on cards of any color, such as Clips' dark comment bubble.
+    const chip = container.querySelector("span.rounded-full");
+    expect(chip?.classList.contains("text-inherit")).toBe(true);
+    expect(chip?.classList.contains("text-foreground")).toBe(false);
+    expect(chip?.classList.contains("border-current/30")).toBe(true);
+  });
+
   it("shows plain text past the Markdown limit", () => {
     const head = `${"**bold** ".repeat(1_000)}\n\n`;
     const filler = "x".repeat(COMMENT_BODY_MARKDOWN_LIMIT - head.length - 10);

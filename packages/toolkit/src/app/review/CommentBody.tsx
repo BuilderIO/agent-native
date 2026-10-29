@@ -84,11 +84,14 @@ export function CommentBody({
         ) : (
           <ReviewMentionChip
             mention={mention}
-            // A preview's line is often smaller than a chip; there the chip
-            // takes the line's size so it doesn't push the row taller.
+            // A preview's line is often smaller than a chip, and it may sit on
+            // an inverted card, like a video's comment bubble. There the chip
+            // takes the line's size and color, so it neither pushes the row
+            // taller nor goes dark on a dark card.
             className={cn(
               "select-text",
-              compact && "h-auto py-0 text-[1em] leading-[inherit]",
+              compact &&
+                "h-auto py-0 text-[1em] leading-[inherit] text-inherit border-current/30",
             )}
             title={mention.email ?? undefined}
           />
