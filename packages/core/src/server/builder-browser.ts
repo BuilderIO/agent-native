@@ -2904,11 +2904,13 @@ export async function createBuilderWorkspaceApp(args: {
   appId: string;
   name: string;
   description?: string;
+  attachments?: BuilderAgentAttachment[];
 }): Promise<BuilderWorkspaceAppResult> {
   const workspaceProjectId = normalizeBuilderProjectString(
     args.workspaceProjectId,
     "workspace project id",
   );
+  const attachments = normalizeBuilderAgentAttachments(args.attachments);
   const authorization = await resolveBuilderApiAuthorization(
     "builder:projects:write",
   );
@@ -2929,6 +2931,7 @@ export async function createBuilderWorkspaceApp(args: {
         appId: args.appId,
         name: args.name,
         description: args.description ?? "",
+        ...(attachments ? { attachments } : {}),
       }),
     },
     "workspace app creation",

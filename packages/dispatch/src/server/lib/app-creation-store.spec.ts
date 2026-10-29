@@ -141,6 +141,7 @@ const mocks = vi.hoisted(() => {
       lookupFailed: false,
     })),
     createBuilderProject: vi.fn(),
+    createBuilderWorkspaceApp: vi.fn(),
     runBuilderAgent: vi.fn(),
     getBuilderBranchProjectId: vi.fn(() => ""),
     readConfiguredWorkspaceAppHomePath: vi.fn(async () => undefined),
@@ -222,6 +223,8 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
       mocks.resolveBuilderCredentialsDetailed(...args),
     createBuilderProject: (...args: any[]) =>
       mocks.createBuilderProject(...args),
+    createBuilderWorkspaceApp: (...args: any[]) =>
+      mocks.createBuilderWorkspaceApp(...args),
     runBuilderAgent: (...args: any[]) => mocks.runBuilderAgent(...args),
     getBuilderBranchProjectId: (...args: any[]) =>
       mocks.getBuilderBranchProjectId(...args),
@@ -3090,6 +3093,68 @@ describe("startWorkspaceAppCreation", () => {
       startWorkspaceAppCreation({ prompt: "Track onboarding tasks", appId }),
     );
   }
+
+  describe("linked to a Builder workspace", () => {
+    beforeEach(() => {
+      vi.stubEnv("BUILDER_WORKSPACE_PROJECT_ID", "workspace-project-1");
+      mocks.createBuilderWorkspaceApp.mockResolvedValue({
+        projectId: "workspace-project-1",
+        branchName: "app-branch",
+        browserUrl: "https://builder.io/app/projects/workspace-project-1",
+      });
+    });
+
+    it("shortens the app id to Builder's limit and forwards attachments", async () => {
+      const longId = "a".repeat(39) + "-tracker";
+      const attachment = {
+        type: "upload" as const,
+        contentType: "text/plain",
+        name: "notes.md",
+        text: "Context",
+        dataUrl: "",
+        id: "notes",
+      };
+
+      const result = await runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () =>
+          startWorkspaceAppCreation({
+            prompt: "Track things",
+            appId: longId,
+            attachments: [attachment],
+          }),
+      );
+
+      const shortId = "a".repeat(39);
+      expect(result).toMatchObject({ mode: "builder", appId: shortId });
+      expect(mocks.createBuilderWorkspaceApp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: shortId,
+          attachments: [attachment],
+        }),
+      );
+    });
+
+    it("reports a setup failure after creation as a warning, not a failed creation", async () => {
+      mocks.putSetting.mockRejectedValueOnce(new Error("settings down"));
+
+      const result = await runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () =>
+          startWorkspaceAppCreation({
+            prompt: "Install the curated QR template",
+            appId: "community-qr",
+            communitySourceId: "community-qr",
+          }),
+      );
+
+      expect(result).toMatchObject({
+        mode: "builder",
+        appId: "community-qr",
+        message: expect.stringContaining("The app was created"),
+      });
+    });
+  });
 
   it("persists the private default for local-agent app creation", async () => {
     mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
