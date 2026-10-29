@@ -14,6 +14,7 @@ const QUOTE = /^(?: {0,3}> ?)+/;
 const LIST_ITEM = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
 const THEMATIC_BREAK = /^ {0,3}([-*_])(?: *\1){2,} *$/;
 const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[ \t]*$/;
+const HTML_COMMENT_OPENER = /^ {0,3}<!--/;
 /**
  * An HTML open or closing tag as CommonMark reads one. Text that only looks
  * like a tag, such as `x<y+1 and y>2`, stays: the renderer shows it too. No
@@ -25,9 +26,9 @@ const HTML_TAG =
 /**
  * A comment as plain text. Emphasis, heading, quote and code markers go;
  * links and images keep their text; `@[Name](mailto:…)` mentions read
- * `@Name`; raw HTML tags are dropped, as the renderer skips them. Line breaks,
- * list markers and the lines of a code block stay, so a list still reads as
- * one.
+ * `@Name`; raw HTML tags and comments are dropped, as the renderer skips
+ * them. Line breaks, list markers and the lines of a code block stay, so a
+ * list still reads as one.
  */
 export function commentPlainText(markdown: string): string {
   const lines: string[] = [];
@@ -42,6 +43,9 @@ export function commentPlainText(markdown: string): string {
   // A fence inside a quote ends with the quote, and its lines lose the
   // quote's markers and the fence's indent.
   let fence: { marker: string; depth: number; indent: number } | null = null;
+  // An HTML comment that opens a line hides every line up to the one with
+  // its `-->`, or to the end of its quote.
+  let htmlComment: { depth: number } | null = null;
   for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
     const quote = QUOTE.exec(line)?.[0] ?? "";
     const depth = quote.split(">").length - 1;
@@ -63,6 +67,13 @@ export function commentPlainText(markdown: string): string {
       }
       fence = null;
     }
+    if (htmlComment) {
+      if (depth >= htmlComment.depth) {
+        if (line.includes("-->")) htmlComment = null;
+        continue;
+      }
+      htmlComment = null;
+    }
     const text = line.slice(quote.length);
     // A fence can open a list item, after its marker.
     const item = LIST_ITEM.exec(text);
@@ -77,6 +88,14 @@ export function commentPlainText(markdown: string): string {
       const indent =
         (item?.[0].length ?? 0) + (opener?.[0].length ?? 0) - marker.length;
       fence = { marker, depth, indent };
+      continue;
+    }
+    const commentOpener = HTML_COMMENT_OPENER.exec(text);
+    if (commentOpener) {
+      endParagraph();
+      // `<!-->` and `<!--->` close as they open.
+      const closes = text.includes("-->", commentOpener[0].length - 2);
+      if (!closes) htmlComment = { depth };
       continue;
     }
     const heading = HEADING.exec(text);
@@ -246,9 +265,28 @@ function codeSpans(
   return spans;
 }
 
+/**
+ * Drops inline HTML comments, as the renderer skips them. One forward scan:
+ * once no `-->` is left, no later `<!--` can close either.
+ */
+function withoutHtmlComments(text: string): string {
+  let plain = "";
+  let cursor = 0;
+  for (;;) {
+    const open = text.indexOf("<!--", cursor);
+    if (open === -1) break;
+    // From the opener's second dash, so `<!-->` and `<!--->` close at once.
+    const close = text.indexOf("-->", open + 2);
+    if (close === -1) break;
+    plain += text.slice(cursor, open);
+    cursor = close + 3;
+  }
+  return plain + text.slice(cursor);
+}
+
 function plainProse(text: string): string {
   return (
-    text
+    withoutHtmlComments(text)
       .replace(/@\[([^[\]]+)\]\(mailto:[^()]*\)/g, "@$1")
       .replace(/!\[([^[\]]*)\]\([^()]*\)/g, "$1")
       .replace(/\[([^[\]]+)\]\([^()]*\)/g, "$1")

@@ -53,6 +53,24 @@ describe("commentPlainText", () => {
     expect(commentPlainText('<a href="x" data-y=1>link</a>')).toBe("link");
   });
 
+  it("drops HTML comments, as the renderer does", () => {
+    expect(commentPlainText("Visible text <!-- hidden note -->")).toBe(
+      "Visible text",
+    );
+    expect(commentPlainText("a<!-- x -->b and <!-->c")).toBe("ab and c");
+    expect(
+      commentPlainText("Before\n<!--\nhidden\n\nstill hidden -->\nAfter"),
+    ).toBe("Before\nAfter");
+    // A quoted comment ends with the quote.
+    expect(commentPlainText("> <!-- a\n> b\nc")).toBe("c");
+    // Mid-line, an unclosed opener is text.
+    expect(commentPlainText("a <!-- never closed")).toBe("a <!-- never closed");
+    expect(commentPlainText("`<!-- code -->`")).toBe("<!-- code -->");
+    expect(commentPlainText("\\<!-- not a comment -->")).toBe(
+      "<!-- not a comment -->",
+    );
+  });
+
   it("keeps text that only looks like a tag", () => {
     expect(commentPlainText("x<y+1 and y>2")).toBe("x<y+1 and y>2");
     expect(commentPlainText("a <3 b > c")).toBe("a <3 b > c");
@@ -130,6 +148,7 @@ describe("commentPlainText", () => {
       `\` ${"a".repeat(100_000)}\``,
       "**x\n".repeat(50_000),
       "`x\n".repeat(50_000),
+      "x <!--".repeat(50_000),
       `${"\\".repeat(10)}\``.repeat(10_000),
     ]) {
       commentPlainText(text);
