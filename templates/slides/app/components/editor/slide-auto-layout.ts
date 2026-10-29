@@ -63,6 +63,7 @@ export type SlideAutoLayoutResult =
         | "not-in-layout"
         | "unidentified-children"
         | "placed-by-stylesheet"
+        | "loose-text"
         | Extract<LayoutWrite, { status: "unreadable" }>["reason"];
       objectIds: readonly string[];
     };
@@ -384,6 +385,9 @@ export function enableSlideGroupAutoLayout(
   if (!members || members.size === 0) return refused("unidentified-children");
   const model = readModel(group, measure, "padding-box");
   if (model.children.status !== "read") return refused("children-unreadable");
+  // Text directly in the group would become a flex item of its own that no
+  // member measured or placed.
+  if (model.children.looseText) return refused("loose-text");
   // Order, gap and padding come from where each member renders; one nothing
   // measured would be placed by a guess.
   const unmeasured = model.children.items
@@ -678,21 +682,21 @@ function mainAxisOf(group: HTMLElement): LayoutAxis {
   return direction.startsWith("column") ? "vertical" : "horizontal";
 }
 
+function paintedCentreOf(member: HTMLElement): { x: number; y: number } {
+  const rect = member.getBoundingClientRect();
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+}
+
 /**
- * Where a member dragged to a client point lands among the group's other
- * members in flow: the count of those whose centre along the group's
- * direction comes before the point.
+ * The screen direction the group's flow runs in, first member to last; its
+ * length means nothing. Pointer and keyboard reordering both go by it, so a
+ * reversed, rotated or flipped group reorders the way it looks.
  */
-export function resolveSlideFlowInsertionIndex(
-  group: HTMLElement,
-  dragged: HTMLElement,
-  point: { x: number; y: number },
-): number {
+export function slideFlowScreenAxis(group: HTMLElement): {
+  x: number;
+  y: number;
+} {
   const members = flowMembers(group);
-  const centreOf = (member: HTMLElement) => {
-    const rect = member.getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-  };
   const reversed = (
     group.style.flexDirection || computedStyleOf(group).flexDirection
   ).endsWith("reverse");
@@ -711,7 +715,10 @@ export function resolveSlideFlowInsertionIndex(
       y: member.offsetTop + member.offsetHeight / 2,
     });
     const [from, to] = [local(first), local(last)];
-    const [paintedFrom, paintedTo] = [centreOf(first), centreOf(last)];
+    const [paintedFrom, paintedTo] = [
+      paintedCentreOf(first),
+      paintedCentreOf(last),
+    ];
     const laid = { x: to.x - from.x, y: to.y - from.y };
     const painted = {
       x: paintedTo.x - paintedFrom.x,
@@ -729,10 +736,24 @@ export function resolveSlideFlowInsertionIndex(
       };
     }
   }
+  return axis;
+}
+
+/**
+ * Where a member dragged to a client point lands among the group's other
+ * members in flow: the count of those whose centre along the group's
+ * direction comes before the point.
+ */
+export function resolveSlideFlowInsertionIndex(
+  group: HTMLElement,
+  dragged: HTMLElement,
+  point: { x: number; y: number },
+): number {
+  const axis = slideFlowScreenAxis(group);
   const along = ({ x, y }: { x: number; y: number }) => x * axis.x + y * axis.y;
   const at = along(point);
-  return members.filter(
-    (member) => member !== dragged && along(centreOf(member)) < at,
+  return flowMembers(group).filter(
+    (member) => member !== dragged && along(paintedCentreOf(member)) < at,
   ).length;
 }
 

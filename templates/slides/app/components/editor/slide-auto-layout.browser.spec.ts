@@ -542,6 +542,49 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("reports the flow's screen direction for reversed and rotated groups", async () => {
+    const page = await openPage();
+    const axes = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      api.enableSlideGroupAutoLayout(group);
+      const unit = () => {
+        const { x, y } = api.slideFlowScreenAxis(group);
+        const length = Math.hypot(x, y);
+        return { x: Math.round(x / length), y: Math.round(y / length) };
+      };
+      const row = unit();
+      group.style.flexDirection = "row-reverse";
+      const reversed = unit();
+      group.style.flexDirection = "row";
+      group.style.transform = "rotate(90deg)";
+      return { row, reversed, rotated: unit() };
+    });
+    expect(axes).toEqual({
+      row: { x: 1, y: 0 },
+      reversed: { x: -1, y: 0 },
+      rotated: { x: 0, y: 1 },
+    });
+    await page.close();
+  });
+
+  it("refuses a group with text directly in it", async () => {
+    const page = await openPage(
+      GROUP.replace("</div>\n</div>", "</div>\n  Loose words\n</div>"),
+    );
+    const outcome = await page.evaluate(() => {
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      const before = group.outerHTML;
+      const result = window.slideAutoLayout.enableSlideGroupAutoLayout(group);
+      return { result, untouched: group.outerHTML === before };
+    });
+    expect(outcome).toEqual({
+      result: { status: "refused", reason: "loose-text", objectIds: [] },
+      untouched: true,
+    });
+    await page.close();
+  });
+
   it("refuses a member that is not rendered and leaves the group as it was", async () => {
     const page = await openPage();
     const outcome = await page.evaluate(() => {

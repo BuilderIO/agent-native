@@ -227,6 +227,7 @@ import {
   readSlideAutoLayoutFrame,
   readSlideLayoutSizing,
   resolveSlideFlowInsertionIndex,
+  slideFlowScreenAxis,
   setSlideLayoutSizing,
   slideAutoLayoutGroupOf,
   slideFlowIndexOf,
@@ -9286,22 +9287,12 @@ export default function SlideEditor({
       const flowGroup = slideAutoLayoutGroupOf(element);
       if (flowGroup) {
         e.preventDefault();
-        const vertical =
-          readSlideAutoLayoutFrame(flowGroup)?.mode === "vertical";
-        // A reversed flow paints its first member last, so the arrow that
-        // points forward on screen steps backward through the order.
-        const sign = getComputedStyle(flowGroup).flexDirection.endsWith(
-          "reverse",
-        )
-          ? -1
-          : 1;
-        const step =
-          sign *
-          (dx !== 0 && !vertical
-            ? Math.sign(dx)
-            : dy !== 0 && vertical
-              ? Math.sign(dy)
-              : 0);
+        // An arrow steps the member when it points along the flow as it
+        // looks on screen, forward or back; across it, nothing moves.
+        const axis = slideFlowScreenAxis(flowGroup);
+        const along = dx * axis.x + dy * axis.y;
+        const across = dx * axis.y - dy * axis.x;
+        const step = Math.abs(along) > Math.abs(across) ? Math.sign(along) : 0;
         const index = slideFlowIndexOf(flowGroup, element);
         if (
           step === 0 ||
