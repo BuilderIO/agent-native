@@ -16031,6 +16031,20 @@ describe("runAgentLoop", () => {
     },
   );
 
+  it("bounds unmatched validation scans without losing a large error's final diagnosis", () => {
+    const repeated = "Invalid action parameters. Received: x. ".repeat(1000);
+    const error = `${repeated}Provider status 503. Refresh the connected account.`;
+    const start = performance.now();
+    const normalized = normalizeToolErrorForBreaker(error);
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(normalized).toBe(error);
+    expect(
+      normalizeToolErrorForBreaker(
+        `${repeated}Provider status 404. Check the resource name.`,
+      ),
+    ).not.toBe(normalized);
+  }, 15_000);
+
   it.each([
     [
       "Request failed. Received: 404 Not Found. Check the repo name",

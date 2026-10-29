@@ -11,3 +11,5 @@ Keep cached reads from resetting failure counts, including when rebuilding a con
 Keep equivalent-error counts under exact tool names, so colon-containing names cannot share a budget or retain each other's errors across a mutation.
 
 Preserve provider error statuses and recovery guidance when computing repeating-error keys; discard only recognized validation argument echoes.
+
+Skip normalization for oversized errors to bound synchronous parsing work while preserving their full diagnosis; the per-tool failure cap still stops varying errors.

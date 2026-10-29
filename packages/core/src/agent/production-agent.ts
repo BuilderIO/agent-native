@@ -5427,6 +5427,7 @@ const MAX_TOOL_FAILURE_STREAK = 5;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
 const MAX_ALREADY_LOADED_TOOL_SEARCHES = 4;
 const MAX_STOP_ERROR_LINE_CHARS = 300;
+const MAX_BREAKER_NORMALIZATION_CHARS = 4_096;
 
 /** `error: message` for a JSON `{ error, message }` result; `undefined` when the text is not one. */
 function jsonErrorCause(text: string): string | undefined {
@@ -6524,6 +6525,8 @@ async function waitForInterruptedToolLedgerEntry(opts: {
 }
 
 export function normalizeToolErrorForBreaker(error: string): string {
+  // Preserve large errors verbatim rather than clipping a later status or remedy.
+  if (error.length > MAX_BREAKER_NORMALIZATION_CHARS) return error;
   return (
     stripDiagnosticSnippets(error)
       // Providers also use "Received:"; only validation argument echoes can be dropped.

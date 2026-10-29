@@ -477,12 +477,13 @@ describe("failed tool attempts", () => {
   );
 
   it.each([
-    { varied: false, limit: 3, interruptedCloseout: false },
-    { varied: false, limit: 3, interruptedCloseout: true },
-    { varied: true, limit: 5, interruptedCloseout: false },
+    { varied: false, limit: 3, interruptedCloseout: false, oversized: false },
+    { varied: false, limit: 3, interruptedCloseout: true, oversized: false },
+    { varied: true, limit: 5, interruptedCloseout: false, oversized: false },
+    { varied: true, limit: 5, interruptedCloseout: false, oversized: true },
   ])(
     "stops despite changing arguments (varied errors: $varied)",
-    async ({ varied, limit, interruptedCloseout }) => {
+    async ({ varied, limit, interruptedCloseout, oversized }) => {
       const run = vi.fn(async () => "saved");
       const action = defineAction({
         description: "Update a view",
@@ -492,7 +493,7 @@ describe("failed tool attempts", () => {
             context.addIssue({
               code: "custom",
               message: varied
-                ? `Invalid variant ${input.attempt}`
+                ? `Invalid variant ${input.attempt}${oversized ? ` ${"Received: payload. ".repeat(600)}` : ""}`
                 : "Invalid patch",
             });
           }),
@@ -552,6 +553,7 @@ describe("failed tool attempts", () => {
         (event) => event.type === "tool_done" && event.isError,
       );
       expect(failures).toHaveLength(limit);
+      if (oversized) expect(failures[0]?.result.length).toBeGreaterThan(4096);
       expect(steps).toBeLessThanOrEqual(limit + (interruptedCloseout ? 2 : 1));
       const visible = events.reduce((text, event) => {
         if (event.type === "clear") return "";
