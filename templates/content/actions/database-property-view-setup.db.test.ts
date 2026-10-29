@@ -24,6 +24,7 @@ let configureProperty: typeof import("./configure-document-property.js").default
 let updateView: typeof import("./update-content-database-view.js").default;
 let updatePersonalView: typeof import("./update-content-database-personal-view.js").default;
 let readDatabase: typeof import("./get-content-database.js").default;
+let addItem: typeof import("./add-database-item.js").default;
 let listSpaces: typeof import("./list-content-spaces.js").default;
 let spaceId: string;
 
@@ -44,6 +45,7 @@ beforeAll(async () => {
     await import("./update-content-database-personal-view.js")
   ).default;
   readDatabase = (await import("./get-content-database.js")).default;
+  addItem = (await import("./add-database-item.js")).default;
   listSpaces = (await import("./list-content-spaces.js")).default;
   await asOwner(() =>
     import("./_content-spaces.js").then((module) =>
@@ -101,6 +103,12 @@ describe("ordinary property and table-view setup", () => {
     );
     const source = (await read()).database.viewConfig.views.at(0);
     if (!source) throw new Error("Expected source view");
+    const sourceFilters = ["Ready", "Next"].map((value) => ({
+      key: "name",
+      label: "Name",
+      operator: "contains" as const,
+      value,
+    }));
     const beforeSourceUpdate = await read();
     await asOwner(() =>
       updateView.run({
@@ -112,6 +120,8 @@ describe("ordinary property and table-view setup", () => {
         idempotencyKey: "copy-source-settings",
         viewId: source.id,
         patch: {
+          filters: sourceFilters,
+          filterMode: "or",
           hiddenPropertyIds: [],
           wrapCells: false,
           rowDensity: "compact",
@@ -125,8 +135,14 @@ describe("ordinary property and table-view setup", () => {
         },
       }),
     );
+    const retainedFilters = sourceFilters.map((filter) => ({
+      ...filter,
+      filterGroupId: "copied-source",
+      filterGroupMode: "or" as const,
+    }));
     const filters = [
       [
+        ...retainedFilters,
         {
           key: category.value.id,
           label: "Category",
@@ -135,6 +151,7 @@ describe("ordinary property and table-view setup", () => {
         },
       ],
       [
+        ...retainedFilters,
         {
           key: category.value.id,
           label: "Category",
@@ -142,13 +159,40 @@ describe("ordinary property and table-view setup", () => {
           value: "blue",
         },
       ],
-      ["red", "blue"].map((value) => ({
-        key: category.value.id,
-        label: "Category",
-        operator: "does_not_equal" as const,
-        value,
-      })),
+      [
+        ...retainedFilters,
+        ...["red", "blue"].map((value) => ({
+          key: category.value.id,
+          label: "Category",
+          operator: "does_not_equal" as const,
+          value,
+        })),
+      ],
     ];
+    for (const [index, row] of [
+      { title: "A Ready red", values: ["red"] },
+      { title: "B Next blue", values: ["blue"] },
+      { title: "C Ready neither", values: [] },
+      { title: "D Next both", values: ["red", "blue"] },
+      { title: "E Outside neither", values: [] },
+    ].entries()) {
+      const current = await read();
+      await asOwner(() =>
+        addItem.run({
+          target,
+          expectedSchemaRevision: current.mutationContract.schemaRevision,
+          idempotencyKey: `copy-row-${index}`,
+          title: row.title,
+          propertyEntries: [
+            {
+              propertyId: category.value.id,
+              propertyType: "multi_select",
+              value: row.values,
+            },
+          ],
+        }),
+      );
+    }
     const ids: string[] = [];
     for (let index = 0; index < filters.length; index++) {
       const current = await read();
@@ -195,6 +239,7 @@ describe("ordinary property and table-view setup", () => {
             sourceViewId: source.id,
             viewId,
             filters: filters[index],
+            filterMode: "and",
             view: null,
             patch: null,
           },
@@ -208,16 +253,63 @@ describe("ordinary property and table-view setup", () => {
       (view) => view.id === source.id,
     );
     if (!savedSource) throw new Error("Expected saved source view");
+    expect(savedSource.filters).toEqual(sourceFilters);
+    expect(savedSource.filterMode).toBe("or");
     for (const [index, viewId] of ids.entries()) {
+      const replacementFilters = filters.at(index);
+      if (!replacementFilters) throw new Error("Expected replacement filters");
       expect(
         saved.database.viewConfig.views.find((view) => view.id === viewId),
       ).toEqual({
         ...savedSource,
         id: viewId,
         name: `Target ${index}`,
-        filters: filters[index],
+        filters: replacementFilters,
+        filterMode: "and",
       });
+      const filtered = await asOwner(() =>
+        readDatabase.run({
+          databaseId: target.databaseId,
+          limit: 10,
+          tableQuery: {
+            search: "",
+            filters: replacementFilters,
+            sorts: savedSource.sorts,
+            filterMode: "and",
+          },
+        }),
+      );
+      if (!("items" in filtered)) throw new Error("Expected filtered rows");
+      expect(filtered.items.map((item) => item.document.title)).toEqual(
+        [
+          ["A Ready red", "D Next both"],
+          ["B Next blue", "D Next both"],
+          ["C Ready neither"],
+        ][index],
+      );
+      await expect(
+        asOwner(() =>
+          updateView.run({
+            operation: "copy-settings",
+            target,
+            expectedSchemaRevision: saved.mutationContract.schemaRevision,
+            expectedConfigurationRevision: saved.configurationRevision,
+            idempotencyKey: `copy-settings-${index}`,
+            sourceViewId: source.id,
+            viewId,
+            filters: replacementFilters,
+            filterMode: "or",
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
     }
+    const afterReusedMode = await read();
+    expect(afterReusedMode.configurationRevision).toBe(
+      saved.configurationRevision,
+    );
+    expect(afterReusedMode.database.viewConfig).toEqual(
+      saved.database.viewConfig,
+    );
   });
 
   it("refuses ambiguous input without a partial write and persists explicit empty clears", async () => {

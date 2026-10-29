@@ -255,6 +255,11 @@ export const updateContentDatabaseViewAgentSchema = z.discriminatedUnion(
           .describe(
             "Complete replacement filters, including any source filters to retain",
           ),
+        filterMode: z
+          .enum(["and", "or"])
+          .describe(
+            "How to combine the replacement filters. Use and for multiple exclusions. To retain source or filters while adding constraints, put the source filters in one or filterGroupId group and combine that group with the new filters using and.",
+          ),
       })
       .strict(),
   ],
@@ -672,6 +677,7 @@ export async function runUpdateContentDatabaseView(
               sourceViewId: input.sourceViewId,
               viewId: input.viewId,
               filters: input.filters,
+              filterMode: input.filterMode,
             }
           : {
               operation: input.operation,
@@ -737,7 +743,11 @@ export async function runUpdateContentDatabaseView(
             itemLayout: _itemLayout,
             ...settings
           } = source;
-          inputPatch = { ...settings, filters: input.filters };
+          inputPatch = {
+            ...settings,
+            filters: input.filters,
+            filterMode: input.filterMode,
+          };
         } else {
           inputPatch = input.patch;
         }
