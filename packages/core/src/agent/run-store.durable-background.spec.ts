@@ -440,6 +440,30 @@ describe("run-store durable background", () => {
       });
     });
 
+    it("keeps quote-heavy diagnostic details valid within the storage limit", async () => {
+      await insertRun("r-quoted-route-diag", "t1", "turn", {
+        dispatchMode: "background",
+      });
+      const evidence = {
+        format: "route_failure_v1" as const,
+        errorName: "Error",
+      };
+      await recordRunDiagnostic(
+        "r-quoted-route-diag",
+        RUN_DIAG_STAGE.routeThrew,
+        '"'.repeat(1500),
+        evidence,
+      );
+      const stored = rows.find(
+        (r) => r.id === "r-quoted-route-diag",
+      )!.diag_stage!;
+      const parsed = JSON.parse(stored);
+      expect(stored.length).toBeLessThanOrEqual(2000);
+      expect(parsed.stage).toBe(RUN_DIAG_STAGE.routeThrew);
+      expect(parsed.evidence).toEqual(evidence);
+      expect(parsed.detail.length).toBeLessThan(1500);
+    });
+
     it("is a no-op for an empty runId and never throws", async () => {
       await expect(
         recordRunDiagnostic("", RUN_DIAG_STAGE.routeEntered),
