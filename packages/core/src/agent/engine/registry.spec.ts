@@ -1998,7 +1998,7 @@ describe("AgentEngine registry", () => {
       ).resolves.toBe(true);
     });
 
-    it("reports the builder engine as runnable in a Fusion preview", async () => {
+    it("reports the builder engine as runnable in a preview", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token"; // guard:allow-env-credential — fixture: the preview pod's Builder-credits pair is the credential under test
