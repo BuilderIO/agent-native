@@ -18,7 +18,20 @@ const INLINE_MARKDOWN_ELEMENTS = [
   "strong",
 ] as const;
 
-const BLOCK_MARKDOWN_ELEMENTS = [...INLINE_MARKDOWN_ELEMENTS, "li", "ol", "ul"];
+const BLOCK_MARKDOWN_ELEMENTS = [
+  ...INLINE_MARKDOWN_ELEMENTS,
+  "blockquote",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "li",
+  "ol",
+  "pre",
+  "ul",
+];
 
 export interface InlineMarkdownProps {
   content: string;
@@ -113,21 +126,48 @@ export function InlineMarkdown({
     p: ({ children }) =>
       inline ? <span>{children}</span> : <p className="m-0">{children}</p>,
     ul: ({ children }) => <ul className="list-disc ps-5">{children}</ul>,
-    ol: ({ children }) => <ol className="list-decimal ps-5">{children}</ol>,
+    ol: ({ children, start }) => (
+      <ol start={start} className="list-decimal ps-5">
+        {children}
+      </ol>
+    ),
+    blockquote: ({ children }) => (
+      <blockquote className="border-s-2 border-border ps-2.5 text-muted-foreground">
+        {children}
+      </blockquote>
+    ),
+    // Wraps rather than scrolls sideways, which a keyboard can't reach.
+    pre: ({ children }) => (
+      <pre className="whitespace-pre-wrap break-words rounded bg-muted p-2 [&>code]:whitespace-pre-wrap [&>code]:bg-transparent [&>code]:p-0">
+        {children}
+      </pre>
+    ),
+    h1: Heading,
+    h2: Heading,
+    h3: Heading,
+    h4: Heading,
+    h5: Heading,
+    h6: Heading,
   };
 
   const Root = inline ? "span" : "div";
+  const blocks = renderLists && !inline;
 
   return (
-    <Root className={cn("whitespace-pre-wrap break-words", className)}>
+    <Root
+      className={cn(
+        "whitespace-pre-wrap break-words",
+        blocks && "flex flex-col gap-2",
+        className,
+      )}
+    >
       <ReactMarkdown
         allowedElements={
-          renderLists && !inline
-            ? BLOCK_MARKDOWN_ELEMENTS
-            : INLINE_MARKDOWN_ELEMENTS
+          blocks ? BLOCK_MARKDOWN_ELEMENTS : INLINE_MARKDOWN_ELEMENTS
         }
         components={components}
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={blocks ? [dropNewlinesBetweenBlocks] : []}
         skipHtml
         unwrapDisallowed
       >
@@ -135,6 +175,55 @@ export function InlineMarkdown({
       </ReactMarkdown>
     </Root>
   );
+}
+
+// A heading in a comment or note would outrank the page's own headings, so it
+// keeps its weight without becoming one.
+function Heading({ children }: { children?: ReactNode }) {
+  return <p className="m-0 font-semibold">{children}</p>;
+}
+
+interface HastNode {
+  type: string;
+  tagName?: string;
+  value?: string;
+  children?: HastNode[];
+}
+
+const BLOCK_TAGS = new Set([
+  "blockquote",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "li",
+  "ol",
+  "p",
+  "pre",
+  "ul",
+]);
+
+// Markdown separates blocks with newline text, which pre-wrap would show as a
+// blank line between every list item; the root's gap spaces blocks instead.
+function dropNewlinesBetweenBlocks() {
+  const isBlock = (node: HastNode | undefined) =>
+    node?.type === "element" && BLOCK_TAGS.has(node.tagName ?? "");
+  const visit = (node: HastNode) => {
+    if (!node.children) return;
+    const children = node.children;
+    node.children = children.filter(
+      (child, index) =>
+        !(
+          child.type === "text" &&
+          !child.value?.trim() &&
+          (isBlock(children[index - 1]) || isBlock(children[index + 1]))
+        ),
+    );
+    node.children.forEach(visit);
+  };
+  return (tree: HastNode) => visit(tree);
 }
 
 const PROTECTED_SPAN_PREFIX = "https://inline-markdown-protected.invalid/span/";

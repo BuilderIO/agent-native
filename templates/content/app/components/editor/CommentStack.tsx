@@ -216,7 +216,9 @@ function StackFrontPreview({
             }}
           >
             <span className="line-clamp-3">
-              {renderCommentBody(first.content, first.mentions)}
+              {renderCommentBody(first.content, first.mentions, {
+                compact: true,
+              })}
             </span>
           </CommentRow>
         ) : null}
@@ -414,7 +416,11 @@ export function CommentStackCard({
           {first ? (
             <>
               <p>{firstName}</p>
-              <p>{renderCommentBody(first.content, first.mentions)}</p>
+              <p>
+                {renderCommentBody(first.content, first.mentions, {
+                  compact: true,
+                })}
+              </p>
             </>
           ) : null}
           {replies > 0 ? (
