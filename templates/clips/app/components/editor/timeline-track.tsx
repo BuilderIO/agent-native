@@ -40,6 +40,7 @@ export const MIN_PIECE_MS = 80;
 const DRAG_THRESHOLD_PX = 3;
 const EDGE_HANDLE_PX = 13;
 const RESTORE_BUTTON_MIN_PX = 26;
+const RANGE_EDGE_PX = 6;
 
 export type EdgeSide = "clip-start" | "clip-end";
 
@@ -74,7 +75,12 @@ interface RangeDragState {
   kind: "range";
   pointerId: number;
   startClientX: number;
+  /** "new" and "resize" grow from `startMs`; "move" slides `from` by the pointer delta. */
+  mode: "new" | "resize" | "move";
   startMs: number;
+  from: { startMs: number; endMs: number } | null;
+  /** Set when the drag began on a removed section, so a plain click selects it. */
+  gapCutId: string | null;
   moved: boolean;
 }
 
@@ -82,6 +88,32 @@ type DragState = EdgeDragState | RangeDragState;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function dragRange(drag: RangeDragState, ms: number, durationMs: number) {
+  if (drag.mode !== "move" || !drag.from) {
+    return selectionRange(drag.startMs, ms);
+  }
+  const length = drag.from.endMs - drag.from.startMs;
+  const startMs = clamp(
+    drag.from.startMs + ms - drag.startMs,
+    0,
+    Math.max(0, durationMs - length),
+  );
+  return selectionRange(startMs, startMs + length);
+}
+
+function rangeZone(
+  range: { startMs: number; endMs: number },
+  atMs: number,
+  toX: (ms: number) => number,
+): "edge" | "inside" | "outside" {
+  const x = toX(atMs);
+  const left = toX(range.startMs);
+  const right = toX(range.endMs);
+  const edge = Math.min(RANGE_EDGE_PX, (right - left) / 3);
+  if (Math.abs(x - left) <= edge || Math.abs(x - right) <= edge) return "edge";
+  return x > left && x < right ? "inside" : "outside";
 }
 
 function selectionRange(startMs: number, endMs: number): TrackSelection {
@@ -218,38 +250,7 @@ export function TimelineTrack({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [rangeMode, setRangeMode] = useState(false);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName?.toLowerCase();
-      if (
-        e.code !== "KeyR" ||
-        e.metaKey ||
-        e.ctrlKey ||
-        e.altKey ||
-        tag === "input" ||
-        tag === "textarea" ||
-        target?.isContentEditable
-      ) {
-        return;
-      }
-      setRangeMode(true);
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "KeyR") setRangeMode(false);
-    };
-    const clearRangeMode = () => setRangeMode(false);
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", clearRangeMode);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", clearRangeMode);
-    };
-  }, []);
+  const [rangeCursor, setRangeCursor] = useState<string | null>(null);
 
   const pieces = useMemo(
     () => buildTimelinePieces(durationMs, edits),
@@ -295,21 +296,32 @@ export function TimelineTrack({
   const handleMove = useCallback(
     (e: React.PointerEvent) => {
       const drag = dragRef.current;
-      if (!drag || drag.pointerId !== e.pointerId) return;
+      if (!drag) {
+        if (selection?.kind !== "range" || disabled) {
+          setRangeCursor(null);
+          return;
+        }
+        const zone = rangeZone(selection, toMs(e.clientX), toX);
+        setRangeCursor(
+          zone === "edge" ? "ew-resize" : zone === "inside" ? "grab" : null,
+        );
+        return;
+      }
+      if (drag.pointerId !== e.pointerId) return;
       if (!drag.moved) {
         if (Math.abs(e.clientX - drag.startClientX) < DRAG_THRESHOLD_PX) return;
         drag.moved = true;
         setDragging(true);
       }
       if (drag.kind === "range") {
-        onSelectionChange(selectionRange(drag.startMs, toMs(e.clientX)));
+        onSelectionChange(dragRange(drag, toMs(e.clientX), durationMs));
       } else {
         onPreview(
           applyDrag(drag.base, durationMs, drag.target, toMs(e.clientX)),
         );
       }
     },
-    [durationMs, onPreview, onSelectionChange, toMs],
+    [disabled, durationMs, onPreview, onSelectionChange, selection, toMs, toX],
   );
 
   const endDrag = useCallback(
@@ -322,7 +334,11 @@ export function TimelineTrack({
       if (!commit) return;
       if (drag.kind === "range") {
         if (drag.moved) {
-          onSelectionChange(selectionRange(drag.startMs, toMs(e.clientX)));
+          onSelectionChange(dragRange(drag, toMs(e.clientX), durationMs));
+        } else if (drag.mode === "resize") {
+          return;
+        } else if (drag.gapCutId) {
+          onSelectionChange({ kind: "gap", cutId: drag.gapCutId });
         } else {
           onSelectionChange({ kind: "clip", anchorMs: drag.startMs });
           onSeek?.(drag.startMs);
@@ -340,13 +356,37 @@ export function TimelineTrack({
     [durationMs, onCommit, onPreview, onSeek, onSelectionChange, toMs],
   );
 
-  const beginRangeDrag = (e: React.PointerEvent, startMs: number) => {
+  const beginRangeDrag = (
+    e: React.PointerEvent,
+    at: number,
+    gapCutId: string | null,
+  ) => {
     rootRef.current?.setPointerCapture?.(e.pointerId);
+    let mode: RangeDragState["mode"] = "new";
+    let startMs = at;
+    let from: RangeDragState["from"] = null;
+    if (selection?.kind === "range") {
+      const zone = rangeZone(selection, at, toX);
+      if (zone === "edge") {
+        mode = "resize";
+        startMs =
+          Math.abs(toX(at) - toX(selection.startMs)) <=
+          Math.abs(toX(at) - toX(selection.endMs))
+            ? selection.endMs
+            : selection.startMs;
+      } else if (zone === "inside") {
+        mode = "move";
+        from = { startMs: selection.startMs, endMs: selection.endMs };
+      }
+    }
     dragRef.current = {
       kind: "range",
       pointerId: e.pointerId,
       startClientX: e.clientX,
+      mode,
       startMs,
+      from,
+      gapCutId,
       moved: false,
     };
   };
@@ -372,7 +412,11 @@ export function TimelineTrack({
     <div
       ref={rootRef}
       className={cn("relative select-none", className)}
-      style={{ width, height }}
+      style={{
+        width,
+        height,
+        cursor: dragging ? undefined : (rangeCursor ?? undefined),
+      }}
       onPointerMove={handleMove}
       onPointerUp={(e) => endDrag(e, true)}
       onPointerCancel={(e) => endDrag(e, false)}
@@ -406,15 +450,15 @@ export function TimelineTrack({
                   : "cursor-pointer hover:bg-rose-500/15",
                 selected && "bg-rose-500/20 ring-2 ring-inset ring-rose-400",
               )}
-              style={{ left, width: pieceWidth }}
+              style={{
+                left,
+                width: pieceWidth,
+                cursor: rangeCursor ?? undefined,
+              }}
               onPointerDown={(e) => {
                 if (disabled || e.button !== 0) return;
                 e.preventDefault();
-                if (rangeMode) {
-                  beginRangeDrag(e, toMs(e.clientX));
-                  return;
-                }
-                onSelectionChange({ kind: "gap", cutId: piece.cutId });
+                beginRangeDrag(e, toMs(e.clientX), piece.cutId);
               }}
             >
               {pieceWidth >= RESTORE_BUTTON_MIN_PX ? (
@@ -456,17 +500,15 @@ export function TimelineTrack({
                 ? "border-primary bg-primary/15 ring-2 ring-inset ring-primary"
                 : "border-transparent hover:border-primary/50 hover:bg-primary/5",
             )}
-            style={{ left, width: pieceWidth }}
+            style={{
+              left,
+              width: pieceWidth,
+              cursor: rangeCursor ?? undefined,
+            }}
             onPointerDown={(e) => {
               if (disabled || e.button !== 0) return;
               e.preventDefault();
-              const at = toMs(e.clientX);
-              if (rangeMode) {
-                beginRangeDrag(e, at);
-                return;
-              }
-              onSelectionChange({ kind: "clip", anchorMs: at });
-              onSeek?.(at);
+              beginRangeDrag(e, toMs(e.clientX), null);
             }}
           />
         );

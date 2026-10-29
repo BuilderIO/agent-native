@@ -709,7 +709,17 @@ export default function RecordingPage() {
       storageKey: "clips:share-sidebar-collapsed",
     });
   const [theaterMode, setTheaterMode] = useState(false);
-  const [editing, setEditing] = useState(false);
+  // Lives in the URL so the editor can be linked to and survives a reload.
+  const editing = searchParams.get("edit") === "1";
+  const setEditing = useCallback(
+    (next: boolean) => {
+      const nextParams = new URLSearchParams(searchParams);
+      if (next) nextParams.set("edit", "1");
+      else nextParams.delete("edit");
+      setSearchParams(nextParams, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
   const [chapterEditRequest, setChapterEditRequest] = useState(0);
   const [tagEditRequest, setTagEditRequest] = useState(0);
   const openingMetadataEditor = useRef(false);
@@ -2536,8 +2546,8 @@ export default function RecordingPage() {
   }, [canEdit, panel, recording]);
 
   useEffect(() => {
-    if (!canUseNativeEditor && editing) setEditing(false);
-  }, [canUseNativeEditor, editing]);
+    if (recording && !canUseNativeEditor && editing) setEditing(false);
+  }, [canUseNativeEditor, editing, recording, setEditing]);
 
   useEffect(() => {
     if (!recording) return;
