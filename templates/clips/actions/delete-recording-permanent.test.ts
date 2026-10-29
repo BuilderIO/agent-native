@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   context: vi.fn(),
   role: vi.fn(),
   privateBlob: vi.fn(),
+  scope: vi.fn(),
 }));
 vi.mock("../server/db/index.js", async () => ({
   getDb: () => db,
@@ -56,9 +57,7 @@ vi.mock("../server/lib/recordings.js", async () => {
   };
 });
 vi.mock("../server/lib/recording-media-provider.js", () => ({
-  captureMediaCleanupScope: vi.fn(async () => ({
-    storageFingerprint: "fake-bucket",
-  })),
+  captureMediaCleanupScope: (...args: unknown[]) => mocks.scope(...args),
   deleteBuilderMediaForCleanup: (...args: unknown[]) => mocks.builder(...args),
 }));
 vi.mock("../server/lib/s3-upload-provider.js", () => ({
@@ -121,6 +120,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   mocks.owner = owner;
   mocks.role.mockResolvedValue("member");
+  mocks.scope.mockResolvedValue({ storageFingerprint: "fake-bucket" });
   mocks.remove.mockResolvedValue({ phase: "complete", httpStatus: 404 });
   mocks.builder.mockResolvedValue({
     phase: "blocked",
@@ -166,6 +166,52 @@ afterEach(async () => {
 });
 
 describe("permanent recording deletion with durable media cleanup", () => {
+  it.each([false, true])(
+    "handles malformed legacy edits while protecting known references (%s)",
+    async (shared) => {
+      await insertRecording("legacy", shared ? video : video + "-other");
+      await client.exec(
+        "ALTER TABLE recordings DISABLE TRIGGER clips_recording_media_fence; UPDATE recordings SET edits_json='not-json' WHERE id='legacy'; ALTER TABLE recordings ENABLE TRIGGER clips_recording_media_fence",
+      );
+      await action.run({ id: "rec-1" });
+      await runRecordingMediaCleanup("rec-1");
+      expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+        status: shared ? "retained_shared" : "complete",
+        deleted: shared ? 0 : 1,
+      });
+    },
+  );
+  it("uses an index for normalized recording references", async () => {
+    await client.exec("SET enable_seqscan=off");
+    const plan = await client.query<{ "QUERY PLAN": string }>(
+      "EXPLAIN SELECT id FROM recordings WHERE clips_recording_media_keys(video_url,thumbnail_url,animated_thumbnail_url,filmstrip_url,image_url,base_image_url,edits_json) @> ARRAY[$1]",
+      ["s3:clips/rec-1/video.mp4"],
+    );
+    expect(plan.rows.map((row) => row["QUERY PLAN"]).join("\n")).toContain(
+      "clips_recording_media_reference_idx",
+    );
+  });
+  it("preserves a Builder credential connection binding across retry", async () => {
+    await action.run({ id: "rec-1" });
+    await client.query(
+      "UPDATE recording_media_cleanup_objects SET payload=$1",
+      [
+        "encrypted:" +
+          JSON.stringify({
+            urls: [builderVideo],
+            credentialRef: "oauth:original-connection",
+          }),
+      ],
+    );
+    mocks.scope.mockResolvedValue({
+      credentialRef: "oauth:different-connection",
+    });
+    await retryCleanup.run({ id: "rec-1" });
+    const object = (await rows("recording_media_cleanup_objects")).shift();
+    expect(
+      object && JSON.parse(String(object.payload).slice(10)),
+    ).toMatchObject({ credentialRef: "oauth:original-connection" });
+  });
   it("removes access but returns pending instead of permanent media success, including an idempotent repeat", async () => {
     const result = await action.run({ id: "rec-1" });
     expect(result).toMatchObject({
@@ -514,6 +560,8 @@ describe("permanent recording deletion with durable media cleanup", () => {
     await action.run({ id: "rec-1" });
     await finishMediaProduction(producer, { url: video, provider: "s3" });
     await runRecordingMediaCleanup("rec-1");
+    await retryCleanup.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
     expect(mocks.remove).not.toHaveBeenCalled();
     expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
       status: "blocked",
@@ -688,7 +736,10 @@ describe("permanent recording deletion with durable media cleanup", () => {
       "UPDATE recording_media_cleanups SET lease_token='fake-worker', lease_until=$1",
       [new Date(Date.now() + 120_000).toISOString()],
     );
-    await retryCleanup.run({ id: "rec-1" });
+    await expect(retryCleanup.run({ id: "rec-1" })).rejects.toMatchObject({
+      errorCode: "media_cleanup_busy",
+      statusCode: 409,
+    });
     expect((await rows("recording_media_cleanup_objects"))[0].attempts).toBe(
       12,
     );

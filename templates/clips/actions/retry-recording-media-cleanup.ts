@@ -78,11 +78,16 @@ export default defineAction({
         .for("update")
         .limit(1);
       const lease = held.shift();
-      if (
-        !lease ||
-        (lease.leaseUntil && lease.leaseUntil > new Date().toISOString())
-      )
-        return;
+      if (!lease)
+        fail("Media cleanup not found", {
+          errorCode: "media_cleanup_not_found",
+          statusCode: 404,
+        });
+      if (lease.leaseUntil && lease.leaseUntil > new Date().toISOString())
+        fail("Media cleanup is already running", {
+          errorCode: "media_cleanup_busy",
+          statusCode: 409,
+        });
       const manifest = openCleanupPayload<CleanupManifest>(job.manifest);
       const current = await tx
         .select()
@@ -104,10 +109,13 @@ export default defineAction({
               payload: sealCleanupPayload({
                 ...payload,
                 ...scope,
+                ...(payload.credentialRef
+                  ? { credentialRef: payload.credentialRef }
+                  : {}),
                 storageFingerprint:
-                  payload.storageFingerprint ??
-                  scope.storageFingerprint ??
-                  null,
+                  payload.storageFingerprint === undefined
+                    ? (scope.storageFingerprint ?? null)
+                    : payload.storageFingerprint,
               }),
               attempts: 0,
             })
@@ -122,7 +130,15 @@ export default defineAction({
       await tx
         .update(t)
         .set({
-          manifest: sealCleanupPayload({ ...manifest, scope }),
+          manifest: sealCleanupPayload({
+            ...manifest,
+            scope: {
+              ...scope,
+              ...(manifest.scope?.credentialRef
+                ? { credentialRef: manifest.scope.credentialRef }
+                : {}),
+            },
+          }),
           attempts: 0,
           nextAttemptAt: new Date().toISOString(),
           status: "pending",

@@ -70,6 +70,61 @@ import {
 
 describe("s3FileUploadProvider", () => {
   const originalEnv = { ...process.env };
+  it.each([false, true])(
+    "checkpoints a resumable upload's original bucket and refuses a changed bucket (%s)",
+    async (changed) => {
+      const values: Record<string, string> = {
+        S3_BUCKET: "bucket-a",
+        S3_ACCESS_KEY_ID: "fake-access",
+        S3_SECRET_ACCESS_KEY: "fake-secret",
+        S3_ENDPOINT: "https://s3.example.test",
+        S3_PUBLIC_BASE_URL: "https://cdn.example.test/media",
+      };
+      mockResolveSecret.mockImplementation(
+        async (key: string) => values[key] ?? null,
+      );
+      const journal: ProducedMediaReference[] = [];
+      mockSsrfSafeFetch.mockImplementation(
+        async (url: string, init: RequestInit) => {
+          if (url.includes("?uploads="))
+            return new Response(
+              "<InitiateMultipartUploadResult><UploadId>fake-upload</UploadId></InitiateMultipartUploadResult>",
+            );
+          if (init.method === "POST")
+            expect(journal[0]).toMatchObject({
+              storageFingerprint: session.meta.storageFingerprint,
+              uploadConfirmed: false,
+            });
+          return new Response(null, { status: 200 });
+        },
+      );
+      const resumable = s3FileUploadProvider.resumable;
+      if (!resumable) throw new Error("Missing resumable provider");
+      const session = await resumable.startSession(
+        "rec_1.webm",
+        "video/webm",
+        100,
+      );
+      session.meta.parts = [{ partNumber: 1, etag: "fake-part", sizeBytes: 1 }];
+      if (changed) values.S3_BUCKET = "bucket-b";
+      const completion = withMediaUploadCheckpoint(
+        async (output) => {
+          journal.push(output);
+        },
+        () => resumable.completeSession(session, "rec_1.webm"),
+      );
+      if (changed) await expect(completion).rejects.toThrow(/binding|bucket/i);
+      else {
+        await expect(completion).resolves.toBe(
+          "https://cdn.example.test/media/clips/rec_1.webm",
+        );
+        expect(journal[1]).toMatchObject({
+          storageFingerprint: expect.any(String),
+          uploadConfirmed: true,
+        });
+      }
+    },
+  );
   it("pins an actual buffered upload to its bucket before PUT and refuses a changed bucket behind the same public URL", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "bucket-a",

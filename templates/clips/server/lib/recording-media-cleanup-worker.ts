@@ -159,7 +159,7 @@ async function claimObject(
     .select({ id: schema.recordings.id })
     .from(schema.recordings)
     .where(
-      sql`${object.objectKey} = ANY(clips_media_keys(to_jsonb(${schema.recordings})))`,
+      sql`clips_recording_media_keys(${schema.recordings.videoUrl},${schema.recordings.thumbnailUrl},${schema.recordings.animatedThumbnailUrl},${schema.recordings.filmstripUrl},${schema.recordings.imageUrl},${schema.recordings.baseImageUrl},${schema.recordings.editsJson}) @> ARRAY[${object.objectKey}]::text[]`,
     )
     .limit(1);
   // guard:allow-unscoped — frames can retain the same object independently of a recording column.

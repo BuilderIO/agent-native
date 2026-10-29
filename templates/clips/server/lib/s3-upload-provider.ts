@@ -662,6 +662,7 @@ interface S3MultipartPart {
 }
 
 interface S3MultipartMeta {
+  storageFingerprint?: string;
   objectKey: string;
   stagingKey: string;
   mimeType: string;
@@ -711,7 +712,36 @@ function readMultipartMeta(meta: Record<string, unknown>): S3MultipartMeta {
   ) {
     throw new Error("S3 resumable upload session metadata is invalid");
   }
-  return { objectKey, stagingKey, mimeType, maxBytes, pendingBytes, parts };
+  if (
+    meta.storageFingerprint !== undefined &&
+    (typeof meta.storageFingerprint !== "string" ||
+      !/^[a-f0-9]{64}$/.test(meta.storageFingerprint))
+  )
+    throw new Error("S3 resumable storage binding is invalid");
+  return {
+    objectKey,
+    stagingKey,
+    mimeType,
+    maxBytes,
+    pendingBytes,
+    parts,
+    ...(typeof meta.storageFingerprint === "string"
+      ? { storageFingerprint: meta.storageFingerprint }
+      : {}),
+  };
+}
+
+function readBoundMultipartMeta(
+  cfg: S3Config,
+  raw: Record<string, unknown>,
+): S3MultipartMeta {
+  const meta = readMultipartMeta(raw);
+  if (
+    meta.storageFingerprint &&
+    meta.storageFingerprint !== cleanupStorageFingerprint(cfg)
+  )
+    throw new Error("S3 resumable storage bucket binding changed");
+  return meta;
 }
 
 function contentRangeEndExclusive(contentRange: string): number | null {
@@ -987,6 +1017,7 @@ function createS3FileUploadProvider(
         return {
           sessionId: uploadId,
           meta: {
+            storageFingerprint: cleanupStorageFingerprint(cfg),
             objectKey,
             stagingKey,
             mimeType,
@@ -1000,7 +1031,7 @@ function createS3FileUploadProvider(
       async relayChunk(session, contentRange, bytes) {
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
-        const meta = readMultipartMeta(session.meta);
+        const meta = readBoundMultipartMeta(cfg, session.meta);
         const isFinal = !contentRange.endsWith("/*");
         const rangeEnd = contentRangeEndExclusive(contentRange);
         if (rangeEnd === null) {
@@ -1057,7 +1088,18 @@ function createS3FileUploadProvider(
       async completeSession(session) {
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
-        const meta = readMultipartMeta(session.meta);
+        const meta = readBoundMultipartMeta(cfg, session.meta);
+        const reference = {
+          url: publicObjectUrl(cfg, meta.objectKey),
+          provider: id,
+          ...(meta.storageFingerprint
+            ? { storageFingerprint: meta.storageFingerprint }
+            : {}),
+        };
+        const completed = async () => {
+          await checkpointMediaUpload({ ...reference, uploadConfirmed: true });
+          return reference.url;
+        };
         if (meta.pendingBytes > 0) {
           throw new Error(
             "S3 multipart upload still has an uncommitted final part",
@@ -1075,6 +1117,7 @@ function createS3FileUploadProvider(
             )
             .join("") +
           "</CompleteMultipartUpload>";
+        await checkpointMediaUpload({ ...reference, uploadConfirmed: false });
         // CompleteMultipartUpload is not idempotent; retries verify the deterministic object instead.
         // A lost response body is as ambiguous as a failed request: S3 may have completed.
         let res: Response;
@@ -1099,7 +1142,7 @@ function createS3FileUploadProvider(
                     : String(cleanupError),
                 );
               });
-              return publicObjectUrl(cfg, meta.objectKey);
+              return completed();
             }
           } catch (verificationError) {
             console.warn(
@@ -1122,7 +1165,7 @@ function createS3FileUploadProvider(
                 err instanceof Error ? err.message : String(err),
               );
             });
-            return publicObjectUrl(cfg, meta.objectKey);
+            return completed();
           }
           throw new Error(
             `S3 CompleteMultipartUpload failed (${res.status}): ${body || res.statusText}`,
@@ -1134,13 +1177,13 @@ function createS3FileUploadProvider(
             err instanceof Error ? err.message : String(err),
           );
         });
-        return publicObjectUrl(cfg, meta.objectKey);
+        return completed();
       },
 
       async abortSession(session) {
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
-        const meta = readMultipartMeta(session.meta);
+        const meta = readBoundMultipartMeta(cfg, session.meta);
         const abortRes = await s3Request(cfg, meta.objectKey, {
           method: "DELETE",
           query: { uploadId: session.sessionId },

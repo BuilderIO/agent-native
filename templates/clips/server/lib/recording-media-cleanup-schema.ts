@@ -78,11 +78,23 @@ BEGIN
     IF key IS NOT NULL THEN result := array_append(result,key); END IF;
   END LOOP;
   IF document ? 'edits_json' THEN
-    edits := (document->>'edits_json')::jsonb;
-    result := result || clips_media_keys(edits);
+    BEGIN
+      edits := (document->>'edits_json')::jsonb;
+      result := result || clips_media_keys(edits);
+    EXCEPTION WHEN invalid_text_representation THEN
+      result := array_append(result,'unreadable:edits_json');
+    END;
   END IF;
   RETURN ARRAY(SELECT DISTINCT value FROM unnest(result) AS value ORDER BY value);
 END $$;
+
+CREATE OR REPLACE FUNCTION clips_recording_media_keys(video TEXT,thumbnail TEXT,animated TEXT,filmstrip TEXT,image TEXT,base_image TEXT,edits TEXT) RETURNS TEXT[]
+LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+  RETURN clips_media_keys(jsonb_build_object('video_url',video,'thumbnail_url',thumbnail,'animated_thumbnail_url',animated,'filmstrip_url',filmstrip,'image_url',image,'base_image_url',base_image,'edits_json',edits));
+END $$;
+CREATE INDEX IF NOT EXISTS clips_recording_media_reference_idx ON recordings USING gin(clips_recording_media_keys(video_url,thumbnail_url,animated_thumbnail_url,filmstrip_url,image_url,base_image_url,edits_json));
+CREATE INDEX IF NOT EXISTS clips_frame_media_reference_idx ON recording_agent_frames(clips_media_object_key(storage_url));
 
 CREATE OR REPLACE FUNCTION clips_fence_deleted_media() RETURNS TRIGGER
 LANGUAGE plpgsql AS $$
@@ -91,7 +103,8 @@ BEGIN
   IF EXISTS (SELECT 1 FROM recording_media_cleanups WHERE id=NEW.id) THEN
     RAISE EXCEPTION 'Recording permanently deleted';
   END IF;
-  FOR key IN SELECT unnest(clips_media_keys(to_jsonb(NEW))) ORDER BY 1 LOOP
+  FOR key IN SELECT unnest(clips_recording_media_keys(NEW.video_url,NEW.thumbnail_url,NEW.animated_thumbnail_url,NEW.filmstrip_url,NEW.image_url,NEW.base_image_url,NEW.edits_json)) ORDER BY 1 LOOP
+    IF key='unreadable:edits_json' THEN RAISE EXCEPTION 'Recording media edits are unreadable'; END IF;
     PERFORM pg_advisory_xact_lock(hashtextextended('clips-media:' || key,0));
     IF EXISTS (SELECT 1 FROM recording_media_cleanup_objects WHERE object_key=key AND deletion_claimed) THEN
       RAISE EXCEPTION 'Recording media is being deleted';
