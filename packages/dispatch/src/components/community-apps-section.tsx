@@ -14,6 +14,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { COMMUNITY_APPS_LAB } from "../shared/labs.js";
+import { notifyBuildInBuilder } from "./build-in-builder";
 import { ActionQueryError } from "./action-query-error";
 import { AppIcon } from "./app-icon";
 import { AppList, AppListRow } from "./app-list-row";
@@ -69,7 +70,10 @@ export function CommunityAppsSection() {
     onSuccess: (result) => {
       const mode = (result as { mode?: string } | null)?.mode;
       const message = (result as { message?: string } | null)?.message;
-      if (mode === "builder") {
+      const url = (result as { url?: string } | null)?.url;
+      if (mode === "builder-managed" && url) {
+        notifyBuildInBuilder(url);
+      } else if (mode === "builder") {
         toast.success(t("dispatch.pages.communityAppsInstallStarted"));
       } else if (mode === "pending") {
         toast.info(t("dispatch.pages.communityAppsPending"));

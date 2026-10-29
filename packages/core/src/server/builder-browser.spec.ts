@@ -60,12 +60,11 @@ import {
   BUILDER_STATE_PARAM,
   createBuilderConnectState,
   createBuilderProject,
-  createBuilderWorkspaceApp,
-  listBuilderWorkspaceApps,
   createBuilderRelayRequest,
   ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
+  getBuilderWorkspaceUrl,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
   getBuilderBrowserConnectUrlForOwner,
@@ -2321,63 +2320,6 @@ describe("Builder callback CSRF state", () => {
       });
     });
 
-    it("creates and lists Builder workspace apps", async () => {
-      const fetchSpy = vi
-        .fn()
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({ projectId: "app-proj", branchName: "ai_branch" }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        )
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              apps: [
-                {
-                  projectId: "p1",
-                  appId: "crm",
-                  name: "CRM",
-                  status: "pending",
-                },
-                { projectId: "p2", appId: "bad" },
-              ],
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      vi.stubGlobal("fetch", fetchSpy);
-
-      const created = await createBuilderWorkspaceApp({
-        workspaceProjectId: "ws-1",
-        prompt: "build a crm",
-        appId: "crm",
-        name: "CRM",
-      });
-      expect(created).toMatchObject({
-        projectId: "app-proj",
-        branchName: "ai_branch",
-      });
-      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
-        "/projects/workspace/apps",
-      );
-      expect(JSON.parse(fetchSpy.mock.calls[0]?.[1].body)).toEqual({
-        workspaceProjectId: "ws-1",
-        prompt: "build a crm",
-        appId: "crm",
-        name: "CRM",
-        description: "",
-      });
-
-      const apps = await listBuilderWorkspaceApps({
-        workspaceProjectId: "ws-1",
-      });
-      expect(apps).toEqual([
-        { projectId: "p1", appId: "crm", name: "CRM", status: "pending" },
-      ]);
-      expect(String(fetchSpy.mock.calls[1]?.[0])).toContain("projectId=ws-1");
-    });
-
     it("finds a project connected to a repository through the deprecated API", async () => {
       const fetchSpy = vi.fn().mockResolvedValue(
         new Response(
@@ -2450,5 +2392,19 @@ describe("Builder callback CSRF state", () => {
         name: "Agent-Native Workspace",
       });
     });
+  });
+});
+
+describe("getBuilderWorkspaceUrl", () => {
+  it("links a Builder-linked workspace to its page in Builder", () => {
+    vi.stubEnv("BUILDER_APP_HOST", "https://builder.io/");
+    expect(
+      getBuilderWorkspaceUrl({ BUILDER_WORKSPACE_PROJECT_ID: " ws 1 " }),
+    ).toBe("https://builder.io/app/workspaces/ws%201");
+    vi.unstubAllEnvs();
+  });
+
+  it("is null when the workspace is not linked to Builder", () => {
+    expect(getBuilderWorkspaceUrl({})).toBeNull();
   });
 });

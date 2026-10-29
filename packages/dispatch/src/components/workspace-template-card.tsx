@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { cn } from "../lib/utils";
+import { notifyBuildInBuilder } from "./build-in-builder";
 import { AppIcon } from "./app-icon";
 import { AppListRow } from "./app-list-row";
 import { AppOpenActions } from "./app-open-actions";
@@ -142,7 +143,10 @@ export function WorkspaceTemplateCard({
     onSuccess: (result) => {
       const mode = (result as { mode?: string } | null)?.mode;
       const message = (result as { message?: string } | null)?.message;
-      if (mode === "builder") {
+      const url = (result as { url?: string } | null)?.url;
+      if (mode === "builder-managed" && url) {
+        notifyBuildInBuilder(url);
+      } else if (mode === "builder") {
         toast.success(labels.remixSuccess);
       } else if (mode === "builder-unavailable" || mode === "app-id-taken") {
         toast.error(message || labels.remixError);

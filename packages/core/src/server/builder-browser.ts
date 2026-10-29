@@ -2880,146 +2880,16 @@ export function getBuilderWorkspaceProjectId(
   return env.BUILDER_WORKSPACE_PROJECT_ID?.trim() || null;
 }
 
-export interface BuilderWorkspaceAppResult {
-  projectId: string;
-  branchName: string;
-  browserUrl: string;
-}
-
-export interface BuilderWorkspaceAppSummary {
-  projectId: string;
-  appId: string;
-  name: string;
-  description?: string;
-  status: "pending" | "active" | "archived";
-}
-
 /**
- * Create a workspace app through Builder (`POST /projects/workspace/apps`).
- * Builder owns the pending-app state; callers must not record their own.
+ * Where a Builder-linked workspace is managed in Builder. Apps for a linked
+ * workspace are created there, not from Dispatch.
  */
-export async function createBuilderWorkspaceApp(args: {
-  workspaceProjectId: string;
-  prompt: string;
-  appId: string;
-  name: string;
-  description?: string;
-  attachments?: BuilderAgentAttachment[];
-}): Promise<BuilderWorkspaceAppResult> {
-  const workspaceProjectId = normalizeBuilderProjectString(
-    args.workspaceProjectId,
-    "workspace project id",
-  );
-  const attachments = normalizeBuilderAgentAttachments(args.attachments);
-  const authorization = await resolveBuilderApiAuthorization(
-    "builder:projects:write",
-  );
-  const url = new URL("/projects/workspace/apps", getBuilderApiHost());
-  if (authorization.legacyPublicKey)
-    url.searchParams.set("apiKey", authorization.legacyPublicKey);
-  const response = await fetchBuilderApi(
-    url,
-    {
-      method: "POST",
-      headers: {
-        Authorization: authorization.authorization,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        workspaceProjectId,
-        prompt: args.prompt,
-        appId: args.appId,
-        name: args.name,
-        description: args.description ?? "",
-        ...(attachments ? { attachments } : {}),
-      }),
-    },
-    "workspace app creation",
-  );
-  const parsed = await readBuilderApiObject(response, "workspace app creation");
-  if (!response.ok) {
-    throw builderApiFailure(
-      response.status,
-      builderApiErrorMessage(
-        parsed,
-        `Builder workspace app creation failed (${response.status})`,
-      ),
-    );
-  }
-  const projectId =
-    typeof parsed.projectId === "string" ? parsed.projectId.trim() : "";
-  const branchName =
-    typeof parsed.branchName === "string" ? parsed.branchName.trim() : "";
-  if (!projectId || !branchName) {
-    throw new Error(
-      "Builder workspace app creation returned no projectId or branchName",
-    );
-  }
-  return {
-    projectId,
-    branchName,
-    browserUrl: builderProjectBrowserUrl(projectId),
-  };
-}
-
-/** List the apps of a Builder Workspace project (`GET /projects/workspace`). */
-export async function listBuilderWorkspaceApps(args: {
-  workspaceProjectId: string;
-}): Promise<BuilderWorkspaceAppSummary[]> {
-  const workspaceProjectId = normalizeBuilderProjectString(
-    args.workspaceProjectId,
-    "workspace project id",
-  );
-  const authorization = await resolveBuilderApiAuthorization(
-    "builder:projects:read",
-  );
-  const url = new URL("/projects/workspace", getBuilderApiHost());
-  if (authorization.legacyPublicKey)
-    url.searchParams.set("apiKey", authorization.legacyPublicKey);
-  url.searchParams.set("projectId", workspaceProjectId);
-  const response = await fetchBuilderApi(
-    url,
-    {
-      method: "GET",
-      headers: { Authorization: authorization.authorization },
-    },
-    "workspace lookup",
-  );
-  const parsed = await readBuilderApiObject(response, "workspace lookup");
-  if (!response.ok) {
-    throw builderApiFailure(
-      response.status,
-      builderApiErrorMessage(
-        parsed,
-        `Builder workspace lookup failed (${response.status})`,
-      ),
-    );
-  }
-  if (!Array.isArray(parsed.apps)) return [];
-  const apps: BuilderWorkspaceAppSummary[] = [];
-  for (const raw of parsed.apps) {
-    if (!raw || typeof raw !== "object") continue;
-    const r = raw as Record<string, unknown>;
-    if (
-      typeof r.projectId !== "string" ||
-      typeof r.appId !== "string" ||
-      typeof r.name !== "string"
-    ) {
-      continue;
-    }
-    const status =
-      r.status === "pending" || r.status === "archived" ? r.status : "active";
-    apps.push({
-      projectId: r.projectId,
-      appId: r.appId,
-      name: r.name,
-      ...(typeof r.description === "string"
-        ? { description: r.description }
-        : {}),
-      status,
-    });
-  }
-  return apps;
+export function getBuilderWorkspaceUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const projectId = getBuilderWorkspaceProjectId(env);
+  if (!projectId) return null;
+  return `${getBuilderAppHost().replace(/\/$/, "")}/app/workspaces/${encodeURIComponent(projectId)}`;
 }
 
 /** @deprecated Repository-backed Builder projects are retained for compatibility. */

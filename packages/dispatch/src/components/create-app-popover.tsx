@@ -28,6 +28,11 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import {
+  BuildInBuilderPanel,
+  notifyBuildInBuilder,
+  useBuilderWorkspaceUrl,
+} from "./build-in-builder";
 import { Button } from "./ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -263,7 +268,10 @@ export function CreateAppFlow({
             }),
           },
         );
-        if (result?.mode === "builder") {
+        if (result?.mode === "builder-managed") {
+          notifyBuildInBuilder(result.url);
+          onClose?.();
+        } else if (result?.mode === "builder") {
           onCreated?.();
           setBranchUrl(result?.url || null);
           setStatusMessage("Builder branch created.");
@@ -657,8 +665,27 @@ export function CreateAppPopover({
         sideOffset={10}
         className="relative w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[460px]"
       >
-        <CreateAppFlow onClose={() => setOpen(false)} onCreated={onCreated} />
+        <CreateAppPopoverBody
+          onClose={() => setOpen(false)}
+          onCreated={onCreated}
+        />
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Mounted only while the popover is open, so closed triggers fetch nothing. */
+function CreateAppPopoverBody({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated?: (() => void) | undefined;
+}) {
+  const builderWorkspaceUrl = useBuilderWorkspaceUrl();
+  if (builderWorkspaceUrl)
+    return <BuildInBuilderPanel url={builderWorkspaceUrl} />;
+  return (
+    <CreateAppFlow onClose={onClose} {...(onCreated ? { onCreated } : {})} />
   );
 }

@@ -26,10 +26,8 @@ import {
   CredentialStoreUnavailableError,
   FeatureNotConfiguredError,
   createBuilderProject,
-  createBuilderWorkspaceApp,
   getBuilderBranchProjectId,
-  getBuilderWorkspaceProjectId,
-  listBuilderWorkspaceApps,
+  getBuilderWorkspaceUrl,
   getConfiguredAppBasePath,
   getRequestContext,
   inferWorkspaceAppRootHomePath,
@@ -313,6 +311,11 @@ export interface WorkspaceInfo {
   displayName: string | null;
   rootPath: string | null;
   appCount: number;
+  /**
+   * Set when this workspace is linked to Builder: apps are created there, so
+   * Dispatch links to it instead of offering its own create-app flow.
+   */
+  builderWorkspaceUrl: string | null;
 }
 
 interface PendingWorkspaceApp {
@@ -1486,107 +1489,9 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
   };
 }
 
-/** Builder Workspaces cap app ids at 40 characters; Dispatch slugs allow 64. */
-const BUILDER_WORKSPACE_APP_ID_MAX_LENGTH = 40;
-
-function toBuilderWorkspaceAppId(appId: string): string {
-  return appId.slice(0, BUILDER_WORKSPACE_APP_ID_MAX_LENGTH).replace(/-+$/, "");
-}
-
-function titleFromWorkspaceAppId(appId: string): string {
-  return appId
-    .split("-")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-/**
- * When this workspace is linked to a Builder Workspace project, Builder owns
- * pending-app state; Dispatch reads it instead of its own settings record.
- */
-/**
- * Steps after Builder has created a linked app. The app already exists, so a
- * failure here is reported as a warning on the success result, not as a failed
- * creation that would invite a retry.
- */
-async function finishLinkedWorkspaceAppCreation(args: {
-  appId: string;
-  selectedKeys: string[];
-  resourceIds: string[];
-  communitySourceId?: string | undefined;
-}): Promise<string | null> {
-  try {
-    await requestSelectedVaultKeys({
-      appId: args.appId,
-      selectedKeys: args.selectedKeys,
-    });
-    await grantSelectedWorkspaceResources({
-      appId: args.appId,
-      resourceIds: args.resourceIds,
-    });
-    const { communitySourceId } = args;
-    if (communitySourceId && normalizeCommunitySourceId(communitySourceId)) {
-      await writeWorkspaceAppMetadataOverride({
-        appId: args.appId,
-        communitySourceId,
-      });
-    }
-    return null;
-  } catch (err) {
-    console.warn(
-      "[dispatch] linked workspace app created, but follow-up setup failed",
-      { appId: args.appId, error: err instanceof Error ? err.message : err },
-    );
-    return "The app was created, but its selected keys, resources or community source could not be attached. Add them from the app's settings.";
-  }
-}
-
-async function listBuilderOwnedPendingApps(
-  workspaceProjectId: string,
-): Promise<WorkspaceAppSummary[]> {
-  try {
-    const builderApps = await listBuilderWorkspaceApps({
-      workspaceProjectId,
-    });
-    return builderApps
-      .filter((app) => app.status === "pending")
-      .map((app) => ({
-        id: app.appId,
-        name: app.name,
-        description: app.description ?? "",
-        path: workspaceAppRoute(app.appId),
-        homePath: "/home",
-        url: null,
-        isDispatch: false,
-        audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: [],
-        protectedPaths: [],
-        status: "pending" as const,
-        statusLabel: "Pending Builder branch",
-        builderUrl: null,
-        branchName: null,
-      }));
-  } catch (err) {
-    console.warn(
-      "[dispatch] failed to list pending apps from Builder workspace",
-      err instanceof Error ? err.message : err,
-    );
-    return [];
-  }
-}
-
 async function appendPendingWorkspaceApps(
   apps: WorkspaceAppSummary[],
 ): Promise<WorkspaceAppSummary[]> {
-  const workspaceProjectId = getBuilderWorkspaceProjectId();
-  if (workspaceProjectId) {
-    const readyAppIds = new Set(apps.map((app) => app.id));
-    const pending = (
-      await listBuilderOwnedPendingApps(workspaceProjectId)
-    ).filter((app) => !readyAppIds.has(app.id));
-    return [...apps, ...pending].sort(sortWorkspaceApps);
-  }
   const readyIds = new Set(apps.map((app) => app.id));
   const pendingApps = dedupePendingWorkspaceAppsForCurrentContext(
     (await listPendingWorkspaceApps())
@@ -2504,7 +2409,13 @@ export function getEnvBuilderProjectId(): string | null {
 export function getWorkspaceInfo(): WorkspaceInfo {
   const rootPath = findWorkspaceRoot();
   if (!rootPath) {
-    return { name: null, displayName: null, rootPath: null, appCount: 0 };
+    return {
+      name: null,
+      displayName: null,
+      rootPath: null,
+      appCount: 0,
+      builderWorkspaceUrl: getBuilderWorkspaceUrl(),
+    };
   }
   const pkg = readJson(path.join(rootPath, "package.json"));
   const rawName = typeof pkg?.name === "string" ? pkg.name.trim() : "";
@@ -2528,6 +2439,7 @@ export function getWorkspaceInfo(): WorkspaceInfo {
     displayName,
     rootPath,
     appCount,
+    builderWorkspaceUrl: getBuilderWorkspaceUrl(),
   };
 }
 
@@ -2875,6 +2787,10 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   template: string;
   appId?: string | null;
 }): Promise<{ appId: string; template: string; output: string }> {
+  const builderWorkspaceUrl = getBuilderWorkspaceUrl();
+  if (builderWorkspaceUrl) {
+    throw new Error(builderManagedCreationResult(builderWorkspaceUrl).message);
+  }
   if (!isLocalAppCreationRuntime()) {
     throw new Error(
       "Scaffolding from Dispatch is only available in local development. " +
@@ -3520,7 +3436,25 @@ export interface AppCreationBuilderResult {
   message: string;
 }
 
+/** A Builder-linked workspace: apps are built in Builder, so nothing was created. */
+export interface AppCreationBuilderManagedResult {
+  mode: "builder-managed";
+  url: string;
+  message: string;
+}
+
+export function builderManagedCreationResult(
+  url: string,
+): AppCreationBuilderManagedResult {
+  return {
+    mode: "builder-managed",
+    url,
+    message: `Apps in this workspace are built in Builder. Open ${url} and choose New app.`,
+  };
+}
+
 export type StartWorkspaceAppCreationResult =
+  | AppCreationBuilderManagedResult
   | AppCreationIdentityUnavailableResult
   | AppCreationBuilderUnavailableResult
   | AppCreationAppIdTakenResult
@@ -3538,23 +3472,22 @@ export async function startWorkspaceAppCreation(input: {
   attachments?: BuilderAgentAttachment[];
   communitySourceId?: string;
 }): Promise<StartWorkspaceAppCreationResult> {
-  const builderWorkspaceProjectId = getBuilderWorkspaceProjectId();
+  const builderWorkspaceUrl = getBuilderWorkspaceUrl();
+  if (builderWorkspaceUrl)
+    return builderManagedCreationResult(builderWorkspaceUrl);
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,
     description: input.description,
     template: input.template,
   });
-  const appId = builderWorkspaceProjectId
-    ? toBuilderWorkspaceAppId(initial.appId)
-    : initial.appId;
   if (
     input.communitySourceId !== undefined &&
     !normalizeCommunitySourceId(input.communitySourceId)
   ) {
     throw new Error("Community source ids must be valid bounded identifiers.");
   }
-  assertValidWorkspaceAppId(appId);
+  assertValidWorkspaceAppId(initial.appId);
   requireWorkspaceAppOrgId();
   normalizeBuilderAgentAttachments(input.attachments);
   const isLocal = isLocalAppCreationRuntime();
@@ -3563,12 +3496,12 @@ export async function startWorkspaceAppCreation(input: {
     const authorization = await remoteAppCreationAuthorization();
     if (authorization.ok === false) {
       console.warn("[dispatch] workspace app creation not authorized", {
-        appId,
+        appId: initial.appId,
         reason: authorization.reason,
       });
       return {
         mode: "builder-unavailable",
-        appId,
+        appId: initial.appId,
         reason: authorization.reason,
         message: authorization.message,
       };
@@ -3577,7 +3510,7 @@ export async function startWorkspaceAppCreation(input: {
 
   const creationVisibility = await workspaceAppDefaultVisibility();
   try {
-    await assertPendingWorkspaceAppCreationAvailable(appId);
+    await assertPendingWorkspaceAppCreationAvailable(initial.appId);
   } catch (err) {
     if (err instanceof WorkspaceAppIdTakenError) return appIdTakenResult(err);
     throw err;
@@ -3593,7 +3526,7 @@ export async function startWorkspaceAppCreation(input: {
   );
   const built = buildWorkspaceAppPrompt({
     prompt: input.prompt,
-    appId,
+    appId: input.appId,
     description: input.description,
     template: input.template,
     selectedKeys,
@@ -3603,51 +3536,6 @@ export async function startWorkspaceAppCreation(input: {
   const appDescription =
     input.description?.trim() ||
     generateWorkspaceAppDescription(input.prompt, built.appId);
-
-  if (builderWorkspaceProjectId) {
-    // Linked to a Builder Workspace project: Builder owns the pending-app
-    // state, so Dispatch records nothing of its own here.
-    let created: Awaited<ReturnType<typeof createBuilderWorkspaceApp>>;
-    try {
-      created = await createBuilderWorkspaceApp({
-        workspaceProjectId: builderWorkspaceProjectId,
-        prompt,
-        appId: built.appId,
-        name: titleFromWorkspaceAppId(built.appId),
-        description: appDescription,
-        ...(input.attachments ? { attachments: input.attachments } : {}),
-      });
-    } catch (err) {
-      return builderUnavailable({
-        appId: built.appId,
-        projectId: builderWorkspaceProjectId,
-        err,
-        fallbackDetail: "Builder could not create the workspace app",
-        builderErrorMessage:
-          "Builder could not start the app branch. This is usually temporary — try again.",
-      });
-    }
-    const followUpWarning = await finishLinkedWorkspaceAppCreation({
-      appId: built.appId,
-      selectedKeys,
-      resourceIds: selectedResources.map((resource) => resource.id),
-      communitySourceId: input.communitySourceId,
-    });
-    return {
-      mode: "builder",
-      appId: built.appId,
-      path: `/${built.appId}`,
-      projectId: created.projectId,
-      branchName: created.branchName,
-      url: created.browserUrl,
-      workspaceUrl: workspaceAppUrl(workspaceAppRoute(built.appId)),
-      status: "processing",
-      message:
-        `Builder started a branch for /${built.appId}. Use the Builder branch URL to track creation now. ` +
-        `The workspace path will be live after that branch is merged and the workspace deploy finishes.` +
-        (followUpWarning ? ` ${followUpWarning}` : ""),
-    };
-  }
 
   if (isLocal) {
     if (input.communitySourceId) {
