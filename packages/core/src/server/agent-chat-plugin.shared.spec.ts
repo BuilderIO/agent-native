@@ -848,6 +848,11 @@ describe("agent chat process-run failure finalization", () => {
       "run-claimed",
       "route_threw",
       "errorName=Error errorCode=missing_execution_fence failure=setup exploded",
+      {
+        format: "route_failure_v1",
+        errorName: "Error",
+        errorCode: "missing_execution_fence",
+      },
     );
     expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalledWith(
       "run-claimed",
@@ -889,6 +894,7 @@ describe("agent chat process-run failure finalization", () => {
       "run-unclaimed",
       "route_threw",
       "errorName=Error failure=pre-claim failure",
+      { format: "route_failure_v1", errorName: "Error" },
     );
     expect(d.finalizeClaimedBackgroundRunFailure).not.toHaveBeenCalled();
   });
