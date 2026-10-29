@@ -572,7 +572,8 @@ describe("in-place text session: entering and ending", () => {
     const el = mount('<p id="t" style="margin: 0">Alpha</p>');
     mockBox(el);
     session = startInPlaceTextSession(el);
-    caret(el.firstChild!, el.firstChild!.textContent!.length);
+    const text = el.firstChild as Text;
+    caret(text, text.length);
     type(el, " beta gamma");
     expect(el.style.getPropertyValue("contain")).toBe("size");
 
