@@ -423,6 +423,29 @@ invocation explicitly authorizes that communication on the exact PR. This does
 not add a separate authorization step for replies required on the active
 user's own PR under `/ship`, `/ship-now`, or `/babysit-pr`.
 
+When a PR needs product, UX, or app-owner review, record that gate only in the
+recap and leave the PR thread alone. Do not comment or reply to ask for, announce,
+or explain that owner review is needed. This silence rule applies even after an
+author update; do not send a thanks-only or status reply while that review gate is
+outstanding.
+This silence rule does not suppress replies required on the active user's own PR
+under `/ship`, `/ship-now`, or `/babysit-pr`; those follow the own-PR reply rules.
+
+When a reply is needed to resolve a review thread on the exact PR the current
+invocation authorizes, only a verified external author gets one. Confirm the author
+is a nonmember first. An unknown-membership author gets no reply, and the membership
+check goes in the recap. Verified BuilderIO members get no reply here. The active
+user's own PR is the one exception: it gets the disposition only, with no thank-you.
+For a verified external author, an explicit reply request sends the reply even
+without an author update. Otherwise reply only if the author has updated since the
+last message, and begin by thanking them for the PR or for their update. An explicit
+request does not override the owner-review silence rule above, except on the active
+user's own PR. Never write “I have no further feedback” or another vague closing;
+state the disposition and the next actor and action, such as the exact change
+requested, that no changes are requested and the PR is ready for maintainer
+merge, or which named check is still pending. If the next step is a product,
+UX, or app-owner decision, use the silence rule above.
+
 Bot-authored PRs, including Dependabot, are outside this skill's review and
 merge scope and must remain completely untouched.
 

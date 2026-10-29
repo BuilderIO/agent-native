@@ -2488,7 +2488,10 @@ function providerAccessErrorGuidance(
 /**
  * Resolve a provider OAuth token for a trusted server-side integration bridge
  * such as a CRM adapter or Google Picker. Callers must keep the result out of
- * agent, MCP, A2A, logs, persistence, and extension/tool surfaces.
+ * agent, MCP, A2A, logs, persistence, and extension/tool surfaces. The one
+ * exception is the provider's own remote MCP endpoint, which may receive it as
+ * a per-request bearer (`mcp-client/workspace-connection-servers.ts`); it is
+ * still never stored on the server config or shown to the agent.
  */
 export async function resolveProviderApiOAuthAccessToken(
   args: {

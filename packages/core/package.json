@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.221.0",
+  "version": "0.222.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -472,6 +472,7 @@
     "./workspace-files": "./dist/workspace-files/index.js",
     "./workspace-connections/credential-key-aliases": "./dist/workspace-connections/credential-key-aliases.js",
     "./workspace-connections/actions/list-workspace-user-groups": "./dist/workspace-connections/actions/list-workspace-user-groups.js",
+    "./workspace-connections/actions/list-workspace-connection-scopes": "./dist/workspace-connections/actions/list-workspace-connection-scopes.js",
     "./workspace-connections/actions/upsert-workspace-user-group": "./dist/workspace-connections/actions/upsert-workspace-user-group.js",
     "./workspace-connections/actions/bulk-update-workspace-user-groups": "./dist/workspace-connections/actions/bulk-update-workspace-user-groups.js",
     "./workspace-connections/actions/delete-workspace-user-group": "./dist/workspace-connections/actions/delete-workspace-user-group.js",

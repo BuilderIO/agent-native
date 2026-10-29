@@ -21,6 +21,10 @@ not judged by ledgers, receipts, or checker output, so don't produce them.
 
 ## The contract
 
+The detailed Slack reaction and reply rules are in
+[slack-reaction-replies.md](references/slack-reaction-replies.md); read it before
+marking, replying to, or closing any Slack report.
+
 Slack reactions on a report's root message mean exactly this:
 
 | Mark | Meaning                                   | When to add                                                                                      |
@@ -43,7 +47,8 @@ might need to take back. Every 👀 you add ends the run with a reply, plus
 either ✅ or 🎫, or a fix PR that is still open and lists the report (its
 merge adds the ✅). A 👀 with no follow-up is the most common complaint about this workflow.
 
-Every claimed report gets **one** reply in its thread per outcome. People
+Every claimed report gets **one** reply in its thread per outcome. The one exception is
+the merged `✅` close-out after an in-review reply, which gets no second reply. People
 have pushed back on replies that were long, technical, condescending, vague
 about who does what next, or that handed them work. Each reply must be:
 

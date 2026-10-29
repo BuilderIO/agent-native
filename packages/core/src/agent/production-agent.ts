@@ -13180,6 +13180,8 @@ export async function chainServerDrivenContinuation(opts: {
   // Approval selectors apply only to the request that consumes their one-shot grants.
   delete continuationBody.approvedToolCalls;
   delete continuationBody.approvedToolCallAskIds;
+  // The initial admission consumed this one-time queued-message claim.
+  delete continuationBody.queuedMessageClaimId;
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   const markRunsAbortedOrThrow = async (...runIds: string[]) => {
     const results = await Promise.allSettled(
@@ -15911,12 +15913,15 @@ export function createProductionAgentHandler(
     let durableDispatchPayload: string | undefined;
     if (dispatchToBackground) {
       try {
-        durableDispatchPayload = serializeDurableDispatchPayload({
+        const dispatchBody = {
           ...body,
           ...(Array.isArray(attachments) || requestAttachments.length > 0
             ? { attachments: requestAttachments }
             : {}),
-        } as unknown as Record<string, unknown>);
+        } as unknown as Record<string, unknown>;
+        // This one-time claim authorizes only the request that consumes it.
+        delete dispatchBody.queuedMessageClaimId;
+        durableDispatchPayload = serializeDurableDispatchPayload(dispatchBody);
       } catch (error) {
         if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
           throw error;
