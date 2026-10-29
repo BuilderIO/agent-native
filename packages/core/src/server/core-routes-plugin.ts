@@ -227,6 +227,7 @@ import {
   parseBuilderConnectStateCookie,
   provisionBuilderAccount,
   resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
   resolveBuilderConnectCallbackUrl,
   resolveBuilderConnectCallbackState,
   resolveBuilderPreviewRelayParentOrigin,
@@ -5131,7 +5132,7 @@ export function createCoreRoutesPlugin(
               ...(browserTabId ? { run: { browserTabId } } : {}),
             },
             async () => {
-              const projectId = await resolveBuilderBranchProjectId();
+              const projectId = await resolveBuilderHandoffProjectId();
               if (!projectId) {
                 setResponseStatus(event, 403);
                 return {

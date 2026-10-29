@@ -1148,7 +1148,8 @@ let builderBranchProjectProvider: BuilderBranchProjectProvider | null = null;
  * Builder) names that project here, so a code-change handoff targets the
  * project the user is looking at rather than one deployment-wide setting.
  * Return `undefined` when the request has no bound project; the usual
- * Dispatch, env and secret lookups then apply.
+ * Dispatch, env and secret lookups then apply. See
+ * `resolveBuilderHandoffProjectId`.
  */
 export function registerBuilderBranchProject(
   provider: BuilderBranchProjectProvider | null,
@@ -1157,16 +1158,6 @@ export function registerBuilderBranchProject(
 }
 
 export async function resolveBuilderBranchProjectId(): Promise<string> {
-  if (builderBranchProjectProvider) {
-    try {
-      const hostProjectId = (await builderBranchProjectProvider())?.trim();
-      if (hostProjectId) return hostProjectId;
-    } catch {
-      // coercion-ok: fails closed like an unreadable Dispatch setting, so no
-      // other project stands in for the one the host could not name.
-      return "";
-    }
-  }
   const dispatchProject = await resolveDispatchBuilderProjectId();
   if (dispatchProject.status === "unreadable") return "";
   if (dispatchProject.status === "present")
@@ -1190,6 +1181,26 @@ export async function resolveBuilderBranchProjectId(): Promise<string> {
   }
 
   return "";
+}
+
+/**
+ * The project a code-change handoff targets: the one the host binds to the
+ * current view when it names one, otherwise the deployment's configured
+ * project. Only the handoff uses this. Realtime channels and Builder status
+ * keep the deployment's project, so a view bound elsewhere cannot move them.
+ */
+export async function resolveBuilderHandoffProjectId(): Promise<string> {
+  if (builderBranchProjectProvider) {
+    try {
+      const hostProjectId = (await builderBranchProjectProvider())?.trim();
+      if (hostProjectId) return hostProjectId;
+    } catch {
+      // coercion-ok: fails closed like an unreadable Dispatch setting, so no
+      // other project stands in for the one the host could not name.
+      return "";
+    }
+  }
+  return resolveBuilderBranchProjectId();
 }
 
 export async function resolveIsBuilderBranchingEnabled(): Promise<boolean> {

@@ -840,6 +840,7 @@ export {
   registerBuilderBranchProject,
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
   resolveIsBuilderBranchingEnabled,
   normalizeBuilderAgentAttachments,
   runBuilderAgent,

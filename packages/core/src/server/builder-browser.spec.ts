@@ -85,6 +85,7 @@ import {
   resolveBuilderPreviewRelayTargetOrigin,
   registerBuilderBranchProject,
   resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
   runBuilderAgent,
   removeBuilderConnectStateCookie,
   provisionBuilderAccount,
@@ -1663,17 +1664,26 @@ describe("Builder callback CSRF state", () => {
         process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
         registerBuilderBranchProject(async () => " host-project ");
 
-        await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+        await expect(resolveBuilderHandoffProjectId()).resolves.toBe(
           "host-project",
         );
         expect(resolverMocks.getSetting).not.toHaveBeenCalled();
+      });
+
+      it("leaves the deployment's project for everything but the handoff", async () => {
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(async () => "host-project");
+
+        await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+          "env-project",
+        );
       });
 
       it("falls back to the usual lookups when the host names none", async () => {
         process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
         registerBuilderBranchProject(() => undefined);
 
-        await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+        await expect(resolveBuilderHandoffProjectId()).resolves.toBe(
           "env-project",
         );
       });
@@ -1684,7 +1694,7 @@ describe("Builder callback CSRF state", () => {
           throw new Error("no access");
         });
 
-        await expect(resolveBuilderBranchProjectId()).resolves.toBe("");
+        await expect(resolveBuilderHandoffProjectId()).resolves.toBe("");
       });
     });
 
