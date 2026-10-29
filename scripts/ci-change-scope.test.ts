@@ -4446,6 +4446,7 @@ test("still runs changed root script tests when the change set is full", () => {
   assert.equal(scope.full, true);
   assert.equal(scope.checks.guards, true);
   assert.deepEqual(scope.scriptTests, [
+    "scripts/feedback-fix-proof.test.ts",
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
   ]);
@@ -4465,6 +4466,21 @@ test("selects the release workflow test when the publish workflow changes", () =
   assert.deepEqual(scope.scriptTests, [
     "scripts/package-release-workflow.test.ts",
   ]);
+});
+
+test("selects the feedback proof workflow test when its workflow changes", () => {
+  const scope = classifyChangedPaths([
+    ".github/workflows/feedback-fix-proof.yml",
+  ]);
+
+  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
+});
+
+test("selects the feedback proof contract test when CI changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/ci.yml"]);
+
+  assert.equal(scope.full, true);
+  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
 });
 
 test("runs the change-scope test when the selector or its test changes", () => {
@@ -4708,6 +4724,7 @@ test(
         "scripts/guard-no-unbounded-table-reads.test.ts",
         "scripts/deploy-alerts-workflow.test.ts",
         "scripts/package-release-workflow.test.ts",
+        "scripts/feedback-fix-proof.test.ts",
         "scripts/qa-deploy-paths-lib.ts",
         "scripts/design-e2e-regression-pins.ts",
         "scripts/design-e2e-spec-selection.ts",

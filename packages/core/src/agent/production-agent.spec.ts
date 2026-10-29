@@ -11021,7 +11021,7 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual({ type: "done" });
   });
 
-  it("bounds repeated partial action-input continuations", async () => {
+  it("preserves usage when partial action-input continuations exhaust the limit", async () => {
     const events: AgentChatEvent[] = [];
     const run = vi.fn(async () => "should not execute");
     let streamCalls = 0;
@@ -11037,8 +11037,9 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        opts.onModelDispatchStarted?.();
         yield {
           type: "tool-input-start",
           id: `tool-edit-${streamCalls}`,
@@ -11049,34 +11050,55 @@ describe("runAgentLoop", () => {
           id: `tool-edit-${streamCalls}`,
           text: '{"designId":"design-1"',
         };
+        yield {
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 2,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 1,
+        };
       },
     };
 
-    await runAgentLoopWithMainChatInternalContinuations({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: {
-        "edit-design": {
-          ...actionEntry({ readOnly: false }),
-          run,
+    await expect(
+      runAgentLoopWithMainChatInternalContinuations({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": {
+            ...actionEntry({ readOnly: false }),
+            run,
+          },
         },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+        maxContinuations: 3,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "run_budget_exhausted",
+      providerRetryable: false,
+      message: expect.stringContaining("continuation limit"),
+      usage: {
+        inputTokens: 30,
+        outputTokens: 6,
+        cacheReadTokens: 9,
+        cacheWriteTokens: 3,
+        model: "test-model",
+        usageReported: true,
       },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-      maxContinuations: 3,
     });
 
     expect(streamCalls).toBe(3);
     expect(run).not.toHaveBeenCalled();
-    expect(events.at(-1)).toEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "run_budget_exhausted",
-        recoverable: false,
-      }),
+    expect(events).toContainEqual({ type: "clear" });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
     );
   });
 
@@ -14961,11 +14983,12 @@ describe("runAgentLoop", () => {
 
     it("declines another POST after one that may have written, and stops an exact repeat", async () => {
       const executeRequest = vi.fn().mockResolvedValue(rejected);
-      const create = (email: string) => ({
-        provider: "hubspot",
+      // GitHub, not HubSpot: raw HubSpot writes are refused before any retry.
+      const create = (title: string) => ({
+        provider: "github",
         method: "POST",
-        path: "/crm/v3/objects/contacts",
-        body: { properties: { email } },
+        path: "/repos/acme/app/issues",
+        body: { title },
       });
 
       const events = await runToolCallSequence(
@@ -15002,10 +15025,10 @@ describe("runAgentLoop", () => {
     it("runs the write again when the user replies continue in a new turn", async () => {
       const executeRequest = vi.fn().mockResolvedValue(accepted);
       const input = {
-        provider: "hubspot",
+        provider: "github",
         method: "POST",
-        path: "/crm/v3/objects/contacts",
-        body: { properties: { email: "a@example.com" } },
+        path: "/repos/acme/app/issues",
+        body: { title: "a@example.com" },
       };
       const messages: EngineMessage[] = [
         { role: "user", content: [{ type: "text", text: "add the contact" }] },

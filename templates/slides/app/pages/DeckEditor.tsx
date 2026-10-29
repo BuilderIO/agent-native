@@ -30,7 +30,9 @@ import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { FirstOutputNextStepBar } from "@agent-native/toolkit/app-shell";
 import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
+import type { ShareButtonActionHandle } from "@agent-native/toolkit/app/sharing";
 import {
   DndContext,
   DragOverlay,
@@ -86,8 +88,17 @@ import EditorSidebar, {
 import EditorToolbar, {
   type PresentRequest,
 } from "@/components/editor/EditorToolbar";
-import { canExportPptxFromServer } from "@/components/editor/ExportMenu";
+import {
+  canExportPptxFromServer,
+  type ExportDropdownActionHandle,
+} from "@/components/editor/ExportMenu";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
+import {
+  createGeneratingSlideContentStore,
+  GeneratingSlidesTracker,
+  type GeneratingSlidesSummary,
+  NO_GENERATING_SLIDES,
+} from "@/components/editor/GeneratingSlidesTracker";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
 import { MissingDeckAccessPane } from "@/components/editor/MissingDeckAccessPane";
@@ -934,6 +945,11 @@ export default function DeckEditor() {
   const generationTerminalAttemptRef = useRef<string | null>(null);
   const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
   const deckReadyViewCancelRef = useRef<(() => void) | null>(null);
+  const [firstOutputReadyId, setFirstOutputReadyId] = useState<string | null>(
+    null,
+  );
+  const firstOutputExportRef = useRef<ExportDropdownActionHandle>(null);
+  const firstOutputShareRef = useRef<ShareButtonActionHandle>(null);
   const openDeckIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     openDeckIdRef.current = id;
@@ -1264,6 +1280,34 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  // The tracker below follows the agent's slide writes; the editor re-renders
+  // only when a slide appears, lands or finishes, not as its HTML streams in.
+  const [streamSummary, setStreamSummary] =
+    useState<GeneratingSlidesSummary>(NO_GENERATING_SLIDES);
+  const [generatingSlideStore] = useState(createGeneratingSlideContentStore);
+  const {
+    slides: streamedSlides,
+    replacesDeck: streamReplacesDeck,
+    callKey: streamCallKey,
+  } = streamSummary;
+  // The canvas shows the newest slide the agent is writing.
+  const streamedSlide = streamedSlides.at(-1);
+  // Saved slides wait behind their previews until those finish drawing, so
+  // the list never shows a slide twice. The slides already saved are noted
+  // when the call first parses, before any of its slides lands; a write can
+  // insert anywhere, so they are held by id, not by position.
+  const [heldSlides, setHeldSlides] = useState<{
+    key: string | null;
+    ids: ReadonlySet<string>;
+  }>({ key: null, ids: new Set() });
+  if (heldSlides.key !== streamCallKey) {
+    setHeldSlides({
+      key: streamCallKey,
+      ids: new Set(
+        streamReplacesDeck ? [] : (deck?.slides ?? []).map((slide) => slide.id),
+      ),
+    });
+  }
   const slideCountRef = useRef(slideCount);
   slideCountRef.current = slideCount;
   const deckRole = useDeckRole(
@@ -2660,6 +2704,7 @@ export default function DeckEditor() {
           deckReadyViewCancelRef.current = runWhenTabVisible(() => {
             deckReadyViewCancelRef.current = null;
             if (openDeckIdRef.current !== id) return;
+            setFirstOutputReadyId(id);
             if (firstDeckReadyView(generationAttemptId)) {
               trackSlidesRelay("deck_ready_viewed", readyProperties);
             }
@@ -3144,13 +3189,33 @@ export default function DeckEditor() {
     slides: deck?.slides ?? [],
     blankContent: defaultSlideContent.blank,
   });
+  // A slide streaming in shows whichever chat asked for it, including an
+  // add-slide on an existing deck from the main chat.
+  const streamingSlideActive = streamedSlides.length > 0;
   const generatingSlideVisible =
     canEdit &&
     (isNewDeckGenerating ||
-      (addSlideGenerating && !fillingPlaceholderSlideId) ||
+      ((addSlideGenerating || streamingSlideActive) &&
+        !fillingPlaceholderSlideId) ||
       showNewDeckGeneratingOverlay);
+  // While the user stays on the newest slide, the canvas follows the slide the
+  // agent is writing, from its first streamed burst until its draft settles.
+  const [canvasFollowsStream, setCanvasFollowsStream] = useState(false);
+  const [followedStream, setFollowedStream] = useState(false);
+  if (streamingSlideActive !== followedStream) {
+    setFollowedStream(streamingSlideActive);
+    const slides = deck?.slides ?? [];
+    const viewedSlide =
+      slides.find((slide) => slide.id === activeSlideId) ?? slides[0];
+    setCanvasFollowsStream(
+      streamingSlideActive &&
+        generatingSlideVisible &&
+        (generatingSlideSelected || viewedSlide === slides.at(-1)),
+    );
+  }
   const showCurrentSlideEditor =
     !generatingSlideSelected &&
+    !canvasFollowsStream &&
     !showNewDeckGeneratingOverlay &&
     !showQuestionFlow;
 
@@ -3188,13 +3253,13 @@ export default function DeckEditor() {
     previousSlideIdsRef.current = currentSlideIds;
     if (!slideWasAdded) return;
 
-    if (addedSlide && generatingSlideSelected) {
+    if (addedSlide && (generatingSlideSelected || canvasFollowsStream)) {
       selectionAnchorSlideIdRef.current = addedSlide.id;
       setSelectedSlideIds([addedSlide.id]);
       setActiveSlideId(addedSlide.id);
     }
     setGeneratingSlideSelected(false);
-  }, [deck, generatingSlideSelected]);
+  }, [deck, generatingSlideSelected, canvasFollowsStream]);
 
   const checkedDeckAccessKey = useDeckAccessReload({
     accessKey: currentDeckAccessKey,
@@ -3570,6 +3635,7 @@ export default function DeckEditor() {
       selectionAnchorSlideIdRef.current = result.anchorSlideId;
       setSelectedSlideIds(result.selectedSlideIds);
       setGeneratingSlideSelected(false);
+      setCanvasFollowsStream(false);
       setActiveSlideId(slideId);
       if (isCompactEditorLayout()) setSidebarOpen(false);
     },
@@ -5365,6 +5431,8 @@ export default function DeckEditor() {
             ? () => handleDuplicateSlideFromRail(menuSlideIds)
             : undefined
         }
+        exportActionRef={firstOutputExportRef}
+        shareActionRef={firstOutputShareRef}
         onDeleteSlides={
           canEdit && canDeleteMenuSlides
             ? () => handleDeleteSlideFromRail(menuSlideIds)
@@ -5605,7 +5673,13 @@ export default function DeckEditor() {
                   onDragCancel={handleDragCancel}
                 >
                   <EditorSidebar
-                    slides={deck.slides}
+                    slides={
+                      generatingSlideVisible && streamCallKey !== null
+                        ? deck.slides.filter((slide) =>
+                            heldSlides.ids.has(slide.id),
+                          )
+                        : deck.slides
+                    }
                     activeSlideId={currentSlide?.id || ""}
                     selectedSlideIds={selectedSlideIds}
                     deckId={id}
@@ -5636,14 +5710,21 @@ export default function DeckEditor() {
                     recentEdits={deckRecentEdits}
                     aspectRatio={deck.aspectRatio}
                     designSystem={designSystem}
-                    generatingSlide={
+                    generatingSlideStore={generatingSlideStore}
+                    generatingSlides={
                       generatingSlideVisible
-                        ? {
-                            index: deck.slides.length,
-                          }
+                        ? streamedSlides.length > 0
+                          ? streamedSlides.map(({ key, failed }) => ({
+                              key,
+                              failed,
+                            }))
+                          : [{ key: "next-slide" }]
                         : undefined
                     }
-                    generatingSlideSelected={generatingSlideSelected}
+                    generatingSlideSelected={
+                      generatingSlideSelected ||
+                      (canvasFollowsStream && !streamedSlide?.settling)
+                    }
                     onSelectGeneratingSlide={() => {
                       setGeneratingSlideSelected(true);
                       if (isCompactEditorLayout()) setSidebarOpen(false);
@@ -5749,10 +5830,22 @@ export default function DeckEditor() {
           </>
         )}
 
-        {generatingSlideSelected && generatingSlideVisible && (
+        <GeneratingSlidesTracker
+          deckId={id}
+          generating={generating}
+          store={generatingSlideStore}
+          onSummary={setStreamSummary}
+        />
+        {(canvasFollowsStream ||
+          (generatingSlideSelected && generatingSlideVisible)) && (
           <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
             <div className="m-auto w-full max-w-6xl">
               <GeneratingSlidePreview
+                key={streamedSlide?.key}
+                contentKey={streamedSlide?.key}
+                contentStore={generatingSlideStore}
+                failed={streamedSlide?.failed}
+                settling={streamedSlide?.settling}
                 aspectRatio={deck.aspectRatio}
                 designSystem={designSystem}
                 thumbnail={false}
@@ -5789,6 +5882,7 @@ export default function DeckEditor() {
         )}
 
         {!generatingSlideSelected &&
+          !canvasFollowsStream &&
           deck.slides.length === 0 &&
           (showGenerationRecovery ? (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
@@ -5827,6 +5921,9 @@ export default function DeckEditor() {
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div className="m-auto w-full max-w-6xl">
                 <GeneratingSlidePreview
+                  contentKey={streamedSlide?.key}
+                  contentStore={generatingSlideStore}
+                  failed={streamedSlide?.failed}
                   aspectRatio={deck.aspectRatio}
                   designSystem={designSystem}
                   thumbnail={false}
@@ -5836,6 +5933,7 @@ export default function DeckEditor() {
           ) : null)}
 
         {deck.slides.length === 0 &&
+          !canvasFollowsStream &&
           !showGenerationRecovery &&
           !generatingSlideVisible && (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
@@ -6147,6 +6245,41 @@ export default function DeckEditor() {
           />
         )}
       </div>
+
+      {!widgetEmbed && (
+        <FirstOutputNextStepBar
+          key={id}
+          appId="slides"
+          positionTargetSelector="[data-slide-editor-viewport]"
+          bottomOffset={77}
+          {...(session && (session.userId ?? session.email)
+            ? { userScope: session.userId ?? session.email }
+            : {})}
+          outputId={id}
+          ready={firstOutputReadyId === id}
+          labels={{
+            ariaLabel: t("home.nextStepBar.ariaLabel"),
+            refineWithPrompt: t("home.nextStepBar.refineWithPrompt"),
+            export: t("home.nextStepBar.export"),
+            shareLink: t("home.nextStepBar.shareLink"),
+            dismiss: t("home.nextStepBar.dismiss"),
+          }}
+          onRefine={() =>
+            window.dispatchEvent(
+              new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+            )
+          }
+          onExport={() => {
+            firstOutputExportRef.current?.open();
+          }}
+          onShareLink={() => {
+            firstOutputShareRef.current?.open("share");
+          }}
+          onTrack={(event, properties) => {
+            trackEvent(event, properties);
+          }}
+        />
+      )}
 
       {/* Hidden upload input */}
       <input

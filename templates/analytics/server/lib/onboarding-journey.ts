@@ -68,6 +68,14 @@ export const ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED =
 const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED = 10_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+export const ONBOARDING_JOURNEY_EXPERIMENT_IDS = [
+  "first_run_builder_credits",
+  "first_run_builder_credits_v2",
+] as const;
+
+export type OnboardingJourneyExperimentId =
+  (typeof ONBOARDING_JOURNEY_EXPERIMENT_IDS)[number];
+
 export function getOnboardingJourneyEventReadPageCount(
   maxEventRows: number,
 ): number {
@@ -211,7 +219,7 @@ export interface OnboardingJourneyArgs extends OnboardingJourneyEventsFilters {
   settleMs: number;
   recency: "newest" | "none";
   viewport?: ViewportConstraints;
-  experimentId?: "first_run_builder_credits";
+  experimentId?: OnboardingJourneyExperimentId;
   splitDesignFirstTouch?: boolean;
 }
 
@@ -244,7 +252,7 @@ export interface OnboardingJourneyCohorts {
   };
   tree: JourneyCohortTree;
   experiment?: {
-    id: "first_run_builder_credits";
+    id: OnboardingJourneyExperimentId;
     arms: Record<"control" | "credits", JourneyCohortTree>;
     assignedSessions: number;
     exposureSessions: number;

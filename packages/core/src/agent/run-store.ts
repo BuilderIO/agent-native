@@ -2742,19 +2742,48 @@ export const RUN_DIAG_STAGE = {
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
 
+export interface RouteFailureDiagnosticEvidence {
+  format: "route_failure_v1";
+  errorMetadata?: "unreadable";
+  errorName?: string;
+  errorCode?: string;
+  httpStatus?: string;
+  causeName?: string;
+}
+
 export async function recordRunDiagnostic(
   runId: string,
   stage: RunDiagStage,
   detail?: string,
+  evidence?: RouteFailureDiagnosticEvidence,
 ): Promise<void> {
   if (!runId) return;
   try {
     await ensureRunTables();
-    const payload = JSON.stringify({
+    // raw-sql-ok: diagnostic JSON is passed only as a bound SQL value.
+    const payloadFields = {
       stage,
       ...(detail ? { detail: detail.slice(0, 1500) } : {}),
+      ...(stage === RUN_DIAG_STAGE.routeThrew && evidence ? { evidence } : {}),
       at: Date.now(),
-    }).slice(0, 2000);
+    };
+    // raw-sql-ok: diagnostic JSON is passed only as a bound SQL value.
+    let payload = JSON.stringify(payloadFields);
+    if (payload.length > 2000 && typeof payloadFields.detail === "string") {
+      const fullDetail = payloadFields.detail;
+      let low = 0;
+      let high = fullDetail.length;
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        payloadFields.detail = fullDetail.slice(0, middle);
+        if (JSON.stringify(payloadFields).length <= 2000) low = middle;
+        else high = middle - 1;
+      }
+      if (low === 0) delete payloadFields.detail;
+      else payloadFields.detail = fullDetail.slice(0, low);
+      // raw-sql-ok: diagnostic JSON is passed only as a bound SQL value.
+      payload = JSON.stringify(payloadFields);
+    }
     const isWorkerStage =
       stage === RUN_DIAG_STAGE.workerSetupStep ||
       stage === RUN_DIAG_STAGE.workerStarted;

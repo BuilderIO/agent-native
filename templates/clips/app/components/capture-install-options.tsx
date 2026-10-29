@@ -244,7 +244,6 @@ export function CaptureInstallMenu({
       <DropdownMenuContent align="center" className="w-52">
         <DropdownMenuItem asChild>
           <a href={appPath(desktopHref)} className="gap-2">
-            <DesktopPlatformIcon aria-hidden="true" className="size-4" />
             {t("recordRoute.downloadDesktopApp")}
           </a>
         </DropdownMenuItem>
@@ -256,13 +255,11 @@ export function CaptureInstallMenu({
               rel="noreferrer"
               className="gap-2"
             >
-              <IconBrandChrome aria-hidden="true" className="size-4" />
               {t("recordRoute.getChromeExtension")}
             </a>
           </DropdownMenuItem>
         ) : (
           <DropdownMenuItem disabled className="gap-2">
-            <IconBrandChrome aria-hidden="true" className="size-4" />
             {t("recordRoute.getChromeExtension")}
           </DropdownMenuItem>
         )}

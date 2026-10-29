@@ -414,6 +414,56 @@ describe("run-store durable background", () => {
       expect(typeof parsed.at).toBe("number");
     });
 
+    it("stores route failure evidence separately from raw diagnostic detail", async () => {
+      await insertRun("r-route-diag", "t1", "turn", {
+        dispatchMode: "background",
+      });
+      await recordRunDiagnostic(
+        "r-route-diag",
+        RUN_DIAG_STAGE.routeThrew,
+        "errorCode=customer_secret failure=raw detail",
+        {
+          format: "route_failure_v1",
+          errorName: "Error",
+          errorCode: "dispatch_timeout",
+        },
+      );
+      const stored = rows.find((r) => r.id === "r-route-diag")!.diag_stage!;
+      const parsed = JSON.parse(stored);
+      expect(parsed.detail).toBe(
+        "errorCode=customer_secret failure=raw detail",
+      );
+      expect(parsed.evidence).toEqual({
+        format: "route_failure_v1",
+        errorName: "Error",
+        errorCode: "dispatch_timeout",
+      });
+    });
+
+    it("keeps quote-heavy diagnostic details valid within the storage limit", async () => {
+      await insertRun("r-quoted-route-diag", "t1", "turn", {
+        dispatchMode: "background",
+      });
+      const evidence = {
+        format: "route_failure_v1" as const,
+        errorName: "Error",
+      };
+      await recordRunDiagnostic(
+        "r-quoted-route-diag",
+        RUN_DIAG_STAGE.routeThrew,
+        '"'.repeat(1500),
+        evidence,
+      );
+      const stored = rows.find(
+        (r) => r.id === "r-quoted-route-diag",
+      )!.diag_stage!;
+      const parsed = JSON.parse(stored);
+      expect(stored.length).toBeLessThanOrEqual(2000);
+      expect(parsed.stage).toBe(RUN_DIAG_STAGE.routeThrew);
+      expect(parsed.evidence).toEqual(evidence);
+      expect(parsed.detail.length).toBeLessThan(1500);
+    });
+
     it("is a no-op for an empty runId and never throws", async () => {
       await expect(
         recordRunDiagnostic("", RUN_DIAG_STAGE.routeEntered),

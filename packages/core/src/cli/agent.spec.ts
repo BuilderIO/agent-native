@@ -5,6 +5,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  IncompleteAgentRunError,
+  RUN_STREAM_ENDED_ERROR_CODE,
+} from "../agent/run-errors.js";
+import {
   listFileUploadProviders,
   unregisterFileUploadProvider,
 } from "../file-upload/index.js";
@@ -13,9 +17,51 @@ import {
   parseAgentArgs,
   formatAgentUsage,
   runAgent,
+  toIncompleteAgentCliResult,
 } from "./agent.js";
 
 describe("agent CLI", () => {
+  it("keeps partial events and usage in an incomplete JSON result", () => {
+    const usage = {
+      inputTokens: 12,
+      outputTokens: 7,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+      llmCalls: 1,
+      usageReported: true,
+    };
+    const event = { type: "text" as const, text: "partial response" };
+
+    expect(
+      toIncompleteAgentCliResult(
+        new IncompleteAgentRunError(
+          {
+            code: RUN_STREAM_ENDED_ERROR_CODE,
+            message:
+              "The model stream ended before the agent finished the response.",
+          },
+          usage,
+        ),
+        {
+          responseText: "partial response",
+          events: [event],
+          tools: ["create-design"],
+        },
+      ),
+    ).toEqual({
+      responseText: "partial response",
+      usage,
+      events: [event],
+      tools: ["create-design"],
+      failure: {
+        code: RUN_STREAM_ENDED_ERROR_CODE,
+        message:
+          "The model stream ended before the agent finished the response.",
+      },
+    });
+  });
+
   it("parses a positional prompt", () => {
     expect(parseAgentArgs(["Call", "hello"])).toMatchObject({
       prompt: "Call hello",

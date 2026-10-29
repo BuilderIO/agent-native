@@ -3273,6 +3273,30 @@ describe("AgentKitAssistantChat host behavior", () => {
     },
   );
 
+  it("drops a docked chat's suggestion row while the setup card shows, so the card meets the composer", async () => {
+    chatMocks.renderEmptyState = true;
+    chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+    await useRealComposer();
+    await mount(
+      baseProps({
+        suggestionPlacement: "context-chips",
+        suggestions: ["Static starter"],
+        showModelSelector: false,
+      }),
+    );
+
+    expect(
+      container.querySelector("[data-agentkit-host-suggestions-slot]"),
+    ).toBeNull();
+    const card = container.querySelector('[data-testid="builder-setup-card"]');
+    expect(card).not.toBeNull();
+    expect(
+      card?.nextElementSibling?.querySelector(
+        '[data-agent-composer-slot="root"]',
+      ),
+    ).not.toBeNull();
+  });
+
   it("puts a docked chat's starters on one line in the row above the composer", async () => {
     chatMocks.renderEmptyState = true;
     await useRealComposer();

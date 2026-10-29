@@ -102,6 +102,10 @@ describe("credentialStateForErrorCode", () => {
     ["authentication_error", { kind: "rejected", credential: "provider" }],
     ["HTTP_401", { kind: "rejected", credential: "provider" }],
     ["builder_auth_error", { kind: "rejected", credential: "builder" }],
+    [
+      "builder_oauth_lookup_failed",
+      { kind: "rejected", credential: "builder" },
+    ],
     // Hosted-agent (A2A) and relay 401s: the same rejected state, not prose.
     ["credential_rejected", { kind: "rejected", credential: "agent" }],
     ["credential_missing", { kind: "missing", credential: "agent" }],

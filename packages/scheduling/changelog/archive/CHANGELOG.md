@@ -1,3 +1,10 @@
+## 0.1.22
+
+### Patch Changes
+
+- Updated dependencies [680b1eb]
+  - @agent-native/toolkit@0.4.4
+
 ## 0.1.21
 
 ### Patch Changes

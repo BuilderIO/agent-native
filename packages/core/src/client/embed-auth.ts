@@ -14,27 +14,33 @@ import {
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import { MCP_APP_HOST_FILL_ATTRIBUTE } from "../shared/mcp-app-display.js";
 import {
-  EMBED_TOKEN_STORAGE_KEY,
-  MCP_CHAT_BRIDGE_STORAGE_KEY,
+  embedTokenStorageKey,
+  mcpChatBridgeStorageKey,
 } from "../shared/mcp-app-widget-embed.js";
 import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
-import { frameworkRoutePrefix } from "./api-path.js";
+import {
+  frameworkRoutePrefix,
+  isWorkspaceRuntime,
+  resolveAppBasePath,
+  resolveExternalEmbedTargetAppBasePath,
+  WorkspaceAppMountResolutionError,
+} from "./api-path.js";
 
 let installed = false;
-let memoryToken: string | null = null;
+const memoryTokens = new Map<string, string>();
 let renewedFromUrlToken: string | null = null;
 let pendingWidgetSessionRenewal: Promise<boolean> | null = null;
 let widgetSessionRenewalRequestId = 0;
 let mcpChatBridgeActive = false;
 let mcpChatBridgeScope: string | null = null;
+let mcpChatBridgeStorageKeyAtState: string | null = null;
 
 const AUTH_FAILURE_COOLDOWN_MS = 60_000;
 const GUARDED_METHODS = new Set(["GET", "HEAD"]);
 const AUTH_FAILURE_HEADER = "x-agent-native-auth-circuit-breaker";
-const EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY = `${EMBED_TOKEN_STORAGE_KEY}:renewed-from`;
 const EMBED_SESSION_RENEWAL_TIMEOUT_MS = 15_000;
 const MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID =
   "agent-native-mcp-chat-bridge-viewport";
@@ -57,6 +63,58 @@ const authFailureCache = new Map<string, AuthFailureRecord>();
 
 function browserWindow(): Window | null {
   return typeof window === "undefined" ? null : window;
+}
+
+function currentEmbedBasePath(): string | null {
+  try {
+    return resolveAppBasePath();
+  } catch (error) {
+    if (error instanceof WorkspaceAppMountResolutionError) return null;
+    throw error;
+  }
+}
+
+function currentEmbedTokenStorageKey(): string | null {
+  const basePath = currentEmbedBasePath();
+  return basePath === null
+    ? null
+    : embedTokenStorageKey(basePath, isWorkspaceRuntime());
+}
+
+function currentMcpChatBridgeStorageKey(): string | null {
+  const basePath = currentEmbedBasePath();
+  return basePath === null
+    ? null
+    : mcpChatBridgeStorageKey(basePath, isWorkspaceRuntime());
+}
+
+function memoryTokenFor(storageKey: string): string | null {
+  return memoryTokens.get(storageKey) ?? null;
+}
+
+function externalEmbedToken(win: Window): string | null {
+  const config = (
+    win as Window & {
+      __AGENT_NATIVE_EXTERNAL_EMBED?: { target?: unknown; token?: unknown };
+    }
+  ).__AGENT_NATIVE_EXTERNAL_EMBED;
+  return typeof config?.token === "string" && config.token
+    ? config.token
+    : null;
+}
+
+function externalEmbedTokenStorageKey(win: Window): string | null {
+  const config = (
+    win as Window & {
+      __AGENT_NATIVE_EXTERNAL_EMBED?: { target?: unknown };
+    }
+  ).__AGENT_NATIVE_EXTERNAL_EMBED;
+  const target = config?.target;
+  if (typeof target !== "string" || !target.startsWith("/")) return null;
+  const workspaceRuntime = isWorkspaceRuntime();
+  const basePath = resolveExternalEmbedTargetAppBasePath(target);
+  if (workspaceRuntime && basePath === undefined) return null;
+  return embedTokenStorageKey(basePath, workspaceRuntime);
 }
 
 function currentUrl(win: Window): URL | null {
@@ -88,14 +146,19 @@ export function readEmbedMcpChatBridgeFlagFromUrl(): boolean {
 }
 
 function currentMcpChatBridgeScope(win: Window): string | null {
-  return getEmbedAuthToken() ?? memoryToken ?? storedToken(win);
+  const storageKey = currentEmbedTokenStorageKey();
+  if (storageKey === null) return null;
+  return getEmbedAuthToken() ?? storedToken(win, storageKey);
 }
 
 function clearMcpChatBridge(win: Window): void {
   mcpChatBridgeActive = false;
   mcpChatBridgeScope = null;
+  mcpChatBridgeStorageKeyAtState = null;
+  const storageKey = currentMcpChatBridgeStorageKey();
+  if (storageKey === null) return;
   try {
-    win.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
+    win.sessionStorage.removeItem(storageKey);
   } catch {
     // ignore unavailable session storage
   }
@@ -103,14 +166,18 @@ function clearMcpChatBridge(win: Window): void {
 
 export function markEmbedMcpChatBridgeActive(): void {
   const win = browserWindow();
-  const scope = win ? currentMcpChatBridgeScope(win) : null;
+  const storageKey = currentMcpChatBridgeStorageKey();
+  const scope =
+    win && storageKey !== null ? currentMcpChatBridgeScope(win) : null;
   mcpChatBridgeActive = true;
   mcpChatBridgeScope = scope;
+  mcpChatBridgeStorageKeyAtState = storageKey;
+  if (storageKey === null) return;
   try {
     if (scope) {
-      win?.sessionStorage?.setItem(MCP_CHAT_BRIDGE_STORAGE_KEY, scope);
+      win?.sessionStorage.setItem(storageKey, scope);
     } else {
-      win?.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
+      win?.sessionStorage.removeItem(storageKey);
     }
   } catch {
     // Session storage may be unavailable in some sandboxed hosts. The
@@ -121,6 +188,23 @@ export function markEmbedMcpChatBridgeActive(): void {
 export function isEmbedMcpChatBridgeActive(): boolean {
   const win = browserWindow();
   if (!win) return false;
+  const storageKey = currentMcpChatBridgeStorageKey();
+  if (storageKey === null) {
+    if (isEmbedAuthActive() && readEmbedMcpChatBridgeFlagFromUrl()) {
+      markEmbedMcpChatBridgeActive();
+    }
+    // A temporary route without a declared mount does not prove the host
+    // unenrolled this document from the bridge.
+    return mcpChatBridgeActive;
+  }
+  if (mcpChatBridgeActive && mcpChatBridgeStorageKeyAtState === null) {
+    markEmbedMcpChatBridgeActive();
+  }
+  if (mcpChatBridgeActive && mcpChatBridgeStorageKeyAtState !== storageKey) {
+    mcpChatBridgeActive = false;
+    mcpChatBridgeScope = null;
+    mcpChatBridgeStorageKeyAtState = null;
+  }
   if (!isEmbedAuthActive()) {
     clearMcpChatBridge(win);
     return false;
@@ -146,16 +230,15 @@ export function isEmbedMcpChatBridgeActive(): boolean {
     return false;
   }
   try {
-    const storedScope = win.sessionStorage?.getItem(
-      MCP_CHAT_BRIDGE_STORAGE_KEY,
-    );
+    const storedScope = win.sessionStorage.getItem(storageKey);
     if (storedScope && (scope == null || storedScope === scope)) {
       mcpChatBridgeActive = true;
       mcpChatBridgeScope = storedScope;
+      mcpChatBridgeStorageKeyAtState = storageKey;
       return true;
     }
     if (storedScope && scope != null && storedScope !== scope) {
-      win.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
+      win.sessionStorage.removeItem(storageKey);
     }
     return false;
   } catch {
@@ -163,18 +246,52 @@ export function isEmbedMcpChatBridgeActive(): boolean {
   }
 }
 
-function storedToken(win: Window): string | null {
+function storedToken(win: Window, storageKey: string): string | null {
   try {
-    return win.sessionStorage?.getItem(EMBED_TOKEN_STORAGE_KEY) ?? null;
+    return win.sessionStorage.getItem(storageKey) ?? null;
   } catch {
     return null;
   }
 }
 
-function storeToken(token: string, win: Window): void {
-  memoryToken = token;
+function embedTokenTargetStorageKey(token: string): string | null {
+  const payload = token.split(".")[0] ?? "";
+  let decodedClaims: unknown;
   try {
-    win.sessionStorage?.setItem(EMBED_TOKEN_STORAGE_KEY, token);
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(
+      atob(base64 + "=".repeat((4 - (base64.length % 4)) % 4)),
+      (char) => char.charCodeAt(0),
+    );
+    decodedClaims = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    // coercion-ok: an unreadable token has no mount binding; null makes the caller reject it.
+    return null;
+  }
+  if (
+    !decodedClaims ||
+    typeof decodedClaims !== "object" ||
+    Array.isArray(decodedClaims)
+  ) {
+    return null;
+  }
+  const claims = decodedClaims as {
+    audienceBasePath?: unknown;
+    targetPath?: unknown;
+  };
+  if (typeof claims.audienceBasePath === "string") {
+    return embedTokenStorageKey(claims.audienceBasePath, true);
+  }
+  if (claims.audienceBasePath !== undefined) return null;
+  if (typeof claims.targetPath !== "string") return null;
+  const basePath = resolveExternalEmbedTargetAppBasePath(claims.targetPath);
+  return basePath === undefined ? null : embedTokenStorageKey(basePath, true);
+}
+
+function storeToken(token: string, win: Window, storageKey: string): void {
+  memoryTokens.set(storageKey, token);
+  try {
+    win.sessionStorage.setItem(storageKey, token);
   } catch {
     // Session storage may be unavailable in some sandboxed hosts. The
     // in-memory fallback still covers the normal single-page boot path.
@@ -184,34 +301,51 @@ function storeToken(token: string, win: Window): void {
 export function getEmbedAuthToken(): string | null {
   const win = browserWindow();
   if (!win) return null;
+  const storageKey = currentEmbedTokenStorageKey();
+  if (storageKey === null) return null;
+  const renewedFromStorageKey = `${storageKey}:renewed-from`;
   const fromUrl = readTokenFromUrl(win);
   if (fromUrl) {
+    if (
+      isWorkspaceRuntime() &&
+      embedTokenTargetStorageKey(fromUrl) !== storageKey
+    ) {
+      return null;
+    }
     let renewedFrom = renewedFromUrlToken;
     if (!renewedFrom) {
       try {
-        renewedFrom =
-          win.sessionStorage?.getItem(EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY) ??
-          null;
+        renewedFrom = win.sessionStorage.getItem(renewedFromStorageKey) ?? null;
       } catch {
         renewedFrom = null;
       }
     }
     if (renewedFrom === fromUrl) {
-      const refreshed = memoryToken ?? storedToken(win);
+      const refreshed =
+        memoryTokenFor(storageKey) ?? storedToken(win, storageKey);
       if (refreshed && refreshed !== fromUrl) return refreshed;
     }
     if (renewedFrom && renewedFrom !== fromUrl) {
       renewedFromUrlToken = null;
       try {
-        win.sessionStorage?.removeItem(EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY);
+        win.sessionStorage.removeItem(renewedFromStorageKey);
       } catch {
         // coercion-ok: cleanup is best-effort; the refreshed URL token still supersedes this marker.
       }
     }
-    storeToken(fromUrl, win);
+    storeToken(fromUrl, win, storageKey);
     return fromUrl;
   }
-  return memoryToken ?? storedToken(win);
+  const inMemoryToken = memoryTokenFor(storageKey);
+  if (inMemoryToken) return inMemoryToken;
+  const stored = storedToken(win, storageKey);
+  if (stored) return stored;
+  const external = externalEmbedToken(win);
+  if (!external) return null;
+  // The frame config outlives navigation, but its token belongs to one mount.
+  if (externalEmbedTokenStorageKey(win) !== storageKey) return null;
+  storeToken(external, win, storageKey);
+  return external;
 }
 
 function readEmbedTokenScope(token: string): string | undefined {
@@ -417,13 +551,14 @@ export function _resetEmbedAuthForTests(): void {
     for (const id of pending.timeoutIds) pending.win.clearTimeout(id);
   }
   installed = false;
-  memoryToken = null;
+  memoryTokens.clear();
   renewedFromUrlToken = null;
   pendingWidgetSessionRenewal = null;
   widgetSessionRenewalRequestId = 0;
   widgetScopeCache = null;
   mcpChatBridgeActive = false;
   mcpChatBridgeScope = null;
+  mcpChatBridgeStorageKeyAtState = null;
   authFailureCache.clear();
 }
 
@@ -772,8 +907,7 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
   const urlToken = readTokenFromUrl(win);
   if (urlToken) {
-    getEmbedAuthToken();
-    stripTokenFromUrl(win);
+    if (getEmbedAuthToken()) stripTokenFromUrl(win);
   }
   ensureMcpChatBridgeViewportClamp(win);
 

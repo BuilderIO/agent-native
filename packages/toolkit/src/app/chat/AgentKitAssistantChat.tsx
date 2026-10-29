@@ -174,6 +174,7 @@ import {
 import { isStreamingVoiceMessage } from "../agentkit/react/voice-transcripts.js";
 import { ThreadContextRing } from "../context-xray/ThreadContextRing.js";
 import { threadHasFinishedReply } from "../context-xray/use-thread-context-usage.js";
+import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
 import {
   AgentKitDevCheckpointProvider,
   AgentKitDevCheckpointRestore,
@@ -2536,7 +2537,7 @@ const AgentKitAssistantChatBody = forwardRef<
     ids: new Set<string>(),
   });
   const observedMessagesRef = useRef(new Set<string>());
-  const toolInputArgsRef = useRef(new Map<string, string>());
+  const toolInputArgsRef = useRef(new Map<string, ToolInputArgs>());
   const observedThreadIdRef = useRef(threadId);
   const observedTerminalEventsRef = useRef({
     threadId,
@@ -5805,9 +5806,61 @@ function AgentKitComposerSurface({
   currentSubmissionScope.current = submissionScope;
   const { controller } = useAgentKit();
   const composerRef = useRef<TiptapComposerHandle>(null);
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
+  const firstRunOwnsSurfaceRef = useRef(firstRunOwnsSurface);
+  const pendingSetupFocusRef = useRef(false);
+  firstRunOwnsSurfaceRef.current = firstRunOwnsSurface;
   const selectedSuggestionRef = useRef<
     Exclude<AgentSuggestionInput, string> | undefined
   >(undefined);
+  useEffect(() => {
+    if (!props.centerComposerWhenEmpty) return;
+
+    const focusAfterSetup = () => {
+      pendingSetupFocusRef.current = true;
+      if (firstRunOwnsSurfaceRef.current) return;
+      requestAnimationFrame(() => {
+        if (!firstRunOwnsSurfaceRef.current && pendingSetupFocusRef.current) {
+          pendingSetupFocusRef.current = false;
+          composerRef.current?.focus();
+        }
+      });
+    };
+
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      focusAfterSetup,
+    );
+    window.addEventListener("agent-engine:configured-changed", focusAfterSetup);
+    return () => {
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        focusAfterSetup,
+      );
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        focusAfterSetup,
+      );
+    };
+  }, [props.centerComposerWhenEmpty]);
+
+  useEffect(() => {
+    if (
+      !props.centerComposerWhenEmpty ||
+      firstRunOwnsSurface ||
+      !pendingSetupFocusRef.current
+    ) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      if (!firstRunOwnsSurfaceRef.current && pendingSetupFocusRef.current) {
+        pendingSetupFocusRef.current = false;
+        composerRef.current?.focus();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [firstRunOwnsSurface, props.centerComposerWhenEmpty]);
   const submitComposer = async (
     message: string,
     files: PromptComposerFile[],
@@ -5976,9 +6029,15 @@ function AgentKitComposerSurface({
     props.suggestionPlacement === "context-chips" &&
     showSuggestions &&
     suggestions.length > 0;
+  const showSetupCard =
+    setupMissing &&
+    props.showMissingApiKeySetup !== false &&
+    props.setupCardOwner !== "host";
   // Starters for a docked chat share the follow-up row above the composer,
-  // so the chips never move when the first message lands.
+  // so the chips never move when the first message lands. The setup card
+  // tucks under the composer, so the row steps aside while the card shows.
   const showSuggestionsSlot =
+    !showSetupCard &&
     props.suggestionPlacement !== "hidden" &&
     (hasRenderedMessages ||
       (props.suggestionPlacement === "context-chips" &&
@@ -6037,9 +6096,7 @@ function AgentKitComposerSurface({
       {showPlanCallout ? (
         <PlanModeCallout onImplementPlan={onImplementPlan} />
       ) : null}
-      {setupMissing &&
-      props.showMissingApiKeySetup !== false &&
-      props.setupCardOwner !== "host" ? (
+      {showSetupCard ? (
         <BuilderSetupCard
           fullWidth
           attached
@@ -7317,11 +7374,17 @@ function formatAgentKitErrorText(
   return localizeKnownChatErrorText(formatted, t);
 }
 
+/** A call's arguments so far, and whether they came whole from its start. */
+interface ToolInputArgs {
+  text: string;
+  fromStart: boolean;
+}
+
 function dispatchAgentKitCompatibilityEvent(
   event: AgentEvent,
   tabId: string,
   thread: ReturnType<typeof useAgentThread>,
-  toolInputArgs: Map<string, string>,
+  toolInputArgs: Map<string, ToolInputArgs>,
 ) {
   if (typeof window === "undefined") return;
   if (event.type === "activity.started" || event.type === "activity.updated") {
@@ -7350,7 +7413,13 @@ function dispatchAgentKitCompatibilityEvent(
     const tool = event.toolCall;
     const input = asRecord(tool.input) ?? {};
     const argsText = JSON.stringify(input);
-    toolInputArgs.set(tool.id, argsText);
+    // A start that carries no input is not the whole input: deltas fill it.
+    toolInputArgs.set(
+      tool.id,
+      Object.keys(input).length > 0
+        ? { text: argsText, fromStart: true }
+        : { text: toolInputArgs.get(tool.id)?.text ?? "", fromStart: false },
+    );
     window.dispatchEvent(
       new CustomEvent("agent-native:tool-start", {
         detail: { tool: tool.name, input },
@@ -7375,16 +7444,30 @@ function dispatchAgentKitCompatibilityEvent(
     return;
   }
   if (event.type === "tool.delta") {
-    const tool = thread.tools[event.toolCallId];
-    if (!tool || !event.inputTextDelta) return;
-    const argsText = `${toolInputArgs.get(tool.id) ?? ""}${event.inputTextDelta}`;
-    toolInputArgs.set(tool.id, argsText);
+    if (!event.inputTextDelta) return;
+    // `thread` is the last rendered snapshot, which doesn't know a tool whose
+    // first argument bytes are this event. Skipping it would cut the head off
+    // the JSON every streaming preview parses.
+    const metadataToolName = event.metadata?.toolName;
+    const knownTool = Object.hasOwn(thread.tools, event.toolCallId)
+      ? thread.tools[event.toolCallId]
+      : undefined;
+    const toolName =
+      knownTool?.name ??
+      (typeof metadataToolName === "string" ? metadataToolName : undefined);
+    if (!toolName) return;
+    const known = toolInputArgs.get(event.toolCallId);
+    // A start event carries the whole input; a delta after it repeats part of
+    // it, and appending that would leave the arguments unparseable.
+    if (known?.fromStart) return;
+    const argsText = `${known?.text ?? ""}${event.inputTextDelta}`;
+    toolInputArgs.set(event.toolCallId, { text: argsText, fromStart: false });
     window.dispatchEvent(
       new CustomEvent("agent-native:tool-input", {
         detail: {
           phase: "delta",
-          tool: tool.name,
-          id: tool.id,
+          tool: toolName,
+          id: event.toolCallId,
           argsText,
           text: event.inputTextDelta,
           tabId,
@@ -7408,6 +7491,7 @@ function dispatchAgentKitCompatibilityEvent(
             isError: tool.status !== "completed",
             completedSideEffect: tool.metadata?.completedSideEffect === true,
             tabId,
+            toolCallId: tool.id,
             eventId: tool.id,
           },
         }),
