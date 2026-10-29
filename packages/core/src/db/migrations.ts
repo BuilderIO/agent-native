@@ -122,11 +122,11 @@ export function splitSqlStatements(sql: string): string[] {
     const ch = sql[i];
     const next = sql[i + 1];
     if (ch === "-" && next === "-") {
-      while (i < sql.length && sql[i] !== "\n" && sql[i] !== "\r") i++;
-      buf += " ";
+      while (i < sql.length && sql[i] !== "\n") i++;
       continue;
     }
     if (ch === "/" && next === "*") {
+      const start = i;
       let depth = 1;
       i += 2;
       while (i < sql.length && depth > 0) {
@@ -139,7 +139,7 @@ export function splitSqlStatements(sql: string): string[] {
         } else i++;
       }
       if (depth) throw new Error("Unterminated SQL block comment");
-      buf += " ";
+      buf += sql.slice(start, i);
       continue;
     }
     if (ch === "'" || ch === '"') {
