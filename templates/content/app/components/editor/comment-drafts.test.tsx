@@ -133,11 +133,11 @@ describe("comment drafts", () => {
     }
 
     function renderDiscussion(showPanel = true) {
-      container ??= document.createElement("div");
-      if (!container.isConnected) document.body.appendChild(container);
-      root ??= createRoot(container);
+      const host = (container ??= document.createElement("div"));
+      if (!host.isConnected) document.body.appendChild(host);
+      const reactRoot = (root ??= createRoot(host));
       act(() => {
-        root!.render(
+        reactRoot.render(
           <CommentDraftProvider
             documentId="document-a"
             currentUserEmail="person@example.com"
@@ -152,7 +152,13 @@ describe("comment drafts", () => {
           </CommentDraftProvider>,
         );
       });
-      return container.querySelector<HTMLElement>('[data-testid="discussion"]');
+      return host.querySelector<HTMLElement>('[data-testid="discussion"]');
+    }
+
+    function openDiscussion() {
+      const panel = renderDiscussion();
+      if (!panel) throw new Error("The Discussion scroller didn't render");
+      return panel;
     }
 
     function scrollTo(panel: HTMLElement, top: number) {
@@ -161,7 +167,7 @@ describe("comment drafts", () => {
     }
 
     it("keeps moving with the reader when a render runs behind the scroll", () => {
-      const panel = renderDiscussion()!;
+      const panel = openDiscussion();
       act(() => {
         scrollTo(panel, 100);
         // A trackpad or wheel scroll keeps going before React renders.
@@ -171,7 +177,7 @@ describe("comment drafts", () => {
     });
 
     it("doesn't re-render comments while the reader scrolls", () => {
-      const panel = renderDiscussion()!;
+      const panel = openDiscussion();
       renders = 0;
       act(() => {
         for (const top of [40, 80, 120, 160]) scrollTo(panel, top);
@@ -180,10 +186,10 @@ describe("comment drafts", () => {
     });
 
     it("reopens where the reader left it", () => {
-      const panel = renderDiscussion()!;
+      const panel = openDiscussion();
       act(() => scrollTo(panel, 184));
       renderDiscussion(false);
-      expect(renderDiscussion()!.scrollTop).toBe(184);
+      expect(openDiscussion().scrollTop).toBe(184);
     });
   });
 
