@@ -255,13 +255,14 @@ export async function resolveDocumentAccess(
 
 /**
  * The authority a space lends its members, or null when there's no space or
- * the caller isn't a member of it.
+ * the caller isn't a member of it. A caller with no session is a member of
+ * none, so they get null rather than a sign-in error.
  */
 export async function contentSpaceAuthority(
   spaceId: string | null | undefined,
   db?: ReturnType<typeof getDb>,
 ): Promise<{ userEmail: string; orgId: string | null } | null> {
-  if (!spaceId) return null;
+  if (!spaceId || !getRequestUserEmail()) return null;
   try {
     const { authority } = await resolveContentSpaceAccess(spaceId, "viewer", {
       db,

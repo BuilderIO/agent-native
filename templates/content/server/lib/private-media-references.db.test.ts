@@ -95,6 +95,7 @@ async function document(
     ownerEmail?: string;
     visibility?: "private" | "public";
     content?: string;
+    spaceId?: string;
   } = {},
 ) {
   const id = `private-media-doc-${++count}`;
@@ -102,6 +103,7 @@ async function document(
     id,
     ownerEmail: options.ownerEmail ?? OWNER,
     orgId: null,
+    spaceId: options.spaceId ?? null,
     title: "Media test",
     content: options.content ?? "",
     visibility: options.visibility ?? "private",
@@ -306,6 +308,16 @@ describe("private media references", () => {
     await save(page, content);
     await expect(canRead(id)).resolves.toBe(true);
     expect((await get(id)).status).toBe(200);
+  });
+
+  it("refuses an anonymous reader of a private space page with the same 404", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    const content = body(id);
+    const page = await document({ spaceId: "private-media-space", content });
+    await save(page, content);
+    await expect(canRead(id)).resolves.toBe(false);
+    expect((await get(id)).status).toBe(404);
   });
 
   it("serves an unsaved image to its uploader only", async () => {
