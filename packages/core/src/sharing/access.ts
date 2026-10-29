@@ -52,7 +52,10 @@ export class TrashedResourceError extends ForbiddenError {
   }
 }
 
-function isStamped(reg: ShareableResourceRegistration, resource: any) {
+function isStamped(
+  reg: ShareableResourceRegistration,
+  resource: Record<string, unknown>,
+) {
   const column = reg.deletedAtColumn;
   return column !== undefined && resource[column] != null;
 }
