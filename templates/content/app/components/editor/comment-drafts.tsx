@@ -14,6 +14,7 @@ import {
   useState,
   type Dispatch,
   type HTMLAttributes,
+  type MutableRefObject,
   type ReactNode,
   type SetStateAction,
 } from "react";
@@ -61,7 +62,6 @@ export type CommentHistoryStatus = "all" | "open" | "resolved";
 interface CommentPanelSession {
   historyStatus: CommentHistoryStatus;
   historyAuthor: string | null;
-  historyScrollTop: number;
 }
 
 interface CommentDraftContextValue {
@@ -91,6 +91,8 @@ interface CommentDraftContextValue {
   panelSession: CommentPanelSession;
   setHistoryStatus: Dispatch<SetStateAction<CommentHistoryStatus>>;
   setPanelSession: Dispatch<SetStateAction<CommentPanelSession>>;
+  /** Where the Discussion was last scrolled, so a remounted panel opens there. */
+  historyScrollTopRef: MutableRefObject<number>;
 }
 
 type CommentDraftStorageState = "ready" | "unavailable" | "unreadable";
@@ -258,8 +260,11 @@ function CommentDraftStore({
   const [panelSession, setPanelSession] = useState<CommentPanelSession>({
     historyStatus: "open",
     historyAuthor: null,
-    historyScrollTop: 0,
   });
+  // A ref, not state: as state, every scroll frame re-rendered the whole
+  // comment tree, and the stale position it wrote back pulled the list
+  // against the reader's scroll.
+  const historyScrollTopRef = useRef(0);
 
   const revision = useRef(
     Math.max(
@@ -407,6 +412,7 @@ function CommentDraftStore({
       panelSession: { ...panelSession, historyStatus },
       setHistoryStatus,
       setPanelSession,
+      historyScrollTopRef,
     }),
     [
       draftStorageState,
@@ -572,6 +578,7 @@ export function useCommentPanelSession() {
     panelSession,
     setPanelSession,
     setHistoryStatus,
+    historyScrollTopRef,
     isResolving,
     startResolution,
     finishResolution,
@@ -585,16 +592,6 @@ export function useCommentPanelSession() {
       })),
     [setPanelSession],
   );
-  const setHistoryScrollTop = useCallback<Dispatch<SetStateAction<number>>>(
-    (next) =>
-      setPanelSession((current) => ({
-        ...current,
-        historyScrollTop:
-          typeof next === "function" ? next(current.historyScrollTop) : next,
-      })),
-    [setPanelSession],
-  );
-
   return {
     ...panelSession,
     isResolving,
@@ -602,7 +599,7 @@ export function useCommentPanelSession() {
     finishResolution,
     setHistoryStatus,
     setHistoryAuthor,
-    setHistoryScrollTop,
+    historyScrollTopRef,
   };
 }
 
@@ -611,19 +608,22 @@ export function CommentHistoryScrollContainer({
   onScroll,
   ...props
 }: HTMLAttributes<HTMLDivElement>) {
-  const { historyScrollTop, setHistoryScrollTop } = useCommentPanelSession();
+  const { historyScrollTopRef } = useCommentPanelSession();
   const ref = useRef<HTMLDivElement>(null);
 
+  // Restore only when the panel mounts. The browser owns the position while
+  // the reader scrolls; writing it back from a render that ran behind a
+  // trackpad or wheel scroll makes the list jump.
   useLayoutEffect(() => {
-    if (ref.current) ref.current.scrollTop = historyScrollTop;
-  }, [historyScrollTop]);
+    if (ref.current) ref.current.scrollTop = historyScrollTopRef.current;
+  }, [historyScrollTopRef]);
 
   return (
     <div
       {...props}
       ref={ref}
       onScroll={(event) => {
-        setHistoryScrollTop(event.currentTarget.scrollTop);
+        historyScrollTopRef.current = event.currentTarget.scrollTop;
         onScroll?.(event);
       }}
     >
