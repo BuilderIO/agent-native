@@ -76,6 +76,37 @@ describe("commentPlainText", () => {
     expect(commentPlainText("`a\n\nb`")).toBe("`a\n\nb`");
   });
 
+  it("drops formatting that wraps inline code", () => {
+    expect(commentPlainText("**`a`** and [`b`](https://x.test)")).toBe(
+      "a and b",
+    );
+    expect(commentPlainText("_`c`_ and ~~`d`~~")).toBe("c and d");
+    expect(commentPlainText("[a\\]b](https://x.test)")).toBe("a]b");
+  });
+
+  it("keeps code blocks in quotes and list items as written", () => {
+    expect(commentPlainText("> ```\n> **x**\n> ```\nafter")).toBe(
+      "**x**\nafter",
+    );
+    // Code in a list item loses the item's indent.
+    expect(commentPlainText("a\n- ```\n    _y_\n  ```")).toBe("a\n  _y_");
+    // A quoted fence ends with the quote.
+    expect(commentPlainText("> ```\n> a\nb **c**")).toBe("a\nb c");
+  });
+
+  it("drops a heading's underline", () => {
+    expect(commentPlainText("Title\n===\nnext")).toBe("Title\n\nnext");
+    expect(commentPlainText("**Sub**\n---")).toBe("Sub");
+  });
+
+  it("keeps private-use characters the author typed", () => {
+    const typed = "\uE0000\uE001";
+    expect(commentPlainText(`${typed} and \\* star`)).toBe(
+      `${typed} and * star`,
+    );
+    expect(commentPlainText(`\`${typed}\` and **b**`)).toBe(`${typed} and b`);
+  });
+
   it("leaves escaped backticks as backticks", () => {
     expect(commentPlainText("\\`not code\\`")).toBe("`not code`");
     expect(commentPlainText("\\``code`")).toBe("`code");

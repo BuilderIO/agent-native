@@ -13,6 +13,7 @@ const HEADING = /^ {0,3}#{1,6}(?:[ \t]+|$)/;
 const QUOTE = /^(?: {0,3}> ?)+/;
 const LIST_ITEM = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
 const THEMATIC_BREAK = /^ {0,3}([-*_])(?: *\1){2,} *$/;
+const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[ \t]*$/;
 /**
  * An HTML open or closing tag as CommonMark reads one. Text that only looks
  * like a tag, such as `x<y+1 and y>2`, stays: the renderer shows it too. No
@@ -38,32 +39,50 @@ export function commentPlainText(markdown: string): string {
     if (paragraph.length) lines.push(plainInline(paragraph.join("\n")));
     paragraph = [];
   };
-  let fence: string | null = null;
+  // A fence inside a quote ends with the quote, and its lines lose the
+  // quote's markers and the fence's indent.
+  let fence: { marker: string; depth: number; indent: number } | null = null;
   for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
-    const opener = FENCE.exec(line);
-    const marker = opener?.[1] ?? "";
-    const info = line.slice(opener?.[0].length ?? 0);
+    const quote = QUOTE.exec(line)?.[0] ?? "";
+    const depth = quote.split(">").length - 1;
     if (fence) {
-      const closes =
-        marker.charAt(0) === fence.charAt(0) &&
-        marker.length >= fence.length &&
-        !info.trim();
-      if (closes) fence = null;
-      else lines.push(line);
-      continue;
+      if (depth >= fence.depth) {
+        const code = withoutIndent(
+          withoutQuotes(line, fence.depth),
+          fence.indent,
+        );
+        const closer = FENCE.exec(code);
+        const marker = closer?.[1] ?? "";
+        const closes =
+          marker.charAt(0) === fence.marker.charAt(0) &&
+          marker.length >= fence.marker.length &&
+          !code.slice(closer?.[0].length ?? 0).trim();
+        if (closes) fence = null;
+        else lines.push(code);
+        continue;
+      }
+      fence = null;
     }
+    const text = line.slice(quote.length);
+    // A fence can open a list item, after its marker.
+    const item = LIST_ITEM.exec(text);
+    const fenceText = item ? text.slice(item[0].length) : text;
+    const opener = FENCE.exec(fenceText);
+    const marker = opener?.[1] ?? "";
+    const info = fenceText.slice(opener?.[0].length ?? 0);
     // A backtick fence's info string can't hold a backtick; one that does is
     // inline code, not a fence.
     if (marker && !(marker.startsWith("`") && info.includes("`"))) {
       endParagraph();
-      fence = marker;
+      const indent =
+        (item?.[0].length ?? 0) + (opener?.[0].length ?? 0) - marker.length;
+      fence = { marker, depth, indent };
       continue;
     }
-    const quote = QUOTE.exec(line)?.[0] ?? "";
-    const depth = quote.split(">").length - 1;
-    const text = line.slice(quote.length);
     const heading = HEADING.exec(text);
-    if (!text.trim() || THEMATIC_BREAK.test(text) || heading) {
+    // A line of `=` or `-` under a paragraph underlines it as a heading.
+    const underline = paragraph.length > 0 && SETEXT_UNDERLINE.test(text);
+    if (!text.trim() || THEMATIC_BREAK.test(text) || underline || heading) {
       endParagraph();
       lines.push(
         heading
@@ -97,12 +116,19 @@ export function commentExcerpt(markdown: string, limit = 240): string {
   return `${collapsed.slice(0, cut).trimEnd()}…`;
 }
 
-/** Inline text, which may hold line breaks: code spans, then the rest. */
+/**
+ * Inline text, which may hold line breaks. Code spans and escaped characters
+ * are set aside first, so the markers around them still pair and nothing
+ * inside them is read as Markdown.
+ */
 function plainInline(text: string): string {
-  let plain = "";
+  const { open, close } = placeholderMarks(text);
+  const kept: string[] = [];
+  const keep = (value: string) => `${open}${kept.push(value) - 1}${close}`;
+  let prose = "";
   let cursor = 0;
   for (const span of codeSpans(text)) {
-    plain += plainProse(text.slice(cursor, span.start));
+    prose += text.slice(cursor, span.start);
     // A line break inside code reads as a space, as CommonMark has it.
     const code = text
       .slice(span.start + span.ticks, span.end - span.ticks)
@@ -114,10 +140,52 @@ function plainInline(text: string): string {
       code.startsWith(" ") &&
       code.endsWith(" ") &&
       /[^ ]/.test(code);
-    plain += padded ? code.slice(1, -1) : code;
+    prose += keep(padded ? code.slice(1, -1) : code);
     cursor = span.end;
   }
-  return plain + plainProse(text.slice(cursor));
+  prose += text.slice(cursor);
+  return plainProse(
+    prose.replace(ESCAPED, (_, char: string) => keep(char)),
+  ).replace(
+    new RegExp(`${open}(\\d+)${close}`, "g"),
+    (_, index: string) => kept[+index] ?? "",
+  );
+}
+
+/**
+ * Two private-use characters the text doesn't contain, to mark what
+ * `plainInline` sets aside without matching anything the author wrote.
+ */
+function placeholderMarks(text: string): { open: string; close: string } {
+  const used = new Set(
+    Array.from(text.matchAll(/[\uE000-\uF8FF]/g), (match) => match[0]),
+  );
+  const unused = (from: number) => {
+    let code = from;
+    while (used.has(String.fromCharCode(code))) code += 1;
+    return code;
+  };
+  const open = unused(0xe000);
+  return {
+    open: String.fromCharCode(open),
+    close: String.fromCharCode(unused(open + 1)),
+  };
+}
+
+/** Removes up to `indent` leading spaces from a line. */
+function withoutIndent(line: string, indent: number): string {
+  let start = 0;
+  while (start < indent && line[start] === " ") start += 1;
+  return line.slice(start);
+}
+
+/** Removes the first `depth` quote markers from a line. */
+function withoutQuotes(line: string, depth: number): string {
+  let text = line;
+  for (let level = 0; level < depth; level += 1) {
+    text = text.replace(/^ {0,3}> ?/, "");
+  }
+  return text;
 }
 
 /**
@@ -179,13 +247,8 @@ function codeSpans(
 }
 
 function plainProse(text: string): string {
-  const escaped: string[] = [];
   return (
     text
-      .replace(ESCAPED, (_, char: string) => {
-        escaped.push(char);
-        return `\uE000${escaped.length - 1}\uE001`;
-      })
       .replace(/@\[([^[\]]+)\]\(mailto:[^()]*\)/g, "@$1")
       .replace(/!\[([^[\]]*)\]\([^()]*\)/g, "$1")
       .replace(/\[([^[\]]+)\]\([^()]*\)/g, "$1")
@@ -198,10 +261,6 @@ function plainProse(text: string): string {
       .replace(
         /(^|[^\p{L}\p{N}_])_([^\s_](?:[^_]*?[^\s_])?)_(?![\p{L}\p{N}_])/gu,
         "$1$2",
-      )
-      .replace(
-        /\uE000(\d+)\uE001/g,
-        (_, index: string) => escaped[+index] ?? "",
       )
   );
 }
