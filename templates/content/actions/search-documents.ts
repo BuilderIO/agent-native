@@ -73,6 +73,7 @@ function previewSnippet(
     clippedEnd:
       windowStart - 1 + Array.from(window).length <
       (Number(preview?.contentLength) || 0),
+    matchOffset: position > 0 ? position - windowStart : undefined,
   });
 }
 

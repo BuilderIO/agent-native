@@ -42,6 +42,34 @@ describe("searchSnippet", () => {
       expect(word).toMatch(/^(before|after)\d+$|^needle$/);
   });
 
+  it("centres on a match found only in markup", () => {
+    const before = Array.from({ length: 60 }, (_, i) => `filler${i}`).join(" ");
+    const after = Array.from({ length: 60 }, (_, i) => `later${i}`).join(" ");
+    const window = `${before} See [the roadmap](https://content.test/page/q3-roadmap-x) for dates. ${after}`;
+
+    const snippet = searchSnippet(window, "q3-roadmap-x", {
+      matchOffset: window.indexOf("q3-roadmap-x"),
+    });
+
+    expect(snippet).toContain("See the roadmap for dates.");
+    expect(snippet).not.toContain("filler0 ");
+    expect(snippet).not.toContain("q3-roadmap-x");
+  });
+
+  it("centres on where the match was found when no exact phrase is given", () => {
+    const before = Array.from({ length: 60 }, (_, i) => `early${i}`).join(" ");
+    const after = Array.from({ length: 60 }, (_, i) => `late${i}`).join(" ");
+    const window = `${before} launch\n\nplan ${after}`;
+
+    const snippet = searchSnippet(window, "", {
+      clippedStart: true,
+      matchOffset: window.indexOf("launch"),
+    });
+
+    expect(snippet).toContain("launch plan");
+    expect(snippet).not.toContain("early0 ");
+  });
+
   it("leaves a whole short page as it is", () => {
     expect(searchSnippet("Notes come first.", "notes")).toBe(
       "Notes come first.",
