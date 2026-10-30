@@ -23,8 +23,17 @@ import {
 } from "../../server/lib/video-remux.js";
 import { isLoomRecordingSource } from "../../shared/loom.js";
 import { isYouTubeEmbedBackedRecording } from "../../shared/youtube.js";
+import {
+  readResponseBytesWithLimit,
+  VideoDownloadTooLargeError,
+} from "./video-download-limits.js";
 
 const PROVIDER_FETCH_TIMEOUT_MS = 60_000;
+// A body that trickles a few bytes a minute resets an idle timer forever;
+// below this rate it is treated as stalled.
+const PROVIDER_FETCH_MIN_BYTES_PER_MINUTE = 1024 * 1024;
+// Room for the largest upload at a modest rate; anything longer is stuck.
+const PROVIDER_FETCH_MAX_TOTAL_MS = 30 * 60_000;
 
 export type EnsureSeekableStatus =
   | "optimized"
@@ -81,51 +90,6 @@ export function isRemoteProviderUrl(
   return typeof videoUrl === "string" && /^https:\/\//i.test(videoUrl.trim());
 }
 
-// The signed reader's timeout covers the headers only, so a body that stalls
-// mid-stream would otherwise hang the job. Reading chunk by chunk lets the
-// reader be cancelled, which tears the request down; a whole-body read
-// locks the stream and cannot be.
-async function readBodyWithIdleTimeout(
-  res: Response,
-  idleMs: number,
-  maxBytes: number,
-): Promise<Uint8Array> {
-  if (!res.body) return new Uint8Array(await res.arrayBuffer());
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const stalled = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        const err = new Error(`Media body stalled for ${idleMs}ms`);
-        reader.cancel(err).catch(() => {});
-        reject(err);
-      }, idleMs);
-    });
-    let step: ReadableStreamReadResult<Uint8Array>;
-    try {
-      step = await Promise.race([reader.read(), stalled]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-    if (step.done) break;
-    chunks.push(step.value);
-    total += step.value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => {});
-      break;
-    }
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return out;
-}
-
 export async function fetchProviderBytes(
   videoUrl: string,
   options: {
@@ -172,6 +136,7 @@ export async function fetchProviderBytes(
     }
   }
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let phase = "stored URL fetch";
   try {
     if (!res) {
       if (hosted) return { ok: false, reason: "skipped-fetch-failed" };
@@ -186,24 +151,27 @@ export async function fetchProviderBytes(
       }
     }
 
-    const declaredLength = Number(res.headers.get("content-length") ?? "0");
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
-      await res.body?.cancel().catch(() => {});
-      return { ok: false, reason: "skipped-too-large" };
-    }
-
-    const buf = await readBodyWithIdleTimeout(
-      res,
-      PROVIDER_FETCH_TIMEOUT_MS,
-      MAX_UPLOAD_BYTES,
-    );
+    // The signed reader's timeout covers the headers only, so the body is
+    // paced here: a stall or a trickle cancels the read instead of hanging
+    // the job.
+    phase = "body read";
+    const buf = await readResponseBytesWithLimit(res, MAX_UPLOAD_BYTES, {
+      idleMs: PROVIDER_FETCH_TIMEOUT_MS,
+      minBytesPerIdleWindow: PROVIDER_FETCH_MIN_BYTES_PER_MINUTE,
+      maxTotalMs: PROVIDER_FETCH_MAX_TOTAL_MS,
+    });
     if (buf.byteLength === 0)
       return { ok: false, reason: "skipped-fetch-failed" };
-    if (buf.byteLength > MAX_UPLOAD_BYTES) {
+    return { ok: true, bytes: buf };
+  } catch (err) {
+    if (err instanceof VideoDownloadTooLargeError) {
       return { ok: false, reason: "skipped-too-large" };
     }
-    return { ok: true, bytes: buf };
-  } catch {
+    console.warn("[ensure-seekable-video] media read failed", {
+      recordingId: options.recordingId,
+      phase,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return { ok: false, reason: "skipped-fetch-failed" };
   } finally {
     if (timeout) clearTimeout(timeout);

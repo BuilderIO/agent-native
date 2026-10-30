@@ -443,6 +443,57 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     expect(options).not.toHaveProperty("allowLegacyObjectKey");
   });
 
+  it("gives up on a body that trickles for too long even though it never stalls", async () => {
+    vi.useFakeTimers();
+    recording.storageMode = "own";
+    let cancelled = false;
+    const cancel = vi.fn(() => {
+      cancelled = true;
+    });
+    const trickle = new ReadableStream<Uint8Array>({
+      pull: (controller) =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            if (!cancelled) controller.enqueue(new Uint8Array([1]));
+            resolve();
+          }, 30_000);
+        }),
+      cancel,
+    });
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response(trickle, {
+        status: 200,
+        headers: { "content-length": "3" },
+      }),
+    );
+
+    try {
+      const started = Date.now();
+      let settledAt = 0;
+      const pending = ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+      }).then((outcome) => {
+        settledAt = Date.now();
+        return outcome;
+      });
+      await vi.advanceTimersByTimeAsync(90_000);
+      const result = await pending;
+
+      expect(cancel).toHaveBeenCalled();
+      // Two bytes in the first minute is far under the floor; the idle
+      // timer alone would never have fired.
+      expect(settledAt - started).toBeLessThanOrEqual(61_000);
+      expect(result).toEqual({
+        recordingId: recording.id,
+        status: "skipped-fetch-failed",
+        changed: false,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("falls back to the plain fetch when the stored URL is not in the configured bucket", async () => {
     recording.storageMode = null;
     mockFetchS3ObjectByUrl.mockResolvedValue(null);
