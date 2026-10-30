@@ -111,24 +111,24 @@ afterEach(async () => {
 });
 
 describe("usage alerts", () => {
-  it("moves an untouched $100 default to $20 and leaves an edited one alone", async () => {
+  it("moves an untouched $100 daily default to $20 a month and leaves an edited one alone", async () => {
     await listUsageAlerts({ scope: "user" }, access);
     await pglite.exec(
-      "UPDATE usage_alert_rules SET limit_value = 10000, updated_at = created_at",
+      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', updated_at = created_at",
     );
     expect((await listUsageAlerts({ scope: "user" }, access))[0]?.limit).toBe(
       20,
     );
 
     await pglite.exec(
-      "UPDATE usage_alert_rules SET limit_value = 10000, updated_at = created_at + 1",
+      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', updated_at = created_at + 1",
     );
     expect((await listUsageAlerts({ scope: "user" }, access))[0]?.limit).toBe(
       100,
     );
   });
 
-  it("keeps the $20 default durable and maps $20 to 200,000 raw centicents", async () => {
+  it("keeps the $20 monthly default durable and maps $20 to 200,000 raw centicents", async () => {
     await insertUsage({
       id: 1,
       app: "agent-native-factory",
@@ -146,6 +146,7 @@ describe("usage alerts", () => {
     expect(rules[0]).toMatchObject({
       isDefault: true,
       limit: 20,
+      period: "month",
       current: 20,
       status: "triggered",
       channels: ["in-app", "email"],
