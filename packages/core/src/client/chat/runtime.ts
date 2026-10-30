@@ -3746,6 +3746,8 @@ type AgentNativeMessageContentState =
 interface AgentNativeMessageProjectionState {
   messageId: string;
   message: {
+    /** Set at an auto-continue so the next text starts a new block. */
+    textBoundary?: boolean;
     content: AgentNativeMessageContentState[];
     started: boolean;
     approvalPending: boolean;
@@ -4119,6 +4121,7 @@ function mapAgentNativeEvent(
     turnId?: AgentChatRuntimeTurnId;
     messageId: string;
     message: {
+      textBoundary?: boolean;
       content: AgentNativeMessageContentState[];
       started: boolean;
       approvalPending: boolean;
@@ -4140,6 +4143,7 @@ function mapAgentNativeEvent(
     ...(ev.seq !== undefined ? { metadata: { seq: ev.seq } } : {}),
   };
   if (ev.type === "auto_continue") {
+    input.message.textBoundary = true;
     return [{ type: "continuation", ...base }];
   }
   // Skipping this leaves the saved reply as a suffix of the live one, and
@@ -4171,7 +4175,7 @@ function mapAgentNativeEvent(
     ];
   }
   if (ev.type === "text" || ev.type === "thinking" || ev.type === "reasoning") {
-    const text = ev.text ?? "";
+    let text = ev.text ?? "";
     const type = ev.type === "text" ? "text" : "reasoning";
     const extended = ev as SSEEvent & {
       partId?: string;
@@ -4199,6 +4203,18 @@ function mapAgentNativeEvent(
       : last?.type === type && !last.id
         ? last
         : undefined;
+    if (type === "text" && text) {
+      if (
+        input.message.textBoundary &&
+        part?.type === "text" &&
+        part.text &&
+        !/\s$/.test(part.text) &&
+        !/^\s/.test(text)
+      ) {
+        text = `\n\n${text}`;
+      }
+      input.message.textBoundary = false;
+    }
     if (!part) {
       const nextPart: AgentNativeMessageContentState =
         type === "reasoning"

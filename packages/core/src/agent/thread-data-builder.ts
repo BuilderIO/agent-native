@@ -281,6 +281,10 @@ function isInternalContinuationError(event: {
   );
 }
 
+function needsBlockGap(previous: string | undefined, next: string): boolean {
+  return !!previous && !/\s$/.test(previous) && !/^\s/.test(next);
+}
+
 export function buildAssistantMessage(
   events: RunEvent[],
   runId?: string,
@@ -308,10 +312,12 @@ export function buildAssistantMessage(
   let endedAtInternalContinuationBoundary = false;
   let userStoppedRun = false;
 
+  let textBoundary = false;
   const appendText = (text: string) => {
     const last = content[content.length - 1];
     if (last && last.type === "text") {
-      last.text = (last.text ?? "") + text;
+      const gap = textBoundary && needsBlockGap(last.text, text) ? "\n\n" : "";
+      last.text = (last.text ?? "") + gap + text;
     } else {
       content.push({ type: "text", text });
     }
@@ -343,6 +349,7 @@ export function buildAssistantMessage(
 
     if (event.type === "text") {
       appendText(event.text ?? "");
+      if (event.text) textBoundary = false;
       continue;
     }
 
@@ -538,6 +545,7 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "auto_continue") {
+      textBoundary = true;
       if (options.suppressInternalContinuation) {
         endedAtInternalContinuationBoundary = true;
       }
@@ -4892,7 +4900,11 @@ function appendFoldedContent(
       last?.type === "text" &&
       typeof last.text === "string"
     ) {
-      last.text = `${last.text}${separateRunBoundary ? "\n\n" : ""}${part.text}`;
+      const gap =
+        separateRunBoundary || needsBlockGap(last.text, part.text)
+          ? "\n\n"
+          : "";
+      last.text = `${last.text}${gap}${part.text}`;
     } else {
       merged.push({ ...part });
     }

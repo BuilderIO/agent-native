@@ -2195,6 +2195,54 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("keeps text blocks separate across an auto-continue boundary", () => {
+    const withinRun = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First block ends here." } },
+        { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
+        { seq: 2, event: { type: "text", text: "Second block starts here." } },
+      ],
+      "run-gap",
+    );
+    expect(withinRun!.content).toEqual([
+      {
+        type: "text",
+        text: "First block ends here.\n\nSecond block starts here.",
+      },
+    ]);
+
+    const first = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First block ends here." } },
+        { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
+      ],
+      "run-gap-1",
+      { suppressInternalContinuation: true, turnId: "turn-gap" },
+    );
+    const second = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Second block starts here." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-gap-2",
+      { suppressInternalContinuation: true, turnId: "turn-gap" },
+    );
+    let repo = foldAssistantTurn({ messages: [] }, first!, {
+      turnId: "turn-gap",
+      runId: "run-gap-1",
+    });
+    repo = foldAssistantTurn(repo, second!, {
+      turnId: "turn-gap",
+      runId: "run-gap-2",
+    });
+    expect(repo.messages.at(-1).message.content).toEqual([
+      {
+        type: "text",
+        text: "First block ends here.\n\nSecond block starts here.",
+      },
+    ]);
+  });
+
   it("folds continuation chunks for one logical turn into one durable assistant message", () => {
     const firstChunk = buildAssistantMessage(
       [
