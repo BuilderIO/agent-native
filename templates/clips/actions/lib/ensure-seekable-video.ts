@@ -13,7 +13,10 @@ import {
   deleteSupersededHostedMedia,
 } from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
-import { fetchS3ObjectByUrl } from "../../server/lib/s3-upload-provider.js";
+import {
+  fetchS3ObjectByUrl,
+  isUrlInS3Storage,
+} from "../../server/lib/s3-upload-provider.js";
 import { clearSeekableRepairPending } from "../../server/lib/seekable-media-state.js";
 import { uploadRecordingMedia } from "../../server/lib/upload-recording-media.js";
 import {
@@ -32,8 +35,6 @@ const PROVIDER_FETCH_TIMEOUT_MS = 60_000;
 // A body that trickles a few bytes a minute resets an idle timer forever;
 // below this rate it is treated as stalled.
 const PROVIDER_FETCH_MIN_BYTES_PER_MINUTE = 1024 * 1024;
-// Room for the largest upload at a modest rate; anything longer is stuck.
-const PROVIDER_FETCH_MAX_TOTAL_MS = 30 * 60_000;
 
 export type EnsureSeekableStatus =
   | "optimized"
@@ -106,6 +107,7 @@ export async function fetchProviderBytes(
   // to an unsigned read.
   const hosted = options.storageMode === "hosted";
   let res: Response | null = null;
+  let signedThrew = false;
   if (options.recordingId) {
     try {
       res = await fetchS3ObjectByUrl(videoUrl, {
@@ -117,6 +119,7 @@ export async function fetchProviderBytes(
           : {}),
       });
     } catch (err) {
+      signedThrew = true;
       console.warn("[ensure-seekable-video] signed storage read failed", {
         recordingId: options.recordingId,
         storageMode: hosted ? "hosted" : "own",
@@ -133,6 +136,32 @@ export async function fetchProviderBytes(
       await res.body?.cancel().catch(() => {});
       if (hosted) return { ok: false, reason: "skipped-fetch-failed" };
       res = null;
+    } else if (res === null && !signedThrew && !hosted) {
+      // The signed reader answers null both for a URL outside the bucket and
+      // for a key inside it that is not this recording's. Only the former may
+      // be read unsigned; the latter stays refused, and so does not knowing.
+      let inBucket: boolean | null;
+      try {
+        inBucket = await isUrlInS3Storage(videoUrl, { storageMode: "own" });
+      } catch (err) {
+        console.warn(
+          "[ensure-seekable-video] could not tell whether the stored URL is in the bucket",
+          {
+            recordingId: options.recordingId,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+        return { ok: false, reason: "skipped-fetch-failed" };
+      }
+      if (inBucket) {
+        console.warn(
+          "[ensure-seekable-video] stored object is not this recording's",
+          {
+            recordingId: options.recordingId,
+          },
+        );
+        return { ok: false, reason: "skipped-fetch-failed" };
+      }
     }
   }
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -158,7 +187,6 @@ export async function fetchProviderBytes(
     const buf = await readResponseBytesWithLimit(res, MAX_UPLOAD_BYTES, {
       idleMs: PROVIDER_FETCH_TIMEOUT_MS,
       minBytesPerIdleWindow: PROVIDER_FETCH_MIN_BYTES_PER_MINUTE,
-      maxTotalMs: PROVIDER_FETCH_MAX_TOTAL_MS,
     });
     if (buf.byteLength === 0)
       return { ok: false, reason: "skipped-fetch-failed" };

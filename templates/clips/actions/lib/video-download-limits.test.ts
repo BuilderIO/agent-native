@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  deriveTotalMs,
   readResponseBytesWithLimit,
   VideoDownloadTooLargeError,
 } from "./video-download-limits.js";
@@ -197,5 +198,55 @@ describe("video download byte limits", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("arms the derived budget from Content-Length and fires it even when the pace is fine", async () => {
+    vi.useFakeTimers();
+    let cancelled = false;
+    // Claims 300 bytes, keeps sending: the floor is met every window, so
+    // only the derived budget (three windows plus one) can end it.
+    const overrun = new ReadableStream<Uint8Array>({
+      pull: (controller) =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            if (!cancelled) controller.enqueue(new Uint8Array(150));
+            resolve();
+          }, 300);
+        }),
+      cancel: () => {
+        cancelled = true;
+      },
+    });
+    try {
+      const pending = readResponseBytesWithLimit(
+        new Response(overrun, {
+          status: 200,
+          headers: { "content-length": "300" },
+        }),
+        1024 * 1024,
+        { idleMs: 1_000, minBytesPerIdleWindow: 100 },
+      );
+      const outcome = pending.then(
+        () => "resolved",
+        (error: Error) => error.message,
+      );
+      await vi.advanceTimersByTimeAsync(4_100);
+      expect(await outcome).toMatch(/took longer than 4000ms/);
+      expect(cancelled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("derives the total budget from the floor and the expected size", () => {
+    const pacing = { idleMs: 60_000, minBytesPerIdleWindow: 1024 * 1024 };
+    // 16 MB at 1 MB a minute: sixteen windows plus one.
+    expect(deriveTotalMs(pacing, 16 * 1024 * 1024)).toBe(17 * 60_000);
+    // An explicit figure wins.
+    expect(deriveTotalMs({ ...pacing, maxTotalMs: 5_000 }, 1e12)).toBe(5_000);
+    // No floor, no total.
+    expect(deriveTotalMs({ idleMs: 60_000 }, 1e9)).toBeUndefined();
+    // The size limit with no Content-Length is held to hours, not days.
+    expect(deriveTotalMs(pacing, 50 * 1024 ** 3)).toBe(6 * 60 * 60_000);
   });
 });

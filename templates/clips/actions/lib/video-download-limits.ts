@@ -43,8 +43,28 @@ export interface ReadResponseBytesPacing {
    * left of a known Content-Length): a trickle that keeps resetting the idle
    * timer is still a stalled download. Checked as the next chunk lands. */
   minBytesPerIdleWindow?: number;
-  /** Fail when the whole body takes longer than this. */
+  /** Fail when the whole body takes longer than this. When omitted and a
+   * floor is set, it is derived from the floor and the expected size, within
+   * a ceiling of hours, so a body that respects the floor has time to finish
+   * unless it would take longer than that. */
   maxTotalMs?: number;
+}
+
+// Hours, not days: a body with no Content-Length is budgeted from the size
+// limit, which at the floor rate could otherwise run for a day or more.
+const MAX_DERIVED_TOTAL_MS = 6 * 60 * 60_000;
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** The total time a paced read gets: the caller's figure, or enough windows
+ * at the floor rate for the expected size plus one, within a ceiling. */
+export function deriveTotalMs(
+  pacing: ReadResponseBytesPacing,
+  expectedBytes: number,
+): number | undefined {
+  if (pacing.maxTotalMs) return Math.min(pacing.maxTotalMs, MAX_TIMER_MS);
+  if (!pacing.minBytesPerIdleWindow) return undefined;
+  const windows = Math.ceil(expectedBytes / pacing.minBytesPerIdleWindow) + 1;
+  return Math.min(pacing.idleMs * windows, MAX_DERIVED_TOTAL_MS, MAX_TIMER_MS);
 }
 
 export async function readResponseBytesWithLimit(
@@ -91,10 +111,11 @@ export async function readResponseBytesWithLimit(
         () => fail(`Download stalled: no data for ${pacing.idleMs}ms`),
         pacing.idleMs,
       );
-      if (pacing.maxTotalMs) {
+      const totalMs = deriveTotalMs(pacing, contentLength ?? maxBytes);
+      if (totalMs) {
         totalTimer = setTimeout(
-          () => fail(`Download took longer than ${pacing.maxTotalMs}ms`),
-          pacing.maxTotalMs,
+          () => fail(`Download took longer than ${totalMs}ms`),
+          totalMs,
         );
       }
     }

@@ -19,6 +19,7 @@ const mockQueueCompression = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingMediaObjects = vi.hoisted(() => vi.fn());
 const mockDeleteSupersededHostedMedia = vi.hoisted(() => vi.fn());
 const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
+const mockIsUrlInS3Storage = vi.hoisted(() => vi.fn());
 const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockReturning = vi.hoisted(() => vi.fn());
 const mockUpdateWhere = vi.hoisted(() =>
@@ -47,6 +48,7 @@ vi.mock("../../server/lib/upload-recording-media.js", () => ({
 }));
 vi.mock("../../server/lib/s3-upload-provider.js", () => ({
   fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
+  isUrlInS3Storage: (...args: unknown[]) => mockIsUrlInS3Storage(...args),
 }));
 
 vi.mock("@shared/upload-limits.js", () => ({
@@ -116,6 +118,7 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     vi.clearAllMocks();
     recording.storageMode = null;
     recording.editsJson = null;
+    mockIsUrlInS3Storage.mockResolvedValue(false);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -492,6 +495,81 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not read unsigned a key that is in the bucket but not this recording's", async () => {
+    recording.storageMode = "own";
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+    mockIsUrlInS3Storage.mockResolvedValue(true);
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      recordingId: recording.id,
+      status: "skipped-fetch-failed",
+      changed: false,
+    });
+  });
+
+  it("still falls back after a thrown signed read even when the URL is in the bucket", async () => {
+    recording.storageMode = "own";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockFetchS3ObjectByUrl.mockRejectedValue(new Error("S3 request timed out"));
+    mockIsUrlInS3Storage.mockResolvedValue(true);
+
+    try {
+      const result = await ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+      });
+
+      expect(mockIsUrlInS3Storage).not.toHaveBeenCalled();
+      expect(fetch).toHaveBeenCalled();
+      expect(result.status).toBe("already-optimized");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("refuses rather than reading unsigned when the bucket check itself fails", async () => {
+    recording.storageMode = "own";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+    mockIsUrlInS3Storage.mockRejectedValue(new Error("app_secret_unreadable"));
+
+    try {
+      const result = await ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+      });
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        recordingId: recording.id,
+        status: "skipped-fetch-failed",
+        changed: false,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("falls back to the plain fetch when no storage is configured at all", async () => {
+    recording.storageMode = null;
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+    mockIsUrlInS3Storage.mockResolvedValue(null);
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(fetch).toHaveBeenCalled();
+    expect(result.status).toBe("already-optimized");
   });
 
   it("falls back to the plain fetch when the stored URL is not in the configured bucket", async () => {
