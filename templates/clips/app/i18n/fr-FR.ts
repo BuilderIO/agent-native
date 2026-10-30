@@ -320,6 +320,34 @@ const messages = {
     clipsRestoreFailed: "{{count}} clips n’ont pas pu être restaurés",
     clipsPermanentlyDeleted: "{{count}} clips supprimés définitivement",
     clipsDeleteFailed: "{{count}} clips n’ont pas pu être supprimés",
+    deletedMediaPending:
+      "Enregistrement supprimé. Ses fichiers multimédias sont encore en cours de suppression.",
+    deletedMediaBlocked:
+      "Enregistrement supprimé, mais ses fichiers multimédias n’ont pas pu être supprimés.",
+    deletedMediaRetained:
+      "Enregistrement supprimé. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
+    clipsDeletedMediaPending:
+      "Enregistrements supprimés : {{count}}. Les fichiers multimédias sont encore en cours de suppression.",
+    clipsDeletedMediaBlocked:
+      "Enregistrements supprimés : {{count}}. Les fichiers multimédias n’ont pas pu être supprimés.",
+    clipsDeletedMediaRetained:
+      "Enregistrements supprimés : {{count}}. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
+    mediaCleanupListLabel: "Suppression des fichiers multimédias",
+    mediaCleanupPending:
+      "Suppression des fichiers multimédias des enregistrements supprimés",
+    mediaCleanupBlocked:
+      "Les fichiers multimédias des enregistrements supprimés n’ont pas pu être supprimés",
+    mediaCleanupReconnect:
+      "Reconnectez le stockage pour supprimer les fichiers multimédias des enregistrements supprimés",
+    mediaCleanupRetained:
+      "Les fichiers multimédias partagés des enregistrements supprimés sont conservés tant que d’autres enregistrements les utilisent",
+    mediaCleanupRemoved: "Fichiers multimédias supprimés",
+    mediaCleanupStillBlocked:
+      "Les fichiers multimédias n’ont toujours pas pu être supprimés",
+    mediaCleanupRetryFailed:
+      "Impossible de relancer la suppression des fichiers multimédias",
+    mediaCleanupLoadFailed:
+      "Impossible de charger l’état de suppression des fichiers multimédias",
   },
   recordingRoute: {
     pageTitle: "Enregistrement du clip · Clips",

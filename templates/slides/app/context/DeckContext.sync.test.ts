@@ -1543,12 +1543,26 @@ describe("DeckContext fallback polling", () => {
     });
     expect(hasFailedDeckSave(deckId)).toBe(true);
 
+    api.failDeckReads(null);
+    const fetch = api.fetchMock.getMockImplementation();
+    if (!fetch) throw new Error("Expected the deck fetch mock to be installed");
+    api.fetchMock.mockImplementation((url) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck")
+        ? Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+        : fetch(url),
+    );
     await act(async () => {
       result.current.updateDeck(deckId, { title: "Restored access" });
       await vi.advanceTimersByTimeAsync(500);
     });
 
     expect(result.current.getDeck(deckId)?.title).toBe("Restored access");
+    await waitFor(() => expect(hasUnsavedDeckChanges(deckId)).toBe(false));
+    expect(
+      api.fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toBe(true);
     expect(hasFailedDeckSave(deckId)).toBe(false);
   });
 
@@ -1795,9 +1809,20 @@ describe("DeckContext fallback polling", () => {
 
   it("parks a hidden open-deck poll after repeated server errors until the tab is visible", async () => {
     const { api } = await renderOpenDeck();
-    // A save another test left queued drains on hide and reads its own deck.
+    // A poll can use a revision probe or retry a full read; a save another
+    // test left queued drains on hide and reads its own deck.
     const openDeckReads = () =>
-      deckCallIds(api.fetchMock).filter((id) => id === "open-deck").length;
+      api.fetchMock.mock.calls.filter(([url]) => {
+        const href = requestString(url);
+        const params = new URL(href, "http://localhost").searchParams;
+        return (
+          (href.includes("/_agent-native/actions/get-deck") &&
+            params.get("id") === "open-deck") ||
+          (href.includes("/_agent-native/actions/list-decks") &&
+            isOpenDeckProbe(href) &&
+            params.getAll("ids[]").includes("open-deck"))
+        );
+      }).length;
 
     api.failDeckReads(500);
     hideDocument();
@@ -1809,15 +1834,17 @@ describe("DeckContext fallback polling", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(31_000);
     });
-    expect(openDeckReads()).toBe(deckBefore + 1);
+    const afterFirstPoll = openDeckReads();
+    expect(afterFirstPoll).toBeGreaterThan(deckBefore);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(61_000);
     });
-    expect(openDeckReads()).toBe(deckBefore + 2);
+    const afterSecondPoll = openDeckReads();
+    expect(afterSecondPoll).toBeGreaterThan(afterFirstPoll);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300_000);
     });
-    expect(openDeckReads()).toBe(deckBefore + 2);
+    expect(openDeckReads()).toBe(afterSecondPoll);
 
     restoreVisibility?.();
     restoreVisibility = null;
@@ -1825,7 +1852,7 @@ describe("DeckContext fallback polling", () => {
       document.dispatchEvent(new Event("visibilitychange"));
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(openDeckReads()).toBe(deckBefore + 3);
+    expect(openDeckReads()).toBeGreaterThan(afterSecondPoll);
   });
 
   it("does not hold a failing deck list at the fast interval while the live channel is up", async () => {
