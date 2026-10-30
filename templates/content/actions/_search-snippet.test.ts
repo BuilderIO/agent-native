@@ -74,6 +74,42 @@ describe("searchSnippet", () => {
     ).toBe("Keep x < y in view...");
   });
 
+  it("keeps comparisons where a cut window starts or ends", () => {
+    expect(
+      searchSnippet(
+        "cut Score = 5 > 3 for the pilot, if x<y then more",
+        "pilot",
+        { clippedStart: true, clippedEnd: true },
+      ),
+    ).toBe("...Score = 5 > 3 for the pilot, if x<y then...");
+  });
+
+  it("centres on the occurrence the database chose, not the first", () => {
+    const filler = Array.from({ length: 50 }, (_, i) => `filler${i}`).join(" ");
+    const window = `Alpha needle first. ${filler} Beta needle second. ${filler}`;
+
+    const snippet = searchSnippet(window, "needle", {
+      matchOffset: window.indexOf("needle second"),
+    });
+
+    expect(snippet).toContain("Beta needle second.");
+    expect(snippet).not.toContain("Alpha");
+  });
+
+  it("centres on a match in a link address with parentheses in it", () => {
+    const before = Array.from({ length: 60 }, (_, i) => `filler${i}`).join(" ");
+    const after = Array.from({ length: 60 }, (_, i) => `later${i}`).join(" ");
+    const window = `${before} See [the history](https://en.wikipedia.org/wiki/Launch_(rocketry)/zephyr-key) first. ${after}`;
+
+    const snippet = searchSnippet(window, "zephyr-key", {
+      matchOffset: window.indexOf("zephyr-key"),
+    });
+
+    expect(snippet).toContain("See the history first.");
+    expect(snippet).not.toContain("zephyr-key");
+    expect(snippet).not.toContain(")");
+  });
+
   it("centres on where the match was found when no exact phrase is given", () => {
     const before = Array.from({ length: 60 }, (_, i) => `early${i}`).join(" ");
     const after = Array.from({ length: 60 }, (_, i) => `late${i}`).join(" ");

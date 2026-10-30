@@ -46,6 +46,14 @@ Quarterly Launch Plan
     ).toBe("Read the brief Ship faster with notes Diagram");
   });
 
+  it("removes a link address with parentheses in it", () => {
+    expect(
+      stripMarkdownForPreview(
+        "See [the history](https://en.wikipedia.org/wiki/Launch_(rocketry)) first.",
+      ),
+    ).toBe("See the history first.");
+  });
+
   it("falls back when the content has no body text beyond the title", () => {
     expect(
       buildPublicDocumentDescription({

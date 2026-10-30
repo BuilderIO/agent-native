@@ -70,7 +70,10 @@ export function stripMarkdownForPreview(markdown: string): string {
     decodeCommonEntities(markdown)
       .replace(/<[^>\n]+\/>/g, " ")
       .replace(/<\/?[^>\n]+>/g, " ")
+      // A destination with balanced parentheses, then any other.
+      .replace(/!\[([^\]]*)\]\((?:[^()]|\([^()]*\))+\)/g, "$1")
       .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+      .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))+\)/g, "$1")
       .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
       .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
       .replace(/`([^`]+)`/g, "$1")
