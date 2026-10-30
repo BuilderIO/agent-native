@@ -2,6 +2,8 @@ import { nanoid } from "nanoid";
 
 export function ensureUniqueSlideIds<T extends { id?: unknown }>(
   slides: readonly T[],
+  createId: (index: number, attempt: number) => string = () =>
+    `slide-${nanoid(8)}`,
 ): {
   slides: T[];
   changed: boolean;
@@ -21,8 +23,9 @@ export function ensureUniqueSlideIds<T extends { id?: unknown }>(
       return slide;
     }
 
-    let nextId = `slide-${nanoid(8)}`;
-    while (used.has(nextId)) nextId = `slide-${nanoid(8)}`;
+    let attempt = 0;
+    let nextId = createId(index, attempt);
+    while (used.has(nextId)) nextId = createId(index, ++attempt);
     used.add(nextId);
     changed = true;
     return { ...slide, id: nextId } as T;
