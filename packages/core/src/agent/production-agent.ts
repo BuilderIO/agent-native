@@ -194,6 +194,7 @@ import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  personalRunProviderKeyOrgId,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
 } from "../server/personal-provider-key-policy.js";
@@ -773,6 +774,7 @@ async function getOwnerApiKeyDetailed(
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   const orgId = getRequestOrgId();
+  const policyOrgId = orgId ?? personalRunProviderKeyOrgId(secretKey);
   // Restricted members keep their stored keys, but none of the personal rows
   // below (user, solo workspace, legacy settings) may answer. Unknown is a
   // failed lookup, never "not restricted". Keys outside the policy (Jev) are
@@ -782,7 +784,9 @@ async function getOwnerApiKeyDetailed(
     personalRestricted =
       isPersonalProviderPolicyKey(secretKey) &&
       (await isPersonalProviderKeyUseRestricted(
-        orgId ? { email: ownerEmail, orgId } : { email: ownerEmail },
+        policyOrgId
+          ? { email: ownerEmail, orgId: policyOrgId }
+          : { email: ownerEmail },
       ));
   } catch {
     lookupFailed = true;

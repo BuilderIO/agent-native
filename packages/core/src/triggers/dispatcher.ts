@@ -1,5 +1,6 @@
 import {
   automationMatchesEventOwner,
+  automationRunScopeContext,
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
 } from "../automations/service.js";
@@ -1331,16 +1332,7 @@ async function dispatchQueuedAutomationEvent(
   let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
-      {
-        ownerEmail: identity.userEmail,
-        orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
-      },
+      identity,
       deps,
       meta.model,
     );
@@ -1362,12 +1354,7 @@ async function dispatchQueuedAutomationEvent(
       {
         userEmail: identity.userEmail,
         orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
+        ...automationRunScopeContext(identity),
       },
       () =>
         evaluateCondition(
@@ -1460,16 +1447,7 @@ export async function dispatchAutomationWebhookTask(
   let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
-      {
-        ownerEmail: identity.userEmail,
-        orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
-      },
+      identity,
       deps,
       meta.model,
     );
@@ -1492,12 +1470,7 @@ export async function dispatchAutomationWebhookTask(
       {
         userEmail: identity.userEmail,
         orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
+        ...automationRunScopeContext(identity),
       },
       () =>
         evaluateCondition(
@@ -1637,12 +1610,7 @@ async function dispatchAgentic(
     resource: claimed,
   };
   const requestContext = {
-    ...(identity.orgScope === "personal"
-      ? { orgScope: "personal" as const }
-      : {}),
-    ...(identity.defaultAgentEngineScope === "deployment"
-      ? { defaultAgentEngineScope: "deployment" as const }
-      : {}),
+    ...automationRunScopeContext(identity),
     ...(runningMeta.originScopeId &&
     runningMeta.deliveryPlatform &&
     runningMeta.deliveryDestination
