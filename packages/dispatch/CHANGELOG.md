@@ -1,5 +1,23 @@
 # @agent-native/dispatch
 
+## 0.40.45
+
+### Patch Changes
+
+- 828d50e: Show Builder users where to find their workspace when they visit standalone Dispatch.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [92d54bb]
+- Updated dependencies [92d54bb]
+- Updated dependencies [92d54bb]
+- Updated dependencies
+- Updated dependencies [8cdee8a]
+- Updated dependencies [2428fde]
+- Updated dependencies [2428fde]
+- Updated dependencies [95841d4]
+- Updated dependencies [92d54bb]
+- Updated dependencies [d795784]
+  - @agent-native/toolkit@0.222.3
+
 ## 0.40.44
 
 ### Patch Changes
@@ -1431,12 +1449,5 @@
 ### Patch Changes
 
 - ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
-
-## 0.31.2
-
-### Patch Changes
-
-- Updated dependencies [60b7e74]
-  - @agent-native/toolkit@0.16.8
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -1,5 +1,22 @@
 # @agent-native/scheduling
 
+## 0.2.50
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [92d54bb]
+- Updated dependencies [92d54bb]
+- Updated dependencies [92d54bb]
+- Updated dependencies
+- Updated dependencies [8cdee8a]
+- Updated dependencies [2428fde]
+- Updated dependencies [2428fde]
+- Updated dependencies [95841d4]
+- Updated dependencies [92d54bb]
+- Updated dependencies [d795784]
+  - @agent-native/toolkit@0.222.3
+
 ## 0.2.49
 
 ### Patch Changes
@@ -1212,13 +1229,5 @@
 - 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
 - Updated dependencies [079e19a]
   - @agent-native/toolkit@0.5.1
-
-## 0.1.26
-
-### Patch Changes
-
-- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
-- Updated dependencies [b6d7f87]
-  - @agent-native/toolkit@0.5.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
