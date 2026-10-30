@@ -12,7 +12,10 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
-import { hasCrossedCanvasDragThreshold } from "@agent-native/toolkit/canvas-interactions";
+import {
+  hasCrossedCanvasDragThreshold,
+  normalizeCanvasHotkeyKey,
+} from "@agent-native/toolkit/canvas-interactions";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { SLIDES_LAYOUT_OVERFLOW_WARNING } from "@shared/labs";
@@ -164,7 +167,13 @@ import {
   SLIDE_SHAPE_LABEL_KEYS,
   type SlideShapeType,
 } from "./EditorActionCluster";
-import { hasInlineHeight } from "./fit-text-object";
+import {
+  hasInlineHeight,
+  overflowingTextRuns,
+  overflowOutsideFrame,
+  SHRINK_TEXT_TOLERANCE_PX,
+  shrinkTextToFit,
+} from "./fit-text-object";
 import {
   FloatingToolbar,
   type FloatingToolbarAgentAction,
@@ -199,7 +208,7 @@ import {
   getInlineTextStyleSnapshotForRange,
   normalizeSlideClipboardHtml,
   restoreEditableTextRange,
-  selectAllEditableText,
+  selectEntryEditableText,
   selectionClearingPatch,
   snapshotEditableTextRange,
   type InlineTextStylePatch,
@@ -226,6 +235,13 @@ import {
   applySlideObjectContext,
   slidePositioningLayerOf,
   layoutScaleOf,
+  nextSlideGridLine,
+  resolveSlideGrid,
+  roundSlideObjectGeometry,
+  slideLayoutBoxOf,
+  snapSlideObjectResizeDelta,
+  snapToSlideGrid,
+  type SlideGrid,
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
@@ -349,6 +365,17 @@ import {
   type SlideStyleSnapshot,
 } from "./slide-style";
 import {
+  deleteTableColumn as deleteSlideTableColumn,
+  deleteTableRow as deleteSlideTableRow,
+  insertTableColumn as insertSlideTableColumn,
+  insertTableRow as insertSlideTableRow,
+  parseClipboardGrid,
+  pasteGridIntoTable,
+  tableEditAvailability,
+  type TableEditAvailability,
+  type TableEditBlocker,
+} from "./slide-table-editing";
+import {
   findSlideShapeOwner,
   findSmartBlock,
   holdsPaintedTextBox,
@@ -358,13 +385,16 @@ import {
   isRichTextBlock,
   isSlideCanvasShell,
   isSmartGroup,
+  isSlideCanvasShortcutBlocked,
   isSlideCanvasShortcutTarget,
+  isSlideCanvasTabTarget,
   isSlideTextEditingTarget,
   isTransparentLayoutWrapper,
   resolveSlideTextSelectionTarget,
   shouldStampBuilderId,
   shouldTraverseSlideLayerChildren,
 } from "./slide-text-targets";
+import { refreshAutoTrends } from "./slide-trend";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
@@ -403,6 +433,37 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">{props.label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function TableContextMenuItem(props: {
+  blocker: TableEditBlocker | null;
+  disabled?: boolean;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const item = (
+    <ContextMenuItem
+      disabled={props.blocker !== null || props.disabled === true}
+      onSelect={props.onSelect}
+    >
+      {props.children}
+    </ContextMenuItem>
+  );
+  if (!props.blocker) return item;
+  return (
+    <Tooltip>
+      {/* A disabled item takes no pointer events, so the wrapper is the hover target. */}
+      <TooltipTrigger asChild>
+        <div>{item}</div>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="max-w-56">
+        {props.blocker === "merged-cells"
+          ? t("styleInspector.tableMergedCellsUnavailable")
+          : t("styleInspector.tableColumnLayoutUnavailable")}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -549,6 +610,32 @@ function readGestureViewport(
     canvas,
     toLocalDelta: (delta) => screenDeltaToLocal(basis, delta),
   };
+}
+
+/**
+ * The slide grid an object's moves and resizes land on. A rotation on the
+ * object or any block above it leaves the pixel grid, so it gets none.
+ */
+function resolveObjectSlideGrid(
+  element: HTMLElement,
+  slideCanvas: HTMLElement | null,
+): SlideGrid | null {
+  const layer = resolveSlidePositioningLayer(element);
+  if (!layer || !slideCanvas || hasRotatedAncestor(element, slideCanvas)) {
+    return null;
+  }
+  return resolveSlideGrid(
+    resolveSlideObjectContainingBlock(element, layer),
+    layer,
+  );
+}
+
+/** Cmd (Ctrl elsewhere) drags off the guides and the grid. */
+function bypassesSlideSnapping(pointer: {
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+}): boolean {
+  return Boolean(pointer.metaKey || pointer.ctrlKey);
 }
 
 /** Screen px per slide unit, so snapping keeps a screen-constant radius. */
@@ -845,6 +932,23 @@ function cssPx(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/**
+ * A length as the inspector shows it: the authored inline px value when there
+ * is one, else the computed one, to 2 decimals. Zoom and device pixels can
+ * leave a computed border at 0.555556px.
+ */
+function styleLengthPx(
+  element: HTMLElement,
+  property: string,
+  computedValue: string,
+): number {
+  const inline = element.style.getPropertyValue(property).trim();
+  const value = /^-?(?:\d+\.?\d*|\.\d+)px$/.test(inline)
+    ? inline
+    : computedValue;
+  return Math.round(cssPx(value) * 100) / 100;
+}
+
 function normalizedColor(value: string): string {
   return value === "rgba(0, 0, 0, 0)" ? "transparent" : value;
 }
@@ -969,7 +1073,7 @@ function buildStyleSnapshot(
   const rotation =
     angle === null ? null : wrapSlideObjectRotation(Math.round(angle));
   const textPreview = (element.textContent ?? "").trim().slice(0, 80);
-  const blockFontSize = cssPx(computed.fontSize);
+  const blockFontSize = styleLengthPx(element, "font-size", computed.fontSize);
   const rawLineHeight = cssPx(computed.lineHeight);
   const lineHeight =
     rawLineHeight > 0 && blockFontSize > 0
@@ -1027,7 +1131,7 @@ function buildStyleSnapshot(
     fontSize:
       selectedFontSize === null || selectedFontSize === undefined
         ? blockFontSize
-        : cssPx(selectedFontSize),
+        : Math.round(cssPx(selectedFontSize) * 100) / 100,
     fontWeight:
       selectedFontWeight === null || selectedFontWeight === undefined
         ? normalizedFontWeight(computed.fontWeight)
@@ -1037,8 +1141,16 @@ function buildStyleSnapshot(
     lineHeight,
     textAlign: normalizedTextAlign(computed.textAlign),
     opacity: Math.round(Number(computed.opacity || 1) * 100),
-    borderRadius: cssPx(computed.borderTopLeftRadius),
-    borderWidth: cssPx(computed.borderTopWidth),
+    borderRadius: styleLengthPx(
+      element,
+      "border-top-left-radius",
+      computed.borderTopLeftRadius,
+    ),
+    borderWidth: styleLengthPx(
+      element,
+      "border-top-width",
+      computed.borderTopWidth,
+    ),
     borderColor: normalizedColor(computed.borderTopColor),
     paddingX: Math.round((paddingLeft + paddingRight) / 2),
     paddingY: Math.round((paddingTop + paddingBottom) / 2),
@@ -1948,8 +2060,10 @@ type ActiveImageCrop = {
 export interface SlideCanvasCommands {
   canZoomIn: boolean;
   canZoomOut: boolean;
+  canFitToScreen: boolean;
   zoomIn: () => void;
   zoomOut: () => void;
+  fitToScreen: () => void;
   hasObjectSelection: () => boolean;
   duplicateObjects: () => boolean;
   deleteObjects: () => boolean;
@@ -2104,7 +2218,8 @@ export default function SlideEditor({
     clipboardId: string;
     deckId?: string;
     slideId: string;
-    sourceRect?: Pick<DOMRect, "left" | "top" | "width" | "height">;
+    /** The first copied object's box in slide layout px. */
+    sourceBox?: Pick<DOMRect, "left" | "top" | "width" | "height">;
   } | null>(null);
   const [hasCopiedObject, setHasCopiedObject] = useState(false);
   const [selectedElementPath, setSelectedElementPath] = useState<
@@ -2153,10 +2268,9 @@ export default function SlideEditor({
   );
   const contextMenuTargetRef = useRef<HTMLElement | null>(null);
   const contextMenuTableCellRef = useRef<HTMLTableCellElement | null>(null);
-  const [contextMenuTableInfo, setContextMenuTableInfo] = useState<{
-    rowCount: number;
-    colCount: number;
-  } | null>(null);
+  const [contextMenuTableInfo, setContextMenuTableInfo] = useState<
+    ({ rowCount: number; colCount: number } & TableEditAvailability) | null
+  >(null);
   const selectionOverlayMeasurementIdentity = {
     slideId: slide.id,
     content,
@@ -2270,7 +2384,7 @@ export default function SlideEditor({
   }, [animationsOpen, layersOpen, notesOpen, deckId, slide.id]);
 
   const dims = getAspectRatioDims(aspectRatio);
-  const [, setFitCanvasZoom] = useState(100);
+  const [fitCanvasZoom, setFitCanvasZoom] = useState(100);
   const stacked = slideScroll !== undefined;
   const userSetCanvasZoomRef = useRef(false);
   const canvasWidth = Math.round(dims.width * (canvasZoom / 100));
@@ -2286,6 +2400,10 @@ export default function SlideEditor({
     userSetCanvasZoomRef.current = true;
     setCanvasZoom(Math.round(next));
   }, []);
+  const fitCanvasToScreen = useCallback(() => {
+    userSetCanvasZoomRef.current = false;
+    setCanvasZoom(fitCanvasZoom);
+  }, [fitCanvasZoom]);
 
   const canvasZoomIn = useCallback(() => {
     const next = CANVAS_ZOOM_PRESETS.find((preset) => preset > canvasZoom);
@@ -2615,6 +2733,10 @@ export default function SlideEditor({
       clearSelectionAfterExit?: boolean,
     ) => string | undefined
   >(() => undefined);
+  /** Spreads a pasted grid across the edited cell's table; set below. */
+  const pasteGridIntoEditedCellRef = useRef<
+    (cell: HTMLTableCellElement, grid: string[][]) => boolean
+  >(() => false);
   /**
    * Every other content write commits an open text edit first. The write
    * re-renders the slide from stored HTML, which must not happen under the
@@ -2892,6 +3014,7 @@ export default function SlideEditor({
       setKeyboardLinkRequest(null);
       session.text.end();
       const element = session.text.element;
+      if (session.text.changed) refreshAutoTrends(element);
       const { slideContent } = session;
       let content: string | null = null;
       if (slideContent.contains(element)) {
@@ -3856,6 +3979,17 @@ export default function SlideEditor({
           const currentEl = textSessionRef.current?.text.element;
           if (currentEl)
             setKeyboardLinkRequest({ editingEl: currentEl, range });
+        },
+        onPasteData: (data) => {
+          const cell = textSessionRef.current?.text.element;
+          if (!(cell instanceof HTMLTableCellElement)) return false;
+          const grid = parseClipboardGrid(
+            data.getData("text/html"),
+            data.getData("text/plain"),
+          );
+          return (
+            grid !== null && pasteGridIntoEditedCellRef.current(cell, grid)
+          );
         },
         onInput: () => {
           if (textSessionRef.current?.text !== text) return;
@@ -5352,100 +5486,69 @@ export default function SlideEditor({
     }
   }, [readCurrentSlideContentHtml]);
 
-  /** Row/column ops below index cells by position, which only holds for a
-   *  regular grid. `colspan`/`rowspan` are valid on imported tables
-   *  (sanitize-slide-html allows them), so every op bails here rather than
-   *  silently touching the wrong cell. */
-  const tableHasMergedCells = useCallback((table: HTMLTableElement) => {
-    return Array.from(table.rows).some((row) =>
-      Array.from(row.cells).some((c) => c.colSpan > 1 || c.rowSpan > 1),
-    );
-  }, []);
+  pasteGridIntoEditedCellRef.current = (cell, grid) => {
+    const table = cell.closest("table");
+    if (!table || tableEditAvailability(table).rows) return false;
+    // The cell's own edit is saved first; the paste is the next undo step.
+    exitInlineEdit();
+    if (!pasteGridIntoTable(cell, grid)) {
+      throw new Error("[slides] a pasted grid did not apply to its table");
+    }
+    commitTableMutation();
+    return true;
+  };
 
-  /** Column ops change cell count per row but not col tracks. A colgroup
-   *  (imported decks can carry one — sanitize-slide-html allows it)
-   *  positionally maps each col element to a column, so an unsynced insert
-   *  or delete leaves too few/many tracks and visually misaligns columns.
-   *  Row ops don't touch columns, so this only guards column ops. */
-  const tableHasColgroup = useCallback((table: HTMLTableElement) => {
-    return table.querySelector("colgroup") !== null;
-  }, []);
+  const handleShrinkTextToFit = useCallback(() => {
+    if (editingElRef.current) exitInlineEdit();
+    const slideContent = getSlideContent();
+    const frame =
+      slideContent?.querySelector<HTMLElement>("[data-fmd-autofit-content]") ??
+      slideContent?.querySelector<HTMLElement>(".fmd-slide");
+    if (!frame) {
+      throw new Error("[slides] shrink text to fit: the slide has no frame");
+    }
+    const result = shrinkTextToFit(
+      overflowingTextRuns(frame),
+      () => overflowOutsideFrame(frame) <= SHRINK_TEXT_TOLERANCE_PX,
+    );
+    if (result === "cannot-fit") {
+      toast(t("deckEditor.shrinkTextCannotFit"));
+      return;
+    }
+    const html = readCurrentSlideContentHtml();
+    if (html !== null) {
+      onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
+      });
+    }
+  }, [exitInlineEdit, getSlideContent, readCurrentSlideContentHtml, t]);
 
   const insertTableRow = useCallback(
     (cell: HTMLTableCellElement, position: "above" | "below") => {
-      const row = cell.closest("tr");
-      const table = row?.closest("table");
-      if (!row || !table || tableHasMergedCells(table)) return;
-      const newRow = row.cloneNode(true) as HTMLTableRowElement;
-      Array.from(newRow.cells).forEach((c) => {
-        c.innerHTML = "";
-      });
-      row.insertAdjacentElement(
-        position === "above" ? "beforebegin" : "afterend",
-        newRow,
-      );
-      commitTableMutation();
+      if (insertSlideTableRow(cell, position)) commitTableMutation();
     },
-    [commitTableMutation, tableHasMergedCells],
+    [commitTableMutation],
   );
 
   const deleteTableRow = useCallback(
     (cell: HTMLTableCellElement) => {
-      const row = cell.closest("tr");
-      const table = row?.closest("table");
-      if (
-        !row ||
-        !table ||
-        table.rows.length <= 1 ||
-        tableHasMergedCells(table)
-      ) {
-        return;
-      }
-      row.remove();
-      commitTableMutation();
+      if (deleteSlideTableRow(cell)) commitTableMutation();
     },
-    [commitTableMutation, tableHasMergedCells],
+    [commitTableMutation],
   );
 
   const insertTableColumn = useCallback(
     (cell: HTMLTableCellElement, position: "left" | "right") => {
-      const table = cell.closest("table");
-      if (!table) return;
-      const columnIndex = cell.cellIndex;
-      Array.from(table.rows).forEach((row) => {
-        const refCell = row.cells[columnIndex];
-        if (!refCell) return;
-        if (tableHasMergedCells(table) || tableHasColgroup(table)) return;
-        const newCell = document.createElement(
-          refCell.tagName,
-        ) as HTMLTableCellElement;
-        newCell.className = refCell.className;
-        const style = refCell.getAttribute("style");
-        if (style) newCell.setAttribute("style", style);
-        refCell.insertAdjacentElement(
-          position === "left" ? "beforebegin" : "afterend",
-          newCell,
-        );
-      });
-      commitTableMutation();
+      if (insertSlideTableColumn(cell, position)) commitTableMutation();
     },
-    [commitTableMutation, tableHasMergedCells, tableHasColgroup],
+    [commitTableMutation],
   );
 
   const deleteTableColumn = useCallback(
     (cell: HTMLTableCellElement) => {
-      const table = cell.closest("table");
-      if (!table) return;
-      const columnIndex = cell.cellIndex;
-      const firstRow = table.rows[0];
-      if (!firstRow || firstRow.cells.length <= 1) return;
-      Array.from(table.rows).forEach((row) => {
-        if (tableHasMergedCells(table) || tableHasColgroup(table)) return;
-        row.cells[columnIndex]?.remove();
-      });
-      commitTableMutation();
+      if (deleteSlideTableColumn(cell)) commitTableMutation();
     },
-    [commitTableMutation, tableHasMergedCells, tableHasColgroup],
+    [commitTableMutation],
   );
 
   // Delete/Backspace removes the selected slide content (single or
@@ -5466,6 +5569,15 @@ export default function SlideEditor({
         active.closest("[data-slide-thumbnail-id]")
       )
         return;
+      // A toolbar button, open menu or dialog keeps Backspace; a focused layer
+      // row deletes the layer it selects.
+      if (isSlideCanvasShortcutBlocked(active)) return;
+      if (
+        !isSlideCanvasShortcutTarget(active, slideCanvasRef.current) &&
+        !active?.closest("[data-layer-node-id]")
+      ) {
+        return;
+      }
       if (deleteSelectedElements()) {
         e.preventDefault();
         e.stopPropagation();
@@ -5576,7 +5688,8 @@ export default function SlideEditor({
     (
       copied: CopiedSlideObjects,
       anchorElement: HTMLElement | null,
-      anchorRectOverride?: Pick<DOMRect, "left" | "top" | "width" | "height">,
+      /** In slide layout px; used when there is no anchor element. */
+      anchorBoxOverride?: Pick<DOMRect, "left" | "top" | "width" | "height">,
     ) => {
       const fmdSlide = containerRef.current?.querySelector(
         ".fmd-slide",
@@ -5586,12 +5699,15 @@ export default function SlideEditor({
       const containingBlock = anchorElement
         ? resolveSlideObjectContainingBlock(anchorElement, positioningLayer)
         : positioningLayer;
-      const anchorRect =
-        anchorElement?.getBoundingClientRect() ?? anchorRectOverride;
+      const slideRect = fmdSlide.getBoundingClientRect();
+      const slideScale = layoutScaleOf(fmdSlide, slideRect);
+      const anchorBox = anchorElement
+        ? slideLayoutBoxOf(anchorElement, fmdSlide, slideRect)
+        : anchorBoxOverride;
 
       // With nothing to anchor beside (another slide), objects land exactly
       // where they were copied from.
-      const exact = !anchorRect && Boolean(copied.layout);
+      const exact = !anchorBox && Boolean(copied.layout);
       const pasted = buildPastedSlideObjects(
         copied,
         document,
@@ -5599,21 +5715,15 @@ export default function SlideEditor({
       );
       if (pasted.length === 0) return;
 
-      const slideRect = fmdSlide.getBoundingClientRect();
-      const slideScale = layoutScaleOf(fmdSlide, slideRect);
       // Target box in slide layout px. Each object keeps its offset from the
       // first copied one, so a multi-selection pastes as a group instead of
       // stacking on one anchor.
       const targetBox = (index: number) => {
         const box = copied.layout?.[index];
         if (exact) return box;
-        if (!anchorRect) return undefined;
-        const left =
-          (anchorRect.left - slideRect.left) * slideScale.x +
-          SLIDE_OBJECT_PASTE_OFFSET;
-        const top =
-          (anchorRect.top - slideRect.top) * slideScale.y +
-          SLIDE_OBJECT_PASTE_OFFSET;
+        if (!anchorBox) return undefined;
+        const left = anchorBox.left + SLIDE_OBJECT_PASTE_OFFSET;
+        const top = anchorBox.top + SLIDE_OBJECT_PASTE_OFFSET;
         const first = copied.layout?.[0];
         return box && first
           ? {
@@ -5625,20 +5735,23 @@ export default function SlideEditor({
           : {
               left,
               top,
-              width: anchorRect.width * slideScale.x,
+              width: anchorBox.width,
               height: undefined,
             };
       };
       const objectIds: string[] = [];
+      // The first object of a copy lands on the grid and the rest keep their
+      // offsets from it; an exact paste keeps the place it was copied from.
+      let gridShift: { x: number; y: number } | null = null;
       for (const [index, element] of pasted.entries()) {
         // The pasted element is still detached, so its own insets are the
         // only positioning it carries; computed style would read as static.
         const box = targetBox(index);
         element.style.position = "absolute";
         if (box) {
-          // Unrounded: a text object one pixel narrower rewraps.
+          // Rounded up: a text object one pixel narrower rewraps.
           if (!element.style.width && box.width > 0) {
-            element.style.width = `${box.width}px`;
+            element.style.width = `${Math.ceil(box.width)}px`;
           }
           // Insets came from the source containing block. `left`/`top` and the
           // size now place the object, so a kept `right`/`bottom` would
@@ -5649,7 +5762,7 @@ export default function SlideEditor({
             !element.style.height &&
             box.height
           ) {
-            element.style.height = `${box.height}px`;
+            element.style.height = `${Math.round(box.height)}px`;
           }
           element.style.removeProperty("right");
           element.style.removeProperty("bottom");
@@ -5670,8 +5783,21 @@ export default function SlideEditor({
             parent.clientLeft;
           const originTop =
             (parentRect.top - slideRect.top) * slideScale.y + parent.clientTop;
-          element.style.left = `${Math.round(box.left - originLeft)}px`;
-          element.style.top = `${Math.round(box.top - originTop)}px`;
+          const left = box.left - originLeft;
+          const top = box.top - originTop;
+          if (!gridShift) {
+            const grid = exact
+              ? null
+              : resolveObjectSlideGrid(element, slideCanvasRef.current);
+            gridShift = grid
+              ? {
+                  x: snapToSlideGrid(left, grid, "x") - left,
+                  y: snapToSlideGrid(top, grid, "y") - top,
+                }
+              : { x: 0, y: 0 };
+          }
+          element.style.left = `${Math.round(left + gridShift.x)}px`;
+          element.style.top = `${Math.round(top + gridShift.y)}px`;
           // Same sizing rule as promoting a flow object: text sizes itself,
           // a card keeps a minimum, anything else is pinned. The height comes
           // from the pasted element, not from the anchor it is placed beside.
@@ -6022,12 +6148,16 @@ export default function SlideEditor({
   const storeCopiedObjects = useCallback(
     (selection: HTMLElement[]) => {
       const copied = copySlideObjects(selection, storedFormOfCopy);
+      const sourceFmdSlide = selection[0]?.closest<HTMLElement>(".fmd-slide");
       const clipboard = {
         copied,
         clipboardId: createSlideObjectId(),
         deckId,
         slideId: slide.id,
-        sourceRect: selection[0]?.getBoundingClientRect(),
+        sourceBox:
+          sourceFmdSlide && selection[0]
+            ? slideLayoutBoxOf(selection[0], sourceFmdSlide)
+            : undefined,
       };
       copiedObjectClipboardRef.current = clipboard;
       setHasCopiedObject(true);
@@ -6060,7 +6190,7 @@ export default function SlideEditor({
     pasteSlideObjects(
       clipboard.copied,
       selection?.[0] ?? null,
-      clipboard.slideId === slide.id ? clipboard.sourceRect : undefined,
+      clipboard.slideId === slide.id ? clipboard.sourceBox : undefined,
     );
     return true;
   }, [deckId, getClipboardSelection, pasteSlideObjects, slide.id]);
@@ -6091,8 +6221,10 @@ export default function SlideEditor({
     const commands: SlideCanvasCommands = {
       canZoomIn: canvasZoomEnabled && canZoomIn,
       canZoomOut: canvasZoomEnabled && canZoomOut,
+      canFitToScreen: canvasZoomEnabled,
       zoomIn: canvasZoomIn,
       zoomOut: canvasZoomOut,
+      fitToScreen: fitCanvasToScreen,
       hasObjectSelection: () => getClipboardSelection() !== null,
       duplicateObjects: duplicateSelectedObjects,
       deleteObjects: () => deleteSelectedElements(),
@@ -6112,7 +6244,54 @@ export default function SlideEditor({
     canvasZoomOut,
     deleteSelectedElements,
     duplicateSelectedObjects,
+    fitCanvasToScreen,
     getClipboardSelection,
+  ]);
+
+  // Zoom keys replace the browser's page zoom everywhere in the editor except
+  // a text field or text edit, where they stay the browser's.
+  useEffect(() => {
+    if (!canvasZoomEnabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || e.altKey) return;
+      const active = document.activeElement;
+      if (
+        isSlideTextEditingTarget(e.target, active, editingEl) ||
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement ||
+        (active instanceof HTMLElement && active.isContentEditable) ||
+        active?.closest("[role='dialog']")
+      ) {
+        return;
+      }
+      const primary = e.metaKey || e.ctrlKey;
+      let zoom: (() => void) | null = null;
+      if (primary && (e.key === "=" || e.key === "+")) zoom = canvasZoomIn;
+      else if (primary && e.key === "-") zoom = canvasZoomOut;
+      else if (primary && e.key === "0") zoom = () => setManualCanvasZoom(100);
+      else if (
+        !primary &&
+        e.shiftKey &&
+        e.code === "Digit1" &&
+        isSlideCanvasShortcutTarget(active, slideCanvasRef.current) &&
+        !isSlideCanvasShortcutBlocked(active)
+      ) {
+        zoom = fitCanvasToScreen;
+      }
+      if (!zoom) return;
+      e.preventDefault();
+      zoom();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    canvasZoomEnabled,
+    canvasZoomIn,
+    canvasZoomOut,
+    editingEl,
+    fitCanvasToScreen,
+    setManualCanvasZoom,
   ]);
 
   // The object payload stays editor-local while its native marker identifies
@@ -6130,8 +6309,8 @@ export default function SlideEditor({
     if (readOnly) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.altKey) return;
-      const key = e.key.toLowerCase();
+      if (e.altKey || e.defaultPrevented) return;
+      const key = normalizeCanvasHotkeyKey(e);
       if (key !== "c" && key !== "v" && key !== "x" && key !== "d") return;
 
       const active = document.activeElement;
@@ -6159,6 +6338,9 @@ export default function SlideEditor({
         return;
       }
 
+      // Cmd+D is the browser's bookmark shortcut; on the canvas it only
+      // duplicates, even with nothing selected to duplicate.
+      if (key === "d") e.preventDefault();
       const selection = getClipboardSelection();
       if (!selection) return;
 
@@ -6247,7 +6429,7 @@ export default function SlideEditor({
         pasteSlideObjects(
           clipboard.copied,
           selection?.[0] ?? null,
-          clipboard.slideId === slide.id ? clipboard.sourceRect : undefined,
+          clipboard.slideId === slide.id ? clipboard.sourceBox : undefined,
         );
       };
       if (isCopiedObject) {
@@ -6348,10 +6530,12 @@ export default function SlideEditor({
       ensureSlideObjectId(box);
       ensureBuilderId(box);
       box.style.position = "absolute";
-      box.style.left = `${Math.max(0, geometry.x)}px`;
-      box.style.top = `${Math.max(0, geometry.y)}px`;
-      box.style.width = `${geometry.width}px`;
-      if (dragSized) box.style.minHeight = `${geometry.height}px`;
+      box.style.left = `${Math.max(0, Math.round(geometry.x))}px`;
+      box.style.top = `${Math.max(0, Math.round(geometry.y))}px`;
+      box.style.width = `${Math.round(geometry.width)}px`;
+      if (dragSized) {
+        box.style.minHeight = `${Math.round(geometry.height)}px`;
+      }
       box.style.fontSize = "24px";
       box.style.color = getSlideTextBoxDefaultColor(target, positioningLayer);
       box.style.fontFamily =
@@ -6429,8 +6613,18 @@ export default function SlideEditor({
             ),
           )
         : maxY / 2;
+      const slideCanvas = slideCanvasRef.current;
+      const grid =
+        slideCanvas && !hasRotatedAncestor(containingBlock, slideCanvas)
+          ? resolveSlideGrid(containingBlock, positioningLayer)
+          : null;
       const box = placeTextBoxAt(
-        { x, y, width, height },
+        {
+          x: grid ? snapToSlideGrid(x, grid, "x") : x,
+          y: grid ? snapToSlideGrid(y, grid, "y") : y,
+          width,
+          height,
+        },
         target,
         false,
         richHtml ? ZERO_WIDTH_SPACE : text,
@@ -6556,10 +6750,10 @@ export default function SlideEditor({
         containingBlock.offsetHeight,
         lineRotationDeg,
       );
-      shape.style.left = `${clampedPosition.x}px`;
-      shape.style.top = `${clampedPosition.y}px`;
-      shape.style.width = `${geometry.width}px`;
-      shape.style.height = `${geometry.height}px`;
+      shape.style.left = `${Math.round(clampedPosition.x)}px`;
+      shape.style.top = `${Math.round(clampedPosition.y)}px`;
+      shape.style.width = `${Math.round(geometry.width)}px`;
+      shape.style.height = `${Math.round(geometry.height)}px`;
       shape.style.boxSizing = "border-box";
       shape.style.backgroundColor = color;
       shape.style.border =
@@ -6596,7 +6790,7 @@ export default function SlideEditor({
   const applyObjectGeometry = useCallback(
     (
       element: HTMLElement,
-      geometry: SlideObjectGeometryPlan,
+      requestedGeometry: SlideObjectGeometryPlan,
       {
         overrideSizeCaps = false,
         autoHeight = false,
@@ -6608,6 +6802,18 @@ export default function SlideEditor({
         startHeight?: number;
       } = {},
     ) => {
+      const layer = resolveSlidePositioningLayer(element);
+      const canvas = slideCanvasRef.current;
+      const geometry = roundSlideObjectGeometry(requestedGeometry, {
+        keepPosition: Boolean(
+          layer &&
+          canvas &&
+          hasRotatedAncestor(
+            resolveSlideObjectContainingBlock(element, layer),
+            canvas,
+          ),
+        ),
+      });
       // Read before any write so the decision cannot depend on how the
       // width write reflows the text.
       const pinsHeight =
@@ -7052,6 +7258,10 @@ export default function SlideEditor({
               positioningLayer.offsetHeight ||
               viewport.canvas.height,
           };
+          const grid = resolveObjectSlideGrid(
+            activeElement,
+            slideCanvasRef.current,
+          );
           const snap = snapSlideObjectMove({
             moving: dragOrigin,
             deltaX: gesture.canvasDelta.x,
@@ -7060,9 +7270,9 @@ export default function SlideEditor({
             canvas: snapCanvas,
             scale: readScreenScale(containingBlock),
             bypass:
-              gesture.pointer.metaKey ||
-              gesture.pointer.ctrlKey ||
+              bypassesSlideSnapping(gesture.pointer) ||
               Boolean(viewport.toLocalDelta),
+            ...(grid ? { grid } : {}),
           });
           applyObjectGeometry(
             activeElement,
@@ -7405,13 +7615,31 @@ export default function SlideEditor({
         if (gesture.kind !== "resize" || !beginResize()) {
           return { handled: false, reason: "unhandled" };
         }
+        const grid =
+          bypassesSlideSnapping(gesture.pointer) ||
+          viewport.toLocalDelta ||
+          resizeTransform.transform !== "none"
+            ? null
+            : resolveObjectSlideGrid(element, slideCanvasRef.current);
+        const snapped =
+          grid &&
+          snapSlideObjectResizeDelta(
+            resizeOrigin,
+            gesture.handle,
+            gesture.canvasDelta,
+            grid,
+          );
+        const resizeDelta = {
+          x: snapped ? snapped.x : gesture.canvasDelta.x,
+          y: snapped ? snapped.y : gesture.canvasDelta.y,
+        };
         if (fitResize) {
           // A fit text box never gets a height: only its width and top
           // edge move, or `min-height` when it carries one.
           const next = resolveFitTextBoxResize({
             handle: gesture.handle,
             start: resizeOrigin,
-            delta: { dx: gesture.canvasDelta.x, dy: gesture.canvasDelta.y },
+            delta: { dx: resizeDelta.x, dy: resizeDelta.y },
             minWidth: MIN_SLIDE_OBJECT_SIZE,
             hasMinHeight: hasFitTextMinHeight(element),
             shift: Boolean(gesture.pointer.shiftKey),
@@ -7435,8 +7663,8 @@ export default function SlideEditor({
         }
         const resizeInput = {
           handle: gesture.handle,
-          dx: gesture.canvasDelta.x,
-          dy: gesture.canvasDelta.y,
+          dx: resizeDelta.x,
+          dy: resizeDelta.y,
           altKey: Boolean(gesture.pointer.altKey),
           fitText: isFitTextObject(element),
         };
@@ -7705,8 +7933,25 @@ export default function SlideEditor({
           return { handled: false, reason: "unhandled" };
         }
         suppressNextClickRef.current = true;
+        const grids = members.map((member) =>
+          resolveObjectSlideGrid(member.element, slideCanvasRef.current),
+        );
+        const grid =
+          bypassesSlideSnapping(gesture.pointer) ||
+          viewport.toLocalDelta ||
+          !grids.every(Boolean)
+            ? null
+            : grids.at(0);
+        const delta = grid
+          ? snapSlideObjectResizeDelta(
+              groupOrigin,
+              handle,
+              gesture.canvasDelta,
+              grid,
+            )
+          : gesture.canvasDelta;
         const scaleDelta = scaling
-          ? resolveProportionalScale(groupOrigin, gesture.canvasDelta, {
+          ? resolveProportionalScale(groupOrigin, delta, {
               handle,
             })
           : null;
@@ -7715,8 +7960,8 @@ export default function SlideEditor({
         }
         const plan = resizeSlideObjectMembers(members, {
           handle,
-          dx: scaleDelta ? scaleDelta.delta.x : gesture.canvasDelta.x,
-          dy: scaleDelta ? scaleDelta.delta.y : gesture.canvasDelta.y,
+          dx: scaleDelta ? scaleDelta.delta.x : delta.x,
+          dy: scaleDelta ? scaleDelta.delta.y : delta.y,
           preserveAspectRatio: scaling || gesture.pointer.shiftKey,
         });
         if (scaling) {
@@ -8078,6 +8323,12 @@ export default function SlideEditor({
               positioningLayer.offsetHeight ||
               viewport.canvas.height,
           };
+          // The group's origin lands on the grid and every member moves by
+          // the same delta, so their offsets from each other are kept.
+          const grids = dragged.map((member) =>
+            resolveObjectSlideGrid(member.element, slideCanvasRef.current),
+          );
+          const grid = grids.every(Boolean) ? grids.at(0) : null;
           const snap = snapSlideObjectMove({
             moving,
             deltaX: gesture.canvasDelta.x,
@@ -8089,9 +8340,9 @@ export default function SlideEditor({
             canvas: snapCanvas,
             scale: readScreenScale(containingBlock),
             bypass:
-              gesture.pointer.metaKey ||
-              gesture.pointer.ctrlKey ||
+              bypassesSlideSnapping(gesture.pointer) ||
               Boolean(viewport.toLocalDelta),
+            ...(grid ? { grid } : {}),
           });
           applySlideObjectMoveDelta(
             dragged,
@@ -8648,7 +8899,8 @@ export default function SlideEditor({
     ],
   );
 
-  // Enter on a selected text object edits it with all of its text selected.
+  // Enter on a selected text object edits it with its text selected: all of
+  // it, or the first run of a card whose text sits in separate boxes.
   useEffect(() => {
     if (readOnly || editingEl || !isHtmlSlide) return;
     if (multiSelection.size > 0 || !selectedElementSelector) return;
@@ -8686,7 +8938,7 @@ export default function SlideEditor({
       }
       e.preventDefault();
       e.stopPropagation();
-      selectAllEditableText(block);
+      selectEntryEditableText(block);
       enterInlineEdit(block);
     };
     window.addEventListener("keydown", onKey);
@@ -8721,7 +8973,19 @@ export default function SlideEditor({
       }
       const nudge = resolveSlidesCanvasNudge(e);
       if (!nudge) return;
-      const { x: dx, y: dy } = nudge.delta;
+      let { x: dx, y: dy } = nudge.delta;
+      // Shift moves to the next grid line in the arrow's direction; a rotated
+      // object has no grid and keeps the accelerated step.
+      const stepToNextGridLine = (
+        start: { x: number; y: number },
+        grid: SlideGrid | null | undefined,
+      ) => {
+        if (!e.shiftKey || !grid) return;
+        if (dx)
+          dx = nextSlideGridLine(start.x, dx > 0 ? 1 : -1, grid, "x") - start.x;
+        if (dy)
+          dy = nextSlideGridLine(start.y, dy > 0 ? 1 : -1, grid, "y") - start.y;
+      };
 
       if (multiSelection.size > 0 && !e.metaKey && !e.ctrlKey) {
         const slideContent = getSlideContent();
@@ -8847,6 +9111,15 @@ export default function SlideEditor({
           return;
         }
         e.preventDefault();
+        const bounds = unionSlideObjectGeometries(
+          members.map((member) => member.start),
+        );
+        const grids = members.map((member) =>
+          resolveObjectSlideGrid(member.element, slideCanvasRef.current),
+        );
+        if (bounds) {
+          stepToNextGridLine(bounds, grids.every(Boolean) ? grids.at(0) : null);
+        }
         applySlideObjectMoveDelta(members, dx, dy, applyObjectGeometry);
         for (const promotion of promotions) {
           preserveSlideObjectLayoutSpacer(promotion.element);
@@ -8888,7 +9161,11 @@ export default function SlideEditor({
         commitMultiObjectChange(
           members.map((member) => member.objectId),
           html,
-          { separateUndo: true },
+          {
+            undoCoalesceKey: `nudge:${slide.id}:${members
+              .map((member) => member.objectId)
+              .join(",")}`,
+          },
         );
         return;
       }
@@ -8912,7 +9189,12 @@ export default function SlideEditor({
         return;
       }
       e.preventDefault();
+      const nudgeKey = `nudge:${slide.id}:${frozen.element.getAttribute("data-slide-object-id")}`;
       const geometry = getObjectGeometry(frozen.element);
+      stepToNextGridLine(
+        geometry,
+        resolveObjectSlideGrid(frozen.element, slideCanvasRef.current),
+      );
       geometry.x += dx;
       geometry.y += dy;
       applyObjectGeometry(
@@ -8932,7 +9214,7 @@ export default function SlideEditor({
       }
       if (html !== null) {
         onUpdateSlideRef.current({ content: html }, undefined, {
-          separateUndo: true,
+          undoCoalesceKey: nudgeKey,
         });
       }
       const selector = getBuilderSelector(frozen.element);
@@ -8955,9 +9237,50 @@ export default function SlideEditor({
     selectElementForStyling,
     selectedImg,
     selectedElementSelector,
+    slide.id,
   ]);
 
   // --- Marquee drag handlers (attached to slide-content via React props) ---
+
+  // Draw-to-create lands both corners on the slide grid, so a click-placed
+  // object does too; Cmd (Ctrl elsewhere) places it off the grid.
+  const snapPlacementClientPoint = useCallback(
+    (
+      point: { x: number; y: number },
+      modifiers: { metaKey?: boolean; ctrlKey?: boolean },
+    ) => {
+      const fmdSlide =
+        containerRef.current?.querySelector<HTMLElement>(".fmd-slide");
+      const slideCanvas = slideCanvasRef.current;
+      if (!fmdSlide || !slideCanvas || bypassesSlideSnapping(modifiers)) {
+        return point;
+      }
+      const layer = slidePositioningLayerOf(fmdSlide);
+      const block = resolveSlideObjectInsertionContainingBlock(layer);
+      const rect = block.getBoundingClientRect();
+      if (
+        hasRotatedAncestor(block, slideCanvas) ||
+        !rect.width ||
+        !rect.height ||
+        !block.offsetWidth ||
+        !block.offsetHeight
+      ) {
+        return point;
+      }
+      const grid = resolveSlideGrid(block, layer);
+      const scaleX = rect.width / block.offsetWidth;
+      const scaleY = rect.height / block.offsetHeight;
+      return {
+        x:
+          rect.left +
+          snapToSlideGrid((point.x - rect.left) / scaleX, grid, "x") * scaleX,
+        y:
+          rect.top +
+          snapToSlideGrid((point.y - rect.top) / scaleY, grid, "y") * scaleY,
+      };
+    },
+    [],
+  );
 
   const handleSlidePointerUp = useCallback(
     (e: React.PointerEvent) => {
@@ -8985,16 +9308,18 @@ export default function SlideEditor({
       const containingBlock =
         resolveSlideObjectInsertionContainingBlock(positioningLayer);
       const rect = containingBlock.getBoundingClientRect();
+      const startPoint = snapPlacementClientPoint(placement.start, e);
+      const endPoint = snapPlacementClientPoint(placement.current, e);
       const start = clientPointToSlideCoordinates(
-        placement.start.x,
-        placement.start.y,
+        startPoint.x,
+        startPoint.y,
         rect,
         containingBlock.offsetWidth,
         containingBlock.offsetHeight,
       );
       const end = clientPointToSlideCoordinates(
-        placement.current.x,
-        placement.current.y,
+        endPoint.x,
+        endPoint.y,
         rect,
         containingBlock.offsetWidth,
         containingBlock.offsetHeight,
@@ -9032,7 +9357,13 @@ export default function SlideEditor({
         suppressNextClickRef.current = false;
       }, 0);
     },
-    [onExitShapeMode, onExitTextBoxMode, placeShapeAt, placeTextBoxAt],
+    [
+      onExitShapeMode,
+      onExitTextBoxMode,
+      placeShapeAt,
+      placeTextBoxAt,
+      snapPlacementClientPoint,
+    ],
   );
 
   const handleSlidePointerCancel = useCallback(() => {
@@ -9118,18 +9449,20 @@ export default function SlideEditor({
       const placement = placementRef.current;
       if (placement) {
         placement.current = { x: e.clientX, y: e.clientY };
+        const start = snapPlacementClientPoint(placement.start, e);
+        const end = snapPlacementClientPoint(placement.current, e);
         setPlacementRect({
-          x: Math.min(placement.start.x, e.clientX),
-          y: Math.min(placement.start.y, e.clientY),
-          w: Math.abs(e.clientX - placement.start.x),
-          h: Math.abs(e.clientY - placement.start.y),
+          x: Math.min(start.x, end.x),
+          y: Math.min(start.y, end.y),
+          w: Math.abs(end.x - start.x),
+          h: Math.abs(end.y - start.y),
           shape:
             placement.shapeType && placement.color
               ? {
                   type: placement.shapeType,
                   color: placement.color,
-                  start: placement.start,
-                  end: placement.current,
+                  start,
+                  end,
                 }
               : undefined,
         });
@@ -9173,6 +9506,7 @@ export default function SlideEditor({
       textBoxMode,
       resolvePointerTarget,
       setCanvasHoverElement,
+      snapPlacementClientPoint,
     ],
   );
 
@@ -10266,6 +10600,7 @@ export default function SlideEditor({
               colCount: tableCell
                 ? (tableCell.parentElement?.childElementCount ?? 0)
                 : 0,
+              ...tableEditAvailability(table),
             }
           : null,
       );
@@ -10536,11 +10871,7 @@ export default function SlideEditor({
         active?.tagName === "TEXTAREA" ||
         active?.tagName === "SELECT" ||
         (active instanceof HTMLElement && active.isContentEditable) ||
-        Boolean(
-          active?.closest(
-            "[data-slide-thumbnail-id], [data-slide-context-toolbar], [data-radix-popper-content-wrapper], [role='dialog']",
-          ),
-        )
+        isSlideCanvasShortcutBlocked(active)
       ) {
         return;
       }
@@ -10553,7 +10884,8 @@ export default function SlideEditor({
 
       if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
 
-      if (primary && e.altKey && e.key.toLowerCase() === "g") {
+      const key = normalizeCanvasHotkeyKey(e);
+      if (primary && e.altKey && key === "g") {
         handleCommand(
           e.shiftKey ? handleUngroupSelected() : handleGroupSelected(),
         );
@@ -10585,7 +10917,7 @@ export default function SlideEditor({
         return;
       }
 
-      if (primary && !e.altKey && e.key.toLowerCase() === "a") {
+      if (primary && !e.altKey && key === "a") {
         const slideContent = getSlideContent();
         if (!slideContent) return;
         stampBuilderIds(slideContent);
@@ -10610,7 +10942,12 @@ export default function SlideEditor({
         return;
       }
 
-      if (!primary && !e.altKey && e.key === "Tab") {
+      if (
+        !primary &&
+        !e.altKey &&
+        e.key === "Tab" &&
+        isSlideCanvasTabTarget(active, slideCanvasRef.current)
+      ) {
         const slideContent = getSlideContent();
         if (!slideContent) return;
         stampBuilderIds(slideContent);
@@ -11035,6 +11372,8 @@ export default function SlideEditor({
         value: canvasZoom,
         presets: CANVAS_ZOOM_PRESETS,
         onSelect: setManualCanvasZoom,
+        fitted: canvasZoom === fitCanvasZoom,
+        onFit: fitCanvasToScreen,
       };
 
   const contextImageTarget = (() => {
@@ -11043,6 +11382,16 @@ export default function SlideEditor({
       ? (target as HTMLImageElement)
       : (target?.querySelector<HTMLImageElement>("img") ?? null);
   })();
+  const canCropImage = (image: HTMLImageElement | null) =>
+    Boolean(
+      image &&
+      !readOnly &&
+      isHtmlSlide &&
+      !imageCrop &&
+      !image.closest(".fmd-img-placeholder") &&
+      getSlideContent()?.contains(image),
+    );
+  const imageToCrop = selectedImageForCropRef.current;
 
   const slideElementContextMenuContent = (
     <>
@@ -11053,6 +11402,13 @@ export default function SlideEditor({
           >
             {t("editorToolbar.imageOptions")}
           </ContextMenuItem>
+          {canCropImage(contextImageTarget) && (
+            <ContextMenuItem
+              onSelect={() => startImageCrop(contextImageTarget)}
+            >
+              {t("editorToolbar.cropImage")}
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
         </>
       )}
@@ -11189,6 +11545,21 @@ export default function SlideEditor({
     captureInlineEditDraft(slide.id);
   };
 
+  // A text edit gets its caret back; otherwise the canvas takes focus so its
+  // shortcuts keep working after a toolbar menu closes.
+  const returnFocusFromToolbar = () => {
+    const session = textSessionRef.current?.text;
+    if (!session) {
+      slideCanvasRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (
+      !restoreEditableTextRange(session.element, richTextSelectionRef.current)
+    ) {
+      session.element.focus({ preventScroll: true });
+    }
+  };
+
   const sendQuickPickToAgent = (pick: ContextToolbarQuickPick) => {
     const selectors =
       multiSelection.size > 0
@@ -11246,6 +11617,10 @@ export default function SlideEditor({
         }
       : undefined,
     onImageFitChange: imageOverlay ? setSelectedImageFit : undefined,
+    onCropImage:
+      imageToCrop && canCropImage(imageToCrop)
+        ? () => startImageCrop(imageToCrop)
+        : undefined,
     inlineFormatting: Boolean(editingEl && textSessionRef.current?.text),
     onTextFormat: (format: "code") =>
       runInlineTextCommand((session) => session.commands[format]()),
@@ -11253,6 +11628,7 @@ export default function SlideEditor({
       runInlineTextCommand((session) => session.commands.link(href)),
     onOpenAgent: openAgentPanel,
     onAgentQuickPick: sendQuickPickToAgent,
+    onReturnFocus: returnFocusFromToolbar,
   };
 
   // Excalidraw slides have no selectable slide content, so the row collapses
@@ -11525,11 +11901,23 @@ export default function SlideEditor({
                                   "deckEditor.layoutOverflowDetails",
                                 )}
                                 isAskingAgentToFix={isAskingAgentToFix}
+                                fixLabel={t("deckEditor.fixLayoutWithAi")}
+                                askingLabel={t(
+                                  "deckEditor.askingAgentToFixLayout",
+                                )}
                                 dismissLabel={t(
                                   "deckEditor.dismissLayoutWarning",
                                 )}
                                 onFix={handleAskAgentToFixLayout}
                                 onDismiss={dismissWarning}
+                                {...(isHtmlSlide
+                                  ? {
+                                      shrinkLabel: t(
+                                        "deckEditor.shrinkTextToFit",
+                                      ),
+                                      onShrink: handleShrinkTextToFit,
+                                    }
+                                  : {})}
                               />
                             )}
                         </div>
@@ -11541,23 +11929,26 @@ export default function SlideEditor({
                       >
                         {contextMenuTableInfo && (
                           <>
-                            <ContextMenuItem
+                            <TableContextMenuItem
+                              blocker={contextMenuTableInfo.rows}
                               onSelect={() => {
                                 const cell = contextMenuTableCellRef.current;
                                 if (cell) insertTableRow(cell, "above");
                               }}
                             >
                               {t("styleInspector.insertRowAbove")}
-                            </ContextMenuItem>
-                            <ContextMenuItem
+                            </TableContextMenuItem>
+                            <TableContextMenuItem
+                              blocker={contextMenuTableInfo.rows}
                               onSelect={() => {
                                 const cell = contextMenuTableCellRef.current;
                                 if (cell) insertTableRow(cell, "below");
                               }}
                             >
                               {t("styleInspector.insertRowBelow")}
-                            </ContextMenuItem>
-                            <ContextMenuItem
+                            </TableContextMenuItem>
+                            <TableContextMenuItem
+                              blocker={contextMenuTableInfo.rows}
                               disabled={contextMenuTableInfo.rowCount <= 1}
                               onSelect={() => {
                                 const cell = contextMenuTableCellRef.current;
@@ -11565,25 +11956,28 @@ export default function SlideEditor({
                               }}
                             >
                               {t("styleInspector.deleteRow")}
-                            </ContextMenuItem>
+                            </TableContextMenuItem>
                             <ContextMenuSeparator />
-                            <ContextMenuItem
+                            <TableContextMenuItem
+                              blocker={contextMenuTableInfo.columns}
                               onSelect={() => {
                                 const cell = contextMenuTableCellRef.current;
                                 if (cell) insertTableColumn(cell, "left");
                               }}
                             >
                               {t("styleInspector.insertColumnLeft")}
-                            </ContextMenuItem>
-                            <ContextMenuItem
+                            </TableContextMenuItem>
+                            <TableContextMenuItem
+                              blocker={contextMenuTableInfo.columns}
                               onSelect={() => {
                                 const cell = contextMenuTableCellRef.current;
                                 if (cell) insertTableColumn(cell, "right");
                               }}
                             >
                               {t("styleInspector.insertColumnRight")}
-                            </ContextMenuItem>
-                            <ContextMenuItem
+                            </TableContextMenuItem>
+                            <TableContextMenuItem
+                              blocker={contextMenuTableInfo.columns}
                               disabled={contextMenuTableInfo.colCount <= 1}
                               onSelect={() => {
                                 const cell = contextMenuTableCellRef.current;
@@ -11591,7 +11985,7 @@ export default function SlideEditor({
                               }}
                             >
                               {t("styleInspector.deleteColumn")}
-                            </ContextMenuItem>
+                            </TableContextMenuItem>
                             <ContextMenuSeparator />
                           </>
                         )}

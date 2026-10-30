@@ -42,6 +42,7 @@ import {
   setInlineTextLink,
   toggleInlineTextFormat,
 } from "./rich-text-selection";
+import { paintsOwnBox } from "./slide-text-targets";
 
 export interface InPlaceTextSessionOptions {
   /**
@@ -55,6 +56,11 @@ export interface InPlaceTextSessionOptions {
   onInput?: () => void;
   /** Opens the existing link control for a selected range. */
   onRequestLink?: (range: Range) => void;
+  /**
+   * Sees a paste before the session inserts it. Returning true means the
+   * caller applied it (outside the edited element) and the session does not.
+   */
+  onPasteData?: (data: DataTransfer) => boolean;
 }
 
 export type SlideTextAlign = "left" | "center" | "right" | "justify";
@@ -2710,6 +2716,44 @@ export function startInPlaceTextSession(
     range.setEnd(snapped.endContainer, snapped.endOffset);
   }
 
+  /**
+   * A bar, swatch or emptied pill wholly inside the range. Such boxes carry
+   * no text, so a delete would remove them while seeming to remove only text.
+   */
+  function holdsPaintedTextlessBox(range: Range): boolean {
+    if (range.collapsed) return false;
+    return Array.from(el.querySelectorAll<HTMLElement>("*")).some((element) => {
+      if (element.tagName === "BR" || element.textContent.trim()) return false;
+      const whole = document.createRange();
+      whole.selectNode(element);
+      return (
+        range.compareBoundaryPoints(Range.START_TO_START, whole) <= 0 &&
+        range.compareBoundaryPoints(Range.END_TO_END, whole) >= 0 &&
+        [
+          element,
+          ...Array.from(element.querySelectorAll<HTMLElement>("*")),
+        ].some(paintsOwnBox)
+      );
+    });
+  }
+
+  /** Deletes only the range's text: every element it crossed stays. */
+  function deleteTextOnly(range: Range) {
+    const caretNode = range.startContainer;
+    const caretOffset = range.startOffset;
+    const spans = textNodesIn(el)
+      .filter((text) => range.intersectsNode(text))
+      .map((text) => ({
+        text,
+        from: text === range.startContainer ? range.startOffset : 0,
+        to: text === range.endContainer ? range.endOffset : text.length,
+      }));
+    for (const { text, from, to } of spans) {
+      if (to > from) text.deleteData(from, to - from);
+    }
+    settleCaret(caretNode, caretOffset);
+  }
+
   /** Deletes a range and joins the blocks it crossed, without new styling. */
   function deleteRange(range: Range) {
     snapToText(range);
@@ -2723,6 +2767,10 @@ export function startInPlaceTextSession(
       if (run instanceof HTMLElement) range.setStart(...blockStartPoint(run));
       else if (run instanceof Text) range.setStart(run, 0);
       else range.setStartAfter(startMarker);
+    }
+    if (holdsPaintedTextlessBox(range)) {
+      deleteTextOnly(range);
+      return;
     }
     const startRow = legacyRowAt(range.startContainer);
     const endRow = legacyRowAt(range.endContainer);
@@ -6158,6 +6206,7 @@ export function startInPlaceTextSession(
         }
         throw new Error(`in-place text session: ${type} has no dataTransfer`);
       }
+      if (type === "insertFromPaste" && options.onPasteData?.(data)) return;
       const at =
         (type === "insertFromDrop" ? targetRange(event) : null) ?? range;
       if (dropJoins) {
@@ -6439,6 +6488,7 @@ export function startInPlaceTextSession(
     event.preventDefault();
     const data = event.clipboardData;
     if (!data) throw new Error("in-place text session: paste has no data");
+    if (options.onPasteData?.(data)) return;
     const range = selectionRange();
     if (range) command(() => insertClipboard(data, range));
   }

@@ -1,4 +1,5 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { SharedDeckResponse } from "@shared/api";
@@ -6,9 +7,60 @@ import { IconAlertCircle } from "@tabler/icons-react";
 import { useState, useEffect, useLayoutEffect } from "react";
 import { useParams, useSearchParams } from "react-router";
 
+import { PresentationAccessGate } from "@/components/presentation/PresentationAccessGate";
 import PresentationView from "@/components/presentation/PresentationView";
 import type { Slide } from "@/context/DeckContext";
 import { mergeDesignSystemData } from "@/hooks/use-deck-design-system";
+
+type PresentationDeckResult =
+  | { status: "ok"; deck: SharedDeckResponse }
+  | { status: "restricted" };
+
+/**
+ * The live deck behind a `/p/:id` link. The page's HTML is a public shell the
+ * CDN caches for every visitor, so the deck and the access decision are read
+ * here, after load, never baked into that shell.
+ */
+export function PresentationLinkDeck({
+  deckId,
+  agentAccessToken,
+}: {
+  deckId: string;
+  agentAccessToken?: string | null;
+}) {
+  const query = useActionQuery<PresentationDeckResult>(
+    "get-presentation-deck",
+    {
+      deckId,
+      ...(agentAccessToken ? { agentAccessToken } : {}),
+    },
+    { retry: false, resources: ["deck"] },
+  );
+  if (query.data?.status === "restricted") {
+    return (
+      <PresentationAccessGate
+        deckId={deckId}
+        onReload={() => void query.refetch()}
+      />
+    );
+  }
+  if (query.data) {
+    return <SharedPresentation initialDeck={query.data.deck} />;
+  }
+  if (query.isError) {
+    return <SharedPresentation initialError={query.error.message} />;
+  }
+  return <PresentationSkeleton />;
+}
+
+function PresentationSkeleton() {
+  return (
+    // guard:allow-raw-color — the presentation stage is black in both themes, like the slides it frames
+    <div className="fixed inset-0 bg-black flex items-center justify-center p-8">
+      <div className="skeleton-shimmer w-full max-w-5xl aspect-video rounded-xl bg-foreground/[0.04]" />
+    </div>
+  );
+}
 
 interface SharedPresentationProps {
   initialDeck?: SharedDeckResponse | null;
@@ -49,13 +101,13 @@ export default function SharedPresentation({
   }, [deck]);
 
   useEffect(() => {
-    if (!token) return;
     if (initialDeck || initialError) {
       setDeck(initialDeck);
       setError(initialError);
       setLoading(false);
       return;
     }
+    if (!token) return;
 
     fetch(`${appBasePath()}/api/share/${token}`)
       .then(async (res) => {
@@ -76,13 +128,7 @@ export default function SharedPresentation({
       });
   }, [token, initialDeck, initialError]);
 
-  if (loading) {
-    return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center p-8">
-        <div className="skeleton-shimmer w-full max-w-5xl aspect-video rounded-xl bg-foreground/[0.04]" />
-      </div>
-    );
-  }
+  if (loading) return <PresentationSkeleton />;
 
   if (error || !deck) {
     return (

@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
+import {
+  loadGoogleFontCatalog,
+  resetGoogleFontsForTests,
+  setGoogleFontCatalogLoader,
+} from "@agent-native/toolkit/design-tweaks";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   ensureGoogleFontLinkInHtml,
@@ -8,6 +13,8 @@ import {
 } from "./code-layer-state";
 
 describe("known font references in saved screen HTML", () => {
+  afterEach(() => resetGoogleFontsForTests());
+
   it("persists known Google fonts once without loading custom names", () => {
     const html =
       "<!doctype html><html><head><title>Card</title></head><body><h1>Title</h1></body></html>";
@@ -49,6 +56,23 @@ describe("known font references in saved screen HTML", () => {
       "'Montserrat', sans-serif",
     );
     expect(montserrat).toContain("family=Montserrat:ital,wght@0,100..900");
+  });
+
+  it("links any catalog family with only the weights it ships", async () => {
+    setGoogleFontCatalogLoader(async () => [
+      {
+        family: "Buda",
+        category: "Display",
+        weights: [300],
+        italicWeights: [],
+        variable: false,
+      },
+    ]);
+    await loadGoogleFontCatalog();
+    const html = "<!doctype html><html><head></head><body></body></html>";
+    expect(ensureGoogleFontLinkInHtml(html, "'Buda', sans-serif")).toContain(
+      'href="https://fonts.googleapis.com/css2?family=Buda:wght@300&amp;display=swap"',
+    );
   });
 
   it("persists an uploaded face once with its weight and source URL", () => {
