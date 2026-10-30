@@ -20,8 +20,42 @@ import {
 import {
   deferMigration,
   runMigrations,
+  splitSqlStatements,
   withMigrationRuntime,
 } from "./migrations.js";
+
+describe("splitSqlStatements", () => {
+  it("keeps PostgreSQL function bodies and quoted identifiers intact", () => {
+    const sql = `CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $body$
+BEGIN
+  RAISE EXCEPTION 'history; -- only';
+END $body$;
+CREATE TABLE "semi;--colon" (id int);`;
+    expect(splitSqlStatements(sql)).toEqual([
+      `CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $body$
+BEGIN
+  RAISE EXCEPTION 'history; -- only';
+END $body$`,
+      'CREATE TABLE "semi;--colon" (id int)',
+    ]);
+  });
+
+  it("handles nested comments, escape strings, and dollar signs in identifiers", () => {
+    const statements =
+      splitSqlStatements(String.raw`SELECT E'it\'s; -- fine'; /* outer; /* inner */ still */ SELECT foo$bar$; -- trailing
+SELECT $$a;--b$$;`);
+    expect(statements).toHaveLength(3);
+    expect(statements[0]).toBe(String.raw`SELECT E'it\'s; -- fine'`);
+    expect(statements[1]).toMatch(/SELECT foo\$bar\$$/);
+    expect(statements[2]).toBe("SELECT $$a;--b$$");
+  });
+
+  it("rejects unterminated quotes and comments", () => {
+    for (const sql of ["SELECT 'oops", "SELECT $$oops", "SELECT 1 /* oops"]) {
+      expect(() => splitSqlStatements(sql)).toThrow(/Unterminated/);
+    }
+  });
+});
 
 function makeExec(rows: Array<{ v: number | null }> = [{ v: null }]) {
   return {

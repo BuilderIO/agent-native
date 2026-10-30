@@ -832,6 +832,19 @@ describe("workspace deploy", () => {
     expect(dispatchServer).not.toContain('"/dispatch/*.json"');
     expect(dispatchServer).not.toContain('"/dispatch/*.svg"');
     expect(dispatchServer).toContain('"/.netlify/*"');
+    // Netlify resolves overlapping function paths by function name, so
+    // dispatch-server must not also claim starter's discovery paths.
+    for (const discoveryPath of [
+      "/.well-known/oauth-authorization-server/starter",
+      "/.well-known/openid-configuration/starter",
+      "/.well-known/oauth-protected-resource/starter",
+      "/.well-known/oauth-protected-resource/starter/*",
+    ]) {
+      expect(dispatchServer).toContain(`"${discoveryPath}"`);
+    }
+    expect(dispatchServer).not.toContain(
+      '"/.well-known/oauth-authorization-server/dispatch"',
+    );
     expect(dispatchServer).toContain("preferStatic: false");
     expect(dispatchServer).not.toContain("normalizeBasePathArgs");
 

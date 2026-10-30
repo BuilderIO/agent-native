@@ -1,8 +1,8 @@
 import type { ReviewComment } from "@agent-native/core/review";
 import type { ReviewAgentIntent } from "@shared/review-agent";
 
-/** The four agent items in a thread card's More menu. */
-export type ReviewThreadAgentAction = "send" | "suggest" | "reply" | "apply";
+/** The agent items in a thread card's More menu. */
+export type ReviewThreadAgentAction = "send" | "suggest" | "apply";
 
 /** The items that start a background review-agent run instead of opening the chat. */
 export type ReviewThreadEngineAction = Exclude<ReviewThreadAgentAction, "send">;

@@ -10,11 +10,12 @@ import { cn } from "@agent-native/toolkit/utils";
 import { IconAlertCircle, IconCheck, IconDots } from "@tabler/icons-react";
 import { Fragment, useRef } from "react";
 
+import { ReviewTooltip } from "./ReviewTooltip.js";
+
 export interface ReviewThreadMenuProps {
   /** Each agent item renders only when its handler is passed. */
   onSendToAgent?: (() => void) | undefined;
   onSuggestChanges?: (() => void) | undefined;
-  onReplyInThread?: (() => void) | undefined;
   onApplyAndResolve?: (() => void) | undefined;
   /** Disables the agent items while one of them is still being handed off. */
   agentActionsDisabled?: boolean | undefined;
@@ -32,7 +33,6 @@ export interface ReviewThreadMenuProps {
   moreActionsLabel?: string | undefined;
   sendToAgentLabel?: string | undefined;
   suggestChangesLabel?: string | undefined;
-  replyInThreadLabel?: string | undefined;
   applyAndResolveLabel?: string | undefined;
   editLabel?: string | undefined;
   markUnreadLabel?: string | undefined;
@@ -51,7 +51,6 @@ const ITEM_CLASS = "h-7 whitespace-nowrap px-2 py-1 text-sm";
 export function ReviewThreadMenu({
   onSendToAgent,
   onSuggestChanges,
-  onReplyInThread,
   onApplyAndResolve,
   agentActionsDisabled = false,
   canEdit = false,
@@ -65,7 +64,6 @@ export function ReviewThreadMenu({
   moreActionsLabel = "More actions",
   sendToAgentLabel = "Send to agent",
   suggestChangesLabel = "Suggest changes",
-  replyInThreadLabel = "Reply in thread",
   applyAndResolveLabel = "Apply changes and resolve",
   editLabel = "Edit",
   markUnreadLabel = "Mark as unread",
@@ -97,7 +95,6 @@ export function ReviewThreadMenu({
     [
       agentItem("send", sendToAgentLabel, onSendToAgent),
       agentItem("suggest", suggestChangesLabel, onSuggestChanges),
-      agentItem("reply", replyInThreadLabel, onReplyInThread),
     ],
     [agentItem("apply", applyAndResolveLabel, onApplyAndResolve)],
     [
@@ -159,20 +156,22 @@ export function ReviewThreadMenu({
   if (groups.length === 0) return null;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "size-7 shrink-0 rounded-[8px] text-muted-foreground hover:text-foreground",
-            className,
-          )}
-          aria-label={moreActionsLabel}
-        >
-          <IconDots className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
+      <ReviewTooltip label={moreActionsLabel}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-7 shrink-0 rounded-[8px] text-muted-foreground hover:text-foreground",
+              className,
+            )}
+            aria-label={moreActionsLabel}
+          >
+            <IconDots className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+      </ReviewTooltip>
       <DropdownMenuContent
         data-review-popover=""
         align={align}

@@ -148,6 +148,60 @@ describe("RequireSession", () => {
     expect(continuationOf(href)).toBe("/inbox?label=important");
   });
 
+  it("sends a signed-out visitor to the app's public view when it has one", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: false,
+      status: "unauthenticated",
+    });
+    const signedOutHref = vi.fn(() => "/p/doc-1");
+    render(
+      <RequireSession signedOutHref={signedOutHref}>
+        <Child />
+      </RequireSession>,
+    );
+    expect(container.querySelector('[data-testid="protected"]')).toBeNull();
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).toHaveBeenCalledWith("/p/doc-1");
+  });
+
+  it("falls back to sign-in when the app has no public view of the URL", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: false,
+      status: "unauthenticated",
+    });
+    render(
+      <RequireSession signedOutHref={() => null}>
+        <Child />
+      </RequireSession>,
+    );
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+    const href = replaceMock.mock.calls[0][0] as string;
+    expect(href).toContain(`${SIGN_IN_ENTRY_PATH}?c=`);
+    expect(continuationOf(href)).toBe("/inbox?label=important");
+  });
+
+  it.each(["loading", "authenticated", "unavailable"] as const)(
+    "never asks for the public view while the session is %s",
+    (status) => {
+      useSessionMock.mockReturnValue({
+        session: status === "authenticated" ? { email: "a@b.com" } : null,
+        isLoading: status === "loading",
+        status,
+        retry: vi.fn(),
+      });
+      const signedOutHref = vi.fn(() => "/p/doc-1");
+      render(
+        <RequireSession signedOutHref={signedOutHref}>
+          <Child />
+        </RequireSession>,
+      );
+      expect(signedOutHref).not.toHaveBeenCalled();
+      expect(replaceMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("never redirects when already on the sign-in page (no infinite loop)", () => {
     stubLocation(SIGN_IN_ENTRY_PATH, "?c=abc");
     useSessionMock.mockReturnValue({

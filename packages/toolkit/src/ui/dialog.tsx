@@ -3,6 +3,7 @@ import { IconX } from "@tabler/icons-react";
 import * as React from "react";
 
 import { cn } from "../utils.js";
+import { ModalLayerProvider } from "./modal-layer.js";
 
 const Dialog = DialogPrimitive.Root;
 
@@ -86,7 +87,7 @@ const DialogContent = React.forwardRef<
         )}
         {...props}
       >
-        {children}
+        <ModalLayerProvider value>{children}</ModalLayerProvider>
         {!hideClose && (
           <DialogPrimitive.Close className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
             <IconX className="h-4 w-4" />

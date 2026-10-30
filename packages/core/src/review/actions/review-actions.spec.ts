@@ -69,11 +69,13 @@ const {
   __resetReviewInitForTests,
   claimReviewNotificationDelivery,
   consumeReviewFeedback,
+  deleteReviewComment,
   ensureReviewTables,
   insertReviewComment,
   insertReviewReply,
   finishReviewNotificationDelivery,
   queryReviewComments,
+  resolveReviewThread,
   upsertReviewStatus,
 } = await import("../store.js");
 
@@ -562,10 +564,10 @@ describe("review actions", () => {
 
   it("lets authors and editors delete a comment, which clears its text", async () => {
     expect(deleteReviewCommentAction.tool.description).toContain(
-      "text, mentions and image attachments are cleared",
+      "clearing its text, mentions and image attachments",
     );
     expect(deleteReviewCommentAction.tool.description).toContain(
-      "replies stay in the thread",
+      "deleting a reply removes only that reply",
     );
     const insert = (body: string) =>
       insertReviewComment({
@@ -994,6 +996,75 @@ describe("review actions", () => {
       scope: { userEmail: OWNER_EMAIL },
     });
     expect(comments).toEqual([]);
+  });
+
+  it("removes a reply when non-transactional routing fails on a thread that exists", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "private",
+      body: "Resolved root",
+      ownerEmail: OWNER_EMAIL,
+    });
+    await resolveReviewThread(root.threadId, OWNER_EMAIL, {
+      resourceType: "doc",
+      resourceId: "private",
+    });
+
+    await expect(
+      insertReviewReply(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          threadId: root.threadId,
+          parentCommentId: root.id,
+          body: "This reply must not become an orphan",
+          ownerEmail: OWNER_EMAIL,
+        },
+        "human",
+        { resourceType: "doc", resourceId: "private" },
+      ),
+    ).rejects.toThrow("Open review thread not found");
+
+    const comments = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "private",
+      scope: { userEmail: OWNER_EMAIL },
+      includeResolved: true,
+    });
+    expect(comments.map((comment) => comment.body)).toEqual(["Resolved root"]);
+  });
+
+  it("refuses a reply to a thread that was deleted", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "private",
+      body: "Deleted root",
+      ownerEmail: OWNER_EMAIL,
+    });
+    await deleteReviewComment(root.id, OWNER_EMAIL);
+
+    await expect(
+      insertReviewReply(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          threadId: root.threadId,
+          parentCommentId: root.id,
+          body: "Too late",
+          ownerEmail: OWNER_EMAIL,
+        },
+        null,
+        { resourceType: "doc", resourceId: "private" },
+      ),
+    ).rejects.toThrow("Open review thread not found");
+
+    const comments = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "private",
+      scope: { userEmail: OWNER_EMAIL },
+      includeDeleted: true,
+    });
+    expect(comments.map((comment) => comment.id)).toEqual([root.id]);
   });
 
   it("filters the distinct root queue before limit and returns oldest first", async () => {

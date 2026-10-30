@@ -2,13 +2,12 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   formatReviewCommentRelativeTime,
   resolveReviewAgent,
+  ReviewAuthorAvatar,
   type ReviewThread,
 } from "@agent-native/toolkit/app/review";
 import { IconCircleCheck } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
-
-import { ReviewInitialAvatar } from "./ReviewInitialAvatar";
 
 export interface ReviewThreadRowProps {
   thread: ReviewThread;
@@ -64,11 +63,12 @@ export function ReviewThreadRow({
         />
       ) : null}
       <span className="sr-only">{screenReaderName}</span>{" "}
-      <ReviewInitialAvatar
-        name={root.authorName}
+      <ReviewAuthorAvatar
+        name={author}
         email={root.authorEmail}
         agent={agent}
         size={16}
+        decorative
       />
       <span
         className={cn(

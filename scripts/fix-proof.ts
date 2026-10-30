@@ -39,8 +39,17 @@ function git(...args: string[]): string {
   return r.stdout;
 }
 
-function run(): { status: number; signal: string | null; tail: string } {
+function run(): {
+  status: number;
+  signal: string | null;
+  error?: Error;
+  output: string;
+  tail: string;
+} {
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
   const r = spawnSync(command[0], command.slice(1), {
+    env,
     encoding: "utf8",
     maxBuffer: 256 << 20,
     stdio: ["ignore", "pipe", "pipe"],
@@ -49,8 +58,36 @@ function run(): { status: number; signal: string | null; tail: string } {
   return {
     status: r.status ?? 127,
     signal: r.signal,
+    ...(r.error ? { error: r.error } : {}),
+    output: out.join("\n"),
     tail: out.slice(-12).join("\n"),
   };
+}
+
+function isTestCommand(): boolean {
+  return (
+    (command[0] === "node" && command[1] === "--test") ||
+    ((command[0] === "pnpm" ||
+      (command[0] === "corepack" && command[1] === "pnpm")) &&
+      command.includes("vitest"))
+  );
+}
+
+function hasTestFailureEvidence(output: string): boolean {
+  const plain = output.replace(/\u001b\[[0-9;]*m/g, "");
+  if (
+    /ERR_MODULE_NOT_FOUND|Cannot find (?:module|package)|Failed to resolve (?:import|entry)|Failed to load config|No test files found/i.test(
+      plain,
+    )
+  ) {
+    return false;
+  }
+  if (command[0] === "node")
+    return (
+      /^(?:not ok \d+ - |# fail [1-9]\d*\b)/m.test(plain) ||
+      /\b(?:AssertionError|ERR_ASSERTION)\b/.test(plain)
+    );
+  return /(?:Tests|Test Files)\s+[^\n]*\b[1-9]\d*\s+failed\b/i.test(plain);
 }
 
 if (command.length === 0) couldNotRun("pass the check after `--`");
@@ -156,6 +193,8 @@ for (const r of [green, red])
     couldNotRun(
       `the check was interrupted (${r.signal ?? `exit ${r.status}`})`,
     );
+for (const r of [green, red])
+  if (r?.error) couldNotRun(`the check could not start: ${r.error.message}`);
 if (green.status !== 0) {
   console.log(
     `fix-proof: NOT PROVEN, the check fails with the fix at ${greenAt.slice(0, 9)}\n${green.tail}`,
@@ -167,10 +206,14 @@ if (red.status === 127)
   couldNotRun(`\`${command[0]}\` is missing without the fix\n${red.tail}`);
 if (red.status === 0) {
   console.log(
-    `fix-proof: NOT PROVEN, the check also passes without the fix (${source.length} source files at ${base.slice(0, 9)})`,
+    `fix-proof: NOT PROVEN, the check also passes without the fix (${source.length} source files at ${base.slice(0, 9)})\n${red.tail}`,
   );
   process.exit(1);
 }
+if (isTestCommand() && !hasTestFailureEvidence(red.output))
+  couldNotRun(
+    `the red test run did not report a test failure; this is not proof the fix caused the result\n${red.tail}`,
+  );
 console.log(
   `fix-proof: proven, red at ${base.slice(0, 9)} (exit ${red.status}), green at ${greenAt.slice(0, 9)}: ${command.join(" ")}\n--- red output ---\n${red.tail}`,
 );

@@ -1721,12 +1721,20 @@ async function fetchBoundedProviderJsonValue(
   }
 }
 
-function tokenScopes(
+export function tokenScopes(
   tokens: Record<string, unknown>,
   fallback: readonly string[],
 ): string[] {
   const scope = text(tokens.scope);
-  return scope ? scope.split(/[ ,]+/).filter(Boolean) : [...fallback];
+  if (scope) return scope.split(/[ ,]+/).filter(Boolean);
+  // HubSpot's token endpoint returns the granted scopes as a `scopes` array.
+  if (Array.isArray(tokens.scopes)) {
+    const scopes = tokens.scopes.filter(
+      (value): value is string => typeof value === "string" && value !== "",
+    );
+    if (scopes.length) return scopes;
+  }
+  return [...fallback];
 }
 
 export function mergeWorkspaceOAuthValues(

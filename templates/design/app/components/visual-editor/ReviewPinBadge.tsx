@@ -1,8 +1,10 @@
-import type { ReviewAgentKind } from "@agent-native/toolkit/app/review";
+import {
+  ReviewAuthorAvatar,
+  type ReviewAgentKind,
+} from "@agent-native/toolkit/app/review";
 import { IconCircleCheck } from "@tabler/icons-react";
 import type { ComponentPropsWithRef } from "react";
 
-import { ReviewInitialAvatar } from "@/components/design/ReviewInitialAvatar";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
@@ -56,12 +58,13 @@ export function ReviewPinBadge({
         <Spinner className="mx-1 size-3" />
       ) : (
         shownAuthors.map((author, index) => (
-          <ReviewInitialAvatar
+          <ReviewAuthorAvatar
             key={authorKey(author) ?? index}
-            name={author.name}
+            name={author.name?.trim() || author.email?.trim() || ""}
             email={author.email}
             agent={author.agent}
             size={24}
+            decorative
             className={cn("border-2 border-popover", index > 0 && "-ml-2")}
           />
         ))

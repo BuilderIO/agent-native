@@ -359,17 +359,10 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       authorizationUrl: "https://app.hubspot.com/oauth/authorize",
       tokenUrl: "https://api.hubapi.com/oauth/v3/token",
       refreshUrl: "https://api.hubapi.com/oauth/v3/token",
-      scopes: [
-        "oauth",
-        "crm.objects.contacts.read",
-        "crm.objects.companies.read",
-        "crm.objects.deals.read",
-        "crm.objects.tickets.read",
-        "crm.schemas.contacts.read",
-        "crm.schemas.companies.read",
-        "crm.schemas.deals.read",
-        "crm.schemas.tickets.read",
-      ],
+      // HubSpot grants the scopes configured on the HubSpot app itself, so the
+      // app's config is the source of truth. Sending no scope list keeps the
+      // two from drifting; the granted scopes are recorded from the token.
+      scopes: [],
     },
     capabilities: ["search", "import", "crm"],
     recommendedTemplateUses: ["analytics", "brain", "crm", "mail", "dispatch"],

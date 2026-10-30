@@ -103,6 +103,11 @@ export interface ReviewComment {
   metadata: Record<string, unknown> | null;
   resolutionNote?: string | null;
   canDelete?: boolean;
+  /**
+   * On a thread's first comment: whether the viewer may delete the whole
+   * thread, replies included. Deleting a reply needs only `canDelete`.
+   */
+  canDeleteThread?: boolean;
 }
 
 export interface ReviewStatusEntry {

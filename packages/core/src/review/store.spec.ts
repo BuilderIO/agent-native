@@ -31,6 +31,7 @@ const {
   consumeReviewFeedback,
   deleteReviewComment,
   ensureReviewTables,
+  getLiveReviewReplyAuthorsByThread,
   getReviewCommentById,
   getReviewStatus,
   insertReviewComment,
@@ -242,6 +243,184 @@ describe("review store", () => {
     ]);
     expect(comments[0].metadata).toEqual({ severity: "medium" });
     expect(comments[1].parentCommentId).toBe(root.id);
+  });
+
+  describe("deleteReviewComment", () => {
+    const thread = async (resourceId: string) => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId,
+        body: "Root",
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const reply = await insertReviewComment({
+        resourceType: "plan",
+        resourceId,
+        threadId: root.threadId,
+        parentCommentId: root.id,
+        body: "Reply",
+        authorEmail: "bob@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      return { root, reply };
+    };
+    const liveBodies = async (resourceId: string) =>
+      (
+        await queryReviewComments({
+          resourceType: "plan",
+          resourceId,
+          scope: { userEmail: "alice@example.com" },
+        })
+      ).map((comment) => comment.body);
+
+    it("deletes the whole thread when its first comment is deleted", async () => {
+      const { root } = await thread("p1");
+      await thread("p2");
+
+      expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(2);
+
+      expect(await liveBodies("p1")).toEqual([]);
+      expect(await liveBodies("p2")).toEqual(["Root", "Reply"]);
+    });
+
+    it("hands the live reply authors to the thread check, and deletes nothing when it refuses", async () => {
+      const { root, reply } = await thread("p1");
+      await deleteReviewComment(reply.id, "bob@example.com");
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: root.threadId,
+        parentCommentId: root.id,
+        body: "Second reply",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const seen: Array<ReadonlyArray<string | null>> = [];
+
+      await expect(
+        deleteReviewComment(root.id, "alice@example.com", {
+          assertThreadDeletable: (authors) => {
+            seen.push(authors);
+            throw new Error("refused");
+          },
+        }),
+      ).rejects.toThrow("refused");
+
+      // Bob's reply was already deleted, so only Carol's is live.
+      expect(seen).toEqual([["carol@example.com"]]);
+      expect(await liveBodies("p1")).toEqual(["Root", "Second reply"]);
+    });
+
+    it("reads the replies after taking the thread's lock, so a reply that lands then is seen", async () => {
+      const { root } = await thread("p1");
+      const client = rawClient as typeof rawClient & {
+        transaction?: (
+          fn: (tx: Pick<typeof rawClient, "execute">) => Promise<number>,
+        ) => Promise<number>;
+      };
+      client.transaction = (fn) =>
+        fn({
+          execute: async (input) => {
+            const result = await rawClient.execute(input);
+            if (typeof input !== "string" && /FOR UPDATE/.test(input.sql)) {
+              await insertReviewComment({
+                resourceType: "plan",
+                resourceId: "p1",
+                threadId: root.threadId,
+                parentCommentId: root.id,
+                body: "Late reply",
+                authorEmail: "carol@example.com",
+                ownerEmail: "alice@example.com",
+              });
+            }
+            return result;
+          },
+        });
+      let seen: ReadonlyArray<string | null> = [];
+      try {
+        await deleteReviewComment(root.id, "alice@example.com", {
+          assertThreadDeletable: (authors) => {
+            seen = authors;
+          },
+        });
+      } finally {
+        delete client.transaction;
+      }
+
+      expect([...seen].sort()).toEqual([
+        "bob@example.com",
+        "carol@example.com",
+      ]);
+      expect(await liveBodies("p1")).toEqual([]);
+    });
+
+    it("lists live reply authors by thread, for one resource, without the deleted", async () => {
+      const first = await thread("p1");
+      const other = await thread("p2");
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: first.root.threadId,
+        parentCommentId: first.root.id,
+        body: "Second reply",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      await deleteReviewComment(first.reply.id, "bob@example.com");
+      const resource = { resourceType: "plan", resourceId: "p1" };
+
+      expect(
+        await getLiveReviewReplyAuthorsByThread(
+          [first.root.threadId, other.root.threadId, first.root.threadId],
+          resource,
+        ),
+      ).toEqual(new Map([[first.root.threadId, ["carol@example.com"]]]));
+      expect(await getLiveReviewReplyAuthorsByThread([], resource)).toEqual(
+        new Map(),
+      );
+    });
+
+    it("does not ask the thread check about a reply", async () => {
+      const { reply } = await thread("p1");
+      const assertThreadDeletable = vi.fn();
+
+      await deleteReviewComment(reply.id, "bob@example.com", {
+        assertThreadDeletable,
+      });
+
+      expect(assertThreadDeletable).not.toHaveBeenCalled();
+      expect(await liveBodies("p1")).toEqual(["Root"]);
+    });
+
+    it("deletes only a reply when a reply is deleted", async () => {
+      const { reply } = await thread("p1");
+
+      expect(await deleteReviewComment(reply.id, "bob@example.com")).toBe(1);
+
+      expect(await liveBodies("p1")).toEqual(["Root"]);
+    });
+
+    it("keeps who deleted a reply that was already gone", async () => {
+      const { root, reply } = await thread("p1");
+      await deleteReviewComment(reply.id, "bob@example.com");
+
+      await deleteReviewComment(root.id, "alice@example.com");
+
+      const rows = await queryReviewComments({
+        resourceType: "plan",
+        resourceId: "p1",
+        scope: { userEmail: "alice@example.com" },
+        includeDeleted: true,
+      });
+      const byId = Object.fromEntries(
+        rows.map((comment) => [comment.id, comment.deletedBy]),
+      );
+      expect(byId).toEqual({
+        [root.id]: "alice@example.com",
+        [reply.id]: "bob@example.com",
+      });
+    });
   });
 
   it("keeps legacy replies when filtering comments by the root target", async () => {
@@ -606,7 +785,7 @@ describe("review store", () => {
     ]);
   });
 
-  it("clears a deleted comment's text, mentions and attachments but keeps its thread", async () => {
+  it("clears the text, mentions and attachments of every comment a delete removes", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
       resourceId: "d-delete",
@@ -625,11 +804,17 @@ describe("review store", () => {
       resourceId: "d-delete",
       threadId: root.threadId,
       parentCommentId: root.id,
-      body: "On it",
+      body: "On it, @Alice",
       authorEmail: "bob@example.com",
+      mentions: [{ label: "Alice", email: "alice@example.com" }],
+      metadata: {
+        attachments: [
+          { url: "https://cdn.builder.io/api/v1/image/z", name: "reply" },
+        ],
+      },
     });
 
-    expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(1);
+    expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(2);
     expect(await deleteReviewComment("missing", "alice@example.com")).toBe(0);
 
     const stored = await getReviewCommentById(
@@ -644,22 +829,53 @@ describe("review store", () => {
       metadata: { source: "pin" },
       deletedBy: "alice@example.com",
     });
-    const live = await queryReviewComments({
-      resourceType: "doc",
-      resourceId: "d-delete",
-      scope: {},
-      bypassScope: true,
+    const storedReply = await getReviewCommentById(
+      reply.id,
+      {},
+      { bypassScope: true },
+    );
+    expect(storedReply).toMatchObject({
+      status: "deleted",
+      body: "",
+      mentions: [],
+      deletedBy: "alice@example.com",
     });
-    expect(live.map((comment) => comment.id)).toEqual([reply.id]);
-    expect(live[0].threadId).toBe(root.threadId);
-    const newest = await queryReviewComments({
+    expect(storedReply?.metadata ?? {}).not.toHaveProperty("attachments");
+  });
+
+  it("lists the live replies of a root deleted before deletes took replies along, newest first too", async () => {
+    const root = await insertReviewComment({
       resourceType: "doc",
-      resourceId: "d-delete",
-      scope: {},
-      bypassScope: true,
-      newestFirst: true,
+      resourceId: "d-legacy",
+      body: "Old root",
+      authorEmail: "alice@example.com",
     });
-    expect(newest.map((comment) => comment.id)).toEqual([reply.id]);
+    const reply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-legacy",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Still here",
+      authorEmail: "bob@example.com",
+    });
+    const markDeleted = await pglite.prepare(
+      `UPDATE agent_review_comments
+          SET status = 'deleted', deleted_at = ?
+        WHERE id = ?`,
+    );
+    await markDeleted.run(new Date().toISOString(), root.id);
+
+    for (const newestFirst of [false, true]) {
+      const live = await queryReviewComments({
+        resourceType: "doc",
+        resourceId: "d-legacy",
+        scope: {},
+        bypassScope: true,
+        newestFirst,
+      });
+      expect(live.map((comment) => comment.id)).toEqual([reply.id]);
+      expect(live[0].threadId).toBe(root.threadId);
+    }
   });
 
   it("keeps metadata another write adds while a comment is being deleted", async () => {
