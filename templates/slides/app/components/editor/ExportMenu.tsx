@@ -2,16 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import {
-  IconDownload,
-  IconUpload,
-  IconFileTypePdf,
-  IconCode,
-  IconCopy,
-  IconShare2,
-  IconBrandGoogle,
-  IconChevronDown,
-} from "@tabler/icons-react";
+import { IconUpload, IconChevronDown } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   forwardRef,
@@ -79,8 +70,9 @@ interface ExportMenuProps {
   deckId: string;
   deckTitle: string;
   onDuplicate: () => void;
-  onExportPdf: () => Promise<void> | void;
-  onExportPptx: () => Promise<void> | void;
+  /** Without it the menu offers no PDF download. */
+  onExportPdf?: ((signal: AbortSignal) => Promise<void> | void) | undefined;
+  onExportPptx: (signal: AbortSignal) => Promise<void> | void;
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   onShareLink?: () => void;
   onShareTeam?: () => void;
@@ -91,6 +83,7 @@ interface ExportMenuProps {
 }
 
 export interface ExportMenuHandle {
+  cancelExport: () => void;
   exportGoogleSlides: () => Promise<void>;
   exportHtml: () => Promise<void>;
   exportPdf: () => Promise<void>;
@@ -118,46 +111,52 @@ export type ExportStatus =
 export function ExportStatusDialog({
   status,
   onStatusChange,
+  onCancel,
 }: {
   status: ExportStatus;
   onStatusChange: (status: ExportStatus) => void;
+  /** Stops the export in progress. Google Slides exports cannot be stopped. */
+  onCancel?: () => void;
 }) {
   const t = useT();
-  const exportingLabel =
-    status.state === "exporting"
-      ? status.kind === "html"
-        ? t("editorExport.downloadHtml")
-        : status.kind === "pdf"
-          ? t("editorExport.exportPdf")
-          : status.kind === "pptx"
-            ? t("editorExport.exportPptx")
-            : t("editorExport.openInGoogleSlides")
-      : null;
+  const cancel =
+    status.state === "exporting" && status.kind !== "google-slides"
+      ? onCancel
+      : undefined;
 
   return (
     <Dialog
       open={status.state !== "idle"}
       onOpenChange={(open) => {
-        if (!open && status.state !== "exporting") {
-          onStatusChange({ state: "idle" });
-        }
+        if (open) return;
+        if (status.state !== "exporting") onStatusChange({ state: "idle" });
+        else cancel?.();
       }}
     >
       <DialogContent
         hideClose={status.state === "exporting" || status.state === "ready"}
+        {...(status.state === "exporting"
+          ? { "aria-describedby": undefined }
+          : {})}
       >
         {status.state === "exporting" ? (
           <>
             <DialogHeader>
-              <DialogTitle>{t("editorExport.exporting")}</DialogTitle>
-              <DialogDescription>{exportingLabel}</DialogDescription>
-            </DialogHeader>
-            <div className="flex items-center gap-3 py-2" aria-live="polite">
-              <Spinner className="size-5" />
-              <span className="text-sm text-muted-foreground">
+              <DialogTitle
+                className="flex items-center gap-3 text-base"
+                aria-live="polite"
+              >
+                <Spinner className="size-5" />
                 {t("editorExport.exporting")}
-              </span>
-            </div>
+              </DialogTitle>
+            </DialogHeader>
+            {cancel ? (
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={cancel}>
+                  {t("editorExport.cancel")}
+                </Button>
+              </DialogFooter>
+            ) : null}
           </>
         ) : status.state === "ready" ? (
           <>
@@ -212,7 +211,7 @@ function ExportActionItems({
   hasSlides: boolean;
   googleSlidesAvailable: boolean;
   onExportHtml: () => void;
-  onExportPdf: () => void;
+  onExportPdf?: () => void;
   onExportPptx: () => void;
   onExportGoogleSlides?: () => void;
   downloadLabels?: boolean;
@@ -220,32 +219,24 @@ function ExportActionItems({
   const t = useT();
   return (
     <>
-      <DropdownMenuItem
-        onClick={onExportHtml}
-        disabled={!hasSlides}
-        className="cursor-pointer"
-      >
-        <IconCode className="size-4" />
-        {t("editorExport.downloadHtml")}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        onClick={onExportPdf}
-        disabled={!hasSlides}
-        className="cursor-pointer"
-      >
-        <IconFileTypePdf className="size-4" />
-        {t(
-          downloadLabels
-            ? "editorExport.downloadPdf"
-            : "editorExport.exportPdf",
-        )}
-      </DropdownMenuItem>
+      {onExportPdf && (
+        <DropdownMenuItem
+          onClick={onExportPdf}
+          disabled={!hasSlides}
+          className="cursor-pointer"
+        >
+          {t(
+            downloadLabels
+              ? "editorExport.downloadPdf"
+              : "editorExport.exportPdf",
+          )}
+        </DropdownMenuItem>
+      )}
       <DropdownMenuItem
         onClick={onExportPptx}
         disabled={!hasSlides}
         className="cursor-pointer"
       >
-        <IconDownload className="size-4" />
         {t(
           downloadLabels
             ? "editorExport.downloadPptx"
@@ -253,12 +244,12 @@ function ExportActionItems({
         )}
       </DropdownMenuItem>
       {onExportGoogleSlides && (
+        // Stays clickable while unavailable so the click can explain why.
         <DropdownMenuItem
           onClick={onExportGoogleSlides}
-          disabled={!hasSlides || !googleSlidesAvailable}
+          disabled={!hasSlides}
           className="cursor-pointer"
         >
-          <IconBrandGoogle className="size-4" />
           {t("editorExport.openInGoogleSlides")}
           {hasSlides && !googleSlidesAvailable ? (
             <span className="ml-auto text-[11px] text-muted-foreground">
@@ -267,6 +258,13 @@ function ExportActionItems({
           ) : null}
         </DropdownMenuItem>
       )}
+      <DropdownMenuItem
+        onClick={onExportHtml}
+        disabled={!hasSlides}
+        className="cursor-pointer"
+      >
+        {t("editorExport.downloadHtml")}
+      </DropdownMenuItem>
     </>
   );
 }
@@ -279,10 +277,12 @@ function ExportActionItems({
 export function ExportSubmenu({
   exportMenuRef,
   hasSlides,
+  showPdf,
   showGoogleSlides,
 }: {
   exportMenuRef: { current: ExportMenuHandle | null };
   hasSlides: boolean;
+  showPdf: boolean;
   showGoogleSlides: boolean;
 }) {
   const t = useT();
@@ -297,7 +297,9 @@ export function ExportSubmenu({
           hasSlides={hasSlides}
           googleSlidesAvailable={googleSlidesExport.available}
           onExportHtml={() => void exportMenuRef.current?.exportHtml()}
-          onExportPdf={() => void exportMenuRef.current?.exportPdf()}
+          onExportPdf={
+            showPdf ? () => void exportMenuRef.current?.exportPdf() : undefined
+          }
           onExportPptx={() => void exportMenuRef.current?.exportPptx()}
           onExportGoogleSlides={
             showGoogleSlides
@@ -317,11 +319,13 @@ export function ExportSubmenu({
 export function ExportDropdown({
   exportMenuRef,
   hasSlides,
+  showPdf,
   showGoogleSlides,
   actionRef,
 }: {
   exportMenuRef: { current: ExportMenuHandle | null };
   hasSlides: boolean;
+  showPdf: boolean;
   showGoogleSlides: boolean;
   actionRef?: Ref<ExportDropdownActionHandle>;
 }) {
@@ -352,7 +356,9 @@ export function ExportDropdown({
           googleSlidesAvailable={googleSlidesExport.available}
           downloadLabels
           onExportHtml={() => void exportMenuRef.current?.exportHtml()}
-          onExportPdf={() => void exportMenuRef.current?.exportPdf()}
+          onExportPdf={
+            showPdf ? () => void exportMenuRef.current?.exportPdf() : undefined
+          }
           onExportPptx={() => void exportMenuRef.current?.exportPptx()}
           onExportGoogleSlides={
             showGoogleSlides
@@ -394,6 +400,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       state: "idle",
     });
     const exportInFlightRef = useRef(false);
+    const exportAbortRef = useRef<AbortController | null>(null);
     const updateExportStatus = (status: ExportStatus) => {
       setExportStatus(status);
       onExportStatusChange?.(status);
@@ -439,27 +446,41 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       exportInFlightRef.current = false;
     };
 
+    const cancelExport = () => {
+      const controller = exportAbortRef.current;
+      if (!controller) return;
+      controller.abort();
+      updateExportStatus({ state: "idle" });
+    };
+
     const runExport = async (
       kind: ExportKind,
-      action: () => Promise<void> | void,
+      action: (signal: AbortSignal) => Promise<void> | void,
       fallbackError: string,
     ) => {
       if (!hasSlides || !beginExport(kind)) return;
+      const controller = new AbortController();
+      exportAbortRef.current = controller;
       try {
-        await action();
-        updateExportStatus({ state: "idle" });
+        await action(controller.signal);
+        // Work the signal could not interrupt may still finish after Cancel.
+        if (!controller.signal.aborted) updateExportStatus({ state: "idle" });
       } catch (err) {
+        if (controller.signal.aborted) return;
         console.error("Export failed:", err);
         updateExportStatus({
           state: "error",
           message: err instanceof Error ? err.message : fallbackError,
         });
       } finally {
+        if (exportAbortRef.current === controller) {
+          exportAbortRef.current = null;
+        }
         finishExport();
       }
     };
 
-    const exportPptxFromServer = async () => {
+    const exportPptxFromServer = async (signal: AbortSignal) => {
       trackEvent("slide_export_started", {
         app_name: "slides",
         template_name: "slides",
@@ -470,6 +491,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deckId }),
+        signal,
       });
       if (!res.ok) {
         throw new Error(
@@ -488,32 +510,46 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     const handleExportPptx = () =>
       runExport(
         "pptx",
-        async () => {
+        async (signal) => {
           if (canExportPptxFromServer(getDeck(deckId))) {
-            await exportPptxFromServer();
+            await exportPptxFromServer(signal);
             return;
           }
-          await onExportPptx();
+          await onExportPptx(signal);
         },
         t("editorExport.exportPptxError"),
       );
 
     const handleExportPdf = () =>
-      runExport("pdf", onExportPdf, t("deckEditor.pdfRenderFailed"));
+      runExport(
+        "pdf",
+        (signal) => {
+          if (!onExportPdf) throw new Error(t("deckEditor.pdfRenderFailed"));
+          return onExportPdf(signal);
+        },
+        t("deckEditor.pdfRenderFailed"),
+      );
 
     const handleExportHtml = () =>
       runExport(
         "html",
-        async () => {
+        async (signal) => {
           trackEvent("slide_export_started", {
             app_name: "slides",
             template_name: "slides",
             format: "html",
           });
+          // The server renders the saved deck, so unsaved edits go first.
+          await flushDeckSave(deckId).catch((error: unknown) => {
+            throw new Error(t("editorExport.saveBeforeExportFailed"), {
+              cause: error,
+            });
+          });
           const res = await fetch(`${appBasePath()}/api/exports/html`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ deckId }),
+            signal,
           });
           if (!res.ok) {
             throw new Error(
@@ -592,12 +628,14 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     useImperativeHandle(
       ref,
       () => ({
+        cancelExport,
         exportGoogleSlides: handleExportGoogleSlides,
         exportHtml: handleExportHtml,
         exportPdf: handleExportPdf,
         exportPptx: handleExportPptx,
       }),
       [
+        cancelExport,
         handleExportGoogleSlides,
         handleExportHtml,
         handleExportPdf,
@@ -610,7 +648,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         hasSlides={hasSlides}
         googleSlidesAvailable={googleSlidesExport.available}
         onExportHtml={() => void handleExportHtml()}
-        onExportPdf={() => void handleExportPdf()}
+        onExportPdf={onExportPdf ? () => void handleExportPdf() : undefined}
         onExportPptx={() => void handleExportPptx()}
         onExportGoogleSlides={
           onExportGoogleSlides
@@ -624,13 +662,11 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       <>
         {onShareTeam && (
           <DropdownMenuItem onClick={onShareTeam} className="cursor-pointer">
-            <IconShare2 className="size-4" />
             {t("editorExport.shareWithTeam")}
           </DropdownMenuItem>
         )}
         {onShareLink && (
           <DropdownMenuItem onClick={onShareLink} className="cursor-pointer">
-            <IconShare2 className="size-4" />
             {t("editorExport.publicShareLink")}
           </DropdownMenuItem>
         )}
@@ -639,7 +675,6 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
 
     const duplicateAction = (
       <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">
-        <IconCopy className="size-4" />
         {t("editorExport.duplicateDeck")}
       </DropdownMenuItem>
     );
@@ -681,6 +716,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           <ExportStatusDialog
             status={exportStatus}
             onStatusChange={updateExportStatus}
+            onCancel={cancelExport}
           />
         )}
       </>

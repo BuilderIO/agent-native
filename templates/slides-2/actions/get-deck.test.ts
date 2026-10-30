@@ -231,6 +231,39 @@ describe("get-deck", () => {
     },
   );
 
+  it("never saves a duplicate-ID repair for a frontend claim with a bearer credential", async () => {
+    const originalData = storeDuplicateSlideDeck();
+
+    const result = await action.run(
+      { id: "deck-1", compact: "false" },
+      {
+        caller: "frontend",
+        requestHeaders: new Headers({ authorization: "Bearer test-token" }),
+      },
+    );
+
+    expect(new Set(readSlideIds(result)).size).toBe(2);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(currentResource?.data).toBe(originalData);
+  });
+
+  it("names the slides whose repaired IDs are not saved yet", async () => {
+    storeDuplicateSlideDeck();
+
+    const outside = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "mcp" },
+    )) as { slideIdRepairPending?: { slideIds: string[]; note: string } };
+    const ids = readSlideIds(outside);
+
+    expect(ids[0]).toBe("duplicate");
+    expect(outside.slideIdRepairPending?.slideIds).toEqual([ids[1]]);
+    expect(outside.slideIdRepairPending?.note).toContain("slide not found");
+
+    const app = await action.run({ id: "deck-1" }, { caller: "frontend" });
+    expect(app).not.toHaveProperty("slideIdRepairPending");
+  });
+
   it("returns the same replacement IDs an editor's next app load saves", async () => {
     storeDuplicateSlideDeck();
 

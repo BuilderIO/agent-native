@@ -3,42 +3,28 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { openAgentSettings } from "@agent-native/toolkit/app/shared";
-import { parseFigmaFileKey } from "@shared/figma-url";
-import { IconChevronDown, IconUpload } from "@tabler/icons-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { IconUpload } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuShortcut,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from "@/components/ui/popover";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   MAX_BROWSER_FIG_BYTES,
   MAX_BROWSER_FIG_GB,
   MAX_BROWSER_FIG_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
-import { importResultNotification } from "@/lib/design-import";
 import {
   FIGMA_IMPORT_FORMAT,
   importFormatsAccept,
   requestImportFile,
 } from "@/lib/design-import-file-picker";
-import { FIGMA_ACCESS_TOKEN_SECRET_KEY } from "@/lib/figma-connection";
 import {
   claimFigImportToast,
   discardPendingDesignImports,
@@ -55,26 +41,14 @@ export function HomeImportButton() {
   const formatters = useFormatters();
   const navigate = useNavigate();
   const create = useActionMutation("create-design");
-  const importFrame = useActionMutation("import-figma-frame");
-  const [open, setOpen] = useState(false);
-  const [url, setUrl] = useState("");
-  const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  const menuTrigger = useRef<HTMLButtonElement>(null);
-  const openLinkAfterMenu = useRef(false);
-  const urlId = useId();
-  const valid = Boolean(parseFigmaFileKey(url));
   useEffect(() => {
     discardPendingDesignImports();
   }, []);
-  const changeOpen = (next: boolean) => {
-    if (!pending.current) setOpen(next);
-  };
   const pickFile = () => {
     if (pending.current) return;
-    setOpen(false);
     requestImportFile({
       formats: HOME_IMPORT_FORMATS,
       allSupportedLabel: t("designEditor.import.allSupportedFiles"),
@@ -149,166 +123,28 @@ export function HomeImportButton() {
           void importFile(file);
         }}
       />
-      <Popover open={open} onOpenChange={changeOpen}>
-        <PopoverAnchor asChild>
-          <div className="inline-flex shrink-0">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  ref={menuTrigger}
-                  size="sm"
-                  disabled={busy}
-                  aria-label={t("home.import")}
-                >
-                  <IconUpload />
-                  <span className="design-home-import-label">
-                    {t("home.import")}
-                  </span>
-                  <IconChevronDown />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                onCloseAutoFocus={(event) => {
-                  if (!openLinkAfterMenu.current) return;
-                  event.preventDefault();
-                  openLinkAfterMenu.current = false;
-                  setOpen(true);
-                }}
-              >
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={pickFile}>
-                    {t("home.figmaFile")}
-                    <DropdownMenuShortcut>
-                      {t("home.figmaFileMaxSize", {
-                        max: formatters.formatNumber(MAX_BROWSER_FIG_GB),
-                      })}
-                    </DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      openLinkAfterMenu.current = true;
-                    }}
-                  >
-                    {t("home.figmaLink")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </PopoverAnchor>
-        <PopoverContent
-          align="end"
-          aria-label={t("home.figmaLink")}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            menuTrigger.current?.focus();
-          }}
-        >
-          <form
-            className="grid gap-3"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (!valid || pending.current) return;
-              pending.current = true;
-              setBusy(true);
-              setError(undefined);
-              try {
-                const result = await importFrame.mutateAsync({
-                  figmaUrl: url.trim(),
-                  createNew: true,
-                });
-                if (!result.designId || !result.files?.length)
-                  throw new Error(
-                    t("designEditor.import.errors.figmaImportFailed"),
-                  );
-                const fidelityWarnings: string[] = [];
-                const imageFallbackCount =
-                  result.fidelityReport?.imageFallbacks.length;
-                if (imageFallbackCount) {
-                  fidelityWarnings.push(
-                    t("designEditor.import.figmaImageFallbackWarning", {
-                      count: formatters.formatNumber(imageFallbackCount),
-                    }),
-                  );
-                }
-                const approximatedCount =
-                  result.fidelityReport?.approximated.length;
-                if (approximatedCount) {
-                  fidelityWarnings.push(
-                    t("designEditor.import.figmaApproximationWarning", {
-                      count: formatters.formatNumber(approximatedCount),
-                    }),
-                  );
-                }
-                const notification = importResultNotification(
-                  result,
-                  t("designEditor.import.figmaUrlSuccess"),
-                  { fidelityWarnings },
-                );
-                toast[notification.variant](notification.title, {
-                  description: notification.description,
-                });
-                setOpen(false);
-                setUrl("");
-                void navigate(`/design/${result.designId}`);
-              } catch (cause) {
-                setError(
-                  actionErrorMessage(cause) ??
-                    t("designEditor.import.errors.importFailed"),
-                );
-              } finally {
-                pending.current = false;
-                setBusy(false);
-              }
-            }}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy}
+            aria-label={t("home.import")}
+            onClick={pickFile}
           >
-            <Label htmlFor={urlId}>{t("home.figmaLink")}</Label>
-            <Input
-              id={urlId}
-              type="url"
-              value={url}
-              placeholder={t("designEditor.import.figmaUrlPlaceholder")}
-              disabled={busy}
-              onChange={(event) => setUrl(event.target.value)}
-            />
-            {error ? (
-              <div className="grid gap-2">
-                <p role="alert" className="text-sm text-destructive">
-                  {error}
-                </p>
-                <div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setOpen(false);
-                      openAgentSettings(
-                        `secrets:${FIGMA_ACCESS_TOKEN_SECRET_KEY}`,
-                      );
-                    }}
-                  >
-                    {t("settings.openAgentSettings")}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => changeOpen(false)}
-              >
-                {t("home.cancel")}
-              </Button>
-              <Button type="submit" disabled={!valid || busy}>
-                {t("home.import")}
-              </Button>
-            </div>
-          </form>
-        </PopoverContent>
-      </Popover>
+            <IconUpload />
+            <span className="design-home-import-label">{t("home.import")}</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent className="grid gap-0.5">
+          <span>{t("home.figmaFile")}</span>
+          <span className="text-muted-foreground">
+            {t("home.figmaFileMaxSize", {
+              max: formatters.formatNumber(MAX_BROWSER_FIG_GB),
+            })}
+          </span>
+        </TooltipContent>
+      </Tooltip>
     </>
   );
 }

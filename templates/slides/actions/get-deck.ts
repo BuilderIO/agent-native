@@ -1,7 +1,7 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
-import type { ActionCaller } from "@agent-native/core/action";
 import {
   buildDeepLink,
+  captureError,
   currentRequestUserIsOrgAdmin,
   getAppConfig,
 } from "@agent-native/core/server";
@@ -16,6 +16,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import {
+  deckDataColumns,
+  deckListColumns,
+} from "../server/lib/deck-list-columns.js";
 import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import {
   sourceImportCoverage,
@@ -32,11 +36,14 @@ import {
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
 import { normalizeSlideTransition } from "../shared/slide-transitions.js";
+import { isAppUiRead } from "./_app-ui-read.js";
 import { getDeckUrl } from "./_app-url.js";
 import getDesignSystem from "./get-design-system.js";
 import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
+const SLIDE_ID_REPAIR_PENDING_NOTE =
+  "These slides share a stored ID with an earlier slide. Their IDs here are assigned for this read and saved the next time an editor opens the deck in the app; until then, edits that target them fail with slide not found.";
 
 async function readDeck(
   deckId: string,
@@ -102,14 +109,12 @@ function repairedSlideId(deckId: string, index: number, attempt: number) {
   return `slide-${hashSlideContent(`${deckId}:${index}:${attempt}`).slice(0, 8)}`;
 }
 
-// Only the app's own editor saves the repair. Every other caller can hold a
-// read-only grant, so for them this action stays a pure read.
 function canPersistSlideIdRepair(
   accessRole: "owner" | ShareRole,
-  caller: ActionCaller | undefined,
+  appUiRead: boolean,
 ): boolean {
   return (
-    caller === "frontend" &&
+    appUiRead &&
     (accessRole === "owner" ||
       accessRole === "admin" ||
       accessRole === "editor")
@@ -134,7 +139,7 @@ function normalizeDeckReadInMemory(
 
 async function loadDeckWithUniqueSlideIds(
   deckId: string,
-  caller: ActionCaller | undefined,
+  appUiRead: boolean,
   reviewPreview = false,
   reviewOrgId?: string,
 ) {
@@ -145,7 +150,7 @@ async function loadDeckWithUniqueSlideIds(
   for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
     const snapshot = await readDeck(deckId);
     if (!snapshot.changed) return { ...snapshot, repaired: false };
-    if (!canPersistSlideIdRepair(snapshot.accessRole, caller)) {
+    if (!canPersistSlideIdRepair(snapshot.accessRole, appUiRead)) {
       return normalizeDeckReadInMemory(snapshot);
     }
 
@@ -170,7 +175,7 @@ async function loadDeckWithUniqueSlideIds(
       await getDb()
         .update(schema.decks)
         .set({
-          data: JSON.stringify(repairedData),
+          ...deckDataColumns(repairedData),
           updatedAt: repairedData.updatedAt,
         })
         .where(
@@ -192,6 +197,43 @@ async function loadDeckWithUniqueSlideIds(
   }
 
   throw new Error(`Could not repair duplicate slide IDs for deck ${deckId}.`);
+}
+
+/**
+ * A deck saved before the list columns existed gets them on its first read,
+ * so list-decks stops parsing its body. The guards leave a concurrent save's
+ * own columns alone.
+ */
+async function backfillDeckListColumns(
+  row: {
+    id: string;
+    data: string;
+    updatedAt: string | null;
+    slideCount?: number | null;
+  },
+  data: unknown,
+): Promise<void> {
+  if (row.slideCount !== null) return;
+  try {
+    await getDb()
+      .update(schema.decks)
+      .set(deckListColumns(data))
+      .where(
+        and(
+          eq(schema.decks.id, row.id),
+          isNull(schema.decks.slideCount),
+          row.updatedAt === null
+            ? isNull(schema.decks.updatedAt)
+            : eq(schema.decks.updatedAt, row.updatedAt),
+        ),
+      );
+  } catch (error) {
+    // The read is still correct; list-decks keeps reading this row's body.
+    captureError(error, {
+      route: "get-deck",
+      extra: { deckId: row.id, backfill: "deck-list-columns" },
+    });
+  }
 }
 
 // Rows can hold legacy transition strings (slide, zoom, instant) and slides
@@ -315,6 +357,12 @@ export default defineAction({
         .min(1)
         .optional()
         .describe("The customer organization shown in this Human Review row."),
+      agentContext: z
+        .enum(["true", "false"])
+        .optional()
+        .describe(
+          "Set to 'false' to omit designSystem, deckStyle, and representativeSlideId when only slide content is needed. Defaults to 'true'.",
+        ),
     })
     .superRefine((args, context) => {
       if (args.slideId !== undefined && args.slideIds !== undefined) {
@@ -354,6 +402,7 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args, ctx) => {
+    const appUiRead = isAppUiRead(ctx);
     const isWidgetCaller =
       ctx?.caller === "mcp-widget" || ctx?.caller === "mcp-widget-write";
     const deckId = args.deckId ?? args.id;
@@ -367,15 +416,33 @@ export default defineAction({
       row,
       data,
       slides: storedSlides,
+      originalIds,
       accessRole,
     } = await loadDeckWithUniqueSlideIds(
       deckId,
-      ctx?.caller,
+      appUiRead,
       args.reviewPreview,
       args.reviewOrgId,
     );
+    if (!args.reviewPreview && appUiRead) {
+      await backfillDeckListColumns(row, data);
+    }
     // Both the compact and full branches read these; normalize once, here.
     const slides = storedSlides.map(canonicalReadSlide);
+    const pendingRepairSlideIds = slides.flatMap((slide, index) =>
+      typeof slide.id === "string" && slide.id !== originalIds[index]
+        ? [slide.id]
+        : [],
+    );
+    const slideIdRepair =
+      pendingRepairSlideIds.length > 0
+        ? {
+            slideIdRepairPending: {
+              slideIds: pendingRepairSlideIds,
+              note: SLIDE_ID_REPAIR_PENDING_NOTE,
+            },
+          }
+        : {};
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -432,14 +499,25 @@ export default defineAction({
               getDesignSystem.run(args, ctx),
           }
         : getDesignSystem;
-    const designSystem = await loadAgentDesignSystemContext(
-      linkedDesignSystemId,
-      designSystemReader,
-    );
-    const { deckStyle, representativeSlideId } = summarizeDeckStyle(
-      slides as any,
-      selectedSlideIndex,
-    );
+    const includeAgentContext = args.agentContext !== "false";
+    const designSystem = includeAgentContext
+      ? await loadAgentDesignSystemContext(
+          linkedDesignSystemId,
+          designSystemReader,
+        )
+      : undefined;
+    const styleSummary =
+      includeAgentContext && slides.length > 0
+        ? (({ deckStyle, representativeSlideId }) => ({
+            deckStyle,
+            representativeSlideId,
+          }))(
+            summarizeDeckStyle(
+              slides as Parameters<typeof summarizeDeckStyle>[0],
+              selectedSlideIndex,
+            ),
+          )
+        : null;
 
     if (compact) {
       return {
@@ -448,8 +526,8 @@ export default defineAction({
         visibility: row.visibility,
         ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
         designSystemId: linkedDesignSystemId,
-        designSystem,
-        ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
+        ...(includeAgentContext ? { designSystem } : {}),
+        ...(styleSummary ?? {}),
         generationContext: data?.generationContext ?? null,
         sourceImport: data?.sourceImport
           ? {
@@ -464,6 +542,7 @@ export default defineAction({
             }
           : null,
         sourceCoverage,
+        ...slideIdRepair,
         slideCount: slides.length,
         appUrl: getDeckUrl(row.id),
         slideNumbering:
@@ -517,9 +596,10 @@ export default defineAction({
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
       ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
       designSystemId: linkedDesignSystemId,
-      designSystem,
-      ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
+      ...(includeAgentContext ? { designSystem } : {}),
+      ...(styleSummary ?? {}),
       sourceCoverage,
+      ...slideIdRepair,
       slideCount: slides.length,
       appUrl: getDeckUrl(row.id),
       slideNumbering:

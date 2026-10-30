@@ -33,6 +33,7 @@ import {
   markSlideEditingActive,
   useDecks,
   type Deck,
+  type Slide,
 } from "./DeckContext";
 
 class MockEventSource {
@@ -102,6 +103,21 @@ function setupFetch() {
           ? url.toString()
           : url.url;
 
+    if (
+      href.includes("/_agent-native/actions/list-decks") &&
+      isOpenDeckProbe(href)
+    ) {
+      if (deckFailureStatus !== null) {
+        return Promise.resolve(new Response("", { status: deckFailureStatus }));
+      }
+      const ids = new URL(href, "http://localhost").searchParams.getAll(
+        "ids[]",
+      );
+      return Promise.resolve(
+        listResponse(serverDecks.filter((deck) => ids.includes(deck.id))),
+      );
+    }
+
     if (href.includes("/_agent-native/actions/list-decks")) {
       if (listFailureStatus !== null) {
         return Promise.resolve(new Response("", { status: listFailureStatus }));
@@ -164,16 +180,38 @@ function setupFetch() {
   };
 }
 
+/** The open deck's revision check: a list read narrowed to that deck's id. */
+function isOpenDeckProbe(href: string) {
+  return href.includes("ids%5B%5D=") && !href.includes("includePreview");
+}
+
+/** Reads of the deck list itself, not the open deck's revision probe. */
 function listCallCount(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
-  return fetchMock.mock.calls.filter(([url]) =>
-    requestString(url).includes("/_agent-native/actions/list-decks"),
-  ).length;
+  return listCallUrls(fetchMock).length;
 }
 
 function listCallUrls(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   return fetchMock.mock.calls
     .map(([url]) => requestString(url))
-    .filter((href) => href.includes("/_agent-native/actions/list-decks"));
+    .filter(
+      (href) =>
+        href.includes("/_agent-native/actions/list-decks") &&
+        !isOpenDeckProbe(href),
+    );
+}
+
+/** Every read of the open deck on a poll tick: a probe or a full get-deck. */
+function openDeckReadCount(
+  fetchMock: ReturnType<typeof setupFetch>["fetchMock"],
+) {
+  return fetchMock.mock.calls.filter(([url]) => {
+    const href = requestString(url);
+    return (
+      href.includes("/_agent-native/actions/get-deck") ||
+      (href.includes("/_agent-native/actions/list-decks") &&
+        isOpenDeckProbe(href))
+    );
+  }).length;
 }
 
 function deckCallCount(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
@@ -327,13 +365,12 @@ describe("DeckContext optimistic create", () => {
       await Promise.resolve();
     });
 
+    // The deck read starts beside the organization lookup, but nothing shows
+    // until that lookup resolves.
     expect(result.current.loading).toBe(true);
     expect(result.current.decks).toEqual([]);
-    expect(
-      api.fetchMock.mock.calls.some(([url]) =>
-        requestString(url).includes("/_agent-native/actions/get-deck"),
-      ),
-    ).toBe(false);
+    expect(deckCallIds(api.fetchMock)).toEqual([linkedDeck.id]);
+    expect(listCallCount(api.fetchMock)).toBe(0);
 
     act(() => {
       orgQueryState.data = { orgId: "first-org" };
@@ -347,6 +384,51 @@ describe("DeckContext optimistic create", () => {
       expect(result.current.getDeck(linkedDeck.id)).toEqual(linkedDeck),
     );
     expect(result.current.loading).toBe(false);
+    expect(deckCallIds(api.fetchMock)).toEqual([linkedDeck.id]);
+  });
+
+  it("renders the open deck before the deck list answers", async () => {
+    window.history.pushState({}, "", "/deck/first-paint-deck");
+    const api = setupFetch();
+    const openDeck: Deck = {
+      id: "first-paint-deck",
+      title: "First Paint Deck",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+      slides: [
+        { id: "s1", content: "<p>One</p>", notes: "", layout: "content" },
+      ],
+    };
+    const otherDeck: Deck = {
+      ...openDeck,
+      id: "other-deck",
+      title: "Other Deck",
+    };
+    api.setServerDecks([openDeck, otherDeck]);
+    api.holdNextList();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.getDeck(openDeck.id)).toEqual(openDeck);
+    expect(api.listRequestPending()).toBe(true);
+    // The list is metadata only: no slide bodies or previews.
+    expect(
+      listCallUrls(api.fetchMock).every(
+        (url) => !url.includes("includePreview"),
+      ),
+    ).toBe(true);
+
+    await act(async () => {
+      api.releaseList([openDeck, { ...otherDeck, slides: [] } satisfies Deck]);
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck(otherDeck.id)?.title).toBe("Other Deck"),
+    );
+    expect(result.current.getDeck(openDeck.id)?.slides).toEqual(
+      openDeck.slides,
+    );
+    expect(deckCallIds(api.fetchMock)).toEqual([openDeck.id]);
   });
 
   it.each(["org-a", null])(
@@ -644,12 +726,96 @@ describe("DeckContext fallback polling", () => {
           data: JSON.stringify({ events: batch }),
         }),
       );
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(deckCallCount(api.fetchMock) - deckBefore).toBe(1);
     expect(deckCallIds(api.fetchMock).at(-1)).toBe(openDeck.id);
     expect(listCallCount(api.fetchMock)).toBe(listBefore);
+  });
+
+  it("reads only the saved slide for a collaborator's single-slide events in one window", async () => {
+    const firstSlide: Slide = {
+      id: "s1",
+      content: "<p>One</p>",
+      notes: "",
+      layout: "content",
+    };
+    const secondSlide: Slide = {
+      id: "s2",
+      content: "<p>Two</p>",
+      notes: "",
+      layout: "content",
+    };
+    const openDeck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [firstSlide, secondSlide],
+    };
+    window.history.pushState({}, "", `/deck/${openDeck.id}`);
+    const api = setupFetch();
+    api.setServerDecks([openDeck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+    const untouchedSlide = result.current.getDeck(openDeck.id)?.slides[1];
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    api.setServerDecks([
+      {
+        ...openDeck,
+        updatedAt: "2026-07-25T00:01:00.000Z",
+        slides: [{ ...firstSlide, content: "<p>One, edited</p>" }, secondSlide],
+      },
+    ]);
+    const slideEvent = {
+      source: "deck",
+      type: "deck-changed",
+      deckId: openDeck.id,
+      slideId: "s1",
+    };
+    await act(async () => {
+      for (let i = 0; i < 3; i += 1) {
+        source.onmessage?.(
+          new MessageEvent("message", {
+            data: JSON.stringify({ events: [slideEvent] }),
+          }),
+        );
+        await vi.advanceTimersByTimeAsync(50);
+      }
+    });
+    expect(deckCallCount(api.fetchMock)).toBe(deckBefore);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    const reads = api.fetchMock.mock.calls
+      .map(([url]) => requestString(url))
+      .filter((href) => href.includes("/_agent-native/actions/get-deck"))
+      .slice(deckBefore);
+    expect(reads).toHaveLength(1);
+    const read = reads.at(0);
+    if (!read) throw new Error("expected a slide read");
+    const params = new URL(read, "http://localhost").searchParams;
+    expect(params.getAll("slideIds[]")).toEqual(["s1"]);
+    expect(params.get("agentContext")).toBe("false");
+    await waitFor(() =>
+      expect(result.current.getDeck(openDeck.id)?.slides[0]?.content).toBe(
+        "<p>One, edited</p>",
+      ),
+    );
+    // The untouched slide keeps its object, and the deck keeps its revision
+    // so the next full read still applies anything else that changed.
+    expect(result.current.getDeck(openDeck.id)?.slides[1]).toBe(untouchedSlide);
+    expect(result.current.getDeck(openDeck.id)?.updatedAt).toBe(
+      openDeck.updatedAt,
+    );
   });
 
   it("coalesces a sync-event batch into one list refresh when no deck is open, and updates a known deck's title", async () => {
@@ -738,7 +904,7 @@ describe("DeckContext fallback polling", () => {
     await waitFor(() => expect(result.current.deckListRefreshing).toBe(false));
   });
 
-  it("keeps an incomplete deck-list hydration in an error state until it recovers", async () => {
+  it("adds a new deck from its list row without reading the whole deck", async () => {
     window.history.pushState({}, "", "/");
     const api = setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });
@@ -761,17 +927,8 @@ describe("DeckContext fallback polling", () => {
     };
     api.setServerDecks([newDeck]);
     api.setMissingDeckDetails([newDeck.id]);
+    const deckBefore = deckCallCount(api.fetchMock);
 
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(result.current.loadError).toBe(true));
-    await waitFor(() => expect(result.current.deckListRefreshing).toBe(false));
-
-    expect(result.current.decks).toEqual([]);
-
-    api.setMissingDeckDetails([]);
     await act(async () => {
       window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
       await Promise.resolve();
@@ -779,6 +936,7 @@ describe("DeckContext fallback polling", () => {
 
     await waitFor(() => expect(result.current.decks).toEqual([newDeck]));
     expect(result.current.loadError).toBe(false);
+    expect(deckCallCount(api.fetchMock)).toBe(deckBefore);
   });
 
   it("takes over at the fast interval when the live channel drops", async () => {
@@ -803,7 +961,7 @@ describe("DeckContext fallback polling", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000);
     });
-    const deckBefore = deckCallCount(api.fetchMock);
+    const deckBefore = openDeckReadCount(api.fetchMock);
 
     act(() => {
       source.simulateFatalError();
@@ -812,7 +970,9 @@ describe("DeckContext fallback polling", () => {
       await vi.advanceTimersByTimeAsync(6_000);
     });
 
-    expect(deckCallCount(api.fetchMock) - deckBefore).toBeGreaterThanOrEqual(2);
+    expect(
+      openDeckReadCount(api.fetchMock) - deckBefore,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("keeps reconciling the open deck at the hidden cadence while the tab is hidden", async () => {
@@ -1383,13 +1543,33 @@ describe("DeckContext fallback polling", () => {
     });
     expect(hasFailedDeckSave(deckId)).toBe(true);
 
+    api.failDeckReads(null);
+    const fetch = api.fetchMock.getMockImplementation();
+    if (!fetch) throw new Error("Expected the deck fetch mock to be installed");
+    api.fetchMock.mockImplementation((url) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck")
+        ? Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+        : fetch(url),
+    );
     await act(async () => {
       result.current.updateDeck(deckId, { title: "Restored access" });
       await vi.advanceTimersByTimeAsync(500);
     });
 
     expect(result.current.getDeck(deckId)?.title).toBe("Restored access");
+    await waitFor(() => expect(hasUnsavedDeckChanges(deckId)).toBe(false));
+    expect(
+      api.fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toBe(true);
     expect(hasFailedDeckSave(deckId)).toBe(false);
+    // Let the deferred resync this save leaves behind run inside this test. The
+    // module-level deck sets outlive the test, so an undrained one would fire
+    // its read during whichever later test next settles a save.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
   });
 
   it("does not let a superseded successful read clear a newer denial", async () => {
@@ -1505,36 +1685,52 @@ describe("DeckContext fallback polling", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_500);
     });
-    const afterFirstFailure = deckCallCount(api.fetchMock);
+    const afterFirstFailure = openDeckReadCount(api.fetchMock);
 
     // Failing reads are spaced 5s, then 15s, then 60s apart.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(afterFirstFailure + 1);
+    expect(openDeckReadCount(api.fetchMock)).toBe(afterFirstFailure + 1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(14_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(afterFirstFailure + 1);
+    expect(openDeckReadCount(api.fetchMock)).toBe(afterFirstFailure + 1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_500);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(afterFirstFailure + 2);
+    expect(openDeckReadCount(api.fetchMock)).toBe(afterFirstFailure + 2);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(55_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(afterFirstFailure + 2);
+    expect(openDeckReadCount(api.fetchMock)).toBe(afterFirstFailure + 2);
 
     api.failDeckReads(null);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(6_000);
     });
-    const afterRecovery = deckCallCount(api.fetchMock);
+    const afterRecovery = openDeckReadCount(api.fetchMock);
     expect(afterRecovery).toBe(afterFirstFailure + 3);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_500);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(afterRecovery + 1);
+    expect(openDeckReadCount(api.fetchMock)).toBe(afterRecovery + 1);
+  });
+
+  it("checks an unchanged open deck's revision instead of downloading it every tick", async () => {
+    const { api } = await renderOpenDeck();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    const deckBefore = deckCallCount(api.fetchMock);
+    const readsBefore = openDeckReadCount(api.fetchMock);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_500);
+    });
+
+    expect(openDeckReadCount(api.fetchMock) - readsBefore).toBe(4);
+    expect(deckCallCount(api.fetchMock)).toBe(deckBefore);
   });
 
   it("joins focus and visibility triggers that land during one poll into a single read", async () => {
@@ -1565,12 +1761,15 @@ describe("DeckContext fallback polling", () => {
       .slice(callsBefore)
       .map(([url]) => requestString(url))
       .filter((href) => /actions\/(list-decks|get-deck)\b/.test(href));
+    const isOpenDeckRead = (href: string | undefined) =>
+      href !== undefined &&
+      (href.includes("get-deck") || isOpenDeckProbe(href));
     const listIndexes = actions.flatMap((href, i) =>
-      href.includes("list-decks") ? [i] : [],
+      href.includes("list-decks") && !isOpenDeckProbe(href) ? [i] : [],
     );
     expect(listIndexes.length).toBeGreaterThan(0);
     for (const i of listIndexes) {
-      expect(actions[i + 1]).toContain("get-deck");
+      expect(isOpenDeckRead(actions[i + 1])).toBe(true);
     }
   });
 
@@ -1604,36 +1803,54 @@ describe("DeckContext fallback polling", () => {
       window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
       await vi.advanceTimersByTimeAsync(0);
     });
-    const deckAfterAnnouncement = deckCallCount(api.fetchMock);
+    const deckAfterAnnouncement = openDeckReadCount(api.fetchMock);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(6_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBeGreaterThan(deckAfterAnnouncement);
+    expect(openDeckReadCount(api.fetchMock)).toBeGreaterThan(
+      deckAfterAnnouncement,
+    );
   });
 
   it("parks a hidden open-deck poll after repeated server errors until the tab is visible", async () => {
     const { api } = await renderOpenDeck();
+    // A poll can use a revision probe or retry a full read; a save another
+    // test left queued drains on hide and reads its own deck.
+    const openDeckReads = () =>
+      api.fetchMock.mock.calls.filter(([url]) => {
+        const href = requestString(url);
+        const params = new URL(href, "http://localhost").searchParams;
+        return (
+          (href.includes("/_agent-native/actions/get-deck") &&
+            params.get("id") === "open-deck") ||
+          (href.includes("/_agent-native/actions/list-decks") &&
+            isOpenDeckProbe(href) &&
+            params.getAll("ids[]").includes("open-deck"))
+        );
+      }).length;
 
     api.failDeckReads(500);
     hideDocument();
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    const deckBefore = deckCallCount(api.fetchMock);
+    const deckBefore = openDeckReads();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(31_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 1);
+    const afterFirstPoll = openDeckReads();
+    expect(afterFirstPoll).toBeGreaterThan(deckBefore);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(61_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 2);
+    const afterSecondPoll = openDeckReads();
+    expect(afterSecondPoll).toBeGreaterThan(afterFirstPoll);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 2);
+    expect(openDeckReads()).toBe(afterSecondPoll);
 
     restoreVisibility?.();
     restoreVisibility = null;
@@ -1641,7 +1858,7 @@ describe("DeckContext fallback polling", () => {
       document.dispatchEvent(new Event("visibilitychange"));
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 3);
+    expect(openDeckReads()).toBeGreaterThan(afterSecondPoll);
   });
 
   it("does not hold a failing deck list at the fast interval while the live channel is up", async () => {
@@ -1853,7 +2070,7 @@ describe("DeckContext fallback polling", () => {
     expect(listCallCount(api.fetchMock)).toBe(listAfterWrite);
   });
 
-  it("requests the preview projection only on the grid, and the id-only listing while a deck is open", async () => {
+  it("keeps every deck list read metadata-only and loads card previews by id", async () => {
     const openDeck: Deck = {
       id: "open-deck",
       title: "Open Deck",
@@ -1904,9 +2121,28 @@ describe("DeckContext fallback polling", () => {
       ),
     );
     const gridListCalls = listCallUrls(api.fetchMock).slice(listBeforeGrid);
-    expect(gridListCalls.some((url) => url.includes("includePreview"))).toBe(
+    // The list stays metadata only on the grid too; cards ask for previews.
+    expect(gridListCalls.every((url) => !url.includes("includePreview"))).toBe(
       true,
     );
+
+    const previewListBefore = listCallUrls(api.fetchMock).length;
+    await act(async () => {
+      await result.current.loadDeckPreviews([openDeck.id]);
+    });
+    const previewCalls = listCallUrls(api.fetchMock).slice(previewListBefore);
+    expect(previewCalls).toHaveLength(1);
+    const previewCall = previewCalls.at(0);
+    if (!previewCall) throw new Error("expected a preview read");
+    const previewParams = new URL(previewCall, "http://localhost").searchParams;
+    expect(previewParams.get("includePreview")).toBe("true");
+    expect(previewParams.getAll("ids[]")).toEqual([openDeck.id]);
+
+    // Already answered for this revision: no second request.
+    await act(async () => {
+      await result.current.loadDeckPreviews([openDeck.id]);
+    });
+    expect(listCallUrls(api.fetchMock)).toHaveLength(previewListBefore + 1);
   });
 
   it("does not let a stale list snapshot clobber a rename that finished saving while the poll was in flight", async () => {

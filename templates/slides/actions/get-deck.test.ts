@@ -99,6 +99,7 @@ vi.mock("../server/db/index.js", () => ({
       orgId: "org_id_col",
       data: "data_col",
       updatedAt: "ua_col",
+      slideCount: "slide_count_col",
     },
   },
 }));
@@ -210,6 +211,8 @@ describe("get-deck", () => {
     "never saves a duplicate-ID repair for a %s caller, even an owner",
     async (caller) => {
       const originalData = storeDuplicateSlideDeck();
+      if (!currentResource) throw new Error("beforeEach stores a deck");
+      currentResource.slideCount = null;
 
       const result = await action.run(
         { id: "deck-1", compact: "false" },
@@ -222,6 +225,39 @@ describe("get-deck", () => {
       expect(currentResource?.data).toBe(originalData);
     },
   );
+
+  it("never saves a duplicate-ID repair for a frontend claim with a bearer credential", async () => {
+    const originalData = storeDuplicateSlideDeck();
+
+    const result = await action.run(
+      { id: "deck-1", compact: "false" },
+      {
+        caller: "frontend",
+        requestHeaders: new Headers({ authorization: "Bearer test-token" }),
+      },
+    );
+
+    expect(new Set(readSlideIds(result)).size).toBe(2);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(currentResource?.data).toBe(originalData);
+  });
+
+  it("names the slides whose repaired IDs are not saved yet", async () => {
+    storeDuplicateSlideDeck();
+
+    const outside = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "mcp" },
+    )) as { slideIdRepairPending?: { slideIds: string[]; note: string } };
+    const ids = readSlideIds(outside);
+
+    expect(ids[0]).toBe("duplicate");
+    expect(outside.slideIdRepairPending?.slideIds).toEqual([ids[1]]);
+    expect(outside.slideIdRepairPending?.note).toContain("slide not found");
+
+    const app = await action.run({ id: "deck-1" }, { caller: "frontend" });
+    expect(app).not.toHaveProperty("slideIdRepairPending");
+  });
 
   it("returns the same replacement IDs an editor's next app load saves", async () => {
     storeDuplicateSlideDeck();
@@ -1145,6 +1181,56 @@ describe("get-deck", () => {
         { caller: "tool" },
       ),
     ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("lets frontend reads skip the agent-only design and style context", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.designSystemId = "ds-1";
+
+    const result = (await action.run(
+      { id: "deck-1", agentContext: "false" },
+      { caller: "frontend" },
+    )) as { slides: Array<{ contentHash?: unknown }> };
+
+    expect(mockGetDesignSystemRun).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty("designSystem");
+    expect(result).not.toHaveProperty("deckStyle");
+    expect(result).not.toHaveProperty("representativeSlideId");
+    expect(result.slides.at(0)?.contentHash).toEqual(expect.any(String));
+  });
+
+  it("backfills list columns the first time a legacy deck is read", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.slideCount = null;
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockSet).toHaveBeenCalledWith({
+      previewSlide: JSON.stringify({
+        id: "slide-a",
+        layout: "title",
+        content: "<h1>Opening</h1>",
+      }),
+      previewTooLarge: false,
+      aspectRatio: null,
+      slideCount: 2,
+    });
+    expect(mockWhereUpdate).toHaveBeenCalledWith({
+      conditions: [
+        { left: "id_col", right: "deck-1" },
+        { isNull: "slide_count_col" },
+        { left: "ua_col", right: "2026-05-02T00:00:00.000Z" },
+      ],
+    });
+  });
+
+  it("does not write list columns a deck already has", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.slideCount = 2;
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it("keeps full slide HTML for frontend callers", async () => {

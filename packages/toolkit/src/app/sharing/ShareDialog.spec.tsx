@@ -138,6 +138,14 @@ describe("ShareDialog primitive normalization", () => {
     );
   });
 
+  it("omits the share link row when there is no share URL to copy", async () => {
+    await renderDialog(vi.fn(), {});
+
+    expect(
+      document.body.querySelector('button[aria-label="share.copy"]'),
+    ).toBeNull();
+  });
+
   it("shows the title without a redundant single Link tab", async () => {
     await renderDialog(vi.fn(), {
       shareUrl: "https://share.example.test/doc-1",
