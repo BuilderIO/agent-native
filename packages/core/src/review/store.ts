@@ -1335,20 +1335,29 @@ export async function getOtherLiveReviewAuthorsByRoot(
              AND thread_id IN (${threadIds.map(() => "?").join(",")})`,
     args: [resource.resourceType, resource.resourceId, ...threadIds],
   });
+  const commentsByThread = new Map<
+    string,
+    Array<{ id: string; email: string | null }>
+  >();
+  for (const row of rows) {
+    const {
+      id,
+      thread_id: threadId,
+      author_email: email,
+    } = row as { id: unknown; thread_id: unknown; author_email?: unknown };
+    const comments = commentsByThread.get(String(threadId)) ?? [];
+    comments.push({
+      id: String(id),
+      email: typeof email === "string" ? email : null,
+    });
+    commentsByThread.set(String(threadId), comments);
+  }
   for (const root of roots) {
-    authorsByRoot.set(
-      root.id,
-      rows.flatMap((row) => {
-        const {
-          id,
-          thread_id: threadId,
-          author_email: email,
-        } = row as { id: unknown; thread_id: unknown; author_email?: unknown };
-        return String(threadId) === root.threadId && String(id) !== root.id
-          ? [typeof email === "string" ? email : null]
-          : [];
-      }),
-    );
+    const authors: Array<string | null> = [];
+    for (const comment of commentsByThread.get(root.threadId) ?? []) {
+      if (comment.id !== root.id) authors.push(comment.email);
+    }
+    authorsByRoot.set(root.id, authors);
   }
   return authorsByRoot;
 }
