@@ -42,6 +42,14 @@ beforeEach(() => {
 
 describe("list-comments recording policy", () => {
   it.each([
+    {
+      role: "viewer",
+      resource: { enableComments: true, password: "fake-test-password" },
+    },
+    {
+      role: "editor",
+      resource: { enableComments: true, password: "fake-test-password" },
+    },
     { role: "viewer", resource: { enableComments: false } },
     {
       role: "viewer",
@@ -67,6 +75,10 @@ describe("list-comments recording policy", () => {
   );
 
   it.each([
+    {
+      role: "owner",
+      resource: { enableComments: true, password: "fake-test-password" },
+    },
     { role: "owner", resource: { enableComments: false } },
     {
       role: "owner",
