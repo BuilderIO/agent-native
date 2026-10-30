@@ -1,4 +1,5 @@
 import { agentNativePath } from "../api-path.js";
+import { serverAuthReturnPath } from "../sign-in-return.js";
 
 export type WorkspaceProviderOAuthScope = "user" | "organization" | "app";
 
@@ -16,7 +17,9 @@ export function workspaceProviderOAuthUrl(
     appId: options.appId,
     scope: options.scope ?? "user",
   });
-  if (options.returnPath) params.set("return", options.returnPath);
+  if (options.returnPath) {
+    params.set("return", serverAuthReturnPath(options.returnPath));
+  }
   return agentNativePath(
     `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,
   );

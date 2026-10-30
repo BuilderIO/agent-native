@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { decodeContinuation } from "../shared/sign-in-journey.js";
+import { workspaceProviderOAuthUrl } from "./integrations/workspace-provider-oauth.js";
 import { signInLandingLoader } from "./sign-in-landing.js";
 import {
   buildSignInReturnHref,
   resolveSignInReturnHref,
+  serverAuthReturnPath,
 } from "./sign-in-return.js";
 
 function stubUi(pathname: string, search = "", apiBaseUrl?: string) {
@@ -69,6 +71,36 @@ describe("sign-in return with a separate server", () => {
     })!;
     expect(uiReturnTarget(response.headers.get("location")!)).toBe(
       "https://app.example.com/home",
+    );
+  });
+
+  it("hands the server its own return path for auth steps it finishes", () => {
+    stubUi("/inbox", "", "https://api.example.com/mail");
+    const returnPath = serverAuthReturnPath("/clip/1?at=90");
+    const hop = new URL(returnPath, "https://api.example.com");
+    expect(hop.pathname).toBe("/mail/_agent-native/auth/ui-return");
+    expect(hop.searchParams.get("to")).toBe(
+      "https://app.example.com/clip/1?at=90",
+    );
+
+    const oauth = new URL(
+      workspaceProviderOAuthUrl("github", {
+        appId: "mail",
+        returnPath: "/settings",
+      }),
+    );
+    expect(
+      new URL(oauth.searchParams.get("return")!, oauth.origin).searchParams.get(
+        "to",
+      ),
+    ).toBe("https://app.example.com/settings");
+  });
+
+  it("keeps the caller's return when the server shares the UI origin", () => {
+    stubUi("/inbox");
+    expect(serverAuthReturnPath("/clip/1")).toBe("/clip/1");
+    expect(serverAuthReturnPath("/clip/1", "/sign-in?c=abc")).toBe(
+      "/sign-in?c=abc",
     );
   });
 });

@@ -27,6 +27,16 @@ function currentJourney(returnTo?: string) {
   });
 }
 
+function uiReturnRoute(base: string, uiReturnUrl: string): string {
+  const serverBasePath = new URL(base).pathname.replace(/\/+$/, "");
+  const route = toPublicFrameworkPath(UI_RETURN_PATH, {
+    publicPrefix: frameworkRoutePrefix(),
+  });
+  return `${serverBasePath}${route}?${new URLSearchParams({
+    [UI_RETURN_TARGET_PARAM]: uiReturnUrl,
+  })}`;
+}
+
 /**
  * Sign-in on a server that does not serve this UI. The server's journey only
  * resumes at its own paths, so the continuation is its UI-return route, which
@@ -35,20 +45,29 @@ function currentJourney(returnTo?: string) {
  */
 export function serverSignInHref(base: string, uiReturnUrl: string): string {
   const serverBasePath = new URL(base).pathname.replace(/\/+$/, "");
-  const uiReturn = `${serverBasePath}${toPublicFrameworkPath(UI_RETURN_PATH, {
-    publicPrefix: frameworkRoutePrefix(),
-  })}`;
   const continuationFor = (target: string) =>
-    encodeContinuation(
-      `${uiReturn}?${new URLSearchParams({ [UI_RETURN_TARGET_PARAM]: target })}`,
-      serverBasePath,
-    );
+    encodeContinuation(uiReturnRoute(base, target), serverBasePath);
   const token =
     continuationFor(uiReturnUrl) ||
     continuationFor(new URL(appPath("/") || "/", uiReturnUrl).href);
   return `${base}${SIGN_IN_ENTRY_PATH}${
     token ? `?${SIGN_IN_CONTINUATION_PARAM}=${token}` : ""
   }`;
+}
+
+/**
+ * The return target to hand the app's server for an auth step it finishes
+ * itself (magic link, email verification, OAuth). The server only resumes at
+ * its own paths, so with a separate server this is its UI-return route for
+ * `uiPath`; otherwise `sameOriginReturn`, which defaults to `uiPath`.
+ */
+export function serverAuthReturnPath(
+  uiPath: string,
+  sameOriginReturn: string = uiPath,
+): string {
+  const base = apiBaseUrl();
+  if (!base || typeof window === "undefined") return sameOriginReturn;
+  return uiReturnRoute(base, new URL(uiPath, window.location.origin).href);
 }
 
 export function resolveSignInReturnHref(opts?: {
