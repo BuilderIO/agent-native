@@ -410,6 +410,7 @@ function normalizedSourceGap(source: string, from: number, to: number): string {
 }
 
 const TABLE_TAG = /<\/?(?:table|tr|td|th)\b[^>]*>/;
+const TABLE_TAG_AT = /<\/?(?:table|tr|td|th)\b[^>\r\n]*>/y;
 
 const ASCII_PUNCTUATION = /^[!-/:-@[-`{-~]$/; // L7 bridge
 
@@ -496,12 +497,26 @@ function mapStoredSourceRuns(
   let canonicalCursor = 0;
   const pieces: string[] = [];
   // An empty cell has no text to find, so it goes right after the first
-  // pipe that opens a cell, outside the delimiter row, where the gap before
-  // it matches. A row's closing pipe also reads as a row break, so a pipe
-  // opens a cell only when another pipe follows it on its line.
+  // syntax that opens a cell where the gap before it matches: an HTML
+  // table's cell tag, or a pipe outside the delimiter row. A row's closing
+  // pipe also reads as a row break, so a pipe opens a cell only when another
+  // pipe follows it on its line.
   const emptyCellStart = (canonicalTo: number) => {
-    for (let start = cursor + 1; start <= source.length; start += 1) {
-      if (!/[\s|:-]/.test(source[start - 1]!)) return -1;
+    let start = cursor;
+    while (start < source.length) {
+      TABLE_TAG_AT.lastIndex = start;
+      const tag = source[start] === "<" && TABLE_TAG_AT.exec(source);
+      if (tag) {
+        start += tag[0].length;
+        if (
+          /^<t[dh]\b/.test(tag[0]) &&
+          gapMatches(cursor, start, canonicalCursor, canonicalTo)
+        )
+          return start;
+        continue;
+      }
+      if (!/[\s|:-]/.test(source[start]!)) return -1;
+      start += 1;
       if (source[start - 1] !== "|") continue;
       const lineFrom = source.lastIndexOf("\n", start - 1) + 1;
       const lineTo = source.indexOf("\n", start);
