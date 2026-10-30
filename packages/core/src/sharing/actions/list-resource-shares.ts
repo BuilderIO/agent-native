@@ -3,8 +3,12 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { getAppConfig } from "../../app-config/index.js";
+import { isOrgMember } from "../../org/membership.js";
 import { organizations } from "../../org/schema.js";
-import { getRequestOrgId } from "../../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { isEmailDerivedName } from "../../user-profile/shared.js";
 import { getUserProfilesWithStatus } from "../../user-profile/store.js";
 import { listWorkspaceUserGroupsForOrg } from "../../workspace-connections/groups.js";
@@ -138,6 +142,38 @@ async function loadShareableAgents(
  * What the share panel's agent prompt needs: which tool reads this resource
  * and a short noun for it. Absent when the type declares no read tool.
  */
+/**
+ * Whether the caller may see the names of the people on the access list.
+ * Anyone with access sees the list; a reader who reached the resource only
+ * because it is public is not on it and not in its org, so their names are not
+ * looked up. `unreadable` means membership could not be checked.
+ */
+async function profileNameAccess(
+  role: string,
+  orgId: string | null | undefined,
+  shares: readonly ShareRow[],
+): Promise<"allowed" | "withheld" | "unreadable"> {
+  if (role === "owner" || role === "admin") return "allowed";
+  const email = getRequestUserEmail()?.trim().toLowerCase();
+  if (!email) return "withheld";
+  const listed = shares.some(
+    (s) =>
+      s.principalType === "user" &&
+      s.principalId.trim().toLowerCase() === email,
+  );
+  if (listed) return "allowed";
+  if (!orgId) return "withheld";
+  try {
+    return (await isOrgMember(orgId, email)) ? "allowed" : "withheld";
+  } catch (error) {
+    console.error(
+      "[list-resource-shares] Could not check org membership for names:",
+      error,
+    );
+    return "unreadable";
+  }
+}
+
 function agentReadPrompt(reg: ReturnType<typeof requireShareableResource>) {
   if (!reg.agentRead) return {};
   const noun = reg.displayName.toLowerCase();
@@ -204,19 +240,29 @@ export default defineAction({
       shares,
     );
     const ownerEmail: string = access.resource.ownerEmail;
+    const nameAccess = await profileNameAccess(
+      access.role,
+      access.resource.orgId,
+      shares,
+    );
     const { names: userDisplayNames, unavailable: displayNamesUnavailable } =
-      await loadUserDisplayNames(
-        [
-          ownerEmail,
-          ...shares
-            .filter(
-              (s) =>
-                s.principalType === "user" &&
-                orgAgentName(s.principalId, access.resource.orgId) === null,
-            )
-            .map((s) => s.principalId),
-        ].map((email) => email.trim().toLowerCase()),
-      );
+      nameAccess !== "allowed"
+        ? {
+            names: new Map<string, string>(),
+            unavailable: nameAccess === "unreadable",
+          }
+        : await loadUserDisplayNames(
+            [
+              ownerEmail,
+              ...shares
+                .filter(
+                  (s) =>
+                    s.principalType === "user" &&
+                    orgAgentName(s.principalId, access.resource.orgId) === null,
+                )
+                .map((s) => s.principalId),
+            ].map((email) => email.trim().toLowerCase()),
+          );
     const shareableAgents = context?.mcpDirectoryWidgetReadOnly
       ? {}
       : await loadShareableAgents(access.resource.orgId, access.role);

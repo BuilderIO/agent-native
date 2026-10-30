@@ -202,10 +202,12 @@ beforeEach(async () => {
     );
     INSERT INTO org_members (id, org_id, email, role, joined_at)
       VALUES ('m1', '${orgId}', '${ownerEmail}', 'owner', 0),
-             ('m2', '${orgId}', '${memberEmail}', 'member', 0);
+             ('m2', '${orgId}', '${memberEmail}', 'member', 0),
+             ('m3', '${orgId}', 'teammate+qa@example.com', 'member', 0);
     INSERT INTO agent_docs (id, title, owner_email, org_id, visibility)
       VALUES ('doc-1', 'Doc', '${ownerEmail}', '${orgId}', 'private'),
-             ('doc-personal', 'Personal', '${ownerEmail}', NULL, 'private');
+             ('doc-personal', 'Personal', '${ownerEmail}', NULL, 'private'),
+             ('doc-public', 'Public', '${ownerEmail}', '${orgId}', 'public');
   `);
   db = drizzle(pglite.db);
 
@@ -404,6 +406,47 @@ describe("sharing with org agents", () => {
       })) as any;
       expect(result.role).toBe("viewer");
       expect(result.agents).toBeUndefined();
+    });
+  });
+
+  it("shows names to the resource's org but not to an outside reader of a public resource", async () => {
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await shareResource.run({
+        resourceType,
+        resourceId: "doc-public",
+        principalType: "user",
+        principalId: memberEmail,
+        role: "viewer",
+        notify: false,
+      });
+    });
+    const listAs = (userEmail: string) =>
+      runWithRequestContext({ userEmail }, async () => {
+        const result = (await listResourceShares.run({
+          resourceType,
+          resourceId: "doc-public",
+        })) as any;
+        return {
+          role: result.role,
+          unavailable: result.displayNamesUnavailable,
+          names: result.shares.map((share: any) => share.displayName),
+        };
+      });
+
+    await expect(listAs(memberEmail)).resolves.toEqual({
+      role: "viewer",
+      unavailable: undefined,
+      names: ["Vee Member"],
+    });
+    await expect(listAs("teammate+qa@example.com")).resolves.toEqual({
+      role: "viewer",
+      unavailable: undefined,
+      names: ["Vee Member"],
+    });
+    await expect(listAs("outsider@example.com")).resolves.toEqual({
+      role: "viewer",
+      unavailable: undefined,
+      names: [undefined],
     });
   });
 

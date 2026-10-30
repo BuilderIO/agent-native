@@ -15,6 +15,16 @@ const shareMutate = vi.hoisted(() => vi.fn());
 const unshareMutate = vi.hoisted(() => vi.fn());
 const agentLinkMutate = vi.hoisted(() => vi.fn());
 const otherMutate = vi.hoisted(() => vi.fn());
+// The controller settles each share through mutateAsync; tests drive it
+// through the callbacks recorded on `mutate`.
+const settleThrough = vi.hoisted(
+  () =>
+    (mutate: (variables: unknown, callbacks: unknown) => void) =>
+    (variables: unknown) =>
+      new Promise((resolve, reject) => {
+        mutate(variables, { onSuccess: resolve, onError: reject });
+      }),
+);
 const toastMock = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 const refetchShares = vi.hoisted(() => vi.fn(async () => undefined));
 const popoverInteractOutsideHandlers = vi.hoisted(
@@ -89,7 +99,13 @@ vi.mock("@agent-native/core/client/use-action", () => ({
             ? agentLinkMutate
             : otherMutate,
     mutateAsync:
-      name === "approve-resource-access-request" ? approveRequest : otherMutate,
+      name === "approve-resource-access-request"
+        ? approveRequest
+        : name === "share-resource"
+          ? settleThrough(shareMutate)
+          : name === "unshare-resource"
+            ? settleThrough(unshareMutate)
+            : otherMutate,
   }),
 }));
 

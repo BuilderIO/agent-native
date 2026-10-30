@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React, { act, useLayoutEffect } from "react";
+import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,21 +11,37 @@ import {
   type ShareButtonSharesResponse,
 } from "./useShareButtonController.js";
 
+interface PendingShare {
+  args: ShareCall;
+  resolve: (result: unknown) => void;
+  reject: (error: unknown) => void;
+}
+
 const mocks = vi.hoisted(() => ({
   query: {
     data: undefined as ShareButtonSharesResponse | undefined,
     refetch: vi.fn(async () => undefined),
   },
-  share: { mutate: vi.fn() },
-  other: { mutate: vi.fn(), mutateAsync: vi.fn() },
+  shareCalls: [] as PendingShare[],
 }));
 
-vi.mock("../use-action.js", () => ({
-  useActionQuery: vi.fn(() => mocks.query),
-  useActionMutation: vi.fn((name: string) =>
-    name === "share-resource" ? mocks.share : mocks.other,
-  ),
-}));
+// A real mutation hook, so overlapping saves behave as they do in the app:
+// a second call on the same hook replaces the observer of the first.
+vi.mock("../use-action.js", async () => {
+  const { useMutation } = await import("@tanstack/react-query");
+  return {
+    useActionQuery: vi.fn(() => mocks.query),
+    useActionMutation: (name: string) =>
+      useMutation({
+        mutationFn: (args: ShareCall) =>
+          new Promise((resolve, reject) => {
+            if (name === "share-resource") {
+              mocks.shareCalls.push({ args, resolve, reject });
+            }
+          }),
+      }),
+  };
+});
 
 const reviewer = { email: "svc-reviewer@service.org-1", name: "reviewer" };
 const writer = { email: "svc-writer@service.org-1", name: "writer" };
@@ -70,13 +86,17 @@ describe("useShareButtonController agents", () => {
     act(() => current().handleOpenChange(true));
   }
 
-  function lastShareCall(): {
-    args: ShareCall;
-    callbacks: { onError?: (error: unknown) => void };
-  } {
-    const call = mocks.share.mutate.mock.calls.at(-1);
+  function lastShareCall(): PendingShare {
+    const call = mocks.shareCalls.at(-1);
     if (!call) throw new Error("share-resource was not called");
-    return { args: call[0] as ShareCall, callbacks: call[1] ?? {} };
+    return call;
+  }
+
+  async function settle(run: () => void) {
+    await act(async () => {
+      run();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   }
 
   beforeEach(() => {
@@ -105,7 +125,7 @@ describe("useShareButtonController agents", () => {
       ],
       agents: [reviewer, writer, sharedAgent],
     };
-    mocks.share.mutate.mockReset();
+    mocks.shareCalls = [];
     queryClient = new QueryClient();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -138,7 +158,7 @@ describe("useShareButtonController agents", () => {
       current().setShareMessage("please review");
       current().setRole("editor");
     });
-    act(() => current().handleAdd());
+    await settle(() => current().handleAdd());
 
     expect(lastShareCall().args).toMatchObject({
       principalType: "user",
@@ -161,9 +181,10 @@ describe("useShareButtonController agents", () => {
   it("puts the picked agent back when the invite fails", async () => {
     await render();
     act(() => current().selectAgent(writer));
-    act(() => current().handleAdd());
+    await settle(() => current().handleAdd());
 
-    act(() => lastShareCall().callbacks.onError?.(new Error("refused")));
+    const failed = lastShareCall();
+    await settle(() => failed.reject(new Error("refused")));
 
     expect(current().selectedAgent).toEqual(writer);
     expect(current().inviteEmail).toBe("writer");
@@ -175,41 +196,11 @@ describe("useShareButtonController agents", () => {
   it("leaves a failed invite behind when the panel has moved to another resource", async () => {
     await render("deck-1");
     act(() => current().selectAgent(writer));
-    act(() => current().handleAdd());
+    await settle(() => current().handleAdd());
     const failed = lastShareCall();
 
     await render("deck-2");
-    act(() => failed.callbacks.onError?.(new Error("refused")));
-
-    expect(current().selectedAgent).toBeNull();
-    expect(current().inviteEmail).toBe("");
-    expect(current().shareError).toBeNull();
-  });
-
-  it("leaves a failed invite behind when it settles right after the switch commits", async () => {
-    await render("deck-1");
-    act(() => current().selectAgent(writer));
-    act(() => current().handleAdd());
-    const failed = lastShareCall();
-
-    // Runs after the controller's layout effects and before passive ones.
-    function SettleOnSwitch({ resourceId }: { resourceId: string }) {
-      useLayoutEffect(() => {
-        if (resourceId === "deck-2") {
-          failed.callbacks.onError?.(new Error("refused"));
-        }
-      }, [resourceId]);
-      return null;
-    }
-    await act(async () => {
-      root.render(
-        <QueryClientProvider client={queryClient}>
-          <Harness resourceId="deck-2" />
-          <SettleOnSwitch resourceId="deck-2" />
-        </QueryClientProvider>,
-      );
-      await Promise.resolve();
-    });
+    await settle(() => failed.reject(new Error("refused")));
 
     expect(current().selectedAgent).toBeNull();
     expect(current().inviteEmail).toBe("");
@@ -219,15 +210,15 @@ describe("useShareButtonController agents", () => {
   it("ignores a save from an earlier visit after switching away and back", async () => {
     await render("deck-1");
     act(() => current().selectAgent(writer));
-    act(() => current().handleAdd());
+    await settle(() => current().handleAdd());
     const staleInvite = lastShareCall();
 
     await render("deck-2");
     await render("deck-1");
     act(() => current().selectAgent(reviewer));
-    act(() => current().handleAdd());
+    await settle(() => current().handleAdd());
 
-    act(() => staleInvite.callbacks.onError?.(new Error("refused")));
+    await settle(() => staleInvite.reject(new Error("refused")));
 
     expect(current().selectedAgent).toBeNull();
     expect(current().inviteEmail).toBe("");
@@ -241,7 +232,7 @@ describe("useShareButtonController agents", () => {
   it("keeps a pending invite on its own resource when the panel moves on", async () => {
     await render("deck-1");
     act(() => current().selectAgent(writer));
-    act(() => current().handleAdd());
+    await settle(() => current().handleAdd());
     expect(current().shares.map((share) => share.principalId)).toContain(
       writer.email,
     );
@@ -254,15 +245,38 @@ describe("useShareButtonController agents", () => {
     expect(current().inFlight.size).toBe(0);
 
     act(() => current().selectAgent(writer));
-    act(() => current().handleAdd());
-    expect(mocks.share.mutate).toHaveBeenCalledTimes(2);
+    await settle(() => current().handleAdd());
+    expect(mocks.shareCalls).toHaveLength(2);
     const secondInvite = lastShareCall();
 
-    act(() => firstInvite.callbacks.onError?.(new Error("refused")));
+    await settle(() => firstInvite.reject(new Error("refused")));
     expect(current().shares.map((share) => share.principalId)).toContain(
       writer.email,
     );
     expect(secondInvite.args.principalId).toBe(writer.email);
+  });
+
+  it("settles an earlier invite after a later one has started", async () => {
+    await render();
+    act(() => current().selectAgent(reviewer));
+    await settle(() => current().handleAdd());
+    const first = lastShareCall();
+    act(() => current().selectAgent(writer));
+    await settle(() => current().handleAdd());
+    const second = lastShareCall();
+    expect(current().inFlight.size).toBe(2);
+
+    await settle(() => first.reject(new Error("refused")));
+
+    expect(current().selectedAgent).toEqual(reviewer);
+    expect(current().shareError).not.toBeNull();
+    expect(current().shares.map((share) => share.principalId)).not.toContain(
+      reviewer.email,
+    );
+    expect(current().inFlight.size).toBe(1);
+
+    await settle(() => second.resolve({ ok: true }));
+    expect(current().inFlight.size).toBe(0);
   });
 
   it("drops the picked agent once the field is edited or a group is picked", async () => {
@@ -286,7 +300,7 @@ describe("useShareButtonController agents", () => {
       current().setInviteEmail("person@example.test");
       current().setShareMessage("hello");
     });
-    act(() => current().handleAdd());
+    await settle(() => current().handleAdd());
 
     expect(lastShareCall().args).toMatchObject({
       principalType: "user",

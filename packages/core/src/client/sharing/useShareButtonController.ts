@@ -545,8 +545,8 @@ export function useShareButtonController(
       (cached) =>
         cached ? { ...cached, shares: [...cached.shares, optimistic] } : cached,
     );
-    share.mutate(
-      {
+    void share
+      .mutateAsync({
         resourceType: options.resourceType,
         resourceId: options.resourceId,
         principalType,
@@ -555,9 +555,9 @@ export function useShareButtonController(
         notify,
         resourceUrl: getNotificationUrl(options.shareUrl),
         ...(message ? { message } : {}),
-      } as never,
-      {
-        onSuccess: (result: unknown) => {
+      } as never)
+      .then(
+        (result: unknown) => {
           notifyShareChanged(options.resourceType);
           if (
             !(
@@ -577,7 +577,7 @@ export function useShareButtonController(
             clearInFlight(key);
           });
         },
-        onError: (error: unknown) => {
+        (error: unknown) => {
           if (visitRef.current !== startedOnVisit) {
             // A later visit owns this cache; re-read it rather than restore
             // an older snapshot over newer changes.
@@ -596,8 +596,7 @@ export function useShareButtonController(
           setMessageOpen((current) => current || Boolean(message));
           setShareError(extractShareErrorMessage(error));
         },
-      },
-    );
+      );
   }, [
     addInFlight,
     canManage,
@@ -645,17 +644,17 @@ export function useShareButtonController(
                 }
               : cached,
         );
-      share.mutate(
-        {
+      void share
+        .mutateAsync({
           resourceType: options.resourceType,
           resourceId: options.resourceId,
           principalType: currentShare.principalType,
           principalId: currentShare.principalId,
           role: next,
           notify: false,
-        } as never,
-        {
-          onSuccess: () => {
+        } as never)
+        .then(
+          () => {
             notifyShareChanged(options.resourceType);
             void sharesQuery.refetch().then(() => {
               if (visitRef.current !== startedOnVisit) return;
@@ -666,7 +665,7 @@ export function useShareButtonController(
               clearInFlight(key);
             });
           },
-          onError: (error: unknown) => {
+          (error: unknown) => {
             if (visitRef.current !== startedOnVisit) {
               void queryClient.invalidateQueries({ queryKey: shareQueryKey });
               return;
@@ -679,8 +678,7 @@ export function useShareButtonController(
             clearInFlight(key);
             setShareError(extractShareErrorMessage(error));
           },
-        },
-      );
+        );
     },
     [
       addInFlight,
@@ -719,15 +717,15 @@ export function useShareButtonController(
                 }
               : cached,
         );
-      unshare.mutate(
-        {
+      void unshare
+        .mutateAsync({
           resourceType: options.resourceType,
           resourceId: options.resourceId,
           principalType: currentShare.principalType,
           principalId: currentShare.principalId,
-        } as never,
-        {
-          onSuccess: () => {
+        } as never)
+        .then(
+          () => {
             notifyShareChanged(options.resourceType);
             void sharesQuery.refetch().then(() => {
               if (visitRef.current !== startedOnVisit) return;
@@ -739,7 +737,7 @@ export function useShareButtonController(
               clearInFlight(key);
             });
           },
-          onError: (error: unknown) => {
+          (error: unknown) => {
             if (visitRef.current !== startedOnVisit) {
               void queryClient.invalidateQueries({ queryKey: shareQueryKey });
               return;
@@ -753,8 +751,7 @@ export function useShareButtonController(
             clearInFlight(key);
             setShareError(extractShareErrorMessage(error));
           },
-        },
-      );
+        );
     },
     [
       addInFlight,
