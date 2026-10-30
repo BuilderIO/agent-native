@@ -8,6 +8,7 @@ import {
 import { createContentEditorStructuralSchema } from "./content-editor-structural-schema.js";
 import { nfmToDoc } from "./nfm.js";
 import {
+  changedRegion,
   resolveMarkdownSuggestionRange,
   resolveOutsideChange,
 } from "./suggestion-rebase.js";
@@ -198,9 +199,23 @@ export function placeOnAcceptedSiblings(
   accepted: AcceptedSiblingRange[],
 ): MarkdownRange | null {
   const rebased = rebaseOntoAcceptedSiblings(operation, accepted);
-  return (
-    rebased && resolveOutsideChange(rebased.text, currentMarkdown, rebased)
-  );
+  if (!rebased) return null;
+  const { text, from, to } = rebased;
+  const range = resolveOutsideChange(text, currentMarkdown, rebased);
+  if (!range || currentMarkdown === text) return range;
+  // The Page agrees with the rebuilt text from the piece to where they part,
+  // or from where they agree again through the piece. If that stretch, from
+  // the piece's edge nearest the change, occurs anywhere else in either text,
+  // an edit there could have slid another copy into the piece's place: the
+  // piece deleted along with the text between, or a copy typed beside it.
+  const change = changedRegion(text, currentMarkdown);
+  const stretch =
+    to <= change.from
+      ? text.slice(from === to ? from : to - 1, change.from)
+      : text.slice(change.to, from === to ? to : from + 1);
+  const once = (within: string) =>
+    within.indexOf(stretch) === within.lastIndexOf(stretch);
+  return once(text) && once(currentMarkdown) ? range : null;
 }
 
 /**

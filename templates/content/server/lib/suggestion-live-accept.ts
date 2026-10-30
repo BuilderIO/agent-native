@@ -96,7 +96,8 @@ export async function acceptedRangesOnSameText(
   beforeMarkdown: string,
 ): Promise<AcceptedSiblingRange[]> {
   const rows = (
-    await tx.execute(sql`SELECT o.anchor_json, o.after_json FROM agent_review_suggestions s
+    await tx.execute(sql`SELECT o.anchor_json, (o.after_json::jsonb ->> 'changedText') AS changed_text
+            FROM agent_review_suggestions s
             INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
             WHERE s.resource_type = 'document'
               AND s.resource_id = ${sql.value(suggestion.resourceId)}
@@ -121,11 +122,7 @@ export async function acceptedRangesOnSameText(
       to > beforeMarkdown.length
     )
       return [];
-    const text = (
-      JSON.parse(String(row.after_json ?? "null")) as {
-        changedText?: unknown;
-      } | null
-    )?.changedText;
+    const text: unknown = row.changed_text;
     return [{ from, to, ...(typeof text === "string" && { text }) }];
   });
 }

@@ -498,6 +498,24 @@ export function resolveOutsideChange(
   anchor: { from: number; to: number },
 ) {
   if (currentMarkdown === before) return { from: anchor.from, to: anchor.to };
+  const { from: changeFrom, to: changeTo } = changedRegion(
+    before,
+    currentMarkdown,
+  );
+  const insertion = anchor.from === anchor.to;
+  const inPrefix = insertion ? anchor.to < changeFrom : anchor.to <= changeFrom;
+  const inSuffix = insertion ? anchor.from > changeTo : anchor.from >= changeTo;
+  if (!inPrefix && !inSuffix) return null;
+  const shift = inPrefix ? 0 : currentMarkdown.length - before.length;
+  return { from: anchor.from + shift, to: anchor.to + shift };
+}
+
+/**
+ * The stretch of `before` that `currentMarkdown` rewrote: from where the two
+ * first differ to where they agree again through the end. Next to repeated
+ * characters it takes in every place the change could have been.
+ */
+export function changedRegion(before: string, currentMarkdown: string) {
   let prefix = 0;
   while (
     prefix < before.length &&
@@ -515,18 +533,14 @@ export function resolveOutsideChange(
   ) {
     suffix += 1;
   }
-  const changeFrom = Math.min(
-    prefix,
-    before.length - suffix,
-    currentMarkdown.length - suffix,
-  );
-  const changeTo =
-    before.length -
-    Math.min(suffix, before.length - prefix, currentMarkdown.length - prefix);
-  const insertion = anchor.from === anchor.to;
-  const inPrefix = insertion ? anchor.to < changeFrom : anchor.to <= changeFrom;
-  const inSuffix = insertion ? anchor.from > changeTo : anchor.from >= changeTo;
-  if (!inPrefix && !inSuffix) return null;
-  const shift = inPrefix ? 0 : currentMarkdown.length - before.length;
-  return { from: anchor.from + shift, to: anchor.to + shift };
+  return {
+    from: Math.min(
+      prefix,
+      before.length - suffix,
+      currentMarkdown.length - suffix,
+    ),
+    to:
+      before.length -
+      Math.min(suffix, before.length - prefix, currentMarkdown.length - prefix),
+  };
 }

@@ -56,6 +56,24 @@ const accepted = (operation: Operation): AcceptedSiblingRange => ({
   text: operation.after.changedText,
 });
 
+/** A suggestion to rewrite `before` from `from` to `to` as `text`. */
+function suggestion(before: string, from: number, to: number, text: string) {
+  return {
+    kind: "replace_text",
+    before: { markdown: before, changedText: before.slice(from, to) },
+    after: {
+      markdown: `${before.slice(0, from)}${text}${before.slice(to)}`,
+      changedText: text,
+    },
+    anchor: {
+      from,
+      to,
+      prefix: before.slice(Math.max(0, from - 1), from),
+      suffix: before.slice(to, to + 1),
+    },
+  };
+}
+
 /** The piece of `pieces` that rewrites `text`. */
 function pieceChanging(pieces: Operation[], text: string) {
   const piece = pieces.find(
@@ -160,6 +178,28 @@ describe("placing a piece of an agent's edit after its siblings", () => {
     const current = `${block.replace("A", "C").replace("foo", "bar")}\n\nMIDDLE\n\n${block.replace("A", "C")}`;
     expect(
       applyMarkdownSuggestionWithSiblings(current, operation, [sibling]),
+    ).toBeNull();
+  });
+
+  it("refuses a piece another copy could have slid into", () => {
+    // Someone deleted "foo X " and changed "Y" to "Z", then "A" was accepted
+    // as "C". The "foo" left on the Page is the second one.
+    const piece = suggestion("A foo X foo Y", 2, 5, "new");
+    expect(
+      applyMarkdownSuggestionWithSiblings("C foo Z", piece, [
+        { from: 0, to: 1, text: "C" },
+      ]),
+    ).toBeNull();
+  });
+
+  it("refuses a piece someone typed a copy of beside it", () => {
+    // Someone typed "foo " before the "foo" and changed "Y" to "Z", then "A"
+    // was accepted as "C". The first "foo" on the Page is the typed one.
+    const piece = suggestion("A foo Y", 2, 5, "new");
+    expect(
+      applyMarkdownSuggestionWithSiblings("C foo foo Z", piece, [
+        { from: 0, to: 1, text: "C" },
+      ]),
     ).toBeNull();
   });
 });
