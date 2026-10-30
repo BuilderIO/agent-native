@@ -498,16 +498,17 @@ export function BrandKitDetailRoute({
       .toLowerCase()
       .includes(normalized);
   });
-  const references = visibleAssets.filter(
-    (asset) => asset.status === "reference" && !isContentOnlyReference(asset),
+  const references = visibleAssets.filter((asset) =>
+    assetMatchesLibraryTab(asset, "references"),
   );
-  const saved = visibleAssets.filter((asset) => asset.status === "saved");
+  const saved = visibleAssets.filter((asset) =>
+    assetMatchesLibraryTab(asset, "generated"),
+  );
   const libraryBoardAssets = visibleAssets.filter(
     (asset) =>
       asset.status === "saved" ||
       (asset.status === "reference" && !isContentOnlyReference(asset)),
   );
-  const unfiledCount = libraryAssets.filter((asset) => !asset.folderId).length;
   const liveVariantsForLibrary =
     liveVariants?.libraryId === libraryId ? liveVariants : null;
   const liveCandidateSlots = useMemo(
@@ -1109,30 +1110,13 @@ export function BrandKitDetailRoute({
     <section className="space-y-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <FolderChip
-            active={activeFolderId === "all"}
-            label={t("library.allAssets")}
-            count={libraryAssets.length}
-            onClick={() => setActiveFolderId("all")}
+          <AssetFolderChips
+            assets={libraryAssets}
+            folders={folders}
+            activeFolderId={activeFolderId}
+            activeTab={surfaceTab}
+            onSelectFolder={setActiveFolderId}
           />
-          <FolderChip
-            active={activeFolderId === null}
-            label={t("library.unfiled")}
-            count={unfiledCount}
-            onClick={() => setActiveFolderId(null)}
-          />
-          {folders.map((folder) => (
-            <FolderChip
-              key={folder.id}
-              active={activeFolderId === folder.id}
-              label={folder.title}
-              count={
-                libraryAssets.filter((asset) => asset.folderId === folder.id)
-                  .length
-              }
-              onClick={() => setActiveFolderId(folder.id)}
-            />
-          ))}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative">
@@ -1900,6 +1884,13 @@ function isContentOnlyReference(asset: any): boolean {
   );
 }
 
+function assetMatchesLibraryTab(asset: any, tab: LibraryTab): boolean {
+  if (tab === "generated") return asset.status === "saved";
+  if (tab === "references")
+    return asset.status === "reference" && !isContentOnlyReference(asset);
+  return false;
+}
+
 function assetCategoryLabel(asset: any): string | null {
   if (isContentOnlyReference(asset)) {
     return "content only";
@@ -2057,6 +2048,50 @@ function SessionCard({
         ) : null}
       </div>
     </article>
+  );
+}
+
+export function AssetFolderChips({
+  assets,
+  folders,
+  activeFolderId,
+  activeTab,
+  onSelectFolder,
+}: {
+  assets: any[];
+  folders: any[];
+  activeFolderId: string | null;
+  activeTab: LibraryTab;
+  onSelectFolder: (folderId: string | null) => void;
+}) {
+  const t = useT();
+  const tabAssets = assets;
+  return (
+    <>
+      <FolderChip
+        active={activeFolderId === "all"}
+        label={t("library.allAssets")}
+        count={tabAssets.length}
+        onClick={() => onSelectFolder("all")}
+      />
+      <FolderChip
+        active={activeFolderId === null}
+        label={t("library.unfiled")}
+        count={tabAssets.filter((asset) => !asset.folderId).length}
+        onClick={() => onSelectFolder(null)}
+      />
+      {folders.map((folder) => (
+        <FolderChip
+          key={folder.id}
+          active={activeFolderId === folder.id}
+          label={folder.title}
+          count={
+            tabAssets.filter((asset) => asset.folderId === folder.id).length
+          }
+          onClick={() => onSelectFolder(folder.id)}
+        />
+      ))}
+    </>
   );
 }
 
