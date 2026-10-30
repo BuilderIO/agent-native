@@ -44,6 +44,12 @@ function backendCredentials(
   return credentials === "omit" ? "omit" : "include";
 }
 
+// "same-origin" mode means "only my own server"; the request now targets the
+// configured server on another origin, which that mode would refuse outright.
+function backendMode(mode: RequestMode | undefined): RequestMode | undefined {
+  return mode === "same-origin" ? "cors" : mode;
+}
+
 export function withBackendRequest(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
@@ -55,12 +61,21 @@ export function withBackendRequest(
     const credentials = backendCredentials(
       init?.credentials ?? input.credentials,
     );
+    const mode = backendMode(init?.mode ?? input.mode);
     const moved = url.href === input.url ? input : new Request(url.href, input);
-    return [new Request(moved, { ...init, credentials }), undefined];
+    return [
+      new Request(moved, { ...init, credentials, ...(mode ? { mode } : {}) }),
+      undefined,
+    ];
   }
+  const mode = backendMode(init?.mode);
   return [
     url.href,
-    { ...init, credentials: backendCredentials(init?.credentials) },
+    {
+      ...init,
+      credentials: backendCredentials(init?.credentials),
+      ...(mode ? { mode } : {}),
+    },
   ];
 }
 

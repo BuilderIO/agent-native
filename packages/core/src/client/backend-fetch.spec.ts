@@ -117,6 +117,23 @@ describe("backend base URL", () => {
     expect(request.credentials).toBe("include");
   });
 
+  it("lets same-origin-mode requests reach the configured server", () => {
+    stubPage("https://api.example.com");
+    expect(
+      withBackendRequest("/api/screenshot", { mode: "same-origin" }, PAGE)[1],
+    ).toEqual({ mode: "cors", credentials: "include" });
+    const [request] = withBackendRequest(
+      new Request("https://app.example.com/api/screenshot", {
+        mode: "same-origin",
+      }),
+      undefined,
+      PAGE,
+    );
+    expect((request as Request).mode).toBe("cors");
+    const init = { mode: "same-origin" as const };
+    expect(withBackendRequest("/inbox", init, PAGE)).toEqual(["/inbox", init]);
+  });
+
   it("leaves non-server requests untouched", () => {
     stubPage("https://api.example.com");
     const init = { credentials: "same-origin" as const };

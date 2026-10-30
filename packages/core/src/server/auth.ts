@@ -42,6 +42,7 @@ import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   corsAllowHeadersFor,
   EMBED_TRANSPLANT_HEADER,
+  isExplicitCorsAllowedOrigin,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
@@ -3206,10 +3207,13 @@ function applyCorsHeaders(
   if (!responseOrigin) return { hasOrigin: true, allowed: false };
   setResponseHeader(event, "Access-Control-Allow-Origin", responseOrigin);
   setResponseHeader(event, "Vary", "Origin");
-  if (
-    !isPublicCorsPath &&
-    (!mcpEmbedCorsRequest || shouldAllowMcpEmbedCredentials(responseOrigin))
-  ) {
+  // Public paths answer any origin without credentials, except an origin the
+  // operator listed: that is the app's own UI on another origin, and its
+  // client sends every request to this server with credentials.
+  const credentialed = isPublicCorsPath
+    ? isExplicitCorsAllowedOrigin(responseOrigin)
+    : !mcpEmbedCorsRequest || shouldAllowMcpEmbedCredentials(responseOrigin);
+  if (credentialed) {
     setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
   }
   setResponseHeader(
