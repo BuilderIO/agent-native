@@ -163,6 +163,10 @@ function main(): number {
         console.log(final.summary);
         return final.exit;
       }
+      if (misses) {
+        console.log("Out of time, and the last read from gh failed.");
+        return 2;
+      }
       const pending = last?.checks.filter((c) => c.bucket === "pending") ?? [];
       console.log(
         `Out of time with ${pending.length} checks still running: ${pending.map((c) => c.name).join(", ")}`,
