@@ -7775,14 +7775,30 @@ export default function SlideEditor({
       let groupResizeOriginalStyles = new Map<HTMLElement, string | null>();
       let fitResize = false;
       let fitFloorHeight: number | undefined;
-      // The size the last preview planned for a member in flow, before any
-      // text inside it rewrapped.
-      let flowResize: {
+      // The size the last preview planned, before any text inside rewrapped.
+      let plannedSize: {
         width: number;
         height?: number;
         minHeight?: number;
       } | null = null;
       const originalMinHeight = element.style.getPropertyValue("min-height");
+      // An auto layout group's own size properties, per axis, as authored.
+      const originalSizing = new Map(
+        [
+          "width",
+          "min-width",
+          "max-width",
+          "height",
+          "min-height",
+          "max-height",
+        ].map((property) => [
+          property,
+          {
+            value: element.style.getPropertyValue(property),
+            priority: element.style.getPropertyPriority(property),
+          },
+        ]),
+      );
       // The group places a member in flow, so the left and top a resize
       // writes would offset it from its slot; a relatively positioned one
       // keeps the offsets it was authored with.
@@ -7942,7 +7958,7 @@ export default function SlideEditor({
           if (next.minHeight !== undefined) {
             element.style.minHeight = `${next.minHeight}px`;
           }
-          flowResize = {
+          plannedSize = {
             width: next.width,
             ...(next.minHeight !== undefined
               ? { minHeight: next.minHeight }
@@ -8003,7 +8019,7 @@ export default function SlideEditor({
           autoHeight,
         });
         restoreFlowInsets();
-        flowResize = {
+        plannedSize = {
           width: plan.width,
           ...(plan.height !== undefined && !autoHeight
             ? { height: plan.height }
@@ -8057,18 +8073,18 @@ export default function SlideEditor({
             // actually changed. Measured sizes would also count a text box
             // rewrapping as a height the user set.
             const width =
-              flowResize && flowResize.width !== resizeOrigin.width
-                ? flowResize.width
+              plannedSize && plannedSize.width !== resizeOrigin.width
+                ? plannedSize.width
                 : undefined;
             const height =
-              flowResize?.height !== undefined &&
-              flowResize.height !== resizeOrigin.height
-                ? flowResize.height
+              plannedSize?.height !== undefined &&
+              plannedSize.height !== resizeOrigin.height
+                ? plannedSize.height
                 : undefined;
             const minHeight =
-              flowResize?.minHeight !== undefined &&
-              `${flowResize.minHeight}px` !== originalMinHeight
-                ? flowResize.minHeight
+              plannedSize?.minHeight !== undefined &&
+              `${plannedSize.minHeight}px` !== originalMinHeight
+                ? plannedSize.minHeight
                 : undefined;
             restoreSlideObjectStyle(element, originalStyle);
             if (
@@ -8106,6 +8122,21 @@ export default function SlideEditor({
               restoreSlideObjectStyle(element, originalStyle);
               toast.error(t("contextToolbar.autoLayoutUnmeasurable"));
               return { handled: true };
+            }
+          } else if (isAutoLayoutSlideGroup(element) && plannedSize) {
+            // The resize writes both sides of an auto layout group; a side
+            // the handle left alone keeps its Hug or Fill, and its caps.
+            const unchanged = {
+              width: plannedSize.width === resizeOrigin.width,
+              height:
+                plannedSize.height === undefined ||
+                plannedSize.height === resizeOrigin.height,
+            };
+            for (const [property, { value, priority }] of originalSizing) {
+              const axis = property.endsWith("width") ? "width" : "height";
+              if (!unchanged[axis]) continue;
+              if (value) element.style.setProperty(property, value, priority);
+              else element.style.removeProperty(property);
             }
           }
           const html = readCurrentSlideContentHtml();
