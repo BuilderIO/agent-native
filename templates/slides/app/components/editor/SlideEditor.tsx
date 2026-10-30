@@ -190,6 +190,7 @@ import ImageOverlay from "./ImageOverlay";
 import {
   startInPlaceTextSession,
   stripFreeformReservation,
+  stripSizeLocks,
   type InPlaceTextSession,
 } from "./in-place-text-session";
 import {
@@ -2792,6 +2793,9 @@ export default function SlideEditor({
         text?.isActive && slideContent.contains(text.element)
           ? text.cloneWithoutPlaceholders(slideContent)
           : (slideContent.cloneNode(true) as HTMLElement);
+      // Only the live copy loses the lock: the base still carries a stored lock,
+      // so the merge sees it removed and drops it from the stored markup too.
+      stripSizeLocks(clone);
       if (source) {
         return mergeRenderedEdits({
           stored: source.stored,
@@ -6140,7 +6144,9 @@ export default function SlideEditor({
     (copy: HTMLElement) => {
       const slideContent = getSlideContent();
       const source = slideContent && getRenderedSlideSource(slideContent);
-      return source ? storedFormOf(source, copy) : null;
+      if (!source) return null;
+      stripSizeLocks(copy);
+      return storedFormOf(source, copy);
     },
     [getSlideContent],
   );

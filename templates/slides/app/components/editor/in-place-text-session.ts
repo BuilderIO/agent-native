@@ -284,14 +284,7 @@ function ownsFlowSlot(el: HTMLElement) {
   return !isFitFreeformFrame(el);
 }
 
-/** Drops the size containment earlier sessions persisted onto editor-owned freeform boxes. */
-export function stripFreeformReservation(el: HTMLElement) {
-  if (
-    !el.hasAttribute("data-slide-object-id") ||
-    !(el.classList.contains("fmd-text-box") || !ownsFlowSlot(el))
-  ) {
-    return;
-  }
+function dropSizeLock(el: HTMLElement) {
   const tokens = el.style.getPropertyValue("contain").split(/\s+/u);
   if (!tokens.includes("size")) return;
   const rest = tokens.filter((token) => token && token !== "size");
@@ -305,7 +298,34 @@ export function stripFreeformReservation(el: HTMLElement) {
     el.style.removeProperty("contain");
   }
   el.style.removeProperty("contain-intrinsic-size");
+  el.style.removeProperty("contain-intrinsic-width");
+  el.style.removeProperty("contain-intrinsic-height");
   if (!el.getAttribute("style")) el.removeAttribute("style");
+}
+
+/** Drops the size containment earlier sessions persisted onto editor-owned freeform boxes. */
+export function stripFreeformReservation(el: HTMLElement) {
+  if (
+    !el.hasAttribute("data-slide-object-id") ||
+    !(el.classList.contains("fmd-text-box") || !ownsFlowSlot(el))
+  ) {
+    return;
+  }
+  dropSizeLock(el);
+}
+
+/**
+ * Runs on the live copy only, before the merge: the stored base keeps any lock
+ * it already has, so the merge reads the removal and drops it from the stored markup.
+ */
+export function stripSizeLocks(root: ParentNode) {
+  const selector = "[style*='contain']";
+  if (root instanceof Element && root.matches(selector)) {
+    dropSizeLock(root as HTMLElement);
+  }
+  for (const el of root.querySelectorAll<HTMLElement>(selector)) {
+    dropSizeLock(el);
+  }
 }
 
 /**
