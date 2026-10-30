@@ -16289,6 +16289,88 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it.each(["…", "…."])(
+    "normalizes truncated nested argument echoes ending in %s to the same breaker key",
+    (ending) => {
+      const prefix = "Invalid action parameters — Invalid input. ";
+      const error = (key: string) =>
+        `${prefix}Received: {"patch":{"filter":{"group":null}},"idempotencyKey":"${key}","order":[${ending}`;
+      expect(normalizeToolErrorForBreaker(error("first"))).toBe(prefix.trim());
+      expect(normalizeToolErrorForBreaker(error("second"))).toBe(prefix.trim());
+    },
+  );
+
+  it("bounds unmatched validation scans without losing a large error's final diagnosis", () => {
+    const repeated = "Invalid action parameters. Received: x. ".repeat(1000);
+    const error = `${repeated}Provider status 503. Refresh the connected account.`;
+    const start = performance.now();
+    const normalized = normalizeToolErrorForBreaker(error);
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(normalized).toBe(error);
+    expect(
+      normalizeToolErrorForBreaker(
+        `${repeated}Provider status 404. Check the resource name.`,
+      ),
+    ).not.toBe(normalized);
+  }, 15_000);
+
+  it.each([
+    [
+      '{"id":"first","note":"Use . Expected: wording"}',
+      '{"id":"second","note":"Use . Expected: wording"}',
+    ],
+    ['["first"]', '["second"]'],
+  ])("normalizes complete terminal validation echoes: %s", (first, second) => {
+    const prefix = "Invalid action parameters — Invalid input. ";
+    for (const received of [first, second]) {
+      expect(
+        normalizeToolErrorForBreaker(`${prefix}Received: ${received}.`),
+      ).toBe(prefix.trim());
+    }
+  });
+
+  it.each([
+    [
+      "Request failed. Received: 404 Not Found. Check the repo name",
+      "Request failed. Received: 500 Server Error. Retry later",
+      "404 Not Found",
+      "500 Server Error",
+    ],
+    [
+      'Request failed. Received: {"status":404}. Retry later…',
+      'Request failed. Received: {"status":500}. Retry later…',
+      "404",
+      "500",
+    ],
+    [
+      'Request failed. {"status":404}. Retry later',
+      'Request failed. {"status":500}. Retry later',
+      "404",
+      "500",
+    ],
+    [
+      'Invalid action parameters — Invalid input. Received: {"id":"same"}. Provider status 404. Check the resource.',
+      'Invalid action parameters — Invalid input. Received: {"id":"same"}. Provider status 503. Retry later.',
+      "404",
+      "503",
+    ],
+    [
+      "Invalid action parameters — Invalid input. Received: {status:404}.",
+      "Invalid action parameters — Invalid input. Received: {status:503}.",
+      "404",
+      "503",
+    ],
+  ])(
+    "preserves distinct provider failures: %s",
+    (first, second, firstDetail, secondDetail) => {
+      const firstKey = normalizeToolErrorForBreaker(first);
+      const secondKey = normalizeToolErrorForBreaker(second);
+      expect(firstKey).toContain(firstDetail);
+      expect(secondKey).toContain(secondDetail);
+      expect(firstKey).not.toBe(secondKey);
+    },
+  );
+
   it("stops on the FIRST permanently-failing precondition instead of retrying it", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
@@ -16773,7 +16855,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("counts per-item not-found errors as distinct failures", async () => {
+  it("bounds a not-found sweep even when errors name distinct items", async () => {
     const ITEMS = 7;
     let streamCalls = 0;
     const run = vi.fn(async (input: { id: number }) => {
@@ -16828,9 +16910,13 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(run).toHaveBeenCalledTimes(ITEMS);
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "error" }),
+    // oracle-change: distinct errors still consume the new per-tool failure budget.
+    expect(run).toHaveBeenCalledTimes(5);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_tool_failure",
+      }),
     );
   });
 
@@ -19553,7 +19639,7 @@ describe("runAgentLoop", () => {
     ]);
   });
 
-  it("recovers schema-invalid empty placeholders in optional tool fields", async () => {
+  it("refuses schema-invalid placeholders mixed with valid clears", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -19637,13 +19723,15 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(run).toHaveBeenCalledOnce();
-    expect(run).toHaveBeenCalledWith({ id: "ext-1" }, expect.any(Object));
-    expect(events).not.toContainEqual(
+    // oracle-change: refusing ambiguous input avoids inferring which valid clears were intended.
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
         tool: "update-extension",
         isError: true,
+        errorCode: "ambiguous_tool_placeholders",
+        completedSideEffect: false,
       }),
     );
   });
