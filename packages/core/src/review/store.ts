@@ -1378,17 +1378,23 @@ export async function deleteReviewComment(
     // refuses.
     // raw-sql-ok: the statement is constant text; the id is bound.
     const { rows: roots } = await tx.execute({
-      sql: `SELECT id FROM agent_review_comments
+      sql: `SELECT thread_id FROM agent_review_comments
              WHERE id = ? AND parent_comment_id IS NULL FOR UPDATE`,
       args: [id],
     });
-    if (roots.length > 0 && options.assertThreadDeletable) {
+    // A root's thread is usually its own id, but the store takes one given at
+    // insert, so the check and the delete both go by the thread stored on it.
+    const rootThreadId =
+      roots.length > 0
+        ? String((roots[0] as { thread_id: unknown }).thread_id)
+        : null;
+    if (rootThreadId !== null && options.assertThreadDeletable) {
       // raw-sql-ok: the statement is constant text; the id is bound.
       const { rows: replies } = await tx.execute({
         sql: `SELECT author_email FROM agent_review_comments
                WHERE thread_id = ? AND parent_comment_id IS NOT NULL
                  AND deleted_at IS NULL`,
-        args: [id],
+        args: [rootThreadId],
       });
       options.assertThreadDeletable(
         replies.map((row) => {
@@ -1399,14 +1405,14 @@ export async function deleteReviewComment(
     }
     // A thread's first comment is the thread. Replies left behind would have no
     // root for any list to hang them on, but would still sit in the table.
+    // These are the replies the check above was shown.
     // raw-sql-ok: the statement is constant text; the ids are bound.
     const { rows: doomed } = await tx.execute({
       sql: `SELECT id FROM agent_review_comments
              WHERE id = ?
-                OR (deleted_at IS NULL AND thread_id = (
-                     SELECT thread_id FROM agent_review_comments
-                      WHERE id = ? AND parent_comment_id IS NULL))`,
-      args: [id, id],
+                OR (thread_id = ? AND parent_comment_id IS NOT NULL
+                    AND deleted_at IS NULL)`,
+      args: [id, rootThreadId],
     });
     let deleted = 0;
     for (const row of doomed) {

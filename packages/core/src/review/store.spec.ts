@@ -355,6 +355,43 @@ describe("review store", () => {
       expect(await liveBodies("p1")).toEqual([]);
     });
 
+    it("checks and deletes the same replies when a root's thread is not its own id", async () => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: "thread-given-at-insert",
+        body: "Root",
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: root.threadId,
+        parentCommentId: root.id,
+        body: "Carol's reply",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const seen: Array<ReadonlyArray<string | null>> = [];
+
+      await expect(
+        deleteReviewComment(root.id, "alice@example.com", {
+          assertThreadDeletable: (authors) => {
+            seen.push(authors);
+            if (authors.some((author) => author !== "alice@example.com")) {
+              throw new Error("refused");
+            }
+          },
+        }),
+      ).rejects.toThrow("refused");
+
+      expect(seen).toEqual([["carol@example.com"]]);
+      expect(await liveBodies("p1")).toEqual(["Root", "Carol's reply"]);
+      expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(2);
+      expect(await liveBodies("p1")).toEqual([]);
+    });
+
     it("lists live reply authors by thread, for one resource, without the deleted", async () => {
       const first = await thread("p1");
       const other = await thread("p2");
