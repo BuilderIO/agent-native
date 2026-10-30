@@ -171,11 +171,96 @@ beforeEach(() => {
   }));
 });
 
-describe("get-deck", () => {
-  it("classifies its duplicate-ID repair as a write", () => {
-    expect(action.readOnly).toBe(false);
-    expect(action.mcpAnnotations?.readOnlyHint).toBe(false);
+type DeckSlideIds = { slides: Array<{ id: string }> };
+
+function readSlideIds(result: unknown): string[] {
+  return (result as DeckSlideIds).slides.map((slide) => slide.id);
+}
+
+function storeDuplicateSlideDeck(): string {
+  if (!currentResource) throw new Error("beforeEach stores a deck");
+  currentResource.data = JSON.stringify({
+    title: "Quarterly Review",
+    slides: [
+      { id: "duplicate", content: "<h1>First</h1>" },
+      { id: "duplicate", content: "<h1>Second</h1>" },
+    ],
   });
+  return currentResource.data;
+}
+
+describe("get-deck", () => {
+  it("is classified read-only so read-scoped MCP grants can call it", () => {
+    // oracle-change: only the app's own UI saves the duplicate-ID repair now, so the read is read-only for every outside caller.
+    expect(action.readOnly).toBe(true);
+    // oracle-change: same reclassification, surfaced to MCP clients.
+    expect(action.mcpAnnotations?.readOnlyHint).toBe(true);
+  });
+
+  it.each([
+    "mcp",
+    "tool",
+    "a2a",
+    "webmcp",
+    "cli",
+    "automation",
+    "http",
+    "mcp-widget",
+    "mcp-widget-write",
+  ] as const)(
+    "never saves a duplicate-ID repair for a %s caller, even an owner",
+    async (caller) => {
+      const originalData = storeDuplicateSlideDeck();
+
+      const result = await action.run(
+        { id: "deck-1", compact: "false" },
+        { caller },
+      );
+
+      expect(new Set(readSlideIds(result)).size).toBe(2);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockNotifyClients).not.toHaveBeenCalled();
+      expect(currentResource?.data).toBe(originalData);
+    },
+  );
+
+  it("returns the same replacement IDs an editor's next app load saves", async () => {
+    storeDuplicateSlideDeck();
+
+    const outsideIds = readSlideIds(
+      await action.run({ id: "deck-1", compact: "false" }, { caller: "mcp" }),
+    );
+    const repeatIds = readSlideIds(
+      await action.run({ id: "deck-1", compact: "false" }, { caller: "mcp" }),
+    );
+    expect(mockUpdate).not.toHaveBeenCalled();
+
+    const appIds = readSlideIds(
+      await action.run({ id: "deck-1" }, { caller: "frontend" }),
+    );
+    const saved = JSON.parse(currentResource?.data ?? "null") as DeckSlideIds;
+
+    expect(repeatIds).toEqual(outsideIds);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(saved.slides.map((slide) => slide.id)).toEqual(outsideIds);
+    expect(appIds).toEqual(outsideIds);
+  });
+
+  it.each(["viewer", "commenter"] as const)(
+    "does not save a duplicate-ID repair for a %s in the app",
+    async (role) => {
+      currentAccessRole = role;
+      storeDuplicateSlideDeck();
+
+      const ids = readSlideIds(
+        await action.run({ id: "deck-1" }, { caller: "frontend" }),
+      );
+
+      expect(ids[0]).not.toBe(ids[1]);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockNotifyClients).not.toHaveBeenCalled();
+    },
+  );
 
   it("does not persist duplicate-ID repair in a directory widget read", async () => {
     currentResource!.designSystemId = "ds-1";
@@ -1135,6 +1220,15 @@ describe("get-deck", () => {
     currentResource.slideCount = 2;
 
     await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("leaves list columns unwritten for an outside agent's read", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.slideCount = null;
+
+    await action.run({ id: "deck-1" }, { caller: "mcp" });
 
     expect(mockUpdate).not.toHaveBeenCalled();
   });

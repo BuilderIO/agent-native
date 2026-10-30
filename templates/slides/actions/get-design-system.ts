@@ -319,10 +319,10 @@ export default defineAction({
         "'true' returns a bounded, network-free summary: no Builder docs fetch, agentContext capped at 1,500 chars, no data/assets blobs. Omit for the full context you need before authoring.",
       ),
   }),
-  readOnly: false, // GET refreshes the cached Builder doc count.
+  readOnly: true,
   http: { method: "GET" },
   mcpAnnotations: {
-    readOnlyHint: false,
+    readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: true,
   },
@@ -390,8 +390,10 @@ export default defineAction({
         )
       : null;
 
+    // Only the app's own UI refreshes the cached count. Every other caller can
+    // hold a read-only grant, so for them this action stays a pure read.
     if (
-      ctx?.caller !== "mcp-widget" &&
+      ctx?.caller === "frontend" &&
       builder &&
       typeof builder.docCount === "number"
     ) {

@@ -1,4 +1,5 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
+import type { ActionCaller } from "@agent-native/core/action";
 import {
   buildDeepLink,
   captureError,
@@ -94,13 +95,29 @@ async function readDeck(
   const data = JSON.parse(row.data);
   const normalized = ensureUniqueSlideIds(
     Array.isArray(data?.slides) ? data.slides : [],
+    (index, attempt) => repairedSlideId(deckId, index, attempt),
   );
   return { row, data, accessRole, ...normalized };
 }
 
-function canPersistSlideIdRepair(accessRole: "owner" | ShareRole): boolean {
+// Readers that may not save a duplicate-ID repair see the same replacement IDs
+// that an editor's next load saves, so an ID read before the repair still
+// names the same slide after it.
+function repairedSlideId(deckId: string, index: number, attempt: number) {
+  return `slide-${hashSlideContent(`${deckId}:${index}:${attempt}`).slice(0, 8)}`;
+}
+
+// Only the app's own editor saves the repair. Every other caller can hold a
+// read-only grant, so for them this action stays a pure read.
+function canPersistSlideIdRepair(
+  accessRole: "owner" | ShareRole,
+  caller: ActionCaller | undefined,
+): boolean {
   return (
-    accessRole === "owner" || accessRole === "admin" || accessRole === "editor"
+    caller === "frontend" &&
+    (accessRole === "owner" ||
+      accessRole === "admin" ||
+      accessRole === "editor")
   );
 }
 
@@ -122,20 +139,18 @@ function normalizeDeckReadInMemory(
 
 async function loadDeckWithUniqueSlideIds(
   deckId: string,
+  caller: ActionCaller | undefined,
   reviewPreview = false,
   reviewOrgId?: string,
 ) {
   if (reviewPreview) {
-    return {
-      ...(await readDeck(deckId, true, reviewOrgId)),
-      repaired: false,
-    };
+    return normalizeDeckReadInMemory(await readDeck(deckId, true, reviewOrgId));
   }
 
   for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
     const snapshot = await readDeck(deckId);
     if (!snapshot.changed) return { ...snapshot, repaired: false };
-    if (!canPersistSlideIdRepair(snapshot.accessRole)) {
+    if (!canPersistSlideIdRepair(snapshot.accessRole, caller)) {
       return normalizeDeckReadInMemory(snapshot);
     }
 
@@ -144,7 +159,7 @@ async function loadDeckWithUniqueSlideIds(
       if (!lockedSnapshot.changed) {
         return { ...lockedSnapshot, repaired: false };
       }
-      if (!canPersistSlideIdRepair(lockedSnapshot.accessRole)) {
+      if (!canPersistSlideIdRepair(lockedSnapshot.accessRole, caller)) {
         return normalizeDeckReadInMemory(lockedSnapshot);
       }
 
@@ -371,8 +386,7 @@ export default defineAction({
         });
       }
     }),
-  readOnly: false, // GET repairs duplicate slide IDs.
-  // The only write is that repair, and a replay finds no duplicates left to fix.
+  readOnly: true,
   retrySafe: true,
   http: { method: "GET" },
   mcpApp: {
@@ -386,7 +400,7 @@ export default defineAction({
     }),
   },
   mcpAnnotations: {
-    readOnlyHint: false,
+    readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: false,
   },
@@ -405,14 +419,18 @@ export default defineAction({
       data,
       slides: storedSlides,
       accessRole,
-    } = ctx?.caller === "mcp-widget"
-      ? await readDeck(deckId)
-      : await loadDeckWithUniqueSlideIds(
-          deckId,
-          args.reviewPreview,
-          args.reviewOrgId,
-        );
-    if (!args.reviewPreview) await backfillDeckListColumns(row, data);
+    } = await loadDeckWithUniqueSlideIds(
+      deckId,
+      ctx?.caller,
+      args.reviewPreview,
+      args.reviewOrgId,
+    );
+    if (
+      !args.reviewPreview &&
+      canPersistSlideIdRepair(accessRole, ctx?.caller)
+    ) {
+      await backfillDeckListColumns(row, data);
+    }
     // Both the compact and full branches read these; normalize once, here.
     const slides = storedSlides.map(canonicalReadSlide);
     const ownerEmail = getRequestUserEmail();
