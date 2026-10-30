@@ -24,13 +24,19 @@ the diffs and classify the system by what the fixes do.
 - **Tests added per bug without a contract.** Every fix adds one regression
   test, but no shared invariant suite exists that adapters or templates
   must pass.
+- **A sweep had to happen.** One PR fixes many symptoms in one area, and
+  analyze lists it as a mega-PR. The area collected defects faster than
+  they were fixed. When the description names a consolidation ("one shared
+  model now owns X", "the duplicated helpers are deleted"), the finding is
+  what the consolidation didn't reach: other callers, sibling apps, and the
+  follow-ups it lists.
 
 ## Signs of fast motion (not plan-worthy yet)
 
 - The fixes follow a feature that landed days earlier, on files it created,
   and taper off.
 - The fixes are polish: copy, spacing, density, ordering, or follow-up
-  review nits.
+  review nits. A sweep made only of polish is still polish.
 - One author is iterating on one PR series, each step building on the last.
 - The commits are refactors or splits that move code without adding
   special cases. Expect a "settling" curve afterwards.

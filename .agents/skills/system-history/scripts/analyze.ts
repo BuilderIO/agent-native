@@ -31,6 +31,8 @@ import {
 } from "./lib.ts";
 
 const SWEEP_SYSTEMS = 12;
+const MAIN_SHARE = 0.15;
+const MEGA_PR_MAX_SYSTEMS = 3;
 const TEST_FILE =
   /(\.(test|spec)\.[cm]?[jt]sx?$)|(^|\/)(e2e|__tests__|tests?)\//;
 const POPULATION_MIN_COMMITS = 8;
@@ -84,7 +86,8 @@ export interface FocusFile {
   commits: number;
   fixes: number;
   fixCommits: CommitRef[];
-  broadCommits: number;
+  /** Wide commits that touched the file but don't count toward its system. */
+  wideCommits: number;
 }
 
 export interface SystemReport {
@@ -92,6 +95,8 @@ export interface SystemReport {
   window: {
     commits: number;
     fixes: number;
+    /** Code files the window's fix commits and mega-PRs changed in this system. */
+    evidenceFiles: string[];
     prs: { number: number | null; subject: string }[];
   };
   lookback: Metrics;
@@ -112,7 +117,7 @@ export interface Analysis {
   regressionCandidates: (CommitRef & {
     kind: string;
     files: string[];
-    broad: boolean;
+    wide: boolean;
   })[];
   related: {
     keywords: string[];
@@ -130,9 +135,32 @@ export interface Analysis {
   excluded: {
     releaseCommits: number;
     sweepCommits: number;
+    /** Commits over SWEEP_SYSTEMS systems that counted only toward their main systems. */
+    wideCommits: number;
     mechanicalSystems: string[];
   };
+  /** Window PRs with many release notes; only non-launches become targets. */
+  megaPrs: MegaPr[];
   hotSystems: SystemReport[];
+}
+
+export interface MegaPr extends CommitRef {
+  kind: string;
+  /** A feature launch: listed, not audited. */
+  launch: boolean;
+  /** Changelog entries plus changesets the PR added. */
+  notes: number;
+  /** Readable changelog entries by type. */
+  changelog: Record<string, number>;
+  unreadable: number;
+  changesets: number;
+  /** Its main systems, made hot targets, with their share of its code. */
+  systems: Share[];
+}
+
+interface Share {
+  system: string;
+  share: number;
 }
 
 type Touch = { commit: Commit; files: Commit["files"]; primary: boolean };
@@ -169,11 +197,20 @@ main((args) => {
   const ignoredPath = compile(config.ignorePaths);
   const mechanical = compile(config.mechanicalPaths);
 
+  if (data.commits.some((c) => !Array.isArray(c.changelog))) {
+    throw new ScriptError(
+      `${rel(path.join(dir, "commits.json"))} predates changelog collection; re-run collect for run ${id}`,
+    );
+  }
+
   let releaseCommits = 0;
   let sweepCommits = 0;
   let fixCommits = 0;
-  const sweepShas = new Set<string>();
+  // Commits over SWEEP_SYSTEMS systems, with the systems each counts toward.
+  const wide = new Map<string, Set<string>>();
   let countedCommits = 0;
+  const megaPrs: MegaPr[] = [];
+  const megaShas = new Set<string>();
   const touches = new Map<string, Touch[]>();
   const mechanicalShare = new Map<
     string,
@@ -192,24 +229,44 @@ main((args) => {
       const system = systemOf(file.path, config);
       bySystem.set(system, [...(bySystem.get(system) ?? []), file]);
     }
-    if (bySystem.size > SWEEP_SYSTEMS) {
-      sweepCommits++;
-      sweepShas.add(commit.sha);
-      continue;
+    const allCode = new Map<string, Commit["files"]>();
+    for (const [system, files] of bySystem) {
+      // A commit that only edits a system's tests says nothing about its code.
+      const code = files.filter(
+        (f) => !mechanical(f.path) && !TEST_FILE.test(f.path),
+      );
+      if (code.length) allCode.set(system, code);
     }
+    const mainShares = mainSystems(allCode);
+    // A commit over SWEEP_SYSTEMS systems counts only toward its main systems:
+    // its long tail of small touches is noise in every system it reaches. With
+    // no main system it is a repo-wide rename or ratchet, and is left out.
+    let scored: Set<string> = new Set(bySystem.keys());
+    if (bySystem.size > SWEEP_SYSTEMS) {
+      scored = new Set(mainShares.map((m) => m.system));
+      wide.set(commit.sha, scored);
+      if (scored.size === 0) {
+        sweepCommits++;
+        continue;
+      }
+    }
+    const mega = focused
+      ? null
+      : megaPr(commit, mainShares, config.megaPrNotes);
+    if (mega) megaPrs.push(mega);
+    if (mega && !mega.launch) megaShas.add(commit.sha);
     countedCommits++;
     if (isFix(commit)) fixCommits++;
-    const codeBySystem = new Map<string, Commit["files"]>();
     for (const [system, files] of bySystem) {
+      if (!scored.has(system)) continue;
       const share = mechanicalShare.get(system) ?? { total: 0, mechanical: 0 };
       share.total++;
-      const substantive = files.filter((f) => !mechanical(f.path));
-      if (substantive.length === 0) share.mechanical++;
+      if (files.every((f) => mechanical(f.path))) share.mechanical++;
       mechanicalShare.set(system, share);
-      // A commit that only edits a system's tests says nothing about its code.
-      const code = substantive.filter((f) => !TEST_FILE.test(f.path));
-      if (code.length) codeBySystem.set(system, code);
     }
+    const codeBySystem = new Map(
+      [...allCode].filter(([system]) => scored.has(system)),
+    );
     // One primary per commit, picked from the same code files that are scored,
     // even on a tie, so primaryShare isn't inflated or stolen by test churn.
     const primarySystem = largestSystem(codeBySystem);
@@ -227,7 +284,9 @@ main((args) => {
 
   const all = [...touches]
     .filter(([system]) => !mechanicalSystems.includes(system))
-    .map(([system, list]) => measure(system, list, data, config.reFixDays));
+    .map(([system, list]) =>
+      measure(system, list, data, config.reFixDays, megaShas),
+    );
   const population = all.filter(
     (s) => s.lookback.commits >= POPULATION_MIN_COMMITS,
   );
@@ -247,35 +306,51 @@ main((args) => {
   ) as Record<(typeof keys)[number], number[]>;
 
   const measuredBySystem = new Map(all.map((s) => [s.system, s]));
+  const measured = (system: string): Measured =>
+    measuredBySystem.get(system) ??
+    measure(
+      system,
+      touches.get(system) ?? [],
+      data,
+      config.reFixDays,
+      megaShas,
+    );
   const focusSystems = [...new Set(focus.map((f) => systemOf(f, config)))];
   const hot: SystemReport[] = focus.length
     ? focusSystems
         .map((system) => ({
-          ...judge(
-            measuredBySystem.get(system) ??
-              measure(
-                system,
-                touches.get(system) ?? [],
-                data,
-                config.reFixDays,
-              ),
-            sorted,
-          ),
+          ...judge(measured(system), sorted),
           focus: focus
             .filter((f) => systemOf(f, config) === system)
-            .map((f) => focusFile(f, data.commits, ignoredSubject, sweepShas)),
+            .map((f) =>
+              focusFile(f, system, data.commits, ignoredSubject, wide),
+            ),
         }))
         .sort((a, b) => b.score - a.score)
-    : all
-        .filter((s) => s.window.commits >= config.minWindowCommits)
-        .sort(
-          (a, b) =>
-            b.window.commits +
-            b.window.fixes -
-            (a.window.commits + a.window.fixes),
-        )
-        .slice(0, config.maxHotSystems)
-        .map((s) => judge(s, sorted))
+    : [
+        ...new Set([
+          ...all
+            .filter((s) => s.window.commits >= config.minWindowCommits)
+            .sort(
+              (a, b) =>
+                b.window.commits +
+                b.window.fixes -
+                (a.window.commits + a.window.fixes),
+            )
+            .slice(0, config.maxHotSystems)
+            .map((s) => s.system),
+          // A mega-PR's main systems are targets even below minWindowCommits
+          // or past maxHotSystems.
+          ...megaPrs
+            .filter((m) => !m.launch)
+            .flatMap((m) => m.systems.map((s) => s.system)),
+        ]),
+      ]
+        .map((system) => {
+          const report = judge(measured(system), sorted);
+          report.reasons.push(...megaPrReasons(system, megaPrs));
+          return report;
+        })
         .sort((a, b) => b.score - a.score);
 
   const analysis: Analysis = {
@@ -288,7 +363,7 @@ main((args) => {
     regressionCandidates: focused
       ? regressionCandidates(focus, data.commits, regressionSince, {
           ignoredSubject,
-          sweeps: sweepShas,
+          wide,
         })
       : [],
     related: keywords.length
@@ -311,36 +386,102 @@ main((args) => {
         keys.map((k) => [k, round(quantile(sorted[k], 0.5))]),
       ),
     },
-    excluded: { releaseCommits, sweepCommits, mechanicalSystems },
+    excluded: {
+      releaseCommits,
+      sweepCommits,
+      wideCommits: wide.size - sweepCommits,
+      mechanicalSystems,
+    },
+    megaPrs,
     hotSystems: hot,
   };
   writeJson(path.join(dir, "analysis.json"), analysis);
   writeJson(path.join(dir, "targets.json"), hot.map(toTarget));
   const md = path.join(dir, "analysis.md");
-  writeFileSync(md, renderMarkdown(analysis));
+  writeFileSync(md, renderMarkdown(analysis, config.megaPrNotes));
   console.log(
     `${rel(md)}: ${hot.length} hot systems (baseline: ${population.length} systems, repo fix ratio ${pct(analysis.baseline.repoFixRatio)})`,
   );
+  for (const m of megaPrs)
+    console.log(
+      `  ${m.launch ? "launch, not audited:" : "mega-PR"} #${m.pr ?? "?"} [${m.kind}] ${m.notes} release notes → ${m.systems.map((s) => `${s.system} (${pct(s.share)})`).join(", ")}`,
+    );
   if (analysis.regressionCandidates.length) {
     console.log(
       `  ${analysis.regressionCandidates.length} changes to the traced path in the last ${regressionDays}d (read each with pr.ts):`,
     );
     for (const c of analysis.regressionCandidates.slice(0, 12)) {
       console.log(
-        `    ${c.date} #${c.pr ?? "?"} [${c.kind}${c.broad ? ", broad" : ""}] ${c.subject.slice(0, 80)} — ${c.files.map((f) => path.basename(f)).join(", ")}`,
+        `    ${c.date} #${c.pr ?? "?"} [${c.kind}${c.wide ? ", wide" : ""}] ${c.subject.slice(0, 80)} — ${c.files.map((f) => path.basename(f)).join(", ")}`,
       );
     }
   }
   for (const r of hot) {
     for (const f of r.focus ?? [])
       console.log(
-        `  focus ${f.path}: ${f.commits} commits, ${f.fixes} fixes in the lookback${f.broadCommits ? ` (+${f.broadCommits} broad commits not counted)` : ""}`,
+        `  focus ${f.path}: ${f.commits} commits, ${f.fixes} fixes in the lookback${f.wideCommits ? ` (+${f.wideCommits} wide commits not counted)` : ""}`,
       );
     console.log(
       `  ${String(r.score).padStart(3)}  ${r.verdict.padEnd(19)} ${r.system}  ${focused ? "" : `window ${r.window.commits}c/${r.window.fixes}f  `}lookback ${r.lookback.commits}c/${r.lookback.fixes}f  weekly fixes ${r.lookback.weekly.map((w) => w.fixes).join("→")}`,
     );
   }
 });
+
+/** The systems holding at least MAIN_SHARE of a commit's code files, largest first. */
+function mainSystems(codeBySystem: Map<string, Commit["files"]>): Share[] {
+  const total = [...codeBySystem.values()].reduce((n, f) => n + f.length, 0);
+  return [...codeBySystem]
+    .map(([system, files]) => ({ system, share: files.length / total }))
+    .filter((s) => s.share >= MAIN_SHARE)
+    .sort((a, b) => b.share - a.share);
+}
+
+// Many release notes in one PR mean its main systems needed a sweep, so they
+// become targets and the run audits what the sweep left behind.
+function megaPr(
+  commit: Commit,
+  mainShares: Share[],
+  minNotes: number,
+): MegaPr | null {
+  const notes = commit.changelog.length + commit.changesets;
+  if (!commit.inWindow || notes < minNotes || mainShares.length === 0)
+    return null;
+  const types = commit.changelog.flatMap((e) =>
+    e.type === null ? [] : [e.type],
+  );
+  const fixed = types.filter((t) => t === "fixed").length;
+  const changelog: Record<string, number> = {};
+  for (const type of types) changelog[type] = (changelog[type] ?? 0) + 1;
+  return {
+    ...commitRef(commit),
+    kind: commit.kind,
+    // A launch ships many notes too, for new code: fast motion, not a sweep.
+    // A feat subject over mostly "fixed" entries is a sweep after all.
+    launch:
+      commit.kind === "feat" &&
+      !(types.length > 0 && fixed * 2 >= types.length),
+    notes,
+    changelog,
+    unreadable: commit.changelog.length - types.length,
+    changesets: commit.changesets,
+    systems: mainShares
+      .slice(0, MEGA_PR_MAX_SYSTEMS)
+      .map((s) => ({ system: s.system, share: round(s.share) })),
+  };
+}
+
+function megaPrReasons(system: string, megaPrs: MegaPr[]): string[] {
+  return megaPrs.flatMap((m) => {
+    const here = m.launch
+      ? undefined
+      : m.systems.find((s) => s.system === system);
+    return here
+      ? [
+          `mega-PR #${m.pr ?? "?"} (${m.notes} release notes) put ${pct(here.share)} of its code here; audit what it left behind`,
+        ]
+      : [];
+  });
+}
 
 function largestSystem(bySystem: Map<string, unknown[]>): string | null {
   let best: string | null = null;
@@ -360,6 +501,9 @@ function toTarget(r: SystemReport): Target {
         ...r.topFiles.map((f) => f.path),
       ]),
     ],
+    evidenceFiles: r.focus
+      ? r.focus.map((f) => f.path)
+      : r.window.evidenceFiles,
     score: r.score,
     verdict: r.verdict,
     windowCommits: r.focus ? null : r.window.commits,
@@ -395,35 +539,39 @@ function commitRef(commit: Commit): CommitRef {
 
 function focusFile(
   file: string,
+  system: string,
   commits: Commit[],
   ignoredSubject: (s: string) => boolean,
-  sweeps: Set<string>,
+  wide: Map<string, Set<string>>,
 ): FocusFile {
   const touching = commits.filter(
     (c) => !ignoredSubject(c.subject) && c.files.some((f) => f.path === file),
   );
-  // Broad commits (over SWEEP_SYSTEMS systems) are excluded from system scores,
-  // so they are excluded here too, or the file and system counts disagree.
-  const counted = touching.filter((c) => !sweeps.has(c.sha));
+  // A wide commit that doesn't count toward this system is excluded from its
+  // score, so it is excluded here too, or the file and system counts disagree.
+  const counted = touching.filter((c) => wide.get(c.sha)?.has(system) ?? true);
   const fixes = counted.filter(isFix);
   return {
     path: file,
     commits: counted.length,
     fixes: fixes.length,
     fixCommits: fixes.map(commitRef),
-    broadCommits: touching.length - counted.length,
+    wideCommits: touching.length - counted.length,
   };
 }
 
 // Every kind of commit counts here, not only fixes: features and refactors
 // break things too, and "got busted" reports are usually a recent change.
-// Broad commits are kept and flagged: a wide shared-contract change that
-// touched the path is often the trigger, even though it's left out of scores.
+// Wide commits are kept and flagged: a wide shared-contract change that
+// touched the path is often the trigger, even when it's left out of scores.
 function regressionCandidates(
   focus: string[],
   commits: Commit[],
   since: number,
-  filters: { ignoredSubject: (s: string) => boolean; sweeps: Set<string> },
+  filters: {
+    ignoredSubject: (s: string) => boolean;
+    wide: Map<string, Set<string>>;
+  },
 ): Analysis["regressionCandidates"] {
   const focusSet = new Set(focus);
   return commits
@@ -434,7 +582,7 @@ function regressionCandidates(
       ...commitRef(c),
       kind: c.kind,
       files: c.files.map((f) => f.path).filter((p) => focusSet.has(p)),
-      broad: filters.sweeps.has(c.sha),
+      wide: filters.wide.has(c.sha),
     }))
     .filter((c) => c.files.length > 0);
 }
@@ -487,6 +635,7 @@ function measure(
   list: Touch[],
   data: Collected,
   reFixDays: number,
+  megaShas: Set<string>,
 ): Measured {
   const ordered = [...list].sort(
     (a, b) => Date.parse(a.commit.date) - Date.parse(b.commit.date),
@@ -575,11 +724,19 @@ function measure(
   }
 
   const windowList = ordered.filter(({ commit }) => commit.inWindow);
+  const evidence = windowList.filter(
+    ({ commit }) => isFix(commit) || megaShas.has(commit.sha),
+  );
   return {
     system,
     window: {
       commits: windowList.length,
       fixes: windowList.filter(({ commit }) => isFix(commit)).length,
+      evidenceFiles: [
+        ...new Set(
+          evidence.flatMap(({ files: changed }) => changed.map((f) => f.path)),
+        ),
+      ],
       prs: windowList.map(({ commit }) => ({
         number: commit.pr,
         subject: commit.subject,
@@ -710,7 +867,7 @@ function quantile(sorted: number[], q: number): number {
     : 0;
 }
 
-function renderMarkdown(a: Analysis): string {
+function renderMarkdown(a: Analysis, megaPrNotes: number): string {
   const scope =
     a.mode === "focus"
       ? [
@@ -724,7 +881,7 @@ function renderMarkdown(a: Analysis): string {
           ...(a.regressionCandidates.length
             ? a.regressionCandidates.map(
                 (c) =>
-                  `- ${c.date} #${c.pr ?? "?"} [${c.kind}${c.broad ? `, broad: over ${SWEEP_SYSTEMS} systems` : ""}] ${c.subject} — ${c.files.map((f) => `\`${f}\``).join(", ")}`,
+                  `- ${c.date} #${c.pr ?? "?"} [${c.kind}${c.wide ? ", wide" : ""}] ${c.subject} — ${c.files.map((f) => `\`${f}\``).join(", ")}`,
               )
             : ["- none in the regression window"]),
           "",
@@ -737,10 +894,11 @@ function renderMarkdown(a: Analysis): string {
     "",
     ...scope,
     `Baseline: ${a.baseline.systems} systems with ${POPULATION_MIN_COMMITS}+ lookback commits; repo-wide fix ratio ${pct(a.baseline.repoFixRatio)}.`,
-    `Excluded: ${a.excluded.releaseCommits} release or dependency commits, ${a.excluded.sweepCommits} sweep commits touching more than ${SWEEP_SYSTEMS} systems, mechanical systems: ${a.excluded.mechanicalSystems.join(", ") || "none"}.`,
+    `Excluded: ${a.excluded.releaseCommits} release or dependency commits, ${a.excluded.sweepCommits} broad commits (over ${SWEEP_SYSTEMS} systems, none holding ${pct(MAIN_SHARE)} of the code), mechanical systems: ${a.excluded.mechanicalSystems.join(", ") || "none"}. ${a.excluded.wideCommits} more commits over ${SWEEP_SYSTEMS} systems counted only toward the systems holding ${pct(MAIN_SHARE)}+ of their code.`,
     "",
     "Verdicts come from commit-subject heuristics. Confirm each one against diffs before planning.",
     "",
+    ...(a.mode === "window" ? megaPrSection(a.megaPrs, megaPrNotes) : []),
     "| Score | Verdict | System | Window c/f | Lookback c/f | Weekly fixes |",
     "|---|---|---|---|---|---|",
   ];
@@ -755,7 +913,7 @@ function renderMarkdown(a: Analysis): string {
     for (const f of r.focus ?? []) {
       lines.push(
         "",
-        `Focus file \`${f.path}\`: ${f.commits} commits, ${f.fixes} fixes in the lookback${f.broadCommits ? `, plus ${f.broadCommits} broad commits (over 12 systems) not counted` : ""}.`,
+        `Focus file \`${f.path}\`: ${f.commits} commits, ${f.fixes} fixes in the lookback${f.wideCommits ? `, plus ${f.wideCommits} wide commits not counted` : ""}.`,
       );
       for (const c of f.fixCommits) lines.push(`- ${c.date} ${c.subject}`);
     }
@@ -789,6 +947,42 @@ function renderMarkdown(a: Analysis): string {
     }
   }
   return `${lines.join("\n")}\n`;
+}
+
+function megaPrSection(megaPrs: MegaPr[], minNotes: number): string[] {
+  const sweeps = megaPrs.filter((m) => !m.launch);
+  const launches = megaPrs.filter((m) => m.launch);
+  return [
+    "## Mega-PRs",
+    "",
+    `PRs merged in the window with ${minNotes} or more release notes (changelog entries plus changesets), in systems holding ${pct(MAIN_SHARE)}+ of their code. Each one's main systems are hot targets: audit what the sweep left behind.`,
+    "",
+    ...(sweeps.length ? sweeps.map(describeMegaPr) : ["- none in the window"]),
+    ...(launches.length
+      ? [
+          "",
+          "Skipped as feature launches (a feat subject without mostly `fixed` entries). Audit one anyway if its description reads like a sweep:",
+          "",
+          ...launches.map(describeMegaPr),
+        ]
+      : []),
+    "",
+  ];
+}
+
+function describeMegaPr(m: MegaPr): string {
+  return `- #${m.pr ?? "?"} [${m.kind}] ${m.subject}: ${m.notes} release notes (${describeNotes(m)}). Main systems: ${m.systems.map((s) => `\`${s.system}\` (${pct(s.share)})`).join(", ")}.`;
+}
+
+function describeNotes(m: MegaPr): string {
+  const types = Object.entries(m.changelog)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, n]) => `${type} ${n}`);
+  if (m.unreadable) types.push(`${m.unreadable} unreadable`);
+  const parts = types.length ? [`changelog ${types.join(", ")}`] : [];
+  if (m.changesets)
+    parts.push(`${m.changesets} changeset${m.changesets === 1 ? "" : "s"}`);
+  return parts.join("; ");
 }
 
 function pct(value: number): string {

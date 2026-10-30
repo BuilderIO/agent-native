@@ -2,7 +2,14 @@
 // writes only its own files and reads the others through these types.
 import path from "node:path";
 
-import { readJson, readJsonOr, runDir, writeJson } from "./cli.ts";
+import {
+  readJson,
+  readJsonOr,
+  rel,
+  runDir,
+  ScriptError,
+  writeJson,
+} from "./cli.ts";
 
 export const ARTIFACTS = {
   bug: "bug.json",
@@ -44,6 +51,12 @@ export interface Target {
   system: string;
   /** Focus files first, then the system's most-fixed files. */
   files: string[];
+  /**
+   * What this run's evidence is about: the focus files in a bug run, the
+   * files the window's fixes and mega-PRs changed otherwise. Ticket coverage
+   * and sightings use these.
+   */
+  evidenceFiles: string[];
   score: number;
   verdict: string;
   windowCommits: number | null;
@@ -52,7 +65,14 @@ export interface Target {
 }
 
 export function readTargets(id: string): Target[] {
-  return readJson<Target[]>(artifact(id, "targets"));
+  const file = artifact(id, "targets");
+  const targets = readJson<Target[]>(file);
+  if (targets.some((t) => !Array.isArray(t.evidenceFiles))) {
+    throw new ScriptError(
+      `${rel(file)} predates evidence files; re-run analyze for run ${id}`,
+    );
+  }
+  return targets;
 }
 
 /** Appended by jira-refactor-findings for every applied ticket action. */

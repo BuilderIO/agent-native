@@ -62,6 +62,7 @@ main((args) => {
     return `| \`${r.system}\` | ${r.verdict} | ${r.score} | ${r.window.commits}/${r.lookback.fixes} | ${disposition} |`;
   });
   const undecided = rows.filter((r) => r.includes("UNDECIDED")).length;
+  const sweeps = analysis.megaPrs.filter((m) => !m.launch);
   const created = results.filter(
     (r) => r.action === "create" || r.action === "recurrence",
   );
@@ -74,6 +75,15 @@ main((args) => {
     "| System | Verdict | Score | Window commits / lookback fixes | Disposition |",
     "|---|---|---|---|---|",
     ...rows,
+    "",
+    "## Mega-PRs audited",
+    "",
+    ...(sweeps.length
+      ? sweeps.map(
+          (m) =>
+            `- #${m.pr ?? "?"} ${m.subject}: ${m.systems.map((s) => `\`${s.system}\``).join(", ")}`,
+        )
+      : ["- none in the window"]),
     "",
     "## Jira actions",
     "",
