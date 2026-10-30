@@ -311,26 +311,31 @@ const messages = {
     clipsPermanentlyDeleted: "클립 {{count}}개 영구 삭제됨",
     clipsDeleteFailed: "클립 {{count}}개를 삭제할 수 없습니다",
     deletedMediaPending:
-      "녹화가 삭제되었습니다. 미디어 파일은 아직 제거 중입니다.",
+      "Clips에서 제거되었습니다. 스토리지 제거는 아직 확인되지 않았습니다",
     deletedMediaBlocked:
-      "녹화가 삭제되었지만 미디어 파일을 제거할 수 없습니다.",
+      "Clips에서 제거되었습니다. 스토리지 제거를 확인할 수 없습니다",
     deletedMediaRetained:
       "녹화가 삭제되었습니다. 다른 녹화에서 아직 사용하는 미디어 파일은 유지되었습니다.",
     clipsDeletedMediaPending:
-      "삭제된 녹화: {{count}}개. 미디어 파일은 아직 제거 중입니다.",
+      "Clips에서 제거된 녹화: {{count}}개. 스토리지 제거는 아직 확인되지 않았습니다",
     clipsDeletedMediaBlocked:
-      "삭제된 녹화: {{count}}개. 미디어 파일을 제거할 수 없습니다.",
+      "Clips에서 제거된 녹화: {{count}}개. 스토리지 제거를 확인할 수 없습니다",
     clipsDeletedMediaRetained:
       "삭제된 녹화: {{count}}개. 다른 녹화에서 아직 사용하는 미디어 파일은 유지되었습니다.",
+    deletedMediaFinalizing: "Clips에서 제거됨; 정리 마무리 중",
+    clipsDeletedMediaFinalizing:
+      "Clips에서 제거한 녹화: {{count}}개; 정리 마무리 중",
+    mediaCleanupFinalizing: "제거한 녹화의 정리를 마무리하는 중",
     mediaCleanupListLabel: "미디어 제거",
-    mediaCleanupPending: "삭제된 녹화의 미디어 파일을 제거하는 중",
-    mediaCleanupBlocked: "삭제된 녹화의 미디어 파일을 제거할 수 없습니다",
+    mediaCleanupPending:
+      "Clips에서 제거되었습니다. 스토리지 제거는 아직 확인되지 않았습니다",
+    mediaCleanupBlocked: "스토리지 제거를 확인할 수 없습니다",
     mediaCleanupReconnect:
       "삭제된 녹화의 미디어 파일을 제거하려면 스토리지를 다시 연결하세요",
     mediaCleanupRetained:
       "삭제된 녹화의 공유 미디어 파일은 다른 녹화에서 사용하는 동안 유지됩니다",
     mediaCleanupRemoved: "미디어 파일이 제거됨",
-    mediaCleanupStillBlocked: "미디어 파일을 여전히 제거할 수 없습니다",
+    mediaCleanupStillBlocked: "스토리지 제거를 여전히 확인할 수 없습니다",
     mediaCleanupRetryFailed: "미디어 제거를 다시 시도할 수 없습니다",
     mediaCleanupLoadFailed: "미디어 제거 상태를 불러올 수 없습니다",
   },

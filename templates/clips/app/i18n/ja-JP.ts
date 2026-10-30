@@ -316,26 +316,32 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} 件のクリップを完全に削除しました",
     clipsDeleteFailed: "{{count}} 件のクリップを削除できませんでした",
     deletedMediaPending:
-      "録画を削除しました。メディアファイルはまだ削除中です。",
+      "Clips から削除しました。ストレージからの削除はまだ確認されていません",
     deletedMediaBlocked:
-      "録画を削除しましたが、メディアファイルを削除できませんでした。",
+      "Clips から削除しました。ストレージからの削除を確認できませんでした",
     deletedMediaRetained:
       "録画を削除しました。他の録画で使用中のメディアファイルは残しました。",
     clipsDeletedMediaPending:
-      "削除した録画：{{count}} 件。メディアファイルはまだ削除中です。",
+      "Clips から削除した録画：{{count}} 件。ストレージからの削除はまだ確認されていません",
     clipsDeletedMediaBlocked:
-      "削除した録画：{{count}} 件。メディアファイルを削除できませんでした。",
+      "Clips から削除した録画：{{count}} 件。ストレージからの削除を確認できませんでした",
     clipsDeletedMediaRetained:
       "削除した録画：{{count}} 件。他の録画で使用中のメディアファイルは残しました。",
+    deletedMediaFinalizing:
+      "Clips から削除済み。クリーンアップを完了しています",
+    clipsDeletedMediaFinalizing:
+      "Clips から削除した録画: {{count}}。クリーンアップを完了しています",
+    mediaCleanupFinalizing: "削除した録画のクリーンアップを完了しています",
     mediaCleanupListLabel: "メディアの削除",
-    mediaCleanupPending: "削除した録画のメディアファイルを削除しています",
-    mediaCleanupBlocked: "削除した録画のメディアファイルを削除できませんでした",
+    mediaCleanupPending:
+      "Clips から削除しました。ストレージからの削除はまだ確認されていません",
+    mediaCleanupBlocked: "ストレージからの削除を確認できませんでした",
     mediaCleanupReconnect:
       "削除した録画のメディアファイルを削除するには、ストレージを再接続してください",
     mediaCleanupRetained:
       "削除した録画の共有メディアファイルは、他の録画で使用されている間は保持されます",
     mediaCleanupRemoved: "メディアファイルを削除しました",
-    mediaCleanupStillBlocked: "メディアファイルをまだ削除できません",
+    mediaCleanupStillBlocked: "ストレージからの削除をまだ確認できません",
     mediaCleanupRetryFailed: "メディアの削除を再試行できませんでした",
     mediaCleanupLoadFailed: "メディアの削除状況を読み込めませんでした",
   },

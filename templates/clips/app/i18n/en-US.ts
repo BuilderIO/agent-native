@@ -251,27 +251,31 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clips permanently deleted",
     clipsDeleteFailed: "{{count}} clips could not be deleted",
     deletedMediaPending:
-      "Recording deleted. Media removal is still in progress.",
+      "Removed from Clips; storage removal not yet confirmed",
     deletedMediaBlocked:
-      "Recording deleted, but its media files couldn't be removed.",
+      "Removed from Clips; storage removal could not be confirmed",
     deletedMediaRetained:
       "Recording deleted. Media files other recordings still use were kept.",
     clipsDeletedMediaPending:
-      "Recordings deleted: {{count}}. Media removal is still in progress.",
+      "Recordings removed from Clips: {{count}}; storage removal not yet confirmed",
     clipsDeletedMediaBlocked:
-      "Recordings deleted: {{count}}. Media files couldn't be removed.",
+      "Recordings removed from Clips: {{count}}; storage removal could not be confirmed",
     clipsDeletedMediaRetained:
       "Recordings deleted: {{count}}. Media files other recordings still use were kept.",
+    deletedMediaFinalizing: "Removed from Clips; finalizing cleanup",
+    clipsDeletedMediaFinalizing:
+      "Recordings removed from Clips: {{count}}; finalizing cleanup",
+    mediaCleanupFinalizing: "Finalizing cleanup for the removed recording",
     mediaCleanupListLabel: "Media removal",
-    mediaCleanupPending: "Removing media files from deleted recordings",
-    mediaCleanupBlocked:
-      "Media files from deleted recordings couldn't be removed",
+    mediaCleanupPending:
+      "Removed from Clips; storage removal not yet confirmed",
+    mediaCleanupBlocked: "Storage removal could not be confirmed",
     mediaCleanupReconnect:
       "Reconnect storage to remove media files from deleted recordings",
     mediaCleanupRetained:
       "Shared media files from deleted recordings are kept while other recordings use them",
     mediaCleanupRemoved: "Media files removed",
-    mediaCleanupStillBlocked: "Media files still couldn't be removed",
+    mediaCleanupStillBlocked: "Storage removal still could not be confirmed",
     mediaCleanupRetryFailed: "Couldn't retry media removal",
     mediaCleanupLoadFailed: "Couldn't load media removal status",
   },
