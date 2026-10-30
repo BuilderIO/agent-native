@@ -79,6 +79,31 @@ export function withBackendRequest(
   ];
 }
 
+type XhrOpen = (
+  this: XMLHttpRequest,
+  method: string,
+  url: string | URL,
+  ...rest: unknown[]
+) => void;
+
+/**
+ * XHR is the other way the browser reaches the server (upload progress
+ * needs it), so it moves with fetch. Credentials are turned on at `open`;
+ * a caller that sets `withCredentials = false` afterwards still wins.
+ */
+export function installBackendXhr(
+  xhr: { prototype: XMLHttpRequest },
+  pageHref: () => string,
+): void {
+  const originalOpen = xhr.prototype.open as XhrOpen;
+  const patchedOpen: XhrOpen = function (method, url, ...rest) {
+    const target = backendRequestUrl(url, pageHref());
+    originalOpen.call(this, method, target ? target.href : url, ...rest);
+    if (target) this.withCredentials = true;
+  };
+  xhr.prototype.open = patchedOpen as XMLHttpRequest["open"];
+}
+
 export function ensureBackendFetchInterceptor(): void {
   if (installed || typeof window === "undefined") return;
   if (typeof window.fetch !== "function" || !apiBaseUrl()) return;
@@ -93,6 +118,9 @@ export function ensureBackendFetchInterceptor(): void {
     return originalFetch(nextInput, nextInit);
   }) as typeof fetch;
   win.fetch = patchedFetch;
+  if (typeof win.XMLHttpRequest === "function") {
+    installBackendXhr(win.XMLHttpRequest, () => win.location.href);
+  }
   installed = true;
 }
 

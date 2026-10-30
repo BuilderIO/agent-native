@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { agentNativePath, appApiPath, isApiBaseUrl } from "./api-path.js";
-import { backendRequestUrl, withBackendRequest } from "./backend-fetch.js";
+import {
+  backendRequestUrl,
+  installBackendXhr,
+  withBackendRequest,
+} from "./backend-fetch.js";
 
 const PAGE = "https://app.example.com/inbox";
 
@@ -138,5 +142,41 @@ describe("backend base URL", () => {
     stubPage("https://api.example.com");
     const init = { credentials: "same-origin" as const };
     expect(withBackendRequest("/inbox", init, PAGE)).toEqual(["/inbox", init]);
+  });
+});
+
+describe("backend XHR", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  class FakeXhr {
+    opened: unknown[] = [];
+    withCredentials = false;
+    open(...args: unknown[]) {
+      this.opened = args;
+    }
+  }
+
+  it("moves server-route XHRs to the configured server with credentials", () => {
+    stubPage("https://api.example.com");
+    installBackendXhr(
+      FakeXhr as unknown as { prototype: XMLHttpRequest },
+      () => PAGE,
+    );
+
+    const upload = new FakeXhr();
+    upload.open("POST", "/api/import-design-file", true);
+    expect(upload.opened).toEqual([
+      "POST",
+      "https://api.example.com/api/import-design-file",
+      true,
+    ]);
+    expect(upload.withCredentials).toBe(true);
+
+    const asset = new FakeXhr();
+    asset.open("GET", "/assets/logo.svg");
+    expect(asset.opened).toEqual(["GET", "/assets/logo.svg"]);
+    expect(asset.withCredentials).toBe(false);
   });
 });
