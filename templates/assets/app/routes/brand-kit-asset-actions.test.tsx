@@ -60,17 +60,18 @@ it.each([
       );
     });
     const move = [...document.querySelectorAll('[role="menuitem"]')].find(
-      (node) => node.textContent?.includes("library.moveTo"),
+      (node) => node.textContent.includes("library.moveTo"),
     );
     expect(move).toBeDefined();
+    if (!move) throw new Error("Move menu not found");
     await act(async () => {
-      move?.dispatchEvent(
+      move.dispatchEvent(
         new PointerEvent("pointermove", {
           bubbles: true,
           pointerType: "mouse",
         }),
       );
-      move?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      move.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(document.body.textContent).toContain(present);
     expect(document.body.textContent).not.toContain(absent);

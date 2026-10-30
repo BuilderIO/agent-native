@@ -1884,7 +1884,17 @@ function isContentOnlyReference(asset: any): boolean {
   );
 }
 
-function assetMatchesLibraryTab(asset: any, tab: LibraryTab): boolean {
+type LibraryCountAsset = {
+  status: string;
+  folderId?: string | null;
+  role?: string | null;
+  metadata?: { intent?: string | null } | null;
+};
+
+function assetMatchesLibraryTab(
+  asset: LibraryCountAsset,
+  tab: LibraryTab,
+): boolean {
   if (tab === "generated") return asset.status === "saved";
   if (tab === "references")
     return asset.status === "reference" && !isContentOnlyReference(asset);
@@ -2058,8 +2068,8 @@ export function AssetFolderChips({
   activeTab,
   onSelectFolder,
 }: {
-  assets: any[];
-  folders: any[];
+  assets: LibraryCountAsset[];
+  folders: { id: string; title: string }[];
   activeFolderId: string | null;
   activeTab: LibraryTab;
   onSelectFolder: (folderId: string | null) => void;
