@@ -62,6 +62,7 @@ import {
   suggestionDecisionPreviewContent,
   suggestionToDecideAfterSave,
   sameSuggestionAnchorIds,
+  previewDraftSuggestions,
   singleSuggestionDecisionLockAfterMismatch,
   suggestionAmendmentTargetIsResolved,
   suggestionAmendmentResolutionConflicts,
@@ -559,6 +560,16 @@ describe("document editor layout", () => {
     expect(sameSuggestionAnchorIds(["two", "one"], ["one", "two"])).toBe(true);
     expect(sameSuggestionAnchorIds(["one"], ["two"])).toBe(false);
     expect(sameSuggestionAnchorIds(null, [])).toBe(false);
+  });
+
+  it("keeps one list for a draft it can't map, so the highlights don't redraw every render", () => {
+    const unmapped = () =>
+      previewDraftSuggestions({
+        status: "unsupported-formatting",
+        content: "Draft",
+      });
+    expect(unmapped()).toEqual([]);
+    expect(unmapped()).toBe(unmapped());
   });
 
   it("does not feed suggestion anchor decoration transactions back into the parent", () => {
