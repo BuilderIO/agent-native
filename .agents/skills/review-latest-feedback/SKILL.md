@@ -190,7 +190,8 @@ no reaction and no thread yet.
   hand to things he is working on himself, so a 👀 from his account is not
   enough to make a root this workflow's. Require evidence that this workflow
   claimed the root with 👀, such as a matching run recap, proof-bearing PR
-  report, or the automation memory's "Claimed, not yet answered" list. A bot
+  report, or the automation memory's "Claimed reports" list (including legacy
+  "Claimed, not yet answered" entries). A bot
   reply or reaction alone does not establish ownership. Investigate an owned
   report before replying; otherwise leave the root alone. Read the thread of every workflow root in the
   window, not just the channel row: a human reply newer than ours only shows
@@ -256,19 +257,19 @@ ranked with the Slack reports by people affected. They have no thread to react o
 so they appear only in the recap.
 
 Take the Fix reports in order of how many people they hurt, and claim all
-of them. A claim you can't finish stays under "Claimed, not yet answered" for
-the next run. Any Fix, Build, or Needs-a-person root you leave
+of them. A claim you can't finish stays under "Claimed reports" for the
+next run. Any Fix, Build, or Needs-a-person root you leave
 unclaimed gets no reaction, only one line in the recap saying why, so
 nothing is dropped silently. That covers every candidate your source helpers
 return: each one ends the run either claimed or on a recap line with its
 reason.
 
-Before adding 👀, list each claimed root (channel and ts) under "Claimed, not
-yet answered" in the feedback automation's `memory.md`, for scheduled and
-manual runs alike. Then add 👀 in one pass, before investigating. Remove each
-entry once it has its reply. This durable handoff distinguishes interrupted
-claims from Steve's own 👀; if the shared memory is unavailable, do not claim
-new roots.
+In scheduled and manual runs, record each root (channel and ts) under "Claimed
+reports" in the feedback automation's `memory.md`, then add and verify 👀
+before investigating. A record alone does not establish a claim: the root
+must also have the verified 👀 from this workflow. Retain the record until
+the report is resolved or a person takes over. If shared memory is unavailable,
+do not claim new roots.
 
 ## 3. Fix as many as you can
 
