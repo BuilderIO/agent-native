@@ -1543,12 +1543,26 @@ describe("DeckContext fallback polling", () => {
     });
     expect(hasFailedDeckSave(deckId)).toBe(true);
 
+    api.failDeckReads(null);
+    const fetch = api.fetchMock.getMockImplementation();
+    if (!fetch) throw new Error("Expected the deck fetch mock to be installed");
+    api.fetchMock.mockImplementation((url) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck")
+        ? Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+        : fetch(url),
+    );
     await act(async () => {
       result.current.updateDeck(deckId, { title: "Restored access" });
       await vi.advanceTimersByTimeAsync(500);
     });
 
     expect(result.current.getDeck(deckId)?.title).toBe("Restored access");
+    await waitFor(() => expect(hasUnsavedDeckChanges(deckId)).toBe(false));
+    expect(
+      api.fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toBe(true);
     expect(hasFailedDeckSave(deckId)).toBe(false);
   });
 
