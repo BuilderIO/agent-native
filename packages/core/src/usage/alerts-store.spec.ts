@@ -140,6 +140,18 @@ describe("usage alerts", () => {
       ).get(),
     ).toMatchObject({ dismissed_window_start: null });
 
+    await pglite.exec(
+      "UPDATE usage_alert_rules SET is_default = 0, limit_value = 10000, period = 'day'",
+    );
+    await move();
+    expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
+      {
+        limit: 100,
+        period: "day",
+      },
+    );
+
+    await pglite.exec("UPDATE usage_alert_rules SET is_default = 1");
     await saveUsageAlert(
       { scope: "user", ruleId: rule!.id, limit: 50, period: "day" },
       access,
