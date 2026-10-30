@@ -21,6 +21,7 @@ import {
   uploadPptxSlideImages,
 } from "../server/handlers/import/pptx-assets.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
 import { trackSlides } from "../server/lib/slides-tracking.js";
@@ -1010,7 +1011,7 @@ async function appendDeckSlides(
       .update(schema.decks)
       .set({
         title: nextTitle,
-        data: JSON.stringify(data),
+        ...deckDataColumns(data),
         updatedAt: writeNow,
       })
       .where(deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt));

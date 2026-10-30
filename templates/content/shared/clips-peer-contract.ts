@@ -34,12 +34,27 @@ export const CONTENT_CLIP_CLAIMS = {
 export const CONTENT_CLIP_MAX_COMMENT_THREADS = 500;
 
 /**
- * Clips cuts a listed thread start's text to this many characters, and its
- * author's name and email to `CONTENT_CLIP_COMMENT_AUTHOR_CHARS`, so the
+ * Clips cuts a listed comment's author name and email to this many
+ * characters, and its text to `CONTENT_CLIP_COMMENT_TEXT_CHARS`, so the
  * longest comment list has a known size.
  */
-export const CONTENT_CLIP_COMMENT_PREVIEW_CHARS = 280;
 export const CONTENT_CLIP_COMMENT_AUTHOR_CHARS = 320;
+
+/**
+ * Clips' comment list for a page's comment margin: open threads only, each
+ * with its replies, its text cut to `CONTENT_CLIP_COMMENT_TEXT_CHARS` rather
+ * than the preview length, and at most `CONTENT_CLIP_MAX_LISTED_REPLIES`
+ * replies across the list, from the earliest thread on.
+ */
+export const CONTENT_CLIP_OPEN_THREADS_VIEW = "open-threads";
+export const CONTENT_CLIP_COMMENT_TEXT_CHARS = 2_000;
+export const CONTENT_CLIP_MAX_LISTED_REPLIES = 500;
+
+/** The longest comment or reply Clips takes from Content. */
+export const CONTENT_CLIP_MAX_COMMENT_CHARS = 10_000;
+
+/** The latest moment of a video Clips takes a comment at. */
+export const CONTENT_CLIP_MAX_VIDEO_TIMESTAMP_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Clips cuts the playback answer's recording title to this many characters. */
 export const CONTENT_CLIP_RECORDING_TITLE_CHARS = 500;
@@ -67,6 +82,8 @@ export const CLIP_PLAYBACK_ERRORS = {
   passwordRequired: "clip_password_required",
   redactionPending: "clip_redaction_pending",
   commentsDisabled: "clip_comments_disabled",
+  /** The reader can read the page but not comment on it. */
+  commentRequired: "clip_comment_required",
   forbidden: "clip_forbidden",
   /** Clips refused Content's token. */
   unauthorized: "clip_token_refused",
@@ -116,6 +133,26 @@ export interface ClipCommentMarker {
   videoTimestampMs: number;
   content: string;
   authorName: string | null;
+}
+
+/** One comment on a Clip. A signed-out reader gets no author email. */
+export interface ClipComment {
+  id: string;
+  authorEmail: string | null;
+  authorName: string | null;
+  content: string;
+  createdAt: string;
+}
+
+/**
+ * An open thread on a Clip: its start at a moment of the video, and its
+ * replies. `replyCount` counts them all, so a thread with fewer `replies` had
+ * some held back.
+ */
+export interface ClipCommentThread extends ClipComment {
+  videoTimestampMs: number;
+  replyCount: number;
+  replies: ClipComment[];
 }
 
 /** The video types an upload to Clips may be. */

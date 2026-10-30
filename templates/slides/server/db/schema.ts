@@ -18,6 +18,12 @@ export const decks = table("decks", {
   lastWriteClientId: text("last_write_client_id"),
   lastWriteClientSequence: integer("last_write_client_sequence"),
   lastWriteRevision: text("last_write_revision"),
+  // Written with `data` by deckDataColumns(); a null slideCount marks a row
+  // saved before these existed, which list-decks reads from `data` instead.
+  previewSlide: text("preview_slide"),
+  previewTooLarge: boolean("preview_too_large"),
+  aspectRatio: text("aspect_ratio"),
+  slideCount: integer("slide_count"),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
@@ -34,6 +40,7 @@ export const deckVersions = table("deck_versions", {
   changeLabel: text("change_label"),
   chatContext: text("chat_context"),
   changeGroup: text("change_group"),
+  contentHash: text("content_hash"),
   createdAt: text("created_at").notNull().default(now()),
 });
 
@@ -54,6 +61,7 @@ export const designSystemShares = createSharesTable("design_system_shares");
 
 export const deckShareLinks = table("deck_share_links", {
   token: text("token").primaryKey(),
+  deckId: text("deck_id"), // Null on legacy rows, which can no longer be served
   title: text("title").notNull(),
   slides: text("slides").notNull(), // JSON array of slide snapshots
   aspectRatio: text("aspect_ratio"),

@@ -105,7 +105,7 @@ interface NodeDetailsDialogProps {
   parkedCount: number;
   /** Saves the page and runs a dry run of the whole workflow, as the toolbar's Test does. */
   onTestWorkflow: () => void;
-  /** Hands the step to the agent sidebar. */
+  /** Hands the step to the agent sidebar; the modal closes first, or its overlay would cover the sidebar. */
   onAskAgent: () => void;
   /** A read-only modal shows no drag grips and takes no drops. */
   readOnly?: boolean;
@@ -244,7 +244,10 @@ export function NodeDetailsDialog({
               type="button"
               variant="ghost"
               size="sm"
-              onClick={onAskAgent}
+              onClick={() => {
+                onClose();
+                onAskAgent();
+              }}
             >
               <IconMessage />
               {ws.toolbar.askAgent}
@@ -293,6 +296,7 @@ export function NodeDetailsDialog({
                 dirty={dirty}
                 starting={starting}
                 onTestStep={onTestStep}
+                onAskAgent={onClose}
               />
               <NodeDetailsOutputPane
                 key={`output-${node.id}`}

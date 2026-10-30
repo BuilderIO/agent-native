@@ -67,7 +67,9 @@ function run(): {
 function isTestCommand(): boolean {
   return (
     (command[0] === "node" && command[1] === "--test") ||
-    (command[0] === "pnpm" && command.includes("vitest"))
+    ((command[0] === "pnpm" ||
+      (command[0] === "corepack" && command[1] === "pnpm")) &&
+      command.includes("vitest"))
   );
 }
 

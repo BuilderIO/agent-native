@@ -32,6 +32,7 @@ import {
 } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
@@ -1559,9 +1560,14 @@ export default defineAction({
         .map((operation) => operation.slideId)
         .filter((slideId) => !existingSlideIds.has(slideId));
       if (missingSlideIds.length > 0) {
-        fail(
-          `Cannot patch missing slide(s): ${[...new Set(missingSlideIds)].join(", ")}`,
-          { errorCode: "slide_not_found", statusCode: 404 },
+        const slideIds = [...new Set(missingSlideIds)];
+        throw new NoWriteError(
+          `Cannot patch slide(s) ${slideIds.join(", ")}: they are no longer in the deck. Re-read the deck with get-deck; no slides were changed.`,
+          {
+            errorCode: "slide_not_found",
+            statusCode: 404,
+            details: { slideIds },
+          },
         );
       }
 
@@ -2022,7 +2028,7 @@ export default defineAction({
           .update(schema.decks)
           .set({
             title: sqlTitle,
-            data: JSON.stringify(deck),
+            ...deckDataColumns(deck),
             designSystemId: sqlDesignSystemId,
             updatedAt: now,
             ...deckClientWriteFields(clientWrite, now),

@@ -295,9 +295,7 @@ describe("new deck generation flow", () => {
       "infer a coherent multi-slide outline from the scope",
     );
     expect(flow).toContain("Do not call the legacy generate-slides-ai action");
-    expect(flow).toContain(
-      "Treat each successful write and compact readback as confirmation",
-    );
+    expect(flow).toContain("Treat each successful write as confirmation");
     expect(flow).toContain("deck-level visual contract");
     expect(flow).toContain(
       "Add every generated slide ONE AT A TIME using the `add-slide` action",
@@ -305,9 +303,8 @@ describe("new deck generation flow", () => {
     expect(flow).toContain(
       "Do not use `patch-deck` to append generated slides because `add-slide` records per-slide Creative Context provenance",
     );
-    expect(flow).toContain(
-      "call `get-deck` with its returned slideId and compact=false",
-    );
+    expect(flow).toContain("do not read a slide back to continue");
+    expect(flow).not.toContain("Use create-deck");
     expect(flow).not.toContain("at most three `add-slide` operations");
     expect(flow).toContain("Never issue parallel writes to the same deck");
   });

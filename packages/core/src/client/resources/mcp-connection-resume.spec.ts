@@ -188,4 +188,41 @@ describe("MCP connection resume", () => {
     expect(getPendingMcpConnectionResume()).toMatchObject({ completionId });
     removeListener();
   });
+
+  it("accepts popup completion from the configured app server's origin", () => {
+    const completionId = "8d1bd7cf-419e-4ff0-8545-19dedb819154";
+    const popup = {} as Window;
+    const config = window as Window & {
+      __AGENT_NATIVE_CONFIG__?: { apiBaseUrl?: string };
+    };
+    config.__AGENT_NATIVE_CONFIG__ = {
+      apiBaseUrl: "https://api.example.test/mail",
+    };
+    saveMcpConnectionResume(
+      "Continue the run",
+      { threadId: "thread-1", runId: "run-1", requestId: "connection-1" },
+      completionId,
+    );
+    const listener = vi.fn();
+    const removeListener = addMcpConnectionCompleteListener(listener);
+    const complete = (origin: string) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:workspace-connection-complete",
+            completionId,
+          },
+          origin,
+          source: popup,
+        }),
+      );
+
+    complete("https://other.example.test");
+    expect(listener).not.toHaveBeenCalled();
+    complete("https://api.example.test");
+    expect(listener).toHaveBeenCalledOnce();
+
+    removeListener();
+    delete config.__AGENT_NATIVE_CONFIG__;
+  });
 });

@@ -32,6 +32,8 @@ export type PriorTurnToolCallSequenceEntry =
       isError: boolean;
       completedSideEffect?: boolean;
       replayed?: true;
+      approvalPause?: true;
+      notExecuted?: true;
       matchedStart: boolean;
     };
 
@@ -191,6 +193,7 @@ function durableStepToolDone(
       ? { errorCode: outcome.errorCode }
       : {}),
     completedSideEffect: outcome.completedSideEffect,
+    ...(outcome.replayed === true ? { replayed: true } : {}),
     argumentsHash: input.argumentsHash,
     ...(artifacts.length > 0 ? { artifacts } : {}),
     ...(mcpApp ? { mcpApp } : {}),
@@ -496,6 +499,8 @@ export async function loadPriorTurnToolCallJournal(
           ? { completedSideEffect: true }
           : {}),
         ...(event.replayed === true ? { replayed: true } : {}),
+        ...(event.approvalPause === true ? { approvalPause: true } : {}),
+        ...(event.notExecuted === true ? { notExecuted: true } : {}),
         matchedStart: call !== undefined,
       });
       const artifacts = event.artifacts?.filter(isArtifactReceipt);
@@ -674,12 +679,16 @@ export function seedRepeatedToolErrorCountsFromJournal(
   normalizeError: (error: string) => string,
 ): {
   sameArguments: Map<string, number>;
-  sameTool: Map<string, number>;
+  sameTool: Map<string, Map<string, number>>;
+  failureStreaks: Map<string, number>;
 } {
   const sameArguments = new Map<string, number>();
-  const sameTool = new Map<string, number>();
+  const sameTool = new Map<string, Map<string, number>>();
+  const failureStreaks = new Map<string, number>();
   for (const call of calls) {
     if (call.event === "start") continue;
+
+    if (call.approvalPause || call.notExecuted) continue;
 
     if (call.replayed) {
       if (call.completedSideEffect === true) {
@@ -690,18 +699,25 @@ export function seedRepeatedToolErrorCountsFromJournal(
           }
         }
         for (const key of sameTool.keys()) {
-          if (!key.startsWith(`${call.name}:`)) sameTool.delete(key);
+          if (key !== call.name) sameTool.delete(key);
         }
       }
       continue;
     }
 
     if (call.isError) {
+      failureStreaks.set(call.name, (failureStreaks.get(call.name) ?? 0) + 1);
       const error = normalizeError(call.result);
-      const toolKey = `${call.name}:${error}`;
-      sameTool.set(toolKey, (sameTool.get(toolKey) ?? 0) + 1);
+      let toolErrors = sameTool.get(call.name);
+      if (!toolErrors) {
+        toolErrors = new Map<string, number>();
+        sameTool.set(call.name, toolErrors);
+      }
+      toolErrors.set(error, (toolErrors.get(error) ?? 0) + 1);
       const callKey = `${keyForCall(call.name, call.input)}:${error}`;
       sameArguments.set(callKey, (sameArguments.get(callKey) ?? 0) + 1);
+    } else {
+      failureStreaks.delete(call.name);
     }
 
     if (call.completedSideEffect !== true) continue;
@@ -710,8 +726,8 @@ export function seedRepeatedToolErrorCountsFromJournal(
       if (!key.startsWith(`${successfulWriteKey}:`)) sameArguments.delete(key);
     }
     for (const key of sameTool.keys()) {
-      if (!key.startsWith(`${call.name}:`)) sameTool.delete(key);
+      if (key !== call.name) sameTool.delete(key);
     }
   }
-  return { sameArguments, sameTool };
+  return { sameArguments, sameTool, failureStreaks };
 }

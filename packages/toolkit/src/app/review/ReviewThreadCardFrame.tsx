@@ -4,6 +4,8 @@ import { cn } from "@agent-native/toolkit/utils";
 import { IconCircleCheck, IconX } from "@tabler/icons-react";
 import { forwardRef, useId, type ReactNode } from "react";
 
+import { ReviewTooltip } from "./ReviewTooltip.js";
+
 export interface ReviewThreadCardFrameProps {
   title?: string | undefined;
   /** Set false to render the card body without the title bar. */
@@ -81,29 +83,33 @@ export const ReviewThreadCardFrame = forwardRef<
           <div className="flex shrink-0 items-center gap-1">
             {menu}
             {toggleResolution ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={ICON_BUTTON_CLASS}
-                disabled={resolving}
-                aria-label={resolved ? reopenLabel : resolveLabel}
-                onClick={toggleResolution}
-              >
-                {resolving ? <Spinner /> : <IconCircleCheck />}
-              </Button>
+              <ReviewTooltip label={resolved ? reopenLabel : resolveLabel}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={ICON_BUTTON_CLASS}
+                  disabled={resolving}
+                  aria-label={resolved ? reopenLabel : resolveLabel}
+                  onClick={toggleResolution}
+                >
+                  {resolving ? <Spinner /> : <IconCircleCheck />}
+                </Button>
+              </ReviewTooltip>
             ) : null}
             {onClose ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={ICON_BUTTON_CLASS}
-                aria-label={closeLabel}
-                onClick={onClose}
-              >
-                <IconX />
-              </Button>
+              <ReviewTooltip label={closeLabel}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={ICON_BUTTON_CLASS}
+                  aria-label={closeLabel}
+                  onClick={onClose}
+                >
+                  <IconX />
+                </Button>
+              </ReviewTooltip>
             ) : null}
           </div>
         </div>

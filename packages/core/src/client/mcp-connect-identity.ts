@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { McpConnectIdentity } from "../shared/mcp-connect-content.js";
-import { appPath } from "./api-path.js";
+import { appServerPath } from "./api-path.js";
 
 export type McpConnectIdentityState =
   | { status: "loading" }
@@ -32,7 +32,7 @@ function isMcpConnectIdentity(value: unknown): value is McpConnectIdentity {
  * URL fails resource matching when it signs in.
  */
 export async function fetchMcpConnectIdentity(): Promise<McpConnectIdentity> {
-  const response = await fetch(appPath("/mcp/connect/identity"), {
+  const response = await fetch(appServerPath("/mcp/connect/identity"), {
     headers: { accept: "application/json" },
   });
   if (!response.ok) {

@@ -380,9 +380,6 @@ const messages = {
       connectionsNeeded: "{{count}} por conectar",
       connectionsListName: "Conexiones necesarias",
       jumpToProblem: "Mostrar en el lienzo",
-      testRun: "Simulación",
-      testing: "Iniciando",
-      saveAndTest: "Guardar y simular",
       moreActions: "Más acciones",
       runNow: "Ejecutar ahora",
       runNowSaveFirst: "Guarda tus cambios antes de ejecutarlo de verdad.",
@@ -460,6 +457,13 @@ const messages = {
       body: "Este flujo de trabajo tiene cambios sin guardar.",
       stay: "Seguir editando",
       discard: "Descartar",
+    },
+    draft: {
+      restored: "Se restauraron tus cambios sin guardar.",
+      saveFailed: "No se pudo guardar un borrador de tus cambios. {{reason}}",
+      unreadable:
+        "No se pudieron restaurar tus cambios sin guardar, así que se abrió la versión guardada.",
+      discardFailed: "No se pudo descartar tu borrador. {{reason}}",
     },
     liveRun: {
       dialogTitle: "¿Ejecutar este flujo de trabajo de verdad?",

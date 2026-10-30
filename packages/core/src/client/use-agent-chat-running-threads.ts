@@ -14,6 +14,10 @@ export interface AgentChatRunningEventDetail {
   tabId?: string;
   turnId?: string;
   runId?: string;
+  /**
+   * `"run.submitted"` marks the run this client just started for a submitted
+   * message, which carries no successor link to any earlier run.
+   */
   reason?: string;
 }
 

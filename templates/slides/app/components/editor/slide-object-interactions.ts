@@ -4,6 +4,7 @@ import {
   type CanvasResizeHandle,
 } from "@agent-native/toolkit/canvas-interactions";
 
+import { SLIDE_GRID_STEP_PX } from "@/lib/slide-grid";
 import {
   CROP_CSS_ANIMATION_NAME_PREFIX,
   CROP_TRANSITION_ANIMATION_ID_PREFIX,
@@ -244,6 +245,103 @@ export function resolveFreeformSizing(element: HTMLElement): FreeformSizing {
     return "min";
   }
   return "fixed";
+}
+
+/**
+ * Lands a geometry plan on whole slide px. Inside a rotated containing block
+ * whole local px are not whole screen px, so a position keeps its precision
+ * there and the object stays under the pointer; sizes still round.
+ */
+export { SLIDE_GRID_STEP_PX };
+
+/**
+ * The grid in one containing block's `left`/`top` space. `origin` is that
+ * block's offset from the slide, so every block shares one slide-wide grid.
+ */
+export interface SlideGrid {
+  step: number;
+  origin: { x: number; y: number };
+}
+
+export function resolveSlideGrid(
+  containingBlock: HTMLElement,
+  positioningLayer: HTMLElement,
+): SlideGrid {
+  if (containingBlock === positioningLayer) {
+    return { step: SLIDE_GRID_STEP_PX, origin: { x: 0, y: 0 } };
+  }
+  const layerRect = positioningLayer.getBoundingClientRect();
+  const scale = layoutScaleOf(positioningLayer, layerRect);
+  const rect = containingBlock.getBoundingClientRect();
+  return {
+    step: SLIDE_GRID_STEP_PX,
+    origin: {
+      x: (rect.left - layerRect.left) * scale.x + containingBlock.clientLeft,
+      y: (rect.top - layerRect.top) * scale.y + containingBlock.clientTop,
+    },
+  };
+}
+
+export function snapToSlideGrid(
+  value: number,
+  grid: SlideGrid,
+  axis: "x" | "y",
+): number {
+  const origin = grid.origin[axis];
+  return Math.round((value + origin) / grid.step) * grid.step - origin;
+}
+
+/** The next grid line past `value` in `direction`, never `value` itself. */
+export function nextSlideGridLine(
+  value: number,
+  direction: 1 | -1,
+  grid: SlideGrid,
+  axis: "x" | "y",
+): number {
+  const origin = grid.origin[axis];
+  const cell = (value + origin) / grid.step;
+  const line = direction > 0 ? Math.floor(cell) + 1 : Math.ceil(cell) - 1;
+  return line * grid.step - origin;
+}
+
+/**
+ * The pointer delta that lands each edge the handle drives on the grid. An
+ * aspect-locked or centered resize derives the other edges from that one.
+ */
+export function snapSlideObjectResizeDelta(
+  start: SlideObjectGeometry,
+  handle: ResizeHandle,
+  delta: { x: number; y: number },
+  grid: SlideGrid,
+): { x: number; y: number } {
+  const snapEdge = (edge: number, travel: number, axis: "x" | "y") =>
+    snapToSlideGrid(edge + travel, grid, axis) - edge;
+  return {
+    x: handle.includes("e")
+      ? snapEdge(start.x + start.width, delta.x, "x")
+      : handle.includes("w")
+        ? snapEdge(start.x, delta.x, "x")
+        : delta.x,
+    y: handle.includes("s")
+      ? snapEdge(start.y + start.height, delta.y, "y")
+      : handle.includes("n")
+        ? snapEdge(start.y, delta.y, "y")
+        : delta.y,
+  };
+}
+
+export function roundSlideObjectGeometry(
+  geometry: SlideObjectGeometryPlan,
+  { keepPosition = false }: { keepPosition?: boolean } = {},
+): SlideObjectGeometryPlan {
+  return {
+    x: keepPosition ? geometry.x : Math.round(geometry.x),
+    y: keepPosition ? geometry.y : Math.round(geometry.y),
+    width: Math.round(geometry.width),
+    ...(geometry.height === undefined
+      ? {}
+      : { height: Math.round(geometry.height) }),
+  };
 }
 
 export function planSlideObjectGeometry(
@@ -6072,6 +6170,7 @@ export function snapSlideObjectMove({
     ? SLIDE_OBJECT_SNAP_SCREEN_TOLERANCE / scale
     : SLIDE_OBJECT_SNAP_TOLERANCE,
   bypass = false,
+  grid,
 }: {
   moving: SlideObjectGeometry;
   deltaX: number;
@@ -6082,6 +6181,8 @@ export function snapSlideObjectMove({
   scale?: number;
   tolerance?: number;
   bypass?: boolean;
+  /** Lands an axis no guide claimed on this grid. */
+  grid?: SlideGrid;
 }): SlideObjectSnapResult {
   if (bypass) return { deltaX, deltaY, guides: [] };
 
@@ -6125,8 +6226,14 @@ export function snapSlideObjectMove({
   // Equal spacing only wins when strictly closer, so a tie keeps the edge snap.
   const xEqual = xSpacing && (!xSnap || xSpacing.distance < xSnap.distance);
   const yEqual = ySpacing && (!ySnap || ySpacing.distance < ySnap.distance);
-  const snappedDeltaX = xEqual ? xSpacing.delta : (xSnap?.delta ?? deltaX);
-  const snappedDeltaY = yEqual ? ySpacing.delta : (ySnap?.delta ?? deltaY);
+  const onGrid = (start: number, delta: number, axis: "x" | "y") =>
+    grid ? snapToSlideGrid(start + delta, grid, axis) - start : delta;
+  const snappedDeltaX = xEqual
+    ? xSpacing.delta
+    : (xSnap?.delta ?? onGrid(moving.x, deltaX, "x"));
+  const snappedDeltaY = yEqual
+    ? ySpacing.delta
+    : (ySnap?.delta ?? onGrid(moving.y, deltaY, "y"));
 
   const moved = {
     ...moving,
@@ -6299,22 +6406,38 @@ export function layoutScaleOf(
   };
 }
 
+/**
+ * The element's border box in layout px of the slide root. Unlike a viewport
+ * rect it survives a zoom or scroll between reading and using it.
+ */
+export function slideLayoutBoxOf(
+  element: HTMLElement,
+  fmdSlide: HTMLElement,
+  slideRect: DOMRect = fmdSlide.getBoundingClientRect(),
+): Pick<DOMRect, "left" | "top" | "width" | "height"> {
+  const scale = layoutScaleOf(fmdSlide, slideRect);
+  const rect = element.getBoundingClientRect();
+  return {
+    left: (rect.left - slideRect.left) * scale.x,
+    top: (rect.top - slideRect.top) * scale.y,
+    width: rect.width * scale.x,
+    height: rect.height * scale.y,
+  };
+}
+
 function layoutBoxWithin(
   element: HTMLElement,
   fmdSlide: HTMLElement,
 ): Pick<DOMRect, "left" | "top" | "width" | "height"> {
-  const slideRect = fmdSlide.getBoundingClientRect();
-  const scale = layoutScaleOf(fmdSlide, slideRect);
-  const rect = element.getBoundingClientRect();
+  const box = slideLayoutBoxOf(element, fmdSlide);
   // `left`/`top` position the margin box, so back the margins out.
   const computed = element.ownerDocument.defaultView?.getComputedStyle(element);
   const marginLeft = Number.parseFloat(computed?.marginLeft ?? "") || 0;
   const marginTop = Number.parseFloat(computed?.marginTop ?? "") || 0;
   return {
-    left: (rect.left - slideRect.left) * scale.x - marginLeft,
-    top: (rect.top - slideRect.top) * scale.y - marginTop,
-    width: rect.width * scale.x,
-    height: rect.height * scale.y,
+    ...box,
+    left: box.left - marginLeft,
+    top: box.top - marginTop,
   };
 }
 

@@ -1719,9 +1719,9 @@ async function runMobileImportStatusRegression(page: Page, base: string) {
         "empty mobile live region took space beside the import button",
       );
     }
+    // Import is one button that opens the file dialog for every supported type.
     const fileChooser = page.waitForEvent("filechooser");
     await page.getByRole("button", { name: "Import" }).click();
-    await page.getByRole("menuitem", { name: "PPT" }).click();
     await (await fileChooser).setFiles(fixturePath);
 
     const uploadReached = await Promise.race([

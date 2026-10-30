@@ -1,16 +1,10 @@
-import { useAvatarUrl } from "@agent-native/core/client/use-avatar";
 import type { ReviewMention } from "@agent-native/core/review/types";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@agent-native/toolkit/ui/avatar";
 import { PopoverContent } from "@agent-native/toolkit/ui/popover";
 import { cn } from "@agent-native/toolkit/utils";
 import { Fragment, useEffect, type ComponentPropsWithoutRef } from "react";
 
 import { resolveReviewAgent } from "./review-agent.js";
-import { ReviewAgentMark } from "./ReviewAgentMark.js";
+import { ReviewAuthorAvatar, reviewInitials } from "./ReviewAuthorAvatar.js";
 import { isReviewAgentMention } from "./ReviewMentionChip.js";
 
 /**
@@ -22,14 +16,7 @@ export type ReviewMentionOption = ReviewMention & {
 };
 
 export function reviewMentionInitials(mention: ReviewMention): string {
-  const source = mention.label.trim() || mention.email?.split("@")[0] || "";
-  const parts = source.split(/[\s._+-]+/).filter(Boolean);
-  return (
-    parts
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") || "?"
-  );
+  return reviewInitials(mention.label.trim() || mention.email || "");
 }
 
 export function ReviewMentionAvatar({
@@ -39,26 +26,18 @@ export function ReviewMentionAvatar({
   mention: ReviewMention;
   className?: string;
 }) {
-  const avatarUrl = useAvatarUrl(mention.email);
   const agent = isReviewAgentMention(mention)
     ? resolveReviewAgent({ createdBy: "agent", authorName: mention.label })
     : null;
   return (
-    <Avatar aria-hidden="true" className={cn("size-8", className)}>
-      {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
-      <AvatarFallback
-        className={cn(
-          "text-xs font-semibold text-foreground",
-          agent && "bg-popover",
-        )}
-      >
-        {agent ? (
-          <ReviewAgentMark kind={agent.kind} className="size-4" />
-        ) : (
-          reviewMentionInitials(mention)
-        )}
-      </AvatarFallback>
-    </Avatar>
+    <ReviewAuthorAvatar
+      name={mention.label.trim() || mention.email || ""}
+      email={mention.email}
+      agent={agent}
+      size={32}
+      decorative
+      className={className}
+    />
   );
 }
 
