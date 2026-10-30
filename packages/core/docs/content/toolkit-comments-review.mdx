@@ -28,6 +28,7 @@ status such as draft, review, approved, or needs changes.
 | Review status action           | `set-review-status` for draft, in review, approved, and changes requested states.                                                                                 |
 | `ReviewThreadPanel`            | Drop-in React panel with capability-gated composer, reply, resolve, delete, and custom thread-action controls.                                                    |
 | `ReviewStatusBadge`            | Controlled status badge for app headers, sidebars, and review panels.                                                                                             |
+| `isCommentSendKey()`           | The send key in every comment box: Enter sends, Shift+Enter starts a new line, and Cmd/Ctrl+Enter sends too, but not while an input method composes.              |
 | Review hooks                   | `useReviewComments()`, `useCreateReviewComment()`, `useReplyReviewComment()`, `useResolveReviewThread()`, `useDeleteReviewComment()`, and `useSetReviewStatus()`. |
 | Mentions helpers               | `extractReviewMentions()` and `normalizeReviewMentions()` for `@[Label](mailto:email@example.com)` tokens.                                                        |
 

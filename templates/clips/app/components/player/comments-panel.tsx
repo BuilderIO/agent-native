@@ -1054,7 +1054,6 @@ function CommentComposer({
                 ? "min-h-8 flex-1 border-0 px-0 py-1 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                 : "min-h-[60px]",
             )}
-            submitOnEnter
           />
           <Button
             type="button"
@@ -1124,7 +1123,6 @@ function InlineReplyComposer({
           rows={1}
           className="min-h-6 resize-none border-0 bg-transparent px-0 py-0.5 text-sm leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           onEscape={onCancel}
-          submitOnEnter
         />
         <Button
           size="icon"
@@ -1174,7 +1172,6 @@ function InlineEditComposer({
         aria-label={t("commentsPanel.editComment")}
         className="min-h-16 resize-none border-0 bg-background text-sm"
         onEscape={onCancel}
-        submitOnEnter
       />
       <div className="mt-2 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>
