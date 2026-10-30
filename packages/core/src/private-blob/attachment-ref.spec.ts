@@ -16,6 +16,7 @@ import {
   attachmentOwnerKey,
   deleteAttachment,
   describeAttachmentFailure,
+  isAttachmentArgumentFailure,
   isAttachmentError,
   isAttachmentRef,
   isRetryableAttachmentFailure,
@@ -497,7 +498,12 @@ describe("what ends the turn", () => {
     }
   });
 
-  it.each(FAILURES.filter((f) => f.status !== "storageUnavailable"))(
+  it.each(
+    FAILURES.filter(
+      (f) =>
+        f.status !== "storageUnavailable" && !isAttachmentArgumentFailure(f),
+    ),
+  )(
     "stops the run for definitive $status/$reason with a typed code and HTTP status",
     (failure) => {
       const error = attachmentFailureToError(failure);
@@ -520,6 +526,34 @@ describe("what ends the turn", () => {
       expect((error as { toolResult?: string }).toolResult).toMatch(
         /Do not retry|Pass the reference/,
       );
+    },
+  );
+
+  it.each(FAILURES.filter((f) => isAttachmentArgumentFailure(f)))(
+    "keeps the run alive for $status/$reason so the model can pass the listed reference",
+    async (failure) => {
+      const { permanentPreconditionRemedy } =
+        await import("../agent/production-agent.js");
+      const error = attachmentFailureToError(failure);
+
+      expect(isAgentActionStopError(error)).toBe(false);
+      expect(isActionContractError(error)).toBe(true);
+      expect(isAttachmentError(error)).toBe(true);
+      expect(error).toMatchObject({
+        errorCode: "attachment_malformed",
+        statusCode: 400,
+        details: {
+          attachmentStatus: "malformed",
+          reason: failure.reason,
+          retryable: false,
+        },
+      });
+      expect(error.message).toMatch(/reference listed for the attachment/);
+      expect(
+        permanentPreconditionRemedy(
+          `Error running import-file: ${error.message} (errorCode: attachment_malformed)`,
+        ),
+      ).toBeNull();
     },
   );
 
@@ -569,7 +603,7 @@ describe("what ends the turn", () => {
             describeAttachmentFailure(failure, "save").message,
           ),
         ).toBeNull();
-      } else {
+      } else if (!isAttachmentArgumentFailure(failure)) {
         const reason = permanentPreconditionReason(
           "import-file",
           error.message,

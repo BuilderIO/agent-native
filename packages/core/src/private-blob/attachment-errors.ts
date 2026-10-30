@@ -6,6 +6,10 @@
  * - `notFound`, `forbiddenScope`, `expired`, `malformed` are definitive: the
  *   same ref can never succeed, so they stop the turn as `permanent_precondition`
  *   with a message that names the real cause and tells the user to attach again.
+ * - A `malformed` value that is not a ref at all (`unrecognized_scheme`) or is
+ *   missing (`empty`) is the model's argument mistake, not the file's state:
+ *   the right ref is still in the conversation, so it is an ordinary action
+ *   error the model corrects, never a stop.
  * - `storageUnavailable` is the only retryable outcome. It is an ordinary
  *   action error (never a stop) and tells the model the ref is still valid.
  */
@@ -214,12 +218,50 @@ export class AttachmentStorageUnavailableError extends Error {
   }
 }
 
+/**
+ * The model passed something that is not an uploaded file reference, or
+ * nothing. An ordinary typed action error, never a stop: another value from
+ * the conversation can succeed. It is raised before anything is opened, so it
+ * carries the runtime's no-write marker and a corrected retry is not held back
+ * as a possible duplicate.
+ */
+export class AttachmentArgumentError extends Error {
+  readonly actionContractError = true;
+  readonly noWrite = true;
+  readonly errorCode: string = ATTACHMENT_ERROR_CODES.malformed;
+  readonly details: AttachmentFailureDetails;
+  readonly statusCode: number = ATTACHMENT_STATUS_CODES.malformed;
+  readonly failure: Extract<AttachmentFailure, { status: "malformed" }>;
+
+  constructor(failure: Extract<AttachmentFailure, { status: "malformed" }>) {
+    super(describeAttachmentFailure(failure).toolResult);
+    this.name = "AttachmentArgumentError";
+    this.details = attachmentFailureDetails(failure);
+    this.failure = failure;
+  }
+}
+
+export function isAttachmentArgumentFailure(
+  failure: AttachmentFailure,
+): failure is Extract<AttachmentFailure, { status: "malformed" }> {
+  return (
+    failure.status === "malformed" &&
+    (failure.reason === "unrecognized_scheme" || failure.reason === "empty")
+  );
+}
+
 export function attachmentFailureToError(
   failure: AttachmentFailure,
   operation: AttachmentOperation = "open",
-): AttachmentUnavailableError | AttachmentStorageUnavailableError {
-  return failure.status === "storageUnavailable"
-    ? new AttachmentStorageUnavailableError(failure, operation)
+):
+  | AttachmentUnavailableError
+  | AttachmentStorageUnavailableError
+  | AttachmentArgumentError {
+  if (failure.status === "storageUnavailable") {
+    return new AttachmentStorageUnavailableError(failure, operation);
+  }
+  return isAttachmentArgumentFailure(failure)
+    ? new AttachmentArgumentError(failure)
     : new AttachmentUnavailableError(failure);
 }
 
@@ -234,10 +276,14 @@ export function unwrapAttachment(
 /** True when `error` is one of the attachment errors above, by shape. */
 export function isAttachmentError(
   error: unknown,
-): error is AttachmentUnavailableError | AttachmentStorageUnavailableError {
+): error is
+  | AttachmentUnavailableError
+  | AttachmentStorageUnavailableError
+  | AttachmentArgumentError {
   if (
     error instanceof AttachmentUnavailableError ||
-    error instanceof AttachmentStorageUnavailableError
+    error instanceof AttachmentStorageUnavailableError ||
+    error instanceof AttachmentArgumentError
   ) {
     return true;
   }

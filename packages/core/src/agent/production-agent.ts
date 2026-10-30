@@ -156,6 +156,7 @@ import {
 } from "../observability/sentiment.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
+import { isAttachmentError } from "../private-blob/attachment-errors.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -6622,7 +6623,7 @@ export function permanentPreconditionReason(
     .replace(/[.。]+$/, "");
   const nestedPrecondition = reason
     .match(
-      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)\. That needs to be fixed outside this chat\b/i,
+      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)(?:\. That needs to be fixed outside this chat\b|\.?$)/i,
     )?.[1]
     ?.trim();
   if (nestedPrecondition) return nestedPrecondition;
@@ -9573,7 +9574,12 @@ export async function runAgentLoop(opts: {
           ...(receipt ? { receipt } : {}),
         });
       };
-      let directStop: { message: string; explicit: boolean } | null = null;
+      let directStop: {
+        message: string;
+        explicit: boolean;
+        /** The error names its own fix, so the headline adds no setup list. */
+        ownRemedy?: boolean;
+      } | null = null;
       const finalizeToolErrorResult = (rawResult: string): string => {
         const sanitizedResult = sanitizeToolErrorText(rawResult);
         const permanentRemedy = directStop?.explicit
@@ -9586,8 +9592,10 @@ export async function runAgentLoop(opts: {
           );
           requestedActionStop ??= {
             message: reason
-              ? `I stopped because ${toolCall.name} can't run yet: ${reason}. ` +
-                "That needs to be fixed outside this chat (a credential, a role, a connected account, or an approval), then you can retry."
+              ? directStop?.ownRemedy
+                ? `I stopped because ${toolCall.name} can't run yet: ${reason}.`
+                : `I stopped because ${toolCall.name} can't run yet: ${reason}. ` +
+                  "That needs to be fixed outside this chat (a credential, a role, a connected account, or an approval), then you can retry."
               : `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
                 "Retrying would not have changed it, and anything completed before this is saved.",
             errorCode: "permanent_precondition",
@@ -9679,6 +9687,7 @@ export async function runAgentLoop(opts: {
           directStop = {
             message,
             explicit: err.errorCode === "permanent_precondition",
+            ownRemedy: isAttachmentError(err),
           };
           if (!directStop.explicit && !permanentPreconditionRemedy(message)) {
             requestedActionStop ??= {
