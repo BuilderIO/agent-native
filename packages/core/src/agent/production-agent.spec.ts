@@ -54,6 +54,7 @@ import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
 import * as questionIntakeExperiment from "../observability/question-intake-experiment.js";
 import * as appRoles from "../org/app-roles.js";
+import { attachmentFailureToError } from "../private-blob/attachment-errors.js";
 import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import * as processRunFailure from "../server/agent-chat/process-run-failure.js";
@@ -16353,6 +16354,74 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).toContain(
       "needs to be fixed outside this chat",
     );
+  });
+
+  function importFileEngine(): AgentEngine {
+    let streamCalls = 0;
+    return {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: `import-${streamCalls}`,
+                name: "import-file",
+                input: { filePath: streamCalls === 1 ? "deck.pdf" : "ref" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "Imported." };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+  }
+
+  it("stops on a missing upload with its own remedy, not a setup list", async () => {
+    const run = vi.fn(async () => {
+      throw attachmentFailureToError({
+        status: "notFound",
+        reason: "blob_missing",
+        filename: "deck.pdf",
+      });
+    });
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine: importFileEngine(),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "import-file": { ...actionEntry({}), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error") as
+      | { error: string; errorCode?: string }
+      | undefined;
+    expect(stop?.errorCode).toBe("permanent_precondition");
+    expect(stop?.error).toContain("import-file can't run yet:");
+    expect(stop?.error).toContain("Attach the file again");
+    expect(stop?.error).not.toContain("a credential, a role");
   });
 
   it.each([
