@@ -515,10 +515,12 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     });
   });
 
-  it("still falls back after a thrown signed read even when the URL is in the bucket", async () => {
+  it("refuses after a thrown signed read when the URL is in the bucket", async () => {
     recording.storageMode = "own";
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockFetchS3ObjectByUrl.mockRejectedValue(new Error("S3 request timed out"));
+    mockFetchS3ObjectByUrl.mockRejectedValue(
+      new Error("app_secret_unreadable"),
+    );
     mockIsUrlInS3Storage.mockResolvedValue(true);
 
     try {
@@ -527,9 +529,12 @@ describe("ensureRecordingSeekable timeline normalization", () => {
         ownerEmail: "owner@example.com",
       });
 
-      expect(mockIsUrlInS3Storage).not.toHaveBeenCalled();
-      expect(fetch).toHaveBeenCalled();
-      expect(result.status).toBe("already-optimized");
+      expect(fetch).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        recordingId: recording.id,
+        status: "skipped-fetch-failed",
+        changed: false,
+      });
     } finally {
       warn.mockRestore();
     }

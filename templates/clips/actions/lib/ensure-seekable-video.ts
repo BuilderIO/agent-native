@@ -107,7 +107,6 @@ export async function fetchProviderBytes(
   // to an unsigned read.
   const hosted = options.storageMode === "hosted";
   let res: Response | null = null;
-  let signedThrew = false;
   if (options.recordingId) {
     try {
       res = await fetchS3ObjectByUrl(videoUrl, {
@@ -119,7 +118,6 @@ export async function fetchProviderBytes(
           : {}),
       });
     } catch (err) {
-      signedThrew = true;
       console.warn("[ensure-seekable-video] signed storage read failed", {
         recordingId: options.recordingId,
         storageMode: hosted ? "hosted" : "own",
@@ -136,10 +134,12 @@ export async function fetchProviderBytes(
       await res.body?.cancel().catch(() => {});
       if (hosted) return { ok: false, reason: "skipped-fetch-failed" };
       res = null;
-    } else if (res === null && !signedThrew && !hosted) {
+    } else if (res === null && !hosted) {
       // The signed reader answers null both for a URL outside the bucket and
-      // for a key inside it that is not this recording's. Only the former may
-      // be read unsigned; the latter stays refused, and so does not knowing.
+      // for a key inside it that is not this recording's, and a thrown read
+      // says nothing either way. An in-bucket key stays refused, and so does
+      // a bucket check that fails; a URL outside the bucket, or a deployment
+      // with no own storage configured, is read as stored.
       let inBucket: boolean | null;
       try {
         inBucket = await isUrlInS3Storage(videoUrl, { storageMode: "own" });

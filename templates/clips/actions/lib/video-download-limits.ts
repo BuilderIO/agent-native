@@ -20,6 +20,14 @@ export class VideoDownloadTooLargeError extends Error {
   }
 }
 
+/** The body stopped, trickled, or outran its budget; the read was cancelled. */
+export class VideoDownloadStalledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VideoDownloadStalledError";
+  }
+}
+
 export function assertUploadSize(
   sizeBytes: number | null | undefined,
   maxBytes = MAX_UPLOAD_BYTES,
@@ -102,7 +110,7 @@ export async function readResponseBytesWithLimit(
   let totalTimer: ReturnType<typeof setTimeout> | undefined;
   const failed = new Promise<never>((_, reject) => {
     const fail = (message: string) => {
-      const error = new Error(message);
+      const error = new VideoDownloadStalledError(message);
       reject(error);
       reader.cancel(error).catch(() => undefined);
     };
@@ -151,7 +159,7 @@ export async function readResponseBytesWithLimit(
                   contentLength - windowStartBytes,
                 );
           if (windowBytes < needed) {
-            throw new Error(
+            throw new VideoDownloadStalledError(
               `Download too slow: ${formatBytes(windowBytes)} in ${elapsed}ms`,
             );
           }
