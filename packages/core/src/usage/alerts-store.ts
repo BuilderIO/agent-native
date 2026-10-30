@@ -20,7 +20,7 @@ import { builderCreditsFromCostCents } from "./store.js";
 
 const DAY_MS = 86_400_000;
 const DEFAULT_MONTHLY_USD = 20;
-// The earlier default: only rows still exactly at it, and never edited, move to the new one.
+// The earlier default: default rows still exactly at it move to the new one.
 const PREVIOUS_DEFAULT_DAILY_USD = 100;
 
 export const USAGE_ALERT_DEFAULT_MONTHLY_USD = DEFAULT_MONTHLY_USD;
@@ -406,11 +406,12 @@ async function ensureDefaultRule(partition: ResolvedScope): Promise<void> {
       ON CONFLICT (id) DO UPDATE SET
         limit_value = excluded.limit_value,
         period = excluded.period,
+        dismissed_window_start = NULL,
         updated_at = excluded.updated_at
       WHERE usage_alert_rules.is_default = 1
+        AND usage_alert_rules.unit = 'usd'
         AND usage_alert_rules.limit_value = ?
-        AND usage_alert_rules.period = 'day'
-        AND usage_alert_rules.updated_at = usage_alert_rules.created_at`,
+        AND usage_alert_rules.period = 'day'`,
     args: [
       defaultRuleId(partition),
       partition.scope,
@@ -669,13 +670,11 @@ export async function dismissUsageAlert(
     args: [ruleId, window.start],
   });
   const notificationId = eventResult.rows[0]?.notification_id;
-  // Dismissing is not an edit: updated_at marks a default the owner changed.
-  // raw-sql-ok: the interpolated fragment is a fixed partition clause with bound args
   await getDbExec().execute({
     sql: `UPDATE usage_alert_rules
-      SET dismissed_window_start = ?
+      SET dismissed_window_start = ?, updated_at = ?
       WHERE id = ? AND scope = ? AND ${partition.partitionSql}`,
-    args: [window.start, ruleId, scope, ...partition.partitionArgs],
+    args: [window.start, Date.now(), ruleId, scope, ...partition.partitionArgs],
   });
   if (typeof notificationId === "string" && notificationId) {
     await deleteNotification(notificationId, partition.ownerEmail);

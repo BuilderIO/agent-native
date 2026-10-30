@@ -114,12 +114,11 @@ afterEach(async () => {
 });
 
 describe("usage alerts", () => {
-  it("still moves a default whose alert was only dismissed", async () => {
+  it("moves a dismissed default and clears its dismissal", async () => {
     const [rule] = await listUsageAlerts({ scope: "user" }, access);
     await pglite.exec(
-      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', updated_at = created_at",
+      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day'",
     );
-
     await dismissUsageAlert(rule!.id, "user", access);
 
     expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
@@ -128,6 +127,13 @@ describe("usage alerts", () => {
         period: "month",
       },
     );
+    expect(
+      await (
+        await pglite.prepare(
+          "SELECT dismissed_window_start FROM usage_alert_rules",
+        )
+      ).get(),
+    ).toMatchObject({ dismissed_window_start: null });
   });
 
   it("keeps the deprecated daily export at its old value", () => {
@@ -152,7 +158,7 @@ describe("usage alerts", () => {
     );
   });
 
-  it("moves an untouched $100 daily default to $20 a month and leaves an edited one alone", async () => {
+  it("moves a $100 daily default to $20 a month and leaves other limits alone", async () => {
     await listUsageAlerts({ scope: "user" }, access);
     await pglite.exec(
       "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', updated_at = created_at",
@@ -162,10 +168,10 @@ describe("usage alerts", () => {
     );
 
     await pglite.exec(
-      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', updated_at = created_at + 1",
+      "UPDATE usage_alert_rules SET limit_value = 5000, period = 'day'",
     );
     expect((await listUsageAlerts({ scope: "user" }, access))[0]?.limit).toBe(
-      100,
+      50,
     );
   });
 
