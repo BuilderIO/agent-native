@@ -111,11 +111,28 @@ afterEach(async () => {
 });
 
 describe("usage alerts", () => {
-  it("keeps the $100 default durable and maps $100 to 1,000,000 raw centicents", async () => {
+  it("moves an untouched $100 default to $20 and leaves an edited one alone", async () => {
+    await listUsageAlerts({ scope: "user" }, access);
+    await pglite.exec(
+      "UPDATE usage_alert_rules SET limit_value = 10000, updated_at = created_at",
+    );
+    expect((await listUsageAlerts({ scope: "user" }, access))[0]?.limit).toBe(
+      20,
+    );
+
+    await pglite.exec(
+      "UPDATE usage_alert_rules SET limit_value = 10000, updated_at = created_at + 1",
+    );
+    expect((await listUsageAlerts({ scope: "user" }, access))[0]?.limit).toBe(
+      100,
+    );
+  });
+
+  it("keeps the $20 default durable and maps $20 to 200,000 raw centicents", async () => {
     await insertUsage({
       id: 1,
       app: "agent-native-factory",
-      cost: 1_000_000,
+      cost: 200_000,
       orgId: "org-1",
     });
 
@@ -128,8 +145,8 @@ describe("usage alerts", () => {
     expect(rules).toHaveLength(1);
     expect(rules[0]).toMatchObject({
       isDefault: true,
-      limit: 100,
-      current: 100,
+      limit: 20,
+      current: 20,
       status: "triggered",
       channels: ["in-app", "email"],
     });

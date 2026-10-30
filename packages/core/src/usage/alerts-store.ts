@@ -19,7 +19,9 @@ import {
 import { builderCreditsFromCostCents } from "./store.js";
 
 const DAY_MS = 86_400_000;
-const DEFAULT_DAILY_USD = 100;
+const DEFAULT_DAILY_USD = 20;
+// The earlier default: only rows still exactly at it, and never edited, move to the new one.
+const PREVIOUS_DEFAULT_DAILY_USD = 100;
 
 export const USAGE_ALERT_DEFAULT_DAILY_USD = DEFAULT_DAILY_USD;
 export const USAGE_ALERT_UNIT_SCALE = {
@@ -398,7 +400,12 @@ async function ensureDefaultRule(partition: ResolvedScope): Promise<void> {
         id, scope, owner_email, org_id, app_id, unit, period, limit_value,
         channels, enabled, is_default, dismissed_window_start, created_at, updated_at
       ) VALUES (?, ?, ?, ?, NULL, 'usd', 'day', ?, ?, 1, 1, NULL, ?, ?)
-      ON CONFLICT (id) DO NOTHING`,
+      ON CONFLICT (id) DO UPDATE SET
+        limit_value = excluded.limit_value,
+        updated_at = excluded.updated_at
+      WHERE usage_alert_rules.is_default = 1
+        AND usage_alert_rules.limit_value = ?
+        AND usage_alert_rules.updated_at = usage_alert_rules.created_at`,
     args: [
       defaultRuleId(partition),
       partition.scope,
@@ -408,6 +415,7 @@ async function ensureDefaultRule(partition: ResolvedScope): Promise<void> {
       JSON.stringify(["in-app", "email"]),
       now,
       now,
+      PREVIOUS_DEFAULT_DAILY_USD * USAGE_ALERT_UNIT_SCALE.usd,
     ],
   });
 }
