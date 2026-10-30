@@ -201,7 +201,6 @@ function DesignEditor() {
     editorLiveEditsAndPresence,
     editorContentAndComponents,
     editorSelectionAndStyles,
-    editorExportAndHandoff,
   });
   const editorScreenInspector = useEditorScreenInspector({
     editorCore,

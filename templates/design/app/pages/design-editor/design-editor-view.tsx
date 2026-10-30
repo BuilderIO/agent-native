@@ -1,6 +1,7 @@
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import type { AgentShareDestination } from "@agent-native/toolkit/sharing";
 import type {
   MotionAnimationStyleDefinition,
   MotionAnimationStyleMetadata,
@@ -170,7 +171,6 @@ import {
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
 import { ShareCopyLinkButton } from "./view/share-copy-link-button";
-import { ShareSendToTab } from "./view/share-send-to-tab";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
 import { renderZoomMenu } from "./view/zoom-menu";
 import { VisualEditWebMcp } from "./VisualEditWebMcp";
@@ -481,8 +481,8 @@ export function renderDesignEditorView({
   const {
     pngExporting,
     svgExporting,
-    codingHandoffLoading,
     handleCopyCodingHandoff,
+    handleSendCodingHandoff,
     visualEditPromptResult,
     handleDownloadHtml,
     handleDownloadZip,
@@ -494,7 +494,6 @@ export function renderDesignEditorView({
   const {
     shareExportFormat,
     setShareExportFormat,
-    codingHandoffPreviewText,
     selectedLayerIds,
     selectedInspectorElements,
   } = editorLayerModels;
@@ -959,14 +958,15 @@ export function renderDesignEditorView({
       </div>
     </div>
   );
-  const shareSendToTab = (
-    <ShareSendToTab
-      codingHandoffPreviewText={codingHandoffPreviewText}
-      exportsUnavailable={exportsUnavailable}
-      codingHandoffLoading={codingHandoffLoading}
-      onCopyCodingHandoff={handleCopyCodingHandoff}
-    />
-  );
+  // The coding handoff is Design's agent prompt; until the canvas has frames
+  // there is nothing to hand off, and the shared read prompt stands in.
+  const designShareSendTo = exportsUnavailable
+    ? undefined
+    : {
+        openInAgent: (destination: AgentShareDestination) =>
+          void handleSendCodingHandoff(destination),
+        copyAgentPrompt: handleCopyCodingHandoff,
+      };
   const designShareTabs = {
     shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
@@ -975,11 +975,6 @@ export function renderDesignEditorView({
         value: "export",
         label: t("designEditor.export"),
         content: shareExportTab,
-      },
-      {
-        value: "send",
-        label: "Send to agent" /* i18n-ignore share tab label */,
-        content: shareSendToTab,
       },
       ...(hasLocalhostScreens &&
       sessionResolved &&
@@ -1383,6 +1378,7 @@ export function renderDesignEditorView({
           )}
           shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
           shareTabs={designShareTabs}
+          sendTo={designShareSendTo}
           popoverClassName="z-[100010]"
           triggerClassName={cn(
             dense

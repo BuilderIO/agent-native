@@ -237,22 +237,26 @@ test("share dialog uses editor panel chrome", async ({ app }) => {
     const tabListBox = (await shareOptions.boundingBox())!;
     expect(tabListBox.width).toBeLessThanOrEqual(420);
     expect(tabListBox.height).toBeLessThanOrEqual(42);
-    const sendTab = page.getByRole("tab", { name: "Send to agent" });
-    expect((await sendTab.boundingBox())!.height).toBeLessThanOrEqual(36);
+    const contextTab = page.getByRole("tab", { name: "Context", exact: true });
+    expect((await contextTab.boundingBox())!.height).toBeLessThanOrEqual(36);
 
-    await page.getByRole("tab", { name: "Context", exact: true }).click();
+    await contextTab.click();
     await expect(
       page.getByRole("region", { name: "Creative context" }),
     ).toBeVisible();
 
-    await sendTab.click();
-    await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
+    // oracle-change(templates/design/app/pages/design-editor/view/share-send-to-tab.test.tsx): Design's own Send to agent tab and its terminal preview are gone; the coding handoff is the shared panel's Send to prompt.
+    await page.getByRole("tab", { name: "Share link" }).click();
     await page
       .context()
       .grantPermissions(["clipboard-read", "clipboard-write"], {
         origin: new URL(page.url()).origin,
       });
-    await page.getByRole("button", { name: "Copy agent prompt" }).click();
+    await page.getByRole("button", { name: "Send to", exact: true }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Open in Claude Code" }),
+    ).toBeVisible();
+    await page.getByRole("menuitem", { name: "Copy agent prompt" }).click();
     await expect(
       page.getByText("Agent prompt copied", { exact: true }),
     ).toBeVisible();
