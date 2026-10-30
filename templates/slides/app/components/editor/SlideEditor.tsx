@@ -7713,6 +7713,8 @@ export default function SlideEditor({
 
       const restorePromotedElement = () => {
         restoreScaleContent(scaleSnapshots);
+        // A member in flow was pinned to Fixed when the gesture began.
+        if (inFlowLayout) restoreSlideObjectStyle(element, originalStyle);
         if (!promotedToFreeform) return;
         promotedToFreeform = false;
         removeSlideObjectLayoutSpacer(element);

@@ -890,9 +890,9 @@ export function wrapSlideFlowMembers(
       .sizing;
     return sizing.horizontal.mode === "fill" || sizing.vertical.mode === "fill";
   });
-  const spreads =
-    readModel(group, measureSlideLayoutBox, "sizing-box").frame.spacing ===
-    "space-between";
+  // Any distributed justify-content, which the model reads as packed
+  // unless it is space-between.
+  const spreads = computedStyleOf(group).justifyContent.startsWith("space-");
   if (!sideBySide || fills || spreads) {
     return {
       status: "refused",

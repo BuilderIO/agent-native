@@ -748,7 +748,12 @@ describe("slide group auto layout in Chromium", () => {
       const filling = untouched(() =>
         api.wrapSlideFlowMembers(group, [member("first"), member("second")]),
       );
-      return { apart, filling };
+      api.setSlideLayoutSizing(member("first"), "horizontal", "fixed");
+      group.style.justifyContent = "space-evenly";
+      const spread = untouched(() =>
+        api.wrapSlideFlowMembers(group, [member("first"), member("second")]),
+      );
+      return { apart, filling, spread };
     });
     expect(outcomes.apart).toEqual({
       result: {
@@ -766,6 +771,7 @@ describe("slide group auto layout in Chromium", () => {
       },
       untouched: true,
     });
+    expect(outcomes.spread).toEqual(outcomes.filling);
     await page.close();
   });
 
