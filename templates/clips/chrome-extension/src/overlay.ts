@@ -548,9 +548,10 @@ function applyOverlayState(next: Partial<OverlayState> | undefined): void {
 // runtime broadcasts, so the HELLO reply is the only way a reloaded toolbar
 // learns how long the recording has been running.
 function sendHello(): void {
-  send("CLIPS_OVERLAY_HELLO", { part }, (_ok, response) =>
-    applyOverlayState(response?.state),
-  );
+  send("CLIPS_OVERLAY_HELLO", { part }, (_ok, response) => {
+    if (response?.state?.phase === "idle") return;
+    applyOverlayState(response?.state);
+  });
 }
 
 chrome.runtime.onMessage.addListener((message) => {

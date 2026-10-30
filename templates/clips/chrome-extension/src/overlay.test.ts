@@ -21,6 +21,46 @@ describe("Clips recording toolbar clock", () => {
     delete (globalThis as { chrome?: unknown }).chrome;
   });
 
+  const mockHello = (state: Record<string, unknown>) => {
+    (globalThis as { chrome?: unknown }).chrome = {
+      runtime: {
+        lastError: undefined,
+        onMessage: { addListener: () => undefined },
+        sendMessage: (
+          message: { type: string },
+          callback?: (response: unknown) => void,
+        ) =>
+          callback?.(
+            message.type === "CLIPS_OVERLAY_HELLO"
+              ? { ok: true, state }
+              : { ok: true },
+          ),
+      },
+    };
+  };
+
+  it("shows a paused recording's frozen time", async () => {
+    mockHello({
+      phase: "paused",
+      baseElapsedMs: 65_000,
+      baseEpochMs: Date.now() - 30_000,
+      countdownEndsAtMs: 0,
+    });
+    await import("./overlay");
+    expect(document.querySelector(".toolbar-v-time")?.textContent).toBe("1:05");
+  });
+
+  it("ignores an idle reply instead of showing a time since epoch zero", async () => {
+    mockHello({
+      phase: "idle",
+      baseElapsedMs: 0,
+      baseEpochMs: 0,
+      countdownEndsAtMs: 0,
+    });
+    await import("./overlay");
+    expect(document.querySelector(".toolbar-v-time")?.textContent).toBe("0:00");
+  });
+
   it("shows the running time from the reply to its hello when no broadcast arrives", async () => {
     const startedAtMs = Date.now() - 125_000;
     (globalThis as { chrome?: unknown }).chrome = {
