@@ -126,7 +126,7 @@ describe("TrashRow responsive expander contract", () => {
     expect(html).toContain("group-hover:opacity-100");
   });
 
-  it("distinguishes named, known, and unresolved actors without exposing IDs", () => {
+  it("shows a person's name, else their email, else that nobody is recorded", () => {
     const html = renderRow({
       ...item,
       createdBy: "creator@example.test",
@@ -137,10 +137,9 @@ describe("TrashRow responsive expander contract", () => {
       trashedByName: "Display name",
     });
 
-    expect(html).toContain("trash.knownActor");
+    expect(html).toContain("creator@example.test");
     expect(html).toContain("trash.unresolvedActor");
     expect(html).toContain("Display name");
-    expect(html).not.toContain("creator@example.test");
     expect(html).not.toContain("deleter@example.test");
   });
 
