@@ -65,7 +65,6 @@ export class AgentNativeWebMcpUnsupportedError extends Error {
 }
 
 interface NativeModelContext {
-  __isWebMCPPolyfill?: boolean;
   registerTool(
     tool: NativeContextTool,
     options?: NativeRegisterToolOptions,
@@ -645,13 +644,12 @@ export function createAgentNativeWebMcpClient(
     }
     jsonLength(input, `WebMCP tool "${tool.name}" input`, limits.maxInputChars);
     const { context, tool: nativeTool } = binding;
-    const usesPolyfill =
-      context.__isWebMCPPolyfill &&
-      typeof context.codexExecuteTool !== "function" &&
-      typeof context.codexGetTools !== "function";
+    const usesCodexPageAdapter =
+      typeof context.codexExecuteTool === "function" ||
+      typeof context.codexGetTools === "function";
     const result = await context.executeTool(
       nativeTool,
-      usesPolyfill ? JSON.stringify(input) : input,
+      usesCodexPageAdapter ? input : JSON.stringify(input),
       executionOptions,
     );
     return normalizeToolResult(
