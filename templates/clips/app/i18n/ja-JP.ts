@@ -315,6 +315,29 @@ const messages = {
     clipsRestoreFailed: "{{count}} 件のクリップを復元できませんでした",
     clipsPermanentlyDeleted: "{{count}} 件のクリップを完全に削除しました",
     clipsDeleteFailed: "{{count}} 件のクリップを削除できませんでした",
+    deletedMediaPending:
+      "録画を削除しました。メディアファイルはまだ削除中です。",
+    deletedMediaBlocked:
+      "録画を削除しましたが、メディアファイルを削除できませんでした。",
+    deletedMediaRetained:
+      "録画を削除しました。他の録画で使用中のメディアファイルは残しました。",
+    clipsDeletedMediaPending:
+      "削除した録画：{{count}} 件。メディアファイルはまだ削除中です。",
+    clipsDeletedMediaBlocked:
+      "削除した録画：{{count}} 件。メディアファイルを削除できませんでした。",
+    clipsDeletedMediaRetained:
+      "削除した録画：{{count}} 件。他の録画で使用中のメディアファイルは残しました。",
+    mediaCleanupListLabel: "メディアの削除",
+    mediaCleanupPending: "削除した録画のメディアファイルを削除しています",
+    mediaCleanupBlocked: "削除した録画のメディアファイルを削除できませんでした",
+    mediaCleanupReconnect:
+      "削除した録画のメディアファイルを削除するには、ストレージを再接続してください",
+    mediaCleanupRetained:
+      "削除した録画の共有メディアファイルは、他の録画で使用されている間は保持されます",
+    mediaCleanupRemoved: "メディアファイルを削除しました",
+    mediaCleanupStillBlocked: "メディアファイルをまだ削除できません",
+    mediaCleanupRetryFailed: "メディアの削除を再試行できませんでした",
+    mediaCleanupLoadFailed: "メディアの削除状況を読み込めませんでした",
   },
   recordingRoute: {
     pageTitle: "クリップ録画 · Clips",

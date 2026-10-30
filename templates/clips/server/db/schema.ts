@@ -12,6 +12,12 @@ import {
 } from "@agent-native/core/db/schema";
 import { bigint, boolean, check } from "drizzle-orm/pg-core";
 
+export {
+  recordingMediaCleanups,
+  recordingMediaCleanupObjects,
+  recordingMediaProducers,
+} from "./media-cleanup-tables.js";
+
 export const organizationSettings = table("organization_settings", {
   organizationId: text("organization_id").primaryKey(),
   brandColor: text("brand_color").notNull().default("#18181B"),
