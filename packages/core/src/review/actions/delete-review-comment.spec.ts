@@ -253,9 +253,11 @@ describe("delete-review-comment", () => {
     expect(
       await getReviewCommentById(root.id, {}, { bypassScope: true }),
     ).toMatchObject({ deletedBy: ALICE, deletedAt: first?.deletedAt });
-    await expect(run(ALICE, "missing-comment")).rejects.toThrow(
-      "Review comment not found",
-    );
+    await expect(run(ALICE, "missing-comment")).rejects.toMatchObject({
+      message: "Review comment not found",
+      statusCode: 404,
+      errorCode: "not_found",
+    });
   });
 });
 

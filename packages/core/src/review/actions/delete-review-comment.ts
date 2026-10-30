@@ -42,7 +42,10 @@ export default defineAction({
       comment.resourceType !== args.resourceType ||
       comment.resourceId !== args.resourceId
     ) {
-      throw new Error("Review comment not found");
+      fail("Review comment not found", {
+        statusCode: 404,
+        errorCode: "not_found",
+      });
     }
     const isAuthor =
       Boolean(actionCtx?.userEmail) &&

@@ -491,7 +491,7 @@ describe("review store", () => {
       expect(await liveBodies("p2")).toEqual(["Other root", "Carol's reply"]);
     });
 
-    it("has a routed reply lock its thread's first comments in a thread delete's order, and a plain one not", async () => {
+    it("has a routed reply and routing a thread lock its first comments in a thread delete's order, and a plain reply not", async () => {
       const { root } = await thread("p-route");
       const resource = { resourceType: "plan", resourceId: "p-route" };
       const reply = (body: string) => ({
@@ -527,9 +527,37 @@ describe("review store", () => {
         expect(lockAt(routed)).toBeLessThan(
           routed.findIndex((text) => text.includes("SET resolution_target")),
         );
+
+        rawClient.execute.mockClear();
+        await expect(
+          sendReviewThreadToAgent(root.threadId, resource),
+        ).resolves.toBe(1);
+        const sent = statements();
+        expect(lockAt(sent)).toBeGreaterThanOrEqual(0);
+        expect(lockAt(sent)).toBeLessThan(
+          sent.findIndex((text) => text.includes("SET resolution_target")),
+        );
       } finally {
         Reflect.deleteProperty(rawClient, "transaction");
       }
+    });
+
+    it("deletes a comment whose resolution is plain text, not an object", async () => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p-text-resolution",
+        body: "Root",
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+        metadata: { resolution: "done" },
+      });
+
+      await expect(
+        deleteReviewComment(root.id, "alice@example.com"),
+      ).resolves.toBe(1);
+      expect(
+        await getReviewCommentById(root.id, {}, { bypassScope: true }),
+      ).toMatchObject({ status: "deleted", metadata: { resolution: "done" } });
     });
 
     it("lists who wrote in each thread, on one resource, once each, without the deleted", async () => {

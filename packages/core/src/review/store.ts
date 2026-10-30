@@ -520,9 +520,9 @@ async function assertLiveReviewRoot(
 
 /**
  * Locks every first comment in a thread `FOR UPDATE`, in id order. A thread
- * delete and a routed reply both change them, and taking them in one order
- * makes each wait for the other rather than each holding a row the other
- * needs.
+ * delete, a routed reply and routing a thread all change them, and taking them
+ * in one order makes each wait for the other rather than each holding a row
+ * the other needs.
  */
 async function lockReviewThreadRoots(
   client: DbExec,
@@ -1297,12 +1297,21 @@ export async function routeReviewThread(
   resource: { resourceType: string; resourceId: string },
 ): Promise<number> {
   await ensureReviewTables();
-  return routeReviewThreadWithClient(
-    getDbExec(),
-    threadId,
-    resolutionTarget,
-    resource,
-  );
+  const client = getDbExec();
+  // Routing updates every first comment in the thread. It takes them in the
+  // order a thread delete and a routed reply do, so none of them holds one
+  // while it waits for another that one of the others holds.
+  const route = async (tx: DbExec) => {
+    await lockReviewThreadRoots(tx, threadId, resource);
+    // raw-sql-ok: the helper's statement is constant text; the ids are bound.
+    return routeReviewThreadWithClient(
+      tx,
+      threadId,
+      resolutionTarget,
+      resource,
+    );
+  };
+  return client.transaction ? client.transaction(route) : route(client);
 }
 
 async function routeReviewThreadWithClient(
@@ -1517,7 +1526,12 @@ function metadataAfterDelete(metadataJson: unknown): string | null | undefined {
   if (typeof marker === "string" && RESOLUTION_NOTE_MARKERS.has(marker)) {
     changed = dropKey(metadata, "note") || changed;
   }
-  const resolution = parseObject(metadata.resolution);
+  // Metadata is decoded already, and a resolution given as plain text, as any
+  // caller may store, has no note to take. The comment card reads one only
+  // from an object.
+  const resolution = isPlainObject(metadata.resolution)
+    ? metadata.resolution
+    : null;
   if (resolution && dropKey(resolution, "note")) {
     changed = true;
     if (Object.keys(resolution).length > 0) metadata.resolution = resolution;
@@ -1991,9 +2005,11 @@ function parseOptionalJson(value: unknown): unknown {
 
 function parseObject(value: unknown): Record<string, unknown> | null {
   const parsed = parseOptionalJson(value);
-  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : null;
+  return isPlainObject(parsed) ? parsed : null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseMentions(value: unknown): ReviewMention[] {
