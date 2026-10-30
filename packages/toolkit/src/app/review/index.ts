@@ -6,6 +6,7 @@ export * from "./ReviewStatusBadge.js";
 export * from "./ReviewThreadPanel.js";
 export * from "./ReviewAuthorAvatar.js";
 export * from "./ReviewCommentItem.js";
+export * from "./ReviewCommentMenu.js";
 export * from "./ReviewReactionBar.js";
 export * from "./ReviewThreadCardFrame.js";
 export * from "./ReviewThreadMenu.js";

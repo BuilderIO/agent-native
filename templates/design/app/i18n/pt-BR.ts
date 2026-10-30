@@ -3427,6 +3427,7 @@ export default {
     updateFailed: "Não foi possível atualizar o comentário",
     commentsInCluster: "Comentários no grupo: {{count}}",
     moreActions: "Mais ações",
+    moreActionsFor: "Mais ações para {{author}}",
     copyLink: "Copiar link",
     linkCopied: "Link copiado",
     copyLinkFailed: "Não foi possível copiar o link",
@@ -3446,6 +3447,7 @@ export default {
     addEmoji: "Adicionar emoji",
     mention: "Mencionar alguém",
     noMentions: "Nenhuma pessoa encontrada",
+    mentionsFailed: "Não foi possível carregar as pessoas",
     reopen: "Reabrir",
     reopening: "Reabrindo…",
     undo: "Desfazer",
@@ -3501,7 +3503,6 @@ export default {
     },
     filtersActive: "Filtros aplicados",
     suggestChanges: "Sugerir alterações",
-    replyInThread: "Responder na conversa",
     applyChangesAndResolve: "Aplicar alterações e resolver",
     agent: {
       sectionLabel: "Agentes",

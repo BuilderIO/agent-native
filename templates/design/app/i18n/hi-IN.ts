@@ -3365,6 +3365,7 @@ export default {
     updateFailed: "टिप्पणी अपडेट नहीं की जा सकी",
     commentsInCluster: "क्लस्टर में टिप्पणियाँ: {{count}}",
     moreActions: "अधिक कार्रवाइयाँ",
+    moreActionsFor: "{{author}} के लिए अधिक कार्रवाइयाँ",
     copyLink: "लिंक कॉपी करें",
     linkCopied: "लिंक कॉपी हो गया",
     copyLinkFailed: "लिंक कॉपी नहीं किया जा सका",
@@ -3384,6 +3385,7 @@ export default {
     addEmoji: "इमोजी जोड़ें",
     mention: "किसी को मेंशन करें",
     noMentions: "कोई व्यक्ति नहीं मिला",
+    mentionsFailed: "लोगों को लोड नहीं किया जा सका",
     reopen: "फिर से खोलें",
     reopening: "फिर से खोला जा रहा है…",
     undo: "पहले जैसा करें",
@@ -3433,7 +3435,6 @@ export default {
     },
     filtersActive: "फ़िल्टर लागू हैं",
     suggestChanges: "बदलाव सुझाएँ",
-    replyInThread: "थ्रेड में जवाब दें",
     applyChangesAndResolve: "बदलाव लागू करें और हल करें",
     agent: {
       sectionLabel: "एजेंट",

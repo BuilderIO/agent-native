@@ -3326,6 +3326,7 @@ export default {
     updateFailed: "Could not update the comment",
     commentsInCluster: "Comments in cluster: {{count}}",
     moreActions: "More actions",
+    moreActionsFor: "More actions for {{author}}",
     copyLink: "Copy link",
     linkCopied: "Link copied",
     copyLinkFailed: "Could not copy link",
@@ -3345,6 +3346,7 @@ export default {
     addEmoji: "Add emoji",
     mention: "Mention someone",
     noMentions: "No people found",
+    mentionsFailed: "Couldn't load people",
     reopen: "Reopen",
     reopening: "Reopening…",
     undo: "Undo",
@@ -3396,7 +3398,6 @@ export default {
     },
     filtersActive: "Filters applied",
     suggestChanges: "Suggest changes",
-    replyInThread: "Reply in thread",
     applyChangesAndResolve: "Apply changes and resolve",
     agent: {
       sectionLabel: "Agents",

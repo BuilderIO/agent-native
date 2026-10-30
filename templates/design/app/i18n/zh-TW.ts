@@ -305,6 +305,7 @@ export default {
     updateFailed: "無法更新評論",
     commentsInCluster: "群組中的評論：{{count}}",
     moreActions: "更多操作",
+    moreActionsFor: "{{author}} 的更多操作",
     copyLink: "複製連結",
     linkCopied: "連結已複製",
     copyLinkFailed: "無法複製連結",
@@ -324,6 +325,7 @@ export default {
     addEmoji: "新增表情符號",
     mention: "提及某人",
     noMentions: "找不到人員",
+    mentionsFailed: "無法載入人員",
     reopen: "重新開啟",
     reopening: "正在重新開啟…",
     undo: "復原",
@@ -369,7 +371,6 @@ export default {
     },
     filtersActive: "已套用篩選",
     suggestChanges: "建議修改",
-    replyInThread: "在討論串中回覆",
     applyChangesAndResolve: "套用修改並解決",
     agent: {
       sectionLabel: "代理",
