@@ -427,7 +427,7 @@ Before ending, re-read each thread you touched and check:
 
 ## 6. Recap
 
-Keep the recap short and written for Steve:
+Keep the recap short, for Steve:
 
 ```md
 ## Feedback sweep - <date, Pacific>
