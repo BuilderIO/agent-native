@@ -273,7 +273,8 @@ apart from Steve's own 👀.
   flow broken in a signed-in local app. Reading code is not an attempt:
   write the report's steps as a failing test, or walk them in the signed-in
   app. A broken setup isn't an attempt either: when a test can't load or an
-  install fails, fix the setup (install what's missing, free the disk) or
+  install fails, fix the setup (install what's missing, or free space by
+  removing only this run's own build output) or
   walk the steps in the signed-in app instead. Only after a real attempt fails does a report become 🎫, and its
   recap line says what you ran. No reproduction means no code change;
   guessing at a fix is how one Clips popover got "fixed" four times.

@@ -2,7 +2,7 @@
 // Blocks until every check on a PR's current head has finished, printing
 // nothing while it waits, then prints one summary.
 //
-//   pnpm ci:wait <pr> [--interval 60] [--max-minutes 120]
+//   pnpm ci:wait <pr> [--interval <seconds>] [--max-minutes <minutes>]
 //
 // Exit 0: no check failed. Exit 1: a check failed. Exit 2: couldn't tell
 // (gh unreadable, PR not open, no checks reported, or out of time).
@@ -30,21 +30,57 @@ export function judge(checks: Check[], head: string): Verdict {
   return { done: true, exit: failed.length ? 1 : 0, summary: lines.join("\n") };
 }
 
-function gh(args: string[]): string {
+const NO_CHECKS_GRACE_MS = 10 * 60_000;
+
+export type Options = { pr: string; intervalMs: number; maxMs: number };
+
+export function parseArgs(argv: string[]): Options | null {
+  const values: Record<string, number> = {
+    "--interval": 60,
+    "--max-minutes": 120,
+  };
+  const positional: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] ?? "";
+    if (arg in values) {
+      const value = Number(argv[++i]);
+      if (!Number.isFinite(value) || value <= 0) return null;
+      values[arg] = value;
+    } else positional.push(arg);
+  }
+  const [pr] = positional;
+  if (positional.length !== 1 || !pr || !/^\d+$/.test(pr)) return null;
+  return {
+    pr,
+    intervalMs: (values["--interval"] ?? 60) * 1000,
+    maxMs: (values["--max-minutes"] ?? 120) * 60_000,
+  };
+}
+
+function gh(args: string[], timeout: number): string {
   return execFileSync("gh", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout,
   });
 }
 
-function readPr(pr: string): { state: string; head: string; checks: Check[] } {
-  const view = JSON.parse(
-    gh(["pr", "view", pr, "--json", "state,headRefOid"]),
-  ) as { state: string; headRefOid: string };
+function readPr(
+  pr: string,
+  timeout: number,
+): { state: string; head: string; checks: Check[] } {
+  const view = () =>
+    JSON.parse(
+      gh(["pr", "view", pr, "--json", "state,headRefOid"], timeout),
+    ) as {
+      state: string;
+      headRefOid: string;
+    };
+  const before = view();
   let checks: Check[] = [];
   try {
     checks = JSON.parse(
-      gh(["pr", "checks", pr, "--json", "name,bucket,link"]),
+      gh(["pr", "checks", pr, "--json", "name,bucket,link"], timeout),
     ) as Check[];
   } catch (error) {
     // gh exits non-zero while checks are pending or failing, but still prints
@@ -56,30 +92,32 @@ function readPr(pr: string): { state: string; head: string; checks: Check[] } {
     )
       throw error;
   }
-  return { state: view.state, head: view.headRefOid, checks };
+  // A push between the two reads would pair these checks with the wrong
+  // commit, so treat it as nothing reported yet.
+  if (view().headRefOid !== before.headRefOid) checks = [];
+  return { state: before.state, head: before.headRefOid, checks };
 }
 
 function main(): void {
-  const args = process.argv.slice(2);
-  const pr = args.find((a) => /^\d+$/.test(a));
-  const option = (name: string, fallback: number) => {
-    const i = args.indexOf(name);
-    return i === -1 ? fallback : Number(args[i + 1]);
-  };
-  const intervalMs = option("--interval", 60) * 1000;
-  const deadline = Date.now() + option("--max-minutes", 120) * 60_000;
-  if (!pr) {
+  const options = parseArgs(process.argv.slice(2));
+  if (!options) {
     console.error(
-      "usage: pnpm ci:wait <pr> [--interval 60] [--max-minutes 120]",
+      "usage: pnpm ci:wait <pr> [--interval <seconds>] [--max-minutes <minutes>]",
     );
     process.exit(2);
   }
+  const { pr, intervalMs } = options;
+  const started = Date.now();
+  const deadline = started + options.maxMs;
 
   let misses = 0;
   let last: { head: string; checks: Check[] } | null = null;
   for (;;) {
     try {
-      const { state, head, checks } = readPr(pr);
+      const { state, head, checks } = readPr(
+        pr,
+        Math.max(1000, deadline - Date.now()),
+      );
       misses = 0;
       if (state !== "OPEN") {
         console.log(`PR #${pr} is ${state}; nothing to wait for.`);
@@ -97,12 +135,14 @@ function main(): void {
         process.exit(2);
       }
     }
+    if (!last?.checks.length && Date.now() - started > NO_CHECKS_GRACE_MS) {
+      console.log("No checks were reported for this PR within 10 minutes.");
+      process.exit(2);
+    }
     if (Date.now() + intervalMs > deadline) {
       const pending = last?.checks.filter((c) => c.bucket === "pending") ?? [];
       console.log(
-        last?.checks.length
-          ? `Out of time with ${pending.length} checks still running: ${pending.map((c) => c.name).join(", ")}`
-          : "Out of time: no checks were ever reported for this PR.",
+        `Out of time with ${pending.length} checks still running: ${pending.map((c) => c.name).join(", ")}`,
       );
       process.exit(2);
     }
