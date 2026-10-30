@@ -99,6 +99,9 @@ registerShareableResource({
 });
 ```
 
+Add `agentRead: { actions: ["get-deck"] }` naming the MCP tool that reads one
+resource, so the share panel can send it to Claude, Claude Code and Codex.
+
 The `type` string is the stable id the UI and actions use. `getDb` is required — the framework-level share actions use it to reach your template's DB.
 
 ### Restricting public visibility and cross-org user shares
@@ -214,27 +217,39 @@ For list views, show `<VisibilityBadge visibility={row.visibility} />` next to e
 
 ## Standard share surface
 
-All app share popovers should use the same compact surface contract:
+All app share popovers use one single-panel surface, top to bottom:
+
+1. The invite field: one input for people, organization groups, and the
+   org's agents, a role picker, and Invite.
+2. People with access: the owner, people, groups, and agents in one list.
+   Roles read "Can view", "Can comment", "Can edit", "Can manage access";
+   Remove access lives in each row's role menu.
+3. General access: Only people invited / Anyone at <org> / Anyone with the
+   link.
+4. A footer with Copy link (`shareUrl`) and a Send to menu.
+
+Rules:
 
 - Use the text-only `ShareTrigger` from `@agent-native/toolkit/sharing`.
-- Render ordinary links with `ShareCopyRow`, which exposes a Copy action without
-  printing the raw URL.
-- Keep general access and individual people access in the standard Core sharing
-  flow. The people flow supports email invites, roles, notifications, and
-  removal through the shared share actions.
-- Add `ShareAgentsSection` only when the resource has a real agent-readable
-  link or prompt. Keep it collapsed by default and supply domain-specific
-  content through the shared section shell.
-- When `supportsGroupShares` is enabled, keep the existing people input as the
-  only entry point and include organization groups in its autocomplete. Do not
-  add a separate group-management surface to each resource.
-- App-specific tabs or controls may remain when they represent a real domain
-  action (for example, an embed-code editor), but they should retain the same
-  trigger, copy-row, access, and spacing language.
-
-`ShareDisclosureSection` is the toolkit-owned shell for optional expandable
-share details; use its `ShareAgentsSection` or `SharePeopleSection` wrappers
-instead of creating another collapsible share panel in a template.
+- Never split people and agents into separate tabs or sections. Agents that
+  can hold their own access are org service principals
+  (`svc-<name>@service.<orgId>`); `list-resource-shares` returns them as
+  `agents` for managers, and they are shared as ordinary `user` principals.
+  Agents that connect over MCP or OAuth act as the person who connected
+  them, so they get no row: put ways to hand the resource to them in Send to.
+- Send to (`sendTo`) holds every handoff: `openInAgent` (Claude, Claude Code,
+  Codex), resource-specific `items`, `copyAgentPrompt`, and
+  `openMcpSettings`. Do not add another agent panel or tab.
+- Declare `agentRead: { actions: ["get-<thing>"] }` (plus `idParam` when the
+  tool's id argument is not `id`) on the registration. The panel then builds
+  Open in Claude, Claude Code and Codex and Copy agent prompt itself: the
+  prompt sends the agent to this app's MCP server to call that tool with the
+  person's own permissions. Pass `sendTo.openInAgent` only when the app needs
+  a different prompt. Agent-readable resources also get Copy agent link.
+- When `supportsGroupShares` is enabled, groups come from the same invite
+  field's autocomplete. Do not add a separate group-management surface.
+- App-specific tabs (`shareTabs`) may remain when they represent a real
+  domain action (for example, an embed-code editor).
 
 ## Actions available everywhere
 

@@ -1382,12 +1382,6 @@ export function renderDesignEditorView({
               : "designEditor.shareEditorLink",
           )}
           shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
-          roleCopy={{
-            commenter: {
-              label: t("designEditor.commenterRoleLabel"),
-              description: t("designEditor.commenterRoleDescription"),
-            },
-          }}
           shareTabs={designShareTabs}
           popoverClassName="z-[100010]"
           triggerClassName={cn(

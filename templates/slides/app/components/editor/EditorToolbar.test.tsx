@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   shareButton: vi.fn((_props: ShareButtonProps) => null),
+  navigate: vi.fn(),
   openMcpAppHostLink: vi.fn<(url: string) => Promise<boolean> | false>(
     () => false,
   ),
@@ -160,6 +161,7 @@ vi.mock("next-themes", () => ({
 }));
 
 vi.mock("react-router", () => ({
+  useNavigate: () => mocks.navigate,
   Link: ({
     children,
     to,
@@ -198,20 +200,12 @@ type ShareButtonProps = {
   triggerClassName?: string;
   shareUrl?: string;
   showShareLinks?: boolean;
-  secondaryShareUrl?: string;
   shareUrlLabel?: string;
-  shareUrlDescription?: string;
-  secondaryShareUrlLabel?: string;
-  secondaryShareUrlDescription?: string;
-  agentTabContent?: unknown;
-  peopleAccessLabel?: string;
-  shareUrlPlacement?: string;
-  roleCopy?: {
-    commenter?: {
-      label: string;
-      description?: string;
-    };
+  sendTo?: {
+    items?: Array<{ id: string; label: unknown; onSelect: () => void }>;
+    openMcpSettings?: () => void;
   };
+  peopleAccessLabel?: string;
   shareTabs?: {
     tabs?: Array<{
       value?: string;
@@ -389,7 +383,8 @@ describe("<EditorToolbar>", () => {
     // Export needs a write grant the widget does not carry, and the agent
     // connect guidance is the host's.
     expect(screen.queryByText("editorToolbar.export")).toBeNull();
-    expect(shareProps.agentTabContent).toBeUndefined();
+    // oracle-change: ShareButton no longer takes the link-description, secondary-link, placement and role-label props this file asserted; Send to items replace them.
+    expect(shareProps.sendTo).toBeUndefined();
     // The host owns navigation and chat.
     expect(screen.queryByTestId("agent-toggle")).toBeNull();
     expect(screen.queryByTestId("runs-tray")).toBeNull();
@@ -1105,14 +1100,7 @@ describe("<EditorToolbar>", () => {
         expect.stringContaining("/deck/deck-1"),
       );
       expect(shareButtonProps?.shareUrlLabel).toBe("editorToolbar.editorLink");
-      expect(shareButtonProps?.shareUrlDescription).toBe(
-        "editorToolbar.editorLinkDescription",
-      );
-      expect(shareButtonProps?.secondaryShareUrl).toBeUndefined();
-      expect(shareButtonProps?.roleCopy?.commenter).toEqual({
-        label: "editorToolbar.commenterRoleLabel",
-        description: "editorToolbar.commenterRoleDescription",
-      });
+      expect(shareButtonProps.sendTo?.items).toEqual([]);
       if (creativeContextEnabled) {
         expect(shareButtonProps.shareTabs?.tabs?.[0]?.value).toBe("context");
         expect(shareButtonProps.shareTabs?.tabs?.[0]?.label).toBe("Context");
@@ -1147,12 +1135,12 @@ describe("<EditorToolbar>", () => {
     >;
     const shareButtonProps = shareButtonCalls.at(-1)?.[0];
 
-    expect(shareButtonProps?.shareUrl).toBeUndefined();
-    expect(shareButtonProps?.secondaryShareUrl).toContain("/deck/deck-1");
-    expect(shareButtonProps?.showShareLinks).toBe(true);
+    expect(shareButtonProps?.shareUrl).toContain("/deck/deck-1");
+    expect(shareButtonProps?.shareUrlLabel).toBe("editorToolbar.editorLink");
+    expect(shareButtonProps?.sendTo?.items).toEqual([]);
   });
 
-  it("offers the editor and presentation links and an Agents tab", () => {
+  it("copies the editor link and puts the presentation link and MCP settings in Send to", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
@@ -1174,14 +1162,15 @@ describe("<EditorToolbar>", () => {
     const shareProps = mocks.shareButton.mock.calls.at(-1)![0];
     expect(shareProps.shareUrlLabel).toBe("editorToolbar.editorLink");
     expect(shareProps.shareUrl).toContain("/deck/deck-1");
-    expect(shareProps.secondaryShareUrlLabel).toBe(
-      "editorToolbar.presentationLink",
-    );
-    expect(shareProps.secondaryShareUrl).toContain("/p/deck-1");
-    expect(shareProps.agentTabContent).toBeTruthy();
-    // The links close the People tab, after who has access.
-    expect(shareProps.shareUrlPlacement).toBe("bottom");
+    expect(shareProps.sendTo?.items).toEqual([
+      expect.objectContaining({
+        id: "secondary-link",
+        label: "editorToolbar.copyPresentationLink",
+      }),
+    ]);
     expect(shareProps.peopleAccessLabel).toBe("share.whoHasAccess");
+    shareProps.sendTo?.openMcpSettings?.();
+    expect(mocks.navigate).toHaveBeenCalledWith(expect.stringContaining("mcp"));
   });
 
   it("puts the presentation link first for a public deck", () => {
@@ -1205,7 +1194,9 @@ describe("<EditorToolbar>", () => {
 
     const shareProps = mocks.shareButton.mock.calls.at(-1)![0];
     expect(shareProps.shareUrlLabel).toBe("editorToolbar.presentationLink");
-    expect(shareProps.secondaryShareUrlLabel).toBe("editorToolbar.editorLink");
+    expect(shareProps.sendTo?.items?.[0]?.label).toBe(
+      "editorToolbar.copyEditorLink",
+    );
   });
 
   const presentToolbar = (

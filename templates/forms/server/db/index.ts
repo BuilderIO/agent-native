@@ -10,6 +10,7 @@ export { schema };
 
 registerShareableResource({
   type: "form",
+  agentRead: { actions: ["get-form"] },
   resourceTable: schema.forms,
   sharesTable: schema.formShares,
   displayName: "Form",

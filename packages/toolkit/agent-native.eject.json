@@ -1452,7 +1452,8 @@
         "@radix-ui/react-select",
         "@tabler/icons-react",
         "react",
-        "react-router"
+        "react-router",
+        "sonner"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [

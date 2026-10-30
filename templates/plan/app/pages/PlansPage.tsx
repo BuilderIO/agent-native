@@ -5959,15 +5959,12 @@ const buildShareVisibilityCopy = (
   noun: string,
 ) => ({
   private: {
-    label: t("plansPage.share.visibility.private.label"),
     description: t("plansPage.share.visibility.private.description", { noun }),
   },
   org: {
-    label: t("plansPage.share.visibility.org.label"),
     description: t("plansPage.share.visibility.org.description"),
   },
   public: {
-    label: t("plansPage.share.visibility.public.label"),
     description: t("plansPage.share.visibility.public.description"),
   },
 });
@@ -6270,12 +6267,6 @@ function PlanShareControl({
         shareUrlPlacement="top"
         peopleAccessLabel={t("plansPage.share.peopleAccess", { noun })}
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
-        roleCopy={{
-          commenter: {
-            label: t("plansPage.share.commenterRoleLabel"),
-            description: t("plansPage.share.commenterRoleDescription"),
-          },
-        }}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
         triggerClassName="pointer-events-auto h-8 px-2"

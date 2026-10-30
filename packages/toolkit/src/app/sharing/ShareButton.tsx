@@ -1,24 +1,37 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { useT } from "@agent-native/core/client/i18n";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import {
   useShareButtonController,
+  type ShareButtonAgent,
   type ShareButtonController,
   type ShareButtonGroup,
   type ShareButtonOrgMember,
   type ShareButtonOrgMemberSearch,
   type ShareButtonShare,
+  type ShareButtonSharesResponse,
   type ShareButtonRole,
   type ShareButtonVisibility,
 } from "@agent-native/core/client/sharing/useShareButtonController";
+import { useActionMutation } from "@agent-native/core/client/use-action";
 import { useAvatarUrl } from "@agent-native/core/client/use-avatar";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
+  buildAgentShareDeepLink,
   JoinedShareControl,
-  ShareCopyRow,
-  ShareModeTabs,
   ShareTabs,
   ShareTrigger,
+  type AgentShareDestination,
 } from "@agent-native/toolkit/sharing";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
 import {
   Popover,
   PopoverAnchor,
@@ -31,17 +44,17 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@agent-native/toolkit/ui/sheet";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { cn } from "@agent-native/toolkit/utils";
 import * as Select from "@radix-ui/react-select";
 import {
   IconLock,
   IconWorld,
-  IconTrash,
   IconCheck,
   IconChevronDown,
+  IconLink,
   IconLoader2,
   IconSearchOff,
-  IconSend2,
   IconUsersGroup,
   IconUserPlus,
 } from "@tabler/icons-react";
@@ -59,9 +72,9 @@ import type {
   Ref,
   UIEvent as ReactUIEvent,
 } from "react";
+import { toast } from "sonner";
 
 import { AccessRequestsSection } from "./AccessRequestsSection.js";
-import { AgentShareSection } from "./AgentShareSection.js";
 import { ShareVisibilityConfirmDialog } from "./ShareVisibilityConfirmDialog.js";
 
 export interface ShareButtonProps {
@@ -96,12 +109,10 @@ export interface ShareButtonProps {
   basicSharingOnly?: boolean;
   /** Open the share surface without rendering a trigger button. */
   hideTrigger?: boolean;
-  /** Override the optional temporary agent-context link label. */
+  /** Override the label of the Send to menu's agent-link item. */
   agentShareLabel?: string;
-  /** Resource-specific agent actions shown in the Clips-style sharing tabs. */
-  agentTabContent?: ReactNode;
-  peopleTabLabel?: ReactNode;
-  agentsTabLabel?: ReactNode;
+  /** Destinations in the Send to menu beside Copy link. */
+  sendTo?: ShareSendTo;
   /** Immediate human-link copy action beside the Share trigger. */
   quickCopy?: {
     label: string;
@@ -110,17 +121,18 @@ export interface ShareButtonProps {
     size?: "default" | "sm";
     className?: string;
   };
-  /** Optional label for the primary copyable link section. */
+  /** Tooltip for the Copy link button: which link it copies. */
   shareUrlLabel?: string;
+  /** @deprecated Copy link is a single button; use `shareUrlLabel`. */
   shareUrlDescription?: ReactNode;
+  /** @deprecated Copy link always sits in the panel footer. */
   shareUrlPlacement?: "top" | "bottom";
+  /** Show the Copy link button. Defaults to true when `shareUrl` is set. */
   showShareLinks?: boolean;
   /** @deprecated The Done action was removed; share popovers dismiss directly. */
   showDoneButton?: boolean;
+  /** Shown in place of Copy link while the resource has no link yet. */
   shareUrlPlaceholder?: ReactNode;
-  secondaryShareUrl?: string;
-  secondaryShareUrlLabel?: string;
-  secondaryShareUrlDescription?: ReactNode;
   /** @deprecated No longer enforced — access is checked on the resource,
    *  not the URL shape, mirroring Google Slides. Kept for callsite
    *  compatibility; the prop is now a no-op. */
@@ -162,6 +174,26 @@ export interface ShareButtonProps {
   popoverClassName?: string;
 }
 
+export interface ShareSendToItem {
+  id: string;
+  label: ReactNode;
+  onSelect: () => void;
+  disabled?: boolean;
+}
+
+/**
+ * The Send to menu. Each group renders only when the app supplies it; the
+ * agent link is added on its own for agent-readable resources.
+ */
+export interface ShareSendTo {
+  /** Open the resource in Claude, Claude Code, or Codex with a prompt. */
+  openInAgent?: (destination: AgentShareDestination) => void;
+  /** Resource-specific destinations, between the agents and the copy items. */
+  items?: ShareSendToItem[];
+  copyAgentPrompt?: () => unknown;
+  openMcpSettings?: () => void;
+}
+
 export interface ShareButtonActionHandle {
   open: (tab?: string) => void;
 }
@@ -176,14 +208,6 @@ type Share = ShareButtonShare;
 
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
-const BUTTON_PRIMARY_ICON = cn(
-  BUTTON_BASE,
-  "size-9 shrink-0 bg-primary p-0 text-primary-foreground hover:bg-primary/90",
-);
-const BUTTON_GHOST_ICON = cn(
-  BUTTON_BASE,
-  "h-7 w-7 p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-);
 const SHARE_SECTION_LABEL = "text-xs font-medium text-muted-foreground";
 const SHARE_POPOVER_SURFACE =
   "border border-border bg-popover text-popover-foreground";
@@ -200,23 +224,23 @@ const VIS_META: Record<
   }
 > = {
   private: {
-    labelKey: "agentChat.share.private",
+    labelKey: "agentChat.share.onlyPeopleInvited",
     descriptionKey: "agentChat.share.privateDescription",
-    defaultLabel: "Private",
+    defaultLabel: "Only people invited",
     defaultDescription: "Only people with access can view",
     Icon: IconLock,
   },
   org: {
-    labelKey: "agentChat.share.organization",
+    labelKey: "agentChat.share.anyoneInOrganization",
     descriptionKey: "agentChat.share.organizationDescription",
-    defaultLabel: "Organization",
+    defaultLabel: "Anyone in your organization",
     defaultDescription: "Anyone in your organization can view",
     Icon: IconUsersGroup,
   },
   public: {
-    labelKey: "agentChat.share.public",
+    labelKey: "agentChat.share.anyoneWithLink",
     descriptionKey: "agentChat.share.publicDescription",
-    defaultLabel: "Public",
+    defaultLabel: "Anyone with the link",
     defaultDescription: "Anyone with the link can view",
     Icon: IconWorld,
   },
@@ -228,6 +252,7 @@ function visibilityMeta(
   visibility: Visibility,
   t: ShareTranslate,
   copy?: ShareButtonProps["visibilityCopy"],
+  organizationName?: string | null,
 ): { label: string; description: string; Icon: typeof IconLock } {
   const base = VIS_META[visibility];
   const override = copy?.[visibility];
@@ -235,9 +260,14 @@ function visibilityMeta(
     Icon: base.Icon,
     label:
       override?.label ??
-      t(base.labelKey, {
-        defaultValue: base.defaultLabel,
-      }),
+      (visibility === "org" && organizationName
+        ? t("agentChat.share.anyoneAtOrganization", {
+            defaultValue: "Anyone at {{organization}}",
+            organization: organizationName,
+          })
+        : t(base.labelKey, {
+            defaultValue: base.defaultLabel,
+          })),
     description:
       override?.description ??
       t(base.descriptionKey, {
@@ -260,34 +290,24 @@ function allowedRolesFor(
 
 function roleOptions(
   t: ShareTranslate,
-): Array<{ value: Role; label: string; description: string }> {
+): Array<{ value: Role; label: string; description?: string }> {
   return [
     {
       value: "viewer",
-      label: t("agentChat.share.viewer", { defaultValue: "Viewer" }),
-      description: t("agentChat.share.viewerDescription", {
-        defaultValue: "Can view",
-      }),
+      label: t("agentChat.share.canView", { defaultValue: "Can view" }),
     },
     {
       value: "commenter",
-      label: t("agentChat.share.commenter", { defaultValue: "Commenter" }),
-      description: t("agentChat.share.commenterDescription", {
-        defaultValue: "Can view and add comments",
-      }),
+      label: t("agentChat.share.canComment", { defaultValue: "Can comment" }),
     },
     {
       value: "editor",
-      label: t("agentChat.share.editor", { defaultValue: "Editor" }),
-      description: t("agentChat.share.editorDescription", {
-        defaultValue: "Can edit",
-      }),
+      label: t("agentChat.share.canEdit", { defaultValue: "Can edit" }),
     },
     {
       value: "admin",
-      label: t("agentChat.share.admin", { defaultValue: "Admin" }),
-      description: t("agentChat.share.adminDescription", {
-        defaultValue: "Can edit and manage access",
+      label: t("agentChat.share.canManageAccess", {
+        defaultValue: "Can manage access",
       }),
     },
   ];
@@ -297,7 +317,7 @@ function roleMeta(
   role: Role,
   t: ShareTranslate,
   copy?: ShareButtonProps["roleCopy"],
-): { value: Role; label: string; description: string } {
+): { value: Role; label: string; description?: string } {
   const options = roleOptions(t);
   const base = options.find((option) => option.value === role) ?? options[0];
   const override = copy?.[role];
@@ -332,7 +352,6 @@ function handleSharePopoverInteractOutside(
 
 export function ShareButton(props: ShareButtonProps) {
   const t = useT();
-  const hasShareModes = Boolean(props.agentTabContent);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   useEffect(() => {
     if (!props.mobileSheet) return;
@@ -378,17 +397,6 @@ export function ShareButton(props: ShareButtonProps) {
     controller.handleOpenChange,
     controller.handleShareTabChange,
   ]);
-  useEffect(() => {
-    if (!controller.open || !hasShareModes) return;
-    const timer = window.setTimeout(() => {
-      document
-        .querySelector<HTMLElement>(
-          '[data-agent-native-share-overlay] [role="tab"][aria-selected="true"]',
-        )
-        ?.focus();
-    }, 100);
-    return () => window.clearTimeout(timer);
-  }, [controller.open, hasShareModes, isSmallScreen]);
   const triggerLabel = t("agentChat.share.share", { defaultValue: "Share" });
   const trigger = (
     <ShareTrigger
@@ -468,7 +476,7 @@ export function ShareButton(props: ShareButtonProps) {
         sideOffset={6}
         data-agent-native-share-overlay=""
         className={cn(
-          "z-[2000] w-[360px] max-w-[calc(100vw-1rem)] rounded-lg p-3 shadow-lg",
+          "z-[2000] w-[384px] max-w-[calc(100vw-1rem)] rounded-lg p-4 shadow-lg",
           SHARE_POPOVER_SURFACE,
           props.popoverClassName,
         )}
@@ -515,46 +523,15 @@ function SharePanel(
         resourceId={props.resourceId}
       />
     ) : null;
-  const shareLinks = (
-    <>
-      {props.shareUrl ? (
-        <CopyLinkField
-          value={props.shareUrl}
-          label={props.shareUrlLabel}
-          description={props.shareUrlDescription}
-          resourceType={props.resourceType}
-          resourceId={props.resourceId}
-          linkType="share"
-        />
-      ) : props.shareUrlPlaceholder ? (
-        <div className="mb-3 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-          {props.shareUrlLabel ? (
-            <div className="mb-0.5 font-medium text-foreground">
-              {props.shareUrlLabel}
-            </div>
-          ) : null}
-          {props.shareUrlPlaceholder}
-        </div>
-      ) : null}
-
-      {props.secondaryShareUrl ? (
-        <CopyLinkField
-          value={props.secondaryShareUrl}
-          label={props.secondaryShareUrlLabel}
-          description={props.secondaryShareUrlDescription}
-          resourceType={props.resourceType}
-          resourceId={props.resourceId}
-          linkType="secondary"
-        />
-      ) : null}
-    </>
+  const footer = (
+    <ShareFooter
+      {...props}
+      agentReadable={
+        !props.basicSharingOnly && !loadFailed && data?.agentReadable === true
+      }
+      agentRead={loadFailed ? undefined : data?.agentRead}
+    />
   );
-  const showShareLinks =
-    (props.showShareLinks ?? true) &&
-    (Boolean(props.shareUrl) ||
-      Boolean(props.shareUrlPlaceholder) ||
-      Boolean(props.secondaryShareUrl));
-  const shareUrlPlacement = props.shareUrlPlacement ?? "top";
   const extraTabs = props.shareTabs?.tabs ?? [];
   const hasTabs = extraTabs.length > 0;
   const shareTabLabel =
@@ -562,8 +539,7 @@ function SharePanel(
     t("agentChat.share.shareLink", { defaultValue: "Share link" });
 
   const sharePanel = loadFailed ? (
-    <div>
-      {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
+    <div className="flex flex-col gap-4">
       <div
         role="alert"
         className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
@@ -585,36 +561,55 @@ function SharePanel(
           {t("agentChat.common.retry")}
         </button>
       </div>
-      {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
+      {footer}
     </div>
   ) : isLoading ? (
-    <div>
-      {showShareLinks ? (
-        <div className="mb-3 h-8 rounded-md bg-muted animate-pulse" />
-      ) : null}
-      <div className={cn("mb-1.5", SHARE_SECTION_LABEL)}>
-        {generalAccessLabel}
+    <div className="flex flex-col gap-4" aria-busy="true">
+      <Skeleton className="h-9 w-full" />
+      <div className="flex flex-col gap-1.5">
+        <div className={SHARE_SECTION_LABEL}>{peopleAccessLabel}</div>
+        <ShareRowSkeleton />
+        <ShareRowSkeleton />
       </div>
-      <div className="mb-3 h-8 rounded-md bg-muted animate-pulse" />
-      <div className={cn("mb-1.5", SHARE_SECTION_LABEL)}>
-        {peopleAccessLabel}
+      <div className="flex flex-col gap-1.5">
+        <div className={SHARE_SECTION_LABEL}>{generalAccessLabel}</div>
+        <ShareRowSkeleton />
       </div>
-      <div className="mb-3 h-8 rounded-md bg-muted animate-pulse" />
     </div>
   ) : (
-    <div className={props.agentTabContent ? "flex flex-col" : undefined}>
-      {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
+    <div className="flex flex-col gap-4">
+      <SharePeopleInvite
+        controller={controller}
+        basicSharingOnly={props.basicSharingOnly}
+        roleCopy={props.roleCopy}
+        allowedRoles={allowedRolesFor(props)}
+      />
 
-      <div className={cn("mb-3", props.agentTabContent && "order-2")}>
-        {!props.agentTabContent ? (
-          <div className={cn("mb-1.5", SHARE_SECTION_LABEL)}>
-            {generalAccessLabel}
-          </div>
-        ) : null}
+      {accessRequests}
+
+      <section className="flex flex-col gap-1.5">
+        <div className={SHARE_SECTION_LABEL}>{peopleAccessLabel}</div>
+        <SharePeopleList
+          controller={controller}
+          roleCopy={props.roleCopy}
+          allowedRoles={allowedRolesFor(props)}
+        />
+      </section>
+
+      {shareError && !canManage ? (
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {shareError}
+        </div>
+      ) : null}
+
+      <section className="flex flex-col gap-1.5">
+        <div className={SHARE_SECTION_LABEL}>{generalAccessLabel}</div>
         <ShareGeneralAccessRow
           controller={controller}
           visibilityCopy={props.visibilityCopy}
-          sentenceTrigger={Boolean(props.agentTabContent)}
           confirmDetail={props.visibilityConfirmDetail}
         >
           {visibility === "org" && props.hideInSearchControl ? (
@@ -625,66 +620,15 @@ function SharePanel(
             />
           ) : null}
         </ShareGeneralAccessRow>
-      </div>
-
-      <div className={cn("mb-3 space-y-3", props.agentTabContent && "order-1")}>
-        {!props.agentTabContent ? (
-          <>
-            {accessRequests}
-            <div className={SHARE_SECTION_LABEL}>{peopleAccessLabel}</div>
-          </>
-        ) : null}
-        <SharePeopleInvite
-          controller={controller}
-          basicSharingOnly={props.basicSharingOnly}
-          roleCopy={props.roleCopy}
-          allowedRoles={allowedRolesFor(props)}
-        />
-
-        {props.agentTabContent ? (
-          <>
-            {accessRequests}
-            <div className={SHARE_SECTION_LABEL}>{peopleAccessLabel}</div>
-          </>
-        ) : null}
-        <SharePeopleList
-          controller={controller}
-          roleCopy={props.roleCopy}
-          allowedRoles={allowedRolesFor(props)}
-        />
-      </div>
-
-      {shareError && !canManage ? (
-        <div
-          role="alert"
-          className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-        >
-          {shareError}
-        </div>
-      ) : null}
-
-      {!props.agentTabContent && !props.basicSharingOnly ? (
-        <AgentShareSection
-          enabled={data?.agentReadable === true}
-          resourceType={props.resourceType}
-          resourceId={props.resourceId}
-          label={props.agentShareLabel}
-        />
-      ) : null}
+      </section>
 
       {props.accessNote ? (
-        <div className="mb-3 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
+        <div className="rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
           {props.accessNote}
         </div>
       ) : null}
 
-      {showShareLinks && shareUrlPlacement === "bottom" ? (
-        // The tabbed layout reorders its sections with `order-*`, so links
-        // placed at the bottom need an order of their own to stay last.
-        <div className={props.agentTabContent ? "order-3" : undefined}>
-          {shareLinks}
-        </div>
-      ) : null}
+      {footer}
 
       {props.shareFooterContent}
     </div>
@@ -695,47 +639,6 @@ function SharePanel(
       {props.panelTitle}
     </h2>
   ) : null;
-  const shareOptionsLabel = t("agentChat.share.shareOptions", {
-    defaultValue: "Share options",
-  });
-
-  if (props.agentTabContent) {
-    const agentPanel = (
-      <div className="space-y-3">
-        {props.agentTabContent}
-        {!loadFailed && !isLoading && !props.basicSharingOnly ? (
-          <AgentShareSection
-            enabled={data?.agentReadable === true}
-            resourceType={props.resourceType}
-            resourceId={props.resourceId}
-            label={props.agentShareLabel}
-          />
-        ) : null}
-      </div>
-    );
-    return (
-      <div className="flex flex-col gap-3">
-        {panelTitle}
-        <ShareModeTabs
-          value={activeShareTab === "share" ? "people" : activeShareTab}
-          onValueChange={(value) =>
-            handleShareTabChange(value === "people" ? "share" : value)
-          }
-          listLabel={shareOptionsLabel}
-          peopleLabel={props.peopleTabLabel ?? t("agentChat.share.people")}
-          agentsLabel={props.agentsTabLabel ?? t("agentChat.share.agents")}
-          people={sharePanel}
-          agents={agentPanel}
-          extraTabs={extraTabs.map(({ value, label, content, disabled }) => ({
-            value,
-            label,
-            content,
-            disabled,
-          }))}
-        />
-      </div>
-    );
-  }
 
   if (!hasTabs) {
     return props.panelTitle ? (
@@ -766,17 +669,389 @@ function SharePanel(
       <ShareTabs
         value={activeTab}
         onValueChange={handleShareTabChange}
-        listLabel={shareOptionsLabel}
+        listLabel={t("agentChat.share.shareOptions", {
+          defaultValue: "Share options",
+        })}
         tabs={tabs}
       />
     </div>
   );
 }
 
+function ShareRowSkeleton() {
+  return (
+    <div className="flex min-h-10 items-center gap-2.5 px-1 py-1">
+      <Skeleton className="size-7 shrink-0 rounded-full" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <Skeleton className="h-3.5 w-28" />
+        <Skeleton className="h-3 w-40" />
+      </div>
+      <Skeleton className="h-3.5 w-14" />
+    </div>
+  );
+}
+
+/** Copy link on the left, the Send to menu on the right. */
+function ShareFooter(
+  props: ShareButtonProps & {
+    agentReadable: boolean;
+    agentRead: ShareButtonSharesResponse["agentRead"];
+  },
+) {
+  const t = useT();
+  const sendTo = useAgentReadSendTo(props, props.agentRead);
+  const showLink = props.showShareLinks ?? true;
+  const copyLink =
+    showLink && props.shareUrl ? (
+      <CopyLinkButton
+        value={props.shareUrl}
+        title={props.shareUrlLabel}
+        resourceType={props.resourceType}
+        resourceId={props.resourceId}
+      />
+    ) : showLink && props.shareUrlPlaceholder ? (
+      <span className="min-w-0 text-xs text-muted-foreground">
+        {props.shareUrlPlaceholder}
+      </span>
+    ) : null;
+  const hasSendTo =
+    Boolean(sendTo?.openInAgent) ||
+    Boolean(sendTo?.items?.length) ||
+    Boolean(sendTo?.copyAgentPrompt) ||
+    Boolean(sendTo?.openMcpSettings) ||
+    props.agentReadable;
+  if (!copyLink && !hasSendTo) return null;
+  return (
+    <div className="flex items-center justify-between gap-2">
+      {copyLink ?? <span />}
+      {hasSendTo ? (
+        <ShareSendToMenu
+          resourceType={props.resourceType}
+          resourceId={props.resourceId}
+          sendTo={sendTo}
+          agentReadable={props.agentReadable}
+          agentLinkLabel={
+            props.agentShareLabel ??
+            t("agentChat.share.copyAgentLink", {
+              defaultValue: "Copy agent link",
+            })
+          }
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Open in Claude, Claude Code and Codex, and Copy agent prompt, for any
+ * resource whose type names the MCP tool that reads it. An app that passes
+ * its own agent destinations keeps them.
+ */
+function useAgentReadSendTo(
+  props: ShareButtonProps,
+  agentRead: ShareButtonSharesResponse["agentRead"],
+): ShareSendTo | undefined {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale;
+  if (props.basicSharingOnly) return undefined;
+  const sendTo = props.sendTo;
+  if (!agentRead || sendTo?.openInAgent || sendTo?.copyAgentPrompt) {
+    return sendTo;
+  }
+  const prompt = () => {
+    const origin = window.location.origin;
+    return t("agentChat.share.agentReadPrompt", {
+      defaultValue:
+        'Read this {{label}}: {{url}}\n\nUse an available MCP connection for {{mcpUrl}} to call {{actions}} with {{idParam}} "{{id}}". Use my account\'s existing permissions.\n\nIf that connection is missing or signed out, ask me to connect it and sign in: {{connectUrl}}. After I confirm, retry the read. If the read is denied, tell me.',
+      label: agentRead.label,
+      url: props.shareUrl ?? window.location.href,
+      mcpUrl: new URL(appPath("/mcp"), origin).href,
+      connectUrl: new URL(appPath("/mcp/connect"), origin).href,
+      actions: new Intl.ListFormat(locale, { type: "disjunction" }).format(
+        agentRead.actions,
+      ),
+      idParam: agentRead.idParam,
+      id: props.resourceId,
+    });
+  };
+  return {
+    ...sendTo,
+    openInAgent: (destination) => {
+      trackEvent("agent_share_opened", {
+        resource_type: props.resourceType,
+        resource_id: props.resourceId,
+        destination,
+      });
+      window.location.assign(buildAgentShareDeepLink(destination, prompt()));
+    },
+    copyAgentPrompt: async () => {
+      if (!(await writeClipboardText(prompt()))) {
+        toast.error(
+          t("agentChat.share.copyAgentPromptFailed", {
+            defaultValue: "Couldn't copy the agent prompt.",
+          }),
+        );
+        return false;
+      }
+      trackEvent("share_link_copied", {
+        resource_type: props.resourceType,
+        resource_id: props.resourceId,
+        link_type: "agent_prompt",
+      });
+      toast.success(
+        t("agentChat.share.copiedAgentPrompt", {
+          defaultValue: "Copied agent prompt",
+        }),
+      );
+      return true;
+    },
+  };
+}
+
+function CopyLinkButton({
+  value,
+  title,
+  resourceType,
+  resourceId,
+}: {
+  value: string;
+  title?: string | undefined;
+  resourceType: string;
+  resourceId: string;
+}) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+    },
+    [],
+  );
+  const copy = async () => {
+    const ok = await writeClipboardText(value);
+    if (!ok) {
+      toast.error(
+        t("agentChat.share.copyLinkFailed", {
+          defaultValue: "Couldn't copy the link.",
+        }),
+      );
+      return;
+    }
+    trackEvent("share_link_copied", {
+      resource_type: resourceType,
+      resource_id: resourceId,
+      link_type: "share",
+    });
+    setCopied(true);
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+    resetTimer.current = setTimeout(() => setCopied(false), 1600);
+  };
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      title={title}
+      onClick={() => void copy()}
+    >
+      {copied ? (
+        <IconCheck aria-hidden="true" />
+      ) : (
+        <IconLink aria-hidden="true" />
+      )}
+      {copied
+        ? t("agentChat.share.copied", { defaultValue: "Copied" })
+        : t("agentChat.share.copyLink", { defaultValue: "Copy link" })}
+    </Button>
+  );
+}
+
+type AgentLinkState =
+  | { status: "idle" }
+  | { status: "pending" }
+  | { status: "ready"; url: string }
+  | { status: "error" };
+
+/**
+ * Every way to hand this resource to something else: external agents, the
+ * app's own destinations, then the copyable agent prompt and link.
+ */
+function ShareSendToMenu({
+  resourceType,
+  resourceId,
+  sendTo,
+  agentReadable,
+  agentLinkLabel,
+}: {
+  resourceType: string;
+  resourceId: string;
+  sendTo: ShareSendTo | undefined;
+  agentReadable: boolean;
+  agentLinkLabel: string;
+}) {
+  const t = useT();
+  const createAgentLink = useActionMutation<
+    { contextUrl?: string },
+    { resourceType: string; resourceId: string }
+  >("create-agent-resource-link");
+  const [agentLink, setAgentLink] = useState<AgentLinkState>({
+    status: "idle",
+  });
+  const loadAgentLink = () => {
+    setAgentLink({ status: "pending" });
+    createAgentLink.mutate(
+      { resourceType, resourceId },
+      {
+        onSuccess: (result) =>
+          setAgentLink(
+            result.contextUrl
+              ? { status: "ready", url: result.contextUrl }
+              : { status: "error" },
+          ),
+        onError: () => setAgentLink({ status: "error" }),
+      },
+    );
+  };
+  const copyAgentLink = async (url: string) => {
+    if (!(await writeClipboardText(url))) {
+      toast.error(
+        t("agentChat.share.copyAgentLinkFailed", {
+          defaultValue: "Couldn't copy the agent link.",
+        }),
+      );
+      return;
+    }
+    trackEvent("share_link_copied", {
+      resource_type: resourceType,
+      resource_id: resourceId,
+      link_type: "agent_context",
+    });
+    toast.success(
+      t("agentChat.share.copiedAgentLink", {
+        defaultValue: "Copied agent link",
+      }),
+    );
+  };
+  const agentDestinations: Array<{
+    destination: AgentShareDestination;
+    label: string;
+  }> = sendTo?.openInAgent
+    ? [
+        {
+          destination: "claude",
+          label: t("agentChat.share.openInClaude", {
+            defaultValue: "Open in Claude",
+          }),
+        },
+        {
+          destination: "claude-code",
+          label: t("agentChat.share.openInClaudeCode", {
+            defaultValue: "Open in Claude Code",
+          }),
+        },
+        {
+          destination: "codex",
+          label: t("agentChat.share.openInCodex", {
+            defaultValue: "Open in Codex",
+          }),
+        },
+      ]
+    : [];
+  const appItems = sendTo?.items ?? [];
+  const hasCopyGroup =
+    Boolean(sendTo?.copyAgentPrompt) ||
+    agentReadable ||
+    Boolean(sendTo?.openMcpSettings);
+  return (
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (open && agentReadable && agentLink.status === "idle") {
+          loadAgentLink();
+        }
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="ghost" size="sm">
+          {t("agentChat.share.sendTo", { defaultValue: "Send to" })}
+          <IconChevronDown aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        data-agent-native-share-overlay=""
+        className={cn(SHARE_NESTED_OVERLAY_Z, "min-w-48 p-1")}
+      >
+        {agentDestinations.map(({ destination, label }) => (
+          <DropdownMenuItem
+            key={destination}
+            onSelect={() => sendTo?.openInAgent?.(destination)}
+          >
+            {label}
+          </DropdownMenuItem>
+        ))}
+        {agentDestinations.length > 0 && appItems.length > 0 ? (
+          <DropdownMenuSeparator />
+        ) : null}
+        {appItems.map((item) => (
+          <DropdownMenuItem
+            key={item.id}
+            disabled={item.disabled ?? false}
+            onSelect={item.onSelect}
+          >
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+        {(agentDestinations.length > 0 || appItems.length > 0) &&
+        hasCopyGroup ? (
+          <DropdownMenuSeparator />
+        ) : null}
+        {sendTo?.copyAgentPrompt ? (
+          <DropdownMenuItem onSelect={() => void sendTo.copyAgentPrompt?.()}>
+            {t("agentChat.share.copyAgentPrompt", {
+              defaultValue: "Copy agent prompt",
+            })}
+          </DropdownMenuItem>
+        ) : null}
+        {agentReadable ? (
+          <DropdownMenuItem
+            disabled={agentLink.status === "pending"}
+            onSelect={(event) => {
+              if (agentLink.status === "ready") {
+                void copyAgentLink(agentLink.url);
+                return;
+              }
+              event.preventDefault();
+              if (agentLink.status !== "pending") loadAgentLink();
+            }}
+          >
+            {agentLink.status === "pending"
+              ? t("agentChat.share.preparingAgentLink", {
+                  defaultValue: "Preparing agent link...",
+                })
+              : agentLink.status === "error"
+                ? t("agentChat.share.retryAgentLinkItem", {
+                    defaultValue: "Retry agent link",
+                  })
+                : agentLinkLabel}
+          </DropdownMenuItem>
+        ) : null}
+        {sendTo?.openMcpSettings ? (
+          <DropdownMenuItem onSelect={() => sendTo.openMcpSettings?.()}>
+            {t("agentChat.share.mcpServerSettings", {
+              defaultValue: "MCP server settings",
+            })}
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export interface SharePeopleControlProps {
   controller: ShareButtonController;
-  roleCopy?: ShareButtonProps["roleCopy"];
-  allowedRoles?: readonly ShareButtonRole[];
+  roleCopy?: ShareButtonProps["roleCopy"] | undefined;
+  allowedRoles?: readonly ShareButtonRole[] | undefined;
 }
 
 /**
@@ -791,7 +1066,7 @@ export function SharePeopleInvite({
   basicSharingOnly,
   roleCopy,
   allowedRoles,
-}: SharePeopleControlProps & { basicSharingOnly?: boolean }) {
+}: SharePeopleControlProps & { basicSharingOnly?: boolean | undefined }) {
   const t = useT();
   const {
     inviteEmail,
@@ -813,10 +1088,15 @@ export function SharePeopleInvite({
     memberSearch,
     memberSuggestions,
     groupSuggestions,
+    agentSuggestions,
     selectGroup,
+    selectedAgent,
+    selectAgent,
     handleAdd,
+    data,
   } = controller;
   const hasInviteEmail = inviteEmail.trim().length > 0;
+  const orgHasAgents = (data?.agents?.length ?? 0) > 0;
   return (
     <>
       {canManage ? (
@@ -835,6 +1115,8 @@ export function SharePeopleInvite({
               onSelectSuggestion={(suggestion) => {
                 if (suggestion.principalType === "group") {
                   selectGroup(suggestion);
+                } else if (suggestion.principalType === "agent") {
+                  selectAgent(suggestion);
                 } else {
                   onInviteEmailChange(suggestion.email);
                 }
@@ -843,15 +1125,19 @@ export function SharePeopleInvite({
               }}
               onSubmit={handleAdd}
               placeholder={
-                policy.requireOrgMemberForUserShares
-                  ? t("agentChat.share.addPeopleOrganization", {
-                      defaultValue: "Add people from your organization",
+                orgHasAgents
+                  ? t("agentChat.share.addPeopleOrAgents", {
+                      defaultValue: "Add people or agents",
                     })
-                  : t("agentChat.share.addPeopleEmail", {
-                      defaultValue: policy.supportsGroupShares
-                        ? "Add people or groups"
-                        : "Add people by email",
-                    })
+                  : policy.requireOrgMemberForUserShares
+                    ? t("agentChat.share.addPeopleOrganization", {
+                        defaultValue: "Add people from your organization",
+                      })
+                    : t("agentChat.share.addPeopleEmail", {
+                        defaultValue: policy.supportsGroupShares
+                          ? "Add people or groups"
+                          : "Add people by email",
+                      })
               }
               suggestions={[
                 ...memberSuggestions.map((member) => ({
@@ -864,8 +1150,13 @@ export function SharePeopleInvite({
                       principalType: "group" as const,
                     }))
                   : []),
+                ...agentSuggestions.map((agent) => ({
+                  ...agent,
+                  principalType: "agent" as const,
+                })),
               ]}
               search={memberSearch}
+              agentsUnavailable={data?.agentsUnavailable === true}
               trailing={
                 <RoleSelect
                   value={role}
@@ -875,16 +1166,14 @@ export function SharePeopleInvite({
                 />
               }
             />
-            <button
+            <Button
               type="button"
               onClick={handleAdd}
               disabled={!hasInviteEmail}
-              aria-label={t("agentChat.share.add", { defaultValue: "Add" })}
-              title={t("agentChat.share.add", { defaultValue: "Add" })}
-              className={BUTTON_PRIMARY_ICON}
+              className="shrink-0"
             >
-              <IconSend2 />
-            </button>
+              {t("agentChat.share.invite", { defaultValue: "Invite" })}
+            </Button>
           </div>
           {shareError ? (
             <div
@@ -894,7 +1183,7 @@ export function SharePeopleInvite({
               {shareError}
             </div>
           ) : null}
-          {hasInviteEmail ? (
+          {hasInviteEmail && !selectedAgent ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
               <label className="inline-flex items-center gap-2">
                 <input
@@ -926,6 +1215,7 @@ export function SharePeopleInvite({
             </div>
           ) : null}
           {hasInviteEmail &&
+          !selectedAgent &&
           notifyPeople &&
           messageOpen &&
           !basicSharingOnly ? (
@@ -970,82 +1260,156 @@ export function SharePeopleList({
     handleChangeRole,
     handleRemove,
   } = controller;
+  const ownerName = data?.ownerEmail
+    ? data.ownerDisplayName?.trim() ||
+      displayName(data.ownerEmail, knownMembers, t)
+    : "";
   return (
-    <ul className="flex list-none flex-col gap-1 p-0 m-0">
+    <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
       {data?.ownerEmail ? (
-        <li className="flex min-h-8 items-center gap-2 px-1.5 py-1 text-sm">
-          <Avatar
-            email={data.ownerEmail}
-            image={memberImage(data.ownerEmail, knownMembers)}
-            label={displayName(data.ownerEmail, knownMembers, t)}
-          />
-          <span className="flex-1 min-w-0 truncate">
-            {displayName(data.ownerEmail, knownMembers, t)}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {t("agentChat.share.owner", { defaultValue: "Owner" })}
-          </span>
-        </li>
+        <SharePrincipalRow
+          avatar={
+            <Avatar
+              email={data.ownerEmail}
+              image={memberImage(data.ownerEmail, knownMembers)}
+              label={ownerName}
+            />
+          }
+          name={ownerName}
+          detail={ownerName === data.ownerEmail ? undefined : data.ownerEmail}
+          marker={
+            data.role === "owner"
+              ? t("agentChat.share.you", { defaultValue: "you" })
+              : undefined
+          }
+          trailing={
+            <span className="px-2 text-xs text-muted-foreground">
+              {t("agentChat.share.owner", { defaultValue: "Owner" })}
+            </span>
+          }
+        />
       ) : null}
-      {shares.map((s) => (
-        <li
-          key={keyOf(s)}
-          className={cn(
-            "flex min-h-8 items-center gap-2 px-1.5 py-1 text-sm",
-            inFlight.has(keyOf(s)) && "opacity-60",
-          )}
-        >
-          <Avatar
-            email={s.principalType === "user" ? s.principalId : undefined}
-            image={
-              s.principalType === "user"
-                ? memberImage(s.principalId, knownMembers)
+      {shares.map((s) => {
+        const label = principalLabel(s, knownMembers, t);
+        const busy = inFlight.has(keyOf(s));
+        return (
+          <SharePrincipalRow
+            key={keyOf(s)}
+            busy={busy}
+            avatar={
+              <Avatar
+                email={
+                  s.principalType === "user" && !s.agent
+                    ? s.principalId
+                    : undefined
+                }
+                image={
+                  s.principalType === "user" && !s.agent
+                    ? memberImage(s.principalId, knownMembers)
+                    : undefined
+                }
+                label={label}
+                org={s.principalType === "org"}
+                group={s.principalType === "group"}
+                agent={s.agent}
+              />
+            }
+            name={label}
+            badge={
+              s.agent
+                ? t("agentChat.share.agentBadge", { defaultValue: "Agent" })
                 : undefined
             }
-            label={principalLabel(s, knownMembers, t)}
-            org={s.principalType === "org"}
-            group={s.principalType === "group"}
+            detail={
+              s.principalType === "group"
+                ? t("agentChat.share.userGroup", {
+                    defaultValue: "User group",
+                  })
+                : s.principalType === "user" &&
+                    !s.agent &&
+                    s.principalId.includes("@") &&
+                    label !== s.principalId
+                  ? s.principalId
+                  : undefined
+            }
+            trailing={
+              canManage ? (
+                <RoleSelect
+                  value={s.role}
+                  onChange={(r) => handleChangeRole(s, r)}
+                  onRemove={() => handleRemove(s)}
+                  disabled={busy}
+                  plain
+                  roleCopy={roleCopy}
+                  allowedRoles={allowedRoles}
+                />
+              ) : (
+                <span className="px-2 text-xs text-muted-foreground">
+                  {roleMeta(s.role, t, roleCopy).label}
+                </span>
+              )
+            }
           />
-          <span className="flex-1 min-w-0 truncate">
-            {principalLabel(s, knownMembers, t)}
-          </span>
-          {canManage ? (
-            <RoleSelect
-              value={s.role}
-              onChange={(r) => handleChangeRole(s, r)}
-              disabled={inFlight.has(keyOf(s))}
-              plain
-              roleCopy={roleCopy}
-              allowedRoles={allowedRoles}
-            />
-          ) : (
-            <span className="text-xs text-muted-foreground">
-              {roleMeta(s.role, t, roleCopy).label}
-            </span>
-          )}
-          {canManage ? (
-            <button
-              type="button"
-              aria-label={t("agentChat.share.remove", {
-                defaultValue: "Remove",
-              })}
-              onClick={() => handleRemove(s)}
-              disabled={inFlight.has(keyOf(s))}
-              className={BUTTON_GHOST_ICON}
-            >
-              <IconTrash size={14} />
-            </button>
-          ) : null}
-        </li>
-      ))}
+        );
+      })}
       {!shares.length && !data?.ownerEmail ? (
-        <li className="px-1.5 py-1 text-sm text-muted-foreground">
+        <li className="px-1 py-1 text-sm text-muted-foreground">
           {t("agentChat.share.noAccess", {
             defaultValue: "No one has access yet.",
           })}
         </li>
       ) : null}
     </ul>
+  );
+}
+
+function SharePrincipalRow({
+  avatar,
+  name,
+  marker,
+  badge,
+  detail,
+  trailing,
+  busy,
+}: {
+  avatar: ReactNode;
+  name: string;
+  marker?: string | undefined;
+  badge?: string | undefined;
+  detail?: string | undefined;
+  trailing: ReactNode;
+  busy?: boolean | undefined;
+}) {
+  return (
+    <li
+      className={cn(
+        "flex min-h-10 items-center gap-2.5 py-1 ps-1 text-sm",
+        busy && "opacity-60",
+      )}
+    >
+      {avatar}
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-foreground">{name}</span>
+          {marker ? (
+            <span className="shrink-0 text-muted-foreground">{marker}</span>
+          ) : null}
+          {badge ? (
+            <Badge
+              variant="outline"
+              size="sm"
+              className="shrink-0 rounded-md text-muted-foreground"
+            >
+              {badge}
+            </Badge>
+          ) : null}
+        </div>
+        {detail ? (
+          <div className="truncate text-xs text-muted-foreground">{detail}</div>
+        ) : null}
+      </div>
+      {trailing}
+    </li>
   );
 }
 
@@ -1153,13 +1517,22 @@ interface MemberAutocompleteProps {
   placeholder: string;
   suggestions: ShareSuggestion[];
   search: OrgMemberSearch;
+  /** The org's agents could not be read, so none are suggested. */
+  agentsUnavailable?: boolean;
   /** Rendered inside the field, after the input. */
   trailing?: ReactNode;
 }
 
 type ShareSuggestion =
   | (OrgMember & { principalType: "user" })
-  | (ShareButtonGroup & { principalType: "group" });
+  | (ShareButtonGroup & { principalType: "group" })
+  | (ShareButtonAgent & { principalType: "agent" });
+
+function suggestionKey(suggestion: ShareSuggestion): string {
+  return suggestion.principalType === "group"
+    ? `group:${suggestion.id}`
+    : `${suggestion.principalType}:${suggestion.email}`;
+}
 
 function MemberAutocomplete({
   value,
@@ -1171,6 +1544,7 @@ function MemberAutocomplete({
   placeholder,
   suggestions,
   search,
+  agentsUnavailable,
   trailing,
 }: MemberAutocompleteProps) {
   const t = useT();
@@ -1331,7 +1705,7 @@ function MemberAutocomplete({
             const active = index === activeIndex;
             return (
               <div
-                key={`${suggestion.principalType}:${suggestion.principalType === "group" ? suggestion.id : suggestion.email}`}
+                key={suggestionKey(suggestion)}
                 id={optionId(listboxId, index)}
                 role="option"
                 aria-selected={active}
@@ -1353,23 +1727,32 @@ function MemberAutocomplete({
                       strokeWidth={1.8}
                       className="shrink-0 text-muted-foreground"
                     />
+                  ) : suggestion.principalType === "agent" ? (
+                    <Avatar label={suggestion.name} agent className="size-6" />
                   ) : (
                     <Avatar
                       email={suggestion.email}
                       image={suggestion.image}
                       label={suggestion.name?.trim() || suggestion.email}
+                      className="size-6"
                     />
                   )}
                   <span className="truncate">
-                    {suggestion.principalType === "group"
-                      ? suggestion.name
-                      : suggestion.name?.trim() || suggestion.email}
+                    {suggestion.principalType === "user"
+                      ? suggestion.name?.trim() || suggestion.email
+                      : suggestion.name}
                   </span>
                 </span>
                 {suggestion.principalType === "group" ? (
                   <span className="truncate text-xs text-muted-foreground">
                     {t("agentChat.share.userGroup", {
                       defaultValue: "User group",
+                    })}
+                  </span>
+                ) : suggestion.principalType === "agent" ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {t("agentChat.share.agentBadge", {
+                      defaultValue: "Agent",
                     })}
                   </span>
                 ) : suggestion.name?.trim() ? (
@@ -1393,6 +1776,14 @@ function MemberAutocomplete({
             <div className="px-3 py-3 text-sm text-muted-foreground">
               {t("agentChat.share.loadPeopleFailed", {
                 defaultValue: "Could not load people.",
+              })}
+            </div>
+          ) : null}
+
+          {agentsUnavailable ? (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {t("agentChat.share.loadAgentsFailed", {
+                defaultValue: "Could not load agents.",
               })}
             </div>
           ) : null}
@@ -1437,48 +1828,6 @@ function optionId(baseId: string, index: number): string {
   return `${baseId}-option-${index}`;
 }
 
-function CopyLinkField({
-  value,
-  label,
-  description,
-  resourceType,
-  resourceId,
-  linkType,
-}: {
-  value: string;
-  label?: string;
-  description?: ReactNode;
-  resourceType: string;
-  resourceId: string;
-  linkType: "share" | "secondary";
-}) {
-  const t = useT();
-  const copy = async (nextValue: string) => {
-    const copied = await writeClipboardText(nextValue);
-    if (copied) {
-      trackEvent("share_link_copied", {
-        resource_type: resourceType,
-        resource_id: resourceId,
-        link_type: linkType,
-      });
-    }
-    return copied;
-  };
-  return (
-    <ShareCopyRow
-      value={value}
-      label={
-        label ?? t("agentChat.share.shareLink", { defaultValue: "Share link" })
-      }
-      description={description}
-      copyLabel={t("agentChat.share.copy", { defaultValue: "Copy" })}
-      copiedLabel={t("agentChat.share.copied", { defaultValue: "Copied" })}
-      onCopy={copy}
-      className="mb-3"
-    />
-  );
-}
-
 const selectContentClass = `${SHARE_NESTED_OVERLAY_Z} min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0`;
 const selectItemClass =
   "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-1.5 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
@@ -1517,9 +1866,13 @@ function SelectItems({ items }: { items: ShadSelectItemProps[] }) {
   );
 }
 
+const REMOVE_ACCESS_VALUE = "__remove";
+
 function RoleSelect(props: {
   value: Role;
   onChange: (v: Role) => void;
+  /** Adds Remove access below the roles. */
+  onRemove?: () => void;
   disabled?: boolean;
   plain?: boolean;
   roleCopy?: ShareButtonProps["roleCopy"];
@@ -1539,7 +1892,10 @@ function RoleSelect(props: {
   return (
     <Select.Root
       value={props.value}
-      onValueChange={(v) => props.onChange(v as Role)}
+      onValueChange={(v) => {
+        if (v === REMOVE_ACCESS_VALUE) props.onRemove?.();
+        else props.onChange(v as Role);
+      }}
       disabled={props.disabled}
     >
       <Select.Trigger
@@ -1570,6 +1926,21 @@ function RoleSelect(props: {
         >
           <Select.Viewport>
             <SelectItems items={options} />
+            {props.onRemove ? (
+              <>
+                <Select.Separator className="-mx-1 my-1 h-px bg-border" />
+                <SelectItems
+                  items={[
+                    {
+                      value: REMOVE_ACCESS_VALUE,
+                      label: t("agentChat.share.removeAccess", {
+                        defaultValue: "Remove access",
+                      }),
+                    },
+                  ]}
+                />
+              </>
+            ) : null}
           </Select.Viewport>
         </Select.Content>
       </Select.Portal>
@@ -1615,14 +1986,20 @@ export function ShareGeneralAccessRow({
 }: ShareGeneralAccessRowProps) {
   const t = useT();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const meta = visibilityMeta(controller.visibility, t, visibilityCopy);
+  const organizationName = controller.visibilityTransition.organizationName;
+  const meta = visibilityMeta(
+    controller.visibility,
+    t,
+    visibilityCopy,
+    organizationName,
+  );
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-h-10 items-center gap-2.5 py-1 ps-1">
       <span
         aria-hidden
-        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+        className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
       >
-        <meta.Icon size={12} strokeWidth={1.75} />
+        <meta.Icon size={14} strokeWidth={1.75} />
       </span>
       <div className="min-w-0 flex-1">
         <VisibilitySelect
@@ -1633,18 +2010,26 @@ export function ShareGeneralAccessRow({
           }
           sentenceTrigger={sentenceTrigger}
           visibilityCopy={visibilityCopy}
+          organizationName={organizationName}
           allowPublic={controller.policy.allowPublic}
           triggerRef={triggerRef}
           open={menuOpen}
           onOpenChange={onMenuOpenChange}
         />
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          {!sentenceTrigger ? (
-            <span className="sr-only">{meta.description}</span>
-          ) : null}
-          {children}
-        </div>
+        {!sentenceTrigger ? (
+          <span className="sr-only">{meta.description}</span>
+        ) : null}
+        {children ? (
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            {children}
+          </div>
+        ) : null}
       </div>
+      {controller.visibility !== "private" && !sentenceTrigger ? (
+        <span className="shrink-0 px-2 text-xs text-muted-foreground">
+          {t("agentChat.share.canView", { defaultValue: "Can view" })}
+        </span>
+      ) : null}
       <ShareVisibilityConfirmDialog
         transition={controller.visibilityTransition}
         detail={confirmDetail}
@@ -1660,6 +2045,7 @@ function VisibilitySelect(props: {
   disabled?: boolean;
   sentenceTrigger?: boolean;
   visibilityCopy?: ShareButtonProps["visibilityCopy"];
+  organizationName?: string | null;
   allowPrivate?: boolean;
   allowPublic?: boolean;
   triggerRef?: Ref<HTMLButtonElement>;
@@ -1669,7 +2055,9 @@ function VisibilitySelect(props: {
   const t = useT();
   const allowPrivate = props.allowPrivate !== false;
   const allowPublic = props.allowPublic !== false;
-  const current = visibilityMeta(props.value, t, props.visibilityCopy);
+  const metaFor = (visibility: Visibility) =>
+    visibilityMeta(visibility, t, props.visibilityCopy, props.organizationName);
+  const current = metaFor(props.value);
   const options = (Object.keys(VIS_META) as Visibility[]).filter((k) => {
     if (k === props.value) return true;
     if (k === "private" && !allowPrivate) return false;
@@ -1688,16 +2076,18 @@ function VisibilitySelect(props: {
         ref={props.triggerRef}
         className={cn(
           BUTTON_BASE,
-          "h-7 px-1 -ms-1 bg-transparent font-normal text-foreground hover:bg-accent hover:text-accent-foreground",
+          "h-7 max-w-full px-1.5 -ms-1.5 bg-transparent font-normal text-foreground hover:bg-accent hover:text-accent-foreground",
           props.sentenceTrigger && "w-full justify-between text-sm font-normal",
         )}
         aria-label={t("agentChat.share.generalAccess", {
           defaultValue: "General access",
         })}
       >
-        <Select.Value>
-          {props.sentenceTrigger ? current.description : current.label}
-        </Select.Value>
+        <span className="truncate">
+          <Select.Value>
+            {props.sentenceTrigger ? current.description : current.label}
+          </Select.Value>
+        </span>
         <Select.Icon>
           <IconChevronDown size={14} />
         </Select.Icon>
@@ -1718,9 +2108,7 @@ function VisibilitySelect(props: {
             <SelectItems
               items={options.map((k) => ({
                 value: k,
-                label: visibilityMeta(k, t, props.visibilityCopy).label,
-                description: visibilityMeta(k, t, props.visibilityCopy)
-                  .description,
+                label: metaFor(k).label,
               }))}
             />
           </Select.Viewport>
@@ -1736,14 +2124,17 @@ function Avatar({
   label,
   org,
   group,
+  agent,
   className,
 }: {
-  email?: string;
-  image?: string | null;
+  email?: string | undefined;
+  image?: string | null | undefined;
   label: string;
-  org?: boolean;
-  group?: boolean;
-  className?: string;
+  org?: boolean | undefined;
+  group?: boolean | undefined;
+  /** Agents get a square avatar so they read apart from people. */
+  agent?: boolean | undefined;
+  className?: string | undefined;
 }) {
   const profileImage = image?.trim();
   const avatarUrl = useAvatarUrl(profileImage ? undefined : email);
@@ -1751,7 +2142,8 @@ function Avatar({
     <span
       aria-hidden
       className={cn(
-        "inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-[10px] font-semibold text-muted-foreground",
+        "inline-flex size-7 shrink-0 items-center justify-center overflow-hidden bg-muted text-xs font-semibold text-muted-foreground",
+        agent ? "rounded-md" : "rounded-full",
         className,
       )}
     >

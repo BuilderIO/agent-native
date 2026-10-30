@@ -493,16 +493,9 @@ function PeopleTab({
   onAccessMenuOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
-  const roleCopy = {
-    commenter: {
-      label: t("shareUi.recordingCommenter.label"),
-      description: t("shareUi.recordingCommenter.description"),
-    },
-  };
-
   return (
     <div className="flex flex-col gap-3">
-      <SharePeopleInvite controller={controller} roleCopy={roleCopy} />
+      <SharePeopleInvite controller={controller} />
 
       {canViewShares ? (
         visibility ? (
@@ -510,7 +503,7 @@ function PeopleTab({
             <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
             <div className="flex flex-col gap-0.5">
               <div className="max-h-72 overflow-y-auto">
-                <SharePeopleList controller={controller} roleCopy={roleCopy} />
+                <SharePeopleList controller={controller} />
               </div>
               <ShareGeneralAccessRow
                 controller={{ ...controller, visibility }}

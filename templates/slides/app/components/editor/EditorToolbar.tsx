@@ -117,7 +117,6 @@ import {
 } from "../../../shared/slide-transitions";
 import { AppMenu } from "./AppMenu";
 import { DeckPrivacyBadge } from "./DeckPrivacyBadge";
-import { DeckShareAgentTab } from "./DeckShareAgentTab";
 import {
   registerEditorCommands,
   type EditorCommand,
@@ -142,6 +141,7 @@ import {
   SlideTransitionControl,
   type SlideTransitionPatch,
 } from "./SlideTransitionControl";
+import { useDeckShareSendTo } from "./use-deck-share-send-to";
 
 export type { PresentRequest };
 
@@ -296,12 +296,12 @@ export default function EditorToolbar({
     editor: {
       url: editorUrl,
       label: t("editorToolbar.editorLink"),
-      description: t("editorToolbar.editorLinkDescription"),
+      copyLabel: t("editorToolbar.copyEditorLink"),
     },
     presentation: {
       url: presentationUrl,
       label: t("editorToolbar.presentationLink"),
-      description: t("editorToolbar.presentationLinkDescription"),
+      copyLabel: t("editorToolbar.copyPresentationLink"),
     },
   };
   const visibility = useDeckVisibility(deckId, deck.visibility);
@@ -309,8 +309,12 @@ export default function EditorToolbar({
   // The presentation link has nothing to open until the deck has a slide.
   const visibleShareLink = (kind: DeckShareLinkKind) =>
     kind === "editor" || hasSlides ? shareLinks[kind] : undefined;
-  const primaryShareLink = visibleShareLink(shareLinkOrder.primary);
-  const secondaryShareLink = visibleShareLink(shareLinkOrder.secondary);
+  // Copy link always has a link: the editor link stands in for a hidden one.
+  const preferredShareLink = visibleShareLink(shareLinkOrder.primary);
+  const otherShareLink = visibleShareLink(shareLinkOrder.secondary);
+  const primaryShareLink = preferredShareLink ?? otherShareLink;
+  const secondaryShareLink = preferredShareLink ? otherShareLink : undefined;
+  const shareSendTo = useDeckShareSendTo(secondaryShareLink);
 
   const { saving } = useSaveState();
   const conflict = useDeckContentConflicts(deckId)[0];
@@ -1103,24 +1107,10 @@ export default function EditorToolbar({
           resourceId={deckId}
           resourceTitle={deckTitle}
           panelTitle={t("share.title")}
-          roleCopy={{
-            commenter: {
-              label: t("editorToolbar.commenterRoleLabel"),
-              description: t("editorToolbar.commenterRoleDescription"),
-            },
-          }}
           shareUrl={primaryShareLink?.url}
           shareUrlLabel={primaryShareLink?.label}
-          shareUrlDescription={primaryShareLink?.description}
-          secondaryShareUrl={secondaryShareLink?.url}
-          secondaryShareUrlLabel={secondaryShareLink?.label}
-          secondaryShareUrlDescription={secondaryShareLink?.description}
-          showShareLinks={Boolean(primaryShareLink || secondaryShareLink)}
-          shareUrlPlacement="bottom"
           peopleAccessLabel={t("share.whoHasAccess")}
-          agentTabContent={
-            widgetEmbed ? undefined : <DeckShareAgentTab deckId={deckId} />
-          }
+          sendTo={widgetEmbed ? undefined : shareSendTo}
           basicSharingOnly={widgetEmbed}
           shareTabs={
             creativeContextEnabled && !widgetEmbed

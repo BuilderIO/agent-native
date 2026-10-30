@@ -55,10 +55,10 @@ vi.mock("@agent-native/toolkit/app/sharing", async (importOriginal) => ({
   >()),
   ShareButton: ({
     quickCopy,
-    agentTabContent,
+    sendTo,
   }: {
     quickCopy: { label: string; onCopy: () => Promise<boolean | void> };
-    agentTabContent: ReactNode;
+    sendTo?: { copyAgentPrompt?: () => unknown };
   }) =>
     createElement(
       "div",
@@ -68,7 +68,13 @@ vi.mock("@agent-native/toolkit/app/sharing", async (importOriginal) => ({
         { onClick: () => void quickCopy.onCopy() },
         quickCopy.label,
       ),
-      agentTabContent,
+      sendTo?.copyAgentPrompt
+        ? createElement(
+            "button",
+            { onClick: () => void sendTo.copyAgentPrompt?.() },
+            "send-to:copy-agent-prompt",
+          )
+        : null,
     ),
 }));
 
@@ -188,9 +194,7 @@ describe("DocumentToolbar clipboard behavior", () => {
     expect(mocks.copy).toHaveBeenCalledWith(
       `${window.location.origin}${appPath("/p/clipboard-fixture")}`,
     );
-    expect(container.textContent).not.toContain(
-      "editor.toolbar.copyAgentPrompt",
-    );
+    expect(container.textContent).not.toContain("send-to:copy-agent-prompt");
   });
 
   it("reports failure without a success toast or analytics", async () => {
@@ -209,7 +213,7 @@ describe("DocumentToolbar clipboard behavior", () => {
   it("copies an agent request without creating a share grant", async () => {
     mocks.copy.mockResolvedValue(true);
 
-    await copyFromShare("editor.toolbar.copyAgentPrompt");
+    await copyFromShare("send-to:copy-agent-prompt");
 
     expect(mocks.copy).toHaveBeenCalledWith("editor.toolbar.agentPrompt");
     expect(mocks.success).toHaveBeenCalledWith(
@@ -225,7 +229,7 @@ describe("DocumentToolbar clipboard behavior", () => {
   it("does not report an agent copy when clipboard access fails", async () => {
     mocks.copy.mockResolvedValue(false);
 
-    await copyFromShare("editor.toolbar.copyAgentPrompt");
+    await copyFromShare("send-to:copy-agent-prompt");
 
     expect(mocks.error).toHaveBeenCalledWith(
       "editor.toolbar.couldNotCopyAgentPrompt",

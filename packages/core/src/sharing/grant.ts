@@ -13,6 +13,7 @@ import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
 } from "./actions/extension-change.js";
+import { isShareableAgent } from "./agent-principals.js";
 import {
   requireShareableResource,
   type ShareableResourceRegistration,
@@ -55,6 +56,16 @@ export async function isOrgMemberOrInvited(
     args: [orgId, lower],
   });
   return invited.rows.length > 0;
+}
+
+/** A person in the org (or invited to it), or one of the org's agents. */
+// raw-sql-ok: only bound args; the flagged flow is the constant column list in listServicePrincipalPolicies.
+export async function isOrgPrincipal(
+  orgId: string,
+  email: string,
+): Promise<boolean> {
+  if (await isOrgMemberOrInvited(orgId, email)) return true;
+  return isShareableAgent(orgId, email);
 }
 
 function nanoid(size = 12): string {
@@ -187,7 +198,8 @@ export async function grantResourceAccess(
       );
     }
     if (input.principalType === "user") {
-      const ok = await isOrgMemberOrInvited(resourceOrgId, principalId);
+      // raw-sql-ok: only bound args; the flagged flow is the constant column list in listServicePrincipalPolicies.
+      const ok = await isOrgPrincipal(resourceOrgId, principalId);
       if (!ok) {
         throw new ForbiddenError(
           `${principalId} is not in your organization. Invite them to the organization first, then share.`,

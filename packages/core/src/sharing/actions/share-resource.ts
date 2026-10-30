@@ -13,11 +13,12 @@ import { getRequestUserEmail } from "../../server/request-context.js";
 import { track } from "../../tracking/registry.js";
 import { getUserProfile } from "../../user-profile/store.js";
 import { assertAccess } from "../access.js";
+import { agentDisplayName } from "../agent-principals.js";
 import {
   announceResourceAccessChange,
   grantResourceAccess,
   isEmailPrincipalId,
-  isOrgMemberOrInvited,
+  isOrgPrincipal,
   normalizePrincipalId,
   principalIdMatches,
 } from "../grant.js";
@@ -105,10 +106,8 @@ async function needsExternalShareApproval(args: {
   } else {
     if (!isEmailPrincipalId(args.principalId)) return false;
     const recipient = normalizePrincipalId("user", args.principalId);
-    if (
-      resourceOrgId &&
-      (await isOrgMemberOrInvited(resourceOrgId, recipient))
-    ) {
+    // raw-sql-ok: only bound args; the flagged flow is the constant column list in listServicePrincipalPolicies.
+    if (resourceOrgId && (await isOrgPrincipal(resourceOrgId, recipient))) {
       return false;
     }
   }
@@ -147,7 +146,7 @@ export default defineAction({
     principalId: z
       .string()
       .describe(
-        "Email (user), group id (group), or org id (org) of the principal.",
+        "Email (user), group id (group), or org id (org) of the principal. An org agent is a user whose email is its service identity (svc-<name>@service.<orgId>, from list-resource-shares `agents`); agents are never emailed.",
       ),
     role: z
       .enum(["viewer", "commenter", "editor", "admin"])
@@ -220,6 +219,7 @@ export default defineAction({
     const shouldNotify =
       args.notify !== false &&
       args.principalType === "user" &&
+      agentDisplayName(principalId) === null &&
       (await isEmailConfigured());
     let notified = false;
     if (shouldNotify) {

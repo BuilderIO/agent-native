@@ -60,6 +60,7 @@ registerIdentityColumns([
 
 registerShareableResource({
   type: "dashboard",
+  agentRead: { actions: ["get-sql-dashboard", "get-explorer-dashboard"] },
   resourceTable: schema.dashboards,
   sharesTable: schema.dashboardShares,
   displayName: "Dashboard",
@@ -113,6 +114,7 @@ registerShareableResource({
 
 registerShareableResource({
   type: "analysis",
+  agentRead: { actions: ["get-analysis"] },
   resourceTable: schema.analyses,
   sharesTable: schema.analysisShares,
   displayName: "Analysis",

@@ -150,6 +150,17 @@ export interface ShareableResourceRegistration {
         getPagePath?: (resource: any) => string | undefined;
         ttlSeconds?: number;
       };
+  /**
+   * The MCP tool an outside agent calls to read one resource of this type.
+   * The share panel's Open in Claude, Claude Code and Codex prompt names it,
+   * so a type without it gets no prompt. List several when the type spans
+   * kinds that read through different tools; the first is tried first.
+   */
+  agentRead?: {
+    actions: readonly [string, ...string[]];
+    /** The tool's id argument. Defaults to `id`. */
+    idParam?: string;
+  };
 }
 
 const REGISTRY_KEY = "__agentNativeShareableResources__";

@@ -12,7 +12,10 @@ import { ShareButton, type ShareButtonActionHandle } from "./ShareButton.js";
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 const shareMutate = vi.hoisted(() => vi.fn());
+const unshareMutate = vi.hoisted(() => vi.fn());
+const agentLinkMutate = vi.hoisted(() => vi.fn());
 const otherMutate = vi.hoisted(() => vi.fn());
+const toastMock = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 const refetchShares = vi.hoisted(() => vi.fn(async () => undefined));
 const popoverInteractOutsideHandlers = vi.hoisted(
   () =>
@@ -77,11 +80,20 @@ vi.mock("@agent-native/core/client/use-action", () => ({
         };
   },
   useActionMutation: (name: string) => ({
-    mutate: name === "share-resource" ? shareMutate : otherMutate,
+    mutate:
+      name === "share-resource"
+        ? shareMutate
+        : name === "unshare-resource"
+          ? unshareMutate
+          : name === "create-agent-resource-link"
+            ? agentLinkMutate
+            : otherMutate,
     mutateAsync:
       name === "approve-resource-access-request" ? approveRequest : otherMutate,
   }),
 }));
+
+vi.mock("sonner", () => ({ toast: toastMock }));
 
 vi.mock("@agent-native/toolkit/ui/popover", () => {
   const PopoverOpenContext = React.createContext(true);
@@ -92,7 +104,7 @@ vi.mock("@agent-native/toolkit/ui/popover", () => {
         string,
         unknown
       >;
-      return String(props.className ?? "").includes("w-[360px]");
+      return String(props.className ?? "").includes("w-[384px]");
     });
 
   return {
@@ -200,6 +212,51 @@ function pressTab(tab: HTMLElement) {
   });
 }
 
+function buttonWithText(
+  scope: ParentNode,
+  text: string,
+): HTMLButtonElement | undefined {
+  return Array.from(scope.querySelectorAll<HTMLButtonElement>("button")).find(
+    (button) => button.textContent?.trim() === text,
+  );
+}
+
+function inviteButton(scope: ParentNode): HTMLButtonElement {
+  const invite = buttonWithText(scope, "Invite");
+  if (!invite) throw new Error("Invite button not found");
+  return invite;
+}
+
+// Radix dropdown menus open on a primary-button pointerdown.
+async function openSendTo(scope: ParentNode) {
+  const trigger = buttonWithText(scope, "Send to");
+  if (!trigger) throw new Error("Send to button not found");
+  await act(async () => {
+    trigger.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        pointerType: "mouse",
+      }),
+    );
+    await Promise.resolve();
+  });
+}
+
+function menuItems(): HTMLElement[] {
+  return Array.from(
+    document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+  );
+}
+
+function menuItem(label: string): HTMLElement {
+  const item = menuItems().find(
+    (candidate) => candidate.textContent?.trim() === label,
+  );
+  if (!item) throw new Error(`${label} menu item not found`);
+  return item;
+}
+
 describe("ShareButton", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -216,7 +273,11 @@ describe("ShareButton", () => {
       ),
     );
     shareMutate.mockReset();
+    unshareMutate.mockReset();
+    agentLinkMutate.mockReset();
     otherMutate.mockReset();
+    toastMock.error.mockReset();
+    toastMock.success.mockReset();
     approveRequest.mockReset().mockResolvedValue(undefined);
     accessRequestsData.current = [];
     accessRequestsData.hasMore = false;
@@ -254,7 +315,7 @@ describe("ShareButton", () => {
     vi.unstubAllGlobals();
   });
 
-  it("submits one typed email with Add while keeping the share popover open", async () => {
+  it("submits one typed email with Invite while keeping the share popover open", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -274,13 +335,9 @@ describe("ShareButton", () => {
     ) as HTMLInputElement;
     setInputValue(input, "first@example.com");
 
-    const add = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Add"]',
-    );
-    if (!add) throw new Error("Add button not found");
-
+    const invite = inviteButton(container);
     act(() => {
-      add.click();
+      invite.click();
     });
 
     expect(shareMutate).toHaveBeenCalledWith(
@@ -318,7 +375,7 @@ describe("ShareButton", () => {
     const roleTrigger = container.querySelector(
       'button[aria-label="Role"]',
     ) as HTMLButtonElement | null;
-    expect(roleTrigger?.textContent).toContain("Viewer");
+    expect(roleTrigger?.textContent).toContain("Can view");
     await act(async () => roleTrigger?.click());
     expect(document.body.textContent).toContain("Can view and add comments");
     const commenterOption = Array.from(
@@ -332,12 +389,8 @@ describe("ShareButton", () => {
       'input[placeholder="Add people by email"]',
     ) as HTMLInputElement;
     setInputValue(input, "commenter@example.com");
-    const add = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Add"]',
-    );
-    if (!add) throw new Error("Add button not found");
-
-    act(() => add.click());
+    const invite = inviteButton(container);
+    act(() => invite.click());
 
     expect(shareMutate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -371,7 +424,7 @@ describe("ShareButton", () => {
     expect(
       Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).some((option) => option.textContent?.includes("Commenter")),
+      ).some((option) => option.textContent?.includes("Can comment")),
     ).toBe(false);
   });
 
@@ -400,11 +453,8 @@ describe("ShareButton", () => {
     ) as HTMLTextAreaElement;
     setInputValue(message, "Here is the latest version.");
 
-    const add = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Add"]',
-    );
-    if (!add) throw new Error("Add button not found");
-    act(() => add.click());
+    const invite = inviteButton(container);
+    act(() => invite.click());
 
     expect(shareMutate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -415,7 +465,7 @@ describe("ShareButton", () => {
     );
   });
 
-  it("keeps the invite row compact with the role inside the field and an icon-only Add", async () => {
+  it("keeps the invite row compact with the role inside the field and a text Invite button", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -429,18 +479,18 @@ describe("ShareButton", () => {
     );
     const field = input?.parentElement;
     const role = container.querySelector('button[aria-label="Role"]');
-    const add = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Add"]',
-    );
+    const invite = inviteButton(container);
     expect(field?.contains(role ?? null)).toBe(true);
-    expect(field?.contains(add)).toBe(false);
-    expect(add?.textContent).toBe("");
-    expect(add?.querySelector("svg")).not.toBeNull();
-    expect(add?.getAttribute("title")).toBe("Add");
-    expect(add?.disabled).toBe(true);
+    expect(field?.contains(invite)).toBe(false);
+    expect(invite.textContent).toBe("Invite");
+    expect(invite.querySelector("svg")).toBeNull();
+    expect(invite.disabled).toBe(true);
+
+    setInputValue(input!, "someone@example.com");
+    expect(invite.disabled).toBe(false);
   });
 
-  it("renders the compact 360px popover and lets a host raise its layer", async () => {
+  it("renders the compact 384px popover and lets a host raise its layer", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -457,7 +507,7 @@ describe("ShareButton", () => {
       container.querySelectorAll<HTMLElement>(
         "[data-agent-native-share-overlay]",
       ),
-    ).find((node) => node.className.includes("w-[360px]"));
+    ).find((node) => node.className.includes("w-[384px]"));
     expect(popover).toBeDefined();
     expect(popover?.className).toContain("z-[100010]");
     expect(popover?.className).not.toContain("z-[2000]");
@@ -533,11 +583,7 @@ describe("ShareButton", () => {
       );
     });
 
-    expect(
-      Array.from(container.querySelectorAll("button")).some(
-        (button) => button.textContent === "Copy",
-      ),
-    ).toBe(true);
+    expect(buttonWithText(container, "Copy link")).toBeDefined();
   });
 
   it("falls back when async clipboard copy is denied", async () => {
@@ -567,10 +613,8 @@ describe("ShareButton", () => {
       );
     });
 
-    const copy = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Copy",
-    );
-    if (!copy) throw new Error("Copy button not found");
+    const copy = buttonWithText(container, "Copy link");
+    if (!copy) throw new Error("Copy link button not found");
 
     await act(async () => {
       copy.click();
@@ -580,6 +624,65 @@ describe("ShareButton", () => {
     expect(writeText).toHaveBeenCalledWith(shareUrl);
     expect(execCommand).toHaveBeenCalledWith("copy");
     expect(copy.textContent).toBe("Copied");
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("says the link was not copied when every clipboard path is denied", async () => {
+    const shareUrl = "https://slides.agent-native.com/deck/deck-1";
+    const writeText = vi.fn(async () => {
+      throw new Error("denied");
+    });
+    const execCommand = vi.fn(() => false);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl={shareUrl}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const copy = buttonWithText(container, "Copy link");
+    if (!copy) throw new Error("Copy link button not found");
+
+    await act(async () => {
+      copy.click();
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledWith(shareUrl);
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(toastMock.error).toHaveBeenCalledWith("Couldn't copy the link.");
+    expect(copy.textContent).toBe("Copy link");
+  });
+
+  it("shows the placeholder instead of Copy link while the resource has no link", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrlPlaceholder="Publish to get a link"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Publish to get a link");
+    expect(buttonWithText(container, "Copy link")).toBeUndefined();
   });
 
   it("standardizes legacy icon triggers as text-only", async () => {
@@ -713,7 +816,7 @@ describe("ShareButton", () => {
     expect(refetchShares.mock.calls.length).toBe(refetchesBefore + 1);
   });
 
-  it("renders both primary and secondary share URLs", async () => {
+  it("renders one Copy link button labeled for its link without printing the URL", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -722,29 +825,30 @@ describe("ShareButton", () => {
             resourceId="deck-1"
             shareUrl="https://slides.agent-native.com/deck/deck-1"
             shareUrlLabel="Editor link"
-            secondaryShareUrl="https://slides.agent-native.com/p/deck-1"
-            secondaryShareUrlLabel="Presentation link"
           />
         </QueryClientProvider>,
       );
     });
 
     const text = container.textContent ?? "";
-    expect(text).toContain("Editor link");
-    expect(text).toContain("Presentation link");
     expect(text).not.toContain("https://slides.agent-native.com");
-    expect(
-      Array.from(container.querySelectorAll("button")).filter(
-        (button) => button.textContent === "Copy",
-      ),
-    ).toHaveLength(2);
+    const copyButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).filter((button) => button.textContent === "Copy link");
+    expect(copyButtons).toHaveLength(1);
+    expect(copyButtons[0].getAttribute("title")).toBe("Editor link");
   });
 
-  it("keeps agent-readable sharing collapsed until requested", async () => {
+  it("prepares the agent link only when the Send to menu opens, then copies it", async () => {
     sharesData.current = {
       ...sharesData.current,
       agentReadable: true,
     };
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
 
     await act(async () => {
       root.render(
@@ -754,23 +858,225 @@ describe("ShareButton", () => {
       );
     });
 
-    expect(container.textContent).toContain("Share with agents");
-    expect(container.textContent).not.toContain("Agent context link");
+    expect(agentLinkMutate).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("Copy agent link");
 
-    const disclosure = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Share with agents"),
-    );
-    if (!disclosure) throw new Error("Agent share disclosure not found");
+    await openSendTo(container);
 
-    act(() => disclosure.click());
-
-    expect(otherMutate).toHaveBeenCalledWith(
+    expect(agentLinkMutate).toHaveBeenCalledOnce();
+    expect(agentLinkMutate).toHaveBeenCalledWith(
       { resourceType: "deck", resourceId: "deck-1" },
       expect.any(Object),
     );
+    expect(menuItem("Preparing agent link...")).toBeDefined();
+
+    const [, callbacks] = agentLinkMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (result: { contextUrl?: string }) => void },
+    ];
+    act(() =>
+      callbacks.onSuccess({
+        contextUrl: "https://slides.agent-native.com/agent/deck-1",
+      }),
+    );
+
+    await act(async () => {
+      menuItem("Copy agent link").click();
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledWith(
+      "https://slides.agent-native.com/agent/deck-1",
+    );
+    expect(toastMock.success).toHaveBeenCalledWith("Copied agent link");
+    expect(agentLinkMutate).toHaveBeenCalledOnce();
   });
 
-  it("can customize access labels and move the share URL to the top", async () => {
+  it("offers no Send to menu for a resource agents cannot read and no destinations", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl="https://slides.agent-native.com/deck/deck-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(buttonWithText(container, "Copy link")).toBeDefined();
+    expect(buttonWithText(container, "Send to")).toBeUndefined();
+    expect(agentLinkMutate).not.toHaveBeenCalled();
+  });
+
+  it("lists the app's Send to destinations in order and runs the chosen one", async () => {
+    const openInAgent = vi.fn();
+    const exportPdf = vi.fn();
+    const copyAgentPrompt = vi.fn();
+    const openMcpSettings = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            sendTo={{
+              openInAgent,
+              items: [
+                { id: "pdf", label: "Export PDF", onSelect: exportPdf },
+                {
+                  id: "slack",
+                  label: "Post to Slack",
+                  onSelect: vi.fn(),
+                  disabled: true,
+                },
+              ],
+              copyAgentPrompt,
+              openMcpSettings,
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await openSendTo(container);
+
+    expect(menuItems().map((item) => item.textContent?.trim())).toEqual([
+      "Open in Claude",
+      "Open in Claude Code",
+      "Open in Codex",
+      "Export PDF",
+      "Post to Slack",
+      "Copy agent prompt",
+      "MCP server settings",
+    ]);
+    expect(menuItem("Post to Slack").getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+    expect(agentLinkMutate).not.toHaveBeenCalled();
+
+    act(() => menuItem("Open in Claude Code").click());
+    expect(openInAgent).toHaveBeenCalledWith("claude-code");
+
+    await openSendTo(container);
+    act(() => menuItem("Export PDF").click());
+    expect(exportPdf).toHaveBeenCalledOnce();
+
+    await openSendTo(container);
+    act(() => menuItem("Copy agent prompt").click());
+    expect(copyAgentPrompt).toHaveBeenCalledOnce();
+
+    await openSendTo(container);
+    act(() => menuItem("MCP server settings").click());
+    expect(openMcpSettings).toHaveBeenCalledOnce();
+  });
+
+  it("builds the agent prompt from the type's read tool", async () => {
+    const shareUrl = "https://analytics.agent-native.com/dashboards/dash-1";
+    const writeText = vi.fn(async (_text: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const withAgentRead = {
+      ...sharesData.current,
+      agentRead: {
+        actions: ["get-sql-dashboard", "get-explorer-dashboard"],
+        idParam: "id",
+        label: "Analytics dashboard",
+      },
+    };
+    sharesData.current = withAgentRead;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="dashboard"
+            resourceId="dash-1"
+            shareUrl={shareUrl}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await openSendTo(container);
+    expect(menuItems().map((item) => item.textContent?.trim())).toEqual([
+      "Open in Claude",
+      "Open in Claude Code",
+      "Open in Codex",
+      "Copy agent prompt",
+    ]);
+
+    await act(async () => {
+      menuItem("Copy agent prompt").click();
+      await Promise.resolve();
+    });
+
+    const prompt = writeText.mock.calls[0]?.[0] ?? "";
+    expect(prompt).toContain(`Read this Analytics dashboard: ${shareUrl}`);
+    expect(prompt).toContain(
+      `MCP connection for ${window.location.origin}/mcp to call get-sql-dashboard or get-explorer-dashboard with id "dash-1"`,
+    );
+    expect(prompt).toContain(`${window.location.origin}/mcp/connect`);
+    expect(toastMock.success).toHaveBeenCalledWith("Copied agent prompt");
+  });
+
+  it("keeps an app's own agent destinations over the type's read tool", async () => {
+    const openInAgent = vi.fn();
+    const withAgentRead = {
+      ...sharesData.current,
+      agentRead: { actions: ["get-document"], idParam: "id", label: "doc" },
+    };
+    sharesData.current = withAgentRead;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            sendTo={{ openInAgent }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await openSendTo(container);
+    expect(menuItems().map((item) => item.textContent?.trim())).toEqual([
+      "Open in Claude",
+      "Open in Claude Code",
+      "Open in Codex",
+    ]);
+    act(() => menuItem("Open in Codex").click());
+    expect(openInAgent).toHaveBeenCalledWith("codex");
+  });
+
+  it("offers no agent prompt to a session limited to the basic share actions", async () => {
+    const withAgentRead = {
+      ...sharesData.current,
+      agentRead: { actions: ["get-deck"], idParam: "id", label: "deck" },
+    };
+    sharesData.current = withAgentRead;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            basicSharingOnly
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(buttonWithText(container, "Send to")).toBeUndefined();
+  });
+
+  it("can customize access labels", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -779,7 +1085,6 @@ describe("ShareButton", () => {
             resourceId="form-1"
             shareUrl="https://forms.agent-native.com/f/form-1"
             shareUrlLabel="Public response link"
-            shareUrlPlacement="top"
             peopleAccessLabel="People with editing access"
             generalAccessLabel="General editing access"
           />
@@ -789,17 +1094,14 @@ describe("ShareButton", () => {
 
     const text = container.textContent ?? "";
     expect(text).toContain("General editing access");
-    expect(container.textContent).toContain("People with editing access");
+    expect(text).toContain("People with editing access");
+    expect(text).not.toContain("People with access");
+    expect(text).not.toContain("General access");
     expect(
       Array.from(container.querySelectorAll("button")).some(
         (button) => button.textContent === "Manage access",
       ),
     ).toBe(false);
-    expect(
-      (container.textContent ?? "").indexOf("General editing access"),
-    ).toBeLessThan(
-      (container.textContent ?? "").indexOf("People with editing access"),
-    );
   });
 
   it("renders organization share names without exposing raw org ids", async () => {
@@ -867,6 +1169,163 @@ describe("ShareButton", () => {
     expect(text).toContain("Unknown person");
     expect(text).not.toContain("org-secret-id");
     expect(text).not.toContain("not-an-email-id");
+  });
+
+  it("marks an agent row with an Agent badge and no email subline", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "private",
+      role: "owner",
+      shares: [
+        {
+          id: "share-1",
+          principalType: "user",
+          principalId: "dana@example.com",
+          displayName: "Dana Example",
+          role: "editor",
+        },
+        {
+          id: "share-2",
+          principalType: "user",
+          principalId: "research-agent@agents.example.test",
+          displayName: "Research agent",
+          agent: true,
+          role: "viewer",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const rows = Array.from(container.querySelectorAll<HTMLElement>("li"));
+    const person = rows.find((row) =>
+      row.textContent?.includes("Dana Example"),
+    );
+    const agent = rows.find((row) =>
+      row.textContent?.includes("Research agent"),
+    );
+    if (!person || !agent) throw new Error("share rows not found");
+
+    expect(person.textContent).toContain("dana@example.com");
+    expect(
+      Array.from(person.querySelectorAll("div")).some(
+        (node) => node.textContent === "Agent",
+      ),
+    ).toBe(false);
+
+    expect(
+      Array.from(agent.querySelectorAll("div")).some(
+        (node) => node.textContent === "Agent",
+      ),
+    ).toBe(true);
+    expect(agent.textContent).not.toContain(
+      "research-agent@agents.example.test",
+    );
+  });
+
+  it("invites an agent picked from the suggestions without notifying it", async () => {
+    sharesData.current = {
+      ...sharesData.current,
+      orgId: "org-1",
+      agents: [
+        { email: "research-agent@agents.example.test", name: "Research agent" },
+      ],
+    } as typeof sharesData.current;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people or agents"]',
+    ) as HTMLInputElement;
+    if (!input) throw new Error("invite input not found");
+    setInputValue(input, "research");
+
+    const suggestion = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.textContent?.includes("Research agent"));
+    if (!suggestion) throw new Error("agent suggestion not found");
+    expect(suggestion.textContent).toContain("Agent");
+    act(() => suggestion.click());
+
+    expect(input.value).toBe("Research agent");
+    expect(container.textContent).not.toContain("Notify people");
+
+    act(() => inviteButton(container).click());
+
+    expect(shareMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalType: "user",
+        principalId: "research-agent@agents.example.test",
+        notify: false,
+      }),
+      expect.any(Object),
+    );
+    expect(shareMutate.mock.calls[0][0]).not.toHaveProperty("message");
+  });
+
+  it("removes access from a row's role menu", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      role: "owner",
+      shares: [
+        {
+          id: "share-1",
+          principalType: "user",
+          principalId: "dana@example.com",
+          role: "editor",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const row = Array.from(container.querySelectorAll<HTMLElement>("li")).find(
+      (candidate) => candidate.textContent?.includes("dana@example.com"),
+    );
+    if (!row) throw new Error("share row not found");
+    const rowRole = row.querySelector<HTMLButtonElement>(
+      'button[aria-label="Role"]',
+    );
+    expect(Array.from(row.querySelectorAll("button"))).toEqual([rowRole]);
+    expect(rowRole?.textContent).toContain("Can edit");
+    await act(async () => rowRole?.click());
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    );
+    expect(options.at(-1)?.textContent).toBe("Remove access");
+    act(() => options.at(-1)?.click());
+
+    expect(unshareMutate).toHaveBeenCalledWith(
+      {
+        resourceType: "document",
+        resourceId: "doc-1",
+        principalType: "user",
+        principalId: "dana@example.com",
+      },
+      expect.any(Object),
+    );
+    expect(shareMutate).not.toHaveBeenCalled();
   });
 
   it("does not render a redundant Done button", async () => {
@@ -1300,7 +1759,7 @@ describe("ShareButton", () => {
     expect(container.textContent).toContain("second@builder.io");
   });
 
-  it("keeps links placed at the bottom after the people and access sections in the tabbed layout", async () => {
+  it("keeps Copy link and Send to in one footer after the people and access sections", async () => {
     await act(async () => {
       root.render(
         <TooltipProvider>
@@ -1310,32 +1769,42 @@ describe("ShareButton", () => {
               resourceId="deck-1"
               defaultOpen
               shareUrl="https://slides.agent-native.com/deck/deck-1"
-              shareUrlLabel="Editor link"
-              secondaryShareUrl="https://slides.agent-native.com/p/deck-1"
-              secondaryShareUrlLabel="Presentation link"
-              shareUrlPlacement="bottom"
-              peopleTabLabel="People"
-              agentsTabLabel="Agents"
-              agentTabContent={<button type="button">Copy agent prompt</button>}
+              sendTo={{ copyAgentPrompt: vi.fn() }}
             />
           </QueryClientProvider>
         </TooltipProvider>,
       );
     });
 
-    const links = Array.from(
-      document.body.querySelectorAll<HTMLElement>("div.order-3"),
-    ).find((el) => el.textContent?.includes("Editor link"));
-    expect(links).toBeDefined();
-    expect(links!.textContent).toContain("Presentation link");
-    // The sections the links must follow carry lower orders in the same column.
-    const column = links!.parentElement!;
-    expect(column.querySelector(":scope > .order-1")).not.toBeNull();
-    expect(column.querySelector(":scope > .order-2")).not.toBeNull();
+    const copy = buttonWithText(container, "Copy link");
+    const sendTo = buttonWithText(container, "Send to");
+    if (!copy || !sendTo) throw new Error("share footer actions not found");
+    const footer = copy.parentElement!;
+    expect(footer.contains(sendTo)).toBe(true);
+
+    const sections = Array.from(
+      footer.parentElement!.querySelectorAll<HTMLElement>(":scope > section"),
+    );
+    expect(sections.map((section) => section.firstChild?.textContent)).toEqual([
+      "People with access",
+      "General access",
+    ]);
+    for (const section of sections) {
+      expect(
+        section.compareDocumentPosition(footer) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
   });
 
-  it("keeps quick copy separate from People and Agents tabs", async () => {
+  it("keeps quick copy separate from the popover's Copy link", async () => {
+    const shareUrl = "https://content.agent-native.com/page/doc-1";
     const onCopy = vi.fn(async () => true);
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
     await act(async () => {
       root.render(
         <TooltipProvider>
@@ -1343,48 +1812,37 @@ describe("ShareButton", () => {
             <ShareButton
               resourceType="document"
               resourceId="doc-1"
+              shareUrl={shareUrl}
               quickCopy={{
                 label: "Copy page link",
                 copiedLabel: "Copied page link",
                 onCopy,
               }}
-              peopleTabLabel="People"
-              agentsTabLabel="Agents"
-              agentTabContent={<button type="button">Copy agent prompt</button>}
             />
           </QueryClientProvider>
         </TooltipProvider>,
       );
     });
 
-    const copy = container.querySelector(
+    const quickCopy = container.querySelector(
       'button[aria-label="Copy page link"]',
     ) as HTMLButtonElement;
-    expect(copy).not.toBeNull();
-    await act(async () => copy.click());
+    expect(quickCopy).not.toBeNull();
+    await act(async () => quickCopy.click());
     expect(onCopy).toHaveBeenCalledTimes(1);
-    expect(
-      container.querySelector('[role="tab"][aria-selected="true"]')
-        ?.textContent,
-    ).toBe("People");
-    expect(container.textContent).toContain("Only people with access can view");
-    expect(container.textContent).not.toContain("Copy agent prompt");
+    expect(writeText).not.toHaveBeenCalled();
 
-    const agents = Array.from(
-      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
-    ).find((tab) => tab.textContent === "Agents");
-    expect(agents).toBeDefined();
+    const copyLink = buttonWithText(container, "Copy link");
+    if (!copyLink) throw new Error("Copy link button not found");
+    expect(copyLink.contains(quickCopy)).toBe(false);
+    expect(quickCopy.contains(copyLink)).toBe(false);
     await act(async () => {
-      agents!.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, button: 0 }),
-      );
+      copyLink.click();
+      await Promise.resolve();
     });
-    expect(
-      container.querySelector('[role="tab"][aria-selected="true"]')
-        ?.textContent,
-    ).toBe("Agents");
-    expect(container.textContent).toContain("Copy agent prompt");
-    expect(container.textContent).not.toContain("owner@example.com");
+    expect(writeText).toHaveBeenCalledWith(shareUrl);
+    expect(copyLink.textContent).toBe("Copied");
+    expect(onCopy).toHaveBeenCalledTimes(1);
   });
 
   const patRequest = {
@@ -1413,10 +1871,7 @@ describe("ShareButton", () => {
             <ShareButton
               resourceType="document"
               resourceId="doc-1"
-              peopleTabLabel="People"
-              agentsTabLabel="Agents"
               peopleAccessLabel="Who has access"
-              agentTabContent={<button type="button">Copy agent prompt</button>}
             />
           </QueryClientProvider>
         </TooltipProvider>,
@@ -1535,6 +1990,7 @@ describe("ShareButton", () => {
               resourceType="deck"
               resourceId="deck-1"
               basicSharingOnly
+              sendTo={{ copyAgentPrompt: vi.fn() }}
             />
           </QueryClientProvider>
         </TooltipProvider>,
@@ -1544,7 +2000,8 @@ describe("ShareButton", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("People with access");
     expect(text).not.toContain("Access requests");
-    expect(text).not.toContain("Share with agents");
+    expect(buttonWithText(container, "Send to")).toBeUndefined();
+    expect(agentLinkMutate).not.toHaveBeenCalled();
     expect(queriedActions).not.toContain("list-resource-access-requests");
     expect(queriedActions).toContain("list-resource-shares");
   });
@@ -1610,8 +2067,10 @@ describe("ShareButton", () => {
     const options = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).map((option) => option.textContent ?? "");
-    expect(options.some((option) => option.includes("Editor"))).toBe(true);
-    expect(options.some((option) => option.includes("Admin"))).toBe(false);
+    expect(options.some((option) => option.includes("Can edit"))).toBe(true);
+    expect(options.some((option) => option.includes("Can manage access"))).toBe(
+      false,
+    );
   });
 
   it("offers the admin role and an email note outside the basic share actions", async () => {
@@ -1636,7 +2095,7 @@ describe("ShareButton", () => {
     expect(
       Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).some((option) => option.textContent?.includes("Admin")),
+      ).some((option) => option.textContent?.includes("Can manage access")),
     ).toBe(true);
   });
 

@@ -227,9 +227,9 @@ describe("Share inside an MCP App widget", () => {
       "agentChat.share.loadPeopleFailed",
     );
 
-    const add = document.body.querySelector<HTMLButtonElement>(
-      'button[aria-label="agentChat.share.add"]',
-    );
+    const add = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "agentChat.share.invite");
     await act(async () => add!.click());
     await settle();
     const added = mocks.calls.find((call) => call.action === "share-resource");
@@ -240,10 +240,33 @@ describe("Share inside an MCP App widget", () => {
       principalId: "dana@example.com",
     });
 
-    const remove = document.body.querySelector<HTMLButtonElement>(
-      'button[aria-label="agentChat.share.remove"]',
+    // Remove access is the last item of the person's role menu.
+    const bobRow = Array.from(document.body.querySelectorAll("li")).find(
+      (row) => row.textContent.includes("bob@example.com"),
     );
-    await act(async () => remove!.click());
+    const roleTrigger = bobRow?.querySelector<HTMLElement>(
+      '[aria-label="agentChat.share.role"]',
+    );
+    if (!roleTrigger) throw new Error("Bob's role menu is missing");
+    await act(async () => {
+      roleTrigger.focus();
+      roleTrigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    await settle();
+    const remove = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) =>
+      option.textContent.includes("agentChat.share.removeAccess"),
+    );
+    if (!remove) throw new Error("Remove access is missing from the role menu");
+    await act(async () => {
+      remove.focus();
+      remove.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
     await settle();
     const removed = mocks.calls.find(
       (call) => call.action === "unshare-resource",
