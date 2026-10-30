@@ -1413,6 +1413,108 @@ async fn present_window_picker(
         .map_err(|_| "The macOS Window picker closed unexpectedly.".to_string())
 }
 
+#[cfg(target_os = "macos")]
+fn window_is_on_screen(window_id: u32) -> bool {
+    use core_foundation::array::CFArray;
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::string::CFString;
+    use core_graphics::window::{kCGWindowListOptionIncludingWindow, CGWindowListCopyWindowInfo};
+
+    unsafe {
+        let raw = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, window_id);
+        if raw.is_null() {
+            return false;
+        }
+        let windows: CFArray<CFDictionary<CFString, CFType>> = TCFType::wrap_under_create_rule(raw);
+        let key = CFString::from_static_string("kCGWindowIsOnscreen");
+        windows.get(0).is_some_and(|window| {
+            window
+                .find(&key)
+                .and_then(|value| value.downcast::<CFBoolean>())
+                .is_some_and(bool::from)
+        })
+    }
+}
+
+#[cfg(target_os = "macos")]
+const PICKED_WINDOW_SPACE_SWITCH_TIMEOUT: Duration = Duration::from_millis(1500);
+
+/// Activates the picked window's app so macOS switches to its Space (e.g. a
+/// full-screen app), then waits for the window to be on screen before the
+/// countdown is presented on the active Space.
+#[cfg(target_os = "macos")]
+async fn bring_picked_window_forward(attempt: &WindowPickerAttempt, pid: i32, window_id: u32) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    queue_window_picker_main(move || {
+        use objc2::runtime::{AnyClass, AnyObject, Bool};
+
+        let activate = || unsafe {
+            let running = AnyClass::get(c"NSRunningApplication")?;
+            let app: *mut AnyObject =
+                objc2::msg_send![running, runningApplicationWithProcessIdentifier: pid];
+            if app.is_null() {
+                return None;
+            }
+            // NSApplicationActivateIgnoringOtherApps
+            let ok: Bool = objc2::msg_send![app, activateWithOptions: 1usize << 1];
+            if ok.as_bool() {
+                return Some("activated");
+            }
+            // macOS 14+ cooperative activation refuses a background app
+            // activating another one; a LaunchServices open is honored and
+            // switches Spaces the way a Dock click does.
+            let bundle_url: *mut AnyObject = objc2::msg_send![app, bundleURL];
+            if bundle_url.is_null() {
+                return None;
+            }
+            let workspace: *mut AnyObject =
+                objc2::msg_send![AnyClass::get(c"NSWorkspace")?, sharedWorkspace];
+            let config: *mut AnyObject = objc2::msg_send![
+                AnyClass::get(c"NSWorkspaceOpenConfiguration")?,
+                configuration
+            ];
+            if workspace.is_null() || config.is_null() {
+                return None;
+            }
+            let _: () = objc2::msg_send![config, setActivates: Bool::YES];
+            let _: () = objc2::msg_send![
+                workspace,
+                openApplicationAtURL: bundle_url,
+                configuration: config,
+                completionHandler: std::ptr::null::<AnyObject>()
+            ];
+            Some("opened")
+        };
+        let _ = tx.send(activate());
+    });
+    match await_window_picker_main(attempt, "activate owner", rx).await {
+        Ok(Some(how)) => attempt.log(&format!("owner pid={pid} {how}")),
+        Ok(None) => {
+            attempt.log(&format!("owner pid={pid} could not be activated"));
+            return;
+        }
+        Err(error) => {
+            attempt.log(&format!("owner activation failed: {error}"));
+            return;
+        }
+    }
+    let deadline = Instant::now() + PICKED_WINDOW_SPACE_SWITCH_TIMEOUT;
+    while !window_is_on_screen(window_id) {
+        if Instant::now() >= deadline {
+            attempt.log(&format!(
+                "window={window_id} still off screen after owner activation"
+            ));
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    attempt.log(&format!(
+        "window={window_id} on screen after owner activation"
+    ));
+}
+
 #[tauri::command]
 pub async fn show_window_picker(
     app: AppHandle,
@@ -1462,7 +1564,7 @@ pub async fn show_window_picker(
             attempt.log("returning Escape cancellation");
             return Ok(None);
         }
-        let selection = match outcome {
+        let (window, (width, height)) = match outcome {
             SCPickerOutcome::Cancelled => {
                 attempt.log("returning picker cancellation");
                 return Ok(None);
@@ -1477,22 +1579,39 @@ pub async fn show_window_picker(
                 let Some(window) = windows.into_iter().last() else {
                     return Err("The selected window is no longer available.".to_string());
                 };
-                let (width, height) = result.pixel_size();
-                if window.window_id() == 0 || width == 0 || height == 0 {
-                    return Err("The selected window has no capturable content.".to_string());
-                }
-                crate::state::RecordingWindowSelection {
-                    window_id: window.window_id(),
-                    width,
-                    height,
-                }
+                (window, result.pixel_size())
             }
         };
+        if window.window_id() == 0 || width == 0 || height == 0 {
+            return Err("The selected window has no capturable content.".to_string());
+        }
+        let selection = crate::state::RecordingWindowSelection {
+            window_id: window.window_id(),
+            width,
+            height,
+        };
+        let owner_pid = window
+            .owning_application()
+            .map(|application| application.process_id());
+        // SCWindow frames are in points, so the point-space lookup uses scale 1.
+        let frame = window.frame();
+        let display_id = cg_display_id_at_physical_point(
+            frame.x + frame.width / 2.0,
+            frame.y + frame.height / 2.0,
+            1.0,
+        );
         attempt.log(&format!(
-            "returning selection window={} width={} height={}",
+            "returning selection window={} width={} height={} owner_pid={owner_pid:?} display={display_id:?}",
             selection.window_id, selection.width, selection.height
         ));
         crate::state::SelectedRecordingWindow::set(&app, Some(selection));
+        // Countdown and pill overlays join every Space and size to this display;
+        // without both steps they render on whatever Space and monitor Clips was
+        // opened from, not where the picked window lives.
+        crate::state::SelectedRecordingDisplay::set(&app, display_id);
+        if let Some(pid) = owner_pid {
+            bring_picked_window_forward(&attempt, pid, selection.window_id).await;
+        }
         Ok(Some(NativeWindowPickerSelection {
             window_id: selection.window_id,
             width: selection.width,
