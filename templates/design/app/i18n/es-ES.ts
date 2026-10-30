@@ -3455,6 +3455,7 @@ export default {
     addEmoji: "Añadir emoji",
     mention: "Mencionar a alguien",
     noMentions: "No se encontraron personas",
+    mentionsFailed: "No se pudo cargar a las personas",
     reopen: "Reabrir",
     reopening: "Reabriendo…",
     undo: "Deshacer",

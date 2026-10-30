@@ -4,11 +4,7 @@ import { defineAction } from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import { resolveReviewableResourceAccess } from "../registry.js";
-import {
-  deleteReviewComment,
-  getLiveReviewReplyAuthors,
-  getReviewCommentById,
-} from "../store.js";
+import { deleteReviewComment, getReviewCommentById } from "../store.js";
 import { canDeleteReviewThread } from "../thread-delete.js";
 import type { ReviewResourceContext } from "../types.js";
 
@@ -59,28 +55,26 @@ export default defineAction({
     if (!isAuthor && !isEditor) {
       throw new ForbiddenError("Not allowed to delete this review comment");
     }
-    if (!comment.parentCommentId) {
-      // raw-sql-ok: the helper's statement is constant text; the ids are bound.
-      const replyAuthorEmails = await getLiveReviewReplyAuthors(
-        comment.threadId,
-        { resourceType: args.resourceType, resourceId: args.resourceId },
-      );
-      if (
-        !canDeleteReviewThread({
-          isEditor,
-          actorEmail: actionCtx?.userEmail,
-          rootAuthorEmail: comment.authorEmail,
-          replyAuthorEmails,
-        })
-      ) {
-        throw new ForbiddenError(
-          "Not allowed to delete a thread that has replies from other people",
-        );
-      }
-    }
+    // raw-sql-ok: the helper's statements are constant text; the ids are bound.
     const updatedCount = await deleteReviewComment(
       comment.id,
       actionCtx?.userEmail ?? null,
+      {
+        assertThreadDeletable: (replyAuthorEmails) => {
+          if (
+            !canDeleteReviewThread({
+              isEditor,
+              actorEmail: actionCtx?.userEmail,
+              rootAuthorEmail: comment.authorEmail,
+              replyAuthorEmails,
+            })
+          ) {
+            throw new ForbiddenError(
+              "Not allowed to delete a thread that has replies from other people",
+            );
+          }
+        },
+      },
     );
     if (updatedCount < 1) {
       throw new Error("Review comment not found");

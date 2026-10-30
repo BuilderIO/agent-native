@@ -3413,6 +3413,7 @@ export default {
     addEmoji: "이모지 추가",
     mention: "사람 멘션",
     noMentions: "사용자를 찾을 수 없음",
+    mentionsFailed: "사용자를 불러오지 못했습니다",
     reopen: "다시 열기",
     reopening: "다시 여는 중…",
     undo: "실행 취소",

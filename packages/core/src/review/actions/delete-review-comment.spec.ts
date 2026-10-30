@@ -161,6 +161,41 @@ describe("delete-review-comment", () => {
     expect(await remainingBodies()).toEqual(["Root", "Reply 1", "Reply 2"]);
   });
 
+  it("refuses the author when someone else's reply lands as the delete takes its lock", async () => {
+    const root = await thread([ALICE]);
+    // A reply committed in the gap between the action's first look at the
+    // thread and the delete's lock on it. A check made before the lock would
+    // never have seen it.
+    const client = rawClient as typeof rawClient & {
+      transaction?: (
+        fn: (tx: Pick<typeof rawClient, "execute">) => Promise<number>,
+      ) => Promise<number>;
+    };
+    client.transaction = (fn) =>
+      fn({
+        execute: async (input) => {
+          const result = await rawClient.execute(input);
+          if (typeof input !== "string" && /FOR UPDATE/.test(input.sql)) {
+            await insertReviewComment({
+              ...RESOURCE,
+              threadId: root.threadId,
+              parentCommentId: root.id,
+              body: "Late reply",
+              authorEmail: BOB,
+              ownerEmail: OWNER,
+            });
+          }
+          return result;
+        },
+      });
+    try {
+      await expect(run(ALICE, root.id)).rejects.toBeInstanceOf(ForbiddenError);
+    } finally {
+      delete client.transaction;
+    }
+    expect(await remainingBodies()).toEqual(["Root", "Reply 1", "Late reply"]);
+  });
+
   it("lets an editor delete a thread with other people's replies", async () => {
     const root = await thread([BOB]);
 
@@ -237,6 +272,16 @@ describe("list-review-comments canDeleteThread", () => {
     expect(root.canDeleteThread).toBe(false);
     // `canDelete` still says what it always did: this comment is theirs.
     expect(root.canDelete).toBe(true);
+  });
+
+  it("withholds the thread delete when the list's limit cuts the other person's reply off", async () => {
+    await thread([ALICE, BOB]);
+    const result = (await listReviewCommentsAction.run(
+      { ...RESOURCE, limit: 1 },
+      { userEmail: ALICE },
+    )) as Awaited<ReturnType<typeof list>>;
+    expect(result.comments.map((comment) => comment.body)).toEqual(["Root"]);
+    expect(byBody(result, "Root").canDeleteThread).toBe(false);
   });
 
   it("gives an editor the thread delete whoever replied", async () => {

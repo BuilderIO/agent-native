@@ -31,6 +31,7 @@ const {
   consumeReviewFeedback,
   deleteReviewComment,
   ensureReviewTables,
+  getLiveReviewReplyAuthorsByThread,
   getReviewStatus,
   insertReviewComment,
   queryReviewComments,
@@ -279,6 +280,115 @@ describe("review store", () => {
 
       expect(await liveBodies("p1")).toEqual([]);
       expect(await liveBodies("p2")).toEqual(["Root", "Reply"]);
+    });
+
+    it("hands the live reply authors to the thread check, and deletes nothing when it refuses", async () => {
+      const { root, reply } = await thread("p1");
+      await deleteReviewComment(reply.id, "bob@example.com");
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: root.threadId,
+        parentCommentId: root.id,
+        body: "Second reply",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const seen: Array<ReadonlyArray<string | null>> = [];
+
+      await expect(
+        deleteReviewComment(root.id, "alice@example.com", {
+          assertThreadDeletable: (authors) => {
+            seen.push(authors);
+            throw new Error("refused");
+          },
+        }),
+      ).rejects.toThrow("refused");
+
+      // Bob's reply was already deleted, so only Carol's is live.
+      expect(seen).toEqual([["carol@example.com"]]);
+      expect(await liveBodies("p1")).toEqual(["Root", "Second reply"]);
+    });
+
+    it("reads the replies after taking the thread's lock, so a reply that lands then is seen", async () => {
+      const { root } = await thread("p1");
+      const client = rawClient as typeof rawClient & {
+        transaction?: (
+          fn: (tx: Pick<typeof rawClient, "execute">) => Promise<number>,
+        ) => Promise<number>;
+      };
+      client.transaction = (fn) =>
+        fn({
+          execute: async (input) => {
+            const result = await rawClient.execute(input);
+            if (typeof input !== "string" && /FOR UPDATE/.test(input.sql)) {
+              await insertReviewComment({
+                resourceType: "plan",
+                resourceId: "p1",
+                threadId: root.threadId,
+                parentCommentId: root.id,
+                body: "Late reply",
+                authorEmail: "carol@example.com",
+                ownerEmail: "alice@example.com",
+              });
+            }
+            return result;
+          },
+        });
+      let seen: ReadonlyArray<string | null> = [];
+      try {
+        await deleteReviewComment(root.id, "alice@example.com", {
+          assertThreadDeletable: (authors) => {
+            seen = authors;
+          },
+        });
+      } finally {
+        delete client.transaction;
+      }
+
+      expect([...seen].sort()).toEqual([
+        "bob@example.com",
+        "carol@example.com",
+      ]);
+      expect(await liveBodies("p1")).toEqual([]);
+    });
+
+    it("lists live reply authors by thread, for one resource, without the deleted", async () => {
+      const first = await thread("p1");
+      const other = await thread("p2");
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: first.root.threadId,
+        parentCommentId: first.root.id,
+        body: "Second reply",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      await deleteReviewComment(first.reply.id, "bob@example.com");
+      const resource = { resourceType: "plan", resourceId: "p1" };
+
+      expect(
+        await getLiveReviewReplyAuthorsByThread(
+          [first.root.threadId, other.root.threadId, first.root.threadId],
+          resource,
+        ),
+      ).toEqual(new Map([[first.root.threadId, ["carol@example.com"]]]));
+      expect(await getLiveReviewReplyAuthorsByThread([], resource)).toEqual(
+        new Map(),
+      );
+    });
+
+    it("does not ask the thread check about a reply", async () => {
+      const { reply } = await thread("p1");
+      const assertThreadDeletable = vi.fn();
+
+      await deleteReviewComment(reply.id, "bob@example.com", {
+        assertThreadDeletable,
+      });
+
+      expect(assertThreadDeletable).not.toHaveBeenCalled();
+      expect(await liveBodies("p1")).toEqual(["Root"]);
     });
 
     it("deletes only a reply when a reply is deleted", async () => {

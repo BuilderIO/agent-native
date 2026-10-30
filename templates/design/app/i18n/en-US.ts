@@ -3346,6 +3346,7 @@ export default {
     addEmoji: "Add emoji",
     mention: "Mention someone",
     noMentions: "No people found",
+    mentionsFailed: "Couldn't load people",
     reopen: "Reopen",
     reopening: "Reopening…",
     undo: "Undo",

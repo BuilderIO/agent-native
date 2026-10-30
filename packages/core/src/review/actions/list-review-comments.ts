@@ -15,6 +15,7 @@ import {
 } from "../identity.js";
 import { assertReviewableResourceAccess } from "../registry.js";
 import {
+  getLiveReviewReplyAuthorsByThread,
   getReviewStatus,
   getReviewDiscussionStateForComments,
   getReviewThreadSummary,
@@ -102,13 +103,27 @@ export default defineAction({
     );
     const redactIdentity = shouldRedactReviewIdentity(actionCtx, access);
     const isEditor = roleSatisfies(access.role, "editor");
-    const replyAuthorsByThread = new Map<string, Array<string | null>>();
-    for (const comment of comments) {
-      if (!comment.parentCommentId) continue;
-      const authors = replyAuthorsByThread.get(comment.threadId) ?? [];
-      authors.push(comment.authorEmail);
-      replyAuthorsByThread.set(comment.threadId, authors);
-    }
+    const canComment = roleSatisfies(access.role, "commenter");
+    // Only a commenter's own threads can turn on who replied: an editor may
+    // delete any, and nobody else may delete one they did not start.
+    const replyAuthorsByThread =
+      canComment && !isEditor
+        ? await getLiveReviewReplyAuthorsByThread(
+            comments
+              .filter(
+                (comment) =>
+                  !comment.parentCommentId &&
+                  canDeleteReviewThread({
+                    isEditor,
+                    actorEmail: actionCtx?.userEmail,
+                    rootAuthorEmail: comment.authorEmail,
+                    replyAuthorEmails: [],
+                  }),
+              )
+              .map((comment) => comment.threadId),
+            { resourceType: args.resourceType, resourceId: args.resourceId },
+          )
+        : new Map<string, Array<string | null>>();
     const commentsWithCapabilities = comments.map((comment) => ({
       ...comment,
       ...(comment.authorEmail
@@ -121,7 +136,7 @@ export default defineAction({
           }
         : {}),
       canDelete:
-        roleSatisfies(access.role, "commenter") &&
+        canComment &&
         (isEditor ||
           Boolean(
             actionCtx?.userEmail && comment.authorEmail === actionCtx.userEmail,
@@ -130,7 +145,7 @@ export default defineAction({
         ? {}
         : {
             canDeleteThread:
-              roleSatisfies(access.role, "commenter") &&
+              canComment &&
               canDeleteReviewThread({
                 isEditor,
                 actorEmail: actionCtx?.userEmail,

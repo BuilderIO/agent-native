@@ -325,6 +325,7 @@ export default {
     addEmoji: "新增表情符號",
     mention: "提及某人",
     noMentions: "找不到人員",
+    mentionsFailed: "無法載入人員",
     reopen: "重新開啟",
     reopening: "正在重新開啟…",
     undo: "復原",

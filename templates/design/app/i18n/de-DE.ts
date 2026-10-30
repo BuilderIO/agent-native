@@ -3483,6 +3483,7 @@ export default {
     addEmoji: "Emoji hinzufügen",
     mention: "Jemanden erwähnen",
     noMentions: "Keine Personen gefunden",
+    mentionsFailed: "Personen konnten nicht geladen werden",
     reopen: "Wieder öffnen",
     reopening: "Wird wieder geöffnet…",
     undo: "Rückgängig",

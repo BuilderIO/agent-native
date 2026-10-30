@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   useOrgMembers: vi.fn(),
   orgId: "org-1" as string | null,
   fetching: false,
+  failed: false,
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
@@ -62,11 +63,13 @@ describe("useReviewMentionPeople", () => {
     answers.set("", { members: [alice] });
     mocks.orgId = "org-1";
     mocks.fetching = false;
+    mocks.failed = false;
     mocks.useOrgMembers.mockReset();
     mocks.useOrgMembers.mockImplementation(
       (_offset: number, query: string) => ({
         data: answers.get(query),
         isFetching: mocks.fetching,
+        isError: mocks.failed,
       }),
     );
     container = document.createElement("div");
@@ -175,6 +178,44 @@ describe("useReviewMentionPeople", () => {
       act(() => latest.onMentionQueryChange("sha"));
       act(() => latest.onMentionQueryChange(""));
       expect(latest.searching).toBe(false);
+    });
+  });
+
+  describe("failed", () => {
+    it("is false when nothing went wrong", async () => {
+      answers.set("sha", { members: [shawn] });
+      act(() => latest.onMentionQueryChange("sha"));
+      await advance(200);
+      expect(latest.failed).toBe(false);
+    });
+
+    it("is true when the server could not answer the query that is on screen", async () => {
+      answers.set("sha", undefined);
+      mocks.failed = true;
+      act(() => latest.onMentionQueryChange("sha"));
+      await advance(200);
+      expect(latest.failed).toBe(true);
+    });
+
+    it("is true when the first page itself could not be loaded", () => {
+      answers.set("", undefined);
+      mocks.failed = true;
+      act(() => root.render(<Probe />));
+      expect(latest.failed).toBe(true);
+    });
+
+    it("is not claimed for a query the server was never asked", () => {
+      answers.set("sha", undefined);
+      mocks.failed = true;
+      act(() => latest.onMentionQueryChange("sha"));
+      expect(latest.failed).toBe(false);
+    });
+
+    it("is false when people from an earlier answer are still on hand", () => {
+      mocks.failed = true;
+      act(() => root.render(<Probe />));
+      expect(latest.people).toHaveLength(1);
+      expect(latest.failed).toBe(false);
     });
   });
 

@@ -3449,6 +3449,7 @@ export default {
     addEmoji: "絵文字を追加",
     mention: "メンションする",
     noMentions: "該当するユーザーがいません",
+    mentionsFailed: "ユーザーを読み込めませんでした",
     reopen: "再開",
     reopening: "再開中…",
     undo: "元に戻す",

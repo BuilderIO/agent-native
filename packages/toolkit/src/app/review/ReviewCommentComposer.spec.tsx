@@ -547,6 +547,38 @@ describe("ReviewCommentComposer", () => {
     expect(document.body.textContent).toContain("No people found");
   });
 
+  it("says the search failed, not that no one matched, when the host could not answer", async () => {
+    await render(
+      <Harness
+        mentionOptions={[alice, bob]}
+        mentionOptionsFailed
+        mentionFailedLabel="Could not load people"
+        onMentionQueryChange={() => {}}
+      />,
+    );
+    keydown("@");
+    typeText("zzz");
+    await act(async () => {});
+    expect(document.body.textContent).toContain("Could not load people");
+    expect(document.body.textContent).not.toContain("No people found");
+    expect(liveRegion().textContent).toBe("Could not load people");
+  });
+
+  it("still offers the matches it already has when a search failed", async () => {
+    await render(
+      <Harness
+        mentionOptions={[alice, bob]}
+        mentionOptionsFailed
+        onMentionQueryChange={() => {}}
+      />,
+    );
+    keydown("@");
+    typeText("ali");
+    await act(async () => {});
+    expect(mentionOptionLabels()).toHaveLength(1);
+    expect(mentionOptionLabels()[0]).toContain("Alice");
+  });
+
   it("shows matches the host's stale list already has while it searches", async () => {
     await render(
       <Harness

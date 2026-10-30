@@ -3474,6 +3474,7 @@ export default {
     addEmoji: "Ajouter un emoji",
     mention: "Mentionner quelqu’un",
     noMentions: "Aucune personne trouvée",
+    mentionsFailed: "Impossible de charger les personnes",
     reopen: "Rouvrir",
     reopening: "Réouverture…",
     undo: "Annuler",

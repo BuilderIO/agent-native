@@ -1076,6 +1076,7 @@ export function ReviewCanvasPins({
   const {
     people: peopleMentionOptions,
     searching: mentionSearching,
+    failed: mentionFailed,
     onMentionQueryChange,
   } = useReviewMentionPeople();
   const reviewAgentController = useReviewAgent();
@@ -3121,6 +3122,7 @@ export function ReviewCanvasPins({
                   editMentionOptions={peopleMentionOptions}
                   onMentionQueryChange={onMentionQueryChange}
                   mentionSearching={mentionSearching}
+                  mentionFailed={mentionFailed}
                   replyAttachments={replyAttachments}
                   onReplyAttachmentsChange={setReplyAttachments}
                   onReplyDraftChange={setReplyDraft}
@@ -3243,6 +3245,7 @@ export function ReviewCanvasPins({
                 onMentionsChange={setDraftMentions}
                 onMentionQueryChange={onMentionQueryChange}
                 mentionSearching={mentionSearching}
+                mentionFailed={mentionFailed}
                 attachments={draftAttachments}
                 onAttachmentsChange={setDraftAttachments}
                 onChange={(value) => {
@@ -3845,6 +3848,7 @@ function DraftComposer({
   onMentionsChange,
   onMentionQueryChange,
   mentionSearching,
+  mentionFailed,
   attachments,
   onAttachmentsChange,
   onChange,
@@ -3861,6 +3865,7 @@ function DraftComposer({
   onMentionsChange: (mentions: ReviewMention[]) => void;
   onMentionQueryChange: (query: string) => void;
   mentionSearching: boolean;
+  mentionFailed: boolean;
   attachments: ReviewImageAttachment[];
   onAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onChange: (value: string) => void;
@@ -3906,6 +3911,8 @@ function DraftComposer({
             mentionOptions={mentionOptions}
             onMentionQueryChange={onMentionQueryChange}
             mentionOptionsLoading={mentionSearching}
+            mentionOptionsFailed={mentionFailed}
+            mentionFailedLabel={t("review.mentionsFailed")}
             agentsLabel={t("review.agent.sectionLabel")}
             showCommentTools
             emojiLabel={t("review.addEmoji")}
@@ -3996,6 +4003,7 @@ function ReviewThreadPopover({
   editMentionOptions,
   onMentionQueryChange,
   mentionSearching,
+  mentionFailed,
   replyAttachments,
   onReplyAttachmentsChange,
   onReplyDraftChange,
@@ -4045,6 +4053,7 @@ function ReviewThreadPopover({
   editMentionOptions: readonly ReviewMention[];
   onMentionQueryChange: (query: string) => void;
   mentionSearching: boolean;
+  mentionFailed: boolean;
   replyAttachments: ReviewImageAttachment[];
   onReplyAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onReplyDraftChange: (value: string) => void;
@@ -4136,6 +4145,8 @@ function ReviewThreadPopover({
             mentionOptions={editMentionOptions}
             onMentionQueryChange={onMentionQueryChange}
             mentionOptionsLoading={mentionSearching}
+            mentionOptionsFailed={mentionFailed}
+            mentionFailedLabel={t("review.mentionsFailed")}
             showCommentTools
             emojiLabel={t("review.addEmoji")}
             mentionLabel={t("review.mention")}
@@ -4231,6 +4242,8 @@ function ReviewThreadPopover({
               mentionOptions={mentionOptions}
               onMentionQueryChange={onMentionQueryChange}
               mentionOptionsLoading={mentionSearching}
+              mentionOptionsFailed={mentionFailed}
+              mentionFailedLabel={t("review.mentionsFailed")}
               agentsLabel={t("review.agent.sectionLabel")}
               showCommentTools
               commentToolsEnd={replyImages.toolsEnd}

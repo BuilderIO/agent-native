@@ -1307,43 +1307,83 @@ export async function sendReviewThreadToAgent(
   return routeReviewThread(threadId, "agent", resource);
 }
 
-/** Who wrote each live reply under a thread's first comment. */
-export async function getLiveReviewReplyAuthors(
-  threadId: string,
+/**
+ * Who wrote each live reply, by the thread it sits under. Read on its own, so a
+ * list cut short by its limit cannot hide a reply from the answer.
+ */
+export async function getLiveReviewReplyAuthorsByThread(
+  threadIds: ReadonlyArray<string>,
   resource: { resourceType: string; resourceId: string },
-): Promise<Array<string | null>> {
+): Promise<Map<string, Array<string | null>>> {
+  const authorsByThread = new Map<string, Array<string | null>>();
+  const ids = [...new Set(threadIds)];
+  if (!ids.length) return authorsByThread;
   await ensureReviewTables();
-  // raw-sql-ok: the statement is constant text; the ids are bound.
+  // raw-sql-ok: the interpolation is only `?` placeholders; the ids are bound.
   const { rows } = await getDbExec().execute({
-    sql: `SELECT author_email FROM agent_review_comments
-           WHERE thread_id = ? AND resource_type = ? AND resource_id = ?
-             AND parent_comment_id IS NOT NULL AND deleted_at IS NULL`,
-    args: [threadId, resource.resourceType, resource.resourceId],
+    sql: `SELECT thread_id, author_email FROM agent_review_comments
+           WHERE resource_type = ? AND resource_id = ?
+             AND parent_comment_id IS NOT NULL AND deleted_at IS NULL
+             AND thread_id IN (${ids.map(() => "?").join(",")})`,
+    args: [resource.resourceType, resource.resourceId, ...ids],
   });
-  return rows.map((row) => {
-    const email = (row as { author_email?: unknown }).author_email;
-    return typeof email === "string" ? email : null;
-  });
+  for (const row of rows) {
+    const { thread_id: threadId, author_email: email } = row as {
+      thread_id: unknown;
+      author_email?: unknown;
+    };
+    const authors = authorsByThread.get(String(threadId)) ?? [];
+    authors.push(typeof email === "string" ? email : null);
+    authorsByThread.set(String(threadId), authors);
+  }
+  return authorsByThread;
+}
+
+export interface DeleteReviewCommentOptions {
+  /**
+   * Called for a thread's first comment with the author of each live reply,
+   * read after the thread is locked, so no reply can land between the check and
+   * the delete. Throwing refuses the delete and removes nothing.
+   */
+  assertThreadDeletable?: (
+    replyAuthorEmails: ReadonlyArray<string | null>,
+  ) => void;
 }
 
 export async function deleteReviewComment(
   id: string,
   deletedBy?: string | null,
+  options: DeleteReviewCommentOptions = {},
 ): Promise<number> {
   await ensureReviewTables();
   const now = new Date().toISOString();
   const client = getDbExec();
   const deleteIn = async (tx: DbExec) => {
     // A reply still being written holds its root `FOR SHARE`. Taking the root
-    // `FOR UPDATE` first waits that out, so the update below, which reads a
-    // fresh snapshot, sees the reply and takes it along. A later reply finds
-    // the root gone and refuses.
+    // `FOR UPDATE` first waits that out, so everything read or updated below
+    // sees the reply and takes it along. A later reply finds the root gone and
+    // refuses.
     // raw-sql-ok: the statement is constant text; the id is bound.
-    await tx.execute({
+    const { rows: roots } = await tx.execute({
       sql: `SELECT id FROM agent_review_comments
              WHERE id = ? AND parent_comment_id IS NULL FOR UPDATE`,
       args: [id],
     });
+    if (roots.length > 0 && options.assertThreadDeletable) {
+      // raw-sql-ok: the statement is constant text; the id is bound.
+      const { rows: replies } = await tx.execute({
+        sql: `SELECT author_email FROM agent_review_comments
+               WHERE thread_id = ? AND parent_comment_id IS NOT NULL
+                 AND deleted_at IS NULL`,
+        args: [id],
+      });
+      options.assertThreadDeletable(
+        replies.map((row) => {
+          const email = (row as { author_email?: unknown }).author_email;
+          return typeof email === "string" ? email : null;
+        }),
+      );
+    }
     // A thread's first comment is the thread. Replies left behind would have no
     // root for any list to hang them on, but would still sit in the table.
     // raw-sql-ok: the statement is constant text; the ids and actor are bound.

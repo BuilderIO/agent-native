@@ -63,6 +63,11 @@ export interface ReviewCommentComposerProps {
    * "No people found" before the host has said so.
    */
   mentionOptionsLoading?: boolean | undefined;
+  /**
+   * True when the host could not get its people for the current query. With no
+   * option matching, the picker says so instead of "No people found".
+   */
+  mentionOptionsFailed?: boolean | undefined;
   showCommentTools?: boolean | undefined;
   /** Rendered at the end of the left tools group, e.g. an image button. */
   commentToolsEnd?: ReactNode;
@@ -73,6 +78,7 @@ export interface ReviewCommentComposerProps {
   mentionLabel?: string | undefined;
   agentsLabel?: string | undefined;
   noMentionsLabel?: string | undefined;
+  mentionFailedLabel?: string | undefined;
   submittingTarget?: ReviewResolutionTarget | null | undefined;
   disabled?: boolean | undefined;
   showCommentAction?: boolean;
@@ -110,6 +116,7 @@ export function ReviewCommentComposer({
   mentionOptions = [],
   onMentionQueryChange,
   mentionOptionsLoading = false,
+  mentionOptionsFailed = false,
   showCommentTools = false,
   commentToolsEnd,
   attachments,
@@ -118,6 +125,7 @@ export function ReviewCommentComposer({
   mentionLabel = "Mention someone",
   agentsLabel = "Agents",
   noMentionsLabel = "No people found",
+  mentionFailedLabel = "Couldn't load people",
   submittingTarget = null,
   disabled = false,
   showCommentAction = true,
@@ -203,7 +211,11 @@ export function ReviewCommentComposer({
   const mentionAwaitingHost =
     mentionMenuOpen &&
     mentionOptionsLoading &&
+    !mentionOptionsFailed &&
     filteredMentionOptions.length === 0;
+  const mentionEmptyLabel = mentionOptionsFailed
+    ? mentionFailedLabel
+    : noMentionsLabel;
 
   const closeMention = () => {
     mentionArmedRef.current = false;
@@ -585,7 +597,7 @@ export function ReviewCommentComposer({
           onActiveIndexChange={setMentionActiveIndex}
           onSelect={insertMention}
           label={mentionLabel}
-          emptyLabel={noMentionsLabel}
+          emptyLabel={mentionEmptyLabel}
           agentsLabel={agentsLabel}
           listboxId={mentionListboxId}
           // The popover hears Escape on the document before the editor does and
@@ -608,7 +620,7 @@ export function ReviewCommentComposer({
         {mentionMenuOpen &&
         !mentionAwaitingHost &&
         filteredMentionOptions.length === 0
-          ? noMentionsLabel
+          ? mentionEmptyLabel
           : ""}
       </div>
     </form>

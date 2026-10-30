@@ -35,6 +35,8 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
  *
  * `searching` is true while the answer to the current query is still on its
  * way, so a list that cannot match it yet is not mistaken for "no one".
+ * `failed` is true when that answer never came, so an empty list is not
+ * mistaken for "no one" either.
  */
 export function useReviewMentionPeople() {
   const [query, setQuery] = useState("");
@@ -45,7 +47,7 @@ export function useReviewMentionPeople() {
   );
   const { data: org } = useOrg();
   const orgId = org?.orgId ?? null;
-  const { data, isFetching } = useOrgMembers(0, searched);
+  const { data, isFetching, isError } = useOrgMembers(0, searched);
   const fetched = useMemo(
     () => (data ? reviewMentionPeople(data.members) : null),
     [data],
@@ -64,5 +66,6 @@ export function useReviewMentionPeople() {
     if (fetched) lastPeopleRef.current = { orgId, people: fetched };
   }, [fetched, orgId]);
   const searching = query !== "" && (searched !== query || Boolean(isFetching));
-  return { people, searching, onMentionQueryChange: setQuery };
+  const failed = Boolean(isError) && !fetched && searched === query;
+  return { people, searching, failed, onMentionQueryChange: setQuery };
 }

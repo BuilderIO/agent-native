@@ -3380,6 +3380,7 @@ export default {
     addEmoji: "إضافة رمز تعبيري",
     mention: "الإشارة إلى شخص",
     noMentions: "لم يتم العثور على أشخاص",
+    mentionsFailed: "تعذّر تحميل الأشخاص",
     reopen: "إعادة الفتح",
     reopening: "جارٍ إعادة الفتح…",
     undo: "تراجع",
