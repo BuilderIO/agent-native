@@ -264,6 +264,52 @@ describe("list-decks cross-organization isolation", () => {
     );
   });
 
+  it.each([
+    ["light", { light: "true" }],
+    ["light + preview", { light: "true", includePreview: "true" }],
+    ["default", {}],
+    ["paged", { limit: 100 }],
+  ])(
+    "returns starred decks as starred in the %s listing",
+    async (_label, args) => {
+      await getDb()
+        .insert(schema.decks)
+        .values({
+          id: "deck-a-starred",
+          title: "Org A starred",
+          data: JSON.stringify({
+            appId: "slides-2",
+            starred: true,
+            slides: [{ id: "s1" }],
+          }),
+          ownerEmail: ALICE,
+          orgId: ORG_A,
+          visibility: "private",
+          createdAt: "2026-05-08T00:00:00.000Z",
+          updatedAt: "2026-05-08T00:00:00.000Z",
+        });
+      try {
+        await runWithRequestContext(
+          { userEmail: ALICE, orgId: ORG_A },
+          async () => {
+            const result: any = await listDecks.run(args as any, {} as any);
+            const decks = result.decks as any[];
+            expect(decks.find((d) => d.id === "deck-a-starred")?.starred).toBe(
+              true,
+            );
+            expect(decks.find((d) => d.id === "deck-a-private")?.starred).toBe(
+              false,
+            );
+          },
+        );
+      } finally {
+        await getDb()
+          .delete(schema.decks)
+          .where(eq(schema.decks.id, "deck-a-starred"));
+      }
+    },
+  );
+
   it("omits malformed data with no verifiable Slides 2 app marker", async () => {
     await getDb().insert(schema.decks).values({
       id: "deck-a-corrupted",
