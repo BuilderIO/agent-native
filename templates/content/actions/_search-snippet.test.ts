@@ -84,6 +84,12 @@ describe("searchSnippet", () => {
     ).toBe("...Score = 5 > 3 for the pilot, if x<y then...");
   });
 
+  it("keeps a comparison between two operators", () => {
+    expect(searchSnippet("Ship when 3 < 4 and 5 > 2 holds.", "ship")).toBe(
+      "Ship when 3 < 4 and 5 > 2 holds.",
+    );
+  });
+
   it("centres on the occurrence the database chose, not the first", () => {
     const filler = Array.from({ length: 50 }, (_, i) => `filler${i}`).join(" ");
     const window = `Alpha needle first. ${filler} Beta needle second. ${filler}`;

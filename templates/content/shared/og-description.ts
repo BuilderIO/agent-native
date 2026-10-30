@@ -68,8 +68,9 @@ function isDividerBlock(block: string): boolean {
 export function stripMarkdownForPreview(markdown: string): string {
   return (
     decodeCommonEntities(markdown)
-      .replace(/<[^>\n]+\/>/g, " ")
-      .replace(/<\/?[^>\n]+>/g, " ")
+      // A tag starts with a name, so `3 < 4 and 5 > 2` stays.
+      .replace(/<[A-Za-z][^<>\n]*\/>/g, " ")
+      .replace(/<\/?[A-Za-z][^<>\n]*>/g, " ")
       // A destination with balanced parentheses, then any other.
       .replace(/!\[([^\]]*)\]\((?:[^()]|\([^()]*\))+\)/g, "$1")
       .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")

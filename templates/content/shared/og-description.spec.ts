@@ -46,6 +46,14 @@ Quarterly Launch Plan
     ).toBe("Read the brief Ship faster with notes Diagram");
   });
 
+  it("keeps comparisons while removing tags", () => {
+    expect(
+      stripMarkdownForPreview(
+        'If 3 < 4 and 5 > 2, the <span color="red">check</span> passes.',
+      ),
+    ).toBe("If 3 < 4 and 5 > 2, the check passes.");
+  });
+
   it("removes a link address with parentheses in it", () => {
     expect(
       stripMarkdownForPreview(
