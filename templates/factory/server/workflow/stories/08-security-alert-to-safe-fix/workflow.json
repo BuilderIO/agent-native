@@ -182,7 +182,7 @@
           },
           "prompt": {
             "mode": "ai",
-            "instruction": "Describe the upgrade to make."
+            "instruction": "Write the task for Builder from the alert and its assessment: the package, the fixed version if the alert names one, and the manifest it is declared in. Ask for that upgrade and nothing else. Ask Builder to run the tests that cover code using the package, and to list under a `### Verified` heading in the pull request description which tests or commands it ran and whether they passed. If no existing test covers that code, ask it to say so there. Use the heading `### Verified` exactly."
           },
           "clearBug": {
             "mode": "path",

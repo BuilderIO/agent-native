@@ -182,6 +182,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -237,6 +242,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -287,6 +297,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -337,6 +352,66 @@
         "reviews": {
           "complete": true,
           "total": 1
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
+        }
+      }
+    },
+    "greenWithoutEvidence": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headG",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 3,
+          "passed": 3,
+          "failed": 0,
+          "pending": 0,
+          "informational": 0,
+          "allPassing": true,
+          "notPassing": [],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 1
+        },
+        "verification": {
+          "present": false,
+          "hasMedia": false,
+          "excerpt": ""
         }
       }
     },
@@ -387,6 +462,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -437,6 +517,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -487,6 +572,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -542,6 +632,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     }
@@ -614,6 +709,32 @@
           "fromBots": 0,
           "fromNonCollaborators": 0,
           "stale": 1
+        },
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "state": "open",
+        "headSha": "headG",
+        "checkedAt": "2026-10-19T12:00:00.000Z"
+      }
+    },
+    "evidenceMissing": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "eligible": false,
+        "reasons": [
+          "The pull request description has no `### Verified` section with text, a screenshot or a recording, so nothing shows how the change was checked."
+        ],
+        "reasonCodes": ["no_verification_evidence"],
+        "reasonText": "The pull request description has no `### Verified` section with text, a screenshot or a recording, so nothing shows how the change was checked.",
+        "approvals": {
+          "seen": 1,
+          "qualifying": 1,
+          "byAuthor": 0,
+          "fromBots": 0,
+          "fromNonCollaborators": 0,
+          "stale": 0
         },
         "repo": "example-org/example-repo",
         "number": 7,

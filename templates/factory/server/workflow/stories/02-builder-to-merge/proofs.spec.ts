@@ -174,6 +174,32 @@ describe("story 2 proofs: Builder to merge", () => {
     expect(tickAt(summary, 1)).toMatchObject({ calls: {}, effects: [] });
   });
 
+  it("holds a green pull request whose description has no Verified section for a person, says no_verification_evidence's reason, and does not repeat it", async () => {
+    const { summary } = await scenario(
+      "a-green-pull-request-without-evidence-is-held-for-a-person",
+    );
+
+    // The rule (a Verified heading with text or media under it) is proved in
+    // server/lib/factory-merge-gate.spec.ts and pull-request-evidence.spec.ts; here the gate's answer reaches a person.
+    expect(callsTo(summary, "factory.mergeGate")).toBe(1);
+    expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([
+      expect.objectContaining({
+        node: "refused",
+        fields: expect.objectContaining({
+          to: "triage-owner@example.test",
+          text: expect.stringContaining("no `### Verified` section"),
+        }),
+      }),
+    ]);
+    expect(effectsOf(summary, "slack.replyInThread")).toEqual([]);
+    expect(summary.statuses).toEqual({
+      r1: "needs_manual",
+      r2: "needs_manual",
+    });
+    expect(tickAt(summary, 1)).toMatchObject({ calls: {}, effects: [] });
+  });
+
   it("tells the threads of a pull request someone else merged, without merging or asking the gate", async () => {
     const { summary } = await scenario(
       "a-pull-request-merged-by-someone-else-goes-straight-to-the-threads",

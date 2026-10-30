@@ -26,7 +26,7 @@
    - **Safe fix:** a patch or minor upgrade, severity not critical, confidence high, a clear bug, low risk, no product or design question, and no sensitive category. Goes to `builder`.
    - **Not reachable:** reachable is false, severity is low or medium, and confidence is high. Goes to `dismissed` with the model's reason.
    - **Otherwise:** to the security owner.
-4. **`builder` (Agent, `builder.start`):** project from the `builderProjectId` setting (the one story 2 follows), branch `factory-alert-<alert number>`, a model-written prompt, and the gate fields bound from the assessment (`alreadyClaimed` is fixed false: a dependency alert is not a chat message). Then `handed` (End, done, status `automation_started`).
+4. **`builder` (Agent, `builder.start`):** project from the `builderProjectId` setting (the one story 2 follows), branch `factory-alert-<alert number>`, a model-written prompt, and the gate fields bound from the assessment (`alreadyClaimed` is fixed false: a dependency alert is not a chat message). The prompt names the package, the fixed version if the alert names one, and the manifest, asks for that upgrade and nothing else, and asks Builder to run the tests that cover code using the package and list under a `### Verified` heading in the pull request description which tests or commands ran and whether they passed (an upgrade has no screenshots, and no regression test is asked for). Then `handed` (End, done, status `automation_started`).
 5. **`notify` (Slack) and `notifyEmail` (email)** to the security owner, then `manual` (End, needs_manual).
 
 ```mermaid
@@ -52,6 +52,7 @@ flowchart LR
 - An alert handed to Builder is listed by GitHub again until its fix merges, and `automation_started` does not count as handled, so it is assessed again every hour (a model call each time; its Builder start is found already done). A model that then changed its mind could move it to `needs_manual`.
 - Code scanning alerts: only Dependabot alerts are read.
 - A refusal by the gate is not announced: the alert goes to a person without a message.
+- Builder following the ask. The `### Verified` block is asked for, and story 2's merge gate refuses a pull request whose description has no Verified section (`no_verification_evidence`), so the resulting pull request goes to a person instead of merging. A manifest or lockfile change is held by the gate's `security` rule whatever the description says. The scenarios here script the model's answer and no real Builder pull request has run through the gate.
 
 ## Scenarios
 

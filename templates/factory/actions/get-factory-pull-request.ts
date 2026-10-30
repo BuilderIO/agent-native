@@ -6,6 +6,7 @@ import {
   readPullRequestEvidence,
 } from "../server/lib/factory-pull-request.js";
 import { factoryIdSchema } from "../server/lib/factory-scope.js";
+import { summarizeVerification } from "../server/lib/pull-request-evidence.js";
 import {
   WORKFLOW_ACTION_OUTPUT_BUDGET_CHARS,
   assertResultWithinLimit,
@@ -19,7 +20,7 @@ const THREADS_LISTED = 20;
 
 export default defineAction({
   description:
-    "Read one pull request for a workflow: its state, the checks on its head commit, its unresolved review threads, and whether a Builder account opened it. Review threads come from GitHub's thread data; if that cannot be read the call fails rather than reporting no threads. Lists are bounded and say truncated when cut.",
+    "Read one pull request for a workflow: its state, the checks on its head commit, its unresolved review threads, whether a Builder account opened it, and whether its description has a `### Verified` section (verification: present, hasMedia, and an excerpt of at most 600 characters with HTML and URLs removed; the description itself is not returned). Review threads come from GitHub's thread data; if that cannot be read the call fails rather than reporting no threads. Lists are bounded and say truncated when cut.",
   schema: z.object({
     factoryId: factoryIdSchema.optional(),
     repo: z.string().trim().min(1).max(256),
@@ -111,6 +112,7 @@ export default defineAction({
         complete: !evidence.reviewsTruncated,
         total: evidence.reviews.length,
       },
+      verification: summarizeVerification(summary.body),
     });
   },
 });

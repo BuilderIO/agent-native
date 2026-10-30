@@ -114,7 +114,7 @@ function groupModel(
         })(request),
     },
     {
-      when: "Summarize the bug for Builder",
+      when: "Write the task for Builder",
       respond: aiPerItem(() => ({ prompt: "Fix the checkout button." })),
     },
   ]);

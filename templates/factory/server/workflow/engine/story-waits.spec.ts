@@ -206,7 +206,7 @@ function bugModel(assess: (call: number) => Record<string, unknown>) {
         })(request),
     },
     {
-      when: "Summarize the bug for Builder",
+      when: "Write the task for Builder",
       respond: aiPerItem(() => ({ prompt: "Fix the checkout button." })),
     },
   ]);
@@ -606,7 +606,7 @@ describe("story 1 with a long Slack thread, parked at its Wait", () => {
     for (const instruction of [
       "Assess whether this report is a clear bug",
       "Group related bugs",
-      "Summarize the bug for Builder",
+      "Write the task for Builder",
     ]) {
       expect(shown(parked, instruction)).toEqual(shown(never, instruction));
     }

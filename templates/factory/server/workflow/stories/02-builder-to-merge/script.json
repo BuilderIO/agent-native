@@ -450,6 +450,71 @@
         }
       ]
     },
+    "a-green-pull-request-without-evidence-is-held-for-a-person": {
+      "description": "A green pull request whose description has no Verified section is not merged: the gate says no_verification_evidence, the triage owner is told, and both reports go to a person.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "evidenceMissing"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "greenWithoutEvidence"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "green, but the description shows no evidence",
+          "at": "+0m"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "none"
+        },
+        {
+          "kind": "tick",
+          "label": "held for a person: nothing more is sent",
+          "at": "+5m"
+        }
+      ]
+    },
     "a-pull-request-merged-by-someone-else-goes-straight-to-the-threads": {
       "description": "A pull request a person merged is not merged again and its gate is not asked: the reports are told and finished.",
       "steps": [

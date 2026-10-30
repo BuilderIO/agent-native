@@ -24,6 +24,8 @@ import {
   observedAt,
   pullRequestSummary,
 } from "../server/lib/factory-pull-request.fixture.js";
+import { VERIFICATION_EXCERPT_CHARS } from "../server/lib/pull-request-evidence.js";
+import { GitHubRequestError } from "../server/triage/github-client.js";
 import action from "./get-factory-pull-request.js";
 
 const caller = {
@@ -76,6 +78,12 @@ describe("get-factory-pull-request", () => {
       },
       checks: { coverage: "complete", total: 1, passed: 1, allPassing: true },
       reviewThreads: { complete: true, total: 0, unresolved: 0 },
+      verification: {
+        present: true,
+        hasMedia: false,
+        excerpt:
+          "Ran the form list spec: it fails without the change and passes with it.",
+      },
     });
     expect(github.getPullRequestChecks).toHaveBeenCalledWith(
       { owner: "acme", repo: "app" },
@@ -175,6 +183,95 @@ describe("get-factory-pull-request", () => {
     expect(result.reviewThreads.unresolvedThreadsTruncated).toBe(true);
     expect(result.reviewThreads.unresolved).toBe(30);
     expect(JSON.stringify(result).length).toBeLessThan(40_000);
+  });
+
+  describe("verification", () => {
+    const read = async (body: string | null) => {
+      createClientMock.mockReturnValue(
+        fakeGitHub({
+          getPullRequestSummary: vi
+            .fn()
+            .mockResolvedValue(pullRequestSummary({ body })),
+        }),
+      );
+      return (await action.run(input, context)) as Record<string, any>;
+    };
+
+    it("summarizes the Verified section and returns nothing else of the description", async () => {
+      const result = await read(
+        [
+          "PLANTED-SUMMARY-TEXT that stays in the description.",
+          "",
+          '<a href="https://builder.example.test/edit"><img src="https://cdn.example.test/edit.png" alt="Edit"></a>',
+          "",
+          "<!-- FUSION_SCREENSHOTS_START -->",
+          "### Verified",
+          "",
+          "[Watch the run](https://www.builder.io/app/timelines/abc123)",
+          '<img src="https://storage.example.test/after.webp" alt="After: the list is sorted" />',
+          "Ran the form list spec and it passed.",
+          "<!-- FUSION_SCREENSHOTS_END -->",
+          "",
+          "---",
+          "PLANTED-FOOTER-TEXT and a clone command.",
+        ].join("\n"),
+      );
+
+      expect(result.verification).toEqual({
+        present: true,
+        hasMedia: true,
+        excerpt: "Watch the run Ran the form list spec and it passed.",
+      });
+      const raw = JSON.stringify(result);
+      for (const leaked of [
+        "PLANTED-SUMMARY-TEXT",
+        "PLANTED-FOOTER-TEXT",
+        "builder.example.test",
+        "cdn.example.test",
+        "storage.example.test",
+        "FUSION_",
+      ]) {
+        expect(raw, leaked).not.toContain(leaked);
+      }
+      expect(JSON.stringify(result.verification)).not.toMatch(/https?:|<img/);
+      expect(result).not.toHaveProperty("body");
+    });
+
+    it("clips a long section to its bound and keeps the whole result small", async () => {
+      const result = await read(
+        `### Verified\n${"Ran the form list spec and it passed. ".repeat(2_000)}`,
+      );
+
+      expect(result.verification.present).toBe(true);
+      expect(result.verification.excerpt.length).toBeLessThanOrEqual(
+        VERIFICATION_EXCERPT_CHARS,
+      );
+      expect(JSON.stringify(result).length).toBeLessThan(10_000);
+    });
+
+    it("says absent, not an error, for a description with no Verified section or none at all", async () => {
+      const absent = { present: false, hasMedia: false, excerpt: "" };
+
+      expect((await read(null)).verification).toEqual(absent);
+      expect((await read("")).verification).toEqual(absent);
+      expect((await read("Only a summary here.")).verification).toEqual(absent);
+    });
+
+    it("fails, rather than report an absent section, when the pull request cannot be read", async () => {
+      createClientMock.mockReturnValue(
+        fakeGitHub({
+          getPullRequestSummary: vi
+            .fn()
+            .mockRejectedValue(
+              new GitHubRequestError("HTTP 502 - <html>", true, 502),
+            ),
+        }),
+      );
+
+      await expect(action.run(input, context)).rejects.toMatchObject({
+        errorCode: "github_request_failed",
+      });
+    });
   });
 
   it("refuses a repository it cannot parse, and a caller the gate refuses", async () => {

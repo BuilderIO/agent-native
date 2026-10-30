@@ -309,11 +309,17 @@ repository, aimed at the default branch; every check on the head commit green;
 no unresolved review thread and no review asking for changes; an approval of the
 current head commit from a person who is an owner, member or collaborator, not
 the author and not a bot or Builder account (a push after the approval needs a
-new one); a small diff clear of the
-never-automate paths. A held pull request goes to Needs you, and the Slack notice
+new one); a small diff clear of the never-automate paths; a test change beside
+any code change (docs, changesets, lockfiles, package manifests and config need
+none); and a `### Verified` section in the description with text, a screenshot
+or a recording. A held pull request goes to Needs you, and the Slack notice
 carries every reason. `get-factory-merge-gate` returns them as `reasonCodes` and
 `reasonText`; `approval_required` comes with `approvals` counts (`seen`,
-`qualifying`, `byAuthor`, `fromBots`, `fromNonCollaborators`, `stale`). Explain a hold in
+`qualifying`, `byAuthor`, `fromBots`, `fromNonCollaborators`, `stale`), and
+`no_regression_test` and `no_verification_evidence` are the two proof rules.
+`github.readPullRequest` returns `verification` (`present`, `hasMedia` and a
+short `excerpt` of the Verified section, never the description itself) for a
+graph that wants to route on it. Explain a hold in
 those words. Never approve or merge for the user: an approval is a person's, and
 `requeue-factory-item` sends the item back once it is given.
 

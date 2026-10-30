@@ -339,7 +339,7 @@
           },
           "prompt": {
             "mode": "ai",
-            "instruction": "Summarize the bug for Builder."
+            "instruction": "Write the task for Builder from the report and its thread: what is broken and where, the steps to reproduce it, and what working looks like. Ask Builder for a regression test that fails before the fix and passes after it, or to say in the pull request why the code cannot be tested. Ask it to prove the fix under a `### Verified` heading in the pull request description. If a user can see the bug in the app, that means running the app, reproducing the bug, and adding before and after screenshots or a recording. If nobody can see it, name the test or command that proves the fix. Use the heading `### Verified` exactly."
           },
           "clearBug": {
             "mode": "path",

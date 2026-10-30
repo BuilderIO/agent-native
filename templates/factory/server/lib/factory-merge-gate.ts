@@ -31,6 +31,11 @@ import {
   gitHubRepositoriesEqual,
   type GitHubRepositoryRef,
 } from "./github-repository.js";
+import {
+  summarizeVerification,
+  type PullRequestVerification,
+} from "./pull-request-evidence.js";
+import { codeFilesWithoutTest } from "./regression-test-policy.js";
 import { isWorkflowActionError } from "./workflow-action-errors.js";
 
 export const MERGE_GATE_LIMITS = {
@@ -64,7 +69,9 @@ export type MergeGateCode =
   | "changed_files_unreadable"
   | "security"
   | "publishable_package"
-  | "owner_owned";
+  | "owner_owned"
+  | "no_regression_test"
+  | "no_verification_evidence";
 
 interface MergeGateReason {
   code: MergeGateCode;
@@ -114,6 +121,7 @@ function isFromFork(
 function gateSnapshot(
   evidence: Awaited<ReturnType<typeof readPullRequestEvidence>>,
   approvals: ApprovalCounts,
+  verification: PullRequestVerification,
   reasons: readonly MergeGateReason[],
 ) {
   const { summary, checks, threads } = evidence;
@@ -135,6 +143,8 @@ function gateSnapshot(
     approvalsFromBots: approvals.fromBots,
     approvalsFromNonCollaborators: approvals.fromNonCollaborators,
     approvalsStale: approvals.stale,
+    verificationPresent: verification.present,
+    verificationHasMedia: verification.hasMedia,
     headSha: summary.headSha.slice(0, 7),
     authorKind: evidence.authorKind,
     baseBranch: summary.baseRef,
@@ -197,9 +207,11 @@ function listNames(names: readonly string[], limit = 5): string {
  * failing one is reported, so the notice a person gets names all of them. The
  * governance rules are the review-prs ones in `pr-policy`: the never-automate
  * paths (auth, sessions, identity, credentials, vault, migrations, payments,
- * security), owner-owned areas, and a fresh credible safety finding. A read
- * that fails is thrown, not turned into "ineligible": a person should be told
- * why a pull request is not mergeable, not that GitHub was down.
+ * security), owner-owned areas, and a fresh credible safety finding. Two more
+ * rules ask for proof: a code change needs a test change, and the description
+ * needs a `### Verified` section. A read that fails is thrown, not turned into
+ * "ineligible": a person should be told why a pull request is not mergeable,
+ * not that GitHub was down.
  */
 export async function evaluateMergeGate(input: {
   github: GitHubClient;
@@ -254,6 +266,7 @@ export async function evaluateMergeGate(input: {
     headSha: summary.headSha,
     authorLogin: summary.userLogin,
   });
+  const verification = summarizeVerification(summary.body);
 
   if (summary.merged)
     add("already_merged", "The pull request is already merged.");
@@ -405,7 +418,21 @@ export async function evaluateMergeGate(input: {
             `${area} is owner-managed and never merged automatically.`,
           );
         }
+        const untested = codeFilesWithoutTest(files);
+        if (untested.length > 0) {
+          add(
+            "no_regression_test",
+            `The pull request changes code (${listNames(untested)}) but changes no test file; a regression test that fails without the change is required.`,
+          );
+        }
       }
+    }
+
+    if (!verification.present) {
+      add(
+        "no_verification_evidence",
+        "The pull request description has no `### Verified` section with text, a screenshot or a recording, so nothing shows how the change was checked.",
+      );
     }
   }
 
@@ -414,7 +441,7 @@ export async function evaluateMergeGate(input: {
     code: "merge_gate_snapshot",
     severity: "info",
     operationId: MERGE_OPERATION_ID,
-    details: gateSnapshot(evidence, approvals, reasons),
+    details: gateSnapshot(evidence, approvals, verification, reasons),
   });
 
   return {

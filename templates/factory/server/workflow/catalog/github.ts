@@ -164,6 +164,12 @@ export const githubOperations: OperationDefinitionInput[] = [
           "complete, total, unresolved, unresolvedThreads and unresolvedThreadsTruncated.",
       },
       { name: "reviews", type: "object", description: "complete and total." },
+      {
+        name: "verification",
+        type: "object",
+        description:
+          "What the description says about how the change was checked, under its `### Verified` heading: present (the heading has text or a screenshot or recording under it; false when there is no description), hasMedia (an image, video or recording link is there) and excerpt (the start of that section, at most 600 characters, HTML and URLs removed). The description itself is not returned.",
+      },
     ],
     credential: { provider: "github" },
   },
@@ -173,6 +179,8 @@ export const githubOperations: OperationDefinitionInput[] = [
     // approving review of the head commit from a person (not a bot or Builder
     // account) who is an owner, member or collaborator other than the author, so
     // a green Builder pull request nobody has looked at is held for a person.
+    // It also holds a code change with no test change and a description with no
+    // `### Verified` section.
     id: "github.mergePullRequest",
     provider: "github",
     label: "GitHub: merge a pull request",

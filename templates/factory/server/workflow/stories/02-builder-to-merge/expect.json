@@ -742,6 +742,80 @@
       "r2": ["ended@manual:needsManual"]
     }
   },
+  "a-green-pull-request-without-evidence-is-held-for-a-person": {
+    "ticks": [
+      {
+        "label": "green, but the description shows no evidence",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "otherwise": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "manual": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "refused": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "refused",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 may not merge by itself: The pull request description has no `### Verified` section with text, a screenshot or a recording, so nothing shows how the change was checked. Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "held for a person: nothing more is sent",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:otherwise",
+        "effect@refused",
+        "ended@manual:needsManual"
+      ],
+      "r1": ["ended@manual:needsManual"],
+      "r2": ["ended@manual:needsManual"]
+    }
+  },
   "a-pull-request-merged-by-someone-else-goes-straight-to-the-threads": {
     "ticks": [
       {
