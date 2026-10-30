@@ -56,7 +56,7 @@ async function contextFor(id: string) {
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, id));
-  const row = rows[0];
+  const row = rows.at(0);
   if (!row) throw new Error(`No page ${id}`);
   return reader.loadPublicReaderContext(row);
 }

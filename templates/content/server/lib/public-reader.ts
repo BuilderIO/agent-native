@@ -177,7 +177,7 @@ export async function loadPublicReaderContext(doc: {
         ),
       )
       .limit(1);
-    const parent = rows[0];
+    const parent = rows.at(0);
     if (!parent) break;
     ancestors.unshift(readerPage(parent));
     parentId = parent.parentId;
