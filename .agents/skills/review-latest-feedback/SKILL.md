@@ -262,10 +262,10 @@ nothing is dropped silently. That covers every candidate your source helpers
 return: each one ends the run either claimed or on a recap line with its
 reason.
 
-Then add 👀 to every root you claimed (Fix, Build, or Needs a person) in one
-pass, before you investigate. In an automation run, immediately list those roots (channel and
-ts) under "Claimed, not yet answered" in its `memory.md`, and remove each one
-once it has its reply. That list is how the next run tells an unfinished claim
+In an automation run, first list every root you claimed (Fix, Build, or Needs
+a person), channel and ts, under "Claimed, not yet answered" in its
+`memory.md`, and remove each one once it has its reply. Then add 👀 to them
+in one pass, before you investigate. That list is how the next run tells an unfinished claim
 apart from Steve's own 👀.
 
 ## 3. Fix as many as you can
