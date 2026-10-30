@@ -168,6 +168,7 @@ export interface AgentChatRuntimeAttachment {
   readonly url?: string;
   readonly referenceUrl?: string;
   readonly text?: string;
+  readonly omitted?: "inline-bytes" | "unsafe-url";
   readonly metadata?: AgentChatRuntimeMetadata;
 }
 
