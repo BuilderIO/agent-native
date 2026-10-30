@@ -167,7 +167,8 @@ the invocation gives), for new reports and open items alike. An older thread
 is in the window too when we have already replied in it and a person has
 replied since the window began: a channel read only shows roots, so search for
 recent thread replies (`in:<#channel> is:thread after:<date>`) to find them.
-Other older threads are left as they are, except reports listed under
+Roots listed in `memory.md` under "Claimed, not yet answered" or "Must handle
+next run" are always in the window. Other older threads are left as they are, except reports listed under
 `Reports` in a sweep PR opened or merged in that window: those always get
 their close-out.
 
@@ -315,9 +316,8 @@ repeat: every call re-sends your whole context.
 Without a repo command for it, run
 `gh pr checks <number> --watch --interval 60 > /dev/null` in one call bounded
 by your tool's limit, then read `gh pr checks <number>` twice, a minute
-apart: CI is done only when at least one check is listed, nothing is
-pending, and both reads list the same checks, since a workflow can register
-late. Otherwise wait again the same way and rerun any cancelled check; after
+apart: CI is done only when both reads list the same checks and none is
+pending. Otherwise wait again the same way and rerun any cancelled check; after
 about two hours, stop and look at the PR yourself.
 
 Fix each review round's findings in one batch. If a second round still finds
