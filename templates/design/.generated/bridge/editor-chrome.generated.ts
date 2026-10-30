@@ -12470,7 +12470,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var info = null;
       if (target) {
         hoveredSpacingHandleKey = "";
-        var keepsSelection = !!selectedEl && document.documentElement.contains(selectedEl) && (selectedEl === target || selectedEl.contains(target));
+        var keepsSelection = !!selectedEl && document.documentElement.contains(selectedEl) && (selectedEl === target || !usesDirectScreenSelection() && selectedEl.contains(target));
         selectedEl = keepsSelection ? selectedEl : (isApplePlatformBridge() ? e.metaKey : e.ctrlKey) ? selectionTargetForHit(target) : usesDirectScreenSelection() ? selectionTargetForHit(target) : containerFirstSelectionTarget(target);
         if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
           info = getElementInfo(selectedEl);

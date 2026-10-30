@@ -4,14 +4,19 @@ import { describe, expect, it } from "vitest";
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
 // A single screen's iframe: the body is the screen frame.
-function hydratedScreenBridge(): string {
+type Surface = { boardSurface?: boolean; readOnly?: boolean };
+
+function hydratedScreenBridge({
+  boardSurface = false,
+  readOnly = false,
+}: Surface = {}): string {
   return editorChromeBridgeScript
-    .replace("__READ_ONLY__", "false")
+    .replace("__READ_ONLY__", String(readOnly))
     .replace("__TEXT_EDITING_ENABLED__", "true")
     .replace("__EDITOR_CHROME_SCALE_X__", "1")
     .replace("__EDITOR_CHROME_SCALE_Y__", "1")
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("screen"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", String(boardSurface))
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
@@ -40,7 +45,7 @@ const PRIMARY_LABEL = { x: 120, y: 160 };
 const SECONDARY = { x: 260, y: 160 };
 const HERO_COPY = { x: 600, y: 110 };
 
-async function openFixture(page: Page, html = FIXTURE) {
+async function openFixture(page: Page, html = FIXTURE, surface: Surface = {}) {
   await page.setContent(html);
   await page.evaluate(() => {
     (window as any).__selected = [];
@@ -51,8 +56,10 @@ async function openFixture(page: Page, html = FIXTURE) {
       }
     });
   });
-  await page.addScriptTag({ content: hydratedScreenBridge() });
-  await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+  await page.addScriptTag({ content: hydratedScreenBridge(surface) });
+  await page.waitForSelector('[data-agent-native-edit-overlay="shield"]', {
+    state: "attached",
+  });
 }
 
 async function selectionAfter(page: Page, gesture: () => Promise<void>) {
@@ -76,13 +83,17 @@ async function selectionAfter(page: Page, gesture: () => Promise<void>) {
   return selected;
 }
 
-async function withPage(run: (page: Page) => Promise<void>, html = FIXTURE) {
+async function withPage(
+  run: (page: Page) => Promise<void>,
+  html = FIXTURE,
+  surface: Surface = {},
+) {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({
       viewport: { width: 900, height: 600 },
     });
-    await openFixture(page, html);
+    await openFixture(page, html, surface);
     await run(page);
   } finally {
     await browser.close();
@@ -274,12 +285,51 @@ describe("right-click inside a screen", () => {
     });
   });
 
-  it("keeps a nested selection the pointer is inside", async () => {
-    await withPage(async (page) => {
-      expect(await selectionAfter(page, click(page, { x: 200, y: 220 }))).toBe(
-        "card",
+  // oracle-change: editable screen menus follow the hit content, while board and read-only menus retain selected ancestors.
+  it.each([
+    { name: "editable screen", surface: {}, expected: "primary-label" },
+    { name: "board", surface: { boardSurface: true }, expected: "card" },
+    { name: "read-only screen", surface: { readOnly: true }, expected: "card" },
+  ])(
+    "targets the $expected from a selected ancestor on the $name",
+    async ({ surface, expected }) => {
+      await withPage(
+        async (page) => {
+          expect(
+            await selectionAfter(page, () =>
+              page.evaluate(() => {
+                const selector = '[data-agent-native-node-id="card"]';
+                window.postMessage(
+                  {
+                    type: "select-element",
+                    selector,
+                    selectorCandidates: [selector],
+                  },
+                  "*",
+                );
+              }),
+            ),
+          ).toBe("card");
+          expect(await contextMenuTarget(page, PRIMARY_LABEL)).toBe(expected);
+        },
+        FIXTURE,
+        surface,
       );
-      expect(await contextMenuTarget(page, PRIMARY_LABEL)).toBe("card");
-    });
+    },
+  );
+
+  it("keeps an explicit group as the menu target over its child", async () => {
+    await withPage(
+      async (page) => {
+        expect(
+          await selectionAfter(page, click(page, { x: 200, y: 220 })),
+        ).toBe("card");
+        expect(await contextMenuTarget(page, PRIMARY_LABEL)).toBe("card");
+      },
+      FIXTURE.replace(
+        'data-agent-native-node-id="card"',
+        'data-agent-native-node-id="card" data-agent-native-group-wrapper="true"',
+      ),
+    );
   });
 });

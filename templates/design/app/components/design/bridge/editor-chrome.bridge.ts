@@ -15450,12 +15450,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var info = null;
     if (target) {
       hoveredSpacingHandleKey = "";
-      // Right-click inside the current selection keeps it; elsewhere it
-      // selects what a plain click would, and Cmd deep-selects.
+      // Editable screens follow the hit content; board and read-only menus
+      // retain a selected ancestor under the pointer.
       var keepsSelection =
         !!selectedEl &&
         document.documentElement.contains(selectedEl) &&
-        (selectedEl === target || selectedEl.contains(target));
+        (selectedEl === target ||
+          (!usesDirectScreenSelection() && selectedEl.contains(target)));
       selectedEl = keepsSelection
         ? selectedEl
         : (isApplePlatformBridge() ? e.metaKey : e.ctrlKey)
