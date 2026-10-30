@@ -111,10 +111,15 @@ export default defineAction({
         ),
     );
     if (sessions.length === 0) {
-      fail(
-        "Contrast can only be audited while this deck is open in the Slides editor. Ask the user to open it, then retry.",
-        { errorCode: "deck_not_open", statusCode: 409 },
-      );
+      return {
+        deckId,
+        status: "not-audited" as const,
+        reason: "deck_not_open" as const,
+        message:
+          "Contrast was not checked: this deck is not open in the Slides editor. Tell the user contrast was not checked; do not claim it passes.",
+        canClaimContrastPasses: false,
+        canClaimRequestedSlidesPass: false,
+      };
     }
     const callerTabId = getCurrentRequestBrowserTabId();
     const session =

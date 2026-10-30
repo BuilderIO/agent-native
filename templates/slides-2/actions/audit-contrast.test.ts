@@ -173,15 +173,20 @@ describe("audit-contrast", () => {
     );
   });
 
-  it("fails loudly when no editor has the deck open", async () => {
+  it("reports not-audited without throwing when no editor has the deck open", async () => {
     mockListBrowserSessions.mockResolvedValue([
       session("tab-other", "deck-2"),
       session("tab-no-action", "deck-1", false),
     ]);
 
-    await expect(run({ deckId: "deck-1" })).rejects.toThrow(
-      "open in the Slides 2 editor",
-    );
+    const report = await run({ deckId: "deck-1" });
+
+    expect(report).toMatchObject({
+      status: "not-audited",
+      reason: "deck_not_open",
+      canClaimContrastPasses: false,
+      canClaimRequestedSlidesPass: false,
+    });
     expect(mockCallBrowserSession).not.toHaveBeenCalled();
   });
 
