@@ -10,7 +10,11 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
-import { resolveAccess, type ShareRole } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  resolveAccess,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -159,6 +163,9 @@ async function loadDeckWithUniqueSlideIds(
       if (!lockedSnapshot.changed) {
         return { ...lockedSnapshot, repaired: false };
       }
+      if (!canPersistSlideIdRepair(lockedSnapshot.accessRole, appUiRead)) {
+        return normalizeDeckReadInMemory(lockedSnapshot);
+      }
 
       const repairedData = {
         ...repairDeckSlideReferences(
@@ -183,6 +190,7 @@ async function loadDeckWithUniqueSlideIds(
             eq(schema.decks.id, lockedSnapshot.row.id),
             versionCondition,
             eq(schema.decks.data, lockedSnapshot.row.data),
+            accessFilter(schema.decks, schema.deckShares, undefined, "editor"),
           ),
         );
 

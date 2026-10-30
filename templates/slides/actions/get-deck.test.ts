@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
+const mockAccessFilter = vi.fn((...args: unknown[]) => ({
+  accessRole: args[3],
+}));
 const mockCurrentRequestUserIsOrgAdmin = vi.fn();
 const mockNotifyClients = vi.fn();
 let currentOrgId = "org-a";
@@ -69,6 +72,7 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
+  accessFilter: (...args: unknown[]) => mockAccessFilter(...args),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -101,6 +105,7 @@ vi.mock("../server/db/index.js", () => ({
       updatedAt: "ua_col",
       slideCount: "slide_count_col",
     },
+    deckShares: "deck_shares",
   },
 }));
 
@@ -250,6 +255,40 @@ describe("get-deck", () => {
 
     await action.run({ id: "deck-1" }, { caller: "frontend" });
 
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("saves the repair with an editor access filter", async () => {
+    storeDuplicateSlideDeck();
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockAccessFilter).toHaveBeenCalledWith(
+      expect.anything(),
+      "deck_shares",
+      undefined,
+      "editor",
+    );
+  });
+
+  it("does not save the repair when the role drops before the lock is held", async () => {
+    storeDuplicateSlideDeck();
+    mockResolveAccess
+      .mockImplementationOnce(async () => ({
+        role: "editor",
+        resource: currentResource,
+      }))
+      .mockImplementationOnce(async () => ({
+        role: "viewer",
+        resource: currentResource,
+      }));
+
+    const ids = readSlideIds(
+      await action.run({ id: "deck-1" }, { caller: "frontend" }),
+    );
+
+    expect(new Set(ids).size).toBe(2);
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
