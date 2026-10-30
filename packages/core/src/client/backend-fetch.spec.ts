@@ -1,13 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { agentNativePath, appApiPath, isApiBaseUrl } from "./api-path.js";
 import {
-  backendRequestUrl,
+  agentNativePath,
+  appApiPath,
+  appServerPath,
+  isApiBaseUrl,
+} from "./api-path.js";
+import {
   installBackendXhr,
+  isBackendRequest,
   withBackendRequest,
 } from "./backend-fetch.js";
 
 const PAGE = "https://app.example.com/inbox";
+const API = "https://api.example.com";
 
 function stubPage(apiBaseUrl?: string, pathname = "/inbox") {
   vi.stubGlobal("window", {
@@ -28,7 +34,7 @@ describe("backend base URL", () => {
       "/_agent-native/actions",
     );
     expect(appApiPath("/api/items")).toBe("/api/items");
-    expect(backendRequestUrl("/api/items", PAGE)).toBeNull();
+    expect(isBackendRequest("/api/items", PAGE)).toBe(false);
   });
 
   it("points framework and /api paths at the configured server", () => {
@@ -37,6 +43,18 @@ describe("backend base URL", () => {
       "https://api.example.com/mail/_agent-native/actions?x=1",
     );
     expect(appApiPath("items")).toBe("https://api.example.com/mail/api/items");
+  });
+
+  it("resolves any server route against the configured server", () => {
+    stubPage();
+    expect(appServerPath("/mcp/connect")).toBe("/mcp/connect");
+    stubPage("https://api.example.com/mail");
+    expect(appServerPath("/mcp/connect")).toBe(
+      "https://api.example.com/mail/mcp/connect",
+    );
+    expect(appServerPath("/.well-known/agent-card.json")).toBe(
+      "https://api.example.com/mail/.well-known/agent-card.json",
+    );
   });
 
   it("rejects an invalid projected base URL loudly", () => {
@@ -59,89 +77,68 @@ describe("backend base URL", () => {
     );
   });
 
-  it("moves relative server routes and leaves UI-host paths alone", () => {
-    stubPage("https://api.example.com");
-    expect(backendRequestUrl("/api/items?a=1", PAGE)?.href).toBe(
-      "https://api.example.com/api/items?a=1",
-    );
-    expect(backendRequestUrl("/mcp", PAGE)?.href).toBe(
-      "https://api.example.com/mcp",
-    );
-    expect(backendRequestUrl("/assets/app.js", PAGE)).toBeNull();
-    expect(backendRequestUrl("/.well-known/x", PAGE)).toBeNull();
-    expect(backendRequestUrl("https://posthog.example/i/v0/e/", PAGE)).toBe(
-      null,
-    );
-  });
-
-  it("strips the UI base path before moving a request", () => {
-    stubPage("https://api.example.com", "/mail/_agent-native/auth/reset");
-    expect(
-      backendRequestUrl(
-        "/mail/_agent-native/events",
-        "https://app.example.com/mail/inbox",
-      )?.href,
-    ).toBe("https://api.example.com/_agent-native/events");
+  it("never claims a host page's own relative requests", () => {
+    stubPage(API);
+    for (const url of [
+      "/api/v1/instagram/auth",
+      "/_agent-native/actions",
+      "/mcp",
+      "https://posthog.example/i/v0/e/",
+    ]) {
+      expect(isBackendRequest(url, PAGE)).toBe(false);
+      const init = { credentials: "same-origin" as const };
+      expect(withBackendRequest(url, init, PAGE)).toEqual([url, init]);
+    }
   });
 
   it("sends credentials to the server unless the caller opted out", () => {
-    stubPage("https://api.example.com");
-    expect(withBackendRequest("/api/items", undefined, PAGE)).toEqual([
-      "https://api.example.com/api/items",
+    stubPage(API);
+    const url = `${API}/api/items`;
+    expect(withBackendRequest(url, undefined, PAGE)).toEqual([
+      url,
       { credentials: "include" },
     ]);
     expect(
       withBackendRequest(
-        "/api/items",
+        url,
         { method: "POST", credentials: "same-origin" },
         PAGE,
       )[1],
     ).toEqual({ method: "POST", credentials: "include" });
-    expect(
-      withBackendRequest("/api/items", { credentials: "omit" }, PAGE)[1],
-    ).toEqual({ credentials: "omit" });
+    expect(withBackendRequest(url, { credentials: "omit" }, PAGE)[1]).toEqual({
+      credentials: "omit",
+    });
   });
 
-  it("rebuilds Request inputs against the server with credentials", () => {
-    stubPage("https://api.example.com");
+  it("lets same-origin-mode requests reach the configured server", () => {
+    stubPage(API);
+    expect(
+      withBackendRequest(
+        `${API}/api/screenshot`,
+        { mode: "same-origin" },
+        PAGE,
+      )[1],
+    ).toEqual({ mode: "cors", credentials: "include" });
+  });
+
+  it("rebuilds Request inputs for the server with credentials and cors mode", () => {
+    stubPage(API);
     const [input, init] = withBackendRequest(
-      new Request("https://app.example.com/api/items", {
+      new Request(`${API}/api/items`, {
         method: "POST",
+        mode: "same-origin",
         headers: { "X-Agent-Native-CSRF": "1" },
       }),
       undefined,
       PAGE,
     );
     expect(init).toBeUndefined();
-    expect(input).toBeInstanceOf(Request);
     const request = input as Request;
-    expect(request.url).toBe("https://api.example.com/api/items");
+    expect(request.url).toBe(`${API}/api/items`);
     expect(request.method).toBe("POST");
     expect(request.headers.get("X-Agent-Native-CSRF")).toBe("1");
     expect(request.credentials).toBe("include");
-  });
-
-  it("lets same-origin-mode requests reach the configured server", () => {
-    stubPage("https://api.example.com");
-    expect(
-      withBackendRequest("/api/screenshot", { mode: "same-origin" }, PAGE)[1],
-    ).toEqual({ mode: "cors", credentials: "include" });
-    const [request] = withBackendRequest(
-      new Request("https://app.example.com/api/screenshot", {
-        mode: "same-origin",
-      }),
-      undefined,
-      PAGE,
-    );
-    expect((request as Request).mode).toBe("cors");
-    const init = { mode: "same-origin" as const };
-    expect(withBackendRequest("/inbox", init, PAGE)).toEqual(["/inbox", init]);
-  });
-
-  it("leaves non-server requests untouched", () => {
-    stubPage("https://api.example.com");
-    const init = { credentials: "same-origin" as const };
-    expect(withBackendRequest("/inbox", init, PAGE)).toEqual(["/inbox", init]);
+    expect(request.mode).toBe("cors");
   });
 });
 
@@ -158,25 +155,25 @@ describe("backend XHR", () => {
     }
   }
 
-  it("moves server-route XHRs to the configured server with credentials", () => {
-    stubPage("https://api.example.com");
+  it("sends credentials on XHRs to the server and leaves other URLs alone", () => {
+    stubPage(API);
     installBackendXhr(
       FakeXhr as unknown as { prototype: XMLHttpRequest },
       () => PAGE,
     );
 
     const upload = new FakeXhr();
-    upload.open("POST", "/api/import-design-file", true);
+    upload.open("POST", `${API}/api/import-design-file`, true);
     expect(upload.opened).toEqual([
       "POST",
-      "https://api.example.com/api/import-design-file",
+      `${API}/api/import-design-file`,
       true,
     ]);
     expect(upload.withCredentials).toBe(true);
 
-    const asset = new FakeXhr();
-    asset.open("GET", "/assets/logo.svg");
-    expect(asset.opened).toEqual(["GET", "/assets/logo.svg"]);
-    expect(asset.withCredentials).toBe(false);
+    const hostCall = new FakeXhr();
+    hostCall.open("POST", "/api/import-design-file");
+    expect(hostCall.opened).toEqual(["POST", "/api/import-design-file"]);
+    expect(hostCall.withCredentials).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
@@ -466,7 +466,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         format: "pptx",
       });
       await flushDeckSave(deckId);
-      const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
+      const res = await fetch(appApiPath("/api/exports/pptx"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deckId }),
@@ -510,7 +510,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
             template_name: "slides",
             format: "html",
           });
-          const res = await fetch(`${appBasePath()}/api/exports/html`, {
+          const res = await fetch(appApiPath("/api/exports/html"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ deckId }),

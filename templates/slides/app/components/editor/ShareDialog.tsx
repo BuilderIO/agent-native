@@ -1,4 +1,4 @@
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { appApiPath, appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
@@ -65,7 +65,7 @@ export default function ShareDialog({
 
     setCreatingLink(true);
     try {
-      const response = await fetch(`${appBasePath()}/api/share`, {
+      const response = await fetch(appApiPath("/api/share"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deck }),

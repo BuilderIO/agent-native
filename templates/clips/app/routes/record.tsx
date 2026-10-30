@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
+  appApiPath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import {
@@ -2586,7 +2587,7 @@ export default function RecordRoute() {
         if (createdId && !serverRejectedTooLarge && !preserveBufferedChunks) {
           fetch(
             fileUploadAbortUrlRef.current ??
-              `${appBasePath()}/api/uploads/${createdId}/abort`,
+              appApiPath(`/api/uploads/${createdId}/abort`),
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },

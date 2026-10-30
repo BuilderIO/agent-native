@@ -56,18 +56,6 @@ export function apiBaseUrl(): string | undefined {
   );
 }
 
-/**
- * Server routes that live on the app's server rather than the host serving
- * the UI. `/assets` and `/.well-known` stay with the UI host.
- */
-export function isBackendRoutePath(pathname: string): boolean {
-  return (
-    isFrameworkRoutePath(pathname) ||
-    matchesPathPrefix(pathname, "/api") ||
-    matchesPathPrefix(pathname, "/mcp")
-  );
-}
-
 /** True when `url` addresses the configured app server. */
 export function isApiBaseUrl(url: URL): boolean {
   const base = apiBaseUrl();
@@ -78,7 +66,13 @@ export function isApiBaseUrl(url: URL): boolean {
   return !basePath || matchesPathPrefix(url.pathname, basePath);
 }
 
-function serverPath(routerPath: string): string {
+/**
+ * A route the app's server answers (`/mcp/...`, `/_agent-native/...`,
+ * `/api/...`), as the browser should request it: on the configured server
+ * when `runtime.apiBaseUrl` is set, otherwise under the app's base path.
+ * Prefer `agentNativePath` and `appApiPath` for their namespaces.
+ */
+export function appServerPath(routerPath: string): string {
   const base = apiBaseUrl();
   return base ? `${base}${routerPath}` : appPath(routerPath);
 }
@@ -529,7 +523,7 @@ export function appApiPath(path: string): string {
     path === "/api" || path.startsWith("/api/")
       ? path
       : `/api/${path.replace(/^\/+/, "")}`;
-  return serverPath(normalized);
+  return appServerPath(normalized);
 }
 
 export function agentNativePath(path: string): string {
@@ -538,7 +532,7 @@ export function agentNativePath(path: string): string {
     queryOrFragment === -1 ? path : path.slice(0, queryOrFragment);
   if (!matchesPathPrefix(pathname, FRAMEWORK_INTERNAL_ROUTE_PREFIX))
     return path;
-  return serverPath(
+  return appServerPath(
     toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() }),
   );
 }

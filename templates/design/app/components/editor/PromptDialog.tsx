@@ -1,5 +1,5 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
@@ -408,7 +408,7 @@ export default function PromptPopover({
   }, [open]);
 
   const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
-    const response = await fetch(`${appBasePath()}/api/uploads`, {
+    const response = await fetch(appApiPath("/api/uploads"), {
       method: "DELETE",
       headers: { "content-type": "application/json" },
       credentials: "include",
@@ -459,7 +459,7 @@ export default function PromptPopover({
         for (const batch of splitUploadBatches(preparedFiles)) {
           const formData = new FormData();
           batch.forEach(({ file }) => formData.append("files", file));
-          const res = await fetch(`${appBasePath()}/api/uploads`, {
+          const res = await fetch(appApiPath("/api/uploads"), {
             method: "POST",
             body: formData,
           });

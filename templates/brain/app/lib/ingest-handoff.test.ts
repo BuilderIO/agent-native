@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const apiBaseUrlState = vi.hoisted(() => ({
+  value: undefined as string | undefined,
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  apiBaseUrl: () => apiBaseUrlState.value,
+}));
 
 import type { CreateSourceResponse } from "./brain";
 import {
@@ -16,6 +24,10 @@ const createdSource: CreateSourceResponse = {
 };
 
 describe("one-time Brain ingest handoff", () => {
+  afterEach(() => {
+    apiBaseUrlState.value = undefined;
+  });
+
   it("builds a root-scoped endpoint for a push source", () => {
     expect(
       createOneTimeIngestHandoff({
@@ -31,6 +43,18 @@ describe("one-time Brain ingest handoff", () => {
       source: createdSource.source,
       sourceKey: "clips-example",
     });
+  });
+
+  it("points the endpoint at the configured app server", () => {
+    apiBaseUrlState.value = "https://api.brain.example.test";
+    expect(
+      createOneTimeIngestHandoff({
+        origin: "https://brain.example.test",
+        provider: "generic",
+        result: createdSource,
+        sourceKey: "generic-example",
+      })?.endpoint,
+    ).toBe(`https://api.brain.example.test${BRAIN_INGEST_PATH}`);
   });
 
   it("does not create a handoff for polling sources", () => {

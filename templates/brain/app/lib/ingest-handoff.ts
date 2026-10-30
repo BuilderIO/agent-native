@@ -1,3 +1,5 @@
+import { apiBaseUrl } from "@agent-native/core/client/api-path";
+
 import type { BrainSource, CreateSourceResponse } from "./brain";
 
 export const BRAIN_INGEST_PATH = "/api/_agent-native/brain/ingest";
@@ -26,7 +28,7 @@ export function createOneTimeIngestHandoff({
   const normalizedSourceKey = sourceKey.trim();
   if (!ingestToken || !normalizedSourceKey) return null;
   return {
-    endpoint: new URL(BRAIN_INGEST_PATH, origin).toString(),
+    endpoint: new URL(BRAIN_INGEST_PATH, apiBaseUrl() ?? origin).toString(),
     ingestToken,
     provider,
     source: result.source,

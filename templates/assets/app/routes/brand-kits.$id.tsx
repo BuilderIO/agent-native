@@ -1,7 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
-  appBasePath,
   agentNativePath,
+  appApiPath,
 } from "@agent-native/core/client/api-path";
 import {
   getBrowserTabId,
@@ -895,7 +895,7 @@ export function BrandKitDetailRoute({
           form.append("folderId", selectedFolderId);
         }
         for (const file of chunk) form.append("files", file);
-        const response = await fetch(`${appBasePath()}/api/assets/upload`, {
+        const response = await fetch(appApiPath("/api/assets/upload"), {
           method: "POST",
           body: form,
         });

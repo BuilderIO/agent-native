@@ -35,6 +35,7 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => `/agent${path}`,
+  appApiPath: (path: string) => `/slides${path}`,
   appBasePath: () => "/slides",
 }));
 
