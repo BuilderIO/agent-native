@@ -380,7 +380,7 @@ describe("deleteDeck", () => {
     });
   });
 
-  it("is available to the agent as the same guarded delete action", () => {
+  it("exposes the agent tool behind approval with destructive MCP annotations", () => {
     expect(deleteDeck.agentTool).not.toBe(false);
     expect(deleteDeck.needsApproval).toBe(true);
     expect(deleteDeck.allowPersistentApproval).toBe(false);
