@@ -10,10 +10,12 @@
  * them and already carry that person's access, so they are deliberately not
  * listed here: a grant to them would control nothing.
  */
+import { getDbExec } from "../db/client.js";
 import {
   listOrgServiceTokens,
   serviceIdentityEmail,
 } from "../mcp/connect-store.js";
+import { isMissingOrganizationTableError } from "../org/membership.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { listServicePrincipalPolicies } from "../org/service-principal-policy.js";
 
@@ -76,4 +78,26 @@ export function orgAgentName(
     return null;
   }
   return parsed.serviceName;
+}
+
+/**
+ * Whether `email` is the service identity of any existing org. Notifications
+ * check this rather than only the resource's org, so an agent shared on a
+ * resource with no org is never emailed either, while a person whose address
+ * merely looks like one (`svc-bob@service.example.com`) still is.
+ */
+export async function isAnyOrgAgent(email: string): Promise<boolean> {
+  const parsed = parseServiceIdentityEmail(email);
+  if (!parsed) return false;
+  try {
+    // raw-sql-ok: a static statement; the org id is a bound argument.
+    const { rows } = await getDbExec().execute({
+      sql: "SELECT 1 FROM organizations WHERE LOWER(id) = LOWER(?) LIMIT 1",
+      args: [parsed.orgId],
+    });
+    return rows.length > 0;
+  } catch (error) {
+    if (isMissingOrganizationTableError(error)) return false;
+    throw error;
+  }
 }

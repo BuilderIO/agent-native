@@ -13,7 +13,7 @@ import { getRequestUserEmail } from "../../server/request-context.js";
 import { track } from "../../tracking/registry.js";
 import { getUserProfile } from "../../user-profile/store.js";
 import { assertAccess } from "../access.js";
-import { orgAgentName } from "../agent-principals.js";
+import { isAnyOrgAgent, orgAgentName } from "../agent-principals.js";
 import {
   announceResourceAccessChange,
   grantResourceAccess,
@@ -129,6 +129,20 @@ async function needsExternalShareApproval(args: {
   return existing?.role !== args.role;
 }
 
+/** Agents are never emailed; an unreadable check counts as an agent. */
+async function isAgentRecipient(email: string): Promise<boolean> {
+  try {
+    return await isAnyOrgAgent(email);
+  } catch (error) {
+    // coercion-ok: skipping one share email is the safe outcome, and it is logged.
+    console.error(
+      "[share-resource] Could not check whether the recipient is an agent; not emailing it:",
+      error,
+    );
+    return true;
+  }
+}
+
 export default defineAction({
   description:
     "Grant a user, group, or org access to a shareable resource. Owner or admin role required.",
@@ -223,6 +237,7 @@ export default defineAction({
         principalId,
         accessResource.orgId as string | null | undefined,
       ) === null &&
+      !(await isAgentRecipient(principalId)) &&
       (await isEmailConfigured());
     let notified = false;
     if (shouldNotify) {

@@ -892,6 +892,50 @@ describe("ShareButton", () => {
     expect(agentLinkMutate).toHaveBeenCalledOnce();
   });
 
+  it("prepares a fresh agent link instead of copying one about to expire", async () => {
+    const withAgentLink = { ...sharesData.current, agentReadable: true };
+    sharesData.current = withAgentLink;
+    const writeText = vi.fn(async (_text: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="deck" resourceId="deck-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    await openSendTo(container);
+    const [, firstCallbacks] = agentLinkMutate.mock.calls[0] as [
+      unknown,
+      {
+        onSuccess: (result: {
+          contextUrl?: string;
+          expiresAt?: string;
+        }) => void;
+      },
+    ];
+    act(() =>
+      firstCallbacks.onSuccess({
+        contextUrl: "https://slides.agent-native.com/agent/stale",
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      }),
+    );
+
+    await act(async () => {
+      menuItem("Copy agent link").click();
+      await Promise.resolve();
+    });
+
+    expect(writeText).not.toHaveBeenCalled();
+    expect(agentLinkMutate).toHaveBeenCalledTimes(2);
+    expect(menuItem("Preparing agent link...")).toBeDefined();
+  });
+
   it("offers no Send to menu for a resource agents cannot read and no destinations", async () => {
     await act(async () => {
       root.render(

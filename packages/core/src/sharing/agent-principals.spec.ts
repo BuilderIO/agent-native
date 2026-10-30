@@ -4,6 +4,7 @@ import type { MintedTokenRow } from "../mcp/connect-store.js";
 import type { ServicePrincipalPolicy } from "../org/service-principal-policy.js";
 import {
   isShareableAgent,
+  isAnyOrgAgent,
   listShareableAgents,
   orgAgentName,
 } from "./agent-principals.js";
@@ -14,6 +15,8 @@ const state = vi.hoisted(() => ({
   policies: [] as ServicePrincipalPolicy[],
   members: new Set<string>(),
   invited: new Set<string>(),
+  orgs: new Set<string>(),
+  orgsError: null as Error | null,
 }));
 
 vi.mock("../mcp/connect-store.js", () => ({
@@ -28,18 +31,28 @@ vi.mock("../org/service-principal-policy.js", () => ({
     state.policies.filter((policy) => policy.orgId === orgId),
 }));
 
-vi.mock("../org/membership.js", () => ({
+vi.mock("../org/membership.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../org/membership.js")>()),
   isOrgMember: async (orgId: string, email: string) =>
     state.members.has(`${orgId}:${email}`),
 }));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({
-    execute: async ({ args }: { args: string[] }) => ({
-      rows: state.invited.has(`${args[0]}:${args[1]}`)
-        ? [{ "?column?": 1 }]
-        : [],
-    }),
+    execute: async ({ sql, args }: { sql: string; args: string[] }) => {
+      if (sql.includes("FROM organizations")) {
+        if (state.orgsError) throw state.orgsError;
+        const found = [...state.orgs].some(
+          (id) => id.toLowerCase() === String(args[0]).toLowerCase(),
+        );
+        return { rows: found ? [{ "?column?": 1 }] : [] };
+      }
+      return {
+        rows: state.invited.has(`${args[0]}:${args[1]}`)
+          ? [{ "?column?": 1 }]
+          : [],
+      };
+    },
   }),
   getScopedDbExec: () => undefined,
 }));
@@ -104,6 +117,8 @@ beforeEach(() => {
   ];
   state.members = new Set([`${orgId}:member@example.com`]);
   state.invited = new Set([`${orgId}:invitee@example.com`]);
+  state.orgs = new Set([orgId]);
+  state.orgsError = null;
 });
 
 describe("listShareableAgents", () => {
@@ -147,6 +162,35 @@ describe("orgAgentName", () => {
     expect(orgAgentName("svc-alpha@service.org-other", orgId)).toBeNull();
     expect(orgAgentName("svc-bob@service.example.com", orgId)).toBeNull();
     expect(orgAgentName(`svc-alpha@service.${orgId}`, null)).toBeNull();
+  });
+});
+
+describe("isAnyOrgAgent", () => {
+  it("recognises an existing org's service identity whatever the case", async () => {
+    await expect(
+      isAnyOrgAgent(`svc-alpha@service.${orgId}`.toLowerCase()),
+    ).resolves.toBe(true);
+  });
+
+  it("treats people and look-alike addresses as people", async () => {
+    await expect(isAnyOrgAgent("member@example.com")).resolves.toBe(false);
+    await expect(isAnyOrgAgent("svc-bob@service.example.com")).resolves.toBe(
+      false,
+    );
+  });
+
+  it("finds no agents where the app has no organizations", async () => {
+    state.orgsError = new Error('relation "organizations" does not exist');
+    await expect(isAnyOrgAgent(`svc-alpha@service.${orgId}`)).resolves.toBe(
+      false,
+    );
+  });
+
+  it("reports an unreadable org table instead of answering", async () => {
+    state.orgsError = new Error("database offline");
+    await expect(isAnyOrgAgent(`svc-alpha@service.${orgId}`)).rejects.toThrow(
+      "database offline",
+    );
   });
 });
 

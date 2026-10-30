@@ -42,12 +42,31 @@ vi.mock("../../org/service-principal-policy.js", () => ({
     state.policies.filter((policy) => policy.orgId === orgId),
 }));
 
+vi.mock("../agent-principals.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent-principals.js")>()),
+  // The org table lookup has its own spec; here the test's org exists.
+  isAnyOrgAgent: async (email: string) =>
+    email.toLowerCase().endsWith(`@service.${orgId}`),
+}));
+
 vi.mock("../../server/email.js", () => ({
   isEmailConfigured: async () => true,
   sendEmail: state.sendEmail,
 }));
 
+vi.mock("../../email-catalog/templates.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../email-catalog/templates.js")
+  >()),
+  renderTransactionalEmail: async () => ({
+    subject: "Shared with you",
+    html: "<p>Shared</p>",
+    text: "Shared",
+  }),
+}));
+
 vi.mock("../../user-profile/store.js", () => ({
+  getUserProfile: async (email: string) => ({ email, name: "Owner" }),
   getUserProfiles: async (emails: readonly string[]) =>
     new Map(
       emails
@@ -70,6 +89,7 @@ let sharedClient: FrameworkClient = {
 };
 
 const resourceType = "agent-shared-doc";
+const personalResourceType = "agent-personal-doc";
 const ownerEmail = "owner+qa@example.com";
 const memberEmail = "member+qa@example.com";
 const orgId = "org-agents";
@@ -175,7 +195,8 @@ beforeEach(async () => {
       VALUES ('m1', '${orgId}', '${ownerEmail}', 'owner', 0),
              ('m2', '${orgId}', '${memberEmail}', 'member', 0);
     INSERT INTO agent_docs (id, title, owner_email, org_id, visibility)
-      VALUES ('doc-1', 'Doc', '${ownerEmail}', '${orgId}', 'private');
+      VALUES ('doc-1', 'Doc', '${ownerEmail}', '${orgId}', 'private'),
+             ('doc-personal', 'Personal', '${ownerEmail}', NULL, 'private');
   `);
   db = drizzle(pglite.db);
 
@@ -202,6 +223,14 @@ beforeEach(async () => {
     getDb: () => db,
     requireOrgMemberForUserShares: true,
     agentRead: { actions: ["get-agent-doc"], idParam: "docId" },
+  });
+  registerShareableResource({
+    type: personalResourceType,
+    resourceTable: docs,
+    sharesTable: docShares,
+    displayName: "Personal Doc",
+    titleColumn: "title",
+    getDb: () => db,
   });
 });
 
@@ -257,6 +286,28 @@ describe("sharing with org agents", () => {
       await expect(shareWith(email)).rejects.toBeInstanceOf(ForbiddenError);
     });
     expect(await shareRows()).toEqual([]);
+  });
+
+  it("never emails an agent shared on a resource with no org, but emails a person", async () => {
+    const sharePersonal = (principalId: string) =>
+      shareResource.run({
+        resourceType: personalResourceType,
+        resourceId: "doc-personal",
+        principalType: "user",
+        principalId,
+        role: "viewer",
+        notify: true,
+      });
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      await sharePersonal(reviewerAgent);
+      expect(state.sendEmail).not.toHaveBeenCalled();
+
+      await sharePersonal("svc-bob@service.example.com");
+    });
+    expect(state.sendEmail).toHaveBeenCalledOnce();
+    expect(state.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "svc-bob@service.example.com" }),
+    );
   });
 
   it("refuses an org agent granted by an admin acting outside the org", async () => {

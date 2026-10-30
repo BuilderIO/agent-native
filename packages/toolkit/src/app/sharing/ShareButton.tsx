@@ -873,8 +873,19 @@ function CopyLinkButton({
 type AgentLinkState =
   | { status: "idle" }
   | { status: "pending" }
-  | { status: "ready"; url: string }
+  | { status: "ready"; url: string; expiresAt: number | null }
   | { status: "error" };
+
+// Re-mint a little before expiry so a copied link still opens for the agent.
+const AGENT_LINK_EXPIRY_MARGIN_MS = 60_000;
+
+function isAgentLinkStale(state: AgentLinkState): boolean {
+  return (
+    state.status === "ready" &&
+    state.expiresAt !== null &&
+    state.expiresAt - AGENT_LINK_EXPIRY_MARGIN_MS <= Date.now()
+  );
+}
 
 /**
  * Every way to hand this resource to something else: external agents, the
@@ -895,7 +906,7 @@ function ShareSendToMenu({
 }) {
   const t = useT();
   const createAgentLink = useActionMutation<
-    { contextUrl?: string },
+    { contextUrl?: string; expiresAt?: string },
     { resourceType: string; resourceId: string }
   >("create-agent-resource-link");
   const [agentLink, setAgentLink] = useState<AgentLinkState>({
@@ -906,12 +917,20 @@ function ShareSendToMenu({
     createAgentLink.mutate(
       { resourceType, resourceId },
       {
-        onSuccess: (result) =>
+        onSuccess: (result) => {
+          const expiresAt = result.expiresAt
+            ? Date.parse(result.expiresAt)
+            : Number.NaN;
           setAgentLink(
             result.contextUrl
-              ? { status: "ready", url: result.contextUrl }
+              ? {
+                  status: "ready",
+                  url: result.contextUrl,
+                  expiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+                }
               : { status: "error" },
-          ),
+          );
+        },
         onError: () => setAgentLink({ status: "error" }),
       },
     );
@@ -969,7 +988,11 @@ function ShareSendToMenu({
   return (
     <DropdownMenu
       onOpenChange={(open) => {
-        if (open && agentReadable && agentLink.status === "idle") {
+        if (
+          open &&
+          agentReadable &&
+          (agentLink.status === "idle" || isAgentLinkStale(agentLink))
+        ) {
           loadAgentLink();
         }
       }}
@@ -1020,7 +1043,10 @@ function ShareSendToMenu({
           <DropdownMenuItem
             disabled={agentLink.status === "pending"}
             onSelect={(event) => {
-              if (agentLink.status === "ready") {
+              if (
+                agentLink.status === "ready" &&
+                !isAgentLinkStale(agentLink)
+              ) {
                 void copyAgentLink(agentLink.url);
                 return;
               }
