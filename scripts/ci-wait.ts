@@ -158,7 +158,7 @@ function main(): number {
     }
     const left = deadline - Date.now();
     if (left <= 0) {
-      const final = last ? judge(last.checks, last.head) : null;
+      const final = last && misses === 0 ? judge(last.checks, last.head) : null;
       if (final?.done) {
         console.log(final.summary);
         return final.exit;

@@ -342,9 +342,10 @@ repeat: every call re-sends your whole context, and on 10/28 polling CI
 every minute was half the main thread's cost.
 <!-- framework-repo-only:start -->
 Here that command is `pnpm ci:wait <number>`: it prints nothing until CI is
-done, then one summary. Exit 1 means a check failed; exit 2 means a check was
-cancelled (rerun it) or it ran out of its 9 minutes with checks still going
-(run it again). To need fewer calls, pass `--max-minutes` about a minute
+done, then one summary. Exit 1 means a check failed. Exit 2 means it couldn't
+tell, and its last line says why: rerun a cancelled check, run the command
+again when time ran out with checks still going, and otherwise look at the PR
+yourself. To need fewer calls, pass `--max-minutes` about a minute
 under your tool's call limit.
 <!-- framework-repo-only:end -->
 Without a repo command for it, run
