@@ -15,6 +15,7 @@ import type {
   PublicReaderPage,
 } from "../../shared/public-reader";
 import { getDb, schema } from "../db/index.js";
+import { firstRow } from "./first-row.js";
 
 export const PUBLIC_READER_MAX_ANCESTORS = 8;
 export const PUBLIC_READER_MAX_SUB_PAGES = 100;
@@ -177,7 +178,7 @@ export async function loadPublicReaderContext(doc: {
         ),
       )
       .limit(1);
-    const parent = rows.at(0);
+    const parent = firstRow(rows);
     if (!parent) break;
     ancestors.unshift(readerPage(parent));
     parentId = parent.parentId;

@@ -42,8 +42,8 @@ function render(
 }
 
 function hrefs(html: string) {
-  return [...html.matchAll(/href="([^"]+)"/g)].map((match) =>
-    (match.at(1) ?? "").replace(/&amp;/g, "&"),
+  return [...html.matchAll(/href="(?<href>[^"]+)"/g)].map((match) =>
+    (match.groups?.href ?? "").replace(/&amp;/g, "&"),
   );
 }
 

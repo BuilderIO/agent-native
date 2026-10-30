@@ -6,6 +6,8 @@ import { serializeIconValue } from "@agent-native/core/icons";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { firstRow } from "./first-row.js";
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-public-reader-${process.pid}-${Date.now()}.pglite`,
@@ -56,7 +58,7 @@ async function contextFor(id: string) {
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, id));
-  const row = rows.at(0);
+  const row = firstRow(rows);
   if (!row) throw new Error(`No page ${id}`);
   return reader.loadPublicReaderContext(row);
 }
