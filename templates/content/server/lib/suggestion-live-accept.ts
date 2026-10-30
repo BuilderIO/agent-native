@@ -1,6 +1,6 @@
 import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { LiveCopyError } from "@agent-native/core/collab";
-import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { getDbExec, sql, type DbExec } from "@agent-native/core/db";
 import {
   getSuggestion,
   type ResourceSuggestion,
@@ -12,6 +12,7 @@ import { prepareTransactionalChange } from "@agent-native/core/server";
 import {
   markdownPayload,
   operationAnchor,
+  type AcceptedSiblingRange,
   type MarkdownRange,
 } from "../../shared/suggestion-apply.js";
 import {
@@ -80,33 +81,29 @@ export function isLiveCopyDecision(
 }
 
 /**
- * Ranges of accepted suggestions saved from the same before-text. Proposals
- * list their members as siblings, so accepting one can remove the context
- * another is anchored to. Each accepted one is a range of that shared text
- * whose bytes may now differ; every other byte must still match for the
- * placement to succeed. Match on the operation's full before-text, not the
- * base revision token: the same text recurs under many body revisions, and
- * Comment AI suggestions carry the Page's updatedAt instead of a body token.
+ * Ranges of accepted suggestions saved from the same before-text, with the
+ * text each wrote there. Proposals list their members as siblings, so
+ * accepting one can remove the context another is anchored to. Each accepted
+ * one is a range of that shared text whose bytes may now differ; the text it
+ * wrote places the others exactly, and failing that every other byte must
+ * still match. Match on the operation's full before-text, not the base
+ * revision token: the same text recurs under many body revisions, and Comment
+ * AI suggestions carry the Page's updatedAt instead of a body token.
  */
 export async function acceptedRangesOnSameText(
   tx: DbExec,
   suggestion: Pick<ResourceSuggestion, "id" | "resourceId" | "adapterKind">,
   beforeMarkdown: string,
-): Promise<MarkdownRange[]> {
+): Promise<AcceptedSiblingRange[]> {
   const rows = (
-    await tx.execute({
-      sql: `SELECT o.anchor_json FROM agent_review_suggestions s
+    await tx.execute(sql`SELECT o.anchor_json, (o.after_json::jsonb ->> 'changedText') AS changed_text
+            FROM agent_review_suggestions s
             INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
-            WHERE s.resource_type = 'document' AND s.resource_id = ? AND s.adapter_kind = ?
-              AND s.status = 'accepted' AND s.id <> ?
-              AND (o.before_json::jsonb ->> 'markdown') = ?`,
-      args: [
-        suggestion.resourceId,
-        suggestion.adapterKind,
-        suggestion.id,
-        beforeMarkdown,
-      ],
-    })
+            WHERE s.resource_type = 'document'
+              AND s.resource_id = ${sql.value(suggestion.resourceId)}
+              AND s.adapter_kind = ${sql.value(suggestion.adapterKind)}
+              AND s.status = 'accepted' AND s.id <> ${sql.value(suggestion.id)}
+              AND (o.before_json::jsonb ->> 'markdown') = ${sql.value(beforeMarkdown)}`)
   ).rows;
   return rows.flatMap((row) => {
     const anchor = JSON.parse(
@@ -114,13 +111,19 @@ export async function acceptedRangesOnSameText(
     ) as Partial<MarkdownRange> | null;
     // Saved as a whole before and after, it has no range to excuse.
     if (anchor === null) return [];
-    return Number.isInteger(anchor.from) &&
-      Number.isInteger(anchor.to) &&
-      anchor.from! >= 0 &&
-      anchor.from! <= anchor.to! &&
-      anchor.to! <= beforeMarkdown.length
-      ? [{ from: anchor.from!, to: anchor.to! }]
-      : [];
+    const { from, to } = anchor;
+    if (
+      typeof from !== "number" ||
+      typeof to !== "number" ||
+      !Number.isInteger(from) ||
+      !Number.isInteger(to) ||
+      from < 0 ||
+      from > to ||
+      to > beforeMarkdown.length
+    )
+      return [];
+    const text: unknown = row.changed_text;
+    return [{ from, to, ...(typeof text === "string" && { text }) }];
   });
 }
 
@@ -162,7 +165,11 @@ async function acceptSteps(members: ResourceSuggestion[]) {
       )
         return [];
       const { from, to } = operationAnchor(step.operation);
-      return [{ from, to }];
+      const { changedText: text } = markdownPayload(
+        step.operation.after,
+        "after",
+      );
+      return [{ from, to, ...(typeof text === "string" && { text }) }];
     });
     steps.set(member.id, {
       operation,
