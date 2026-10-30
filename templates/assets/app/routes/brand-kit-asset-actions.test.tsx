@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -14,7 +14,11 @@ vi.mock("@agent-native/creative-context/client", () => ({
 
 import { AssetActionsMenu } from "./brand-kits.$id";
 
-afterEach(() => {
+let root: Root | undefined;
+
+afterEach(async () => {
+  if (root) await act(async () => root?.unmount());
+  root = undefined;
   document.body.replaceChildren();
   vi.unstubAllGlobals();
 });
@@ -28,9 +32,9 @@ it.each([
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const host = document.createElement("div");
     document.body.append(host);
-    const root = createRoot(host);
+    root = createRoot(host);
     await act(async () => {
-      root.render(
+      root?.render(
         createElement(
           MemoryRouter,
           {},
@@ -70,6 +74,5 @@ it.each([
     });
     expect(document.body.textContent).toContain(present);
     expect(document.body.textContent).not.toContain(absent);
-    await act(async () => root.unmount());
   },
 );
