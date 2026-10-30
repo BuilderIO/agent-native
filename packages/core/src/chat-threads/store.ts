@@ -261,10 +261,14 @@ export const chatThreadsStore = defineStore({
       // Stands in for the inbox entries of the folded schema list (v5–v8),
       // which a local boot skips: a database whose snapshot or baseline was
       // already recorded otherwise keeps the v5 inbox shape while the
-      // queued-submission queries select the v6/v8 columns.
+      // queued-submission queries select the v6/v8 columns. The ensure*
+      // wrappers probe the catalog first, so a hosted replay of this entry
+      // skips the lock-taking DDL once the shape exists.
       name: "chat-thread-inbox-runtime-schema",
-      sql: [
-        `CREATE TABLE IF NOT EXISTS agent_chat_submission_inbox (
+      run: async () => {
+        await ensureTableExists(
+          "agent_chat_submission_inbox",
+          `CREATE TABLE IF NOT EXISTS agent_chat_submission_inbox (
           thread_id TEXT NOT NULL,
           message_id TEXT NOT NULL,
           state TEXT NOT NULL,
@@ -286,14 +290,29 @@ export const chatThreadsStore = defineStore({
           updated_at BIGINT NOT NULL,
           PRIMARY KEY (thread_id, message_id)
         )`,
-        `CREATE INDEX IF NOT EXISTS agent_chat_submission_inbox_pending_idx
+        );
+        await ensureIndexExists(
+          "agent_chat_submission_inbox_pending_idx",
+          `CREATE INDEX IF NOT EXISTS agent_chat_submission_inbox_pending_idx
           ON agent_chat_submission_inbox (state, retry_after, interrupt_active_run DESC, move_to_top_at DESC, queue_order ASC)`,
-        "ALTER TABLE agent_chat_submission_inbox ADD COLUMN IF NOT EXISTS interrupt_run_id TEXT",
-        "ALTER TABLE agent_chat_submission_inbox ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0",
-        `CREATE INDEX IF NOT EXISTS agent_chat_submission_inbox_thread_pending_idx
+        );
+        await ensureColumnExists(
+          "agent_chat_submission_inbox",
+          "interrupt_run_id",
+          "ALTER TABLE agent_chat_submission_inbox ADD COLUMN IF NOT EXISTS interrupt_run_id TEXT",
+        );
+        await ensureColumnExists(
+          "agent_chat_submission_inbox",
+          "retry_count",
+          "ALTER TABLE agent_chat_submission_inbox ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0",
+        );
+        await ensureIndexExists(
+          "agent_chat_submission_inbox_thread_pending_idx",
+          `CREATE INDEX IF NOT EXISTS agent_chat_submission_inbox_thread_pending_idx
           ON agent_chat_submission_inbox (thread_id, interrupt_active_run DESC, move_to_top_at DESC, queue_order ASC)
           WHERE state = 'queued'`,
-      ],
+        );
+      },
     },
   ],
 });
