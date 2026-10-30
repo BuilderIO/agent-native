@@ -297,6 +297,9 @@ function getWaveformMediaUrl({
 }): string | null {
   if (!videoUrl) return null;
   if (!shouldProxyWaveformUrl(videoUrl)) {
+    if (videoUrl === "/api" || videoUrl.startsWith("/api/")) {
+      return appApiPath(videoUrl);
+    }
     return videoUrl.startsWith("/") ? `${appBasePath()}${videoUrl}` : videoUrl;
   }
 

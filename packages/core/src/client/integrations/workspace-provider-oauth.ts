@@ -5,7 +5,13 @@ export type WorkspaceProviderOAuthScope = "user" | "organization" | "app";
 
 export interface WorkspaceProviderOAuthOptions {
   appId: string;
+  /** A UI page to land on once the connection completes. */
   returnPath?: string;
+  /**
+   * A route on the app's server to land on instead, written relative to the
+   * server's own mount (for example its OAuth popup completion page).
+   */
+  serverReturnPath?: string;
   scope?: WorkspaceProviderOAuthScope;
 }
 
@@ -17,9 +23,10 @@ export function workspaceProviderOAuthUrl(
     appId: options.appId,
     scope: options.scope ?? "user",
   });
-  if (options.returnPath) {
-    params.set("return", serverAuthReturnPath(options.returnPath));
-  }
+  const returnTarget =
+    options.serverReturnPath ??
+    (options.returnPath ? serverAuthReturnPath(options.returnPath) : undefined);
+  if (returnTarget) params.set("return", returnTarget);
   return agentNativePath(
     `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,
   );

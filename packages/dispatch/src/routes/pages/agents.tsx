@@ -1,4 +1,4 @@
-import { apiBaseUrl } from "@agent-native/core/client/api-path";
+import { apiBaseUrl, appServerPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -43,8 +43,7 @@ interface McpAccessState {
 
 function dispatchMcpUrl(): string {
   const path = "/mcp";
-  const server = apiBaseUrl();
-  if (server) return new URL(path, server).href;
+  if (apiBaseUrl()) return appServerPath(path);
   if (typeof window === "undefined") return path;
   return new URL(path, window.location.origin).href;
 }

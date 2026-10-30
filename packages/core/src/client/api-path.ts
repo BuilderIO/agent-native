@@ -74,7 +74,11 @@ export function isApiBaseUrl(url: URL): boolean {
  */
 export function appServerPath(routerPath: string): string {
   const base = apiBaseUrl();
-  return base ? `${base}${routerPath}` : appPath(routerPath);
+  if (!base) return appPath(routerPath);
+  // appPath would install the client runtime; this branch skips it, and the
+  // credential interceptor must be in place before the first server request.
+  initializeAgentNativeClient();
+  return `${base}${routerPath}`;
 }
 
 export function isFrameworkRoutePath(pathname: string): boolean {

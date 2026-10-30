@@ -6,6 +6,7 @@ const apiBaseUrlState = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   apiBaseUrl: () => apiBaseUrlState.value,
+  appServerPath: (path: string) => `${apiBaseUrlState.value ?? ""}${path}`,
 }));
 
 import type { CreateSourceResponse } from "./brain";
@@ -55,6 +56,18 @@ describe("one-time Brain ingest handoff", () => {
         sourceKey: "generic-example",
       })?.endpoint,
     ).toBe(`https://api.brain.example.test${BRAIN_INGEST_PATH}`);
+  });
+
+  it("keeps the configured server's mount path", () => {
+    apiBaseUrlState.value = "https://api.example.test/brain";
+    expect(
+      createOneTimeIngestHandoff({
+        origin: "https://brain.example.test",
+        provider: "generic",
+        result: createdSource,
+        sourceKey: "generic-example",
+      })?.endpoint,
+    ).toBe(`https://api.example.test/brain${BRAIN_INGEST_PATH}`);
   });
 
   it("does not create a handoff for polling sources", () => {
