@@ -9,6 +9,7 @@ import { parseTimeParam } from "@/lib/time-param";
 
 export type ClipsView =
   | "library"
+  | "guide"
   | "screenshots"
   | "shared"
   | "spaces"
@@ -116,6 +117,12 @@ export function stateFromLocation(
   if (spaceMatch) {
     const spaceId = decodePathSegment(spaceMatch[1]);
     return spaceId ? { view: "space", spaceId } : { view: "library" };
+  }
+
+  const guideMatch = p.match(/^\/library\/folder\/([^/]+)\/guide$/);
+  if (guideMatch) {
+    const folderId = decodePathSegment(guideMatch[1]);
+    return folderId ? { view: "guide", folderId } : { view: "library" };
   }
 
   const folderMatch = p.match(/^\/library\/folder\/([^/]+)$/);
@@ -244,6 +251,10 @@ export function pathFromCommand(cmd: NavigateCommand): string {
       return cmd.dictationId
         ? `/dictate?dictationId=${encodeURIComponent(cmd.dictationId)}`
         : "/dictate";
+    case "guide":
+      return cmd.folderId
+        ? `/library/folder/${encodeURIComponent(cmd.folderId)}/guide`
+        : "/library";
     case "library":
     default:
       if (cmd.folderId) {
