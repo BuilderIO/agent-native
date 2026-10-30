@@ -1167,6 +1167,50 @@ describe("review store", () => {
     }
   });
 
+  it("takes the live replies of a root deleted before deletes took replies along, and leaves the root's own delete alone", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-legacy",
+      body: "Old root",
+      authorEmail: "alice@example.com",
+    });
+    const reply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-legacy",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Still here",
+      authorEmail: "bob@example.com",
+    });
+    const markDeleted = await pglite.prepare(
+      `UPDATE agent_review_comments
+          SET status = 'deleted', deleted_by = ?, deleted_at = ?
+        WHERE id = ?`,
+    );
+    await markDeleted.run(
+      "alice@example.com",
+      "2026-01-01T00:00:00.000Z",
+      root.id,
+    );
+
+    expect(await deleteReviewComment(root.id, "editor@example.com")).toBe(1);
+    expect(await deleteReviewComment(root.id, "editor@example.com")).toBe(0);
+
+    expect(
+      await getReviewCommentById(root.id, {}, { bypassScope: true }),
+    ).toMatchObject({
+      deletedBy: "alice@example.com",
+      deletedAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(
+      await getReviewCommentById(reply.id, {}, { bypassScope: true }),
+    ).toMatchObject({
+      status: "deleted",
+      body: "",
+      deletedBy: "editor@example.com",
+    });
+  });
+
   it("leaves who deleted a comment alone when it's deleted on its own while its thread is being deleted", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",

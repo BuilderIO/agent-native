@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import { resolveReviewableResourceAccess } from "../registry.js";
@@ -77,7 +77,18 @@ export default defineAction({
       },
     );
     if (updatedCount < 1) {
-      throw new Error("Review comment not found");
+      // A comment already deleted, as a repeated request finds it, stays as
+      // its first delete left it, and the request still succeeds.
+      // raw-sql-ok: the helper's statement is constant text; the id is bound.
+      const current = await getReviewCommentById(comment.id, scope, {
+        bypassScope: true,
+      });
+      if (current?.status !== "deleted") {
+        fail("Review comment not found", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
+      }
     }
     return { commentId: comment.id, deleted: true as const, updatedCount };
   },

@@ -1464,7 +1464,6 @@ export async function deleteReviewComment(
         String(other.id),
         actor,
         now,
-        { onlyLive: true },
       );
     }
     const replies = rest.filter((comment) => comment.parent_comment_id);
@@ -1542,15 +1541,13 @@ async function clearDeletedReviewComment(
   id: string,
   deletedBy: string | null,
   now: string,
-  { onlyLive = false }: { onlyLive?: boolean } = {},
 ): Promise<number> {
-  // A comment a thread delete takes along may have been deleted on its own
-  // since the thread was read; it keeps who deleted it and when.
-  const live = onlyLive ? sql` AND deleted_at IS NULL` : sql``;
+  // Only a live comment is cleared. One already deleted, earlier or on its own
+  // while its thread was being deleted, keeps who deleted it and when.
   for (let attempt = 0; attempt < DELETE_COMMENT_ATTEMPTS; attempt += 1) {
     const existing = await client.execute(sql`SELECT metadata_json
          FROM agent_review_comments
-        WHERE id = ${sql.value(id)}${live}
+        WHERE id = ${sql.value(id)} AND deleted_at IS NULL
         LIMIT 1`);
     const row = existing.rows[0] as Record<string, unknown> | undefined;
     if (!row) return 0;
@@ -1569,7 +1566,8 @@ async function clearDeletedReviewComment(
               deleted_by = ${sql.value(deletedBy)},
               deleted_at = ${sql.value(now)},
               updated_at = ${sql.value(now)}
-        WHERE id = ${sql.value(id)}${live}
+        WHERE id = ${sql.value(id)}
+          AND deleted_at IS NULL
           AND COALESCE(metadata_json, '') = ${sql.value(read)}`);
     if (result.rowsAffected > 0) return result.rowsAffected;
   }
