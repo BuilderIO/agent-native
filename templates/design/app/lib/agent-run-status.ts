@@ -1,9 +1,33 @@
 import {
+  isContinuationTerminalReason,
   readAgentRunStatus as readSharedAgentRunStatus,
   type AgentRunStatusRead,
 } from "@agent-native/core/client/agent-chat";
 
 export type { AgentRunStatusRead };
+
+const SETTLED_RUN_STATUSES = new Set([
+  "idle",
+  "completed",
+  "errored",
+  "aborted",
+]);
+
+/**
+ * Whether the thread has no run in progress and none waiting to continue.
+ * `unknown` is what the route reports for a thread it will not reveal, so it
+ * is never settled.
+ */
+export function isAgentRunSettled(
+  run: Extract<AgentRunStatusRead, { ok: true }>,
+): boolean {
+  if (run.active || run.awaitingRedispatch) return false;
+  if (!SETTLED_RUN_STATUSES.has(run.status)) return false;
+  const reason = run.terminalReason?.startsWith("aborted:")
+    ? run.terminalReason.slice("aborted:".length)
+    : run.terminalReason;
+  return !isContinuationTerminalReason(reason);
+}
 
 export interface PreviousRunBaseline {
   runId: string | null;

@@ -97,6 +97,24 @@ export interface CommentThreadBlock {
   blockType: string;
 }
 
+/**
+ * A thread on a Clip placed in the page, saved in Clips rather than with the
+ * page's own comments.
+ */
+export interface CommentThreadClip {
+  recordingId: string;
+  /** The thread's id in Clips. */
+  threadId: string;
+  /** The moment of the Clip's video the thread is at. */
+  videoTimestampMs: number;
+  /** Clips takes replies on this Clip from the reader. */
+  canComment: boolean;
+  /** Clips lets the reader resolve it: they wrote it, or own the Clip. */
+  canResolve: boolean;
+  /** Its replies in Clips, which can be more than the list brought. */
+  replyCount: number;
+}
+
 export interface CommentThread {
   threadId: string;
   quotedText: string | null;
@@ -108,6 +126,7 @@ export interface CommentThread {
   /** Set when the thread is in a Blocks field tab other than the body. */
   field?: CommentThreadField | null;
   block?: CommentThreadBlock | null;
+  clip?: CommentThreadClip | null;
   resolved: boolean;
   comments: Comment[];
 }
@@ -137,21 +156,21 @@ export interface CreateCommentVariables {
   documentId: string;
   content: string;
   threadId?: string;
-  parentId?: string;
-  quotedText?: string;
-  anchorPrefix?: string;
-  anchorSuffix?: string;
-  anchorStartOffset?: number;
+  parentId?: string | undefined;
+  quotedText?: string | undefined;
+  anchorPrefix?: string | undefined;
+  anchorSuffix?: string | undefined;
+  anchorStartOffset?: number | undefined;
   /** Starts a thread on this Property instead of on quoted text. */
   propertyId?: string;
   /** The Collection that owns propertyId. */
-  databaseId?: string;
+  databaseId?: string | undefined;
   /** Starts a thread in this Blocks field's tab instead of the body. */
   fieldId?: string;
   /** Starts a thread on this whole block instead of on quoted text. */
   blockId?: string;
   blockType?: CommentAnchorBlockType;
-  mentions?: string;
+  mentions?: string | undefined;
 }
 
 export interface EditCommentVariables {

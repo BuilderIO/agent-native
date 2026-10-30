@@ -1,4 +1,4 @@
-import { IconFlask } from "@tabler/icons-react";
+import { IconFlask, IconLoader2 } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -6,10 +6,13 @@ import { Button } from "@/components/ui/button";
 export function CanvasTestButton({
   label,
   disabled,
+  testing,
   onTest,
 }: {
   label: string;
   disabled?: boolean;
+  /** A test or a save is starting: the button shows a spinner while it stays disabled. */
+  testing?: boolean;
   onTest: () => void;
 }) {
   return (
@@ -19,7 +22,7 @@ export function CanvasTestButton({
       disabled={disabled}
       onClick={onTest}
     >
-      <IconFlask />
+      {testing ? <IconLoader2 className="animate-spin" /> : <IconFlask />}
       {label}
     </Button>
   );

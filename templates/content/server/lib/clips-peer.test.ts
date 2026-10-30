@@ -24,8 +24,9 @@ const jose = await import(pathToFileURL(coreRequire.resolve("jose")).href);
 const { resetAppConfigForTests } = await import("@agent-native/core/server");
 const {
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
-  CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
+  CONTENT_CLIP_COMMENT_TEXT_CHARS,
   CONTENT_CLIP_MAX_COMMENT_THREADS,
+  CONTENT_CLIP_MAX_LISTED_REPLIES,
 } = await import("../../shared/clips-peer-contract.js");
 const {
   CLIPS_ANSWER_MAX_BYTES,
@@ -377,15 +378,26 @@ describe("a Clips answer's size", () => {
   it("reads the longest comment list Clips' contract allows", async () => {
     // Every field at its cut length, each character escaped to six bytes.
     const escaped = (length: number) => "\u0001".repeat(length);
+    const comment = (id: string) => ({
+      id: id.padEnd(128, "x"),
+      authorEmail: escaped(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+      authorName: escaped(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+      content: escaped(CONTENT_CLIP_COMMENT_TEXT_CHARS),
+      createdAt: new Date(8.64e15).toISOString(),
+    });
+    // The replies Clips lists, spread over the threads it lists.
+    const repliesEach =
+      CONTENT_CLIP_MAX_LISTED_REPLIES / CONTENT_CLIP_MAX_COMMENT_THREADS;
     const body = JSON.stringify({
       comments: Array.from(
         { length: CONTENT_CLIP_MAX_COMMENT_THREADS },
         (_, index) => ({
-          id: String(index).padEnd(128, "x"),
-          authorEmail: escaped(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
-          authorName: escaped(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
-          content: escaped(CONTENT_CLIP_COMMENT_PREVIEW_CHARS),
+          ...comment(String(index)),
           videoTimestampMs: Number.MAX_SAFE_INTEGER,
+          replyCount: Number.MAX_SAFE_INTEGER,
+          replies: Array.from({ length: repliesEach }, (_, reply) =>
+            comment(`${index}-${reply}`),
+          ),
         }),
       ),
       truncated: true,

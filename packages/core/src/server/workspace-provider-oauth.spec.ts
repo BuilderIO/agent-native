@@ -103,6 +103,7 @@ import {
   shouldUseRootGoogleOAuthCallback,
   salesforceOAuthEndpoint,
   scopedOAuthAccountId,
+  tokenScopes,
   type WorkspaceProviderOAuthFlow,
 } from "./workspace-provider-oauth.js";
 
@@ -774,6 +775,114 @@ describe("workspace provider OAuth", () => {
     );
   });
 
+  it("records the scopes HubSpot granted on a personal connection", async () => {
+    const email = "requester@example.com";
+    defineAppConfig({ app: { id: "crm", workspaceId: "crm" } });
+    const redirectUri =
+      "https://example.test/_agent-native/connections/oauth/hubspot/callback";
+    const flow: WorkspaceProviderOAuthFlow = {
+      provider: "hubspot",
+      flowId: "hubspot-callback-flow-1",
+      verifier: "unused-verifier",
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      appId: "crm",
+      scope: "user",
+      expiresAt: Date.now() + 60_000,
+    };
+    const grantedScopes = [
+      "oauth",
+      "crm.objects.contacts.read",
+      "crm.objects.deals.write",
+      "crm.objects.notes.write",
+    ];
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key.endsWith("_CLIENT_ID")
+        ? "hubspot-client"
+        : key.endsWith("_CLIENT_SECRET")
+          ? "hubspot-secret"
+          : null,
+    );
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    callbackMocks.listWorkspaceConnections.mockResolvedValue([]);
+    callbackMocks.upsertWorkspaceConnection.mockResolvedValue({
+      id: "hubspot-connection-1",
+    } as never);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "hubspot-access-token",
+            refresh_token: "hubspot-refresh-token",
+            expires_in: 1800,
+            hub_id: 12345,
+            user_id: 678,
+            scopes: grantedScopes,
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            hub_id: 12345,
+            user_id: 678,
+            hub_domain: "example.hubspot.com",
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const state = encodeOAuthState({
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      app: "crm",
+      scope: "user",
+      provider: "hubspot",
+      flowId: flow.flowId,
+    });
+    const callbackUrl = new URL(redirectUri);
+    callbackUrl.searchParams.set("code", "hubspot-code");
+    callbackUrl.searchParams.set("state", state);
+    const event = {
+      req: new Request(callbackUrl, {
+        headers: {
+          cookie: `an_workspace_oauth_hubspot=${encodeURIComponent(
+            encryptSecretValue(JSON.stringify(flow)),
+          )}`,
+        },
+      }),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthCallback(event, "hubspot");
+
+    expect(result).toBeInstanceOf(Response);
+    expect(callbackMocks.upsertWorkspaceConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "hubspot",
+        allowedUsers: [email],
+        scopes: grantedScopes,
+      }),
+    );
+    expect(callbackMocks.upsertWorkspaceConnectionGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "hubspot-connection-1",
+        provider: "hubspot",
+        scopes: grantedScopes,
+      }),
+    );
+  });
+
   it.each([
     {
       existingAllowedApps: ["analytics"],
@@ -1148,6 +1257,37 @@ describe("workspace provider OAuth", () => {
     );
     expect(url.searchParams.get("owner")).toBe("user");
     expect(url.searchParams.has("code_challenge")).toBe(false);
+  });
+
+  it("lets the HubSpot app's own configuration decide the granted scopes", () => {
+    const provider = getWorkspaceConnectionProvider("hubspot")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "hubspot-client",
+        redirectUri:
+          "https://app.example.com/_agent-native/connections/oauth/hubspot/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+      }),
+    );
+
+    expect(url.origin + url.pathname).toBe(
+      "https://app.hubspot.com/oauth/authorize",
+    );
+    expect(url.searchParams.has("scope")).toBe(false);
+  });
+
+  it("reads granted scopes from a scope string or a scopes array", () => {
+    expect(tokenScopes({ scope: "api refresh_token" }, ["fallback"])).toEqual([
+      "api",
+      "refresh_token",
+    ]);
+    expect(
+      tokenScopes({ scopes: ["oauth", "crm.objects.deals.write", 7] }, []),
+    ).toEqual(["oauth", "crm.objects.deals.write"]);
+    expect(tokenScopes({ scopes: [] }, ["fallback"])).toEqual(["fallback"]);
+    expect(tokenScopes({}, [])).toEqual([]);
   });
 
   it("builds a GitHub authorization request from shared catalog metadata", () => {

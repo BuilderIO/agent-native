@@ -20,6 +20,7 @@ import { z } from "zod";
 
 import {
   factoryPollCursors,
+  factoryWorkflowDrafts,
   factoryWorkflowItemEvents,
   factoryWorkflowItemState,
   factoryWorkflowReceipts,
@@ -36,6 +37,7 @@ import {
   type RunRequest,
   type StoreClock,
   type StorePage,
+  type WorkflowDraftRecord,
   type WorkflowRecord,
   type WorkflowScope,
   type WorkflowStore,
@@ -71,6 +73,7 @@ import {
   parseStoredValue,
   prepareCreateWorkflow,
   prepareCursorValue,
+  prepareDraft,
   prepareEvent,
   prepareFinishRun,
   prepareGraph,
@@ -84,6 +87,7 @@ import {
   prepareStep,
   readContext,
   readCounters,
+  readDraftGraphJson,
   readGraph,
   readRunCounts,
   readSampleItemIds,
@@ -98,6 +102,7 @@ import {
 type WorkflowDatabase = PgDatabase<any, any>;
 
 type WorkflowRow = typeof factoryWorkflows.$inferSelect;
+type DraftRow = typeof factoryWorkflowDrafts.$inferSelect;
 type RunRow = typeof factoryWorkflowRuns.$inferSelect;
 type StepRow = typeof factoryWorkflowSteps.$inferSelect;
 type ItemStateRow = typeof factoryWorkflowItemState.$inferSelect;
@@ -157,6 +162,31 @@ function notFound(
   details?: Record<string, unknown>,
 ): WorkflowStoreError {
   return new WorkflowStoreError("not_found", message, details);
+}
+
+function draftOf(row: DraftRow): WorkflowDraftRecord {
+  return {
+    workflowId: row.workflowId,
+    ownerEmail: row.ownerEmail,
+    baseVersion: row.baseVersion,
+    graphJson: readDraftGraphJson(
+      row.graphJson,
+      `The draft of workflow "${row.workflowId}"`,
+    ),
+    updatedAt: row.updatedAt,
+  };
+}
+
+function draftWhere(
+  scope: WorkflowScope,
+  workflowId: string,
+  ownerEmail: string,
+): SQL {
+  return and(
+    eq(factoryWorkflowDrafts.workflowId, workflowId),
+    eq(factoryWorkflowDrafts.ownerEmail, ownerEmail),
+    scopeOf(factoryWorkflowDrafts, scope),
+  ) as SQL;
 }
 
 function scopeOf(
@@ -757,8 +787,96 @@ export function createDrizzleWorkflowStore(
           createdAt: now,
           createdBy: meta.createdBy,
         });
+        if (meta.discardDraftOf !== undefined) {
+          await tx
+            .delete(factoryWorkflowDrafts)
+            .where(draftWhere(scope, meta.workflowId, meta.discardDraftOf));
+        }
         return { ...summaryOf(moved[0]), graph };
       });
+    },
+
+    async saveWorkflowDraft(scope, input) {
+      assertScope(scope);
+      const draft = prepareDraft(input);
+      const now = nowIso();
+      const db = getDatabase();
+      return db.transaction(async (tx) => {
+        // The shared lock keeps a delete from finishing between this check and
+        // the write, which would leave a draft with no workflow.
+        const workflows = await tx
+          .select({ id: factoryWorkflows.id })
+          .from(factoryWorkflows)
+          .where(
+            and(
+              eq(factoryWorkflows.id, draft.workflowId),
+              scopeOf(factoryWorkflows, scope),
+            ),
+          )
+          .limit(1)
+          .for("share");
+        if (workflows.length === 0) {
+          throw notFound(`Workflow "${draft.workflowId}" was not found.`, {
+            workflowId: draft.workflowId,
+          });
+        }
+        const values = {
+          baseVersion: draft.baseVersion,
+          graphJson: draft.graphJson,
+          updatedAt: now,
+        };
+        await tx
+          .insert(factoryWorkflowDrafts)
+          .values({
+            workflowId: draft.workflowId,
+            orgId: scope.orgId,
+            factoryId: scope.factoryId,
+            ownerEmail: draft.ownerEmail,
+            ...values,
+          })
+          .onConflictDoUpdate({
+            target: [
+              factoryWorkflowDrafts.workflowId,
+              factoryWorkflowDrafts.ownerEmail,
+            ],
+            set: values,
+          });
+        return {
+          workflowId: draft.workflowId,
+          ownerEmail: draft.ownerEmail,
+          ...values,
+        };
+      });
+    },
+
+    async getWorkflowDraft(scope, workflowId, ownerEmail) {
+      assertScope(scope);
+      const rows = await getDatabase()
+        .select()
+        .from(factoryWorkflowDrafts)
+        .where(draftWhere(scope, workflowId, ownerEmail))
+        .limit(1);
+      for (const row of rows) return draftOf(row);
+      return null;
+    },
+
+    async hasWorkflowDraft(scope, workflowId, ownerEmail) {
+      assertScope(scope);
+      const rows = await getDatabase()
+        .select({ workflowId: factoryWorkflowDrafts.workflowId })
+        .from(factoryWorkflowDrafts)
+        .where(draftWhere(scope, workflowId, ownerEmail))
+        .limit(1);
+      return rows.length > 0;
+    },
+
+    async discardWorkflowDraft(scope, workflowId, ownerEmail) {
+      assertScope(scope);
+      const deleted = await getDatabase()
+        .delete(factoryWorkflowDrafts)
+        .where(draftWhere(scope, workflowId, ownerEmail))
+        .returning({ workflowId: factoryWorkflowDrafts.workflowId });
+      return deleted.length > 0;
     },
 
     async setWorkflowEnabled(scope, workflowId, enabled) {
@@ -879,6 +997,7 @@ export function createDrizzleWorkflowStore(
           factoryWorkflowItemEvents,
           factoryWorkflowReceipts,
           factoryWorkflowRunRequests,
+          factoryWorkflowDrafts,
         ] as const;
         for (const table of children) {
           await tx

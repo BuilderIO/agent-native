@@ -390,6 +390,10 @@ function emitLlmGenerationTrackingEvent(args: {
     experimentId: string;
     variantId: string;
   }>;
+  singularExperimentAssignment?: {
+    experimentId: string;
+    variantId: string;
+  };
   modelSelectionSource?: string;
   aiInput?: unknown;
   aiOutputChoices?: unknown;
@@ -505,7 +509,10 @@ function emitLlmGenerationTrackingEvent(args: {
     properties.experiment_variants = args.experimentAssignments
       .map((assignment) => assignment.variantId)
       .join(",");
-    const singular = singleNonHostedAssignment(args.experimentAssignments);
+    const singular = singleNonHostedAssignment(
+      args.experimentAssignments,
+      args.singularExperimentAssignment,
+    );
     if (singular) {
       properties.experiment_id = singular.experimentId;
       properties.experiment_variant = singular.variantId;
@@ -646,6 +653,10 @@ export async function instrumentAgentLoop(opts: {
     experimentId: string;
     variantId: string;
   }>;
+  singularExperimentAssignment?: {
+    experimentId: string;
+    variantId: string;
+  };
   modelSelectionSource?: string;
   delegation?: {
     protocol: "a2a" | "mcp" | "agent-team";
@@ -695,6 +706,10 @@ export async function instrumentAgentLoop(opts: {
 
   const browserSessionId =
     opts.browserSessionId ?? getRequestContext()?.browserSessionId;
+  const singularExperimentAssignment = singleNonHostedAssignment(
+    opts.experimentAssignments,
+    opts.singularExperimentAssignment,
+  );
 
   const otelRunSpanPromise = startAgentSpan("invoke_agent", {
     "gen_ai.operation.name": "invoke_agent",
@@ -704,11 +719,8 @@ export async function instrumentAgentLoop(opts: {
     "agent.run_id": runId,
     "agent.user_id": userId ?? undefined,
     "agent.model_selection_source": opts.modelSelectionSource,
-    "agent.experiment_id": singleNonHostedAssignment(opts.experimentAssignments)
-      ?.experimentId,
-    "agent.experiment_variant": singleNonHostedAssignment(
-      opts.experimentAssignments,
-    )?.variantId,
+    "agent.experiment_id": singularExperimentAssignment?.experimentId,
+    "agent.experiment_variant": singularExperimentAssignment?.variantId,
     "agent.hosted_model_experiment_variant": hostedModelExperimentVariant(
       opts.experimentAssignments,
     ),
@@ -1719,6 +1731,7 @@ export async function instrumentAgentLoop(opts: {
             createdAt: generation.createdAt,
             endedAt: generation.endedAt,
             experimentAssignments: opts.experimentAssignments,
+            singularExperimentAssignment: opts.singularExperimentAssignment,
             modelSelectionSource: opts.modelSelectionSource,
             browserSessionId,
             ...generationContent,

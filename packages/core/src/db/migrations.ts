@@ -118,26 +118,71 @@ export function splitSqlStatements(sql: string): string[] {
   const out: string[] = [];
   let buf = "";
   let i = 0;
-  let inSingle = false;
   while (i < sql.length) {
     const ch = sql[i];
     const next = sql[i + 1];
-    if (!inSingle && ch === "-" && next === "-") {
+    if (ch === "-" && next === "-") {
       while (i < sql.length && sql[i] !== "\n") i++;
       continue;
     }
-    if (ch === "'") {
-      buf += ch;
-      if (inSingle && next === "'") {
-        buf += next;
-        i += 2;
-        continue;
+    if (ch === "/" && next === "*") {
+      const start = i;
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql.startsWith("/*", i)) {
+          depth++;
+          i += 2;
+        } else if (sql.startsWith("*/", i)) {
+          depth--;
+          i += 2;
+        } else i++;
       }
-      inSingle = !inSingle;
-      i++;
+      if (depth) throw new Error("Unterminated SQL block comment");
+      buf += sql.slice(start, i);
       continue;
     }
-    if (ch === ";" && !inSingle) {
+    if (ch === "'" || ch === '"') {
+      const start = i++;
+      const escaped =
+        ch === "'" &&
+        /[eE]/.test(sql[start - 1] ?? "") &&
+        !/[\w$\u0080-\uFFFF]/.test(sql[start - 2] ?? "");
+      let closed = false;
+      while (i < sql.length) {
+        if (escaped && sql[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (sql[i] === ch) {
+          if (sql[i + 1] === ch) {
+            i += 2;
+            continue;
+          }
+          i++;
+          closed = true;
+          break;
+        }
+        i++;
+      }
+      if (!closed) throw new Error("Unterminated SQL quoted value");
+      buf += sql.slice(start, i);
+      continue;
+    }
+    if (ch === "$" && !/[\w$\u0080-\uFFFF]/.test(sql[i - 1] ?? "")) {
+      const tag =
+        /^\$(?:[A-Za-z_\u0080-\uFFFF][A-Za-z_0-9\u0080-\uFFFF]*)?\$/.exec(
+          sql.slice(i),
+        )?.[0];
+      if (tag) {
+        const end = sql.indexOf(tag, i + tag.length);
+        if (end < 0) throw new Error("Unterminated SQL dollar quote");
+        buf += sql.slice(i, end + tag.length);
+        i = end + tag.length;
+        continue;
+      }
+    }
+    if (ch === ";") {
       const trimmed = buf.trim();
       if (trimmed) out.push(trimmed);
       buf = "";

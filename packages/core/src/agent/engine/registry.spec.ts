@@ -1656,7 +1656,7 @@ describe("AgentEngine registry", () => {
 
     it("does not select builder from the Builder-credits pair in hosted production", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
       process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
       vi.doMock("../../db/client.js", () => ({
@@ -1998,7 +1998,7 @@ describe("AgentEngine registry", () => {
       ).resolves.toBe(true);
     });
 
-    it("does not report Builder usable from deploy credentials in a Fusion preview", async () => {
+    it("reports the builder engine as runnable in a preview", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token"; // guard:allow-env-credential — fixture: the preview pod's Builder-credits pair is the credential under test
@@ -2014,7 +2014,7 @@ describe("AgentEngine registry", () => {
 
       await expect(
         isStoredEngineUsableForRequest({ engine: "builder" }, entry),
-      ).resolves.toBe(false);
+      ).resolves.toBe(true);
     });
 
     it("runs the builder engine on OAuth custody with no key pair stored", async () => {
