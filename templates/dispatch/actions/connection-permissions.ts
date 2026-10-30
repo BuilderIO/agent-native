@@ -1,4 +1,5 @@
 import type { ActionRunContext } from "@agent-native/core/action";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   assertWorkspaceUserGroupManager,
@@ -6,6 +7,10 @@ import {
 } from "@agent-native/core/workspace-connections";
 
 import { dispatchAccess } from "../server/lib/app-roles.js";
+import {
+  findUngrantedVaultKeys,
+  type VaultCredentialRef,
+} from "../server/lib/vault-grants.js";
 
 const DISPATCH_APP_ID = "dispatch";
 
@@ -42,14 +47,50 @@ async function isDispatchAppAdmin(
   }
 }
 
+async function isOrgOwnerOrAdmin(
+  ctx: ActionRunContext | undefined,
+): Promise<boolean> {
+  if (!ctx?.orgId || !ctx.userEmail) return false;
+  const role = await readOrgMemberRole(
+    ctx.orgId,
+    ctx.userEmail.trim().toLowerCase(),
+  );
+  return role === "owner" || role === "admin";
+}
+
+// In manual vault mode only org owners and admins may hand an app a vault key,
+// so a Dispatch admin may not point a connection at a key Dispatch lacks.
+async function assertDispatchAdminVaultRefs(
+  ctx: ActionRunContext | undefined,
+  credentialRefs: VaultCredentialRef[],
+): Promise<void> {
+  if (credentialRefs.length === 0 || !ctx?.orgId) return;
+  if (await isOrgOwnerOrAdmin(ctx)) return;
+  // raw-sql-ok: not SQL; the query lives in vault-grants.ts with bound values
+  const ungranted = await findUngrantedVaultKeys(
+    ctx.orgId,
+    DISPATCH_APP_ID,
+    credentialRefs,
+  );
+  if (ungranted.length > 0) {
+    throw new ForbiddenError(
+      "Only workspace admins can use vault keys that are not granted to Dispatch: " +
+        ungranted.join(", ") +
+        ".",
+    );
+  }
+}
+
 export async function assertWorkspaceConnectionManager(
   ctx: ActionRunContext | undefined,
   allowedApps: string[] | undefined,
+  credentialRefs: VaultCredentialRef[] = [],
 ): Promise<void> {
   if (
     isDispatchOnlyConnectionScope(allowedApps) &&
     (await isDispatchAppAdmin(ctx))
   ) {
+    await assertDispatchAdminVaultRefs(ctx, credentialRefs);
     return;
   }
   await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
@@ -79,5 +120,6 @@ export async function assertWorkspaceConnectionGrantManager(
   await assertWorkspaceConnectionManager(
     ctx,
     canEditOnlyDispatchGrant ? [DISPATCH_APP_ID] : [],
+    granted ? connection.credentialRefs : [],
   );
 }

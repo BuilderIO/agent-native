@@ -2,6 +2,8 @@ import type { WorkspaceConnection } from "@agent-native/core/workspace-connectio
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
+  vaultMode: "all-apps" as "all-apps" | "manual",
+  vaultKeys: {} as Record<string, boolean>,
   roles: [] as string[],
   orgRole: "member",
   member: true,
@@ -11,6 +13,9 @@ const state = vi.hoisted(() => ({
 
 vi.mock("../../../../packages/core/dist/db/client.js", () => ({
   getDbExec: () => ({ execute: state.execute }),
+}));
+vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: async () => ({ mode: state.vaultMode }),
 }));
 vi.mock(
   "@agent-native/core/org",
@@ -60,12 +65,22 @@ function workspaceRoleLookups(): number {
 }
 
 beforeEach(() => {
+  state.vaultMode = "all-apps";
+  state.vaultKeys = {};
   state.roles = [];
   state.orgRole = "member";
   state.member = true;
   state.pendingRemoval = false;
   state.execute.mockReset();
   state.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+    if (sql.includes("vault_secrets")) {
+      return {
+        rows: Object.entries(state.vaultKeys).map(([key, granted]) => ({
+          credential_key: key,
+          granted: granted ? 1 : 0,
+        })),
+      };
+    }
     if (
       !state.member ||
       (state.pendingRemoval &&
@@ -157,6 +172,90 @@ describe("Dispatch connection administration", () => {
         "all-apps",
       ),
     ).rejects.toThrow("Only workspace admins");
+  });
+
+  describe("in manual vault mode", () => {
+    const ref = (key: string) => ({ key, scope: "org" as const });
+
+    beforeEach(() => {
+      state.vaultMode = "manual";
+      state.roles = ["admin"];
+    });
+
+    it("refuses a Dispatch admin a ref to a vault key the vault never granted", async () => {
+      state.vaultKeys = { SECRET_KEY: false };
+      await expect(
+        assertWorkspaceConnectionManager(
+          ctx,
+          ["dispatch"],
+          [ref("SECRET_KEY")],
+        ),
+      ).rejects.toThrow("SECRET_KEY");
+    });
+
+    it("allows a Dispatch admin a ref to a vault key granted to Dispatch", async () => {
+      state.vaultKeys = { SECRET_KEY: true };
+      await expect(
+        assertWorkspaceConnectionManager(
+          ctx,
+          ["dispatch"],
+          [ref("SECRET_KEY")],
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it("allows refs that are not vault keys", async () => {
+      await expect(
+        assertWorkspaceConnectionManager(
+          ctx,
+          ["dispatch"],
+          [ref("OAUTH_TOKEN")],
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it("lets an organization admin reference any vault key", async () => {
+      state.orgRole = "admin";
+      state.vaultKeys = { SECRET_KEY: false };
+      await expect(
+        assertWorkspaceConnectionManager(
+          ctx,
+          ["dispatch"],
+          [ref("SECRET_KEY")],
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it("does not restrict refs in all-apps mode", async () => {
+      state.vaultMode = "all-apps";
+      state.vaultKeys = { SECRET_KEY: false };
+      await expect(
+        assertWorkspaceConnectionManager(
+          ctx,
+          ["dispatch"],
+          [ref("SECRET_KEY")],
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it("refuses enabling Dispatch on a shared connection that references an ungranted vault key", async () => {
+      state.vaultKeys = { SECRET_KEY: false };
+      const shared = {
+        ...connection(["dispatch", "mail"]),
+        credentialRefs: [
+          { ...ref("SECRET_KEY"), provider: "example", label: "k" },
+        ],
+      };
+      await expect(
+        assertWorkspaceConnectionGrantManager(
+          ctx,
+          shared,
+          "dispatch",
+          true,
+          undefined,
+        ),
+      ).rejects.toThrow("SECRET_KEY");
+    });
   });
 
   it("denies a member without Dispatch administration", async () => {

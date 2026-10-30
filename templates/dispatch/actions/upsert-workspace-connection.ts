@@ -214,7 +214,14 @@ export default defineAction({
   needsApproval: true,
   allowPersistentApproval: false,
   run: async (args, ctx) => {
-    await assertWorkspaceConnectionManager(ctx, args.allowedApps);
+    await assertWorkspaceConnectionManager(
+      ctx,
+      args.allowedApps,
+      args.credentialRefs.map((ref) => ({
+        ...ref,
+        provider: ref.provider ?? args.provider,
+      })),
+    );
     const provider = getWorkspaceConnectionProvider(args.provider);
     if (!provider) {
       throw new Error(
