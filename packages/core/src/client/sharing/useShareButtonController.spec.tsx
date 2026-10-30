@@ -5,6 +5,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createShareQueryKey } from "./share-controller-helpers.js";
 import {
   useShareButtonController,
   type ShareButtonController,
@@ -277,6 +278,27 @@ describe("useShareButtonController agents", () => {
 
     await settle(() => second.resolve({ ok: true }));
     expect(current().inFlight.size).toBe(0);
+  });
+
+  it("keeps another save's refreshed list when a failed invite rolls back", async () => {
+    const key = createShareQueryKey({
+      resourceType: "deck",
+      resourceId: "deck-1",
+    });
+    queryClient.setQueryData(key, mocks.query.data);
+    await render();
+    await settle(() => current().selectAgent(writer));
+    await settle(() => current().handleAdd());
+    const failed = lastShareCall();
+    // Another save succeeded meanwhile and its refetch dropped the shared agent.
+    queryClient.setQueryData<ShareButtonSharesResponse>(key, (cached) =>
+      cached ? { ...cached, shares: cached.shares.slice(1) } : cached,
+    );
+
+    await settle(() => failed.reject(new Error("refused")));
+
+    const cached = queryClient.getQueryData<ShareButtonSharesResponse>(key);
+    expect(cached?.shares.map((share) => share.principalId)).toEqual([]);
   });
 
   it("drops the picked agent once the field is edited or a group is picked", async () => {
