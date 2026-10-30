@@ -67,7 +67,7 @@ function gh(args: string[], deadline: number): string {
   return execFileSync("gh", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: Math.max(1000, deadline - Date.now()),
+    timeout: Math.max(30_000, deadline - Date.now()),
   });
 }
 
