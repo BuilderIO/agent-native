@@ -20,15 +20,10 @@ import { builderCreditsFromCostCents } from "./store.js";
 
 const DAY_MS = 86_400_000;
 const DEFAULT_MONTHLY_USD = 20;
-// The earlier default: rows last saved before this cutoff and still exactly at
-// it move to the new one. The cutoff makes that one-time, so anyone who chooses
-// $100 a day afterward keeps it.
-const PREVIOUS_DEFAULT_DAILY_USD = 100;
-const PREVIOUS_DEFAULT_CUTOFF_MS = Date.UTC(2026, 9, 30, 21);
 
 export const USAGE_ALERT_DEFAULT_MONTHLY_USD = DEFAULT_MONTHLY_USD;
 /** @deprecated The default is monthly now. Use USAGE_ALERT_DEFAULT_MONTHLY_USD. */
-export const USAGE_ALERT_DEFAULT_DAILY_USD = PREVIOUS_DEFAULT_DAILY_USD;
+export const USAGE_ALERT_DEFAULT_DAILY_USD = 100;
 export const USAGE_ALERT_UNIT_SCALE = {
   usd: 100,
   "builder-credits": 1,
@@ -406,16 +401,7 @@ async function ensureDefaultRule(partition: ResolvedScope): Promise<void> {
         id, scope, owner_email, org_id, app_id, unit, period, limit_value,
         channels, enabled, is_default, dismissed_window_start, created_at, updated_at
       ) VALUES (?, ?, ?, ?, NULL, 'usd', 'month', ?, ?, 1, 1, NULL, ?, ?)
-      ON CONFLICT (id) DO UPDATE SET
-        limit_value = excluded.limit_value,
-        period = excluded.period,
-        dismissed_window_start = NULL,
-        updated_at = excluded.updated_at
-      WHERE usage_alert_rules.is_default = 1
-        AND usage_alert_rules.unit = 'usd'
-        AND usage_alert_rules.limit_value = ?
-        AND usage_alert_rules.period = 'day'
-        AND usage_alert_rules.updated_at < ?`,
+      ON CONFLICT (id) DO NOTHING`,
     args: [
       defaultRuleId(partition),
       partition.scope,
@@ -425,8 +411,6 @@ async function ensureDefaultRule(partition: ResolvedScope): Promise<void> {
       JSON.stringify(["in-app", "email"]),
       now,
       now,
-      PREVIOUS_DEFAULT_DAILY_USD * USAGE_ALERT_UNIT_SCALE.usd,
-      PREVIOUS_DEFAULT_CUTOFF_MS,
     ],
   });
 }

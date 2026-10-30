@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { __resetSchemaSnapshotForTests } from "../db/ddl-guard.js";
+import { USAGE_ALERT_MIGRATIONS } from "./migrations.js";
 import { builderCreditsFromCostCents } from "./store.js";
 
 const mockNotifyWithDelivery = vi.hoisted(() => vi.fn());
@@ -114,12 +115,17 @@ afterEach(async () => {
 });
 
 describe("usage alerts", () => {
-  it("moves a dismissed default and clears its dismissal", async () => {
-    await listUsageAlerts({ scope: "user" }, access);
-    await pglite.exec(
-      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', dismissed_window_start = 1, updated_at = 1",
-    );
+  it("moves defaults still at $100 a day once, and leaves other limits alone", async () => {
+    const move = async () => {
+      const migration = USAGE_ALERT_MIGRATIONS.find((m) => m.version === 4);
+      await pglite.exec(migration!.sql as string);
+    };
+    const [rule] = await listUsageAlerts({ scope: "user" }, access);
 
+    await pglite.exec(
+      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', dismissed_window_start = 1",
+    );
+    await move();
     expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
       {
         limit: 20,
@@ -133,19 +139,15 @@ describe("usage alerts", () => {
         )
       ).get(),
     ).toMatchObject({ dismissed_window_start: null });
-  });
-
-  it("keeps a $100 daily default chosen after the move", async () => {
-    const [rule] = await listUsageAlerts({ scope: "user" }, access);
 
     await saveUsageAlert(
-      { scope: "user", ruleId: rule!.id, limit: 100, period: "day" },
+      { scope: "user", ruleId: rule!.id, limit: 50, period: "day" },
       access,
     );
-
+    await move();
     expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
       {
-        limit: 100,
+        limit: 50,
         period: "day",
       },
     );
@@ -170,23 +172,6 @@ describe("usage alerts", () => {
     );
     await expect(save("tokens")).rejects.toThrow(
       "Usage alert limit must be greater than zero.",
-    );
-  });
-
-  it("moves a $100 daily default to $20 a month and leaves other limits alone", async () => {
-    await listUsageAlerts({ scope: "user" }, access);
-    await pglite.exec(
-      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', updated_at = 1",
-    );
-    expect((await listUsageAlerts({ scope: "user" }, access))[0]?.limit).toBe(
-      20,
-    );
-
-    await pglite.exec(
-      "UPDATE usage_alert_rules SET limit_value = 5000, period = 'day', updated_at = 1",
-    );
-    expect((await listUsageAlerts({ scope: "user" }, access))[0]?.limit).toBe(
-      50,
     );
   });
 
