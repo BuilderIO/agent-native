@@ -8,6 +8,7 @@ import {
   SlideSourceError,
 } from "../server/lib/slide-source.js";
 import { prepareReactSlideSource } from "../server/lib/slide-worker-runtime.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 
 export const slideSourceEditOpSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -121,6 +122,7 @@ export function slideSourceFailure(
 }
 
 export function readStoredSlideSource(
+  deckId: string,
   rawData: string,
   slideId: string,
 ): {
@@ -147,7 +149,7 @@ export function readStoredSlideSource(
       "invalid_deck_data",
     );
   }
-  const record = data as Record<string, unknown>;
+  const record = withUniqueSlideIds(deckId, data as Record<string, unknown>);
   if (!Array.isArray(record.slides)) {
     throw slideSourceFailure(
       "Deck has no slide list.",
@@ -155,26 +157,13 @@ export function readStoredSlideSource(
       "invalid_deck_data",
     );
   }
-  const matchingPositions: number[] = [];
-  for (const [index, slide] of record.slides.entries()) {
-    if (
+  const position = record.slides.findIndex(
+    (slide) =>
       slide &&
       typeof slide === "object" &&
       !Array.isArray(slide) &&
-      (slide as Record<string, unknown>).id === slideId
-    ) {
-      matchingPositions.push(index);
-    }
-  }
-  if (matchingPositions.length > 1) {
-    throw slideSourceFailure(
-      "Deck contains duplicate slide IDs.",
-      409,
-      "duplicate_deck_slide_ids",
-      { slideId },
-    );
-  }
-  const position = matchingPositions[0] ?? -1;
+      (slide as Record<string, unknown>).id === slideId,
+  );
   if (position < 0) {
     throw slideSourceFailure(
       `Slide not found: ${slideId}`,

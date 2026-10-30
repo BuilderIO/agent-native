@@ -6,6 +6,7 @@ import {
   slideFitMeasurementMatchesSlide,
   type DeckFitState,
 } from "../shared/slide-fit.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
@@ -92,7 +93,10 @@ export default defineAction({
     if (!access)
       throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
 
-    const deck = JSON.parse(access.resource.data) as {
+    const deck = withUniqueSlideIds(
+      deckId,
+      JSON.parse(access.resource.data),
+    ) as {
       aspectRatio?: string | null;
       slides?: Array<{ id: string; content?: string }>;
     };
