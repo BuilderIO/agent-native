@@ -3437,7 +3437,7 @@ function PendingUploadPreview({
   );
 }
 
-export function AssetActionsMenu({
+function AssetActionsMenu({
   asset,
   folders,
   busy,
@@ -3527,44 +3527,37 @@ export function AssetActionsMenu({
               {t("library.removeFromReferences")}
             </DropdownMenuItem>
           ) : null}
-          {asset.folderId ||
-          folders.some((folder) => folder.id !== asset.folderId) ? (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-                {t("library.moveTo")}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                {asset.folderId ? (
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      updateAsset.mutate({
-                        id: asset.id,
-                        folderId: null,
-                      })
-                    }
-                  >
-                    {t("library.unfiled")}
-                  </DropdownMenuItem>
-                ) : null}
-                {folders
-                  .filter((folder) => folder.id !== asset.folderId)
-                  .map((folder) => (
-                    <DropdownMenuItem
-                      key={folder.id}
-                      onSelect={() =>
-                        updateAsset.mutate({
-                          id: asset.id,
-                          folderId: folder.id,
-                        })
-                      }
-                    >
-                      {folder.title}
-                    </DropdownMenuItem>
-                  ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          ) : null}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.moveTo")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem
+                onSelect={() =>
+                  updateAsset.mutate({
+                    id: asset.id,
+                    folderId: null,
+                  })
+                }
+              >
+                {t("library.unfiled")}
+              </DropdownMenuItem>
+              {folders.map((folder) => (
+                <DropdownMenuItem
+                  key={folder.id}
+                  onSelect={() =>
+                    updateAsset.mutate({
+                      id: asset.id,
+                      folderId: folder.id,
+                    })
+                  }
+                >
+                  {folder.title}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             className="text-destructive focus:bg-destructive/10 focus:text-destructive"
