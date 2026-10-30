@@ -213,6 +213,27 @@ describe("user profile store", () => {
     warn.mockRestore();
   });
 
+  it("reports names as incomplete when the auth adapter cannot start", async () => {
+    getBetterAuthInternalAdapterMock.mockRejectedValue(new Error("auth down"));
+    getUserSettingMock.mockResolvedValue(null);
+
+    const result = await getUserProfilesWithStatus(["alice@example.com"]);
+
+    expect(result.profiles.get("alice@example.com")?.email).toBe(
+      "alice@example.com",
+    );
+    expect(result.incomplete).toBe(true);
+  });
+
+  it("reports names as complete when auth is not configured", async () => {
+    getBetterAuthSyncMock.mockReturnValue(false);
+
+    const result = await getUserProfilesWithStatus(["alice@example.com"]);
+
+    expect(result.profiles.get("alice@example.com")?.name).toBe("Saved Name");
+    expect(result.incomplete).toBe(false);
+  });
+
   it("reports names as incomplete when a per-email lookup fails", async () => {
     adapter.listUsers.mockRejectedValue(new Error("adapter down"));
     adapter.findUserByEmail.mockRejectedValue(new Error("auth down"));

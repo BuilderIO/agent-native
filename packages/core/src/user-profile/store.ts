@@ -18,10 +18,22 @@ import {
 } from "./shared.js";
 
 async function getAuthUser(email: string) {
-  if (!getBetterAuthSync()) return null;
+  return (await readAuthUser(email)).authUser;
+}
+
+/**
+ * The auth user for `email`, or null when there is none. `adapterFailed` is
+ * true when auth is configured but its adapter could not start, which is not
+ * the same as the person having no auth record.
+ */
+async function readAuthUser(email: string) {
+  if (!getBetterAuthSync()) return { authUser: null, adapterFailed: false };
   const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
-  if (!adapter) return null;
-  return adapter.findUserByEmail(email, { includeAccounts: false });
+  if (!adapter) return { authUser: null, adapterFailed: true };
+  return {
+    authUser: await adapter.findUserByEmail(email, { includeAccounts: false }),
+    adapterFailed: false,
+  };
 }
 
 function profileFromAuthUser(
@@ -84,17 +96,6 @@ function profileFromAuthUserAndStoredProfile(
   };
 }
 
-async function profileFromAuthUserWithStoredName(
-  email: string,
-  user: {
-    name?: string | null;
-    image?: string | null;
-    onboardingRole?: unknown;
-  },
-): Promise<UserProfile> {
-  return (await readAuthUserWithStoredName(email, user)).profile;
-}
-
 /** The auth profile with its stored name; `storedNameRead` is false on failure. */
 async function readAuthUserWithStoredName(
   email: string,
@@ -144,13 +145,22 @@ export async function getUserProfile(email: string): Promise<UserProfile> {
   return (await readUserProfile(email)).profile;
 }
 
-/** One person's profile, with whether their stored name could be read. */
+/** One person's profile; `complete` is false when a name source failed. */
 async function readUserProfile(
   email: string,
-): Promise<{ profile: UserProfile; storedNameRead: boolean }> {
-  const authUser = await getAuthUser(email);
-  if (authUser) return readAuthUserWithStoredName(email, authUser.user);
-  return { profile: await getStoredUserProfile(email), storedNameRead: true };
+): Promise<{ profile: UserProfile; complete: boolean }> {
+  const { authUser, adapterFailed } = await readAuthUser(email);
+  if (authUser) {
+    const { profile, storedNameRead } = await readAuthUserWithStoredName(
+      email,
+      authUser.user,
+    );
+    return { profile, complete: storedNameRead };
+  }
+  return {
+    profile: await getStoredUserProfile(email),
+    complete: !adapterFailed,
+  };
 }
 
 export async function getUserProfiles(
@@ -184,6 +194,8 @@ export async function getUserProfilesWithStatus(
   const adapter = getBetterAuthSync()
     ? await getBetterAuthInternalAdapter().catch(() => undefined)
     : undefined;
+  // Configured auth whose adapter cannot start loses every auth-only name.
+  if (getBetterAuthSync() && !adapter) incomplete = true;
   const profiles = new Map<string, UserProfile>();
   let batchLookupSucceeded = false;
   let storedProfiles: Map<string, Record<string, unknown> | null> | null = null;
@@ -277,9 +289,9 @@ export async function getUserProfilesWithStatus(
         incomplete = true;
         continue;
       }
-      const [email, { profile, storedNameRead }] = result.value;
+      const [email, { profile, complete }] = result.value;
       profiles.set(email, profile);
-      if (!storedNameRead) incomplete = true;
+      if (!complete) incomplete = true;
     }
   }
   return { profiles, incomplete };
