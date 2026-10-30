@@ -240,8 +240,11 @@ describe("editor-normalized revisions", () => {
             page.slice(anchor.to),
         ),
       ).toBe(after);
-      const [draft] = draftSuggestionAnchors(operations, after);
-      expect(after.slice(draft.from, draft.to)).toBe("Filled");
+      expect(
+        draftSuggestionAnchors(operations, after).map(({ from, to }) =>
+          after.slice(from, to),
+        ),
+      ).toEqual(["Filled"]);
     },
   );
 });
