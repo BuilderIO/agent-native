@@ -156,6 +156,18 @@ Real replies that missed, and what to send instead:
 - Use the connected Slack integration for every Slack read and write. Confirm
   the connected profile is Steve before the first write.
 
+## Dry run
+
+When the invocation says "dry run", run every step, but nothing reaches a
+reporter, a reviewer, or `main`:
+
+- No reactions or replies. Record each reaction you'd add and the exact reply
+  you'd send, linking the fix branch where the PR would go.
+- Treat other runs' claims as unclaimed; still honor Steve's `:mag:` and 👀.
+- Publish each fix group as its own branch; skip PRs, merges, `/ship`, and
+  issue comments.
+- Skip the Steve profile check; use the state the invocation names.
+
 ## 1. Collect (keep it under ~15 minutes)
 
 Work in a task-owned worktree on fresh `origin/main`. If you start in a shared
