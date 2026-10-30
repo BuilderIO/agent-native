@@ -1,6 +1,6 @@
 // guard:allow-unscoped — the signed-out reader of a public page sees only pages that are themselves public and not in the trash.
 import { safeParseIconValue, type IconValue } from "@agent-native/core/icons";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notInArray } from "drizzle-orm";
 
 import { softDeletedDatabaseDocumentExclusions } from "../../actions/_document-discovery-query.js";
 import {
@@ -183,6 +183,12 @@ export async function loadPublicReaderContext(doc: {
     parentId = parent.parentId;
   }
 
+  // A sub-page the body already links to is read where the author put it.
+  const pageLinks = await loadPageLinks(doc.content, doc.ownerEmail);
+  const linkedPageIds = [
+    ...new Set(Object.values(pageLinks).map((page) => page.id)),
+  ];
+
   const subPages = await db
     .select({
       id: schema.documents.id,
@@ -196,23 +202,18 @@ export async function loadPublicReaderContext(doc: {
         eq(schema.documents.visibility, "public"),
         isNull(schema.documents.trashedAt),
         ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
+        linkedPageIds.length
+          ? notInArray(schema.documents.id, linkedPageIds)
+          : undefined,
       ),
     )
     .orderBy(asc(schema.documents.position), asc(schema.documents.id))
     .limit(PUBLIC_READER_MAX_SUB_PAGES);
 
-  // A sub-page the body already links to is read where the author put it.
-  const pageLinks = await loadPageLinks(doc.content, doc.ownerEmail);
-  const linkedPageIds = new Set(
-    Object.values(pageLinks).map((page) => page.id),
-  );
-
   return {
     icon: publicReaderIcon(doc.icon),
     ancestors,
-    subPages: subPages
-      .filter((page) => !linkedPageIds.has(page.id))
-      .map(readerPage),
+    subPages: subPages.map(readerPage),
     pageLinks,
   };
 }

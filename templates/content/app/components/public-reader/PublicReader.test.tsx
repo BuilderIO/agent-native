@@ -18,6 +18,7 @@ const DOCUMENT = {
 
 function render(
   options: {
+    title?: string;
     reader?: Partial<PublicReaderContext>;
     basePath?: string;
     signedIn?: boolean;
@@ -25,7 +26,7 @@ function render(
 ) {
   return renderToStaticMarkup(
     createElement(PublicReader, {
-      document: DOCUMENT,
+      document: { ...DOCUMENT, title: options.title ?? DOCUMENT.title },
       reader: {
         icon: null,
         ancestors: [],
@@ -132,5 +133,11 @@ describe("public reader", () => {
 
   it("leaves the sub-page list out when there are none", () => {
     expect(render()).not.toContain("publicDocument.subPages");
+  });
+
+  it("titles a page with a blank title Untitled", () => {
+    expect(render({ title: "   " })).toMatch(
+      /<h1[^>]*>sidebar\.untitled<\/h1>/,
+    );
   });
 });

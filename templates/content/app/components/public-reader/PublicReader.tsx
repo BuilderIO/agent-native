@@ -197,7 +197,7 @@ export function PublicReader({
             reader.icon && "mt-4",
           )}
         >
-          {document.title}
+          {document.title.trim() || untitled}
         </h1>
         <p className="mt-4 text-sm text-muted-foreground">
           {t("publicDocument.updated", {

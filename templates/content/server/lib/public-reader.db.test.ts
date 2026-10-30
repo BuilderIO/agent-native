@@ -206,6 +206,24 @@ describe("public reader context", () => {
     expect(JSON.stringify(context)).not.toContain("Board minutes");
   });
 
+  it("fills the sub-page list past the ones the body links to", async () => {
+    const parent = await page({ title: "Index" });
+    const children: string[] = [];
+    for (let index = 0; index <= reader.PUBLIC_READER_MAX_SUB_PAGES; index++) {
+      children.push(await page({ parentId: parent, position: index }));
+    }
+    await db
+      .update(schema.documents)
+      .set({ content: `<page id="${children[0]}">First</page>` })
+      .where(eq(schema.documents.id, parent));
+
+    const context = await contextFor(parent);
+
+    expect(context.subPages.map((subPage) => subPage.id)).toEqual(
+      children.slice(1),
+    );
+  });
+
   it("reads hundreds of page blocks, in reading order, up to the limit", () => {
     const ids = Array.from(
       { length: reader.PUBLIC_READER_MAX_PAGE_LINKS + 1 },
