@@ -382,6 +382,13 @@ describe("deleteDeck", () => {
 
   it("is available to the agent as the same guarded delete action", () => {
     expect(deleteDeck.agentTool).not.toBe(false);
+    expect(deleteDeck.needsApproval).toBe(true);
+    expect(deleteDeck.allowPersistentApproval).toBe(false);
+    expect(deleteDeck.mcpAnnotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    });
   });
 
   it("does not read shares or delete a deck explicitly owned by another app", async () => {

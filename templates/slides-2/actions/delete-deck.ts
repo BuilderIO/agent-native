@@ -109,6 +109,8 @@ export default defineAction({
     id: z.string().min(1).describe("Deck ID"),
   }),
   http: { method: "DELETE" },
+  needsApproval: true,
+  allowPersistentApproval: false,
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
