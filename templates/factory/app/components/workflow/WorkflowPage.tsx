@@ -70,7 +70,13 @@ import {
 import { NodeDetailsDialog } from "./node-details/NodeDetailsDialog";
 import { RunPicker } from "./RunPicker";
 import { useParkedCounts } from "./use-parked-counts";
+import { useWorkflowDraft } from "./use-workflow-draft";
 import { WORKFLOW_CATALOG } from "./workflow-catalog";
+import {
+  planRestore,
+  type DraftRead,
+  type RestorePlan,
+} from "./workflow-drafts";
 import {
   buildAgentContext,
   buildEditorAppState,
@@ -87,9 +93,10 @@ import {
 } from "./workflow-errors";
 import { RECENT_RUNS, withRenamedWorkflow } from "./workflow-list-model";
 import { listProblems, type ProblemRow } from "./workflow-problems";
-import { runOverlay } from "./workflow-run-overlay";
+import { recordedStepsKey, runOverlay } from "./workflow-run-overlay";
 import { useWorkflowStrings } from "./workflow-strings";
 import type {
+  GetWorkflowDraftResult,
   GetWorkflowResult,
   ListRunsResult,
   ListWorkflowsResult,
@@ -132,7 +139,7 @@ export function WorkflowPage({
 
   if (query.data) {
     return (
-      <WorkflowEditorSurface
+      <WorkflowEditorLoader
         key={workflowId}
         factoryId={factoryId}
         workflowId={workflowId}
@@ -147,36 +154,122 @@ export function WorkflowPage({
       readActionFailure(query.error, ws.errors.unknown).errorCode ===
       "workflow_not_found";
     return (
-      <div className="flex h-full min-h-0 flex-col bg-background">
-        <Empty className="m-auto">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              {missing ? <IconSitemap /> : <IconAlertCircle />}
-            </EmptyMedia>
-            <EmptyTitle>
-              {missing ? ws.page.notFound : ws.page.loadFailed}
-            </EmptyTitle>
-          </EmptyHeader>
-          <EmptyContent>
-            {missing ? null : (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void query.refetch()}
-              >
-                {ws.page.retry}
-              </Button>
-            )}
-            <Button asChild type="button" variant="ghost" size="sm">
-              <Link to={backHref}>{ws.page.backToWorkflows}</Link>
-            </Button>
-          </EmptyContent>
-        </Empty>
-      </div>
+      <WorkflowLoadError
+        missing={missing}
+        onRetry={() => void query.refetch()}
+        backHref={backHref}
+      />
     );
   }
   return <WorkflowPageSkeleton backHref={backHref} />;
+}
+
+/** Why the workflow did not open: it is gone, or a read failed and Retry reads again. */
+function WorkflowLoadError({
+  missing,
+  onRetry,
+  backHref,
+}: {
+  missing: boolean;
+  onRetry: () => void;
+  backHref: string;
+}) {
+  const ws = useWorkflowStrings();
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <Empty className="m-auto">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            {missing ? <IconSitemap /> : <IconAlertCircle />}
+          </EmptyMedia>
+          <EmptyTitle>
+            {missing ? ws.page.notFound : ws.page.loadFailed}
+          </EmptyTitle>
+        </EmptyHeader>
+        <EmptyContent>
+          {missing ? null : (
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              {ws.page.retry}
+            </Button>
+          )}
+          <Button asChild type="button" variant="ghost" size="sm">
+            <Link to={backHref}>{ws.page.backToWorkflows}</Link>
+          </Button>
+        </EmptyContent>
+      </Empty>
+    </div>
+  );
+}
+
+/**
+ * Reads the person's draft beside the workflow and opens the editor only once
+ * both reads are settled, so an early edit can never be overwritten. A draft
+ * read that failed is not an empty one: the editor stays closed, because its
+ * next autosave would replace the draft it could not read.
+ */
+function WorkflowEditorLoader({
+  factoryId,
+  workflowId,
+  backHref,
+  workflow,
+  refetch,
+}: WorkflowPageProps & {
+  workflow: GetWorkflowResult;
+  refetch: () => Promise<GetWorkflowResult | undefined>;
+}) {
+  const ws = useWorkflowStrings();
+  const opened = useRef<RestorePlan | null>(null);
+  // Always read fresh and never kept: an older answer could hand back a draft that was discarded since.
+  const draftQuery = useActionQuery<GetWorkflowDraftResult>(
+    "get-factory-workflow-draft",
+    { factoryId, workflowId },
+    {
+      enabled: opened.current === null,
+      gcTime: 0,
+      staleTime: 0,
+      refetchOnMount: "always",
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    },
+  );
+
+  let plan = opened.current;
+  if (!plan && !draftQuery.isFetching) {
+    // A failed read wins over data the query kept from an earlier one.
+    const read: DraftRead | null = draftQuery.isError
+      ? {
+          status: "failed",
+          errorCode: readActionFailure(draftQuery.error, ws.errors.unknown)
+            .errorCode,
+        }
+      : draftQuery.data
+        ? { status: "read", draft: draftQuery.data.draft }
+        : null;
+    if (read) plan = planRestore(read, workflow.graph);
+    if (plan && plan.kind !== "failed") opened.current = plan;
+  }
+
+  if (!plan) return <WorkflowPageSkeleton backHref={backHref} />;
+  if (plan.kind === "failed") {
+    return (
+      <WorkflowLoadError
+        missing={false}
+        onRetry={() => void draftQuery.refetch()}
+        backHref={backHref}
+      />
+    );
+  }
+  return (
+    <WorkflowEditorSurface
+      factoryId={factoryId}
+      workflowId={workflowId}
+      backHref={backHref}
+      workflow={workflow}
+      refetch={refetch}
+      restore={plan}
+    />
+  );
 }
 
 /** The toolbar and canvas area at their final size, so the page does not jump when the graph arrives. */
@@ -224,9 +317,12 @@ function WorkflowEditorSurface({
   backHref,
   workflow,
   refetch,
+  restore,
 }: WorkflowPageProps & {
   workflow: GetWorkflowResult;
   refetch: () => Promise<GetWorkflowResult | undefined>;
+  /** How the editor opens over the person's draft. */
+  restore: RestorePlan;
 }) {
   const ws = useWorkflowStrings();
   const canvasStrings = useWorkflowCanvasStrings();
@@ -238,10 +334,15 @@ function WorkflowEditorSurface({
   const runParam = searchParams.get("run");
   const versionParam = readWorkflowParams(searchParams).version;
 
-  const [graph, setGraph] = useState<WorkflowGraph>(workflow.graph);
+  // A restored draft is unsaved edits to the version it was based on, which may be older than the one just read: the
+  // conflict check below then asks before a save overwrites it.
+  const restored = restore.kind === "restore" ? restore : null;
+  const [graph, setGraph] = useState<WorkflowGraph>(
+    restored?.graph ?? workflow.graph,
+  );
   const [saved, setSaved] = useState<Saved>({
     graph: workflow.graph,
-    version: workflow.version,
+    version: restored?.baseVersion ?? workflow.version,
   });
   const [saving, setSaving] = useState(false);
   const [serverIssues, setServerIssues] = useState<ServerIssue[]>([]);
@@ -263,6 +364,28 @@ function WorkflowEditorSurface({
   dirtyRef.current = dirty;
   const savingRef = useRef(saving);
   savingRef.current = saving;
+
+  const drafts = useWorkflowDraft({
+    factoryId,
+    workflowId,
+    graph,
+    baseVersion: saved.version,
+    dirty,
+    saving,
+    held:
+      restore.kind === "restore"
+        ? restore.wire
+        : restore.kind === "none" || restore.kind === "failed"
+          ? undefined
+          : true,
+  });
+  const announced = useRef(false);
+  useEffect(() => {
+    if (announced.current) return;
+    announced.current = true;
+    if (restore.kind === "restore") toast(ws.draft.restored);
+    else if (restore.kind === "unreadable") toast.warning(ws.draft.unreadable);
+  }, [restore, ws]);
 
   // Each write starts from the URL as it is now, not from the last render's copy: a selection change and a details
   // change in the same event must both land.
@@ -920,26 +1043,18 @@ function WorkflowEditorSurface({
       }),
     [runParam, runQuery.data, runStatus],
   );
-  // A node's audit and item data are read while its run is still going, so both are read again once the run settles.
-  const lastRun = useRef<{ id: string; status: string } | null>(null);
+  // A node's audit and item data can be read before the step that wrote them finished, and a run can end between that
+  // read and this page's first read of it, so both are read again whenever the steps the run recorded change.
+  const recordedSteps = recordedStepsKey(overlay?.stepByNodeId);
   useEffect(() => {
-    const run = runQuery.data?.run;
-    const before = lastRun.current;
-    lastRun.current = run ? { id: run.id, status: run.status } : null;
-    if (
-      run &&
-      run.status !== "running" &&
-      before?.id === run.id &&
-      before.status === "running"
-    ) {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-workflow-node-audit"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-workflow-node-data"],
-      });
-    }
-  }, [runQuery.data, queryClient]);
+    if (recordedSteps === "") return;
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "get-workflow-node-audit"],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "get-workflow-node-data"],
+    });
+  }, [recordedSteps, queryClient]);
 
   // The agent
 
@@ -1078,7 +1193,6 @@ function WorkflowEditorSurface({
         onProblemsOpenChange={setProblemsOpen}
         onJumpToProblem={jumpToProblem}
         testing={runMutation.isPending}
-        onTestRun={() => void testRun()}
         onRunNow={() => setRunNowOpen(true)}
         enabled={enabled}
         enabledPending={enableMutation.isPending}
@@ -1122,7 +1236,7 @@ function WorkflowEditorSurface({
               minimap={snapshot.graph.nodes.length >= MINIMAP_NODE_COUNT}
               onTest={() => void testRun()}
               unsaved={dirty}
-              testing={runMutation.isPending}
+              testing={runMutation.isPending || saving}
               onTestStep={(nodeId) => void testStep(nodeId, [])}
               recentNodeIds={recentNodeIds}
               onDescribeFirst={describeWorkflow}
@@ -1252,6 +1366,7 @@ function WorkflowEditorSurface({
             <AlertDialogAction
               onClick={() => {
                 leaving.current = true;
+                drafts.clear();
                 blocker.proceed?.();
               }}
             >

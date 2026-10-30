@@ -1,10 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRecordChange = vi.hoisted(() => vi.fn());
 const mockWhere = vi.hoisted(() => vi.fn());
+const mockResolveAccess = vi.hoisted(() => vi.fn());
+const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
+const mockCreateEventStream = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
-  createEventStream: vi.fn(),
+  createEventStream: (...args: unknown[]) => mockCreateEventStream(...args),
   defineEventHandler: (handler: unknown) => handler,
   setResponseStatus: vi.fn(),
 }));
@@ -13,8 +16,13 @@ vi.mock("@agent-native/core/server/poll", () => ({
   recordChange: (...args: unknown[]) => mockRecordChange(...args),
 }));
 
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
+}));
+
 vi.mock("./request-auth-context.js", () => ({
-  resolveSlidesRequestAuth: vi.fn(),
+  resolveSlidesRequestAuth: (...args: unknown[]) =>
+    mockResolveSlidesRequestAuth(...args),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -37,7 +45,7 @@ vi.mock("../db/index.js", () => ({
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
-import { notifyClients } from "./decks";
+import { deckEvents, notifyClients } from "./decks";
 
 describe("notifyClients", () => {
   beforeEach(() => {
@@ -176,6 +184,51 @@ describe("notifyClients", () => {
       resourceId: "deck-1",
       visibility: "public",
       deckId: "deck-1",
+    });
+  });
+
+  describe("SSE delivery", () => {
+    const closers: Array<() => void> = [];
+
+    function openStream(email: string, orgId?: string) {
+      const stream = {
+        push: vi.fn(),
+        send: vi.fn(),
+        onClosed: vi.fn((cb: () => void) => closers.push(cb)),
+      };
+      mockCreateEventStream.mockReturnValueOnce(stream);
+      mockResolveSlidesRequestAuth.mockResolvedValueOnce({
+        ok: true,
+        context: { email, orgId },
+      });
+      return { stream, connect: () => deckEvents({} as never) };
+    }
+
+    afterEach(() => {
+      closers.splice(0).forEach((close) => close());
+    });
+
+    it("delivers a deck change only to clients that can read the deck", async () => {
+      const allowed = openStream("reader@example.com");
+      const denied = openStream("stranger@example.com");
+      await allowed.connect();
+      await denied.connect();
+      mockResolveAccess.mockImplementation(
+        async (_type: string, _id: string, ctx: { userEmail: string }) =>
+          ctx.userEmail === "reader@example.com" ? { role: "viewer" } : null,
+      );
+      mockWhere.mockResolvedValue([
+        { ownerEmail: "dev@example.com", orgId: null, visibility: "private" },
+      ]);
+
+      await notifyClients("deck-1", { slideId: "a3", actor: "human" });
+
+      expect(allowed.stream.push).toHaveBeenCalledWith(
+        expect.stringContaining('"deckId":"deck-1"'),
+      );
+      expect(denied.stream.push).not.toHaveBeenCalledWith(
+        expect.stringContaining('"deckId":"deck-1"'),
+      );
     });
   });
 });

@@ -105,7 +105,7 @@ afterEach(() => {
 });
 
 describe("<ExportMenu> Google Slides availability", () => {
-  it("disables and badges the item when Google refuses the OAuth request", async () => {
+  it("badges the item but keeps it clickable when Google refuses the OAuth request", async () => {
     globalThis.fetch = vi.fn(async () =>
       statusResponse({
         googleSlidesExport: { available: false, reason: "oauth-rejected" },
@@ -116,10 +116,8 @@ describe("<ExportMenu> Google Slides availability", () => {
     openExportMenu();
 
     const item = await googleSlidesItem();
-    await vi.waitFor(() =>
-      expect(item.getAttribute("data-disabled")).not.toBeNull(),
-    );
-    expect(item.textContent).toContain("Unavailable");
+    await vi.waitFor(() => expect(item.textContent).toContain("Unavailable"));
+    expect(item.getAttribute("data-disabled")).toBeNull();
   });
 
   it("does not send the user to a broken Google consent screen", async () => {
@@ -134,11 +132,14 @@ describe("<ExportMenu> Google Slides availability", () => {
     openExportMenu();
 
     const item = await googleSlidesItem();
-    await vi.waitFor(() =>
-      expect(item.getAttribute("data-disabled")).not.toBeNull(),
-    );
+    await vi.waitFor(() => expect(item.textContent).toContain("Unavailable"));
     fireEvent.click(item);
 
+    await vi.waitFor(() =>
+      expect(
+        screen.getByText("Google Slides export is unavailable right now."),
+      ).toBeTruthy(),
+    );
     expect(onExportGoogleSlides).not.toHaveBeenCalled();
     expect(startWorkspaceProviderOAuth).not.toHaveBeenCalled();
   });

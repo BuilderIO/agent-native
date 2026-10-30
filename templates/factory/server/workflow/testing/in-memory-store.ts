@@ -21,6 +21,7 @@ import {
   type StartRunInput,
   type StoreClock,
   type StorePage,
+  type WorkflowDraftRecord,
   type WorkflowRecord,
   type WorkflowScope,
   type WorkflowStore,
@@ -49,6 +50,7 @@ import {
   normalizeInstant,
   prepareCreateWorkflow,
   prepareCursorValue,
+  prepareDraft,
   prepareEvent,
   prepareFinishRun,
   prepareGraph,
@@ -60,6 +62,7 @@ import {
   prepareSaveWorkflowGraph,
   prepareStartRun,
   prepareStep,
+  readDraftGraphJson,
   receiptTransitionError,
   resolveLimit,
   uniqueItemIds,
@@ -111,6 +114,14 @@ interface VersionRow extends ScopedRow {
   createdBy: string;
 }
 
+interface DraftRow extends ScopedRow {
+  workflowId: string;
+  ownerEmail: string;
+  baseVersion: number;
+  graphJson: string;
+  updatedAt: string;
+}
+
 interface RunRow extends ScopedRow {
   seq: number;
   run: RunRecord;
@@ -160,6 +171,23 @@ function sameScope(row: ScopedRow, scope: WorkflowScope): boolean {
   return row.orgId === scope.orgId && row.factoryId === scope.factoryId;
 }
 
+function draftKey(workflowId: string, ownerEmail: string): string {
+  return `${workflowId}${SEP}${ownerEmail}`;
+}
+
+function draftOf(row: DraftRow): WorkflowDraftRecord {
+  return {
+    workflowId: row.workflowId,
+    ownerEmail: row.ownerEmail,
+    baseVersion: row.baseVersion,
+    graphJson: readDraftGraphJson(
+      row.graphJson,
+      `The draft of workflow "${row.workflowId}"`,
+    ),
+    updatedAt: row.updatedAt,
+  };
+}
+
 function compareText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -174,6 +202,7 @@ export interface InMemoryStoreState {
   sequence: { workflow: number; run: number; row: number; request: number };
   workflows: Map<string, WorkflowRow>;
   versions: Map<string, VersionRow[]>;
+  drafts: Map<string, DraftRow>;
   runs: Map<string, RunRow>;
   tickKeys: Map<string, string>;
   steps: Map<string, StepRow>;
@@ -190,6 +219,7 @@ export function createInMemoryStoreState(): InMemoryStoreState {
     sequence: { workflow: 0, run: 0, row: 0, request: 0 },
     workflows: new Map(),
     versions: new Map(),
+    drafts: new Map(),
     runs: new Map(),
     tickKeys: new Map(),
     steps: new Map(),
@@ -215,6 +245,7 @@ export function createInMemoryWorkflowStore(
     sequence,
     workflows,
     versions,
+    drafts,
     runs,
     tickKeys,
     steps,
@@ -509,6 +540,9 @@ export function createInMemoryWorkflowStore(
         );
       }
       const now = nowIso();
+      if (meta.discardDraftOf !== undefined) {
+        drafts.delete(draftKey(meta.workflowId, meta.discardDraftOf));
+      }
       row.version += 1;
       // The new version has had no dry run, so no tick may find it on.
       row.enabled = false;
@@ -524,6 +558,35 @@ export function createInMemoryWorkflowStore(
         createdBy: meta.createdBy,
       });
       return recordOf(row);
+    },
+
+    async saveWorkflowDraft(scope, input) {
+      assertScope(scope);
+      const draft = prepareDraft(input);
+      requireWorkflow(scope, draft.workflowId);
+      const row: DraftRow = { ...scope, ...draft, updatedAt: nowIso() };
+      drafts.set(draftKey(draft.workflowId, draft.ownerEmail), row);
+      return draftOf(row);
+    },
+
+    async getWorkflowDraft(scope, workflowId, ownerEmail) {
+      assertScope(scope);
+      const row = drafts.get(draftKey(workflowId, ownerEmail));
+      return row && sameScope(row, scope) ? draftOf(row) : null;
+    },
+
+    async hasWorkflowDraft(scope, workflowId, ownerEmail) {
+      assertScope(scope);
+      const row = drafts.get(draftKey(workflowId, ownerEmail));
+      return row !== undefined && sameScope(row, scope);
+    },
+
+    async discardWorkflowDraft(scope, workflowId, ownerEmail) {
+      assertScope(scope);
+      const key = draftKey(workflowId, ownerEmail);
+      const row = drafts.get(key);
+      if (!row || !sameScope(row, scope)) return false;
+      return drafts.delete(key);
     },
 
     async setWorkflowEnabled(scope, workflowId, enabled) {
@@ -585,6 +648,9 @@ export function createInMemoryWorkflowStore(
       if (!row || !sameScope(row, scope)) return false;
       workflows.delete(workflowId);
       versions.delete(workflowId);
+      for (const [key, draft] of drafts) {
+        if (draft.workflowId === workflowId) drafts.delete(key);
+      }
       for (const [id, run] of runs) {
         if (run.run.workflowId !== workflowId) continue;
         runs.delete(id);

@@ -331,3 +331,5 @@ took in and put out in a run; not lookup or action responses or AI answers).
 To show something, `navigate` with
 `/factory?factoryId=<id>&workflow=<id>` plus `node=`, `edge=`, `run=` or
 `version=`.
+
+- A person's unsaved edits in the editor autosave as a private draft, and `get-factory-workflow` returns `hasDraft` (true when this person has one). When it is true, say so before saving a new version, because the editor will then offer Keep my changes or Load latest; the agent never reads or writes drafts.

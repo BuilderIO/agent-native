@@ -77,9 +77,31 @@ export const CONTENT_CLIP_PLAYBACK_GRANT_SECONDS = 5 * 60;
 /**
  * The most comment threads one comment-list call returns. Content asks with
  * `?limit=<n>`, n from 1 to this, and gets the first n thread starts by video
- * time, with `truncated: true` when there are more. Replies never come back.
+ * time, with `truncated: true` when there are more. Replies come back only in
+ * the open-threads view.
  */
 export const CONTENT_CLIP_MAX_COMMENT_THREADS = 500;
+
+/**
+ * The comment list for a document's comment margin, asked for with
+ * `?view=open-threads`: open threads only, each with `createdAt`, its text
+ * cut to `CONTENT_CLIP_COMMENT_TEXT_CHARS` rather than the preview length,
+ * `replyCount`, and `replies` oldest first, each `{ id, authorEmail,
+ * authorName, content, createdAt }` cut the same way. At most
+ * `CONTENT_CLIP_MAX_LISTED_REPLIES` replies come back across the list, from
+ * the earliest thread on, so a thread whose `replies` is shorter than its
+ * `replyCount` had some held back. A Clips from before this view ignores it
+ * and answers with no `replies`.
+ */
+export const CONTENT_CLIP_OPEN_THREADS_VIEW = "open-threads";
+export const CONTENT_CLIP_COMMENT_TEXT_CHARS = 2_000;
+export const CONTENT_CLIP_MAX_LISTED_REPLIES = 500;
+
+/** The longest comment or reply Content may add or edit a Clip comment to. */
+export const CONTENT_CLIP_MAX_COMMENT_CHARS = 10_000;
+
+/** The latest moment of a video a comment from Content may sit at. */
+export const CONTENT_CLIP_MAX_VIDEO_TIMESTAMP_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * A listed thread start's text is cut to this many characters, and its

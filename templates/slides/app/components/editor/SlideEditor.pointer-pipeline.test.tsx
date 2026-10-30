@@ -917,7 +917,10 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     const html = () => editor.el("table").outerHTML;
     const before = html();
 
+    // A press in a cell edits its text, empty or not; Escape leaves the cell
+    // selected as an object.
     editor.click("emptyCell", { x: 310, y: 110 });
+    fireEvent.keyDown(editor.el("emptyCell"), { key: "Escape" });
     expect(editor.lastSelected()).toBe(editor.el("emptyCell"));
     expect(editor.outlineBox()).not.toBeNull();
     expect(document.querySelector("[data-slide-resize-handle]")).toBeNull();
@@ -1589,8 +1592,9 @@ describe("SlideEditor pointer pipeline Alt-drag of a multi-selection", () => {
     expect(updates).toHaveLength(1);
     const objects = placements(updates[0]);
     expect(objects).toHaveLength(2);
-    expect(objects[0]).toMatchObject({ left: "120px", top: "265px" });
-    expect(objects[1]).toMatchObject({ left: "120px", top: "320px" });
+    // The pair's top-left lands on the 8px grid; the card keeps its offset.
+    expect(objects[0]).toMatchObject({ left: "120px", top: "264px" });
+    expect(objects[1]).toMatchObject({ left: "120px", top: "319px" });
   });
 
   it("moves the originals when Alt is released on the drop itself", async () => {
@@ -1602,7 +1606,7 @@ describe("SlideEditor pointer pipeline Alt-drag of a multi-selection", () => {
 
     const objects = placements(updates[0]);
     expect(objects).toHaveLength(2);
-    expect(objects[0]).toMatchObject({ left: "120px", top: "265px" });
+    expect(objects[0]).toMatchObject({ left: "120px", top: "264px" });
   });
 
   it("removes the copies and persists nothing when Escape cancels (oracle 4.7)", async () => {

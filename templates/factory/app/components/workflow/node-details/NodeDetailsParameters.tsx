@@ -55,6 +55,7 @@ export function NodeDetailsParameters({
   dirty,
   starting,
   onTestStep,
+  onAskAgent,
 }: {
   sectionRef: RefObject<HTMLDivElement | null>;
   editor: WorkflowEditor;
@@ -79,6 +80,8 @@ export function NodeDetailsParameters({
   starting: boolean;
   /** Resolves to whether the run started. */
   onTestStep: (nodeId: string, sampleItemIds: string[]) => Promise<boolean>;
+  /** Runs just before the History tab hands the step to the agent. */
+  onAskAgent: () => void;
 }) {
   const ws = useWorkflowStrings();
   const pickerScope = useMemo(() => ({ factoryId }), [factoryId]);
@@ -163,6 +166,7 @@ export function NodeDetailsParameters({
               title={title}
               runId={runId ?? undefined}
               onClose={() => setTab("parameters")}
+              onAskAgent={onAskAgent}
             />
           )}
         </TabsContent>

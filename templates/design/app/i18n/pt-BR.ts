@@ -440,6 +440,7 @@ export default {
       font: "Fonte",
       baseSize: "Tamanho básico",
       size: "Tamanho",
+      fontSizes: "Escala tipográfica",
       weight: "Peso",
       color: "Cor",
       align: "Alinhar",
@@ -890,6 +891,10 @@ export default {
       right: "R",
       bottom: "B",
       left: "eu",
+    },
+    fontPicker: {
+      catalogUnavailable:
+        "Não foi possível carregar a biblioteca completa de fontes.",
     },
     fontFamilies: {
       inherit: "Herdar",
@@ -2888,8 +2893,6 @@ export default {
       dismiss: "Dispensar",
     },
     import: "Importar",
-    importOptions: "Opções de importação",
-    figmaLink: "Link do Figma",
     importFromFigma: "Importar do Figma",
     figmaFile: "Arquivo do Figma (.fig)",
     figmaFileMaxSize: "Até {{max}} GB",
@@ -3427,6 +3430,7 @@ export default {
     updateFailed: "Não foi possível atualizar o comentário",
     commentsInCluster: "Comentários no grupo: {{count}}",
     moreActions: "Mais ações",
+    moreActionsFor: "Mais ações para {{author}}",
     copyLink: "Copiar link",
     linkCopied: "Link copiado",
     copyLinkFailed: "Não foi possível copiar o link",
@@ -3446,6 +3450,7 @@ export default {
     addEmoji: "Adicionar emoji",
     mention: "Mencionar alguém",
     noMentions: "Nenhuma pessoa encontrada",
+    mentionsFailed: "Não foi possível carregar as pessoas",
     reopen: "Reabrir",
     reopening: "Reabrindo…",
     undo: "Desfazer",
@@ -3501,7 +3506,6 @@ export default {
     },
     filtersActive: "Filtros aplicados",
     suggestChanges: "Sugerir alterações",
-    replyInThread: "Responder na conversa",
     applyChangesAndResolve: "Aplicar alterações e resolver",
     agent: {
       sectionLabel: "Agentes",

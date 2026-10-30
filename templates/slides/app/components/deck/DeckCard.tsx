@@ -15,7 +15,7 @@ import {
   IconStar,
   IconStarFilled,
 } from "@tabler/icons-react";
-import { useState, useRef } from "react";
+import { memo, useState, useRef } from "react";
 import { Link } from "react-router";
 
 import {
@@ -28,7 +28,7 @@ import {
 import type { Deck } from "@/context/DeckContext";
 import { getDeckListingPreviewFrameStyle } from "@/lib/deck-preview-frame";
 
-import ShareDialog from "../editor/ShareDialog";
+import { DeckShareButton } from "../editor/DeckShareButton";
 import SlideRenderer from "./SlideRenderer";
 
 interface DeckCardProps {
@@ -42,7 +42,7 @@ interface DeckCardProps {
   onSetWorkspaceDefault?: (id: string, isDefault: boolean) => void;
 }
 
-export default function DeckCard({
+function DeckCard({
   deck,
   onDelete,
   onRename,
@@ -93,7 +93,8 @@ export default function DeckCard({
   };
 
   return (
-    <div className="agent-template-library-card group relative min-w-0">
+    // Off-screen cards skip layout and paint until they scroll near.
+    <div className="agent-template-library-card group relative min-w-0 [contain-intrinsic-size:auto_240px] [content-visibility:auto]">
       <Link
         to={`/deck/${deck.id}`}
         className="agent-template-library-primary block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
@@ -225,11 +226,11 @@ export default function DeckCard({
               }}
             >
               <IconPencil className="w-3.5 h-3.5 me-2" />
-              Rename
+              {t("home.renameDeck")}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onDuplicate(deck.id)}>
               <IconCopy className="w-3.5 h-3.5 me-2" />
-              Duplicate
+              {t("home.duplicateDeck")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={(event) => {
@@ -277,7 +278,7 @@ export default function DeckCard({
               className="text-red-400 focus:text-red-400"
             >
               <IconTrash className="w-3.5 h-3.5 me-2" />
-              Delete
+              {t("home.deleteDeck")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -298,7 +299,29 @@ export default function DeckCard({
           canManage={deck.createdByMe}
         />
       ) : null}
-      <ShareDialog deck={deck} open={shareOpen} onOpenChange={setShareOpen} />
+      {shareOpen ? (
+        <DeckShareButton
+          deckId={deck.id}
+          deckTitle={deck.title}
+          deckVisibility={deck.visibility}
+          hasSlides={Boolean(firstSlide)}
+          hideTrigger
+          anchor={
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute end-2 top-10 size-px"
+            />
+          }
+          defaultOpen
+          onOpenChange={(open) => {
+            if (!open) setShareOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
+
+// A card re-renders only when its own deck or handlers change, not when any
+// other deck in the grid does.
+export default memo(DeckCard);
