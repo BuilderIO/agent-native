@@ -1584,11 +1584,6 @@ export default function Index({ active = true }: { active?: boolean }) {
     const googleDocUrls = hasImportedGoogleDocContext
       ? []
       : extractGoogleDocUrls(trimmedPrompt);
-    const fileContext = describeUploadedFilesForAgent(
-      filesForGeneration,
-      deckId,
-      importedSourceDeck,
-    );
     const googleDocContext = [
       additionalContext,
       googleDocUrls.length > 0
@@ -1731,6 +1726,11 @@ export default function Index({ active = true }: { active?: boolean }) {
               : "Use the Figma source as the design reference. If Builder or Figma access is required, report the exact connection step instead of guessing.",
         ].join("\n")
       : "";
+    const fileContext = describeUploadedFilesForAgent(
+      filesForGeneration,
+      deckId,
+      importedSourceDeck,
+    );
     const sourceDeckContext = importedSourceDeck
       ? [
           "",
