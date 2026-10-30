@@ -31,6 +31,14 @@ async function run(): Promise<void> {
   }
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!databaseUrl) fail("DATABASE_URL is required for the Postgres probe");
+  const databaseName = decodeURIComponent(
+    new URL(databaseUrl).pathname.slice(1),
+  );
+  if (!databaseName || databaseName === "postgres") {
+    fail(
+      "DATABASE_URL must name an isolated probe database other than postgres",
+    );
+  }
 
   process.env.SITE_NAME = SITE_NAME;
   const coreRequire = createRequire(path.resolve("packages/core/package.json"));
@@ -47,6 +55,7 @@ async function run(): Promise<void> {
   };
   const observer = postgresModule.default(databaseUrl, {
     max: 1,
+    database: "postgres",
     connection: { application_name: "neon-query-budget-observer" },
   });
 
@@ -55,12 +64,13 @@ async function run(): Promise<void> {
       const [sessionRow] = await observer<{ sessions: string | number }>`
         SELECT sessions
         FROM pg_stat_database
-        WHERE datname = current_database()
+        WHERE datname = ${databaseName}
       `;
       const [connectionRow] = await observer<{ count: string | number }>`
         SELECT count(*) AS count
         FROM pg_stat_activity
-        WHERE application_name = ${DATABASE_APPLICATION_NAME}
+        WHERE datname = ${databaseName}
+          AND application_name = ${DATABASE_APPLICATION_NAME}
       `;
       if (!sessionRow || !connectionRow) {
         fail("PostgreSQL did not return session and connection statistics");
@@ -81,7 +91,18 @@ async function run(): Promise<void> {
       observedOpenConnections.push(stats.openConnections);
     }
 
-    const newConnections = Math.max(...observedSessionCounts);
+    await closeDbExec();
+    const deadline = Date.now() + 5_000;
+    // Backend exit flushes cumulative statistics before removing pg_stat_activity.
+    while ((await readStats()).openConnections !== 0) {
+      if (Date.now() >= deadline)
+        fail("PostgreSQL probe connections did not close");
+    }
+    const finalStats = await readStats();
+    const newConnections = finalStats.sessions - baseline.sessions;
+    if (!Number.isSafeInteger(newConnections) || newConnections < 1) {
+      fail(`PostgreSQL returned an invalid session delta: ${newConnections}`);
+    }
     const maxOpenConnections = Math.max(...observedOpenConnections);
     const report = {
       coldRequests: 1,

@@ -1338,6 +1338,7 @@ async function callTargetCreateEmbedSession(input: {
   token: string;
   url: string;
   chrome?: "full" | "minimal";
+  firstPartyMcp?: boolean;
 }): Promise<unknown> {
   const serverId = "target";
   const deadline = Date.now() + TARGET_EMBED_SESSION_BUDGET_MS;
@@ -1350,6 +1351,9 @@ async function callTargetCreateEmbedSession(input: {
             url: input.mcpUrl,
             headers: {
               Authorization: `Bearer ${input.token}`,
+              ...(input.firstPartyMcp
+                ? { "x-agent-native-mcp-inline-apps": "1" }
+                : {}),
             },
           },
         },
@@ -1401,12 +1405,14 @@ async function callTargetCreateEmbedSession(input: {
 type TargetMcpCredential = {
   strategy: "deployment-user" | "org-member-delegation";
   token: string;
+  firstPartyMcp?: boolean;
 };
 
 async function createTargetMcpUserCredentials(input: {
   mcpUrl: string;
   ownerEmail: string;
   orgId?: string;
+  firstPartyMcp?: boolean;
 }): Promise<{
   credentials: TargetMcpCredential[];
   loadOrgMemberCredential: () => Promise<TargetMcpCredential | undefined>;
@@ -1415,15 +1421,33 @@ async function createTargetMcpUserCredentials(input: {
   const orgDomain = input.orgId
     ? (await getOrgDomain(input.orgId))?.trim().toLowerCase() || undefined
     : undefined;
+  if (input.firstPartyMcp && input.orgId && !orgDomain) {
+    throw new Error("Workspace organization domain is unavailable.");
+  }
   const credentials: TargetMcpCredential[] = [];
   if (getGlobalA2ASecret()) {
     credentials.push({
       strategy: "deployment-user",
-      token: await signA2AToken(input.ownerEmail, undefined, undefined, {
-        expiresIn: "5m",
-        audience,
-        preferGlobalSecret: true,
-      }),
+      ...(input.firstPartyMcp ? { firstPartyMcp: true } : {}),
+      token: await signA2AToken(
+        input.ownerEmail,
+        input.firstPartyMcp ? orgDomain : undefined,
+        undefined,
+        {
+          expiresIn: "5m",
+          audience,
+          preferGlobalSecret: true,
+          ...(input.firstPartyMcp
+            ? {
+                extraClaims: {
+                  jti: globalThis.crypto.randomUUID(),
+                  scope: "mcp-connect",
+                  agent_native_first_party_mcp: true,
+                },
+              }
+            : {}),
+        },
+      ),
     });
   }
 
@@ -1658,6 +1682,7 @@ async function createEmbedSessionForResolvedApp(input: {
   orgId?: string;
   target: { app: DispatchMcpAccessibleApp; path: string; url: string };
   chrome?: "full" | "minimal";
+  workspaceSso?: boolean;
 }): Promise<{
   startUrl: string;
   targetPath?: string;
@@ -1681,9 +1706,16 @@ async function createEmbedSessionForResolvedApp(input: {
   }
 
   const targetMcpUrl = appMcpUrl(target.app);
+  const firstPartyMcp =
+    input.workspaceSso === true &&
+    isWorkspaceSsoAppUrl(
+      { id: target.app.id, url: targetMcpUrl },
+      { nodeEnv: "production", environmentLane: requestEnvironmentLane() },
+    );
   const targetCredentials = await createTargetMcpUserCredentials({
     mcpUrl: targetMcpUrl,
     ownerEmail,
+    ...(firstPartyMcp ? { firstPartyMcp: true } : {}),
     ...(orgId !== undefined ? { orgId } : {}),
   });
   const targetDetails = targetMcpRequestDetails({
@@ -1708,6 +1740,7 @@ async function createEmbedSessionForResolvedApp(input: {
       const result = await callTargetCreateEmbedSession({
         mcpUrl: targetMcpUrl,
         token: credential.token,
+        ...(credential.firstPartyMcp ? { firstPartyMcp: true } : {}),
         url: target.url,
         ...(chrome !== undefined ? { chrome } : {}),
       });
@@ -1820,6 +1853,7 @@ async function createWorkspaceSsoEmbedSessionResult(input: {
     orgId: getRequestOrgId(),
     target,
     chrome: input.chrome,
+    workspaceSso: true,
   });
 }
 

@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   FONT_FAMILY_OPTIONS,
+  FontSizeField,
   VisualFontFamilyPicker,
   VisualColorPicker,
   VisualControlRow,
@@ -12,6 +13,7 @@ import {
 } from "@agent-native/toolkit/design-tweaks";
 import type { DesignSystemData } from "@shared/api";
 import {
+  IconAdjustmentsHorizontal,
   IconAlignCenter,
   IconAlignJustified,
   IconAlignLeft,
@@ -29,6 +31,7 @@ import {
   IconChevronDown,
   IconClearFormatting,
   IconCode,
+  IconCrop,
   IconDots,
   IconFrame,
   IconEyeglass,
@@ -42,7 +45,6 @@ import {
   IconLayoutAlignMiddle,
   IconLayoutAlignRight,
   IconLayoutAlignTop,
-  IconLetterCase,
   IconLineHeight,
   IconLink,
   IconList,
@@ -60,7 +62,6 @@ import {
   IconSquare,
   IconStack2,
   IconStrikethrough,
-  IconTextResize,
   IconUnderline,
   IconUnlink,
   IconVideo,
@@ -72,6 +73,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -91,6 +93,11 @@ import type { ContextToolbarQuickPick } from "@/lib/editor-agent-handoff";
 import type { VideoPlaybackSettings } from "@/lib/slide-video";
 import { cn, normalizeLinkHref, shortcutLabel } from "@/lib/utils";
 
+import {
+  deckHeadingSizes,
+  SLIDE_FONT_SIZE_MAX,
+  SLIDE_FONT_SIZE_MIN,
+} from "./font-size-scale";
 import type { SlideListKind } from "./list-editing";
 import type {
   SlideObjectAlignment,
@@ -112,17 +119,23 @@ import {
 const TOOLBAR_DIVIDER = "mx-1 h-4 w-px shrink-0 bg-border";
 const SCRUB_CLASS = "w-24 shrink-0";
 const DIMENSION_CLASS = "w-[76px] shrink-0";
-const SIZE_SCRUB_CLASS = "w-28 shrink-0 gap-0.5";
+// Every control in the toolbar row is one 24px box with a 16px icon and a
+// 12px chevron, so the row's icons and text share one center line.
+const FONT_SIZE_FIELD_CLASS = "h-6 w-16 shrink-0";
+const HEADING_LABEL_KEYS = {
+  h1: "slideTextMenu.heading1",
+  h2: "slideTextMenu.heading2",
+  h3: "slideTextMenu.heading3",
+} as const;
 const MENU_BUTTON_CLASS =
-  "size-7 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground";
+  "size-6 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground [&_svg]:size-4";
 const TOGGLE_ACTIVE_CLASS = "bg-accent text-foreground";
 const MENU_TRIGGER_BASE =
-  "flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:shrink-0";
 const ICON_MENU_CLASS = `${MENU_TRIGGER_BASE} text-muted-foreground hover:text-foreground`;
 const MINI_TRIGGER_CLASS =
   "flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-input bg-background px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-const CARET_CLASS =
-  "size-0 shrink-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70";
+const SWATCH_TRIGGER_CLASS = "h-6 w-6";
 const inlineEditSurfaceProps = {
   "data-slide-inline-edit-surface": "true",
 };
@@ -171,6 +184,7 @@ function OpacityScrub({ snapshot, onChange, className }: StyleScrubProps) {
       max={100}
       step={5}
       unit="%"
+      precision={0}
       className={className}
       onChange={(opacity) => onChange({ opacity: String(opacity / 100) })}
     />
@@ -238,12 +252,17 @@ function ToolbarButton({
   );
 }
 
+type SurfaceProps = typeof inlineEditSurfaceProps & {
+  onCloseAutoFocus?: (event: Event) => void;
+};
+
 function ToolbarMenu({
   label,
   icon: Icon,
   caret = false,
   width = "w-40",
   triggerClassName,
+  contentProps = inlineEditSurfaceProps,
   children,
 }: {
   label: string;
@@ -251,6 +270,7 @@ function ToolbarMenu({
   caret?: boolean;
   width?: string;
   triggerClassName?: string;
+  contentProps?: SurfaceProps;
   children: ReactNode;
 }) {
   return (
@@ -264,22 +284,26 @@ function ToolbarMenu({
               aria-label={label}
             >
               <Icon className="size-4" />
-              {caret && <span aria-hidden="true" className={CARET_CLASS} />}
+              {caret && (
+                <IconChevronDown
+                  aria-hidden="true"
+                  className="size-3 text-muted-foreground"
+                />
+              )}
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent>{label}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent
-        align="start"
-        className={width}
-        {...inlineEditSurfaceProps}
-      >
+      <DropdownMenuContent align="start" className={width} {...contentProps}>
         {children}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
+
+const TYPABLE_TARGET =
+  "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 
 export function SlideContextToolbar({
   snapshot,
@@ -311,12 +335,14 @@ export function SlideContextToolbar({
   onToggleLayers,
   imageFit,
   onReplaceImage,
+  onCropImage,
   onImageFitChange,
   inlineFormatting = false,
   onTextFormat,
   onSetLink,
   onOpenAgent,
   onAgentQuickPick,
+  onReturnFocus,
 }: {
   snapshot: SlideStyleSnapshot | null;
   background: string | undefined;
@@ -347,6 +373,8 @@ export function SlideContextToolbar({
   onToggleLayers?: () => void;
   imageFit?: "cover" | "contain";
   onReplaceImage?: () => void;
+  /** Present only when the selected image can be cropped. */
+  onCropImage?: () => void;
   onImageFitChange?: (fit: "cover" | "contain") => void;
   /** Code and link only exist inside a live text edit. */
   inlineFormatting?: boolean;
@@ -354,13 +382,29 @@ export function SlideContextToolbar({
   onSetLink?: (href: string | null) => void;
   onOpenAgent?: () => void;
   onAgentQuickPick?: (pick: ContextToolbarQuickPick) => void;
+  /**
+   * Takes focus back when a menu or popover closes, so the canvas keeps its
+   * keyboard shortcuts after a toolbar action.
+   */
+  onReturnFocus?: () => void;
   zoomControls?: {
     value: number;
     presets: readonly number[];
     onSelect: (value: number) => void;
+    fitted?: boolean;
+    onFit?: () => void;
   };
 }) {
   const t = useT();
+  const surfaceProps: SurfaceProps = onReturnFocus
+    ? {
+        ...inlineEditSurfaceProps,
+        onCloseAutoFocus: (event) => {
+          event.preventDefault();
+          onReturnFocus();
+        },
+      }
+    : inlineEditSurfaceProps;
   // The field holds what was typed until the object paints it; a refused
   // rotation never will, so the field starts over from what the object paints.
   const [refusedRotations, setRefusedRotations] = useState(0);
@@ -410,11 +454,9 @@ export function SlideContextToolbar({
   const isItalic =
     !mixedTextStyles.includes("fontStyle") &&
     (snapshot?.fontStyle ?? "").startsWith("italic");
-  const sizeFor = (value: number, meta?: { relativeDelta?: number }) => {
-    const delta = meta?.relativeDelta;
-    if (typeof delta !== "number") return value;
-    return Math.min(160, Math.max(8, (snapshot?.fontSize ?? 0) + delta));
-  };
+  const headingSizes = deckHeadingSizes(designSystem).map(
+    ({ level, value }) => ({ label: t(HEADING_LABEL_KEYS[level]), value }),
+  );
   const decorationMixed = mixedTextStyles.includes("textDecoration");
   const decoration = decorationMixed ? "" : (snapshot?.textDecoration ?? "");
   const isUnderline = decoration.includes("underline");
@@ -519,6 +561,7 @@ export function SlideContextToolbar({
         value={snapshot.width}
         min={0}
         unit="px"
+        precision={0}
         className={DIMENSION_CLASS}
         onChange={(width) =>
           onChange({
@@ -550,6 +593,7 @@ export function SlideContextToolbar({
         value={snapshot.height}
         min={0}
         unit="px"
+        precision={0}
         className={DIMENSION_CLASS}
         onChange={(height) =>
           onChange({
@@ -586,7 +630,12 @@ export function SlideContextToolbar({
   );
 
   const orderMenu = onArrange && (
-    <ToolbarMenu label={t("contextToolbar.order")} icon={IconStack2} caret>
+    <ToolbarMenu
+      label={t("contextToolbar.order")}
+      icon={IconStack2}
+      caret
+      contentProps={surfaceProps}
+    >
       <DropdownMenuItem onSelect={() => onArrange("front")}>
         {t("styleInspector.bringToFront")}
       </DropdownMenuItem>
@@ -620,7 +669,7 @@ export function SlideContextToolbar({
                 className={MENU_BUTTON_CLASS}
                 aria-label={t("styleInspector.position")}
               >
-                <IconLayoutAlignLeft className="size-3.5" />
+                <IconLayoutAlignLeft className="size-4" />
               </Button>
             </PopoverTrigger>
           </TooltipTrigger>
@@ -629,7 +678,7 @@ export function SlideContextToolbar({
         <PopoverContent
           align="start"
           className="w-60 space-y-2 p-2"
-          {...inlineEditSurfaceProps}
+          {...surfaceProps}
         >
           {snapshot.isAbsolute && (
             <>
@@ -679,11 +728,7 @@ export function SlideContextToolbar({
               className={MENU_BUTTON_CLASS}
               aria-label={t("styleInspector.controls")}
             >
-              {snapshot.isText ? (
-                <IconTextResize className="size-4" />
-              ) : (
-                <IconDots className="size-3.5" />
-              )}
+              <IconAdjustmentsHorizontal />
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
@@ -692,7 +737,7 @@ export function SlideContextToolbar({
       <PopoverContent
         align="end"
         className="w-64 space-y-3 p-2"
-        {...inlineEditSurfaceProps}
+        {...surfaceProps}
       >
         {snapshot.isText && (
           <>
@@ -709,6 +754,7 @@ export function SlideContextToolbar({
               labelClassName="w-8 justify-center"
               value={snapshot.x}
               unit="px"
+              precision={0}
               onChange={(x) => onChange({ left: `${formatValue(x)}px` })}
             />
             <VisualScrubInput
@@ -717,6 +763,7 @@ export function SlideContextToolbar({
               labelClassName="w-8 justify-center"
               value={snapshot.y}
               unit="px"
+              precision={0}
               onChange={(y) => onChange({ top: `${formatValue(y)}px` })}
             />
           </div>
@@ -736,7 +783,7 @@ export function SlideContextToolbar({
                 allowTransparent
                 variant="filled"
                 className="rounded-sm"
-                contentProps={inlineEditSurfaceProps}
+                contentProps={surfaceProps}
                 onChange={(value) => onChange({ backgroundColor: value })}
               />
             </VisualControlRow>
@@ -747,7 +794,7 @@ export function SlideContextToolbar({
                 documentColors={documentColors}
                 variant="filled"
                 className="rounded-sm"
-                contentProps={inlineEditSurfaceProps}
+                contentProps={surfaceProps}
                 onChange={(value) => onChange({ borderColor: value })}
               />
             </VisualControlRow>
@@ -778,6 +825,7 @@ export function SlideContextToolbar({
               max={120}
               step={2}
               unit="px"
+              precision={0}
               onChange={(padding) =>
                 onChange({
                   paddingLeft: `${formatValue(padding)}px`,
@@ -794,6 +842,7 @@ export function SlideContextToolbar({
               max={120}
               step={2}
               unit="px"
+              precision={0}
               onChange={(padding) =>
                 onChange({
                   paddingTop: `${formatValue(padding)}px`,
@@ -815,29 +864,40 @@ export function SlideContextToolbar({
         options={fontFamilyOptions}
         mixed={fontFamilyIsMixed}
         mixedLabel={t("styleInspector.mixed")}
+        searchable
+        searchPlaceholder={t("styleInspector.fontPicker.search")}
+        documentFonts={[
+          designSystem?.typography.headingFont ?? "",
+          designSystem?.typography.bodyFont ?? "",
+        ].filter(Boolean)}
+        labels={{
+          documentFonts: t("styleInspector.fontPicker.inThisDeck"),
+          allFonts: t("styleInspector.fontPicker.allFonts"),
+          catalogUnavailable: t("styleInspector.fontPicker.catalogUnavailable"),
+        }}
         className={cn(
           MENU_TRIGGER_BASE,
-          "h-8 w-[126px] justify-between border border-input bg-background px-2.5 text-sm font-normal shadow-none focus:ring-0 focus:ring-offset-0",
+          "h-6 w-auto min-w-[120px] max-w-[200px] justify-between border border-input bg-background px-2 text-xs font-normal shadow-none focus:ring-0 focus:ring-offset-0",
         )}
-        contentProps={inlineEditSurfaceProps}
+        contentProps={surfaceProps}
         onChange={(value) => onChange({ fontFamily: value })}
       />
-      <VisualScrubInput
+      <FontSizeField
         label={t("styleInspector.size")}
-        icon={IconLetterCase}
-        prefix="icon"
-        steppers
-        decrementLabel={t("styleInspector.decreaseSize")}
-        incrementLabel={t("styleInspector.increaseSize")}
+        openLabel={t("styleInspector.fontSizes")}
         value={snapshot.fontSize}
-        min={8}
-        max={160}
+        namedSizes={headingSizes}
+        namedSizesLabel={t("styleInspector.deckSizes")}
+        min={SLIDE_FONT_SIZE_MIN}
+        max={SLIDE_FONT_SIZE_MAX}
         unit="px"
         mixed={mixedTextStyles.includes("fontSize")}
         mixedLabel={t("styleInspector.mixed")}
-        className={SIZE_SCRUB_CLASS}
-        onChange={(fontSize, meta) =>
-          onChange({ fontSize: `${formatValue(sizeFor(fontSize, meta))}px` })
+        className={FONT_SIZE_FIELD_CLASS}
+        inputClassName="!text-xs"
+        contentProps={surfaceProps}
+        onChange={(fontSize) =>
+          onChange({ fontSize: `${formatValue(fontSize)}px` })
         }
       />
       <Divider />
@@ -848,8 +908,9 @@ export function SlideContextToolbar({
         mixed={mixedTextStyles.includes("color")}
         mixedLabel={t("styleInspector.mixed")}
         variant="swatch"
-        glyph="A"
-        contentProps={inlineEditSurfaceProps}
+        textColor
+        className={SWATCH_TRIGGER_CLASS}
+        contentProps={surfaceProps}
         onChange={(value) => onChange({ color: value })}
       />
       <ToolbarButton
@@ -936,7 +997,7 @@ export function SlideContextToolbar({
             <PopoverContent
               align="start"
               className="w-64 p-2"
-              {...inlineEditSurfaceProps}
+              {...surfaceProps}
             >
               <form
                 className="flex items-center gap-1"
@@ -964,6 +1025,7 @@ export function SlideContextToolbar({
       )}
       {onToggleList && (
         <ToolbarMenu
+          contentProps={surfaceProps}
           label={t("contextToolbar.listStyle")}
           icon={IconList}
           caret
@@ -987,6 +1049,7 @@ export function SlideContextToolbar({
         </ToolbarMenu>
       )}
       <ToolbarMenu
+        contentProps={surfaceProps}
         label={t("styleInspector.align")}
         icon={alignIcon(snapshot.textAlign)}
         caret
@@ -1019,11 +1082,7 @@ export function SlideContextToolbar({
           </TooltipTrigger>
           <TooltipContent>{t("contextToolbar.lineHeight")}</TooltipContent>
         </Tooltip>
-        <PopoverContent
-          align="start"
-          className="w-44 p-2"
-          {...inlineEditSurfaceProps}
-        >
+        <PopoverContent align="start" className="w-44 p-2" {...surfaceProps}>
           <VisualScrubInput
             label={t("styleInspector.line")}
             icon={IconLineHeight}
@@ -1067,7 +1126,7 @@ export function SlideContextToolbar({
                 documentColors={documentColors}
                 allowTransparent
                 variant="swatch"
-                contentProps={inlineEditSurfaceProps}
+                contentProps={surfaceProps}
                 onChange={(value) => onChange({ backgroundColor: value })}
               />
               <VisualColorPicker
@@ -1075,7 +1134,7 @@ export function SlideContextToolbar({
                 value={snapshot.borderColor}
                 documentColors={documentColors}
                 variant="swatch"
-                contentProps={inlineEditSurfaceProps}
+                contentProps={surfaceProps}
                 onChange={(value) => onChange({ borderColor: value })}
               />
             </>
@@ -1101,7 +1160,7 @@ export function SlideContextToolbar({
                   <DropdownMenuContent
                     align="start"
                     className="w-24"
-                    {...inlineEditSurfaceProps}
+                    {...surfaceProps}
                   >
                     <DropdownMenuItem
                       onSelect={() => onImageFitChange("contain")}
@@ -1116,13 +1175,21 @@ export function SlideContextToolbar({
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
+              {onCropImage && (
+                <ToolbarButton
+                  label={t("editorToolbar.cropImage")}
+                  onClick={onCropImage}
+                >
+                  <IconCrop className="size-4" />
+                </ToolbarButton>
+              )}
               {onReplaceImage && (
                 <button
                   type="button"
                   className={cn(MENU_TRIGGER_BASE, "gap-1.5 font-normal")}
                   onClick={onReplaceImage}
                 >
-                  <IconPhoto className="size-3.5" />
+                  <IconPhoto className="size-4" />
                   {t("contextToolbar.replaceImage")}
                 </button>
               )}
@@ -1154,13 +1221,13 @@ export function SlideContextToolbar({
                     className={MENU_BUTTON_CLASS}
                     aria-label={t("editorToolbar.videoPlayback")}
                   >
-                    <IconVideo className="size-3.5" />
+                    <IconVideo className="size-4" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent
                   align="start"
                   className="w-56"
-                  {...inlineEditSurfaceProps}
+                  {...surfaceProps}
                 >
                   <Label className="flex items-center justify-between gap-4">
                     <span>{t("editorToolbar.loopVideo")}</span>
@@ -1185,6 +1252,7 @@ export function SlideContextToolbar({
       {hasMultiObjectSelection ? (
         <>
           <ToolbarMenu
+            contentProps={surfaceProps}
             label={t("styleInspector.align")}
             icon={IconLayoutAlignLeft}
             width="w-44"
@@ -1209,6 +1277,7 @@ export function SlideContextToolbar({
             ))}
           </ToolbarMenu>
           <ToolbarMenu
+            contentProps={surfaceProps}
             label={t("styleInspector.distribute")}
             icon={IconArrowsLeftRight}
             width="w-52"
@@ -1271,160 +1340,176 @@ export function SlideContextToolbar({
     </>
   );
 
-  const agentButtonClass =
-    "flex h-6 shrink-0 cursor-pointer items-center justify-center gap-0.5 rounded-md px-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const agentButtonClass = ICON_MENU_CLASS;
 
   return (
     <div
       className={cn(
-        "slide-context-toolbar flex h-11 shrink-0 items-center gap-2 overflow-x-auto whitespace-nowrap bg-transparent px-2 sm:px-4",
+        "slide-context-toolbar flex h-11 shrink-0 items-center gap-2 whitespace-nowrap bg-transparent px-2 sm:px-4",
         className,
       )}
       data-slide-context-toolbar="true"
       role="toolbar"
       aria-label={t("styleInspector.title")}
+      onMouseDown={(event) => {
+        // A click keeps focus where it was, so canvas shortcuts keep working
+        // after a toolbar action. Portaled menus bubble here too; skip them.
+        const target = event.target;
+        if (
+          !(target instanceof Element) ||
+          !event.currentTarget.contains(target) ||
+          target.closest(TYPABLE_TARGET)
+        ) {
+          return;
+        }
+        event.preventDefault();
+      }}
     >
-      {leading && isDefaultState && (
-        <>
-          {leading}
-          <Divider />
-        </>
-      )}
-      {hasMultiObjectSelection && (
-        <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-semibold text-foreground">
-          <IconFrame className="size-3.5" />
-          {t("contextToolbar.objectsSelected", {
-            count: objectSelectionCount,
-          })}
-        </span>
-      )}
-      {hasMultiObjectSelection && <Divider />}
-      {!snapshot ? (
-        hasMultiObjectSelection ? null : (
-          <VisualColorPicker
-            label={t("styleInspector.slideBackground")}
-            value={slideBackground ?? ""}
-            mixed={slideBackground === null}
-            mixedLabel={t("styleInspector.mixed")}
-            documentColors={documentColors}
-            variant="swatch"
-            contentProps={inlineEditSurfaceProps}
-            onChange={onBackgroundChange}
-          />
-        )
-      ) : (
-        <>
-          {textRow}
-          {objectRow}
-        </>
-      )}
-      {(hasMultiObjectSelection || (snapshot && !snapshot.isText)) && (
-        <>
-          <Divider />
-          {alignControls}
-        </>
-      )}
-      {showGroupControls && <Divider />}
-      {groupControls}
-      {snapshot && !snapshot.isText && !hasMultiObjectSelection && (
-        <>
-          <Divider />
-          {controlsPopover}
-        </>
-      )}
-      {!snapshot &&
-        hasSelectedElement &&
-        objectSelectionCount === 0 &&
-        onEnablePositioning && (
+      {/* Only the formatting controls scroll when the editor is narrow;
+          Layers and zoom stay reachable at the end. */}
+      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+        {leading && isDefaultState && (
+          <>
+            {leading}
+            <Divider />
+          </>
+        )}
+        {hasMultiObjectSelection && (
+          <span className="flex h-6 shrink-0 items-center gap-1.5 text-xs font-semibold text-foreground">
+            <IconFrame className="size-4" />
+            {t("contextToolbar.objectsSelected", {
+              count: objectSelectionCount,
+            })}
+          </span>
+        )}
+        {hasMultiObjectSelection && <Divider />}
+        {!snapshot ? (
+          hasMultiObjectSelection ? null : (
+            <VisualColorPicker
+              label={t("styleInspector.slideBackground")}
+              value={slideBackground ?? ""}
+              mixed={slideBackground === null}
+              mixedLabel={t("styleInspector.mixed")}
+              documentColors={documentColors}
+              variant="swatch"
+              className={SWATCH_TRIGGER_CLASS}
+              contentProps={surfaceProps}
+              onChange={onBackgroundChange}
+            />
+          )
+        ) : (
+          <>
+            {textRow}
+            {objectRow}
+          </>
+        )}
+        {(hasMultiObjectSelection || (snapshot && !snapshot.isText)) && (
+          <>
+            <Divider />
+            {alignControls}
+          </>
+        )}
+        {showGroupControls && <Divider />}
+        {groupControls}
+        {snapshot && !snapshot.isText && !hasMultiObjectSelection && (
+          <>
+            <Divider />
+            {controlsPopover}
+          </>
+        )}
+        {!snapshot &&
+          hasSelectedElement &&
+          objectSelectionCount === 0 &&
+          onEnablePositioning && (
+            <>
+              <Divider />
+              <ToolbarButton
+                label={t("styleInspector.position")}
+                onClick={onEnablePositioning}
+              >
+                <IconLayoutAlignLeft className="size-4" />
+              </ToolbarButton>
+            </>
+          )}
+        {hasSelectedElement && onOpenAnimations && (
           <>
             <Divider />
             <ToolbarButton
-              label={t("styleInspector.position")}
-              onClick={onEnablePositioning}
+              label={t("animations.title")}
+              active={animationsOpen}
+              onClick={onOpenAnimations}
             >
-              <IconLayoutAlignLeft className="size-3.5" />
+              <IconBolt className="size-4" />
             </ToolbarButton>
           </>
         )}
-      {hasSelectedElement && onOpenAnimations && (
-        <>
-          <Divider />
-          <ToolbarButton
-            label={t("animations.title")}
-            active={animationsOpen}
-            onClick={onOpenAnimations}
-          >
-            <IconBolt className="size-3.5" />
+        {hasSelectedElement && canComment && onComment && (
+          <ToolbarButton label={t("comments.addComment")} onClick={onComment}>
+            <IconMessageCircle className="size-4" />
           </ToolbarButton>
-        </>
-      )}
-      {hasSelectedElement && canComment && onComment && (
-        <ToolbarButton label={t("comments.addComment")} onClick={onComment}>
-          <IconMessageCircle className="size-3.5" />
-        </ToolbarButton>
-      )}
-      {kind && onOpenAgent && (
-        <>
-          <Divider />
-          {quickPicks.length > 0 && onAgentQuickPick ? (
-            <DropdownMenu
-              onOpenChange={(open) => {
-                if (open) onOpenAgent();
-              }}
-            >
+        )}
+        {kind && onOpenAgent && (
+          <>
+            <Divider />
+            {quickPicks.length > 0 && onAgentQuickPick ? (
+              <DropdownMenu
+                onOpenChange={(open) => {
+                  if (open) onOpenAgent();
+                }}
+              >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className={agentButtonClass}
+                        aria-label={t("contextToolbar.editWithAgent")}
+                      >
+                        <IconRobot className="size-4" />
+                        <IconChevronDown className="size-3" />
+                      </button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("contextToolbar.editWithAgent")}
+                  </TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-44"
+                  {...surfaceProps}
+                >
+                  {quickPicks.map(({ pick, label, icon: PickIcon }) => (
+                    <DropdownMenuItem
+                      key={pick}
+                      onSelect={() => onAgentQuickPick(pick)}
+                    >
+                      <PickIcon className="size-4" />
+                      {label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className={agentButtonClass}
-                      aria-label={t("contextToolbar.editWithAgent")}
-                    >
-                      <IconRobot className="size-4" />
-                      <IconChevronDown className="size-3" />
-                    </button>
-                  </DropdownMenuTrigger>
+                  <button
+                    type="button"
+                    className={agentButtonClass}
+                    aria-label={t("contextToolbar.editWithAgent")}
+                    onClick={onOpenAgent}
+                  >
+                    <IconRobot className="size-4" />
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent>
                   {t("contextToolbar.editWithAgent")}
                 </TooltipContent>
               </Tooltip>
-              <DropdownMenuContent
-                align="end"
-                className="w-44"
-                {...inlineEditSurfaceProps}
-              >
-                {quickPicks.map(({ pick, label, icon: PickIcon }) => (
-                  <DropdownMenuItem
-                    key={pick}
-                    onSelect={() => onAgentQuickPick(pick)}
-                  >
-                    <PickIcon className="size-4" />
-                    {label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className={agentButtonClass}
-                  aria-label={t("contextToolbar.editWithAgent")}
-                  onClick={onOpenAgent}
-                >
-                  <IconRobot className="size-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("contextToolbar.editWithAgent")}
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </>
-      )}
-      {(onToggleLayers || zoomControls) && <div className="ml-auto" />}
+            )}
+          </>
+        )}
+      </div>
       {onToggleLayers && (
         <ToolbarButton
           label={t("editorToolbar.layers")}
@@ -1441,18 +1526,25 @@ export function SlideContextToolbar({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background pl-2.5 pr-2 text-sm text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-input bg-background px-2 text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t("contextToolbar.zoom")}
               >
                 <span className="tabular-nums">{zoomControls.value}%</span>
-                <IconChevronDown className="size-4 text-muted-foreground" />
+                <IconChevronDown className="size-3 text-muted-foreground" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-28"
-              {...inlineEditSurfaceProps}
-            >
+            <DropdownMenuContent align="end" className="w-28" {...surfaceProps}>
+              {zoomControls.onFit && (
+                <>
+                  <DropdownMenuItem
+                    className={cn(zoomControls.fitted && "bg-accent")}
+                    onSelect={zoomControls.onFit}
+                  >
+                    {t("raw.fitToScreen")}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               {zoomControls.presets.map((preset) => (
                 <DropdownMenuItem
                   key={preset}

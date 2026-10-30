@@ -27,7 +27,10 @@ import {
   useSetOrgDomain,
 } from "@agent-native/core/client/org";
 import { fetchOrgMemberPage } from "@agent-native/core/client/sharing";
-import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import {
+  buildSignInReturnHref,
+  serverAuthReturnPath,
+} from "@agent-native/core/client/sign-in-return";
 import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
 import { commentExcerpt } from "@agent-native/core/review/plain-text";
@@ -358,9 +361,8 @@ export type { CommentDraft } from "@/lib/plan-comment-editor-helpers";
 export function buildPlanEmailVerificationCallbackURL(
   location: Pick<Location, "pathname" | "search" | "hash">,
 ): string {
-  return buildSignInReturnHref({
-    returnTo: appPath(planReturnPathFromLocation(location)),
-  });
+  const returnTo = appPath(planReturnPathFromLocation(location));
+  return serverAuthReturnPath(returnTo, buildSignInReturnHref({ returnTo }));
 }
 
 function isPlanEmailVerificationPendingMessage(message: string): boolean {
@@ -2313,7 +2315,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const returnPath = planReturnPathFromLocation(window.location);
     try {
       const res = await fetch(
-        `${agentNativePath("/_agent-native/google/auth-url")}?return=${encodeURIComponent(returnPath)}`,
+        `${agentNativePath("/_agent-native/google/auth-url")}?return=${encodeURIComponent(serverAuthReturnPath(appPath(returnPath), returnPath))}`,
         { cache: "no-store" },
       );
       const data = (await res.json().catch(() => null)) as {
@@ -7059,7 +7061,8 @@ export function PlanLoadError({
       ? t("plansPage.loadError.orgTitle", { orgName })
       : null;
 
-  const returnPath = () => appPath(planReturnPathFromLocation(window.location));
+  const returnPath = () =>
+    serverAuthReturnPath(appPath(planReturnPathFromLocation(window.location)));
 
   const readAuthError = async (res: Response, fallback: string) => {
     const data = (await res.json().catch(() => null)) as {

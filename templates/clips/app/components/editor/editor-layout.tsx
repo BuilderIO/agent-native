@@ -1,5 +1,6 @@
 import {
   agentNativePath,
+  appApiPath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import {
@@ -296,10 +297,13 @@ function getWaveformMediaUrl({
 }): string | null {
   if (!videoUrl) return null;
   if (!shouldProxyWaveformUrl(videoUrl)) {
+    if (videoUrl === "/api" || videoUrl.startsWith("/api/")) {
+      return appApiPath(videoUrl);
+    }
     return videoUrl.startsWith("/") ? `${appBasePath()}${videoUrl}` : videoUrl;
   }
 
-  return `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}`;
+  return appApiPath(`/api/video/${encodeURIComponent(recordingId)}`);
 }
 
 export function EditorLayout({
@@ -944,9 +948,11 @@ export function EditorLayout({
     void (async () => {
       try {
         const res = await fetch(
-          `${appBasePath()}/api/redaction-burn-progress?id=${encodeURIComponent(
-            recordingId,
-          )}`,
+          appApiPath(
+            `/api/redaction-burn-progress?id=${encodeURIComponent(
+              recordingId,
+            )}`,
+          ),
         );
         if (!res.ok) return;
         const data = (await res.json()) as { status?: string };
@@ -984,9 +990,11 @@ export function EditorLayout({
     const poll = async () => {
       try {
         const res = await fetch(
-          `${appBasePath()}/api/redaction-burn-progress?id=${encodeURIComponent(
-            recordingId,
-          )}`,
+          appApiPath(
+            `/api/redaction-burn-progress?id=${encodeURIComponent(
+              recordingId,
+            )}`,
+          ),
         );
         if (!res.ok) {
           givingUp();

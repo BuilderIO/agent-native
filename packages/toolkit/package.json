@@ -244,6 +244,13 @@
       "import": "./dist/design-tweaks/index.js",
       "default": "./dist/design-tweaks/index.js"
     },
+    "./design-tweaks/google-fonts": {
+      "types": "./dist/design-tweaks/google-fonts.d.ts",
+      "browser": "./dist/design-tweaks/google-fonts.js",
+      "development": "./dist/design-tweaks/google-fonts.js",
+      "import": "./dist/design-tweaks/google-fonts.js",
+      "default": "./dist/design-tweaks/google-fonts.js"
+    },
     "./design-system": {
       "types": "./dist/design-system/index.d.ts",
       "browser": "./dist/design-system/index.js",

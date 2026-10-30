@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("h3", () => ({
   createError: (details: { statusCode: number; statusMessage: string }) =>
@@ -408,5 +408,65 @@ describe("hasSameOriginBrowserEvidence", () => {
     const event = fakeEvent(headers, { url: "https://app.example.com/action" });
     expect(hasSameOriginBrowserEvidence(event)).toBe(expected);
     expect(isSameOriginPost(event)).toBe(expected);
+  });
+});
+
+describe("isSameOriginPost", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("treats an operator-listed UI origin as first-party", () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.com");
+    const post = (headers: Record<string, string>) =>
+      isSameOriginPost(
+        fakeEvent(headers, { url: "https://api.example.com/action" }),
+      );
+    expect(
+      post({
+        origin: "https://app.example.com",
+        "sec-fetch-site": "same-site",
+      }),
+    ).toBe(true);
+    expect(
+      post({ origin: "https://evil.example", "sec-fetch-site": "cross-site" }),
+    ).toBe(false);
+    expect(post({ "sec-fetch-site": "same-site" })).toBe(false);
+  });
+
+  it("counts the listed UI origin as same-origin browser evidence", () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.com");
+    const evidence = (origin: string, fetchSite: string) =>
+      hasSameOriginBrowserEvidence(
+        fakeEvent(
+          { origin, "sec-fetch-site": fetchSite },
+          { url: "https://api.example.com/_agent-native/ui-action-capability" },
+        ),
+      );
+    expect(evidence("https://app.example.com", "same-site")).toBe(true);
+    expect(evidence("https://evil.example", "cross-site")).toBe(false);
+  });
+
+  it("admits the listed UI origin on guarded same-origin endpoints too", () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.com");
+    const request = (headers: Record<string, string>) =>
+      isSameOriginRequest(
+        fakeEvent(
+          { host: "api.example.com", ...headers },
+          { url: "https://api.example.com/speak" },
+        ),
+      );
+    expect(
+      request({
+        origin: "https://app.example.com",
+        "sec-fetch-site": "same-site",
+      }),
+    ).toBe(true);
+    expect(
+      request({
+        origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
+      }),
+    ).toBe(false);
   });
 });

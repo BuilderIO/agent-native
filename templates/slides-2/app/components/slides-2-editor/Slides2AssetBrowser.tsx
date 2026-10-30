@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -170,7 +170,7 @@ export function Slides2AssetBrowser({
           const endpoint = isVideo
             ? "/api/assets/upload-video"
             : "/api/assets/upload";
-          const response = await fetch(`${appBasePath()}${endpoint}`, {
+          const response = await fetch(appApiPath(endpoint), {
             method: "POST",
             body: form,
           });
@@ -304,7 +304,7 @@ export function Slides2AssetBrowser({
     try {
       const form = new FormData();
       form.append("file", file);
-      const response = await fetch(`${appBasePath()}/api/assets/upload`, {
+      const response = await fetch(appApiPath("/api/assets/upload"), {
         method: "POST",
         body: form,
       });
