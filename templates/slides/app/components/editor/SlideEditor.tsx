@@ -6861,8 +6861,13 @@ export default function SlideEditor({
     // Where each selected element sat and every attribute it had, so a
     // refusal at any later step puts the slide back exactly as it was. Last
     // in document order first, so each goes back before a sibling that is
-    // already in place.
-    const starts = selection.elements
+    // already in place. A multi-selection is in click order, not that one.
+    const starts = [...selection.elements]
+      .sort((left, right) =>
+        left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING
+          ? -1
+          : 1,
+      )
       .map((element) => ({
         element,
         parent: element.parentElement,

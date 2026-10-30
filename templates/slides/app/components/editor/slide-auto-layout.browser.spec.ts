@@ -542,29 +542,51 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
-  it("reports the flow's screen direction for reversed and rotated groups", async () => {
+  it("reports the flow's screen direction for reversed, rtl, rotated and mirrored groups", async () => {
     const page = await openPage();
     const axes = await page.evaluate(() => {
       const api = window.slideAutoLayout;
       const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
       api.enableSlideGroupAutoLayout(group);
+      // Members of different heights: an axis inferred from where they
+      // paint would tilt under a mirror.
+      group.querySelector<HTMLElement>(
+        '[data-slide-object-id="third"]',
+      )!.style.height = "20px";
       const unit = () => {
         const { x, y } = api.slideFlowScreenAxis(group);
         const length = Math.hypot(x, y);
-        return { x: Math.round(x / length), y: Math.round(y / length) };
+        return { x: x / length, y: y / length };
       };
       const row = unit();
       group.style.flexDirection = "row-reverse";
       const reversed = unit();
       group.style.flexDirection = "row";
+      group.style.direction = "rtl";
+      const rtl = unit();
+      group.style.direction = "";
       group.style.transform = "rotate(90deg)";
-      return { row, reversed, rotated: unit() };
+      const rotated = unit();
+      group.style.transform = "";
+      group.style.rotate = "90deg";
+      const rotateProperty = unit();
+      group.style.rotate = "";
+      group.style.transform = "scaleX(-1)";
+      return { row, reversed, rtl, rotated, rotateProperty, mirrored: unit() };
     });
-    expect(axes).toEqual({
+    const expected = {
       row: { x: 1, y: 0 },
       reversed: { x: -1, y: 0 },
+      rtl: { x: -1, y: 0 },
       rotated: { x: 0, y: 1 },
-    });
+      rotateProperty: { x: 0, y: 1 },
+      mirrored: { x: -1, y: 0 },
+    };
+    for (const [name, axis] of Object.entries(expected)) {
+      const actual = axes[name as keyof typeof axes];
+      expect(actual.x, `${name} x`).toBeCloseTo(axis.x, 6);
+      expect(actual.y, `${name} y`).toBeCloseTo(axis.y, 6);
+    }
     await page.close();
   });
 

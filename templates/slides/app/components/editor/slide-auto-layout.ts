@@ -713,47 +713,73 @@ export function slideFlowScreenAxis(group: HTMLElement): {
   x: number;
   y: number;
 } {
-  const members = flowMembers(group);
-  const reversed = (
-    group.style.flexDirection || computedStyleOf(group).flexDirection
-  ).endsWith("reverse");
+  const computed = computedStyleOf(group);
+  const horizontal = mainAxisOf(group) === "horizontal";
+  // A row runs the way the text does, so right to left under rtl.
+  const reversed =
+    (group.style.flexDirection || computed.flexDirection).endsWith(
+      "reverse",
+    ) !== (horizontal && computed.direction === "rtl");
   const sign = reversed ? -1 : 1;
-  let axis =
-    mainAxisOf(group) === "horizontal" ? { x: sign, y: 0 } : { x: 0, y: sign };
-  // A rotated or flipped group paints its main axis away from the screen
-  // axis it names. The turn is read off two members: where they sit in the
-  // group's own layout against where they paint. Only the turn is kept, so
-  // members of different cross sizes do not tilt the axis.
-  const first = members.at(0);
-  const last = members.at(-1);
-  if (first && last && first !== last) {
-    const local = (member: HTMLElement) => ({
-      x: member.offsetLeft + member.offsetWidth / 2,
-      y: member.offsetTop + member.offsetHeight / 2,
-    });
-    const [from, to] = [local(first), local(last)];
-    const [paintedFrom, paintedTo] = [
-      paintedCentreOf(first),
-      paintedCentreOf(last),
-    ];
-    const laid = { x: to.x - from.x, y: to.y - from.y };
-    const painted = {
-      x: paintedTo.x - paintedFrom.x,
-      y: paintedTo.y - paintedFrom.y,
+  // Each element up to the root paints its own rotate, scale and transform
+  // over its children; together they take the group's main axis to the
+  // screen, mirrors included. Translation and origin move it, not turn it.
+  let painted = new DOMMatrix();
+  for (
+    let element: HTMLElement | null = group;
+    element;
+    element = element.parentElement
+  ) {
+    painted = paintedLinearMatrix(element).multiply(painted);
+  }
+  const { x, y } = painted.transformPoint(
+    new DOMPoint(horizontal ? sign : 0, horizontal ? 0 : sign, 0, 0),
+  );
+  return { x, y };
+}
+
+const ANGLE_DEGREES: Record<string, number> = {
+  deg: 1,
+  grad: 0.9,
+  rad: 180 / Math.PI,
+  turn: 360,
+};
+
+function paintedLinearMatrix(element: HTMLElement): DOMMatrix {
+  const computed = computedStyleOf(element);
+  const matrix = new DOMMatrix();
+  const rotate = computed.getPropertyValue("rotate").trim();
+  if (rotate && rotate !== "none") {
+    const tokens = rotate.split(/\s+/);
+    const angle = /^(-?[\d.]+(?:e[+-]?\d+)?)(deg|grad|rad|turn)$/i.exec(
+      tokens.at(-1) ?? "",
+    );
+    const named: Record<string, [number, number, number]> = {
+      x: [1, 0, 0],
+      y: [0, 1, 0],
+      z: [0, 0, 1],
     };
-    // painted × conj(laid), as complex numbers: the rotation between them.
-    const turn = {
-      x: painted.x * laid.x + painted.y * laid.y,
-      y: painted.y * laid.x - painted.x * laid.y,
-    };
-    if (Math.hypot(turn.x, turn.y) > 1e-6) {
-      axis = {
-        x: axis.x * turn.x - axis.y * turn.y,
-        y: axis.x * turn.y + axis.y * turn.x,
-      };
+    const rotationAxis =
+      tokens.length === 4
+        ? (tokens.slice(0, 3).map(Number) as [number, number, number])
+        : (named[tokens.length === 2 ? (tokens[0] ?? "z") : "z"] ?? [0, 0, 1]);
+    if (angle?.[1] && angle[2]) {
+      matrix.rotateAxisAngleSelf(
+        ...rotationAxis,
+        Number(angle[1]) * (ANGLE_DEGREES[angle[2].toLowerCase()] ?? 1),
+      );
     }
   }
-  return axis;
+  const scale = computed.getPropertyValue("scale").trim();
+  if (scale && scale !== "none") {
+    const [sx = 1, sy = sx, sz = 1] = scale.split(/\s+/).map(Number);
+    matrix.scaleSelf(sx, sy, sz);
+  }
+  const transform = computed.transform;
+  if (transform && transform !== "none") {
+    matrix.multiplySelf(new DOMMatrix(transform));
+  }
+  return matrix;
 }
 
 /**
