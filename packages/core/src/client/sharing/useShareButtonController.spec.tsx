@@ -301,6 +301,26 @@ describe("useShareButtonController agents", () => {
     expect(cached?.shares.map((share) => share.principalId)).toEqual([]);
   });
 
+  it("re-reads the list after a failed role change instead of trusting its rollback", async () => {
+    await render();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const shared = current().shares.find(
+      (share) => share.principalId === sharedAgent.email,
+    );
+    if (!shared) throw new Error("expected the shared agent row");
+    await settle(() => current().handleChangeRole(shared, "editor"));
+
+    await settle(() => lastShareCall().reject(new Error("refused")));
+
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: createShareQueryKey({
+        resourceType: "deck",
+        resourceId: "deck-1",
+      }),
+    });
+    expect(current().inFlight.size).toBe(0);
+  });
+
   it("drops the picked agent once the field is edited or a group is picked", async () => {
     await render();
     act(() => current().selectAgent(writer));

@@ -583,7 +583,8 @@ export function useShareButtonController(
             void queryClient.invalidateQueries({ queryKey: shareQueryKey });
             return;
           }
-          // Undo only this invite: other saves may have refreshed the list.
+          // Undo only this invite, then re-read: other saves may have
+          // changed the list meanwhile, and only the server knows how.
           optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
             queryClient,
             shareQueryKey,
@@ -607,6 +608,7 @@ export function useShareButtonController(
           setShareMessage((current) => current || message);
           setMessageOpen((current) => current || Boolean(message));
           setShareError(extractShareErrorMessage(error));
+          void queryClient.invalidateQueries({ queryKey: shareQueryKey });
         },
       );
   }, [
@@ -702,6 +704,7 @@ export function useShareButtonController(
             });
             clearInFlight(key);
             setShareError(extractShareErrorMessage(error));
+            void queryClient.invalidateQueries({ queryKey: shareQueryKey });
           },
         );
     },
@@ -793,6 +796,7 @@ export function useShareButtonController(
             });
             clearInFlight(key);
             setShareError(extractShareErrorMessage(error));
+            void queryClient.invalidateQueries({ queryKey: shareQueryKey });
           },
         );
     },
