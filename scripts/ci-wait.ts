@@ -4,7 +4,8 @@
 //
 //   pnpm ci:wait <pr> [--interval <seconds>] [--max-minutes <minutes>]
 //
-// Exit 0: no check failed. Exit 1: a check failed. Exit 2: couldn't tell
+// Exit 0: no check failed (a cancelled check is listed, not counted as a
+// pass). Exit 1: a check failed. Exit 2: couldn't tell
 // (gh unreadable, PR not open, no checks reported, or out of time).
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -112,6 +113,8 @@ function main(): void {
 
   let misses = 0;
   let last: { head: string; checks: Check[] } | null = null;
+  // Measured per head: a push resets it, so a new head gets its own grace.
+  let emptySince = started;
   for (;;) {
     try {
       const { state, head, checks } = readPr(
@@ -123,6 +126,7 @@ function main(): void {
         console.log(`PR #${pr} is ${state}; nothing to wait for.`);
         process.exit(2);
       }
+      if (checks.length || head !== last?.head) emptySince = Date.now();
       last = { head, checks };
       const verdict = judge(checks, head);
       if (verdict.done) {
@@ -135,8 +139,8 @@ function main(): void {
         process.exit(2);
       }
     }
-    if (!last?.checks.length && Date.now() - started > NO_CHECKS_GRACE_MS) {
-      console.log("No checks were reported for this PR within 10 minutes.");
+    if (!last?.checks.length && Date.now() - emptySince > NO_CHECKS_GRACE_MS) {
+      console.log("No checks were reported for this head within 10 minutes.");
       process.exit(2);
     }
     if (Date.now() + intervalMs > deadline) {

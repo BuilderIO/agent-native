@@ -337,12 +337,13 @@ Slack thread, or the Sentry, Analytics, or GitHub issue. That list is the
 only set of threads a later `/ship` may close out as fixed.
 
 Wait for CI with one command that blocks until every check finishes, and
-wait on it in one long call (your tool allows hours), not a short call you
+wait on it with the longest call your tool allows, not a short call you
 repeat: every call re-sends your whole context, and on 10/28 polling CI
 every minute was half the main thread's cost.
 <!-- framework-repo-only:start -->
 Here that command is `pnpm ci:wait <number>`: it prints nothing until CI is
-done, then one summary, and exits 1 if a check failed.
+done, then one summary, and exits 1 if a check failed. A `CANCELLED` line
+isn't a pass: rerun that check before the merge gate.
 <!-- framework-repo-only:end -->
 Without a repo command for it, use `gh pr checks <number> --watch --interval 60 > /dev/null`, then
 read `gh pr checks <number>` once.
