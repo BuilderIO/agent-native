@@ -333,24 +333,6 @@ describe("AiInboxSetup", () => {
     ).toHaveProperty("disabled", false);
   });
 
-  it("requires importance text in the settings setup dialog", () => {
-    render(<AiInboxSetup forceOpen />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    );
-    expect(
-      screen.getByRole("textbox", {
-        name: "mail.sort.aiSetupImportantHeadline",
-      }),
-    ).toHaveProperty("value", "");
-    expect(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
-    ).toHaveProperty("disabled", true);
-    expect(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
-    ).toHaveProperty("disabled", false);
-  });
-
   it("lets users save tab, importance, and archive rules before Builder setup", async () => {
     const onComplete = vi.fn();
     const onStepChange = vi.fn();
@@ -1310,7 +1292,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.change(
       screen.getByRole("textbox", {
@@ -1343,7 +1325,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.change(
       screen.getByRole("textbox", {
@@ -1422,7 +1404,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
@@ -1520,7 +1502,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
 
     expect(
@@ -1641,7 +1623,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
