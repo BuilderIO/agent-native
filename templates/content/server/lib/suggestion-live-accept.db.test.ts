@@ -302,6 +302,97 @@ function ownerIt(name: string, run: () => Promise<void>) {
   it(name, () => runWithRequestContext({ userEmail: ownerEmail }, run));
 }
 
+// Two agent edits to neighboring list items, saved from one version of the
+// Page. Each splits into pieces, most of the first anchored only to the single
+// space between them.
+const listPage = [
+  "# Plan",
+  "",
+  "**To confirm:**",
+  "",
+  "- **Vendor:** whether to feature request signing, and in which piece; which plan includes the retry hooks we'd use; whether the vendor's test tool can point at our host; and the vendor's technical reviewer.",
+  "- **Host:** which regions to test, and who reviews the benchmark.",
+  "",
+  "Thanks.",
+].join("\n");
+
+const listEdits = [
+  {
+    find: "whether to feature request signing, and in which piece; which plan includes the retry hooks we'd use; whether the vendor's test tool can point at our host; and the vendor's technical reviewer.",
+    replace:
+      "\n\t- **Request signing.** Would the vendor like to show that, and in which article?\n\t- **Retries.** Which vendor plan includes them?\n\t- **Testing.** Can its test tool point at our host?\n\t- **Reviewer.** Who should check the vendor claims?",
+  },
+  {
+    find: "which regions to test, and who reviews the benchmark.",
+    replace:
+      "\n\t- **Regions.** Which three should we test?\n\t- **Benchmark.** Who reviews it?",
+  },
+] as const;
+
+/** Saves `edit` as an agent's edit is saved: one proposal, split into pieces. */
+async function proposeSplitEdit(
+  documentId: string,
+  edit: { find: string; replace: string },
+) {
+  const document = await getDocumentAction.run({ id: documentId }, ctx);
+  sequence += 1;
+  const operations = markdownSuggestionOperationsForFindReplace({
+    before: document.content,
+    find: edit.find,
+    replace: edit.replace,
+    start: document.content.indexOf(edit.find),
+  });
+  return createProposal.run(
+    {
+      resourceType: "document",
+      resourceId: documentId,
+      adapterKind,
+      baseRevision: document.revision,
+      summary: `Edit ${sequence}`,
+      idempotencyKey: `live-accept-split-${sequence}`,
+      suggestions: operations.map((operation, index) => ({
+        summary: `Piece ${index + 1}`,
+        operations: [operation],
+      })),
+    },
+    ctx,
+  );
+}
+
+/**
+ * Accepts the lower edit whole, then the upper one piece by piece: once the
+ * lower edit and the upper one's first pieces have changed the Page on both
+ * sides of a piece, the spaces it was anchored to match in many places.
+ */
+async function acceptUpperPiecesAfterLower(documentId: string) {
+  const upper = await proposeSplitEdit(documentId, listEdits[0]);
+  const lower = await proposeSplitEdit(documentId, listEdits[1]);
+  expect(upper.suggestions.length).toBeGreaterThan(5);
+  await decideProposal.run(
+    {
+      proposalId: lower.proposal.id,
+      decision: "accepted",
+      idempotencyKey: `decide-lower-${documentId}`,
+      members: lower.suggestions.map((suggestion) => ({
+        id: suggestion.id,
+        observedRevision: suggestion.revision,
+        observedBase: suggestion.baseRevision,
+      })),
+    },
+    ctx,
+  );
+  for (const piece of upper.suggestions)
+    expect((await decide(piece, "accepted")).suggestion.status).toBe(
+      "accepted",
+    );
+  return canonicalizeNfm(
+    listEdits.reduce(
+      (text, edit) => text.replace(edit.find, edit.replace),
+      listPage,
+    ),
+  );
+}
+
 describe("accepting a suggestion on a Page written through its live copy", () => {
   ownerIt(
     "lets an agent's save from before the accept merge with it",
@@ -491,6 +582,16 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
       expect(await liveCopy(documentId)).toEqual(before);
       const { getSuggestion } = await import("@agent-native/core/review");
       expect((await getSuggestion(second.id))?.status).toBe("pending");
+    },
+  );
+
+  ownerIt(
+    "places each piece of an agent's edit after the edit below it was accepted",
+    async () => {
+      const documentId = await seedPage(listPage);
+      const expected = await acceptUpperPiecesAfterLower(documentId);
+      expect((await liveCopy(documentId)).text).toBe(expected);
+      expect((await stored(documentId)).content).toBe(expected);
     },
   );
 
@@ -824,6 +925,15 @@ describe("accepting a suggestion on a Page its legacy writer still writes", () =
         bodyRevision: 2,
         liveBodySwitchedAt: null,
       });
+    },
+  );
+
+  ownerIt(
+    "places each piece of an agent's edit after the edit below it was accepted",
+    async () => {
+      const documentId = await insertPage(listPage);
+      const expected = await acceptUpperPiecesAfterLower(documentId);
+      expect((await stored(documentId)).content).toBe(expected);
     },
   );
 

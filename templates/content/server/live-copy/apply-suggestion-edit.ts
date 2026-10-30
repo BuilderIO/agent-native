@@ -16,9 +16,11 @@ import {
 import {
   applyMarkdownSuggestionWithSiblings,
   markdownPayload,
+  rebaseOntoAcceptedSiblings,
   suggestionEditorSchema,
   supportedSuggestionStructure,
   withSiblingRanges,
+  type AcceptedSiblingRange,
   type MarkdownRange,
   type MarkdownSuggestionOperationLike,
 } from "../../shared/suggestion-apply.js";
@@ -33,7 +35,7 @@ export const APPLY_SUGGESTION_EDIT = "apply-suggestion";
 export type ApplySuggestionStep = {
   operation: MarkdownSuggestionOperationLike;
   /** Ranges of accepted suggestions saved from the same before-text. */
-  acceptedSiblingRanges: MarkdownRange[];
+  acceptedSiblingRanges: AcceptedSiblingRange[];
 };
 
 export type ApplySuggestionInput = {
@@ -141,6 +143,12 @@ function changedRange(
     acceptedSiblingRanges.length &&
     markdownPayload(operation.before, "before").markdown !== current
   ) {
+    const rebased = rebaseOntoAcceptedSiblings(
+      operation,
+      acceptedSiblingRanges,
+    );
+    const moved = rebased && resolveMarkdownSuggestionRange(current, rebased);
+    if (gives(moved)) return moved;
     const across = resolveMarkdownSuggestionRange(
       current,
       withSiblingRanges(operation, acceptedSiblingRanges),

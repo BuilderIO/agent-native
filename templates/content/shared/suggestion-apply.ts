@@ -101,6 +101,12 @@ export function applyMarkdownSuggestionOperation(
   return `${currentMarkdown.slice(0, placed.from)}${placed.changedText}${currentMarkdown.slice(placed.to)}`;
 }
 
+/**
+ * An accepted suggestion's range of the shared before-text, and the text it
+ * wrote there when known.
+ */
+export type AcceptedSiblingRange = MarkdownRange & { text?: string };
+
 export function withSiblingRanges<T extends MarkdownSuggestionOperationLike>(
   operation: T,
   ranges: MarkdownRange[],
@@ -112,20 +118,95 @@ export function withSiblingRanges<T extends MarkdownSuggestionOperationLike>(
   )) {
     const last = merged[merged.length - 1];
     if (last && range.from < last.to) last.to = Math.max(last.to, range.to);
-    else merged.push({ ...range });
+    else merged.push({ from: range.from, to: range.to });
   }
   return { ...operation, anchor: { ...anchor, siblingRanges: merged } };
 }
 
+const REBASED_CONTEXT = 32;
+
 /**
- * The suggestion placed on `currentMarkdown`, retrying with the ranges of
- * accepted suggestions saved from the same text when the context it was
- * anchored to has since been rewritten by one of them.
+ * The suggestion saved again from its before-text as the accepted siblings
+ * left it, with context read from that text; null when a sibling's text is
+ * unknown or it overlaps the suggestion or another sibling. An edit split
+ * into pieces anchors each piece only to the gaps between them, often a
+ * single space, so once siblings on both sides of a piece have changed the
+ * Page, the gaps alone can match in many places. The text the siblings wrote
+ * places it exactly.
+ */
+export function rebaseOntoAcceptedSiblings<
+  T extends MarkdownSuggestionOperationLike,
+>(operation: T, accepted: AcceptedSiblingRange[]): T | null {
+  if (!accepted.length || operation.anchor == null) return null;
+  const before = markdownPayload(operation.before, "before");
+  const after = markdownPayload(operation.after, "after");
+  if (
+    typeof before.changedText !== "string" ||
+    typeof after.changedText !== "string"
+  )
+    return null;
+  const anchor = operationAnchor(operation);
+  if (
+    anchor.from < 0 ||
+    anchor.to < anchor.from ||
+    anchor.to > before.markdown.length ||
+    before.markdown.slice(anchor.from, anchor.to) !== before.changedText
+  )
+    return null;
+  let text = "";
+  let cursor = 0;
+  let inserted = -1;
+  let shift = 0;
+  for (const range of [...accepted].sort(
+    (left, right) => left.from - right.from || left.to - right.to,
+  )) {
+    if (
+      typeof range.text !== "string" ||
+      range.from < cursor ||
+      range.to < range.from ||
+      range.to > before.markdown.length ||
+      // Two insertions at one place don't say which comes first.
+      (range.from === range.to && range.from === inserted)
+    )
+      return null;
+    const earlier = range.to <= anchor.from;
+    const later = range.from >= anchor.to;
+    // Overlapping the suggestion, or an insertion where it inserts too.
+    if (earlier === later) return null;
+    if (earlier) shift += range.text.length - (range.to - range.from);
+    if (range.from === range.to) inserted = range.from;
+    text += before.markdown.slice(cursor, range.from) + range.text;
+    cursor = range.to;
+  }
+  text += before.markdown.slice(cursor);
+  const from = anchor.from + shift;
+  const to = from + before.changedText.length;
+  return {
+    ...operation,
+    before: { ...before, markdown: text },
+    after: {
+      ...after,
+      markdown: `${text.slice(0, from)}${after.changedText}${text.slice(to)}`,
+    },
+    anchor: {
+      from,
+      to,
+      prefix: text.slice(Math.max(0, from - REBASED_CONTEXT), from),
+      suffix: text.slice(to, to + REBASED_CONTEXT),
+    },
+  };
+}
+
+/**
+ * The suggestion placed on `currentMarkdown`, retrying with the accepted
+ * suggestions saved from the same text when the context it was anchored to
+ * has since been rewritten by one of them: first on the text they wrote, then
+ * with their ranges alone.
  */
 export function applyMarkdownSuggestionWithSiblings(
   currentMarkdown: string,
   operation: MarkdownSuggestionOperationLike,
-  acceptedSiblingRanges: MarkdownRange[],
+  acceptedSiblingRanges: AcceptedSiblingRange[],
 ): string | null {
   const direct = applyMarkdownSuggestionOperation(currentMarkdown, operation);
   // Saved as a whole before and after, it applies only to that before-state.
@@ -135,6 +216,11 @@ export function applyMarkdownSuggestionWithSiblings(
     operation.anchor == null
   )
     return direct;
+  const rebased = rebaseOntoAcceptedSiblings(operation, acceptedSiblingRanges);
+  const placed = rebased
+    ? applyMarkdownSuggestionOperation(currentMarkdown, rebased)
+    : null;
+  if (placed !== null) return placed;
   return applyMarkdownSuggestionOperation(
     currentMarkdown,
     withSiblingRanges(operation, acceptedSiblingRanges),
