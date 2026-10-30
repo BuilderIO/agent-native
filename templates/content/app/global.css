@@ -400,6 +400,13 @@
   min-height: 0;
 }
 
+/* A public page's sub-pages and sign-up card follow its body, so the body
+   takes only the room its blocks need. */
+.content-public-reader-body .visual-editor-wrapper,
+.content-public-reader-body .visual-editor-wrapper .content-editor {
+  min-height: 0;
+}
+
 .content-reference-preview .content-editor {
   font-size: 0.875rem;
 }

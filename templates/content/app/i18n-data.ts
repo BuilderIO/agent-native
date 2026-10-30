@@ -1955,10 +1955,19 @@ const enUS = {
   },
   publicDocument: {
     chat: "Chat",
+    pagePath: "Page path",
     privateDescription:
       "Ask the owner to share it with your account or workspace before opening this link.",
     privateTitle: "This document is private",
+    signIn: "Sign in",
+    signUp: "Sign up",
+    signUpFree: "Sign up free",
+    subPages: "Sub-pages",
+    tryContentFree: "Try Content free",
     updated: "Updated {{date}}",
+    writtenIn: "Written in Agent-Native Content.",
+    writtenInDescription:
+      "Write and publish your own pages, with an AI agent that works inside your docs.",
   },
   database: databaseMessages,
   localFiles: localFilesMessages,

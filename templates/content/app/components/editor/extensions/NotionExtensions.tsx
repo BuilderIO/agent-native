@@ -5,6 +5,8 @@ import {
   serializeIconValue,
   type IconValue,
 } from "@agent-native/core/icons";
+import type { ContentLinkTarget } from "@shared/api";
+import { pageLinkBlockId } from "@shared/content-links";
 import { findTrailingPlainInlineMath } from "@shared/inline-math";
 import { NFM_COLORS } from "@shared/nfm";
 import {
@@ -68,6 +70,12 @@ const INLINE_ATOM_TAGS = [
 interface NotionBlockAtomOptions {
   documentId?: string;
   onOpenPageLink?: (documentId: string) => void;
+  /**
+   * The page a page-link block opens, when the reader already knows it. A
+   * signed-out reader can't look pages up, so their page passes the targets
+   * it loaded with itself.
+   */
+  resolvePageLink?: (id: string) => ContentLinkTarget | null;
 }
 
 function readElementAttributes(
@@ -135,35 +143,6 @@ function serializeAtomTag(
 
 export function humanizeTag(tagName: string): string {
   return tagName.replace(/[_-]/g, " ");
-}
-
-function normalizeNotionPageId(input: string | null | undefined) {
-  const trimmed = input?.trim();
-  if (!trimmed) return null;
-  if (/^[0-9a-fA-F]{32}$/.test(trimmed)) return trimmed.toLowerCase();
-  if (/^[0-9a-fA-F-]{36}$/.test(trimmed)) {
-    return trimmed.replace(/-/g, "").toLowerCase();
-  }
-  try {
-    const url = new URL(trimmed);
-    const slug = url.pathname.split("/").filter(Boolean).pop() || "";
-    const match =
-      slug.match(/([0-9a-fA-F]{32})$/) || slug.match(/([0-9a-fA-F-]{36})$/);
-    return match?.[1]?.replace(/-/g, "").toLowerCase() ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function getNotionPageId(attrs: Record<string, string>) {
-  return (
-    attrs["data-agent-native-document-id"] ||
-    attrs.id ||
-    (normalizeNotionPageId(attrs.url) ??
-      normalizeNotionPageId(attrs.href) ??
-      normalizeNotionPageId(attrs.pageId) ??
-      normalizeNotionPageId(attrs.page_id))
-  );
 }
 
 export function safeExternalPageUrl(input: string | null): string | null {
@@ -618,11 +597,16 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const attrs = parseAttrsJson(node.attrs.attrsJson as string);
   const options = extension.options as NotionBlockAtomOptions;
   const t = useT();
-  const notionPageId = tagName === "page" ? getNotionPageId(attrs) : null;
+  const notionPageId = tagName === "page" ? pageLinkBlockId(attrs) : null;
   const pageLinkQuery = usePageLinkTarget(
-    notionPageId && options.onOpenPageLink ? notionPageId : null,
+    notionPageId && options.onOpenPageLink && !options.resolvePageLink
+      ? notionPageId
+      : null,
   );
-  const pageLink = pageLinkQuery.data ?? null;
+  const pageLink =
+    (notionPageId && options.resolvePageLink
+      ? options.resolvePageLink(notionPageId)
+      : pageLinkQuery.data) ?? null;
   // An unreadable lookup is not a missing page: keep the block usable so a
   // click retries instead of presenting the link as gone.
   const pageLinkLookupFailed = pageLinkQuery.isError;

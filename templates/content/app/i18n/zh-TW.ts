@@ -34,6 +34,22 @@ const rawLiterals = {
     restoreDatabaseNamed: "還原 {{title}}",
     trash: "垃圾桶",
   },
+  publicDocument: {
+    chat: "聊天",
+    pagePath: "頁面路徑",
+    privateDescription:
+      "開啟此連結前，請要求擁有者將其分享給你的帳戶或工作區。",
+    privateTitle: "此文件為私人文件",
+    signIn: "登入",
+    signUp: "註冊",
+    signUpFree: "免費註冊",
+    subPages: "子頁面",
+    tryContentFree: "免費試用 Content",
+    updated: "更新於 {{date}}",
+    writtenIn: "使用 Agent-Native Content 撰寫。",
+    writtenInDescription:
+      "撰寫並發佈你自己的頁面，AI 代理就在你的文件中協助工作。",
+  },
 };
 
 const landing = {
@@ -1217,13 +1233,6 @@ const overrides = {
     agentRegardingText: "關於這段文字：“{{text}}”",
     agentThreadHeader: "評論對話串：",
     agentHelp: "請幫忙處理這個。",
-  },
-  publicDocument: {
-    chat: "Chat",
-    privateDescription:
-      "Pide al propietario que lo comparta con tu cuenta o espacio de trabajo antes de abrir este enlace.",
-    privateTitle: "Este documento es privado",
-    updated: "Actualizado {{date}}",
   },
   database: {
     githubLinkTitle: "連結 GitHub 資料夾",
