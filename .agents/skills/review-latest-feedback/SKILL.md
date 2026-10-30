@@ -126,10 +126,11 @@ Real replies that missed, and what to send instead:
 
 ## Boundaries
 
-- **Slack:** only `#product-agent-native-feedback` (`C0ATH3CCZT4`),
-  `#qa-agent-native` (`C0C4U4XRT6X`), and `#dev-agent-native-feedback`
-  (`C0AJ5QV0J03`), or the narrower set the invocation names. Never react or
-  reply anywhere else.
+- **Slack:** only `#product-agent-native-feedback` (`C0ATH3CCZT4`)
+  and `#qa-agent-native` (`C0C4U4XRT6X`), or the narrower set the invocation
+  names. Never react or reply anywhere else. Reply only in a report thread
+  that this workflow claimed with 👀 and investigated; an old bot reply alone
+  is not evidence of a claim. Never start a new channel message.
 - **Leave a report alone** when:
   - Steve put `:mag:` or his own 👀 on it (table above);
   - someone in the thread asked a specific person to look, a teammate says
@@ -184,13 +185,10 @@ short list of candidates with links, and close it as soon as it reports.
   Steve's marks.
 - **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
   hand to things he is working on himself, so a 👀 from his account is not
-  enough to make a root this workflow's. Treat it as the workflow's only when
-  the thread already has a reply from Steve's account that ends with "This
-  was sent from a bot", ignoring case, `*`, punctuation, and whitespace. The
-  phrase may be on its own line or, in older replies, at the end of the
-  sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
-  yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
-  has it: leave it alone. Read the thread of every workflow root in the
+  enough to make a root this workflow's. Require evidence that this workflow
+  claimed the root with 👀 and investigated the report, such as a matching
+  run recap or its proof-bearing PR report. A bot reply or reaction alone
+  does not establish that evidence. Otherwise leave the root alone. Read the thread of every workflow root in the
   window, not just the channel row: a human reply newer than ours only shows
   there, and runs that skipped this left people waiting after our 🎫. A root
   listed in the `Reports` section of a sweep
@@ -199,10 +197,10 @@ short list of candidates with links, and close it as soon as it reports.
   or reply there, and leave it out of your self-check; just list it under
   "Still open from earlier runs". If that PR has had no push in 24 hours,
   its run has stopped: its reports are yours again. Of the remaining
-  workflow roots, any
-  without ✅ or 🎫, or with a human reply newer than our last reply, comes
-  first in this run. A root with 🎫 and our reply after its latest human
-  message is already answered: you may still fix it, but post nothing there
+  workflow roots, those without ✅ or 🎫 come first in this run. A newer
+  human reply is context, not by itself a reason to respond: investigate the
+  claimed report and leave conversations already handled by people alone. A
+  root with 🎫 and our reply after its latest human message is already answered: you may still fix it, but post nothing there
   until the fix merges. A
   reply like "still broken" after a ✅ means the earlier fix failed. Find what
   that fix changed and why it didn't hold before trying again.
@@ -412,17 +410,14 @@ the PR, and then get closed. Post it even when someone else opened the issue,
 or the PR already closed it: Steve wants reporters told, and this comment is
 allowed under his "only message Steve" account rule.
 <!-- framework-repo-only:start -->
-CI, deploy, and chat-health failures you couldn't fix get one grouped message
-per run in `#qa-agent-native`: one short line per workflow that is still
-failing, linking only its latest failed run. Leave out runs that later passed
-or were superseded. Never post one message per failure, and never open GitHub
-issues for them.
+Report unresolved CI, deploy, and chat-health failures in the private run
+recap. Do not create Slack channel messages or GitHub issues for them.
 <!-- framework-repo-only:end -->
 
 Before ending, re-read each thread you touched and check:
 
-- every 👀 from this run has a reply after the latest human message, plus
-  ✅, 🎫, or an open fix PR that lists it under `Reports`;
+- every 👀 from this run has an investigated disposition and, unless a person
+  has taken over, a reply plus ✅, 🎫, or an open fix PR listed under `Reports`;
 - every ✅ corresponds to a merged fix;
 - no reply is technical or duplicated.
 
