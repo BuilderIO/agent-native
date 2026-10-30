@@ -5,6 +5,8 @@ import zhTW from "./i18n/zh-TW";
 
 const enUS = {
   root: {
+    builderWorkspaceNotice: "Builder team apps are in the Builder workspace.",
+    openBuilderWorkspace: "Open Builder workspace",
     commandActions: "Actions",
     commandSearch: "Search",
     commandAppearance: "Appearance",
@@ -1292,6 +1294,9 @@ export const messagesByLocale = {
         settings: "设置 - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Builder \u56e2\u961f\u5e94\u7528\u4f4d\u4e8e Builder \u5de5\u4f5c\u533a\u3002",
+        openBuilderWorkspace: "\u6253\u5f00 Builder \u5de5\u4f5c\u533a",
         commandActions: "操作",
         commandSearch: "搜索",
         commandAppearance: "外观",
@@ -1723,6 +1728,9 @@ export const messagesByLocale = {
         settings: "Ajustes - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Las aplicaciones del equipo de Builder est\u00e1n en el espacio de trabajo de Builder.",
+        openBuilderWorkspace: "Abrir espacio de trabajo de Builder",
         commandActions: "Acciones",
         commandSearch: "Buscar",
         commandAppearance: "Apariencia",
@@ -2197,6 +2205,9 @@ export const messagesByLocale = {
         settings: "Paramètres - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Les applications de l\u2019\u00e9quipe Builder se trouvent dans son espace de travail.",
+        openBuilderWorkspace: "Ouvrir l\u2019espace de travail Builder",
         commandActions: "Actions",
         commandSearch: "Rechercher",
         commandAppearance: "Apparence",
@@ -2672,6 +2683,9 @@ export const messagesByLocale = {
         settings: "Einstellungen - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Die Apps des Builder-Teams befinden sich im Builder-Arbeitsbereich.",
+        openBuilderWorkspace: "Builder-Arbeitsbereich \u00f6ffnen",
         commandActions: "Aktionen",
         commandSearch: "Suchen",
         commandAppearance: "Darstellung",
@@ -3132,6 +3146,10 @@ export const messagesByLocale = {
         settings: "設定 - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Builder \u30c1\u30fc\u30e0\u306e\u30a2\u30d7\u30ea\u306f Builder \u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9\u306b\u3042\u308a\u307e\u3059\u3002",
+        openBuilderWorkspace:
+          "Builder \u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9\u3092\u958b\u304f",
         commandActions: "操作",
         commandSearch: "検索",
         commandAppearance: "外観",
@@ -3587,6 +3605,10 @@ export const messagesByLocale = {
         settings: "설정 - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Builder \ud300 \uc571\uc740 Builder \uc6cc\ud06c\uc2a4\ud398\uc774\uc2a4\uc5d0 \uc788\uc2b5\ub2c8\ub2e4.",
+        openBuilderWorkspace:
+          "Builder \uc6cc\ud06c\uc2a4\ud398\uc774\uc2a4 \uc5f4\uae30",
         commandActions: "작업",
         commandSearch: "검색",
         commandAppearance: "모양",
@@ -4035,6 +4057,9 @@ export const messagesByLocale = {
         settings: "Configurações - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Os aplicativos da equipe Builder est\u00e3o no espa\u00e7o de trabalho Builder.",
+        openBuilderWorkspace: "Abrir espa\u00e7o de trabalho Builder",
         commandActions: "Ações",
         commandSearch: "Buscar",
         commandAppearance: "Aparência",
@@ -4504,6 +4529,10 @@ export const messagesByLocale = {
         settings: "सेटिंग्स - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Builder \u091f\u0940\u092e \u0915\u0947 \u0910\u092a\u094d\u0938 Builder \u0915\u093e\u0930\u094d\u092f\u0938\u094d\u0925\u093e\u0928 \u092e\u0947\u0902 \u0939\u0948\u0902\u0964",
+        openBuilderWorkspace:
+          "Builder \u0915\u093e\u0930\u094d\u092f\u0938\u094d\u0925\u093e\u0928 \u0916\u094b\u0932\u0947\u0902",
         commandActions: "क्रियाएं",
         commandSearch: "खोजें",
         commandAppearance: "रूप",
@@ -4945,6 +4974,10 @@ export const messagesByLocale = {
         settings: "الإعدادات - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "\u062a\u0648\u062c\u062f \u062a\u0637\u0628\u064a\u0642\u0627\u062a \u0641\u0631\u064a\u0642 Builder \u0641\u064a \u0645\u0633\u0627\u062d\u0629 \u0639\u0645\u0644 Builder.",
+        openBuilderWorkspace:
+          "\u0641\u062a\u062d \u0645\u0633\u0627\u062d\u0629 \u0639\u0645\u0644 Builder",
         commandActions: "الإجراءات",
         commandSearch: "بحث",
         commandAppearance: "المظهر",
