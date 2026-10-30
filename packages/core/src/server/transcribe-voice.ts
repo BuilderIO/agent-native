@@ -860,6 +860,8 @@ async function cleanupWithChatProvider({
           { role: "user", content: buildCleanupUserPrompt(text) },
         ],
         temperature: 0,
+        // gpt-oss reasons before it answers: keep Groq's cleanup inside the timeout.
+        ...(provider === "groq" ? { reasoning_effort: "low" } : {}),
       }),
       signal: withClientAbort(controller.signal, clientAbortSignal),
     });
