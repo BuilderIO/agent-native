@@ -896,6 +896,20 @@ describe("review store", () => {
       body: "Plain reply",
       authorEmail: "carol@example.com",
     });
+    const legacyNote = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Old note",
+      authorEmail: "carol@example.com",
+      metadata: {
+        type: "resolution",
+        note: "Old note",
+        resolvedNote: "Older note",
+        resolution: { note: "Nested note", by: "carol@example.com" },
+      },
+    });
     await resolveReviewThread(
       root.threadId,
       "alice@example.com",
@@ -903,7 +917,7 @@ describe("review store", () => {
       "Fixed in the header",
     );
 
-    expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(3);
+    expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(4);
     expect(await deleteReviewComment("missing", "alice@example.com")).toBe(0);
 
     const stored = await getReviewCommentById(
@@ -933,6 +947,62 @@ describe("review store", () => {
     expect(
       await getReviewCommentById(plainReply.id, {}, { bypassScope: true }),
     ).toMatchObject({ status: "deleted", body: "" });
+    const storedNote = await getReviewCommentById(
+      legacyNote.id,
+      {},
+      { bypassScope: true },
+    );
+    expect(storedNote?.metadata).toEqual({
+      type: "resolution",
+      resolution: { by: "carol@example.com" },
+    });
+  });
+
+  it("clears a thread of more replies than one statement takes", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-busy",
+      body: "Busy root",
+      authorEmail: "alice@example.com",
+    });
+    const insertReplies = await pglite.prepare(
+      `INSERT INTO agent_review_comments
+         (id, resource_type, resource_id, thread_id, parent_comment_id, body,
+          author_email, created_at, updated_at, metadata_json)
+       SELECT 'busy-' || n, 'doc', 'd-busy', ?, ?, 'Reply ' || n,
+              'bob@example.com', ?, ?,
+              CASE WHEN n % 2 = 0
+                THEN '{"attachments":[{"url":"https://cdn.builder.io/x"}]}'
+              END
+         FROM generate_series(1, 1001) AS n`,
+    );
+    const now = new Date().toISOString();
+    await insertReplies.run(root.threadId, root.id, now, now);
+    rawClient.execute.mockClear();
+
+    expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(1002);
+
+    const replyUpdates = rawClient.execute.mock.calls.filter(
+      ([input]) => typeof input !== "string" && /WHERE id IN/.test(input.sql),
+    );
+    expect(replyUpdates).toHaveLength(2);
+    const left = await pglite.prepare(
+      `SELECT COUNT(*) AS live
+         FROM agent_review_comments
+        WHERE resource_id = 'd-busy' AND parent_comment_id IS NOT NULL
+          AND deleted_at IS NULL`,
+    );
+    const cleared = await pglite.prepare(
+      `SELECT COUNT(metadata_json) AS with_metadata,
+              COUNT(NULLIF(body, '')) AS with_text
+         FROM agent_review_comments
+        WHERE resource_id = 'd-busy' AND parent_comment_id IS NOT NULL`,
+    );
+    expect((await left.all())[0]).toMatchObject({ live: 0 });
+    expect((await cleared.all())[0]).toMatchObject({
+      with_metadata: 0,
+      with_text: 0,
+    });
   });
 
   it("lists the live replies of a root deleted before deletes took replies along, newest first too", async () => {

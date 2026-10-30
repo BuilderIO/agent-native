@@ -1430,22 +1430,45 @@ interface DeletedReplyRow {
   metadata_json?: unknown;
 }
 
-/** Metadata that holds what someone wrote or attached, cleared on delete. */
-const DELETED_COMMENT_METADATA_KEYS = ["attachments", "resolutionNote"];
+/** A `type` or `kind` that marks a comment's metadata as a resolution note. */
+const RESOLUTION_NOTE_MARKERS = new Set([
+  "resolution",
+  "resolution_note",
+  "resolution-note",
+]);
+
+/** Takes `key` out of `record`, saying whether it was there. */
+function dropKey(record: Record<string, unknown>, key: string): boolean {
+  if (!(key in record)) return false;
+  delete record[key];
+  return true;
+}
 
 /**
  * The metadata a deleted comment keeps, or `undefined` when nothing in it
- * needs clearing.
+ * needs clearing. What goes is what someone wrote or attached: image
+ * attachments, and a resolution note in each shape the kit's comment card
+ * reads one from.
  */
 function metadataAfterDelete(metadataJson: unknown): string | null | undefined {
   const metadata = parseObject(metadataJson);
-  if (
-    !metadata ||
-    !DELETED_COMMENT_METADATA_KEYS.some((key) => key in metadata)
-  ) {
-    return undefined;
+  if (!metadata) return undefined;
+  let changed = false;
+  for (const key of ["attachments", "resolutionNote", "resolvedNote"]) {
+    changed = dropKey(metadata, key) || changed;
   }
-  for (const key of DELETED_COMMENT_METADATA_KEYS) delete metadata[key];
+  // A comment marked as a resolution note keeps its note under `note`.
+  const marker = metadata.type ?? metadata.kind;
+  if (typeof marker === "string" && RESOLUTION_NOTE_MARKERS.has(marker)) {
+    changed = dropKey(metadata, "note") || changed;
+  }
+  const resolution = parseObject(metadata.resolution);
+  if (resolution && dropKey(resolution, "note")) {
+    changed = true;
+    if (Object.keys(resolution).length > 0) metadata.resolution = resolution;
+    else delete metadata.resolution;
+  }
+  if (!changed) return undefined;
   return Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null;
 }
 
@@ -1494,10 +1517,13 @@ async function clearDeletedReviewComment(
   );
 }
 
+/** Replies cleared per statement, well inside PostgreSQL's 65,535 bound values. */
+const DELETED_REPLIES_PER_STATEMENT = 1_000;
+
 /**
- * Clears a deleted thread's replies in one statement. Only a thread's first
- * comment has its metadata changed after it's written, so each reply's
- * metadata, read under the thread's lock, is still current here.
+ * Clears a deleted thread's replies, a thousand to a statement. Only a
+ * thread's first comment has its metadata changed after it's written, so each
+ * reply's metadata, read under the thread's lock, is still current here.
  */
 async function clearDeletedReviewReplies(
   client: DbExec,
@@ -1505,29 +1531,37 @@ async function clearDeletedReviewReplies(
   deletedBy: string | null,
   now: string,
 ): Promise<number> {
-  if (replies.length === 0) return 0;
-  const rewrites = replies.flatMap((reply) => {
-    const remainingMetadata = metadataAfterDelete(reply.metadata_json);
-    return remainingMetadata === undefined
-      ? []
-      : [
-          sql`WHEN ${sql.value(String(reply.id))} THEN ${sql.value(remainingMetadata)}`,
-        ];
-  });
-  const metadata =
-    rewrites.length > 0
-      ? sql`CASE id ${sql.join(rewrites, sql` `)} ELSE metadata_json END`
-      : sql`metadata_json`;
-  const result = await client.execute(sql`UPDATE agent_review_comments
-        SET status = 'deleted',
-            body = '',
-            mentions_json = NULL,
-            metadata_json = ${metadata},
-            deleted_by = ${sql.value(deletedBy)},
-            deleted_at = ${sql.value(now)},
-            updated_at = ${sql.value(now)}
-      WHERE id IN ${sql.in(replies.map((reply) => String(reply.id)))}`);
-  return result.rowsAffected;
+  let deleted = 0;
+  for (
+    let start = 0;
+    start < replies.length;
+    start += DELETED_REPLIES_PER_STATEMENT
+  ) {
+    const batch = replies.slice(start, start + DELETED_REPLIES_PER_STATEMENT);
+    const rewrites = batch.flatMap((reply) => {
+      const remainingMetadata = metadataAfterDelete(reply.metadata_json);
+      return remainingMetadata === undefined
+        ? []
+        : [
+            sql`WHEN ${sql.value(String(reply.id))} THEN ${sql.value(remainingMetadata)}`,
+          ];
+    });
+    const metadata =
+      rewrites.length > 0
+        ? sql`CASE id ${sql.join(rewrites, sql` `)} ELSE metadata_json END`
+        : sql`metadata_json`;
+    const result = await client.execute(sql`UPDATE agent_review_comments
+          SET status = 'deleted',
+              body = '',
+              mentions_json = NULL,
+              metadata_json = ${metadata},
+              deleted_by = ${sql.value(deletedBy)},
+              deleted_at = ${sql.value(now)},
+              updated_at = ${sql.value(now)}
+        WHERE id IN ${sql.in(batch.map((reply) => String(reply.id)))}`);
+    deleted += result.rowsAffected;
+  }
+  return deleted;
 }
 
 /** Distinct authors of a thread's live comments, for reply emails. */
