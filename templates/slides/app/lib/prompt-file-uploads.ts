@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { ensureEmbedAuthFetchInterceptor } from "@agent-native/core/client/host";
 
 import {
@@ -170,7 +170,7 @@ export async function isReferenceStorageReady(): Promise<boolean> {
   ensureEmbedAuthFetchInterceptor();
   let response: Response;
   try {
-    response = await fetch(`${appBasePath()}/api/uploads/status`, {
+    response = await fetch(appApiPath("/api/uploads/status"), {
       credentials: "include",
     });
   } catch (cause) {
@@ -354,7 +354,7 @@ async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
   files.forEach((file) => formData.append("files", file));
   let response: Response;
   try {
-    response = await fetch(`${appBasePath()}/api/uploads`, {
+    response = await fetch(appApiPath("/api/uploads"), {
       method: "POST",
       body: formData,
       credentials: "include",
@@ -378,7 +378,7 @@ async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
 export async function deleteUploadedPromptFile(
   file: Pick<UploadedFile, "path">,
 ): Promise<void> {
-  const response = await fetch(`${appBasePath()}/api/uploads`, {
+  const response = await fetch(appApiPath("/api/uploads"), {
     method: "DELETE",
     headers: { "content-type": "application/json" },
     credentials: "include",
@@ -403,19 +403,16 @@ export async function cleanupUploadedPromptFiles(
 }
 
 async function uploadFileChunked(file: File): Promise<UploadedFile> {
-  const startResponse = await fetch(
-    `${appBasePath()}/api/uploads-chunked/start`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        filename: file.name,
-        mimetype: file.type || "application/octet-stream",
-        declaredSize: file.size,
-      }),
-    },
-  );
+  const startResponse = await fetch(appApiPath("/api/uploads-chunked/start"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      filename: file.name,
+      mimetype: file.type || "application/octet-stream",
+      declaredSize: file.size,
+    }),
+  });
   if (!startResponse.ok) {
     throw await parsePromptUploadFailure(startResponse, [file]);
   }
@@ -443,9 +440,11 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
     const end = Math.min(start + CHUNK_SIZE_BYTES, file.size);
     const isFinal = index === totalChunks - 1;
     const chunkResponse = await fetch(
-      `${appBasePath()}/api/uploads-chunked/${sessionId}/chunk?index=${index}&isFinal=${
-        isFinal ? "1" : "0"
-      }`,
+      appApiPath(
+        `/api/uploads-chunked/${sessionId}/chunk?index=${index}&isFinal=${
+          isFinal ? "1" : "0"
+        }`,
+      ),
       {
         method: "POST",
         credentials: "include",

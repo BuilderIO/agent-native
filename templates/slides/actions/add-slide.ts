@@ -16,6 +16,7 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
@@ -564,7 +565,7 @@ export default defineAction({
           .update(schema.decks)
           .set({
             ...(repairedTitle ? { title: repairedTitle } : {}),
-            data: JSON.stringify(deck),
+            ...deckDataColumns(deck),
             updatedAt: now,
           })
           .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));

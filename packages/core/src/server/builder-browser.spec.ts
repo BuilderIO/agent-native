@@ -64,6 +64,7 @@ import {
   ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
+  getBuilderWorkspaceUrl,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
   getBuilderBrowserConnectUrlForOwner,
@@ -2391,5 +2392,19 @@ describe("Builder callback CSRF state", () => {
         name: "Agent-Native Workspace",
       });
     });
+  });
+});
+
+describe("getBuilderWorkspaceUrl", () => {
+  it("links a Builder-linked workspace to its page in Builder", () => {
+    vi.stubEnv("BUILDER_APP_HOST", "https://builder.io/");
+    expect(
+      getBuilderWorkspaceUrl({ BUILDER_WORKSPACE_PROJECT_ID: " ws 1 " }),
+    ).toBe("https://builder.io/app/workspaces/ws%201");
+    vi.unstubAllEnvs();
+  });
+
+  it("is null when the workspace is not linked to Builder", () => {
+    expect(getBuilderWorkspaceUrl({})).toBeNull();
   });
 });

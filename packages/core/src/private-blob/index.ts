@@ -43,11 +43,13 @@ export type {
 } from "./attachment-errors.js";
 export {
   ATTACHMENT_ERROR_CODES,
+  AttachmentArgumentError,
   AttachmentStorageUnavailableError,
   AttachmentUnavailableError,
   attachmentFailureDetails,
   attachmentFailureToError,
   describeAttachmentFailure,
+  isAttachmentArgumentFailure,
   isAttachmentError,
   unwrapAttachment,
 } from "./attachment-errors.js";

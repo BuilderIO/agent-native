@@ -1,3 +1,7 @@
+import {
+  resetGoogleFontsForTests,
+  setGoogleFontCatalogLoader,
+} from "@agent-native/toolkit/design-tweaks/google-fonts";
 import { cleanup, render, waitFor } from "@testing-library/react";
 // @vitest-environment happy-dom
 import React from "react";
@@ -1324,6 +1328,7 @@ describe("imported deck webfonts", () => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    resetGoogleFontsForTests();
   });
 
   it("serves a family the deck names", () => {
@@ -1333,15 +1338,15 @@ describe("imported deck webfonts", () => {
     });
   });
 
-  it("asks a static-weight family for discrete weights, not a variable axis", () => {
+  it("asks a family only for the weight range it ships", () => {
     expect(resolveImportedFont("Open Sans")?.href).toBe(
-      "https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap",
+      "https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap",
     );
   });
 
   it("serves the shared picker's JetBrains Mono family", () => {
     expect(resolveImportedFont("JetBrains Mono")?.href).toBe(
-      "https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap",
+      "https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap",
     );
   });
 
@@ -1386,7 +1391,7 @@ describe("imported deck webfonts", () => {
 
     expect(html).toContain('font-family: "Playfair Display", serif');
     expect(hrefs).toEqual([
-      "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap",
+      "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap",
     ]);
   });
 
@@ -1409,5 +1414,42 @@ describe("imported deck webfonts", () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it("loads a catalog family the built-in list does not know", async () => {
+    const loader = vi.fn(async () => [
+      {
+        family: "Lobster",
+        category: "Display",
+        weights: [400],
+        italicWeights: [],
+        variable: false,
+      },
+    ]);
+    setGoogleFontCatalogLoader(loader);
+    expect(
+      prepareImportedFonts(`<p style="font-family: 'Lobster'">a</p>`),
+    ).toMatchObject({ hrefs: [], pendingFamilies: ["Lobster"] });
+
+    const slide: Slide = {
+      id: "catalog-font",
+      layout: "blank",
+      notes: "",
+      content: `<div class="fmd-slide" style="font-family: 'Lobster', cursive;">Hi</div>`,
+    };
+    render(<SlideInner slide={slide} />);
+
+    await waitFor(() => {
+      expect(
+        appendedToHead.some(
+          (node) =>
+            node instanceof HTMLLinkElement &&
+            node.href ===
+              "https://fonts.googleapis.com/css2?family=Lobster:wght@400&display=swap",
+        ),
+      ).toBe(true);
+    });
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(resolveImportedFont("Lobster")?.family).toBe("Lobster");
   });
 });

@@ -194,7 +194,9 @@ export function GoogleConnectBanner({
       }
       pollHandle = null;
     };
-    void fetch(`${origin}${agentNativePath(endpoint)}?${params.toString()}`, {
+    const startUrl = new URL(agentNativePath(endpoint), origin);
+    startUrl.search = params.toString();
+    void fetch(startUrl, {
       method: "POST",
       credentials: "include",
       headers: { "X-Agent-Native-Desktop-Verifier": verifier },

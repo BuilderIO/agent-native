@@ -8,6 +8,7 @@
     "prebuild": "agent-native doctor --strict",
     "agent-native:doctor": "agent-native doctor",
     "typecheck": "pnpm -r typecheck",
+    "guard:workspace-app-scope": "node scripts/guard-workspace-app-scope.mjs",
     "repair:workspace-org": "tsx scripts/repair-workspace-org.ts",
     "skills:update": "agent-native skills update scaffold --project",
     "upgrade:agent-native": "agent-native upgrade",
