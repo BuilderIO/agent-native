@@ -15,7 +15,7 @@ export function BuilderWorkspaceNotice() {
         : null;
   if (
     status !== "authenticated" ||
-    !session?.email?.trim().toLowerCase().endsWith("@builder.io") ||
+    !session?.email.trim().toLowerCase().endsWith("@builder.io") ||
     !workspace
   )
     return null;
