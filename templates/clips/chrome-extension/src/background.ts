@@ -2405,6 +2405,7 @@ async function attachSession(session: CaptureSession): Promise<void> {
   try {
     wanted = pickDebugTabIds({
       targetTabId: session.targetTabId,
+      targetWindowId: (await chrome.tabs.get(session.targetTabId)).windowId,
       activations: await readTabActivations(),
       nowMs: nowMs(),
     });
@@ -3366,9 +3367,15 @@ function recordingDiagnosticsSession(): CaptureSession | null {
 // While a recording runs, the tab the user switches to is attached too. When
 // the cap is full, the least recently active attached tab gives up its slot;
 // its logs so far stay in the recording.
-async function followRecordingTab(tabId: number, now: number): Promise<void> {
+async function followRecordingTab(
+  tabId: number,
+  windowId: number | undefined,
+  now: number,
+): Promise<void> {
   const session = recordingDiagnosticsSession();
   if (!session) return;
+  const targetWindowId = (await chrome.tabs.get(session.targetTabId)).windowId;
+  if (windowId !== targetWindowId) return;
   if (session.debugTabs.has(tabId)) {
     session.debugTabs.set(tabId, now);
     return;
@@ -3388,27 +3395,31 @@ async function followRecordingTab(tabId: number, now: number): Promise<void> {
   }
 }
 
-async function noteTabActivated(tabId: number): Promise<void> {
+async function noteTabActivated(
+  tabId: number,
+  windowId: number | undefined,
+): Promise<void> {
   const now = nowMs();
   await sessionStorageSet({
     [RECENT_TABS_KEY]: recordTabActivation(
       await readTabActivations(),
       tabId,
       now,
+      windowId,
     ),
   });
-  await followRecordingTab(tabId, now);
+  await followRecordingTab(tabId, windowId, now);
 }
 
 chrome.tabs.onActivated.addListener((info) => {
-  queueTabActivation(() => noteTabActivated(info.tabId));
+  queueTabActivation(() => noteTabActivated(info.tabId, info.windowId));
 });
 
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
   queueTabActivation(async () => {
     const [tab] = await chrome.tabs.query({ active: true, windowId });
-    if (typeof tab?.id === "number") await noteTabActivated(tab.id);
+    if (typeof tab?.id === "number") await noteTabActivated(tab.id, windowId);
   });
 });
 
