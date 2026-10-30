@@ -256,6 +256,7 @@ export const usageAlertsStore = defineStore({
     ...fromMigrationEntries(
       USAGE_ALERT_MIGRATIONS_TABLE,
       USAGE_ALERT_MIGRATIONS,
+      { data: ["usage-alert-default-twenty-a-month"] },
     ),
   ],
 });
