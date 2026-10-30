@@ -43,7 +43,7 @@ export default defineAction({
 
     const db = getDb();
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
-      const [comment] = await db
+      const rows = await db
         .select({
           emojiReactionsJson: schema.slideComments.emojiReactionsJson,
         })
@@ -55,7 +55,7 @@ export default defineAction({
           ),
         )
         .limit(1);
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- destructured row is undefined at runtime when no comment matches
+      const comment = rows.at(0);
       if (!comment)
         fail(`Comment not found: ${commentId}`, {
           errorCode: "comment_not_found",
