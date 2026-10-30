@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MintedTokenRow } from "../mcp/connect-store.js";
 import type { ServicePrincipalPolicy } from "../org/service-principal-policy.js";
 import {
-  agentDisplayName,
   isShareableAgent,
   listShareableAgents,
+  orgAgentName,
 } from "./agent-principals.js";
 import { isOrgPrincipal } from "./grant.js";
 
@@ -134,10 +134,19 @@ describe("isShareableAgent", () => {
   });
 });
 
-describe("agentDisplayName", () => {
-  it("names a service principal and returns null for a person", () => {
-    expect(agentDisplayName(`svc-alpha@service.${orgId}`)).toBe("alpha");
-    expect(agentDisplayName("member@example.com")).toBeNull();
+describe("orgAgentName", () => {
+  it("names an agent of the given org, whatever the case", () => {
+    expect(orgAgentName(`svc-alpha@service.${orgId}`, orgId)).toBe("alpha");
+    expect(
+      orgAgentName(`svc-alpha@service.${orgId}`.toLowerCase(), orgId),
+    ).toBe("alpha");
+  });
+
+  it("treats people, other orgs' agents, and look-alike addresses as people", () => {
+    expect(orgAgentName("member@example.com", orgId)).toBeNull();
+    expect(orgAgentName("svc-alpha@service.org-other", orgId)).toBeNull();
+    expect(orgAgentName("svc-bob@service.example.com", orgId)).toBeNull();
+    expect(orgAgentName(`svc-alpha@service.${orgId}`, null)).toBeNull();
   });
 });
 

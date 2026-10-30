@@ -10,8 +10,8 @@ import { getUserProfiles } from "../../user-profile/store.js";
 import { listWorkspaceUserGroupsForOrg } from "../../workspace-connections/groups.js";
 import { assertAccess, resolveAccess } from "../access.js";
 import {
-  agentDisplayName,
   listShareableAgents,
+  orgAgentName,
   type ShareableAgent,
 } from "../agent-principals.js";
 import { requireShareableResource } from "../registry.js";
@@ -208,7 +208,8 @@ export default defineAction({
         ...shares
           .filter(
             (s) =>
-              s.principalType === "user" && !agentDisplayName(s.principalId),
+              s.principalType === "user" &&
+              orgAgentName(s.principalId, access.resource.orgId) === null,
           )
           .map((s) => s.principalId),
       ].map((email) => email.trim().toLowerCase()),
@@ -228,7 +229,9 @@ export default defineAction({
       ...(context?.mcpDirectoryWidgetReadOnly ? {} : agentReadPrompt(reg)),
       shares: shares.map((s) => {
         const agentName =
-          s.principalType === "user" ? agentDisplayName(s.principalId) : null;
+          s.principalType === "user"
+            ? orgAgentName(s.principalId, access.resource.orgId)
+            : null;
         return {
           id: s.id,
           principalType: s.principalType,

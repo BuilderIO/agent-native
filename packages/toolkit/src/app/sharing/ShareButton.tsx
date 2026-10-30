@@ -726,6 +726,9 @@ function ShareFooter(
       {copyLink ?? <span />}
       {hasSendTo ? (
         <ShareSendToMenu
+          // A prepared agent link is scoped to one resource; never offer it
+          // for the next one this panel shows.
+          key={`${props.resourceType}:${props.resourceId}`}
           resourceType={props.resourceType}
           resourceId={props.resourceId}
           sendTo={sendTo}

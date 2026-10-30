@@ -6,14 +6,17 @@ import { getDbExec, getScopedDbExec } from "../db/client.js";
 import type { ExtensionChangeTarget } from "../extensions/change-marker.js";
 import { isOrgMember } from "../org/membership.js";
 import { invalidateCollabAccessCache } from "../server/poll.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import { assertWorkspaceUserGroupIds } from "../workspace-connections/groups.js";
 import { assertAccess, ForbiddenError } from "./access.js";
 import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
 } from "./actions/extension-change.js";
-import { isShareableAgent } from "./agent-principals.js";
+import { isShareableAgent, orgAgentName } from "./agent-principals.js";
 import {
   requireShareableResource,
   type ShareableResourceRegistration,
@@ -163,6 +166,24 @@ export async function grantResourceAccess(
     fail("User shares must use an email address, not an internal user id.", {
       errorCode: "invalid_user_share_principal",
     });
+  }
+  const grantOrgId = access.resource?.orgId as string | undefined | null;
+  if (
+    input.principalType === "user" &&
+    grantOrgId &&
+    orgAgentName(principalId, grantOrgId) !== null
+  ) {
+    // Agents are suggested only to people acting inside the resource's org,
+    // so an outside collaborator with admin access cannot grant one either.
+    const actingOrgId = getRequestOrgId()?.toLowerCase();
+    if (
+      actingOrgId !== grantOrgId.toLowerCase() ||
+      !(await isShareableAgent(grantOrgId, principalId))
+    ) {
+      throw new ForbiddenError(
+        `${principalId} can only be added by someone in its organization.`,
+      );
+    }
   }
   if (input.principalType === "group") {
     const resourceOrgId = access.resource?.orgId as string | undefined | null;

@@ -259,6 +259,24 @@ describe("sharing with org agents", () => {
     expect(await shareRows()).toEqual([]);
   });
 
+  it("refuses an org agent granted by an admin acting outside the org", async () => {
+    await pglite.exec(`
+      INSERT INTO agent_doc_shares (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+        VALUES ('s-admin', 'doc-1', 'user', 'partner@example.com', 'admin', '${ownerEmail}', '0');
+    `);
+    await runWithRequestContext(
+      { userEmail: "partner@example.com", orgId: otherOrgId },
+      async () => {
+        await expect(shareWith(reviewerAgent)).rejects.toBeInstanceOf(
+          ForbiddenError,
+        );
+      },
+    );
+    expect((await shareRows()).map((row) => row.principal_id)).not.toContain(
+      reviewerAgent,
+    );
+  });
+
   it("lists the org's live agents for an owner and labels agent rows", async () => {
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await shareWith(reviewerAgent);

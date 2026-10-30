@@ -2,7 +2,7 @@
 
 import { appPath } from "@agent-native/core/client/api-path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, createElement, type ReactNode } from "react";
+import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

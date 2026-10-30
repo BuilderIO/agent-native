@@ -13,7 +13,7 @@ import { getRequestUserEmail } from "../../server/request-context.js";
 import { track } from "../../tracking/registry.js";
 import { getUserProfile } from "../../user-profile/store.js";
 import { assertAccess } from "../access.js";
-import { agentDisplayName } from "../agent-principals.js";
+import { orgAgentName } from "../agent-principals.js";
 import {
   announceResourceAccessChange,
   grantResourceAccess,
@@ -219,7 +219,10 @@ export default defineAction({
     const shouldNotify =
       args.notify !== false &&
       args.principalType === "user" &&
-      agentDisplayName(principalId) === null &&
+      orgAgentName(
+        principalId,
+        accessResource.orgId as string | null | undefined,
+      ) === null &&
       (await isEmailConfigured());
     let notified = false;
     if (shouldNotify) {

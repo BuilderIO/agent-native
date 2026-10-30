@@ -55,17 +55,25 @@ export async function isShareableAgent(
   orgId: string,
   email: string,
 ): Promise<boolean> {
-  const parsed = parseServiceIdentityEmail(email);
-  // User principals are stored lowercased, org ids are not.
-  if (!parsed || parsed.orgId.toLowerCase() !== orgId.toLowerCase()) {
-    return false;
-  }
+  if (orgAgentName(email, orgId) === null) return false;
   const agents = await listShareableAgents(orgId);
   const normalized = email.trim().toLowerCase();
   return agents.some((agent) => agent.email.toLowerCase() === normalized);
 }
 
-/** The service name to show for a share row, or null for a person. */
-export function agentDisplayName(email: string): string | null {
-  return parseServiceIdentityEmail(email)?.serviceName ?? null;
+/**
+ * The service name when `email` is an agent of `orgId`, or null. Only the
+ * resource's own org can have agents on it; anyone else whose address merely
+ * looks like `svc-<name>@service.<domain>` is a person and is emailed as one.
+ */
+export function orgAgentName(
+  email: string,
+  orgId: string | null | undefined,
+): string | null {
+  const parsed = parseServiceIdentityEmail(email);
+  // User principals are stored lowercased, org ids are not.
+  if (!parsed || !orgId || parsed.orgId.toLowerCase() !== orgId.toLowerCase()) {
+    return null;
+  }
+  return parsed.serviceName;
 }
