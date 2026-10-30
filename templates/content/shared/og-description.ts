@@ -68,9 +68,13 @@ function isDividerBlock(block: string): boolean {
 export function stripMarkdownForPreview(markdown: string): string {
   return (
     decodeCommonEntities(markdown)
-      .replace(/<[^>\n]+\/>/g, " ")
-      .replace(/<\/?[^>\n]+>/g, " ")
+      // A tag starts with a name, so `3 < 4 and 5 > 2` stays.
+      .replace(/<[A-Za-z][^<>\n]*\/>/g, " ")
+      .replace(/<\/?[A-Za-z][^<>\n]*>/g, " ")
+      // A destination with balanced parentheses, then any other.
+      .replace(/!\[([^\]]*)\]\((?:[^()]|\([^()]*\))+\)/g, "$1")
       .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+      .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))+\)/g, "$1")
       .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
       .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
       .replace(/`([^`]+)`/g, "$1")
@@ -332,9 +336,11 @@ export const EXCERPT_SOURCE_CHARS = 1000;
 export function buildListRowExcerpt({
   content,
   title,
+  maxLength,
 }: {
   content?: string | null;
   title?: string | null;
+  maxLength?: number;
 }): string {
   // Count characters the way the database does, not UTF-16 units. No
   // character takes more than two units.
@@ -346,5 +352,6 @@ export function buildListRowExcerpt({
     title,
     truncated: characters.length > EXCERPT_SOURCE_CHARS,
     nextCharacter: characters[EXCERPT_SOURCE_CHARS],
+    maxLength,
   });
 }

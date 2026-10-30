@@ -224,6 +224,31 @@ describe("adversarial document search", () => {
     expect(result.documents[0]?.snippet.length).toBeLessThanOrEqual(243);
   });
 
+  it("shows the text around a match found only in a link's address", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-link-address-match",
+        ownerEmail: OWNER,
+        title: "Link address match",
+        content: `${"opening words ".repeat(60)}See [the rollout notes](https://content.test/page/zephyr-rollout-key) before launch. ${"closing words ".repeat(60)}`,
+        visibility: "private",
+      });
+
+    const result = await asOwner(() =>
+      searchDocuments.run({
+        query: "zephyr-rollout-key",
+        limit: 10,
+        offset: 0,
+      }),
+    );
+
+    const snippet = result.documents.find(
+      (document) => document.id === "search-link-address-match",
+    )?.snippet;
+    expect(snippet).toContain("See the rollout notes before launch.");
+  });
+
   it("QA-10 stays responsive for rare, common, and zero-result mixed-size searches", async () => {
     const cases = [
       { query: "rare-saffron-marker", expectedTotal: 3, budgetMs: 750 },
