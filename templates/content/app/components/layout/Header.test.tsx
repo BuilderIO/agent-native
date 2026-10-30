@@ -11,7 +11,7 @@ import { Header } from "./Header";
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => {
-    const [section, name] = key.split(".");
+    const [section = "", name = ""] = key.split(".");
     const messages = messagesByLocale["en-US"] as unknown as Record<
       string,
       Record<string, string> | undefined
