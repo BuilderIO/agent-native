@@ -7,7 +7,7 @@ import {
   getAnalyticsSessionId,
   trackEvent,
 } from "@agent-native/core/client/analytics";
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { appApiPath, appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -3696,7 +3696,7 @@ export default function DeckEditor() {
     async (file: File): Promise<string> => {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+      const res = await fetch(appApiPath("/api/assets/upload"), {
         method: "POST",
         body: form,
       });

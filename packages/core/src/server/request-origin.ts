@@ -9,6 +9,8 @@ import {
   type H3Event,
 } from "h3";
 
+import { isExplicitCorsAllowedOrigin } from "../shared/mcp-embed-headers.js";
+
 function isLoopbackAddress(address: string | undefined): boolean {
   return Boolean(
     address === "::1" ||
@@ -138,8 +140,19 @@ function isLoopbackHost(host: string): boolean {
   return host.startsWith("localhost:") || host.startsWith("127.0.0.1:");
 }
 
+/**
+ * An origin the operator listed in `CORS_ALLOWED_ORIGINS` is the app's own UI
+ * served from elsewhere (`runtime.apiBaseUrl`), so the first-party checks
+ * below admit it.
+ */
+function isListedUiOrigin(event: H3Event): boolean {
+  const origin = getRequestHeader(event, "origin");
+  return !!origin && isExplicitCorsAllowedOrigin(origin);
+}
+
 /** Positive origin evidence must be paired with browser-cookie identity for UI proof. */
 export function hasSameOriginBrowserEvidence(event: H3Event): boolean {
+  if (isListedUiOrigin(event)) return true;
   const fetchSite = getRequestHeader(event, "sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin";
   const origin = getRequestHeader(event, "origin");
@@ -152,6 +165,7 @@ export function isSameOriginPost(event: H3Event): boolean {
 }
 
 export function isSameOriginRequest(event: H3Event): boolean {
+  if (isListedUiOrigin(event)) return true;
   const fetchSite = getRequestHeader(event, "sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
 

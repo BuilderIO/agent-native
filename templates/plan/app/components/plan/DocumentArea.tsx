@@ -1,3 +1,4 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   BlockView,
@@ -1133,5 +1134,7 @@ function ImageBlock({
 
 function imageSrcForAsset(assetId?: string): string | undefined {
   if (!assetId) return undefined;
-  return `/_agent-native/plan-asset/${encodeURIComponent(assetId)}/image`;
+  return agentNativePath(
+    `/_agent-native/plan-asset/${encodeURIComponent(assetId)}/image`,
+  );
 }
