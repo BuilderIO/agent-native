@@ -1,5 +1,7 @@
 import path from "path";
 
+import { isActionSource } from "../action-source-detection.js";
+
 let _fs: typeof import("fs") | undefined;
 async function getFs(): Promise<typeof import("fs")> {
   if (!_fs) {
@@ -346,7 +348,7 @@ async function scanActionsDir(actionsDir: string): Promise<DiscoveredAction[]> {
     } catch {
       continue;
     }
-    if (!content.includes("defineAction")) continue;
+    if (!isActionSource(content)) continue;
 
     const http = parseActionHttpConfig(content);
     if (http === false) continue;

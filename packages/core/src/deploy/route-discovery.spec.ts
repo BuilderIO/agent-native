@@ -216,6 +216,30 @@ describe("discoverActionFiles", () => {
     }
   });
 
+  it("discovers actions exported through define/create wrappers", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-actions-"));
+    try {
+      const actionsDir = path.join(root, "actions");
+      fs.mkdirSync(actionsDir);
+      fs.writeFileSync(
+        path.join(actionsDir, "with-define-wrapper.ts"),
+        `import { defineAppAction } from "../server/define-app-action";\nexport default defineAppAction({});\n`,
+      );
+      fs.writeFileSync(
+        path.join(actionsDir, "with-create-wrapper.ts"),
+        `import { createAppAction } from "../server/create-app-action";\nexport default createAppAction({});\n`,
+      );
+
+      const found = await discoverActionFiles(root);
+      expect(found.map((a) => a.name).sort()).toEqual([
+        "with-create-wrapper",
+        "with-define-wrapper",
+      ]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("discovers method, http.path, and skips agent-only actions", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-actions-"));
     try {

@@ -3,6 +3,8 @@ import path from "path";
 
 import type { Plugin, ViteDevServer } from "vite";
 
+import { isActionSource } from "../action-source-detection.js";
+
 const ACTION_REGISTRY_REFRESH_DELAY_MS = 300;
 
 const SKIP_FILES = new Set([
@@ -496,19 +498,7 @@ function scanActionFiles(actionsDir: string): string[] {
     if (SKIP_FILES.has(name)) return false;
     try {
       const content = fs.readFileSync(path.join(actionsDir, f), "utf-8");
-      const reexportsDefaultAction =
-        /export\s*\{\s*default\s*\}\s*from\s*["'][^"']+["']/.test(content);
-      const exportsActionFactory =
-        /export\s+default\s+(?:create[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
-          content,
-        );
-      if (
-        !content.includes("defineAction") &&
-        !reexportsDefaultAction &&
-        !exportsActionFactory
-      ) {
-        return false;
-      }
+      if (!isActionSource(content)) return false;
     } catch {
       return false;
     }

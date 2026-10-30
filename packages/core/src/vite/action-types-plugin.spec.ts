@@ -82,6 +82,34 @@ describe("generateActionRegistryForProject", () => {
     }
   });
 
+  it("includes actions exported through define/create wrappers", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-action-registry-"));
+    try {
+      const actionsDir = path.join(root, "actions");
+      fs.mkdirSync(actionsDir);
+      fs.writeFileSync(path.join(root, ".gitignore"), "");
+      fs.writeFileSync(
+        path.join(actionsDir, "with-define-wrapper.ts"),
+        `import { defineAppAction } from "../server/define-app-action";\nexport default defineAppAction({});\n`,
+      );
+      fs.writeFileSync(
+        path.join(actionsDir, "with-create-wrapper.ts"),
+        `import { createAppAction } from "../server/create-app-action";\nexport default createAppAction({});\n`,
+      );
+
+      generateActionRegistryForProject(root);
+
+      const registry = fs.readFileSync(
+        path.join(root, ".generated", "actions-registry.ts"),
+        "utf-8",
+      );
+      expect(registry).toContain("with-define-wrapper");
+      expect(registry).toContain("with-create-wrapper");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("refreshes the server registry when an action file changes it", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-action-watch-"));
     const watcher = new EventEmitter() as EventEmitter & {
