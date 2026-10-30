@@ -214,7 +214,11 @@ export default defineAction({
     }
     let sourceSnapshot: ReturnType<typeof readStoredSlideSource>;
     try {
-      sourceSnapshot = readStoredSlideSource(deckRow.data, input.slideId);
+      sourceSnapshot = readStoredSlideSource(
+        input.deckId,
+        deckRow.data,
+        input.slideId,
+      );
     } catch (error) {
       rethrowSlideSourceFailure(error);
     }

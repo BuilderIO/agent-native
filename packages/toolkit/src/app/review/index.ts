@@ -2,6 +2,7 @@ export * from "./CommentBody.js";
 export * from "./InlineMarkdown.js";
 export * from "./review-agent.js";
 export * from "./ReviewAgentMark.js";
+export * from "./comment-send-key.js";
 export * from "./ReviewCommentComposer.js";
 export * from "./ReviewStatusBadge.js";
 export * from "./ReviewThreadPanel.js";

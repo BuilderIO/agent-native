@@ -14,6 +14,7 @@ import {
   finalizeContrastAudit,
 } from "../shared/contrast-audit.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import {
   projectRenderingDesignSystemData,
   readDeckLinkedDesignSystem,
@@ -51,7 +52,10 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
-    const data = JSON.parse(access.resource.data) as {
+    const data = withUniqueSlideIds(
+      deckId,
+      JSON.parse(access.resource.data),
+    ) as {
       tweaks?: unknown;
       aspectRatio?: string | null;
       slides?: Array<{
