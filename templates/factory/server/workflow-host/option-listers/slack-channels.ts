@@ -9,20 +9,28 @@ import {
   type ProviderOptionTag,
 } from "./types.js";
 
+const channelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  is_private: z.boolean().optional(),
+  is_member: z.boolean().optional(),
+});
+
 const channelListSchema = z.object({
   ok: z.literal(true),
-  channels: z.array(
-    z.object({
-      id: z.string().min(1),
-      name: z.string().min(1),
-      is_private: z.boolean().optional(),
-      is_member: z.boolean().optional(),
-    }),
-  ),
+  channels: z.array(channelSchema),
   response_metadata: z
     .object({ next_cursor: z.string().optional() })
     .optional(),
 });
+
+const channelInfoSchema = z.object({
+  ok: z.literal(true),
+  channel: channelSchema,
+});
+
+// A Slack id is nine or more capitals and digits; a shorter word is a name.
+const CHANNEL_ID = /^[CG][A-Z0-9]{8,}$/;
 
 // Slack's own short error words; anything else is not echoed.
 const ERROR_WORD = /^[a-z][a-z0-9_]{0,47}$/;
@@ -73,6 +81,25 @@ function slackFailure(json: unknown): OptionListError | undefined {
   );
 }
 
+/** `channel_not_found` is Slack saying this credential has no such channel, which is an answer, not a failure. */
+function isChannelNotFound(json: unknown): boolean {
+  if (typeof json !== "object" || json === null) return false;
+  const body = json as { ok?: unknown; error?: unknown };
+  return body.ok === false && body.error === "channel_not_found";
+}
+
+function channelOption(channel: z.infer<typeof channelSchema>): ProviderOption {
+  const tags: ProviderOptionTag[] = [];
+  if (channel.is_private) tags.push("private");
+  if (channel.is_member === false) tags.push("bot_not_member");
+  return {
+    value: channel.id,
+    label: `#${channel.name}`,
+    hint: channel.id,
+    ...(tags.length > 0 ? { tags } : {}),
+  };
+}
+
 /**
  * Public and private channels the bot can see. `is_member` is Slack's word
  * for whether the bot is in a channel; only an explicit `false` is marked,
@@ -95,19 +122,28 @@ export const slackChannels: OptionLister = {
       expectJson("slack", response, slackFailure),
     );
     if (!parsed.success) throw unreadableList("slack", "a channel list");
-    const options: ProviderOption[] = parsed.data.channels.map((channel) => {
-      const tags: ProviderOptionTag[] = [];
-      if (channel.is_private) tags.push("private");
-      if (channel.is_member === false) tags.push("bot_not_member");
-      return {
-        value: channel.id,
-        label: `#${channel.name}`,
-        hint: channel.id,
-        ...(tags.length > 0 ? { tags } : {}),
-      };
-    });
+    const options = parsed.data.channels.map(channelOption);
     options.sort((a, b) => a.label.localeCompare(b.label));
     const next = parsed.data.response_metadata?.next_cursor;
     return { options, ...(next ? { nextCursor: next } : {}) };
+  },
+  /**
+   * Slack has no channel search, and a page of `conversations.list` can hold
+   * far fewer channels than the limit, so a channel can sit many pages down.
+   * Its id reaches it in one call.
+   */
+  async find(http, search) {
+    if (!CHANNEL_ID.test(search)) return undefined;
+    const response = await http({
+      path: "/conversations.info",
+      query: { channel: search },
+    });
+    const json = expectJson("slack", response, (body) =>
+      isChannelNotFound(body) ? undefined : slackFailure(body),
+    );
+    if (isChannelNotFound(json)) return undefined;
+    const parsed = channelInfoSchema.safeParse(json);
+    if (!parsed.success) throw unreadableList("slack", "a channel");
+    return channelOption(parsed.data.channel);
   },
 };

@@ -225,9 +225,7 @@ export default function Index() {
     null,
   );
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
-  const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
-    "design",
-  );
+  const [newDesignMode] = useState<"design" | "app">("design");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
@@ -1470,10 +1468,6 @@ export default function Index() {
                 creativeContextEnabled ? handleCreativeContextChange : undefined
               }
               loading={newDesignHandoffPending}
-              creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
-              onCreationModeChange={
-                fullAppBuildingEnabled ? setNewDesignMode : undefined
-              }
             />
           </div>
         }

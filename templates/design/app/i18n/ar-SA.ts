@@ -3360,6 +3360,7 @@ export default {
     updateFailed: "تعذر تحديث التعليق",
     commentsInCluster: "التعليقات في المجموعة: {{count}}",
     moreActions: "مزيد من الإجراءات",
+    moreActionsFor: "مزيد من الإجراءات لـ {{author}}",
     copyLink: "نسخ الرابط",
     linkCopied: "تم نسخ الرابط",
     copyLinkFailed: "تعذر نسخ الرابط",
@@ -3379,6 +3380,7 @@ export default {
     addEmoji: "إضافة رمز تعبيري",
     mention: "الإشارة إلى شخص",
     noMentions: "لم يتم العثور على أشخاص",
+    mentionsFailed: "تعذّر تحميل الأشخاص",
     reopen: "إعادة الفتح",
     reopening: "جارٍ إعادة الفتح…",
     undo: "تراجع",
@@ -3444,7 +3446,6 @@ export default {
     },
     filtersActive: "تم تطبيق التصفية",
     suggestChanges: "اقتراح تعديلات",
-    replyInThread: "الرد في المحادثة",
     applyChangesAndResolve: "تطبيق التعديلات وحل المحادثة",
     agent: {
       sectionLabel: "الوكلاء",

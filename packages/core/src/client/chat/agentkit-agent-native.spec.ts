@@ -6740,6 +6740,14 @@ describe("createAgentNativeAgentKitTransport", () => {
       "run.status",
       "run.completed",
     ]);
+    expect(runStateMocks.dispatchAgentChatRunning).toHaveBeenCalledWith({
+      isRunning: true,
+      phase: "working",
+      threadId: "thread-1",
+      tabId: "thread-1",
+      runId: "run-2",
+      reason: "run.submitted",
+    });
     expect(runStateMocks.dispatchAgentChatRunning).toHaveBeenCalledWith(
       expect.objectContaining({
         isRunning: true,

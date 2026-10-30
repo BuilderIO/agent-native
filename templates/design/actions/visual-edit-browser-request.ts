@@ -8,6 +8,8 @@ import {
   issueLocalhostBridgeOperationCapability,
 } from "@agent-native/core/visual-edit-bridge-capability";
 
+import { isBuilderIdentityEnabled } from "../server/lib/builder-identity-enabled.js";
+import { isBuilderHostOrigin } from "../shared/builder-host-origins.js";
 import {
   LOCALHOST_BRIDGE_RELAY_HEADER,
   LOCALHOST_BRIDGE_RELAY_MARKER,
@@ -115,9 +117,29 @@ export function isSameOriginVisualEditBrowserRequest(
   const requestOrigin = getRequestContext()?.requestOrigin;
   if (!origin || !requestOrigin) return false;
   if (!URL.canParse(origin) || !URL.canParse(requestOrigin)) return false;
-  if (new URL(origin).origin !== new URL(requestOrigin).origin) return false;
+  if (new URL(origin).origin !== new URL(requestOrigin).origin) {
+    return isBuilderHostPageRequest(origin, fetchSite);
+  }
 
   return !fetchSite || fetchSite === "same-origin" || fetchSite === "none";
+}
+
+/**
+ * Behind Builder's `/an/design` proxy the service sees its own host, not the
+ * one in the browser's `Origin`, and forwarded headers are only trusted from a
+ * loopback peer. The browser still marks the request `same-origin`, which a
+ * page on another site cannot do, so a Builder host origin that says so is the
+ * Design page.
+ */
+function isBuilderHostPageRequest(
+  origin: string,
+  fetchSite: string | undefined,
+): boolean {
+  return (
+    fetchSite === "same-origin" &&
+    isBuilderIdentityEnabled() &&
+    isBuilderHostOrigin(origin)
+  );
 }
 
 export function isLocalhostBridgeRelayRequest(

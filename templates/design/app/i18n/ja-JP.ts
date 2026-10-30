@@ -3429,6 +3429,7 @@ export default {
     updateFailed: "コメントを更新できませんでした",
     commentsInCluster: "クラスター内のコメント: {{count}}",
     moreActions: "その他の操作",
+    moreActionsFor: "{{author}} のその他の操作",
     copyLink: "リンクをコピー",
     linkCopied: "リンクをコピーしました",
     copyLinkFailed: "リンクをコピーできませんでした",
@@ -3448,6 +3449,7 @@ export default {
     addEmoji: "絵文字を追加",
     mention: "メンションする",
     noMentions: "該当するユーザーがいません",
+    mentionsFailed: "ユーザーを読み込めませんでした",
     reopen: "再開",
     reopening: "再開中…",
     undo: "元に戻す",
@@ -3493,7 +3495,6 @@ export default {
     },
     filtersActive: "絞り込みを適用中",
     suggestChanges: "変更を提案",
-    replyInThread: "スレッドで返信",
     applyChangesAndResolve: "変更を適用して解決",
     agent: {
       sectionLabel: "エージェント",

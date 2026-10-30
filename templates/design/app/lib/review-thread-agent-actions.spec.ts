@@ -295,14 +295,13 @@ describe("buildReviewThreadAgentContext", () => {
 describe("menu items that start a review-agent run", () => {
   it("sends only Send to agent to the chat", () => {
     const chat = (
-      ["send", "suggest", "reply", "apply"] as ReviewThreadAgentAction[]
+      ["send", "suggest", "apply"] as ReviewThreadAgentAction[]
     ).filter((action) => !isReviewThreadEngineAction(action));
     expect(chat).toEqual(["send"]);
   });
 
   it.each([
     ["suggest", "suggest"],
-    ["reply", "reply"],
     ["apply", "apply-resolve"],
   ] as const)("%s starts a %s run", (action, mode) => {
     expect(isReviewThreadEngineAction(action)).toBe(true);
