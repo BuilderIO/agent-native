@@ -10,6 +10,19 @@ export function ensureUniqueSlideIds<T extends { id?: unknown }>(
   originalIds: Array<string | null>;
 } {
   const used = new Set<string>();
+  // A replacement must not claim an ID a later slide still holds, or that
+  // slide is renamed in turn. Derived IDs make this reachable: a slide keeps
+  // the ID an earlier repair gave its old position after a reorder.
+  const held = new Set(
+    (slides as readonly unknown[]).flatMap((slide) =>
+      slide &&
+      typeof slide === "object" &&
+      "id" in slide &&
+      typeof slide.id === "string"
+        ? [slide.id]
+        : [],
+    ),
+  );
   let changed = false;
   const originalIds: Array<string | null> = [];
   const repaired = slides.map((slide, index) => {
@@ -25,7 +38,9 @@ export function ensureUniqueSlideIds<T extends { id?: unknown }>(
 
     let attempt = 0;
     let nextId = createId(index, attempt);
-    while (used.has(nextId)) nextId = createId(index, ++attempt);
+    while (used.has(nextId) || held.has(nextId)) {
+      nextId = createId(index, ++attempt);
+    }
     used.add(nextId);
     changed = true;
     return { ...slide, id: nextId } as T;

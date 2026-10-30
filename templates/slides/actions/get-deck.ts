@@ -424,9 +424,6 @@ export default defineAction({
       args.reviewPreview,
       args.reviewOrgId,
     );
-    if (!args.reviewPreview && appUiRead) {
-      await backfillDeckListColumns(row, data);
-    }
     // Both the compact and full branches read these; normalize once, here.
     const slides = storedSlides.map(canonicalReadSlide);
     const pendingRepairSlideIds = slides.flatMap((slide, index) =>
@@ -443,6 +440,14 @@ export default defineAction({
             },
           }
         : {};
+    // The list columns mirror the stored body, which an unsaved repair is not.
+    if (
+      !args.reviewPreview &&
+      appUiRead &&
+      pendingRepairSlideIds.length === 0
+    ) {
+      await backfillDeckListColumns(row, data);
+    }
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =

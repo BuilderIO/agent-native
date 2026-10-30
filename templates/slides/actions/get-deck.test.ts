@@ -242,6 +242,17 @@ describe("get-deck", () => {
     expect(currentResource?.data).toBe(originalData);
   });
 
+  it("does not backfill list columns from a repair it did not save", async () => {
+    currentAccessRole = "viewer";
+    storeDuplicateSlideDeck();
+    if (!currentResource) throw new Error("beforeEach stores a deck");
+    currentResource.slideCount = null;
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it("names the slides whose repaired IDs are not saved yet", async () => {
     storeDuplicateSlideDeck();
 
