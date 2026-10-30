@@ -3698,10 +3698,26 @@ const A2A_OVERDELEGATION_REGEX_CASES = [
   ],
 ];
 
+const FEEDBACK_UNREQUESTED_SLACK_POSTS_RE =
+  /(?=[^.!?\n]*\bslack\b)(?=[^.!?\n]*\b(?:messages?|posts?|repl(?:y|ies)|threads?)\b)(?=[^.!?\n]*\b(?:never asked|unrequested|unsolicited|random|didn['’]t ask)\b)[^.!?\n]+/i;
+
+const FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES = [
+  [true, "The bot reply in Slack was unrequested."],
+  [true, "wtf are these slack messages that i never asked for"],
+  [false, "Review the Slack thread. I never asked for a random report."],
+  [false, "The Slack reply was requested."],
+];
+
 if (process.argv.includes("--self-test")) {
-  const failures = FEEDBACK_REGEX_CASES.filter(
+  const failures = FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES.filter(
     ([expected, message]) =>
-      UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
+      FEEDBACK_UNREQUESTED_SLACK_POSTS_RE.test(message) !== expected,
+  );
+  failures.push(
+    ...FEEDBACK_REGEX_CASES.filter(
+      ([expected, message]) =>
+        UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
+    ),
   );
   failures.push(
     ...RESOURCE_CLEANUP_REGEX_CASES.filter(
@@ -4068,7 +4084,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + FEEDBACK_REPORTS_MISSED_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES.length + FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + FEEDBACK_REPORTS_MISSED_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -4400,6 +4416,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback (2026-09-02 repeat-report gate)",
     re: /\b(?:same|identical)\b[^.!?\n]{0,60}\b(?:thing|bug|issue|problem|report|error|failure)\b[^.!?\n]{0,80}\b(?:again|over and over|on repeat|repeatedly|multiple times|keeps? (?:getting )?report\w*|twice|three times|third time)\b|\bkeep(?:s)?\b[^.!?\n]{0,40}\b(?:re-?)?(?:fix|investigat|report)\w*\b[^.!?\n]{0,60}\b(?:same|again|over and over|on repeat)\b|\b(?:already|previously)\b[^.!?\n]{0,50}\b(?:said|told|claimed|marked)\b[^.!?\n]{0,40}\bfixed\b[^.!?\n]{0,60}\b(?:still|again|not|isn['’]?t)\b|\b(?:report|answer|fix)(?:ed|s)?\b[^.!?\n]{0,60}\b(?:twice|three times|two|three|four)\b[^.!?\n]{0,40}\b(?:times?|separate|different)\b[^.!?\n]{0,40}\b(?:investigat\w*|report\w*|thread\w*|repl\w*)\b|\b(?:duplicate|dupe)\w*\b[^.!?\n]{0,50}\b(?:investigation|report|of the same|work)\b/i,
+  },
+  {
+    key: "feedback-unrequested-slack-posts",
+    label: "Reported unrequested feedback sweep Slack posts",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (claimed and investigated threads)",
+    re: FEEDBACK_UNREQUESTED_SLACK_POSTS_RE,
   },
   {
     key: "feedback-question-volume",

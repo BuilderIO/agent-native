@@ -281,6 +281,18 @@ describe("get-design-system", () => {
     },
   );
 
+  it("does not save the Builder doc-count cache for a frontend claim with a bearer credential", async () => {
+    await action.run(
+      { id: "builder-ds-1" },
+      {
+        caller: "frontend",
+        requestHeaders: new Headers({ authorization: "Bearer test-token" }),
+      },
+    );
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it("does not save the Builder doc-count cache for a nested read with no caller", async () => {
     const result = await action.run({ id: "builder-ds-1" });
 

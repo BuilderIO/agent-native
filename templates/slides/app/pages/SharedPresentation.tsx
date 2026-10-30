@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
@@ -109,7 +109,7 @@ export default function SharedPresentation({
     }
     if (!token) return;
 
-    fetch(`${appBasePath()}/api/share/${token}`)
+    fetch(appApiPath(`/api/share/${token}`))
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json();

@@ -1,5 +1,9 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { appPath } from "@agent-native/core/client/api-path";
+import {
+  apiBaseUrl,
+  appApiPath,
+  appPath,
+} from "@agent-native/core/client/api-path";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -84,12 +88,23 @@ function absoluteAppUrl(path: string): string {
   return new URL(appPath(path), window.location.origin).toString();
 }
 
+function absoluteApiUrl(path: string): string {
+  if (typeof window === "undefined") return "";
+  return new URL(appApiPath(path), window.location.origin).toString();
+}
+
 function absolutePublicAgentContextUrl(recordingId: string): string {
   if (typeof window === "undefined") return "";
-  return buildAgentApiUrls(recordingId, {
-    origin: window.location.origin,
-    basePath: appPath("/").replace(/\/$/, ""),
-  }).contextUrl;
+  const serverUrl = apiBaseUrl();
+  return buildAgentApiUrls(
+    recordingId,
+    serverUrl
+      ? { origin: serverUrl }
+      : {
+          origin: window.location.origin,
+          basePath: appPath("/").replace(/\/$/, ""),
+        },
+  ).contextUrl;
 }
 
 export interface ShareRecordingPopoverProps {
@@ -889,7 +904,7 @@ function SocialTab({
     if (!variant) return null;
 
     const query = variant === "animated" ? "?animated=1" : "";
-    return absoluteAppUrl(
+    return absoluteApiUrl(
       `/api/thumbnail/${encodeURIComponent(recordingId)}${query}`,
     );
   }, [

@@ -847,6 +847,8 @@ export {
 export {
   cdnSafeOriginStatus,
   createBuilderProject,
+  getBuilderWorkspaceProjectId,
+  getBuilderWorkspaceUrl,
   ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,

@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
+const mockAccessFilter = vi.fn((...args: unknown[]) => ({
+  accessRole: args[3],
+}));
 const mockCurrentRequestUserIsOrgAdmin = vi.fn();
 const mockNotifyClients = vi.fn();
 let currentOrgId = "org-a";
@@ -69,6 +72,7 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
+  accessFilter: (...args: unknown[]) => mockAccessFilter(...args),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -101,6 +105,7 @@ vi.mock("../server/db/index.js", () => ({
       updatedAt: "ua_col",
       slideCount: "slide_count_col",
     },
+    deckShares: "deck_shares",
   },
 }));
 
@@ -211,6 +216,8 @@ describe("get-deck", () => {
     "never saves a duplicate-ID repair for a %s caller, even an owner",
     async (caller) => {
       const originalData = storeDuplicateSlideDeck();
+      if (!currentResource) throw new Error("beforeEach stores a deck");
+      currentResource.slideCount = null;
 
       const result = await action.run(
         { id: "deck-1", compact: "false" },
@@ -220,9 +227,87 @@ describe("get-deck", () => {
       expect(new Set(readSlideIds(result)).size).toBe(2);
       expect(mockUpdate).not.toHaveBeenCalled();
       expect(mockNotifyClients).not.toHaveBeenCalled();
-      expect(currentResource?.data).toBe(originalData);
+      expect(currentResource.data).toBe(originalData);
     },
   );
+
+  it("never saves a duplicate-ID repair for a frontend claim with a bearer credential", async () => {
+    const originalData = storeDuplicateSlideDeck();
+
+    const result = await action.run(
+      { id: "deck-1", compact: "false" },
+      {
+        caller: "frontend",
+        requestHeaders: new Headers({ authorization: "Bearer test-token" }),
+      },
+    );
+
+    expect(new Set(readSlideIds(result)).size).toBe(2);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(currentResource?.data).toBe(originalData);
+  });
+
+  it("does not backfill list columns from a repair it did not save", async () => {
+    currentAccessRole = "viewer";
+    storeDuplicateSlideDeck();
+    if (!currentResource) throw new Error("beforeEach stores a deck");
+    currentResource.slideCount = null;
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("saves the repair with an editor access filter", async () => {
+    storeDuplicateSlideDeck();
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockAccessFilter).toHaveBeenCalledWith(
+      expect.anything(),
+      "deck_shares",
+      undefined,
+      "editor",
+    );
+  });
+
+  it("does not save the repair when the role drops before the lock is held", async () => {
+    storeDuplicateSlideDeck();
+    mockResolveAccess
+      .mockImplementationOnce(async () => ({
+        role: "editor",
+        resource: currentResource,
+      }))
+      .mockImplementationOnce(async () => ({
+        role: "viewer",
+        resource: currentResource,
+      }));
+
+    const ids = readSlideIds(
+      await action.run({ id: "deck-1" }, { caller: "frontend" }),
+    );
+
+    expect(new Set(ids).size).toBe(2);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("names the slides whose repaired IDs are not saved yet", async () => {
+    storeDuplicateSlideDeck();
+
+    const outside = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "mcp" },
+    )) as { slideIdRepairPending?: { slideIds: string[]; note: string } };
+    const ids = readSlideIds(outside);
+
+    expect(ids[0]).toBe("duplicate");
+    expect(outside.slideIdRepairPending?.slideIds).toEqual([ids[1]]);
+    expect(outside.slideIdRepairPending?.note).toContain("slide not found");
+
+    const app = await action.run({ id: "deck-1" }, { caller: "frontend" });
+    expect(app).not.toHaveProperty("slideIdRepairPending");
+  });
 
   it("returns the same replacement IDs an editor's next app load saves", async () => {
     storeDuplicateSlideDeck();
@@ -609,32 +694,6 @@ describe("get-deck", () => {
       persisted.sourceImport.slides.map((slide: { id: string }) => slide.id),
     ).toEqual(ids);
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
-  });
-
-  it("returns normalized duplicate IDs to viewers without persisting a repair", async () => {
-    currentAccessRole = "viewer";
-    const originalData = JSON.stringify({
-      title: "Quarterly Review",
-      slides: [
-        { id: "duplicate", content: "<h1>First</h1>" },
-        { id: "duplicate", content: "<h1>Second</h1>" },
-      ],
-    });
-    const resource = currentResource;
-    if (!resource) throw new Error("The deck fixture is missing");
-    resource.data = originalData;
-    const originalUpdatedAt = resource.updatedAt;
-
-    const result = (await action.run(
-      { id: "deck-1", compact: "true" },
-      { caller: "tool" },
-    )) as { slides: Array<{ id: string }> };
-
-    expect(new Set(result.slides.map((slide) => slide.id)).size).toBe(2);
-    expect(resource.data).toBe(originalData);
-    expect(resource.updatedAt).toBe(originalUpdatedAt);
-    expect(mockUpdate).not.toHaveBeenCalled();
-    expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
   it("rejects malformed persisted slide entries explicitly", async () => {
@@ -1215,20 +1274,20 @@ describe("get-deck", () => {
     });
   });
 
-  it("does not write list columns a deck already has", async () => {
-    if (!currentResource) throw new Error("expected a deck row");
-    currentResource.slideCount = 2;
-
-    await action.run({ id: "deck-1" }, { caller: "frontend" });
-
-    expect(mockUpdate).not.toHaveBeenCalled();
-  });
-
   it("leaves list columns unwritten for an outside agent's read", async () => {
     if (!currentResource) throw new Error("expected a deck row");
     currentResource.slideCount = null;
 
     await action.run({ id: "deck-1" }, { caller: "mcp" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("does not write list columns a deck already has", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.slideCount = 2;
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
 
     expect(mockUpdate).not.toHaveBeenCalled();
   });

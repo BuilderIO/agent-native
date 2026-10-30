@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isAppUiRead } from "./_app-ui-read.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
 import {
   projectRenderingDesignSystemData,
@@ -418,13 +419,7 @@ export default defineAction({
         )
       : null;
 
-    // Only the app's own UI refreshes the cached count. Every other caller can
-    // hold a read-only grant, so for them this action stays a pure read.
-    if (
-      ctx?.caller === "frontend" &&
-      builder &&
-      typeof builder.docCount === "number"
-    ) {
+    if (isAppUiRead(ctx) && builder && typeof builder.docCount === "number") {
       await persistBuilderDocCount(row, builder.docCount);
     }
 
