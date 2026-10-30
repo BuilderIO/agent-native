@@ -1,3 +1,4 @@
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mocks, tables } = vi.hoisted(() => ({
@@ -18,16 +19,23 @@ const { mocks, tables } = vi.hoisted(() => ({
 }));
 
 let shareRows: Array<{ principalType: string; principalId: string }> = [];
+let deckExists = true;
 
 function selectBuilder() {
   let value: unknown[] = shareRows;
   const builder = {
     from: vi.fn((table: unknown) => {
-      value = table === tables.decks ? [{ id: "deck-1" }] : shareRows;
+      value =
+        table === tables.decks
+          ? deckExists
+            ? [{ id: "deck-1" }]
+            : []
+          : shareRows;
       return builder;
     }),
     where: vi.fn(() => builder),
     for: vi.fn(() => builder),
+    limit: vi.fn(() => builder),
     then: (
       resolve: (nextValue: unknown[]) => unknown,
       reject: (error: unknown) => unknown,
@@ -88,6 +96,7 @@ import deleteDeck from "./delete-deck.js";
 describe("deleteDeck", () => {
   beforeEach(() => {
     shareRows = [];
+    deckExists = true;
     mocks.assertAccess.mockReset();
     mocks.notifyClients.mockReset();
     mockDb.select.mockClear();
@@ -161,6 +170,21 @@ describe("deleteDeck", () => {
     expect(mocks.notifyClients).toHaveBeenCalledWith("deck-1", {
       type: "deck-deleted",
       visibility: "public",
+    });
+  });
+
+  it("answers 403 for a deck the caller cannot delete and 404 only when it is gone", async () => {
+    mocks.assertAccess.mockRejectedValue(
+      new ForbiddenError("Requires admin role"),
+    );
+
+    await expect(deleteDeck.run({ id: "deck-1" })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+
+    deckExists = false;
+    await expect(deleteDeck.run({ id: "deck-1" })).rejects.toMatchObject({
+      statusCode: 404,
     });
   });
 });

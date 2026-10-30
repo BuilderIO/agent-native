@@ -100,8 +100,16 @@ export default defineAction({
       }
       return { success: true };
     } catch (err) {
+      // The client treats 404 as "already deleted" and drops the card, so only a
+      // deck that no longer exists may answer 404; an existing deck the caller
+      // cannot delete must be a 403 the client can roll back and report.
       if (err instanceof ForbiddenError) {
-        throw deckHttpError(404, "Deck not found");
+        const [existing] = await getDb()
+          .select({ id: schema.decks.id })
+          .from(schema.decks)
+          .where(eq(schema.decks.id, id))
+          .limit(1);
+        if (!existing) throw deckHttpError(404, "Deck not found");
       }
       throw err;
     }

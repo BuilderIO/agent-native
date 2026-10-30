@@ -3696,6 +3696,7 @@ export default function DeckEditor() {
     async (file: File): Promise<string> => {
       const form = new FormData();
       form.append("file", file);
+      if (id) form.append("deckId", id);
       const res = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,
@@ -3711,7 +3712,7 @@ export default function DeckEditor() {
       }
       return data.url as string;
     },
-    [t],
+    [id, t],
   );
 
   const replaceImageInSlide = useCallback(
@@ -3931,7 +3932,7 @@ export default function DeckEditor() {
         );
       };
       try {
-        const uploadedVideo = await uploadSlideVideo(file);
+        const uploadedVideo = await uploadSlideVideo(file, id);
         const discardUploadedVideo = async () => {
           try {
             await discardUploadedSlideVideo(uploadedVideo.id);
@@ -6207,10 +6208,10 @@ export default function DeckEditor() {
                 setShowUploadStorageSetup(true);
               }
             }}
-            onDropImage={uploadAndApplyImage}
-            onDropVideo={uploadAndApplyVideo}
+            onDropImage={canEdit ? uploadAndApplyImage : undefined}
+            onDropVideo={canEdit ? uploadAndApplyVideo : undefined}
             fileStorageConfigured={fileStorageConfigured}
-            onDropImageUrl={dropImageUrlOnSlide}
+            onDropImageUrl={canEdit ? dropImageUrlOnSlide : undefined}
             onToggleObjectFit={toggleObjectFit}
             onChangeObjectPosition={updateObjectPosition}
             slideIndex={currentIndex >= 0 ? currentIndex : 0}
@@ -6396,6 +6397,7 @@ export default function DeckEditor() {
       <AssetLibraryPanel
         open={assetLibraryOpen}
         onOpenChange={setAssetLibraryOpen}
+        deckId={id}
         anchorRef={panelAnchorRef}
         onSelectAsset={
           replaceImageSrc

@@ -298,6 +298,12 @@ export default defineAction({
         : undefined,
       args.ids ? inArray(schema.decks.id, args.ids) : undefined,
     );
+    // Same predicates the write actions enforce, so a card never offers a
+    // control the server will refuse.
+    const roleFlags = {
+      canEdit: sql<boolean>`${accessFilter(schema.decks, schema.deckShares, undefined, "editor")}`,
+      canManage: sql<boolean>`${accessFilter(schema.decks, schema.deckShares, undefined, "admin")}`,
+    };
 
     // Previews cost a first slide per row, so every preview listing is paged.
     const paged =
@@ -338,6 +344,7 @@ export default defineAction({
       const rows = await db
         .select({
           ...pagedMeta,
+          ...roleFlags,
           previewSlide: previewRequested
             ? schema.decks.previewSlide
             : sql<null>`null`,
@@ -385,6 +392,8 @@ export default defineAction({
         createdByMe:
           normalizedOwnerEmail !== null &&
           normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+        canEdit: row.canEdit,
+        canManage: row.canManage,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         ...(previewRequested
@@ -406,6 +415,7 @@ export default defineAction({
           updatedAt: schema.decks.updatedAt,
           visibility: schema.decks.visibility,
           ownerEmail: schema.decks.ownerEmail,
+          ...roleFlags,
         })
         .from(schema.decks)
         .where(where)
@@ -421,6 +431,8 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+          canEdit: row.canEdit,
+          canManage: row.canManage,
         })),
       };
     }
@@ -435,6 +447,7 @@ export default defineAction({
           createdAt: schema.decks.createdAt,
           updatedAt: schema.decks.updatedAt,
           visibility: schema.decks.visibility,
+          ...roleFlags,
         })
         .from(schema.decks)
         .where(where)
@@ -452,6 +465,8 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+          canEdit: row.canEdit,
+          canManage: row.canManage,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
         })),

@@ -198,9 +198,13 @@ async function resolveFinalChunk(
   throw initialError;
 }
 
-async function uploadVideoMultipart(file: File): Promise<UploadedSlideVideo> {
+async function uploadVideoMultipart(
+  file: File,
+  deckId: string | undefined,
+): Promise<UploadedSlideVideo> {
   const body = new FormData();
   body.append("file", file);
+  if (deckId) body.append("deckId", deckId);
   const response = await fetch(`${appBasePath()}/api/assets/upload-video`, {
     method: "POST",
     credentials: "include",
@@ -210,7 +214,10 @@ async function uploadVideoMultipart(file: File): Promise<UploadedSlideVideo> {
   return readUploadedSlideVideo(data, response);
 }
 
-async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
+async function uploadVideoChunked(
+  file: File,
+  deckId: string | undefined,
+): Promise<UploadedSlideVideo> {
   const startResponse = await fetch(
     `${appBasePath()}/api/uploads-chunked/start`,
     {
@@ -222,12 +229,13 @@ async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
         mimetype: file.type || "application/octet-stream",
         declaredSize: file.size,
         uploadType: "video",
+        deckId,
       }),
     },
   );
   const startData = await readVideoUploadResponse(startResponse);
   if (startData.uploadMode === "multipart") {
-    return uploadVideoMultipart(file);
+    return uploadVideoMultipart(file, deckId);
   }
   if (typeof startData.sessionId !== "string" || !startData.sessionId) {
     throw uploadError("Video upload session was invalid", startResponse.status);
@@ -308,10 +316,11 @@ async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
 
 export async function uploadSlideVideo(
   file: File,
+  deckId?: string,
 ): Promise<UploadedSlideVideo> {
   return file.size > CHUNK_SIZE_BYTES
-    ? uploadVideoChunked(file)
-    : uploadVideoMultipart(file);
+    ? uploadVideoChunked(file, deckId)
+    : uploadVideoMultipart(file, deckId);
 }
 
 export async function discardUploadedSlideVideo(id: string): Promise<void> {

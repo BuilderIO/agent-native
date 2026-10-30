@@ -537,6 +537,8 @@ export default defineAction({
       createdByMe:
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+      canEdit: ["owner", "admin", "editor"].includes(accessRole),
+      canManage: ["owner", "admin"].includes(accessRole),
       ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
       designSystemId: linkedDesignSystemId,
       ...(includeAgentContext ? { designSystem } : {}),

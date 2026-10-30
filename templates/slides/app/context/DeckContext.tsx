@@ -142,6 +142,8 @@ type PatchDeckTopLevelFields = Partial<
     | "createdAt"
     | "updatedAt"
     | "createdByMe"
+    | "canEdit"
+    | "canManage"
     | "designSystemId"
     | "tweaks"
     | "aspectRatio"
@@ -459,6 +461,9 @@ export interface Deck {
   shareToken?: string;
   visibility?: "private" | "org" | "public";
   createdByMe?: boolean;
+  /** Set on list rows. Cards hide edit and manage controls unless these are `true`. */
+  canEdit?: boolean;
+  canManage?: boolean;
   widgetAccessRole?: "owner" | "viewer" | "commenter" | "editor" | "admin";
   designSystemId?: string;
   tweaks?: Record<string, string | number | boolean>;
@@ -7419,6 +7424,8 @@ export function DeckProvider({
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         createdByMe: true,
+        canEdit: true,
+        canManage: true,
         designSystemId: options?.designSystemId ?? undefined,
         slides: options?.noDefaultSlides
           ? []
@@ -7582,6 +7589,8 @@ export function DeckProvider({
         updatedAt: now,
         visibility: "private",
         createdByMe: true,
+        canEdit: true,
+        canManage: true,
         shareToken: undefined,
       };
       delete optimistic.previewSlide;

@@ -219,15 +219,17 @@ function DeckCard({
               }
             }}
           >
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                startRename();
-              }}
-            >
-              <IconPencil className="w-3.5 h-3.5 me-2" />
-              {t("home.renameDeck")}
-            </DropdownMenuItem>
+            {deck.canEdit === true && (
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  startRename();
+                }}
+              >
+                <IconPencil className="w-3.5 h-3.5 me-2" />
+                {t("home.renameDeck")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => onDuplicate(deck.id)}>
               <IconCopy className="w-3.5 h-3.5 me-2" />
               {t("home.duplicateDeck")}
@@ -254,32 +256,38 @@ function DeckCard({
                 {t("creativeContext.addToContext" /* i18n-key-ignore */)}
               </DropdownMenuItem>
             ) : null}
-            {canSetWorkspaceDefault && onSetWorkspaceDefault && (
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  pendingWorkspaceDefaultRef.current = true;
-                  setMenuOpen(false);
-                }}
-              >
-                <IconBuildingCommunity className="w-3.5 h-3.5 me-2" />
-                {isWorkspaceDefault
-                  ? t("home.clearWorkspaceDefault")
-                  : t("home.setWorkspaceDefault")}
-              </DropdownMenuItem>
+            {canSetWorkspaceDefault &&
+              deck.canManage === true &&
+              onSetWorkspaceDefault && (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    pendingWorkspaceDefaultRef.current = true;
+                    setMenuOpen(false);
+                  }}
+                >
+                  <IconBuildingCommunity className="w-3.5 h-3.5 me-2" />
+                  {isWorkspaceDefault
+                    ? t("home.clearWorkspaceDefault")
+                    : t("home.setWorkspaceDefault")}
+                </DropdownMenuItem>
+              )}
+            {deck.canManage === true && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    pendingDeleteRef.current = true;
+                    setMenuOpen(false);
+                  }}
+                  className="text-red-400 focus:text-red-400"
+                >
+                  <IconTrash className="w-3.5 h-3.5 me-2" />
+                  {t("home.deleteDeck")}
+                </DropdownMenuItem>
+              </>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                pendingDeleteRef.current = true;
-                setMenuOpen(false);
-              }}
-              className="text-red-400 focus:text-red-400"
-            >
-              <IconTrash className="w-3.5 h-3.5 me-2" />
-              {t("home.deleteDeck")}
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

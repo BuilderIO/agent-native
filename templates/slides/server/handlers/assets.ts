@@ -27,6 +27,7 @@ import {
 import {
   resolveSlidesRequestAuth,
   type SlidesRequestAuthContext,
+  assertDeckEditableForUpload,
 } from "./request-auth-context.js";
 
 type AuthedSlidesSession = SlidesRequestAuthContext & { email: string };
@@ -2042,6 +2043,13 @@ export const uploadVideoAssetHandler = defineEventHandler(async (event) => {
   }
 
   try {
+    await assertDeckEditableForUpload(
+      event,
+      session,
+      new TextDecoder().decode(
+        parts?.find((part) => part.name === "deckId")?.data,
+      ),
+    );
     return await uploadVideoAsset({
       email: session.email,
       orgId: session.orgId,
@@ -2186,6 +2194,13 @@ export const uploadAsset = defineEventHandler(async (event) => {
   }
 
   try {
+    await assertDeckEditableForUpload(
+      event,
+      session,
+      new TextDecoder().decode(
+        parts?.find((part) => part.name === "deckId")?.data,
+      ),
+    );
     return await uploadImageAsset({
       email: session.email,
       orgId: session.orgId,
