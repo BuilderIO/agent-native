@@ -45,6 +45,11 @@ export interface InlineMarkdownProps {
    * note like `use <Button> here` keeps its tag. HTML comments stay hidden.
    */
   showRawHtml?: boolean;
+  /**
+   * Draws a hard line break as a space, for text that must stay one line,
+   * like a preview in a row of fixed height.
+   */
+  breaksAsSpaces?: boolean;
   renderLink?:
     | ((href: string, children: ReactNode, className: string) => ReactNode)
     | undefined;
@@ -72,6 +77,7 @@ export function InlineMarkdown({
   inline = false,
   renderLists = false,
   showRawHtml = false,
+  breaksAsSpaces = false,
   renderLink,
   protectedSpans = [],
   renderProtectedSpan,
@@ -150,6 +156,8 @@ export function InlineMarkdown({
         {children}
       </pre>
     ),
+    // The newline the parser leaves after each break reads as the space.
+    ...(breaksAsSpaces ? { br: () => null } : {}),
     h1: Heading,
     h2: Heading,
     h3: Heading,
@@ -286,7 +294,8 @@ const PROTECTED_SPAN_PREFIX = "https://inline-markdown-protected.invalid/span/";
 
 // One pass over the original text: replacing span by span would match a
 // shorter source again inside the link label a longer one just produced.
-function protectInlineMarkdownSpans(
+// This is the text the parser reads.
+export function protectInlineMarkdownSpans(
   content: string,
   spans: readonly InlineMarkdownProtectedSpan[],
 ): string {

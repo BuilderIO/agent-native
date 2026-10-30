@@ -8,6 +8,7 @@ import {
   COMMENT_MARKDOWN_LIMIT,
   commentExcerpt,
   commentPlainText,
+  isCommentMarkdownTangled,
   splitCommentAtMarkdownLimit,
 } from "./plain-text.js";
 
@@ -27,6 +28,19 @@ describe("commentPlainText", () => {
         'Ask @[Sam Lee](mailto:sam@example.com) about [the brief](https://example.com/b "Brief") <https://example.com>',
       ),
     ).toBe("Ask @Sam Lee about the brief https://example.com");
+  });
+
+  it("numbers footnotes as the renderer does, and drops a note nothing cites", () => {
+    expect(
+      commentPlainText("Visible.\n\n[^private]: do not send this draft"),
+    ).toBe("Visible.");
+    expect(
+      commentPlainText(
+        "See this[^a] and that[^b], this again[^a].\n\n[^b]: Bee note\n[^a]: Ay note[^c]\n[^c]: See note\n[^d]: unused",
+      ),
+    ).toBe(
+      "See this[1] and that[2], this again[1].\n\nFootnotes\n1. Ay note[3]\n2. Bee note\n3. See note",
+    );
   });
 
   it("drops images and task checkboxes, which the renderer draws no text for", () => {
@@ -317,6 +331,11 @@ describe("splitCommentAtMarkdownLimit", () => {
     expect(splitCommentAtMarkdownLimit(links).rest).toBe("");
     const unclosed = `see [1 ${"word ".repeat(200)}`;
     expect(splitCommentAtMarkdownLimit(unclosed).rest).toBe("");
+  });
+
+  it("says whether a paragraph is too tangled, as the split measures it", () => {
+    expect(isCommentMarkdownTangled(`ok\n\n${"[".repeat(17)}x`)).toBe(true);
+    expect(isCommentMarkdownTangled(`ok\n\n${"[".repeat(16)}x`)).toBe(false);
   });
 
   it("ends lines where the parser does, even at a lone carriage return", () => {

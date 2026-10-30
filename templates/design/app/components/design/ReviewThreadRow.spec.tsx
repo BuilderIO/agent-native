@@ -99,6 +99,18 @@ describe("ReviewThreadRow", () => {
     expect(row?.querySelector("a, li")).toBeNull();
   });
 
+  it("keeps a comment with hard line breaks on the row's one line", () => {
+    const container = renderRow({
+      thread: makeThread({ body: "first  \nsecond  \nthird  \nfourth" }),
+    });
+
+    const row = container.querySelector("[data-review-thread-row]");
+    expect(row?.querySelector("br")).toBeNull();
+    expect(row?.textContent?.replace(/\s+/g, " ")).toContain(
+      "first second third fourth",
+    );
+  });
+
   it("marks an unread thread with a dot, bold text, and a label for screen readers", () => {
     const container = renderRow({ thread: makeThread(), unread: true });
 

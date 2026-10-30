@@ -148,6 +148,18 @@ describe("CommentBody", () => {
     expect(rootElement?.className).not.toContain("whitespace-pre-wrap");
   });
 
+  it("keeps a compact preview's hard line breaks to one line", () => {
+    render(<CommentBody compact body={"first  \nsecond\\\nthird"} />);
+
+    expect(container.querySelector("br")).toBeNull();
+    expect(container.textContent?.replace(/\s+/g, " ")).toBe(
+      "first second third",
+    );
+
+    render(<CommentBody body={"first  \nsecond"} />);
+    expect(container.querySelectorAll("br")).toHaveLength(1);
+  });
+
   it("leaves mentions inside links and URLs as part of the link", () => {
     render(
       <CommentBody
@@ -165,6 +177,72 @@ describe("CommentBody", () => {
       "https://example.com/@Sam",
     ]);
     expect(links[0]?.textContent).toBe("ask @Sam");
+  });
+
+  it("leaves mentions inside reference links and addresses with parentheses as part of the link", () => {
+    const mentions = [{ label: "Sam", email: "sam@example.com" }];
+    const links = () =>
+      [...container.querySelectorAll("a")].map((link) => [
+        link.textContent,
+        link.getAttribute("href"),
+      ]);
+
+    render(
+      <CommentBody
+        body={
+          "[ask @Sam][x] and [@Sam][]\n\n[x]: https://example.com\n[@sam]: https://example.com/sam"
+        }
+        mentions={mentions}
+      />,
+    );
+    expect(chips()).toEqual([]);
+    expect(links()).toEqual([
+      ["ask @Sam", "https://example.com"],
+      ["@Sam", "https://example.com/sam"],
+    ]);
+
+    render(
+      <CommentBody
+        body={
+          "[ask @Sam](https://example.com/a(b)), [ask  @sam]\n\n[Ask @Sam]: https://example.com/c"
+        }
+        mentions={mentions}
+      />,
+    );
+    expect(chips()).toEqual([]);
+    expect(links()).toEqual([
+      ["ask @Sam", "https://example.com/a(b)"],
+      ["ask  @sam", "https://example.com/c"],
+    ]);
+
+    // Brackets with no definition behind them are text, so a mention there
+    // is still a chip.
+    render(<CommentBody body="[ask @Sam] later" mentions={mentions} />);
+    expect(chips()).toEqual(["@Sam"]);
+  });
+
+  it("keeps a mention that spans lines as text, so a code fence in it stays a fence", () => {
+    // The fence holds what would take the parser seconds to read as
+    // Markdown; drawn as a chip, the mention would take the fence's lines.
+    const nested = `${"![".repeat(3_000)}x${"](u)".repeat(3_000)}`;
+    render(
+      <CommentBody
+        body={`@[\n~~~\n](mailto:sam@example.com)\n${nested}`}
+        mentions={[{ label: "\n~~~\n", email: "sam@example.com" }]}
+      />,
+    );
+
+    expect(chips()).toEqual([]);
+    expect(container.querySelector("pre")?.textContent).toContain(nested);
+  });
+
+  it("shows mentions as written when drawing them as links would tangle the text", () => {
+    // Sixteen brackets deep is fine, but a mention's link is one more.
+    const deep = `${"[".repeat(16)}@Sam${"]".repeat(16)}`;
+    render(<CommentBody body={deep} mentions={[{ label: "Sam" }]} />);
+
+    expect(chips()).toEqual([]);
+    expect(container.textContent).toBe(deep);
   });
 
   it("finds mentions in a comment that lists many", () => {

@@ -1,9 +1,17 @@
-import { splitCommentAtMarkdownLimit } from "@agent-native/core/review/plain-text";
+import {
+  isCommentMarkdownTangled,
+  splitCommentAtMarkdownLimit,
+} from "@agent-native/core/review/plain-text";
 import type { ReviewMention } from "@agent-native/core/review/types";
 import { Component, type ReactNode } from "react";
 
 import { cn } from "../../utils.js";
-import { InlineMarkdown, type InlineMarkdownProps } from "./InlineMarkdown.js";
+import {
+  InlineMarkdown,
+  protectInlineMarkdownSpans,
+  type InlineMarkdownProps,
+  type InlineMarkdownProtectedSpan,
+} from "./InlineMarkdown.js";
 import { ReviewMentionChip } from "./ReviewMentionChip.js";
 
 export interface CommentBodyMention extends ReviewMention {
@@ -63,7 +71,20 @@ export function CommentBody({
   // the rest shows as plain text, so one comment can't stall the page. Emails
   // and webhooks split it the same way.
   const { markdown, rest } = splitCommentAtMarkdownLimit(body);
-  const found = findCommentBodyMentions(markdown, mentions);
+  let found = findCommentBodyMentions(markdown, mentions);
+  let spans: InlineMarkdownProtectedSpan[] = found.map(
+    ({ at, source, mention }) => ({ source, label: `@${mention.label}`, at }),
+  );
+  // The parser reads the comment with each mention swapped for a link. Should
+  // that text be one the split above would cut, the mentions show as written,
+  // so the split guards the text the parser reads.
+  if (
+    spans.length > 0 &&
+    isCommentMarkdownTangled(protectInlineMarkdownSpans(markdown, spans))
+  ) {
+    found = [];
+    spans = [];
+  }
   const mentionAt = new Map(found.map(({ at, mention }) => [at, mention]));
   const wrapsRest = Boolean(rest);
   const rendered = (
@@ -72,6 +93,8 @@ export function CommentBody({
       inline={compact}
       renderLists
       showRawHtml
+      // A preview stays one run of text, often in a row one line high.
+      breaksAsSpaces={compact}
       // A compact body is one run of text: the newlines Markdown leaves
       // between paragraphs, list items and lines read as spaces, so they
       // don't spend a clamped preview's lines.
@@ -81,11 +104,7 @@ export function CommentBody({
       )}
       linkClassName={linkClassName}
       codeClassName={codeClassName}
-      protectedSpans={found.map(({ at, source, mention }) => ({
-        source,
-        label: `@${mention.label}`,
-        at,
-      }))}
+      protectedSpans={spans}
       renderProtectedSpan={(span, children) => {
         const mention =
           span.at === undefined ? undefined : mentionAt.get(span.at);
@@ -193,7 +212,11 @@ class CommentMarkdownBoundary extends Component<
 }
 
 const NAME_CHAR = /[\p{L}\p{M}\p{N}_]/u;
-const MAILTO_MENTION = /@\[([^[\]]+)\]\(mailto:([^()\s]+)\)/g;
+// A mention stays on one line. Drawn as a chip, one that spanned lines would
+// take their line breaks with it, and with them the blocks they open, such as
+// a code fence the split counted on.
+const MAILTO_MENTION = /@\[([^[\]\r\n]+)\]\(mailto:([^()\s]+)\)/g;
+const LINE_BREAK = /[\r\n]/;
 
 interface FoundMention {
   at: number;
@@ -233,7 +256,7 @@ function findCommentBodyMentions(
   const inLink = linkRanges(body);
   const unpinned = new MentionLabels();
   for (const mention of mentions) {
-    if (!mention.label) continue;
+    if (!mention.label || LINE_BREAK.test(mention.label)) continue;
     if (mention.at === undefined) {
       if (mention.label.length <= MAX_MENTION_LABEL) unpinned.add(mention);
       continue;
@@ -332,14 +355,23 @@ function sameIdentity(a: CommentBodyMention, b: CommentBodyMention): boolean {
   );
 }
 
+// The link shapes people write. A mention inside one of them stays part of
+// the link, rather than break it apart. Brackets nested in a link's text are
+// rare enough to leave out.
 const LINK_PATTERNS = [
-  // `[text](address)` and images, the same shapes InlineMarkdown links.
-  /!?\[[^[\]]*\]\([^()]*\)/g,
+  // `[text](address)` and images, with an address that may hold a pair of
+  // parentheses, as in `https://example.com/a(b)`.
+  /!?\[[^[\]]*\]\((?:[^()]|\([^()]*\))*\)/g,
+  // `[text][label]` and `[text][]`, which a definition elsewhere links.
+  /!?\[[^[\]]*\]\[[^[\]]*\]/g,
   // `<https://…>` autolinks.
   /<(?:https?|mailto):[^\s<>]*>/gi,
   // Bare URLs, which GitHub-flavored Markdown links.
   /\b(?:https?:\/\/|www\.)[^\s<]*/gi,
 ];
+// `[label]: address`, which turns `[label]` on its own into a link too.
+const LINK_DEFINITION = /^ {0,3}\[([^[\]]+)\]:/gm;
+const BRACKETED = /!?\[([^[\]]*)\]/g;
 
 /** Whether an offset falls inside a link, with the links found once. */
 function linkRanges(body: string): (at: number) => boolean {
@@ -347,6 +379,19 @@ function linkRanges(body: string): (at: number) => boolean {
   for (const pattern of LINK_PATTERNS) {
     for (const match of body.matchAll(pattern)) {
       ranges.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  const defined = new Set(
+    [...body.matchAll(LINK_DEFINITION)].map(([, label = ""]) =>
+      linkLabelKey(label),
+    ),
+  );
+  if (defined.size > 0) {
+    for (const match of body.matchAll(BRACKETED)) {
+      const [link, label = ""] = match;
+      if (defined.has(linkLabelKey(label))) {
+        ranges.push({ start: match.index, end: match.index + link.length });
+      }
     }
   }
   ranges.sort((a, b) => a.start - b.start);
@@ -371,6 +416,11 @@ function linkRanges(body: string): (at: number) => boolean {
     }
     return false;
   };
+}
+
+/** A link label as Markdown matches it to a definition. */
+function linkLabelKey(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function codePointBefore(text: string, index: number): string | undefined {

@@ -5,7 +5,13 @@
  * uses (CommonMark with GitHub's extensions), so the text matches the screen.
  */
 
-import type { ListItem, Nodes, PhrasingContent, RootContent } from "mdast";
+import type {
+  FootnoteDefinition,
+  ListItem,
+  Nodes,
+  PhrasingContent,
+  RootContent,
+} from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
@@ -76,6 +82,16 @@ export function splitCommentAtMarkdownLimit(body: string): {
     markdown: body.slice(0, cut),
     rest: body.slice(cut).replace(/^\n+/, ""),
   };
+}
+
+/**
+ * Whether a paragraph in `markdown` is too tangled for the parser to read
+ * quickly, by the same measure `splitCommentAtMarkdownLimit` cuts at. A
+ * renderer that changes a comment's text before parsing it, as one that draws
+ * mentions as links does, asks this of the text it will parse.
+ */
+export function isCommentMarkdownTangled(markdown: string): boolean {
+  return readCommentLines(markdown).tangledAt !== undefined;
 }
 
 /**
@@ -321,7 +337,8 @@ function isDigit(char: string): boolean {
  * A comment as plain text. Emphasis, heading, quote and code markers go;
  * links keep their text, so `@[Name](mailto:…)` mentions read `@Name`; HTML
  * comments, images, rules and task checkboxes drop, as the renderer skips
- * them. Other raw HTML, code, list markers and line breaks stay as written,
+ * them. Footnotes read as the renderer numbers them, `[1]` in the text and the
+ * notes at the end, and a note nothing cites drops, as it does on screen. Other raw HTML, code, list markers and line breaks stay as written,
  * and blocks keep the blank lines the author put between them. Where the
  * Markdown stops, at the limit or a paragraph too tangled to read quickly,
  * the rest stays as written, as the renderer shows it.
@@ -335,7 +352,10 @@ export function commentPlainText(markdown: string): string {
       extensions: [gfm()],
       mdastExtensions: [gfmFromMarkdown()],
     });
-    read = blocks(tree.children);
+    const footnotes = new Footnotes(tree);
+    read = [blocks(tree.children, footnotes), footnotes.section()]
+      .filter(Boolean)
+      .join("\n\n");
   } catch {
     // Should the parser fail on something the split didn't catch, the
     // renderer shows the comment as written, and so does this.
@@ -366,11 +386,11 @@ export function commentExcerpt(markdown: string, limit = 240): string {
  * separated by one and a line break otherwise. Blocks the renderer draws
  * nothing for leave no gap.
  */
-function blocks(nodes: readonly RootContent[]): string {
+function blocks(nodes: readonly RootContent[], footnotes: Footnotes): string {
   let text = "";
   let previous: RootContent | undefined;
   for (const node of nodes) {
-    const block = blockText(node);
+    const block = blockText(node, footnotes);
     if (block === null) continue;
     if (previous) text += gapBetween(previous, node);
     text += block;
@@ -388,18 +408,20 @@ function gapBetween(previous: Nodes, next: Nodes): string {
 }
 
 /** A block's text, or null for one the renderer draws nothing for. */
-function blockText(node: RootContent): string | null {
+function blockText(node: RootContent, footnotes: Footnotes): string | null {
   switch (node.type) {
     case "paragraph":
     case "heading": {
-      const text = phrasing(node.children);
+      const text = phrasing(node.children, footnotes);
       return text.trim() ? text : null;
     }
     case "code":
       return node.value;
     case "blockquote":
+      return blocks(node.children, footnotes) || null;
     case "footnoteDefinition":
-      return blocks(node.children) || null;
+      // Read at the end, with the other notes the text cites.
+      return null;
     case "list": {
       let text = "";
       let number = node.start ?? 1;
@@ -408,7 +430,7 @@ function blockText(node: RootContent): string | null {
         if (previous) text += gapBetween(previous, item);
         const marker = node.ordered ? `${number}. ` : "- ";
         // An item's later lines sit under its first, past the marker.
-        const content = blocks(item.children).replace(
+        const content = blocks(item.children, footnotes).replace(
           /\n(?=[^\n])/g,
           `\n${" ".repeat(marker.length)}`,
         );
@@ -421,7 +443,9 @@ function blockText(node: RootContent): string | null {
     case "table":
       return node.children
         .map((row) =>
-          row.children.map((cell) => phrasing(cell.children)).join(" | "),
+          row.children
+            .map((cell) => phrasing(cell.children, footnotes))
+            .join(" | "),
         )
         .join("\n");
     case "html": {
@@ -450,15 +474,18 @@ function blockText(node: RootContent): string | null {
     case "imageReference":
     case "footnoteReference":
       // A parse never puts these outside a block, but read them if it does.
-      return phrasingText(node) || null;
+      return phrasingText(node, footnotes) || null;
   }
 }
 
-function phrasing(nodes: readonly PhrasingContent[]): string {
-  return nodes.map(phrasingText).join("");
+function phrasing(
+  nodes: readonly PhrasingContent[],
+  footnotes: Footnotes,
+): string {
+  return nodes.map((node) => phrasingText(node, footnotes)).join("");
 }
 
-function phrasingText(node: PhrasingContent): string {
+function phrasingText(node: PhrasingContent, footnotes: Footnotes): string {
   switch (node.type) {
     case "text":
       return node.value;
@@ -472,14 +499,70 @@ function phrasingText(node: PhrasingContent): string {
     case "delete":
     case "link":
     case "linkReference":
-      return phrasing(node.children);
+      return phrasing(node.children, footnotes);
     case "html":
       return withoutHtmlComments(node.value);
     case "image":
     case "imageReference":
-    case "footnoteReference":
-      // The renderer draws no text for images or footnote references.
+      // The renderer draws no text for images.
       return "";
+    case "footnoteReference":
+      return `[${footnotes.cite(node.identifier)}]`;
+  }
+}
+
+/**
+ * A comment's footnotes, numbered as the renderer numbers them: in the order
+ * the text first cites each, and a note cited only in another note after it.
+ */
+class Footnotes {
+  private readonly notes = new Map<string, FootnoteDefinition>();
+  private readonly numbers = new Map<string, number>();
+  private readonly cited: FootnoteDefinition[] = [];
+
+  constructor(tree: Nodes) {
+    // The renderer finds a note wherever it's defined, and of two with one
+    // label it keeps the first.
+    const visit = (node: Nodes) => {
+      if (
+        node.type === "footnoteDefinition" &&
+        !this.notes.has(node.identifier)
+      ) {
+        this.notes.set(node.identifier, node);
+      }
+      if ("children" in node) node.children.forEach(visit);
+    };
+    visit(tree);
+  }
+
+  /** The number a citation of the note shows. */
+  cite(identifier: string): number {
+    let number = this.numbers.get(identifier);
+    if (number === undefined) {
+      const note = this.notes.get(identifier);
+      if (note) this.cited.push(note);
+      number = this.cited.length;
+      this.numbers.set(identifier, number);
+    }
+    return number;
+  }
+
+  /**
+   * The cited notes in order, under the heading the renderer gives them, or
+   * nothing when the text cites none.
+   */
+  section(): string {
+    const items: string[] = [];
+    // Reading a note can cite another, which joins the end of the list.
+    for (const [index, note] of this.cited.entries()) {
+      const marker = `${index + 1}. `;
+      const content = blocks(note.children, this).replace(
+        /\n(?=[^\n])/g,
+        `\n${" ".repeat(marker.length)}`,
+      );
+      items.push(`${marker}${content}`.trimEnd());
+    }
+    return items.length ? `Footnotes\n${items.join("\n")}` : "";
   }
 }
 
