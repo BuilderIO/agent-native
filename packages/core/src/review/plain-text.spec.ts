@@ -122,6 +122,13 @@ describe("commentPlainText", () => {
     expect(commentPlainText("\\<!-- not a comment -->")).toBe(
       "<!-- not a comment -->",
     );
+    // In a tag's quoted attribute, `<!--` is part of the tag.
+    expect(
+      commentPlainText('<a title="<!--">link</a> <!-- note -->shown'),
+    ).toBe('<a title="<!--">link</a> shown');
+    expect(
+      commentPlainText("<div title='<!-- x'>\nkept<!-- note -->\n</div>"),
+    ).toBe("<div title='<!-- x'>\nkept\n</div>");
   });
 
   it("hides HTML comments that run across lines", () => {

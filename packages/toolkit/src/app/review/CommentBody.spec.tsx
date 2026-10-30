@@ -340,6 +340,12 @@ describe("CommentBody", () => {
     expect(text).not.toContain("note");
     expect(text).not.toContain("hidden");
     expect(container.querySelector("b, button")).toBeNull();
+
+    // In a tag's quoted attribute, `<!--` is part of the tag.
+    render(
+      <CommentBody body={'<a title="<!--">link</a> <!-- note -->shown'} />,
+    );
+    expect(container.textContent).toBe('<a title="<!--">link</a> shown');
   });
 
   it("shows a paragraph nested thousands deep as written", () => {

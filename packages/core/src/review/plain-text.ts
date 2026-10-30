@@ -566,11 +566,20 @@ class Footnotes {
   }
 }
 
+// An opening tag, as CommonMark reads one, or an HTML comment. A comment
+// left open runs to the end, as the parser reads it.
+const TAG_OR_HTML_COMMENT =
+  /<[A-Za-z][A-Za-z0-9-]*(?:\s+[A-Za-z_:][\w.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>|<!--(?:-?>|.*?(?:-->|$))/gs;
+
 /**
  * Raw HTML as the renderer shows it: as written, since in a comment it's
  * usually prose about markup, like `use <Button> here`, but without its HTML
- * comments. One left open runs to the end, as the parser reads it.
+ * comments. A `<!--` in a tag's quoted attribute is part of the tag, as in
+ * `<a title="<!--">`, and stays. The toolkit's renderer strips them with this
+ * too, so the screen and the text agree.
  */
-function withoutHtmlComments(html: string): string {
-  return html.replace(/<!--(?:-?>|.*?(?:-->|$))/gs, "");
+export function withoutHtmlComments(html: string): string {
+  return html.replace(TAG_OR_HTML_COMMENT, (match) =>
+    match.startsWith("<!--") ? "" : match,
+  );
 }

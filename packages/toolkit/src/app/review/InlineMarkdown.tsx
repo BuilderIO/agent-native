@@ -1,3 +1,4 @@
+import { withoutHtmlComments } from "@agent-native/core/review/plain-text";
 import { Children, type ReactNode } from "react";
 import ReactMarkdown, {
   defaultUrlTransform,
@@ -282,12 +283,6 @@ function rawHtmlAsText(spans: readonly InlineMarkdownProtectedSpan[]) {
     };
     return (tree: MdastNode) => visit(tree);
   };
-}
-
-// Strips HTML comments as Core's `commentPlainText` does. One left open runs
-// to the end, as the parser reads it.
-function withoutHtmlComments(html: string): string {
-  return html.replace(/<!--(?:-?>|.*?(?:-->|$))/gs, "");
 }
 
 const PROTECTED_SPAN_PREFIX = "https://inline-markdown-protected.invalid/span/";
