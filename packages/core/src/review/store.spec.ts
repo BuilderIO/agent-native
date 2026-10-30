@@ -31,7 +31,7 @@ const {
   consumeReviewFeedback,
   deleteReviewComment,
   ensureReviewTables,
-  getOtherLiveReviewAuthorsByRoot,
+  getLiveReviewAuthorsByThread,
   getReviewCommentById,
   getReviewStatus,
   insertReviewComment,
@@ -476,19 +476,21 @@ describe("review store", () => {
       expect(await liveBodies("p2")).toEqual(["Other root", "Carol's reply"]);
     });
 
-    it("lists who else wrote in each first comment's thread, on one resource, without the deleted", async () => {
+    it("lists who wrote in each thread, on one resource, once each, without the deleted", async () => {
       const first = await thread("p1");
       const other = await thread("p2");
+      for (const body of ["Second reply", "Third reply"]) {
+        await insertReviewComment({
+          resourceType: "plan",
+          resourceId: "p1",
+          threadId: first.root.threadId,
+          parentCommentId: first.root.id,
+          body,
+          authorEmail: "carol@example.com",
+          ownerEmail: "alice@example.com",
+        });
+      }
       await insertReviewComment({
-        resourceType: "plan",
-        resourceId: "p1",
-        threadId: first.root.threadId,
-        parentCommentId: first.root.id,
-        body: "Second reply",
-        authorEmail: "carol@example.com",
-        ownerEmail: "alice@example.com",
-      });
-      const second = await insertReviewComment({
         resourceType: "plan",
         resourceId: "p1",
         threadId: first.root.threadId,
@@ -499,20 +501,26 @@ describe("review store", () => {
       await deleteReviewComment(first.reply.id, "bob@example.com");
       const resource = { resourceType: "plan", resourceId: "p1" };
 
-      const authors = await getOtherLiveReviewAuthorsByRoot(
-        [first.root, second, other.root],
+      const authors = await getLiveReviewAuthorsByThread(
+        [first.root.threadId, other.root.threadId, first.root.threadId],
         resource,
       );
       expect(
-        new Map([...authors].map(([id, emails]) => [id, [...emails].sort()])),
+        new Map(
+          [...authors].map(([threadId, emails]) => [
+            threadId,
+            [...emails].sort(),
+          ]),
+        ),
       ).toEqual(
         new Map([
-          [first.root.id, ["carol@example.com", "dave@example.com"]],
-          [second.id, ["alice@example.com", "carol@example.com"]],
-          [other.root.id, []],
+          [
+            first.root.threadId,
+            ["alice@example.com", "carol@example.com", "dave@example.com"],
+          ],
         ]),
       );
-      expect(await getOtherLiveReviewAuthorsByRoot([], resource)).toEqual(
+      expect(await getLiveReviewAuthorsByThread([], resource)).toEqual(
         new Map(),
       );
     });

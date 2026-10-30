@@ -1316,50 +1316,35 @@ export async function sendReviewThreadToAgent(
 }
 
 /**
- * For each of a thread's first comments, who wrote every other live comment in
- * its thread, which deleting it would take along. Read on its own, so a list
- * cut short by its limit cannot hide one from the answer.
+ * Who wrote each thread's live comments, its first comment included, each
+ * author once. Read on its own, so a list cut short by its limit cannot hide
+ * one from the answer.
  */
-export async function getOtherLiveReviewAuthorsByRoot(
-  roots: ReadonlyArray<{ id: string; threadId: string }>,
+export async function getLiveReviewAuthorsByThread(
+  threadIds: ReadonlyArray<string>,
   resource: { resourceType: string; resourceId: string },
 ): Promise<Map<string, Array<string | null>>> {
-  const authorsByRoot = new Map<string, Array<string | null>>();
-  const threadIds = [...new Set(roots.map((root) => root.threadId))];
-  if (!threadIds.length) return authorsByRoot;
+  const ids = [...new Set(threadIds)];
+  if (!ids.length) return new Map();
   await ensureReviewTables();
   // raw-sql-ok: the interpolation is only `?` placeholders; the ids are bound.
   const { rows } = await getDbExec().execute({
-    sql: `SELECT id, thread_id, author_email FROM agent_review_comments
+    sql: `SELECT DISTINCT thread_id, author_email FROM agent_review_comments
            WHERE resource_type = ? AND resource_id = ? AND deleted_at IS NULL
-             AND thread_id IN (${threadIds.map(() => "?").join(",")})`,
-    args: [resource.resourceType, resource.resourceId, ...threadIds],
+             AND thread_id IN (${ids.map(() => "?").join(",")})`,
+    args: [resource.resourceType, resource.resourceId, ...ids],
   });
-  const commentsByThread = new Map<
-    string,
-    Array<{ id: string; email: string | null }>
-  >();
+  const authorsByThread = new Map<string, Array<string | null>>();
   for (const row of rows) {
-    const {
-      id,
-      thread_id: threadId,
-      author_email: email,
-    } = row as { id: unknown; thread_id: unknown; author_email?: unknown };
-    const comments = commentsByThread.get(String(threadId)) ?? [];
-    comments.push({
-      id: String(id),
-      email: typeof email === "string" ? email : null,
-    });
-    commentsByThread.set(String(threadId), comments);
+    const { thread_id: threadId, author_email: email } = row as {
+      thread_id: unknown;
+      author_email?: unknown;
+    };
+    const authors = authorsByThread.get(String(threadId)) ?? [];
+    authors.push(typeof email === "string" ? email : null);
+    authorsByThread.set(String(threadId), authors);
   }
-  for (const root of roots) {
-    const authors: Array<string | null> = [];
-    for (const comment of commentsByThread.get(root.threadId) ?? []) {
-      if (comment.id !== root.id) authors.push(comment.email);
-    }
-    authorsByRoot.set(root.id, authors);
-  }
-  return authorsByRoot;
+  return authorsByThread;
 }
 
 export interface DeleteReviewCommentOptions {
