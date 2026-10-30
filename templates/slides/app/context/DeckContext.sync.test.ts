@@ -1809,15 +1809,18 @@ describe("DeckContext fallback polling", () => {
 
   it("parks a hidden open-deck poll after repeated server errors until the tab is visible", async () => {
     const { api } = await renderOpenDeck();
-    // A poll can use a revision probe or retry a full read.
+    // A poll can use a revision probe or retry a full read; a save another
+    // test left queued drains on hide and reads its own deck.
     const openDeckReads = () =>
       api.fetchMock.mock.calls.filter(([url]) => {
         const href = requestString(url);
+        const params = new URL(href, "http://localhost").searchParams;
         return (
-          href.includes("/_agent-native/actions/get-deck") ||
+          (href.includes("/_agent-native/actions/get-deck") &&
+            params.get("id") === "open-deck") ||
           (href.includes("/_agent-native/actions/list-decks") &&
-            href.includes("ids%5B%5D=") &&
-            !href.includes("includePreview"))
+            isOpenDeckProbe(href) &&
+            params.getAll("ids[]").includes("open-deck"))
         );
       }).length;
 

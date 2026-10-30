@@ -2351,6 +2351,20 @@ const FEEDBACK_NO_LOCAL_REPRO_RE = new RegExp(
   ].join("|"),
   "i",
 );
+const FEEDBACK_REPORTS_MISSED_RE =
+  /(?<!\bI\s)\b(?:missed|dropped|skipped|ignored|overlooked|didn['’]?t\s+see|never\s+(?:saw|claimed|picked\s+up))\b[^\n]{0,40}\b(?:reports?|threads?|(?:slack\s+)?(?:posts?|chats?|messages?))\b|\b(?:reports?|threads?|slack\s+(?:posts?|chats?|messages?))\b[^\n]{0,40}\b(?:missed|dropped|never\s+(?:seen|claimed|picked\s+up))\b/i;
+const FEEDBACK_REPORTS_MISSED_REGEX_CASES = [
+  [true, "looks like TONS of slack chats missed"],
+  [true, "you missed 14 reports"],
+  [true, "the sweep dropped reports"],
+  [true, "the sweep never picked up that thread"],
+  [true, "the sweep overlooked reports"],
+  [true, "the sweep didn't see the report"],
+  [false, "the sweep missed the deadline"],
+  [false, "I missed your last update"],
+  [false, "I missed the reports call"],
+  [false, "The sweep fixed every report."],
+];
 const FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES = [
   [true, "Why did the feedback skill skip this? It's easily reproducible."],
   [true, "I had to ask you to reproduce this locally."],
@@ -3959,6 +3973,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...FEEDBACK_REPORTS_MISSED_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_REPORTS_MISSED_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_NO_LOCAL_REPRO_RE.test(message) !== expected,
@@ -4064,7 +4084,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES.length + FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES.length + FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + FEEDBACK_REPORTS_MISSED_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -4154,6 +4174,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback (local reproduction before evidence limits, 2026-10-07)",
     re: FEEDBACK_NO_LOCAL_REPRO_RE,
+  },
+  {
+    key: "feedback-reports-missed",
+    label: "Had to point out reports the feedback sweep never picked up",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (helpers return every unmarked root, 2026-10-30)",
+    re: FEEDBACK_REPORTS_MISSED_RE,
   },
   {
     key: "false-done",

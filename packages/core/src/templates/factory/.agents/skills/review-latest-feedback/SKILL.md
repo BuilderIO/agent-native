@@ -168,21 +168,24 @@ the invocation gives), for new reports and open items alike. An older thread
 is in the window too when we have already replied in it and a person has
 replied since the window began: a channel read only shows roots, so search for
 recent thread replies (`in:<#channel> is:thread after:<date>`) to find them.
-Other older threads are left as they are, except reports listed under
+Roots listed in `memory.md` under "Claimed, not yet answered" or "Must handle
+next run" (from the coverage check) are always in the window. Other older threads are left as they are, except reports listed under
 `Reports` in a sweep PR opened or merged in that window: those always get
 their close-out.
 
-Reading a source is a good job for a helper: give each source below its own
-helper on the cheapest model (Luna in Codex, Haiku in Claude Code), ask for a
-short list of candidates with links, and close it as soon as it reports.
+Give each source below its own helper on the cheapest model (Luna in Codex,
+Haiku in Claude Code), and close it as soon as it reports. A helper gathers;
+you triage. The Slack helper returns every root a person posted in the window with no ✅, 🎫, or `:mag:`,
+and every root with a person's reply newer than ours, one line each (link,
+author, first line). It never filters, ranks, or drops one: a new report has
+no reaction and no thread yet.
 
 - **Read the channels.** Use `slack_read_channel` with
   `response_format: detailed` (paginate) back 5 days. Its output shows
   reaction counts but not who added them, so call `slack_get_reactions` on any
   root showing `eyes`, `white_check_mark`, `ticket`, `mag`, `yes-party`, or
   `upvote`. Don't rely on
-  `hasmy:` searches, which have returned nothing for roots that do carry
-  Steve's marks.
+  `hasmy:` searches.
 - **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
   hand to things he is working on himself, so a 👀 from his account is not
   enough to make a root this workflow's. Require evidence that this workflow
@@ -243,8 +246,9 @@ Issues from the error and health sources above go in the same buckets,
 ranked with the Slack reports by people affected. They have no thread to react on,
 so they appear only in the recap.
 
-Take the Fix reports in order of how many people they hurt, and claim as
-many as the run can finish. Any Fix, Build, or Needs-a-person root you leave
+Take the Fix reports in order of how many people they hurt, and claim all
+of them. A claim you can't finish stays under "Claimed, not yet answered" for
+the next run. Any Fix, Build, or Needs-a-person root you leave
 unclaimed gets no reaction, only one line in the recap saying why, so
 nothing is dropped silently. That covers every candidate your source helpers
 return: each one ends the run either claimed or on a recap line with its
@@ -271,8 +275,7 @@ new roots.
   install fails, fix the setup (install what's missing, or free space by
   removing only this run's own build output) or
   walk the steps in the signed-in app instead. Only after a real attempt fails does a report become 🎫, and its
-  recap line says what you ran. No reproduction means no code change;
-  guessing at a fix is how one Clips popover got "fixed" four times.
+  recap line says what you ran. No reproduction means no code change.
 - **Check the history.** `git log --since=30.days --oneline -- <files>`: if
   this surface was fixed before for the same symptom, that fix treated a
   symptom. Find the shared cause (`fix-at-the-boundary`) instead of adding
@@ -310,14 +313,12 @@ only set of threads a later `/ship` may close out as fixed.
 
 Wait for CI with one command that blocks until every check finishes, and
 wait on it with the longest call your tool allows, not a short call you
-repeat: every call re-sends your whole context, and on 10/28 polling CI
-every minute was half the main thread's cost.
+repeat: every call re-sends your whole context.
 Without a repo command for it, run
 `gh pr checks <number> --watch --interval 60 > /dev/null` in one call bounded
 by your tool's limit, then read `gh pr checks <number>` twice, a minute
-apart: CI is done only when at least one check is listed, nothing is
-pending, and both reads list the same checks, since a workflow can register
-late. Otherwise wait again the same way and rerun any cancelled check; after
+apart: CI is done only when both reads list the same checks, at least one,
+and none is pending. Otherwise wait again the same way and rerun any cancelled check; after
 about two hours, stop and look at the PR yourself.
 
 Fix each review round's findings in one batch. If a second round still finds
@@ -385,7 +386,7 @@ Before ending, re-read each thread you touched and check:
 
 ## 6. Recap
 
-Keep the recap short and written for Steve:
+Keep the recap short, for Steve:
 
 ```md
 ## Feedback sweep - <date, Pacific>
@@ -394,6 +395,7 @@ Closed out from earlier runs (N): <Slack thread link> · PR <link>
 Needs a person (N): <what's needed, who, what you tried>
 Still open from earlier runs (N): <why>
 Seen, not picked (N): <Slack thread link> - <one-line reason>
+Roots: <n> seen, <n> claimed, <n> left
 Sources unavailable: <list or "none">
 Lesson (optional): <one line>
 ```
@@ -401,5 +403,4 @@ Lesson (optional): <one line>
 "Fixed and merged" is this run's PR only; reports you closed out for an
 earlier run's merged PR go under "Closed out from earlier runs".
 
-If the run came from an automation, append the same recap to that
-automation's `memory.md`.
+In an automation, append the same recap to its `memory.md`.
