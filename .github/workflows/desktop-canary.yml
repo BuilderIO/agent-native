@@ -71,6 +71,9 @@ jobs:
           security create-keychain -p "" "$KEYCHAIN_PATH"
           security default-keychain -s "$KEYCHAIN_PATH"
           security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          # Without this the keychain re-locks after 5 idle minutes and codesign
+          # hangs waiting for an unlock prompt a headless runner cannot show.
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH"
           rm "$CERTIFICATE_PATH"
