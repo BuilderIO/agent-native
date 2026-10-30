@@ -278,9 +278,37 @@ describe("WebMCP client", () => {
     });
     expect(executeTool).toHaveBeenCalledWith(
       registeredTool,
-      '{"id":"order-1"}',
+      { id: "order-1" },
       {},
     );
+  });
+
+  it("executes against a native context that requires object input", async () => {
+    const registeredTool = {
+      name: "read-fixture-status",
+      description: "Read fixture status",
+      inputSchema: { type: "object" },
+      window,
+      origin: "https://shop.example",
+    };
+    const executeTool = vi.fn(async (_tool: unknown, input: unknown) => {
+      if (!input || typeof input !== "object" || Array.isArray(input)) {
+        throw new TypeError("invalid input object: value is not an object");
+      }
+      return JSON.stringify({ fixture: "synthetic-only", status: "available" });
+    });
+    const client = createAgentNativeWebMcpClient({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => [registeredTool]),
+        executeTool,
+      }),
+    });
+
+    await expect(
+      client.executeTool({ name: "read-fixture-status" }, {}),
+    ).resolves.toBe('{"fixture":"synthetic-only","status":"available"}');
+    expect(executeTool).toHaveBeenCalledTimes(1);
   });
 
   it("passes object input to the Codex page adapter", async () => {
@@ -343,7 +371,7 @@ describe("WebMCP client", () => {
     await expect(client.executeTool(tool)).resolves.toEqual({
       title: "Fresh order",
     });
-    expect(executeTool).toHaveBeenCalledWith(freshTool, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(freshTool, {}, {});
   });
 
   it("executes the approved descriptor after a concurrent listing", async () => {
@@ -376,7 +404,7 @@ describe("WebMCP client", () => {
     await client.listTools();
 
     await expect(client.executeListedTool(approvedTool)).resolves.toBe("first");
-    expect(executeTool).toHaveBeenCalledWith(firstTool, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(firstTool, {}, {});
   });
 
   it("rejects duplicate tool names from the same origin", async () => {
@@ -1019,9 +1047,42 @@ describe("WebMCP page helper", () => {
     });
     expect(executeTool).toHaveBeenCalledWith(
       registeredTool,
-      '{"id":"order-1"}',
+      { id: "order-1" },
       {},
     );
+  });
+
+  it("calls a native tool with object input through the page helper", async () => {
+    readyStatus(1);
+    const registeredTool = {
+      name: "read-fixture-status",
+      description: "Read fixture status",
+      window,
+      origin: "https://shop.example",
+    };
+    const executeTool = vi.fn(async (_tool: unknown, input: unknown) => {
+      if (!input || typeof input !== "object" || Array.isArray(input)) {
+        throw new TypeError("invalid input object: value is not an object");
+      }
+      return '{"fixture":"synthetic-only","status":"available"}';
+    });
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => [registeredTool]),
+        executeTool,
+      }),
+    });
+
+    await expect(helper.call("read-fixture-status", {})).resolves.toMatchObject(
+      {
+        state: "done",
+        ok: true,
+        attempts: 1,
+        result: { fixture: "synthetic-only", status: "available" },
+      },
+    );
+    expect(executeTool).toHaveBeenCalledTimes(1);
   });
 
   it("passes args directly on a Codex page adapter and exposes a JSON-string input schema as an object", async () => {
@@ -1773,7 +1834,7 @@ describe("WebMCP page helper", () => {
       { origin: "https://b.example" },
     );
     expect(scoped).toMatchObject({ ok: true, result: "shipped" });
-    expect(executeTool).toHaveBeenCalledWith(toolB, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(toolB, {}, {});
   });
   it("does not replay an action failure worded like a stale descriptor", async () => {
     readyStatus(1);
@@ -1848,7 +1909,7 @@ describe("WebMCP page helper", () => {
     expect(getTools).toHaveBeenLastCalledWith({
       fromOrigins: ["https://b.example"],
     });
-    expect(executeTool).toHaveBeenCalledWith(toolB, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(toolB, {}, {});
   });
 
   it("shares one in-flight listing across concurrent tools() and describe() calls", async () => {

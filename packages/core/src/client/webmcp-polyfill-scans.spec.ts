@@ -2,7 +2,10 @@
 import { cleanupWebMCPPolyfill } from "@mcp-b/webmcp-polyfill";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { initializeAgentNativeWebMcp } from "./webmcp.js";
+import {
+  createAgentNativeWebMcpClient,
+  initializeAgentNativeWebMcp,
+} from "./webmcp.js";
 
 function countFullScans() {
   const calls = { full: 0 };
@@ -72,5 +75,29 @@ describe("WebMCP polyfill declarative form scans", () => {
       async () => expect(await polyfillToolNames()).toContain("find-order"),
       { timeout: 3_000, interval: 100 },
     );
+  });
+
+  it("executes an action through the installed polyfill", async () => {
+    vi.useRealTimers();
+    initializeAgentNativeWebMcp();
+    const modelContext = (
+      navigator as unknown as {
+        modelContext: {
+          registerTool(tool: Record<string, unknown>): Promise<void>;
+        };
+      }
+    ).modelContext;
+    await modelContext.registerTool({
+      name: "read-fixture-status",
+      description: "Read fixture status",
+      inputSchema: { type: "object" },
+      execute: (input: unknown) => JSON.stringify(input),
+    });
+    const client = createAgentNativeWebMcpClient({
+      document: { modelContext } as unknown as Document,
+    });
+    await expect(
+      client.executeTool({ name: "read-fixture-status" }, { id: 1 }),
+    ).resolves.toBe('{"id":1}');
   });
 });
