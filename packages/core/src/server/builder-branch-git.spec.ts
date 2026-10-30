@@ -300,7 +300,7 @@ describe("readBuilderGitBundle", () => {
     const { sha, bundle } = await fixture({ "apps/other/a.txt": "a" });
     await expect(
       readBuilderGitBundle({ bundle, commitSha: sha, appPath: "apps/example" }),
-    ).rejects.toMatchObject({ code: "integrity_failed" });
+    ).rejects.toMatchObject({ code: "target_missing" });
     await expect(
       readBuilderGitBundle({
         bundle: bundle.slice(0, 32),

@@ -16,6 +16,7 @@ import type { PromptComposerProps } from "../../composer/index.js";
 import type { TiptapComposerHandle } from "../../composer/TiptapComposer.js";
 import { Button } from "../../ui/button.js";
 import { AppSidebar, AppSidebarFooter } from "./AppSidebar.js";
+import { ClientOnly } from "./ClientOnly.js";
 
 const MUTED = "hsl(var(--muted, 240 5% 96.1%))";
 const SIDEBAR_MUTED =
@@ -451,7 +452,7 @@ function FirstPaintPromptLibrary({
   const [initialTextKey, setInitialTextKey] = useState<number>();
   const suggestions = config.suggestions;
 
-  const composer = config.renderComposer({
+  const composerElement = config.renderComposer({
     ariaLabel: config.promptPlaceholder,
     composerRef,
     ...(initialText !== undefined ? { initialText } : {}),
@@ -487,6 +488,19 @@ function FirstPaintPromptLibrary({
       });
     },
   });
+  // Tiptap's `useEditor` throws while server-rendering in production builds:
+  // the server bundle holds more than one React copy, so the hook reads a null
+  // dispatcher. The composer mounts on the client; the server render and the
+  // first client render both show the placeholder, so hydration still matches.
+  const composer = (
+    <ClientOnly
+      fallback={
+        <Block style={{ width: "100%", height: 112, borderRadius: 16 }} />
+      }
+    >
+      {composerElement}
+    </ClientOnly>
+  );
   const suggestionBar = (
     <AgentSuggestionBar
       suggestions={suggestions}

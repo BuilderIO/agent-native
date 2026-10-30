@@ -92,7 +92,7 @@ export function ShareAdvancedPopover({
           align="start"
           sideOffset={6}
           onOpenAutoFocus={(event) => event.preventDefault()}
-          className="w-72 space-y-3 p-3"
+          className="w-80 max-w-[calc(100vw-2rem)] space-y-3 p-3"
         >
           {children}
         </PopoverContent>

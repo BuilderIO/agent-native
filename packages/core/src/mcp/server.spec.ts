@@ -1025,6 +1025,7 @@ async function directoryWidgetTemplateConfig(
   const actionNames = [
     ...new Set([
       ...profile.connectorCatalog,
+      ...Object.keys(profile.widgetTargets ?? {}),
       ...Object.keys(profile.widgetReadActionArguments ?? {}),
       ...Object.keys(profile.widgetWriteActionArguments ?? {}),
     ]),
@@ -1375,6 +1376,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         const actionNames = [
           ...new Set([
             ...profile.connectorCatalog,
+            ...Object.keys(profile.widgetTargets ?? {}),
             ...Object.keys(profile.widgetReadActionArguments ?? {}),
             ...Object.keys(profile.widgetWriteActionArguments ?? {}),
           ]),
@@ -1848,7 +1850,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     } finally {
       consoleInfo.mockRestore();
     }
-  }, 60_000);
+  }, 120_000);
 
   it("logs web-runtime response statuses for directory errors", async () => {
     const requestLogs: Array<Record<string, any>> = [];

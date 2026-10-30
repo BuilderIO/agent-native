@@ -598,6 +598,7 @@ describe("action discovery", () => {
         "get-infrastructure-status",
         "list-chatgpt-subscription-accounts",
         "list-workspace-user-groups",
+        "list-workspace-connection-scopes",
       ]) {
         expect(registry[name], `${name} should be merged`).toBeDefined();
         expect(registry[name].persistInBrowser, name).toBe(false);

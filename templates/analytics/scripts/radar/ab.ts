@@ -2,6 +2,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  formatDesignNoQuestionsReadout,
+  runDesignNoQuestionsReadout,
+} from "./design-no-questions-ab.ts";
+import {
   RadarQueryError,
   closeRadarQueries,
   radarRunCliExitCode,
@@ -675,11 +679,16 @@ export function parseAbReadoutArgs(args: readonly string[]): AbReadoutOptions {
 
 async function main(): Promise<void> {
   try {
-    const result = await runAbReadout(
-      parseAbReadoutArgs(process.argv.slice(2)),
-    );
-    console.log(formatAbMarkdown(result));
-    console.log(JSON.stringify(result));
+    const options = parseAbReadoutArgs(process.argv.slice(2));
+    if (options.experiment === "design_no_questions") {
+      const result = await runDesignNoQuestionsReadout(options);
+      console.log(formatDesignNoQuestionsReadout(result));
+      console.log(JSON.stringify(result));
+    } else {
+      const result = await runAbReadout(options);
+      console.log(formatAbMarkdown(result));
+      console.log(JSON.stringify(result));
+    }
   } catch (error) {
     console.error(
       error instanceof Error ? error.message : "A/B readout could not run.",

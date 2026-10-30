@@ -1415,12 +1415,7 @@ function patchNetlifyFunctionEntry(
           basePath,
           `${basePath}.data`,
           `${basePath}/*`,
-          ...workspaceOAuthDiscoveryRoutes(app).flatMap(
-            ({ path, descendants }) => [
-              path,
-              ...(descendants ? [`${path}/*`] : []),
-            ],
-          ),
+          ...netlifyOAuthDiscoveryPaths(app),
           ...rootGoogleCallbackPath,
         ];
   const normalizeBasePathHelper =
@@ -1491,7 +1486,7 @@ export const config = {
   nodeBundler: "none",
   includedFiles: ["**"],
   excludedPath: ${JSON.stringify(
-    netlifyFunctionExcludedPaths(app, staticDir),
+    netlifyFunctionExcludedPaths(app, staticDir, workspaceApps),
     null,
     2,
   )
@@ -1605,12 +1600,33 @@ export default {
 function netlifyFunctionExcludedPaths(
   app: string,
   staticDir: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
 ): string[] {
   return [
     "/.netlify/*",
     `/${app}/assets/*`,
     ...netlifyPublicAssetPaths(app, staticDir),
+    ...(app === "dispatch" ? netlifyAppOAuthDiscoveryPaths(workspaceApps) : []),
   ];
+}
+
+// Netlify does not prefer the most specific function path: when Dispatch's
+// `/.well-known/*` overlaps an app's exact discovery path, the function whose
+// name sorts first wins, so apps after "dispatch" got Dispatch's metadata.
+// Excluding each app's discovery paths from Dispatch leaves one match.
+function netlifyAppOAuthDiscoveryPaths(
+  workspaceApps: WorkspaceAppManifestEntry[],
+): string[] {
+  return workspaceApps
+    .filter((entry) => entry.id !== "dispatch")
+    .flatMap((entry) => netlifyOAuthDiscoveryPaths(entry.id));
+}
+
+function netlifyOAuthDiscoveryPaths(app: string): string[] {
+  return workspaceOAuthDiscoveryRoutes(app).flatMap(({ path, descendants }) => [
+    path,
+    ...(descendants ? [`${path}/*`] : []),
+  ]);
 }
 
 function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {

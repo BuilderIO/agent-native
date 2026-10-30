@@ -923,23 +923,136 @@
   border: 1px solid hsl(var(--border));
 }
 
-/* A table nobody has resized sizes its columns to their content. */
+/* A table nobody has resized sizes its columns to their content (see
+   table-sizing.ts): the browser's layout until it has been measured, and its
+   natural width while it is. */
 .content-editor table[data-column-sizing="content"] {
   table-layout: auto;
 }
 
+.content-editor table[data-column-sizing="measuring"] {
+  table-layout: auto;
+  width: max-content !important;
+  min-width: 0 !important;
+}
+
 /* The page lets any word break anywhere, which tells the browser every column
-   can shrink to a letter, so short columns would be squeezed. Words here break
-   only when they can't fit; links and code, which can be long, still may. */
+   can shrink to a letter, so short columns would be squeezed. Words, links and
+   code here break only when they can't fit a line of their own. */
 .content-editor
   table[data-column-sizing]
-  :is(td, th, p, span, li, h1, h2, h3, h4, h5, h6, label) {
+  :is(td, th, p, span, li, h1, h2, h3, h4, h5, h6, label, a, code) {
   overflow-wrap: break-word;
   word-break: normal;
 }
 
-.content-editor table[data-column-sizing] :is(td, th) :is(a, code) {
-  overflow-wrap: anywhere;
+/* A shadow at each edge the table can still scroll toward. The covers move
+   with the table and hide a shadow once its edge is reached. */
+.content-editor .tableWrapper[data-table-scrolls] {
+  background:
+    linear-gradient(
+        to right,
+        hsl(var(--background)) 30%,
+        hsl(var(--background) / 0)
+      )
+      left center / 40px 100% no-repeat local,
+    linear-gradient(
+        to left,
+        hsl(var(--background)) 30%,
+        hsl(var(--background) / 0)
+      )
+      right center / 40px 100% no-repeat local,
+    radial-gradient(
+        farthest-side at 0 50%,
+        hsl(var(--foreground) / 0.16),
+        transparent
+      )
+      left center / 14px 100% no-repeat scroll,
+    radial-gradient(
+        farthest-side at 100% 50%,
+        hsl(var(--foreground) / 0.16),
+        transparent
+      )
+      right center / 14px 100% no-repeat scroll;
+}
+
+/* On a phone, a table too wide to read that holds sentences shows each row as
+   a card: its first cell as the title, then each value under its header. */
+.content-editor table[data-column-sizing="cards"] {
+  display: block;
+  width: auto !important;
+  min-width: 0 !important;
+}
+
+.content-editor
+  table[data-column-sizing="cards"]
+  :is(colgroup, .column-resize-handle) {
+  display: none;
+}
+
+.content-editor table[data-column-sizing="cards"] :is(tbody, tr) {
+  display: block;
+}
+
+.content-editor table[data-column-sizing="cards"] tr {
+  padding: 10px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.content-editor table[data-column-sizing="cards"] tr:last-child {
+  border-bottom: none;
+}
+
+.content-editor table[data-column-sizing="cards"] :is(td, th) {
+  display: block;
+  padding: 0;
+  border: none;
+  text-align: left;
+}
+
+.content-editor table[data-column-sizing="cards"] :is(td, th) + :is(td, th) {
+  margin-top: 6px;
+}
+
+.content-editor table[data-column-sizing="cards"] tr > :first-child {
+  font-weight: 600;
+}
+
+.content-editor table[data-column-sizing="cards"] [data-label]::before {
+  content: attr(data-label);
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+
+.content-editor
+  table[data-column-sizing="cards"]
+  tr
+  > [data-label]:first-child::before {
+  display: none;
+}
+
+/* The header row's labels are on every card. While editing it stays, as a
+   card of its own, so its cells can still be edited. */
+.content-editor
+  table[data-column-sizing="cards"]
+  tr:first-child:not(:has(> td))
+  > :is(td, th) {
+  background-color: transparent;
+}
+
+.content-editor
+  table[data-column-sizing="cards"]
+  tr:first-child:not(:has(> td)) {
+  background-color: hsl(var(--muted) / 0.45);
+}
+
+.content-editor:not([contenteditable="true"])
+  table[data-column-sizing="cards"]
+  :is(tr:first-child:not(:has(> td)), td[data-empty]) {
+  display: none;
 }
 
 .content-editor table td,
