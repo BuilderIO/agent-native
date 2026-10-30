@@ -16,7 +16,11 @@ import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
 } from "./actions/extension-change.js";
-import { isShareableAgent, orgAgentName } from "./agent-principals.js";
+import {
+  isAnyOrgAgent,
+  isShareableAgent,
+  orgAgentName,
+} from "./agent-principals.js";
 import {
   requireShareableResource,
   type ShareableResourceRegistration,
@@ -170,13 +174,16 @@ export async function grantResourceAccess(
   const grantOrgId = access.resource?.orgId as string | undefined | null;
   if (
     input.principalType === "user" &&
-    grantOrgId &&
-    orgAgentName(principalId, grantOrgId) !== null
+    ((grantOrgId && orgAgentName(principalId, grantOrgId) !== null) ||
+      (await isAnyOrgAgent(principalId)))
   ) {
     // Agents are suggested only to people acting inside the resource's org,
     // so an outside collaborator with admin access cannot grant one either.
+    // Another org's agent, or any agent on a resource with no org, is refused.
     const actingOrgId = getRequestOrgId()?.toLowerCase();
     if (
+      !grantOrgId ||
+      orgAgentName(principalId, grantOrgId) === null ||
       actingOrgId !== grantOrgId.toLowerCase() ||
       !(await isShareableAgent(grantOrgId, principalId))
     ) {

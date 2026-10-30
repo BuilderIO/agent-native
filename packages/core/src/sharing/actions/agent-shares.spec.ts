@@ -299,7 +299,9 @@ describe("sharing with org agents", () => {
     expect(await shareRows()).toEqual([]);
   });
 
-  it("never emails an agent shared on a resource with no org, but emails a person", async () => {
+  // oracle-change: an org agent can no longer be granted on a resource with no
+  // org, so the agent half of this case is now a refusal instead of a quiet grant.
+  it("refuses an agent on a resource with no org, but shares with and emails a person", async () => {
     const sharePersonal = (principalId: string) =>
       shareResource.run({
         resourceType: personalResourceType,
@@ -310,7 +312,12 @@ describe("sharing with org agents", () => {
         notify: true,
       });
     await runWithRequestContext({ userEmail: ownerEmail }, async () => {
-      await sharePersonal(reviewerAgent);
+      await expect(sharePersonal(reviewerAgent)).rejects.toBeInstanceOf(
+        ForbiddenError,
+      );
+      await expect(
+        sharePersonal("svc-outsider@service.org-agents"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
       expect(state.sendEmail).not.toHaveBeenCalled();
 
       await sharePersonal("svc-bob@service.example.com");
