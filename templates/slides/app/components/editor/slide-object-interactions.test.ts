@@ -2663,6 +2663,32 @@ describe("slide object groups and rotation", () => {
     expect(resolveSelectionOwner(byId("loose"), root)).toBe(byId("loose"));
   });
 
+  it("wraps a single object in a group of one and ungroups it where it was", () => {
+    const parent = document.createElement("div");
+    const only = createFreeformObject("only", { zIndex: 0 });
+    parent.append(only);
+    document.body.append(parent);
+    const geometry = geometryFor([
+      [only, { x: 40, y: 50, width: 120, height: 60 }],
+    ]);
+
+    const group = groupSlideObjects([only], geometry.get, geometry.apply);
+    if (!group) throw new Error("A single object was not grouped.");
+
+    expect(Array.from(group.children)).toEqual([only]);
+    expect(group.style.left).toBe("40px");
+    expect(group.style.width).toBe("120px");
+    expect(only.style.left).toBe("0px");
+
+    expect(ungroupSlideObject(group, geometry.get, geometry.apply)).toEqual([
+      only,
+    ]);
+    expect(Array.from(parent.children)).toEqual([only]);
+    expect(only.style.left).toBe("40px");
+    expect(only.style.top).toBe("50px");
+    parent.remove();
+  });
+
   it("groups absolute siblings into one durable wrapper and ungroups at its stack position (oracle 7.8)", () => {
     const parent = document.createElement("div");
     const first = createFreeformObject("first", { zIndex: 0 });

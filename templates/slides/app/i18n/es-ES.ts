@@ -640,6 +640,8 @@ const messages = {
     },
     autoLayoutUnmeasurable:
       "No se pudo medir un objeto de este grupo. Comprueba que sea visible en la diapositiva y vuelve a intentarlo.",
+    autoLayoutUnavailable:
+      "No se pudo añadir el diseño automático a esta selección.",
   },
   styleInspector: {
     title: "Style",

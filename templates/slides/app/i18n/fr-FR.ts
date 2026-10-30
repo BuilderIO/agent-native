@@ -644,6 +644,8 @@ const messages = {
     },
     autoLayoutUnmeasurable:
       "Impossible de mesurer un objet de ce groupe. Vérifiez qu'il est visible sur la diapositive et réessayez.",
+    autoLayoutUnavailable:
+      "Impossible d'ajouter une mise en page auto à cette sélection.",
   },
   styleInspector: {
     title: "Style",

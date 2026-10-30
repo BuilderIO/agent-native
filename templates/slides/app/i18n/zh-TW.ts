@@ -610,6 +610,7 @@ const messages = {
     },
     autoLayoutUnmeasurable:
       "無法測量此群組中的某個物件。請確認它在投影片上可見，然後再試一次。",
+    autoLayoutUnavailable: "無法為此選取範圍新增自動布局。",
   },
   styleInspector: {
     title: "Style",

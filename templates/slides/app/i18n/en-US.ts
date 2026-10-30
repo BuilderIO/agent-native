@@ -624,6 +624,7 @@ const messages = {
     },
     autoLayoutUnmeasurable:
       "Couldn't measure an object in this group. Make sure it's visible on the slide and try again.",
+    autoLayoutUnavailable: "Couldn't add auto layout to this selection.",
   },
   styleInspector: {
     title: "Style",

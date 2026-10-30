@@ -621,6 +621,7 @@ const messages = {
     },
     autoLayoutUnmeasurable:
       "इस समूह के किसी ऑब्जेक्ट को मापा नहीं जा सका। पक्का करें कि वह स्लाइड पर दिख रहा है, फिर से कोशिश करें।",
+    autoLayoutUnavailable: "इस चयन में ऑटो लेआउट नहीं जोड़ा जा सका।",
   },
   styleInspector: {
     title: "Style",

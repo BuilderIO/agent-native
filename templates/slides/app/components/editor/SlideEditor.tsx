@@ -6800,7 +6800,17 @@ export default function SlideEditor({
   } | null>(null);
 
   const commitAutoLayoutEdit = useCallback(
-    (result: SlideAutoLayoutResult, { separateUndo = true } = {}) => {
+    (
+      result: SlideAutoLayoutResult,
+      {
+        separateUndo = true,
+        afterSerialize,
+      }: {
+        separateUndo?: boolean;
+        /** Runs once the HTML is read, before it is written. */
+        afterSerialize?: (() => void) | undefined;
+      } = {},
+    ) => {
       if (result.status === "refused") {
         toast.error(t("contextToolbar.autoLayoutUnmeasurable"));
         return false;
@@ -6809,6 +6819,7 @@ export default function SlideEditor({
       // No slide content means the slide unmounted under the edit: nothing
       // was saved, so callers must not go on as if it was.
       const html = readCurrentSlideContentHtml();
+      afterSerialize?.();
       if (html === null) return false;
       refreshLayerNodes();
       invalidateSelectionOverlayMeasurement();
@@ -6828,8 +6839,10 @@ export default function SlideEditor({
   );
 
   /**
-   * Shift+A: a selected group starts laying its members out in flow; two or
-   * more selected objects are grouped into one auto layout group first.
+   * Shift+A: a selected freeform group starts laying its members out in
+   * flow. Anything else, one object or several, slide layout content
+   * included, is made freeform where it renders and wrapped in a new auto
+   * layout group. It is one write, or none at all.
    */
   const handleAddAutoLayout = useCallback(() => {
     if (readOnly) return false;
@@ -6837,26 +6850,113 @@ export default function SlideEditor({
     if (!selection) return false;
     const sole =
       selection.elements.length === 1 ? (selection.elements[0] ?? null) : null;
-    if (sole && (!isSlideObjectGroup(sole) || isAutoLayoutSlideGroup(sole))) {
-      return false;
+    if (sole && isSlideObjectGroup(sole) && !isAutoLayoutSlideGroup(sole)) {
+      if (commitAutoLayoutEdit(enableSlideGroupAutoLayout(sole))) {
+        const selector = getBuilderSelector(sole);
+        if (selector) selectElementForStyling(sole, selector);
+      }
+      return true;
     }
-    const group =
-      sole ??
-      groupSlideObjects(
-        selection.elements,
-        getObjectGeometry,
-        applyObjectGeometry,
+
+    // What each promotion changed, so a refusal at any later step can put
+    // the slide back as it was.
+    const promotions: {
+      element: HTMLElement;
+      parent: HTMLElement | null;
+      className: string;
+      attributes: Map<string, string | null>;
+      restoreDescendants?: (() => void) | undefined;
+      restoreMarkdownTree?: (() => void) | undefined;
+    }[] = [];
+    const undoPromotions = () => {
+      for (const promotion of promotions.reverse()) {
+        const { element } = promotion;
+        removeSlideObjectLayoutSpacer(
+          element,
+          promotion.parent ?? element.ownerDocument,
+        );
+        promotion.restoreDescendants?.();
+        if (promotion.restoreMarkdownTree) {
+          promotion.restoreMarkdownTree();
+          continue;
+        }
+        element.className = promotion.className;
+        for (const [name, value] of promotion.attributes) {
+          if (value === null) element.removeAttribute(name);
+          else element.setAttribute(name, value);
+        }
+      }
+    };
+    const refuse = (result?: SlideAutoLayoutResult) => {
+      undoPromotions();
+      toast.error(
+        t(
+          result?.status === "refused" && result.reason === "unmeasured"
+            ? "contextToolbar.autoLayoutUnmeasurable"
+            : "contextToolbar.autoLayoutUnavailable",
+        ),
       );
-    if (!group) return false;
-    if (!sole) {
-      ensureBuilderId(group);
-      stampBuilderIds(group);
+      return true;
+    };
+
+    for (const element of selection.elements) {
+      if (isPersistedFreeformObject(element)) continue;
+      const promotion = {
+        element,
+        parent: element.parentElement,
+        className: element.className,
+        attributes: new Map(
+          [
+            "style",
+            "contenteditable",
+            "data-editing-block",
+            "data-slide-object-id",
+          ].map((name) => [name, element.getAttribute(name)] as const),
+        ),
+      };
+      const frozen = freezeElementForFreeformSelection(element);
+      if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+        frozen?.restoreDescendants?.();
+        frozen?.restoreMarkdownTree?.();
+        return refuse();
+      }
+      promotions.push({
+        ...promotion,
+        restoreDescendants: frozen.restoreDescendants,
+        restoreMarkdownTree: frozen.restoreMarkdownTree,
+      });
+      preserveSlideObjectLayoutSpacer(element);
     }
+
+    const group = groupSlideObjects(
+      selection.elements,
+      getObjectGeometry,
+      applyObjectGeometry,
+    );
+    if (!group) return refuse();
+    ensureBuilderId(group);
+    stampBuilderIds(group);
     const result = enableSlideGroupAutoLayout(group);
-    if (result.status !== "applied" && !sole) {
+    if (result.status !== "applied") {
       ungroupSlideObject(group, getObjectGeometry, applyObjectGeometry);
+      return refuse(result);
     }
-    if (!commitAutoLayoutEdit(result)) return result.status === "refused";
+    const markdownRestores = promotions.flatMap(({ restoreMarkdownTree }) =>
+      restoreMarkdownTree ? [restoreMarkdownTree] : [],
+    );
+    const layer = resolveSlidePositioningLayer(group);
+    if (markdownRestores.length === 0 && layer) {
+      releaseSlideObjectFromLeftBoxes(group, layer);
+    }
+    if (
+      !commitAutoLayoutEdit(result, {
+        afterSerialize: () => {
+          for (const restore of markdownRestores) restore();
+        },
+      })
+    ) {
+      return true;
+    }
     const selector = getBuilderSelector(group);
     if (selector) {
       clearMultiSelection();
@@ -6867,10 +6967,12 @@ export default function SlideEditor({
     applyObjectGeometry,
     clearMultiSelection,
     commitAutoLayoutEdit,
+    freezeElementForFreeformSelection,
     getObjectGeometry,
     getObjectOperationSelection,
     readOnly,
     selectElementForStyling,
+    t,
   ]);
 
   /** Shift+Option+A: pins every member where it renders. */
@@ -11498,13 +11600,9 @@ export default function SlideEditor({
           sizing: readSlideLayoutSizing(autoLayoutSubject),
         }
       : null;
+  // Any selection can take auto layout: what isn't a group yet is wrapped in one.
   const canAddAutoLayout =
-    canGroupObjects ||
-    Boolean(
-      canUngroupObjects &&
-      objectOperationSelection?.elements[0] &&
-      !isAutoLayoutSlideGroup(objectOperationSelection.elements[0]),
-    );
+    !readOnly && (objectOperationSelection?.elements.length ?? 0) > 0;
   const canRemoveAutoLayout = Boolean(autoLayoutState?.frame);
   const selectedLayerIds = new Set(multiSelection);
   if (selectedLayerIds.size === 0) {

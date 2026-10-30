@@ -631,6 +631,8 @@ const messages = {
     },
     autoLayoutUnmeasurable:
       "このグループ内のオブジェクトを測定できませんでした。スライド上に表示されていることを確認して、もう一度お試しください。",
+    autoLayoutUnavailable:
+      "この選択範囲にオートレイアウトを追加できませんでした。",
   },
   styleInspector: {
     title: "Style",

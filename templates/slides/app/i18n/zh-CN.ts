@@ -611,6 +611,7 @@ const messages = {
     },
     autoLayoutUnmeasurable:
       "无法测量此组中的某个对象。请确认它在幻灯片上可见，然后重试。",
+    autoLayoutUnavailable: "无法为此选择添加自动布局。",
   },
   styleInspector: {
     title: "Style",

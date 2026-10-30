@@ -631,6 +631,7 @@ const messages = {
     },
     autoLayoutUnmeasurable:
       "تعذّر قياس أحد العناصر في هذه المجموعة. تأكد من ظهوره على الشريحة ثم حاول مرة أخرى.",
+    autoLayoutUnavailable: "تعذّرت إضافة التخطيط التلقائي إلى هذا التحديد.",
   },
   styleInspector: {
     title: "Style",

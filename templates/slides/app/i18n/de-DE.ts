@@ -636,6 +636,8 @@ const messages = {
     },
     autoLayoutUnmeasurable:
       "Ein Objekt in dieser Gruppe konnte nicht gemessen werden. Prüfe, ob es auf der Folie sichtbar ist, und versuche es erneut.",
+    autoLayoutUnavailable:
+      "Auto-Layout konnte dieser Auswahl nicht hinzugefügt werden.",
   },
   styleInspector: {
     title: "Style",
