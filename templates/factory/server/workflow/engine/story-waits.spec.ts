@@ -689,6 +689,12 @@ describe("story 2: from Builder's branch to a merged pull request", () => {
           pullRequest("pending"),
           pullRequest("green"),
         ]),
+        ai(
+          aiPerItem(() => ({
+            verdict: "verified",
+            reason: "The notes name the spec and its result.",
+          })),
+        ),
         tick(0, "working, no pull request yet"),
         tick(5, "stuck: nudge once"),
         tick(10, "pull request opened, checks pending"),
@@ -701,6 +707,8 @@ describe("story 2: from Builder's branch to a merged pull request", () => {
     expect(sentTo(run, "builder.followUp")).toHaveLength(1);
     expect(countsOf(run, 0)).toMatchObject({ released: 1, done: 0 });
     expect(countsOf(run, 2)).toMatchObject({ released: 1, done: 0 });
+    // The judge is asked only about the green pull request, once.
+    expect(run.ticks.flatMap((entry) => entry.aiRequests)).toHaveLength(1);
     expect(sentTo(run, "github.mergePullRequest")).toHaveLength(1);
     expect(sentTo(run, "github.mergePullRequest")[0].fields).toMatchObject({
       repo: "example-org/example-repo",

@@ -111,6 +111,19 @@ describe("operationDefinitionSchema", () => {
     expect(accepts({ ...source, nodeKinds: ["source", "lookup"] })).toBe(true);
   });
 
+  it("lets only a lookup read declare an answer budget", () => {
+    expect(accepts({ ...lookup, answerBudgetChars: 5_000 })).toBe(true);
+    expect(accepts({ ...lookup, answerBudgetChars: 999 })).toBe(false);
+    expect(accepts({ ...source, answerBudgetChars: 5_000 })).toBe(false);
+    expect(
+      accepts({
+        ...lookup,
+        nodeKinds: ["lookup", "source"],
+        answerBudgetChars: 5_000,
+      }),
+    ).toBe(false);
+  });
+
   it("requires the id to be provider.name and to start with the provider", () => {
     expect(accepts({ ...lookup, id: "ticketThread" })).toBe(false);
     expect(accepts({ ...lookup, id: "Pylon.ticketThread" })).toBe(false);

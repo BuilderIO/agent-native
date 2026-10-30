@@ -38,6 +38,28 @@ const UNUSED_ON_PURPOSE: { id: string; reason: string }[] = [
     id,
     reason: "generated per provider, run by api-request.scenario.spec.ts",
   })),
+  // The triage loop's GitHub label and Slack reaction writes. No story wires them yet; each
+  // one is run through the engine, with a fake provider edge, by
+  // issue-writes.scenario.spec.ts.
+  ...["github.addLabels", "github.removeLabel", "slack.addReaction"].map(
+    (id) => ({
+      id,
+      reason: "no story wires it yet, run by issue-writes.scenario.spec.ts",
+    }),
+  ),
+  // The triage loop's Jira and Sentry steps. No story wires them yet; each one
+  // is run through the engine, with a fake provider, by
+  // jira-sentry.scenario.spec.ts.
+  ...[
+    "jira.getIssue",
+    "jira.listTransitions",
+    "jira.transitionIssue",
+    "sentry.resolveIssue",
+    "sentry.assignIssue",
+  ].map((id) => ({
+    id,
+    reason: "no story wires it yet, run by jira-sentry.scenario.spec.ts",
+  })),
 ];
 
 // A read that is a POST must be listed here with the reason it is still a read.
@@ -59,14 +81,22 @@ const UNUSED_WINDOW_START = ["bigquery.billingQuery"];
 
 // What the host has to implement for `implementation.type: "action"`.
 const HOST_ACTIONS = [
+  "add-github-labels",
+  "add-slack-reaction",
+  "assign-sentry-issue",
   "create-hubspot-task",
   "get-factory-merge-gate",
   "get-factory-pull-request",
+  "get-jira-issue",
   "list-factory-items",
+  "list-jira-transitions",
   "merge-factory-pull-request",
   "post-slack-message",
   "read-slack-thread",
+  "remove-github-label",
+  "resolve-sentry-issue",
   "send-factory-email",
+  "transition-jira-issue",
 ];
 
 const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -411,17 +441,33 @@ describe("the operation catalog", () => {
         "email.send.cc",
         "email.send.replyTo",
         "email.send.to",
+        "github.addLabels.labels",
+        "github.addLabels.number",
+        "github.addLabels.repo",
         "github.mergePullRequest.number",
         "github.mergePullRequest.repo",
+        "github.removeLabel.label",
+        "github.removeLabel.number",
+        "github.removeLabel.repo",
         "hubspot.addToList.leadId",
         "hubspot.addToList.listId",
         "hubspot.createTask.contactId",
         "hubspot.createTask.ownerId",
         "jira.createIssue.projectKey",
+        "jira.transitionIssue.issueKey",
+        "jira.transitionIssue.transition",
         "notion.createPage.parentPageId",
         "pylon.addNote.ticketId",
         "pylon.reply.messageId",
         "pylon.reply.ticketId",
+        "sentry.assignIssue.assignee",
+        "sentry.assignIssue.assigneeKind",
+        "sentry.assignIssue.issueId",
+        "sentry.assignIssue.orgSlug",
+        "sentry.resolveIssue.issueId",
+        "sentry.resolveIssue.orgSlug",
+        "slack.addReaction.channel",
+        "slack.addReaction.ts",
         "slack.postMessage.allowMentions",
         "slack.postMessage.to",
         "slack.replyInThread.allowMentions",

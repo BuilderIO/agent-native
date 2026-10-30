@@ -57,7 +57,8 @@ Use local framework docs, not web research: `pnpm action docs-search --query
 | `describe-workflow-node-catalog` / `save-factory-workflow` / `rename-factory-workflow` / `run-factory-workflow` / `request-workflow-connection` / `set-factory-workflow-enabled` / `get-workflow-node-data` and other workflow reads | Author and run workflows; see `factory-workflows`. Diagnose odd runs with `get-workflow-diagnostics` first |
 | `requeue-factory-item` / `dismiss-factory-item` | Retry an item (asks approval) or close it |
 | `seed-story-run` | Dev server only: replay story fixtures; `purge` undoes it |
-| `read-slack-thread` / `post-slack-message` / `send-factory-email` / `get-factory-pull-request` / `get-factory-merge-gate` / `merge-factory-pull-request` / `list-factory-items` / `create-hubspot-task` / `run-workflow-operation` | Graph-only provider calls. Reads may retry; writes never do. For `_outcome_unknown`, check whether it took effect before retrying |
+| `read-slack-thread` / `post-slack-message` / `add-slack-reaction` / `add-github-labels` / `remove-github-label` / `send-factory-email` / `get-factory-pull-request` / `get-factory-merge-gate` / `merge-factory-pull-request` / `list-factory-items` / `create-hubspot-task` / `run-workflow-operation` | Graph-only provider calls. Reads may retry; writes never do. For `_outcome_unknown`, check whether it took effect before retrying |
+| `get-jira-issue` / `list-jira-transitions` / `transition-jira-issue` / `resolve-sentry-issue` / `assign-sentry-issue` | Graph-only Jira and Sentry steps; a bad key or id never reaches the provider, and each write is sent once |
 | `list-factory-audit` / `get-factory-automation-health` / `reconcile-triage-run` | Queue history, scheduler, monitor observations |
 | `list-factories` / `create-factory` / `delete-factory` | Manage factories |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Provider APIs, shared credentials |

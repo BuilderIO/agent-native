@@ -28,6 +28,7 @@ type Reader = Parameters<typeof readWorkflowSlackThread>[0];
 function fakeSlack(overrides: Record<string, unknown> = {}) {
   return {
     verifyAgentNativeIdentity: vi.fn().mockResolvedValue(undefined),
+    getAgentNativeIdentity: vi.fn().mockResolvedValue({ userId: "UBOT" }),
     getCompleteThread: vi.fn(),
     findUserByEmail: vi.fn(),
     postChannelMessage: vi.fn(),
@@ -113,6 +114,77 @@ describe("readWorkflowSlackThread", () => {
       { name: "eyes", count: 2, users: ["U1", "U2"] },
     ]);
     expect(result.messages[1]).toMatchObject({ isBot: true, botId: "B1" });
+  });
+
+  describe("the app's own reactions", () => {
+    const read = (reactions: NonNullable<SlackMessage["reactions"]>) =>
+      readWorkflowSlackThread(
+        asReader(
+          fakeSlack({
+            getCompleteThread: vi.fn().mockResolvedValue({
+              hasMore: false,
+              messages: [message("1700000000.000100", { reactions })],
+            }),
+          }),
+        ),
+        input,
+      ).then((thread) => thread.messages[0]!);
+
+    it("lists the bot's own reaction apart from the reactions of people, so it never reads as a person's claim or reply", async () => {
+      const first = await read([{ name: "eyes", count: 1, users: ["UBOT"] }]);
+
+      expect(first.reactions).toEqual([]);
+      expect(first.ownReactions).toEqual(["eyes"]);
+    });
+
+    it("takes the bot out of a reaction people also made, and keeps the people", async () => {
+      const first = await read([
+        { name: "eyes", count: 3, users: ["UBOT", "U1", "U2"] },
+        { name: "white_check_mark", count: 1, users: ["U3"] },
+      ]);
+
+      expect(first.reactions).toEqual([
+        { name: "eyes", count: 2, users: ["U1", "U2"] },
+        { name: "white_check_mark", count: 1, users: ["U3"] },
+      ]);
+      expect(first.ownReactions).toEqual(["eyes"]);
+    });
+
+    it("says nothing of its own reactions when it made none, so a message keeps its old shape", async () => {
+      const first = await read([{ name: "eyes", count: 1, users: ["U1"] }]);
+
+      expect(first).not.toHaveProperty("ownReactions");
+      expect(first.reactions).toEqual([
+        { name: "eyes", count: 1, users: ["U1"] },
+      ]);
+    });
+
+    it("does not guess when Slack listed fewer reactors than it counted: the people it did not list stay counted", async () => {
+      const first = await read([
+        { name: "eyes", count: 40, users: ["U1", "U2"] },
+      ]);
+
+      expect(first.reactions).toEqual([
+        { name: "eyes", count: 40, users: ["U1", "U2"] },
+      ]);
+      expect(first).not.toHaveProperty("ownReactions");
+    });
+
+    it("fails the read when the bot's identity cannot be told, instead of showing reactions it cannot sort", async () => {
+      const slack = fakeSlack({
+        getAgentNativeIdentity: vi
+          .fn()
+          .mockRejectedValue(new Error("No Slack bot token configured.")),
+        getCompleteThread: vi.fn().mockResolvedValue({
+          hasMore: false,
+          messages: [message("1700000000.000100")],
+        }),
+      });
+
+      await expect(
+        readWorkflowSlackThread(asReader(slack), input),
+      ).rejects.toMatchObject({ errorCode: "slack_not_connected" });
+    });
   });
 
   it("keeps only messages after oldest, exclusive", async () => {

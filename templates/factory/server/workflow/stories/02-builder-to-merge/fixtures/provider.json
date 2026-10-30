@@ -639,6 +639,61 @@
           "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
+    },
+    "greenMediaOnly": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headG",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 3,
+          "passed": 3,
+          "failed": 0,
+          "pending": 0,
+          "informational": 0,
+          "allPassing": true,
+          "notPassing": [],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 1
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": ""
+        }
+      }
     }
   },
   "factory.mergeGate": {

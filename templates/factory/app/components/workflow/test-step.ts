@@ -17,16 +17,34 @@ export function stepNeedsItems(node: WorkflowNode): boolean {
 }
 
 /**
- * The inbox items a step last received in a run of the whole workflow, from
- * the newest of the audits given. Only an item in the inbox can be pinned, and
- * the audit titles exactly those.
+ * How many of a step's latest runs the test looks back over for one that gave
+ * it items. A quiet stretch should not leave the step untestable, and items
+ * from far back may no longer be open in the inbox.
  */
-export function sampleItemIdsFor(
+export const TEST_STEP_LOOKBACK_STEPS = 10;
+
+export interface TestSample {
+  itemIds: string[];
+  /** The items came from a run older than the newest one that reached this step, which gave it none. */
+  fromOlderRun: boolean;
+}
+
+/**
+ * The inbox items a step last received in a run of the whole workflow. Each
+ * audit already names, in `latest`, the newest step of its mode that took
+ * items; of those, the newest wins. Only an item in the inbox can be pinned,
+ * and the audit titles exactly those.
+ */
+export function testSampleFor(
   audits: readonly (NodeAudit | undefined)[],
-): string[] {
+): TestSample {
   const steps = audits
     .flatMap((audit) => (audit?.latest ? [audit.latest] : []))
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  const runs = audits
+    .flatMap((audit) => audit?.steps ?? [])
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  const newestRun = runs.length > 0 ? runs[0] : undefined;
   for (const step of steps) {
     const ids = [
       ...new Set(
@@ -37,7 +55,12 @@ export function sampleItemIdsFor(
         ),
       ),
     ];
-    if (ids.length > 0) return ids.slice(0, TEST_STEP_SAMPLE_ITEMS);
+    if (ids.length > 0) {
+      return {
+        itemIds: ids.slice(0, TEST_STEP_SAMPLE_ITEMS),
+        fromOlderRun: newestRun !== undefined && newestRun.runId !== step.runId,
+      };
+    }
   }
-  return [];
+  return { itemIds: [], fromOlderRun: false };
 }

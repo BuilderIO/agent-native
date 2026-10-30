@@ -247,6 +247,7 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
       saveAndTestStep: t("workflows.nodePanel.saveAndTestStep"),
       testStepNeedsRun: t("workflows.nodePanel.testStepNeedsRun"),
       testStepSamplesFailed: t("workflows.nodePanel.testStepSamplesFailed"),
+      testStepOlderSample: t("workflows.nodePanel.testStepOlderSample"),
     }),
     nodeDetails: () => ({
       dialogName: t("workflows.nodeDetails.dialogName"),

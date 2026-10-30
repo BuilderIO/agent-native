@@ -476,3 +476,126 @@ describe("describe-workflow-node-catalog: the API request", () => {
     ).toContain("{orgSlug}");
   });
 });
+
+describe("describe-workflow-node-catalog: reading the catalog as it grows", () => {
+  const asAgent = async (input: Record<string, unknown>) => {
+    const text = await run(input, kit.agentContext);
+    return { text: text as string, result: JSON.parse(text as string) };
+  };
+  type Entry = Record<string, any>;
+  const catalog = OPERATION_CATALOG.list().filter(
+    (def) => !def.id.endsWith(".apiRequest"),
+  );
+
+  it("keeps every operation and every field name in an agent's index, so nothing is hidden by making it denser", async () => {
+    const { result } = await asAgent({ view: "index" });
+    const entries = new Map(
+      (result.operations as Entry[]).map((entry) => [entry.id, entry]),
+    );
+
+    for (const def of catalog) {
+      const entry = entries.get(def.id);
+      expect(entry, def.id).toBeDefined();
+      expect(
+        entry?.fields.map((field: string) => field.split(":")[0]),
+        def.id,
+      ).toEqual(def.fields.map((field) => field.name));
+      expect(entry?.nodeKinds, def.id).toEqual(def.nodeKinds);
+      expect(entry?.effect, def.id).toBe(def.effect);
+    }
+  });
+
+  it("leaves out of an agent's index what the id already says or the next call gives: the provider, its name in the label, and the outputs", async () => {
+    const { result } = await asAgent({ view: "index" });
+
+    for (const entry of result.operations as Entry[]) {
+      expect(entry, entry.id).not.toHaveProperty("provider");
+      expect(entry, entry.id).not.toHaveProperty("outputs");
+      expect(entry.label, entry.id).not.toMatch(/^[A-Za-z]+: /);
+    }
+    const reaction = (result.operations as Entry[]).find(
+      (entry) => entry.id === "slack.addReaction",
+    );
+    expect(reaction).toEqual({
+      id: "slack.addReaction",
+      label: "add a reaction",
+      nodeKinds: ["action"],
+      effect: "write",
+      fields: ["channel:string!", "ts:string!", "name:string!"],
+    });
+  });
+
+  it("gives the outputs and the notes on each field, with the operation, when it is asked for by id", async () => {
+    const { result } = await asAgent({
+      view: "index",
+      operationIds: ["slack.addReaction", "github.addLabels"],
+    });
+    const [reaction, labels] = (result.operations as Entry[]).sort((a, b) =>
+      a.id < b.id ? 1 : -1,
+    );
+
+    expect(reaction.outputs.map((output: Entry) => output.name)).toEqual([
+      "ok",
+      "alreadyReacted",
+      "externalRef",
+    ]);
+    expect(reaction.description).toContain("alreadyReacted");
+    expect(
+      reaction.fields.find((field: Entry) => field.name === "name").description,
+    ).toContain("Lowercase letters");
+    expect(labels.outputs.map((output: Entry) => output.name)).toEqual([
+      "ok",
+      "labels",
+      "externalRef",
+    ]);
+    expect(labels.description).toContain("1 to 5 labels");
+    expect(
+      labels.fields.find((field: Entry) => field.name === "labels").description,
+    ).toContain("list of label names");
+  });
+
+  it("still gives the app's index the provider, the whole label and the outputs it always had", async () => {
+    const forApp = await run({ view: "index" }, kit.context);
+    const reaction = (forApp.operations as Entry[]).find(
+      (entry) => entry.id === "slack.addReaction",
+    );
+
+    expect(reaction).toMatchObject({
+      provider: "slack",
+      label: "Slack: add a reaction",
+      outputs: ["ok", "alreadyReacted", "externalRef"],
+    });
+  });
+
+  it("reads the graph's node, edge and settings in one line each in an index, and in JSON Schema only in the app's full view", async () => {
+    const { result } = await asAgent({ view: "index" });
+    const forAppIndex = await run({ view: "index" }, kit.context);
+    const forAppFull = await run({}, kit.context);
+
+    for (const shape of [result.graph, forAppIndex.graph]) {
+      expect(shape.node).toBe(
+        "{id:string,name:string,label?:string,position:{x:-100000-100000,y:-100000-100000}}",
+      );
+      expect(shape.edge).toContain("from:{node:string,port:string}");
+      expect(shape.settings).toContain("checkCadenceMinutes?:5-1440");
+      expect(shape.limits).toEqual({ maxNodes: 200, maxEdges: 400 });
+    }
+    expect(forAppFull.graph.node.properties.position).toBeDefined();
+  });
+
+  it("brings the notes on a field only with the operation asked for, never with every operation at once", async () => {
+    const everything = await run({}, kit.context);
+    const byId = await run(
+      { view: "full", operationIds: ["slack.addReaction"] },
+      kit.context,
+    );
+    const noted = (operations: Entry[]) =>
+      operations.flatMap((entry) =>
+        entry.fields.filter((field: Entry) => field.description),
+      );
+
+    expect(noted(everything.operations)).toEqual([]);
+    expect(noted(byId.operations)).not.toEqual([]);
+    expect(everything.operations).toHaveLength(OPERATION_CATALOG.list().length);
+  });
+});

@@ -1,4 +1,7 @@
-import { resolveCredentialDetailed } from "@agent-native/core/credentials";
+import {
+  resolveCredentialDetailed,
+  type CredentialContext,
+} from "@agent-native/core/credentials";
 import {
   canAuthorizeBuilderApiRequest,
   getCredentialContext,
@@ -16,7 +19,7 @@ export type ProviderConnectionStatus =
 
 export interface ProviderConnection {
   provider: string;
-  /** `unknown` means the check itself failed; it is never read as not connected. */
+  /** `unknown` means the check itself failed or a saved key cannot be decrypted; it is never read as not connected. */
   status: ProviderConnectionStatus;
   /** Where a person connects it when it is not connected. */
   connectWith: "workspace-connection" | "vault" | "settings" | null;
@@ -47,6 +50,15 @@ export const PROVIDER_VAULT_KEYS: Readonly<
   stripe: [["STRIPE_SECRET_KEY"]],
   pylon: [["PYLON_API_KEY"]],
   posthog: [["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID"]],
+};
+
+// Keys a read needs beside the credential the connector resolvers find. A Sentry
+// issue path carries the organization slug, so a token alone cannot read one.
+// Kept next to the same catalog spec as the table above.
+export const PROVIDER_COMPANION_KEYS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  sentry: ["SENTRY_ORG_SLUG"],
 };
 
 type Attempt<T> = { ok: true; value: T } | { ok: false; message: string };
@@ -93,18 +105,76 @@ function known(
 const LOCAL_ENV_ONLY =
   "Connected through this machine's local .env only: workflow runs can use it, but provider-api-request needs a workspace connection.";
 
-async function hasVaultKeys(provider: string): Promise<boolean> {
+/** What core throws for a saved value it cannot decrypt; core does not export the class, so it is read by its code. */
+function isUnreadableSecret(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error as { errorCode?: unknown }).errorCode === "app_secret_unreadable"
+  );
+}
+
+type KeyState = "present" | "absent" | "unreadable";
+
+/**
+ * One vault key as a read will meet it. A value that exists but cannot be
+ * decrypted is `unreadable`, never `absent`: nobody can fix the first by adding
+ * a key. Any other failure of the lookup itself still throws.
+ */
+async function keyState(
+  key: string,
+  ctx: CredentialContext,
+): Promise<KeyState> {
+  try {
+    return (await resolveCredentialDetailed(key, ctx)) ? "present" : "absent";
+  } catch (error) {
+    if (isUnreadableSecret(error)) return "unreadable";
+    throw error;
+  }
+}
+
+function credentialContext(): CredentialContext {
   const ctx = getCredentialContext();
   if (!ctx) {
     throw new Error("Credential lookups need an authenticated request.");
   }
+  return ctx;
+}
+
+/** `present` when every key is; otherwise the keys that are unreadable, which outrank the ones that are merely absent. */
+async function keysState(
+  keys: readonly string[],
+): Promise<{ state: "present" | "absent" } | { unreadable: string[] }> {
+  const ctx = credentialContext();
+  const states = await Promise.all(keys.map((key) => keyState(key, ctx)));
+  const unreadable = keys.filter((_, index) => states[index] === "unreadable");
+  if (unreadable.length > 0) return { unreadable };
+  return {
+    state: states.every((state) => state === "present") ? "present" : "absent",
+  };
+}
+
+function unreadableDetail(provider: string, keys: readonly string[]): string {
+  return `${keys.join(", ")} ${keys.length === 1 ? "is" : "are"} saved but could not be decrypted here, so a ${provider} read cannot run. Save ${keys.length === 1 ? "it" : "them"} again under Keys in Settings.`;
+}
+
+type VaultReading =
+  | { state: "present" | "absent" }
+  | { state: "unreadable"; keys: string[] };
+
+/**
+ * Whether a way of signing in is whole in the vault, trying them in order as
+ * a read does: the first that is whole connects, and a key that cannot be
+ * decrypted stops the search, because the read would stop there too.
+ */
+async function readVaultKeys(provider: string): Promise<VaultReading> {
   for (const keys of PROVIDER_VAULT_KEYS[provider] ?? []) {
-    const found = await Promise.all(
-      keys.map((key) => resolveCredentialDetailed(key, ctx)),
-    );
-    if (found.every(Boolean)) return true;
+    const reading = await keysState(keys);
+    if ("unreadable" in reading) {
+      return { state: "unreadable", keys: reading.unreadable };
+    }
+    if (reading.state === "present") return { state: "present" };
   }
-  return false;
+  return { state: "absent" };
 }
 
 async function hasReadyConnection(provider: string): Promise<boolean> {
@@ -116,6 +186,41 @@ async function hasReadyConnection(provider: string): Promise<boolean> {
   return catalog.providers.some(
     (entry) => entry.id === provider && entry.readiness.status === "ready",
   );
+}
+
+function companionKeysOf(provider: string): readonly string[] | undefined {
+  return Object.entries(PROVIDER_COMPANION_KEYS).find(
+    ([name]) => name === provider,
+  )?.[1];
+}
+
+/**
+ * A connector that has its credential still cannot read without the companion
+ * keys the provider's paths carry. Absent is `not connected`; saved but
+ * undecryptable is `unknown`, because adding the key would not fix it.
+ */
+async function withCompanionKeys(
+  connection: ProviderConnection,
+): Promise<ProviderConnection> {
+  const { provider } = connection;
+  const keys = companionKeysOf(provider);
+  if (connection.status !== "connected" || !keys) return connection;
+  const reading = await attempt(() => keysState(keys));
+  if (!reading.ok) return unknown(provider, "vault", reading.message);
+  if ("unreadable" in reading.value) {
+    return unknown(
+      provider,
+      "vault",
+      unreadableDetail(provider, reading.value.unreadable),
+    );
+  }
+  if (reading.value.state === "present") return connection;
+  return {
+    provider,
+    status: "not connected",
+    connectWith: "vault",
+    detail: `${keys.join(", ")} ${keys.length === 1 ? "is" : "are"} not saved, so a ${provider} read has no organization to ask. Add ${keys.length === 1 ? "it" : "them"} under Keys in Settings.`,
+  };
 }
 
 /**
@@ -156,14 +261,16 @@ export async function readProviderConnections(
                 ? connectors.message
                 : "Connector readiness is unavailable.",
             )
-          : known(
-              provider,
-              "workspace-connection",
-              connectors.value[provider] !== undefined,
-              "Connect it in Dispatch or add a vault token.",
-              connectors.value[provider] === "local-env"
-                ? LOCAL_ENV_ONLY
-                : undefined,
+          : await withCompanionKeys(
+              known(
+                provider,
+                "workspace-connection",
+                connectors.value[provider] !== undefined,
+                "Connect it in Dispatch or add a vault token.",
+                connectors.value[provider] === "local-env"
+                  ? LOCAL_ENV_ONLY
+                  : undefined,
+              ),
             ),
       );
     } else if (provider === "email") {
@@ -204,18 +311,22 @@ export async function readProviderConnections(
         result.push({ provider, status: "connected", connectWith });
         continue;
       }
-      const viaVault = await attempt(() => hasVaultKeys(provider));
-      if (viaVault.ok && viaVault.value) {
+      const viaVault = await attempt(() => readVaultKeys(provider));
+      if (viaVault.ok && viaVault.value.state === "present") {
         result.push({ provider, status: "connected", connectWith });
         continue;
       }
-      const failed = [viaConnection, viaVault].find(
-        (entry): entry is { ok: false; message: string } =>
-          entry !== null && !entry.ok,
-      );
+      const failure =
+        viaConnection?.ok === false
+          ? viaConnection.message
+          : !viaVault.ok
+            ? viaVault.message
+            : viaVault.value.state === "unreadable"
+              ? unreadableDetail(provider, viaVault.value.keys)
+              : undefined;
       result.push(
-        failed
-          ? unknown(provider, connectWith, failed.message)
+        failure !== undefined
+          ? unknown(provider, connectWith, failure)
           : {
               provider,
               status: "not connected",

@@ -40,6 +40,7 @@ beforeEach(() => {
   workspaceMock.mockResolvedValue("primary");
   createClientMock.mockReturnValue({
     getCompleteThread: getCompleteThreadMock,
+    getAgentNativeIdentity: async () => ({ userId: "UBOT" }),
   });
   getCompleteThreadMock.mockResolvedValue({
     hasMore: false,

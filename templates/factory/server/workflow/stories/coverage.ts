@@ -13,20 +13,40 @@ import { STORIES } from "./registry.js";
 // story uses it.
 
 /**
- * Catalog operations no story uses, each with the reason. Only the API request,
+ * Catalog operations no story uses, each with the reason. The API request,
  * which is one definition generated per provider: the ten stories are product
  * narratives and none reads an endpoint no curated step covers, so
- * api-request.scenario.spec.ts runs each of them through the engine instead. An
- * entry here is a decision a reviewer should see, and the spec fails when an
- * operation listed here turns out to be covered.
+ * api-request.scenario.spec.ts runs each of them through the engine instead.
+ * And the Jira and Sentry steps of the triage loop, which no story wires yet and
+ * jira-sentry.scenario.spec.ts runs through the engine, and its GitHub label
+ * steps and Slack reaction, which issue-writes.scenario.spec.ts runs.
+ * An entry here is a
+ * decision a reviewer should see, and the spec fails when an operation listed
+ * here turns out to be covered.
  */
 export const UNUSED_ON_PURPOSE: Readonly<Record<string, string>> =
-  Object.fromEntries(
-    genericOperations.map(({ id }) => [
+  Object.fromEntries([
+    ...genericOperations.map(({ id }): [string, string] => [
       id,
       "generated per provider, run by api-request.scenario.spec.ts",
     ]),
-  );
+    ...[
+      "jira.getIssue",
+      "jira.listTransitions",
+      "jira.transitionIssue",
+      "sentry.resolveIssue",
+      "sentry.assignIssue",
+    ].map((id): [string, string] => [
+      id,
+      "no story wires it yet, run by jira-sentry.scenario.spec.ts",
+    ]),
+    ...["github.addLabels", "github.removeLabel", "slack.addReaction"].map(
+      (id): [string, string] => [
+        id,
+        "no story wires it yet, run by issue-writes.scenario.spec.ts",
+      ],
+    ),
+  ]);
 
 /**
  * What no story can prove yet because the engine lacks the feature, each with

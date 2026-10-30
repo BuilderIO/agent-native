@@ -488,6 +488,8 @@ const messages = {
         "Ejecuta el flujo de trabajo una vez para que este paso tenga elementos con los que probarlo.",
       testStepSamplesFailed:
         "No se pudieron cargar los elementos para probar este paso.",
+      testStepOlderSample:
+        "Probando con elementos de una ejecución anterior: las ejecuciones más recientes no dieron ninguno a este paso.",
     },
     nodeDetails: {
       dialogName: "Detalles del paso",

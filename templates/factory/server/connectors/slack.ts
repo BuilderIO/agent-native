@@ -321,6 +321,22 @@ export async function postChannelMessage(
   );
 }
 
+/** Adds one reaction as the bot. Slack answers a repeat with `already_reacted`, which is a rejection here: the caller decides it is the same end state. */
+export async function addReaction(
+  workspace: Workspace,
+  channelId: string,
+  messageTs: string,
+  name: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<void> {
+  await slackWrite<{ ok?: boolean; error?: string }>(
+    workspace,
+    "reactions.add",
+    { channel: channelId, timestamp: messageTs, name },
+    tokenResolver,
+  );
+}
+
 export async function getTeamInfo(
   workspace: Workspace,
   tokenResolver?: SlackTokenResolver,

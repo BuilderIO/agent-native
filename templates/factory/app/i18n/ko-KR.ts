@@ -469,6 +469,8 @@ const messages = {
       testStepNeedsRun:
         "이 단계를 테스트할 항목이 생기도록 워크플로를 한 번 실행하세요.",
       testStepSamplesFailed: "이 단계를 테스트할 항목을 불러오지 못했습니다.",
+      testStepOlderSample:
+        "이전 실행의 항목으로 테스트 중입니다: 최근 실행에서는 이 단계에 항목이 없었습니다.",
     },
     nodeDetails: {
       dialogName: "단계 상세",

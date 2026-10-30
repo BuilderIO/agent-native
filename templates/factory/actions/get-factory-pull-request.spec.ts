@@ -25,6 +25,7 @@ import {
   pullRequestSummary,
 } from "../server/lib/factory-pull-request.fixture.js";
 import { VERIFICATION_EXCERPT_CHARS } from "../server/lib/pull-request-evidence.js";
+import { WORKFLOW_ACTION_OUTPUT_LIMIT_CHARS } from "../server/lib/workflow-action-support.js";
 import { GitHubRequestError } from "../server/triage/github-client.js";
 import action from "./get-factory-pull-request.js";
 
@@ -247,6 +248,45 @@ describe("get-factory-pull-request", () => {
         VERIFICATION_EXCERPT_CHARS,
       );
       expect(JSON.stringify(result).length).toBeLessThan(10_000);
+    });
+
+    it("keeps a full excerpt inside the action's output limit even beside full thread and check lists", async () => {
+      const heavyThreads = Array.from({ length: 30 }, (_, index) => ({
+        ...thread(`t${index}`, false),
+        body: "Please rename this. ".repeat(500),
+      }));
+      const heavyChecks = Array.from({ length: 80 }, (_, index) => ({
+        name: `check-${index}-${"x".repeat(200)}`,
+        state: "failed",
+        observedAt,
+      }));
+      createClientMock.mockReturnValue(
+        fakeGitHub({
+          getPullRequestSummary: vi.fn().mockResolvedValue(
+            pullRequestSummary({
+              title: "t".repeat(400),
+              body: `### Verified\n${"Ran the form list spec and it passed. ".repeat(200)}`,
+            }),
+          ),
+          getPullRequestChecks: vi.fn().mockResolvedValue({
+            checks: heavyChecks,
+            checksCoverage: "complete",
+          }),
+          listPullRequestReviewThreads: vi.fn().mockResolvedValue({
+            comments: heavyThreads,
+            commentsTruncated: false,
+          }),
+        }),
+      );
+
+      const result = (await action.run(input, context)) as Record<string, any>;
+
+      expect(result.verification.excerpt).toHaveLength(
+        VERIFICATION_EXCERPT_CHARS,
+      );
+      expect(JSON.stringify(result).length).toBeLessThan(
+        WORKFLOW_ACTION_OUTPUT_LIMIT_CHARS,
+      );
     });
 
     it("says absent, not an error, for a description with no Verified section or none at all", async () => {

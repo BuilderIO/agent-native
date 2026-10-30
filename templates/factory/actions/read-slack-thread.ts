@@ -20,7 +20,7 @@ const slackTimestamp = z
 
 export default defineAction({
   description:
-    "Read one whole Slack thread, with each message's reactions, for a workflow. Pass oldest to get only messages after that Slack timestamp. A thread that cannot be paged to the end is an error, never a short result. Output is bounded: when truncated is true, pass nextOldest as oldest to read the rest.",
+    "Read one whole Slack thread, with each message's reactions, for a workflow. A message's reactions leave out this app's own bot, so its acknowledgement never reads as a person's; the names it reacted with are in ownReactions. Pass oldest to get only messages after that Slack timestamp. A thread that cannot be paged to the end is an error, never a short result. Output is bounded: when truncated is true, pass nextOldest as oldest to read the rest.",
   schema: z.object({
     factoryId: factoryIdSchema.optional(),
     channel: z

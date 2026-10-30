@@ -608,13 +608,28 @@ export interface ProviderOperationCall {
   tripwire?: TripwireSink;
 }
 
-/** Builds, sends and bounds one provider operation. Throws the typed failure it ends in. */
-export async function runProviderOperation(
-  call: ProviderOperationCall,
-): Promise<ProviderOperationPayload> {
-  const { def, fields, cursor, window, limit, prime, identity } = call;
+interface ProviderExchange {
+  /** A success the provider answered whole, with the path's placeholders filled. */
+  response: ProviderHttpResponse;
+  watch: ProviderWatch;
+  tripwire: TripwireSink;
+}
+
+/**
+ * Sends one built request and checks it: a refused or failed one throws the
+ * typed failure `def`'s effect calls for (a write that may have reached the
+ * provider is `_outcome_unknown`), and what comes back is a success that was
+ * not cut and left no placeholder open.
+ */
+async function exchange(call: {
+  def: OperationDefinition;
+  built: BuiltProviderRequest;
+  identity: ProviderOperationCall["identity"];
+  signal?: AbortSignal | undefined;
+  tripwire?: TripwireSink | undefined;
+}): Promise<ProviderExchange> {
+  const { def, built, identity } = call;
   const { userEmail, orgId, factoryId } = identity;
-  const built = buildOrFail(def, { fields, cursor, window });
   const tripwire = call.tripwire ?? actionTripwire({ orgId, factoryId });
   const startedAt = Date.now();
   const watch = providerWatch(tripwire, def, startedAt);
@@ -695,6 +710,70 @@ export async function runProviderOperation(
       body: response.json,
     });
   }
+  return { response, watch, tripwire };
+}
+
+interface ProviderStepCall {
+  /** What a failure means: a write's server error is `_outcome_unknown`, a read's is retryable. */
+  def: OperationDefinition;
+  request: Pick<BuiltProviderRequest, "method" | "path"> &
+    Partial<Pick<BuiltProviderRequest, "query" | "body" | "openPlaceholders">>;
+  identity: ProviderOperationCall["identity"];
+  signal?: AbortSignal | undefined;
+  tripwire?: TripwireSink | undefined;
+}
+
+/**
+ * One request of a host action that composes several (a read, then the write
+ * it decides). The path and body are the caller's to build and check: this
+ * sends them with the connection's credential and fails as a catalog
+ * operation would. `unreadable` is how the caller says the answer was not the
+ * shape it needs: it is reported and fails as `unexpected_response`, or
+ * `unexpected_response_outcome_unknown` when `def` writes.
+ */
+export async function sendProviderStep(call: ProviderStepCall): Promise<{
+  status: number;
+  json: unknown;
+  unreadable: (reason: string) => never;
+}> {
+  const { response, watch } = await exchange({
+    def: call.def,
+    built: { query: {}, openPlaceholders: [], ...call.request },
+    identity: call.identity,
+    signal: call.signal,
+    tripwire: call.tripwire,
+  });
+  return {
+    status: response.status,
+    json: response.json,
+    unreadable: (reason) => {
+      watch.reportShape({
+        reason,
+        status: response.status,
+        body: response.json,
+      });
+      return failUnexpected(
+        call.def,
+        `${call.def.id} got an answer from ${call.def.credential.provider} that is not the shape it needs (${reason}).`,
+      );
+    },
+  };
+}
+
+/** Builds, sends and bounds one provider operation. Throws the typed failure it ends in. */
+export async function runProviderOperation(
+  call: ProviderOperationCall,
+): Promise<ProviderOperationPayload> {
+  const { def, fields, cursor, window, limit, prime, identity } = call;
+  const { orgId, factoryId } = identity;
+  const built = buildOrFail(def, { fields, cursor, window });
+  const { response, tripwire } = await exchange({
+    def,
+    built,
+    identity,
+    signal: call.signal,
+    tripwire: call.tripwire,
+  });
 
   const kept = built.fieldsToKeep
     ? keepAnswerFields(

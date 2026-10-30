@@ -1,6 +1,8 @@
 {
   "inFlight": {
-    "none": { "items": [] },
+    "none": {
+      "items": []
+    },
     "twoReports": {
       "items": [
         {
@@ -9,6 +11,7 @@
           "kind": "message",
           "provider": "slack",
           "title": "Checkout button does nothing",
+          "text": "When I click Pay on the checkout page nothing happens and no order is created.",
           "author": "reporter-1@example.test",
           "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
           "occurredAt": "2026-10-19T11:50:00.000Z",
@@ -30,6 +33,7 @@
           "kind": "message",
           "provider": "slack",
           "title": "Pay button dead on checkout",
+          "text": "The Pay button on checkout is dead for me too.",
           "author": "reporter-2@example.test",
           "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000200",
           "occurredAt": "2026-10-19T11:50:00.000Z",

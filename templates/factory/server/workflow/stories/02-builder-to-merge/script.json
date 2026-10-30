@@ -309,6 +309,11 @@
           "recording": "green"
         },
         {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "verified"
+        },
+        {
           "kind": "offer",
           "source": "inFlight",
           "recording": "twoReports"
@@ -512,6 +517,353 @@
           "kind": "tick",
           "label": "held for a person: nothing more is sent",
           "at": "+5m"
+        }
+      ]
+    },
+    "a-green-pull-request-the-judge-is-unsure-about-is-held-for-a-person": {
+      "description": "A green pull request that clears the merge gate but whose Verified notes the AI check is unsure about is not merged: the triage owner is told the judge's reason, both reports go to a person, and a later tick sends nothing more.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "unsure"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "green and approved, but the judge is unsure",
+          "at": "+0m"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "none"
+        },
+        {
+          "kind": "tick",
+          "label": "held for a person: nothing more is sent",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-pull-request-whose-evidence-is-only-a-screenshot-is-held-for-a-person": {
+      "description": "A green pull request whose Verified section is only a screenshot is not merged: the judge cannot see images, says so in its reason, and the triage owner is told.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "greenMediaOnly"
+        },
+        {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "unsureMedia"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "the Verified section is only a screenshot",
+          "at": "+0m"
+        }
+      ]
+    },
+    "a-judge-that-cannot-sign-in-holds-the-pull-request": {
+      "description": "A judge that cannot sign in fails the task at once, never reads as verified, and never merges: both reports go to a person with the typed failure.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "noSignIn"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "the judge cannot sign in",
+          "at": "+0m"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "none"
+        },
+        {
+          "kind": "tick",
+          "label": "held for a person: the judge is not asked again",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-judge-that-keeps-timing-out-holds-the-pull-request-after-three-tries": {
+      "description": "A judge that times out on every try is retried twice, five and ten minutes on, and then the task goes to a person; no tick merges anything.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "timesOut"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "the judge times out: parked for a retry",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "the retry times out too",
+          "at": "+6m"
+        },
+        {
+          "kind": "tick",
+          "label": "the third try times out: a person is asked",
+          "at": "+17m"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "none"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing more happens",
+          "at": "+25m"
+        }
+      ]
+    },
+    "a-judge-answer-outside-its-schema-holds-the-pull-request": {
+      "description": "Answers outside the declared fields never read as verified: a verdict that is not one of the two words, then verified with no reason, then a wrong-case verdict. Each fails the task, and after the third the reports go to a person; nothing is merged.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "outsideTheEnum",
+          "calls": 1
+        },
+        {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "verifiedWithNoReason",
+          "calls": 1
+        },
+        {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "wrongCase"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "the verdict is 'approved'",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "verified, with no reason",
+          "at": "+6m"
+        },
+        {
+          "kind": "tick",
+          "label": "'Verified' is not 'verified': a person is asked",
+          "at": "+17m"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "none"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing more happens",
+          "at": "+25m"
         }
       ]
     },
@@ -833,6 +1185,11 @@
           "recording": "mergedBySomeone"
         },
         {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "verified"
+        },
+        {
           "kind": "offer",
           "source": "inFlight",
           "recording": "twoReports",
@@ -899,6 +1256,11 @@
           "recording": "green"
         },
         {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "verified"
+        },
+        {
           "kind": "offer",
           "source": "inFlight",
           "recording": "twoReports"
@@ -954,6 +1316,11 @@
           "recording": "green"
         },
         {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "verified"
+        },
+        {
           "kind": "offer",
           "source": "inFlight",
           "recording": "alert"
@@ -1004,6 +1371,11 @@
           "recording": "green"
         },
         {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "verified"
+        },
+        {
           "kind": "offer",
           "source": "inFlight",
           "recording": "twoReports"
@@ -1042,6 +1414,56 @@
               "nodes": {
                 "check": {
                   "prNumber": 7
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "a-test-of-the-judge-runs-only-the-judge-and-merges-nothing": {
+      "description": "Testing the judge on a pinned sample asks the model about that sample only: nothing is read from GitHub, nothing is sent and nothing is merged.",
+      "steps": [
+        {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "verified"
+        },
+        {
+          "kind": "tick",
+          "label": "test the judge",
+          "at": "+0m",
+          "mode": "test",
+          "node": "judge",
+          "sample": [
+            {
+              "id": "sample-task",
+              "item": {
+                "id": "sample-task",
+                "title": "Checkout button does nothing",
+                "text": "Clicking Pay on the checkout page does nothing.",
+                "reports": [
+                  {
+                    "id": "r1",
+                    "title": "Checkout button does nothing"
+                  }
+                ]
+              },
+              "nodes": {
+                "readPr": {
+                  "title": "Fix the checkout Pay button",
+                  "verification": {
+                    "present": true,
+                    "hasMedia": false,
+                    "excerpt": "Ran the checkout spec: it fails without the fix and passes with it."
+                  },
+                  "checks": {
+                    "total": 3,
+                    "passed": 3,
+                    "failed": 0,
+                    "pending": 0,
+                    "allPassing": true
+                  }
                 }
               }
             }

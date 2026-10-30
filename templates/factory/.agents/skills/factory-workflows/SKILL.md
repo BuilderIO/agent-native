@@ -34,7 +34,9 @@ retired scheduled agent jobs such as PR governance, never for a new request.
    `view: "index"` returns connection status, the graph shape, every node kind
    with its ports and a `settingsShape`, and one line per operation. Then one
    call with `operationIds: [...]` for the full fields and outputs of the
-   operations you use. Read a kind's full schema (`kind: "source"`) only when
+   operations you use: the index has only each one's id, label, kinds, effect
+   and field names, and its outputs, limits and notes on each field come with
+   that call. Read a kind's full schema (`kind: "source"`) only when
    its shape is not enough. The unfiltered call is too big for one tool result.
    The index lists the API request once, as `<provider>.apiRequest`: see
    "An endpoint no step covers".
@@ -266,8 +268,12 @@ Connections are per provider, from `connections` in a save or
 - **Gong, Pylon, Stripe, PostHog, Builder, email:** the call returns
   `connected: false` with `where` and `keys`. Tell the user exactly that, then
   check again when they say it is done.
-- **`unknown`:** the check itself failed. Say so; do not call it connected or
-  not connected.
+- **`unknown`:** the check itself failed, or a saved key (a Sentry organization
+  slug, a Jira token) exists but cannot be decrypted here; `detail` says which.
+  Say so; do not call it connected or not connected. An unreadable key is
+  fixed by saving it again, not by adding another.
+- **Sentry also needs `SENTRY_ORG_SLUG`:** a token alone reads `not connected`,
+  with the slug named in `detail`.
 - `set-factory-workflow-enabled` refuses with `connection_required` until every
   provider is connected. A step that fails `credential_missing` in a dry run
   means the same thing: connect it, then dry run again.
@@ -381,9 +387,68 @@ carries every reason. `get-factory-merge-gate` returns them as `reasonCodes` and
 `no_regression_test` and `no_verification_evidence` are the two proof rules.
 `github.readPullRequest` returns `verification` (`present`, `hasMedia` and a
 short `excerpt` of the Verified section, never the description itself) for a
-graph that wants to route on it. Explain a hold in
-those words. Never approve or merge for the user: an approval is a person's, and
+graph that wants to route on it. The shipped builder-to-merge story asks an AI
+step, `judge`, after the gate and before the merge whether that excerpt
+plausibly shows the fix: `verified` goes on to the merge, `unsure` (or a judge
+that fails) holds the pull request for a person, and it never approves. Explain
+a hold in those words. Never approve or merge for the user: an approval is a person's, and
 `requeue-factory-item` sends the item back once it is given.
+
+## Jira and Sentry steps
+
+The issue key (`PROJ-123`) and the Sentry issue id (digits) come from an item
+field or a setting, never an AI step. A bad one fails the item before the
+provider is called. Each write is sent once; `_outcome_unknown` means check.
+
+- `jira.getIssue` (Lookup): status, `statusCategory`, resolution, assignee,
+  labels and `transitionNames`, capped, with `truncated` when cut.
+- `jira.listTransitions` (Lookup): what the issue can take now, each with `id`,
+  `name` and `toStatus`.
+- `jira.transitionIssue` (Action): moves it by transition name or id, read first
+  against Jira's own list. An unknown or ambiguous name is refused, never
+  guessed. Naming the status it is already in succeeds with `alreadyInState`.
+- `sentry.resolveIssue` (Action): `resolution` is `resolved` or
+  `resolvedInNextRelease`. Sentry's answer must confirm it.
+- `sentry.assignIssue` (Action): `assigneeKind` `user` (`assignee` is an email),
+  `team` (a lowercase slug, read first; unknown is refused) or `nobody`.
+
+## Labels and reactions
+
+Writes run only on an `action` step, never as a Lookup, a Source or an AI
+tool. A dry run and a test of the step say what they would send and send nothing.
+Factory has no step that comments on a GitHub issue: findings go to Slack.
+
+- `github.addLabels`: `repo`, `number` and `labels`, a list of 1 to 5 names of
+  up to 50 characters, no comma. A label already there stays, so a repeat
+  changes nothing. Gives `labels`, all the item has now.
+- `github.removeLabel`: `repo`, `number` and `label`. An item without it
+  succeeds with `alreadyAbsent: true`.
+- `slack.addReaction`: `channel` (an id), `ts` (the message's time; for a report
+  that starts a thread, `item.thread.threadTs`) and `name`, an emoji without
+  colons, such as `eyes`. A repeat succeeds with `alreadyReacted: true`.
+
+- **Only the factory's own repository.** A label step refuses any other
+  `repo`, and a factory with no repository set, with `repository_not_allowed`,
+  as the merge step does; set the repository in the factory before using one.
+- **A model writes none of these fields.** `repo`, `number`, `labels`, `label`,
+  `channel` and `ts` say where the write lands (a label can start automation in
+  the repository): type them, or read a setting, an item field or a lookup,
+  never an AI step's answer (`model_written_target`).
+- **A bad value is refused on the first live run, not in a dry run.** A dry run
+  never calls the step, so check the limits above yourself: a refusal is typed
+  (`github_label_invalid`, `github_repository_invalid`, `repository_not_allowed`,
+  `slack_channel_invalid`, `slack_reaction_invalid`) and sends nothing.
+- **Read a failure by its code.** `github_access_denied` is a connection with no
+  write access (Slack `slack_access_denied`, `missing_scope`: the app needs
+  `reactions:write`); connect again with the right access. `github_not_found`
+  and `slack_not_found` wrote nothing. A code ending `_outcome_unknown` may have
+  written: the item goes to Needs you and nothing sends it again, so check the
+  issue or message first.
+- **The loop's own reaction is not a person's.** A Source's `claimReaction`, a
+  reply Wait's `ackReaction` and `slack.readThread` leave out the app's own
+  bot, so reacting `eyes` to a report never marks it claimed. `slack.readThread`
+  lists the bot's reactions apart, under `ownReactions`, and `reactions` holds
+  only everyone else's.
 
 ## Other tools
 

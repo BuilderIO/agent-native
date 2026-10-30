@@ -487,6 +487,8 @@ const messages = {
         "Execute o fluxo de trabalho uma vez para que esta etapa tenha itens para testar.",
       testStepSamplesFailed:
         "Não foi possível carregar os itens para testar esta etapa.",
+      testStepOlderSample:
+        "Testando com itens de uma execução anterior: as execuções mais recentes não deram nenhum a esta etapa.",
     },
     nodeDetails: {
       dialogName: "Detalhes da etapa",

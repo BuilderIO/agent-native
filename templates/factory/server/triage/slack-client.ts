@@ -1,5 +1,6 @@
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
+  addReaction as writeReaction,
   getChannelHistory as readChannelHistory,
   findUserByEmail as readUserByEmail,
   getMessagePermalink as readMessagePermalink,
@@ -201,6 +202,21 @@ export function createSlackWorkflowClient(identity: SlackReaderIdentity) {
         workspace,
         channelId,
         messageTs,
+        tokenResolver,
+      );
+    },
+    async addReaction(
+      workspace: Workspace,
+      channelId: string,
+      messageTs: string,
+      name: string,
+    ): Promise<void> {
+      await reader.verifyAgentNativeIdentity(workspace);
+      return writeReaction(
+        workspace,
+        channelId,
+        messageTs,
+        name,
         tokenResolver,
       );
     },

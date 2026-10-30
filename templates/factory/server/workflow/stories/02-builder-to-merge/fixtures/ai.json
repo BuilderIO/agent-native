@@ -14,5 +14,70 @@
         }
       }
     }
+  },
+  "judge": {
+    "verified": {
+      "perItem": {
+        "*": {
+          "verdict": "verified",
+          "reason": "The notes name the checkout spec, say it passed with the fix, and match the dead Pay button reports."
+        }
+      }
+    },
+    "unsure": {
+      "perItem": {
+        "*": {
+          "verdict": "unsure",
+          "reason": "The notes say it was tested but do not name a test or say what the result was."
+        }
+      }
+    },
+    "unsureMedia": {
+      "perItem": {
+        "*": {
+          "verdict": "unsure",
+          "reason": "The notes only point at screenshots, which I cannot see, and say nothing about what they show."
+        }
+      }
+    },
+    "outsideTheEnum": {
+      "perItem": {
+        "*": {
+          "verdict": "approved",
+          "reason": "Looks good to me."
+        }
+      }
+    },
+    "verifiedWithNoReason": {
+      "perItem": {
+        "*": {
+          "verdict": "verified"
+        }
+      }
+    },
+    "wrongCase": {
+      "perItem": {
+        "*": {
+          "verdict": "Verified",
+          "reason": "The notes name the spec and its result."
+        }
+      }
+    },
+    "noSignIn": {
+      "perItem": {
+        "*": {
+          "fail": "credentials",
+          "reason": "No usable model credential for the \"builder\" engine for triage-owner@example.test. Connect a provider in Settings > Agent > AI providers, or ask a workspace admin to."
+        }
+      }
+    },
+    "timesOut": {
+      "perItem": {
+        "*": {
+          "fail": "timeout",
+          "reason": "The turn did not finish within 120 seconds."
+        }
+      }
+    }
   }
 }

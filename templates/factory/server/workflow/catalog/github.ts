@@ -7,8 +7,15 @@ const repo = {
   label: "Repository (owner/name)",
 } as const;
 
-// The merge lands on this repository and pull request, so a model never picks them.
-const mergeRepo = { ...repo, target: true } as const;
+// A write lands on this repository and number, so a model never picks them.
+const targetRepo = { ...repo, target: true } as const;
+const targetNumber = {
+  name: "number",
+  type: "number",
+  required: true,
+  target: true,
+  label: "Issue or pull request",
+} as const;
 
 export const githubOperations: OperationDefinitionInput[] = [
   {
@@ -168,7 +175,7 @@ export const githubOperations: OperationDefinitionInput[] = [
         name: "verification",
         type: "object",
         description:
-          "What the description says about how the change was checked, under its `### Verified` heading: present (the heading has text or a screenshot or recording under it; false when there is no description), hasMedia (an image, video or recording link is there) and excerpt (the start of that section, at most 600 characters, HTML and URLs removed). The description itself is not returned.",
+          "What the description says about how the change was checked, under its `### Verified` heading: present (the heading has text or a screenshot or recording under it; false when there is no description), hasMedia (an image, video or recording link is there) and excerpt (the start of that section, at most 1,500 characters, HTML and URLs removed). The description itself is not returned.",
       },
     ],
     credential: { provider: "github" },
@@ -187,7 +194,7 @@ export const githubOperations: OperationDefinitionInput[] = [
     nodeKinds: ["action"],
     effect: "write",
     fields: [
-      mergeRepo,
+      targetRepo,
       {
         name: "number",
         type: "number",
@@ -228,6 +235,79 @@ export const githubOperations: OperationDefinitionInput[] = [
       { name: "reconciled", type: "boolean" },
     ],
     receipt: { externalRef: "sha", url: "url" },
+    credential: { provider: "github" },
+  },
+  {
+    id: "github.addLabels",
+    provider: "github",
+    label: "GitHub: add labels",
+    description:
+      "Adds 1 to 5 labels to an issue or pull request in the factory's own repository; each is text of up to 50 characters with no comma. One it already has stays, so a repeat changes nothing; a name the repository lacks is created.",
+    nodeKinds: ["action"],
+    effect: "write",
+    fields: [
+      targetRepo,
+      targetNumber,
+      {
+        name: "labels",
+        type: "json",
+        required: true,
+        // A label can trigger automation in the repository, so a person or a
+        // fixed route picks it and an AI step's answer cannot.
+        target: true,
+        label: "Labels",
+        description: 'A list of label names, such as ["bug", "triage"].',
+      },
+    ],
+    implementation: {
+      type: "action",
+      action: "add-github-labels",
+      argMap: { repo: "repo", number: "number", labels: "labels" },
+    },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      {
+        name: "labels",
+        type: "list",
+        description: "Every label the item has now.",
+      },
+    ],
+    receipt: { externalRef: "externalRef" },
+    credential: { provider: "github" },
+  },
+  {
+    id: "github.removeLabel",
+    provider: "github",
+    label: "GitHub: remove a label",
+    description:
+      "Removes one label from an issue or pull request in the factory's own repository. An item without it is a success with alreadyAbsent true; a missing issue or repository fails.",
+    nodeKinds: ["action"],
+    effect: "write",
+    fields: [
+      targetRepo,
+      targetNumber,
+      {
+        name: "label",
+        type: "string",
+        required: true,
+        target: true,
+        label: "Label",
+      },
+    ],
+    implementation: {
+      type: "action",
+      action: "remove-github-label",
+      argMap: { repo: "repo", number: "number", label: "label" },
+    },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      {
+        name: "alreadyAbsent",
+        type: "boolean",
+        description: "True when the item did not have the label.",
+      },
+    ],
+    receipt: { externalRef: "externalRef" },
     credential: { provider: "github" },
   },
   {

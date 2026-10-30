@@ -448,6 +448,8 @@ const messages = {
       saveAndTestStep: "保存并测试步骤",
       testStepNeedsRun: "请先运行一次工作流，使此步骤有可用于测试的条目。",
       testStepSamplesFailed: "无法加载用于测试此步骤的条目。",
+      testStepOlderSample:
+        "正在使用较早一次运行的条目进行测试：最近的运行没有为此步骤提供条目。",
     },
     nodeDetails: {
       dialogName: "步骤详情",

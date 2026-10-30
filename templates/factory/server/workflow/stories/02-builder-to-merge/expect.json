@@ -506,7 +506,10 @@
         "label": "green: merged and announced",
         "at": "2026-10-19T12:00:00.000Z",
         "outcome": "ran",
-        "run": { "status": "succeeded", "counts": { "taken": 2, "done": 2 } },
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "done": 2, "modelCalls": 1 }
+        },
         "nodes": {
           "byTask": { "in": 2, "ports": { "out": 1 } },
           "check": { "in": 1, "ports": { "out": 1 } },
@@ -516,6 +519,8 @@
           "gate": { "in": 1, "ports": { "out": 1 } },
           "inFlight": { "in": 0, "ports": { "out": 2 } },
           "inSlack": { "in": 2, "ports": { "match": 2 } },
+          "judge": { "in": 1, "ports": { "out": 1 } },
+          "judged": { "in": 1, "ports": { "match": 1 } },
           "merge": { "in": 1, "ports": { "out": 1 } },
           "readPr": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 2 } },
@@ -577,7 +582,13 @@
             }
           }
         ],
-        "ai": []
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
       },
       {
         "label": "nothing more happens",
@@ -599,6 +610,7 @@
         "decision@state:route:hasPr",
         "decision@ci:route:green",
         "decision@eligible:match",
+        "decision@judged:match",
         "effect@merge"
       ],
       "r1": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"],
@@ -814,6 +826,520 @@
       ],
       "r1": ["ended@manual:needsManual"],
       "r2": ["ended@manual:needsManual"]
+    }
+  },
+  "a-green-pull-request-the-judge-is-unsure-about-is-held-for-a-person": {
+    "ticks": [
+      {
+        "label": "green and approved, but the judge is unsure",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "judge": { "in": 1, "ports": { "out": 1 } },
+          "judgeHold": { "in": 1, "ports": { "out": 1 } },
+          "judged": { "in": 1, "ports": { "otherwise": 1 } },
+          "manual": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "judgeHold",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 passed the merge gate, but the AI check of its Verified notes is not sure they show the fix: The notes say it was tested but do not name a test or say what the result was. Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
+      },
+      {
+        "label": "held for a person: nothing more is sent",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "decision@judged:otherwise",
+        "effect@judgeHold",
+        "ended@manual:needsManual"
+      ],
+      "r1": ["ended@manual:needsManual"],
+      "r2": ["ended@manual:needsManual"]
+    }
+  },
+  "a-pull-request-whose-evidence-is-only-a-screenshot-is-held-for-a-person": {
+    "ticks": [
+      {
+        "label": "the Verified section is only a screenshot",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "judge": { "in": 1, "ports": { "out": 1 } },
+          "judgeHold": { "in": 1, "ports": { "out": 1 } },
+          "judged": { "in": 1, "ports": { "otherwise": 1 } },
+          "manual": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "judgeHold",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 passed the merge gate, but the AI check of its Verified notes is not sure they show the fix: The notes only point at screenshots, which I cannot see, and say nothing about what they show. Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "decision@judged:otherwise",
+        "effect@judgeHold",
+        "ended@manual:needsManual"
+      ],
+      "r1": ["ended@manual:needsManual"],
+      "r2": ["ended@manual:needsManual"]
+    }
+  },
+  "a-judge-that-cannot-sign-in-holds-the-pull-request": {
+    "ticks": [
+      {
+        "label": "the judge cannot sign in",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 2,
+            "needsManual": 1,
+            "itemFailures": 1,
+            "modelCalls": 1
+          }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "judge": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "credential_missing"
+          },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1
+        },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
+      },
+      {
+        "label": "held for a person: the judge is not asked again",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "error@judge:credential_missing",
+        "ended@judge:needsManual"
+      ],
+      "r1": ["ended@judge:needsManual"],
+      "r2": ["ended@judge:needsManual"]
+    }
+  },
+  "a-judge-that-keeps-timing-out-holds-the-pull-request-after-three-tries": {
+    "ticks": [
+      {
+        "label": "the judge times out: parked for a retry",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 2,
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1
+          }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "judge": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1
+        },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
+      },
+      {
+        "label": "the retry times out too",
+        "at": "2026-10-19T12:06:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "judge": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
+      },
+      {
+        "label": "the third try times out: a person is asked",
+        "at": "2026-10-19T12:17:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "needsManual": 1,
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "judge": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
+      },
+      {
+        "label": "nothing more happens",
+        "at": "2026-10-19T12:25:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "error@judge:provider_error",
+        "parked@judge",
+        "woke@judge:?",
+        "error@judge:provider_error",
+        "parked@judge",
+        "woke@judge:?",
+        "error@judge:provider_error",
+        "ended@judge:needsManual"
+      ],
+      "r1": ["parked@judge", "parked@judge", "ended@judge:needsManual"],
+      "r2": ["parked@judge", "parked@judge", "ended@judge:needsManual"]
+    }
+  },
+  "a-judge-answer-outside-its-schema-holds-the-pull-request": {
+    "ticks": [
+      {
+        "label": "the verdict is 'approved'",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 2,
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1
+          }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "judge": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1
+        },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
+      },
+      {
+        "label": "verified, with no reason",
+        "at": "2026-10-19T12:06:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "judge": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
+      },
+      {
+        "label": "'Verified' is not 'verified': a person is asked",
+        "at": "2026-10-19T12:17:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "needsManual": 1,
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "judge": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
+      },
+      {
+        "label": "nothing more happens",
+        "at": "2026-10-19T12:25:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "error@judge:ai_invalid_output",
+        "parked@judge",
+        "woke@judge:?",
+        "error@judge:ai_invalid_output",
+        "parked@judge",
+        "woke@judge:?",
+        "error@judge:ai_invalid_output",
+        "ended@judge:needsManual"
+      ],
+      "r1": ["parked@judge", "parked@judge", "ended@judge:needsManual"],
+      "r2": ["parked@judge", "parked@judge", "ended@judge:needsManual"]
     }
   },
   "a-pull-request-merged-by-someone-else-goes-straight-to-the-threads": {
@@ -1149,6 +1675,7 @@
             "taken": 2,
             "done": 1,
             "itemFailures": 1,
+            "modelCalls": 1,
             "retryParked": 1
           }
         },
@@ -1160,6 +1687,8 @@
           "gate": { "in": 1, "ports": { "out": 1 } },
           "inFlight": { "in": 0, "ports": { "out": 2 } },
           "inSlack": { "in": 2, "ports": { "match": 2 } },
+          "judge": { "in": 1, "ports": { "out": 1 } },
+          "judged": { "in": 1, "ports": { "match": 1 } },
           "merge": { "in": 1, "ports": { "out": 1 } },
           "readPr": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 2 } },
@@ -1245,7 +1774,13 @@
             "receipt": { "status": "failed" }
           }
         ],
-        "ai": []
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
       },
       {
         "label": "the unfinished report is taken again",
@@ -1286,6 +1821,7 @@
         "decision@state:route:hasPr",
         "decision@ci:route:green",
         "decision@eligible:match",
+        "decision@judged:match",
         "effect@merge"
       ],
       "r1": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"],
@@ -1307,7 +1843,12 @@
         "outcome": "ran",
         "run": {
           "status": "succeeded",
-          "counts": { "taken": 2, "needsManual": 1, "needsCheck": 1 }
+          "counts": {
+            "taken": 2,
+            "needsManual": 1,
+            "needsCheck": 1,
+            "modelCalls": 1
+          }
         },
         "nodes": {
           "byTask": { "in": 2, "ports": { "out": 1 } },
@@ -1316,6 +1857,8 @@
           "eligible": { "in": 1, "ports": { "match": 1 } },
           "gate": { "in": 1, "ports": { "out": 1 } },
           "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "judge": { "in": 1, "ports": { "out": 1 } },
+          "judged": { "in": 1, "ports": { "match": 1 } },
           "merge": {
             "in": 1,
             "ports": {},
@@ -1345,7 +1888,13 @@
             "receipt": { "status": "started" }
           }
         ],
-        "ai": []
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
       },
       {
         "label": "offered again",
@@ -1353,7 +1902,12 @@
         "outcome": "ran",
         "run": {
           "status": "succeeded",
-          "counts": { "taken": 2, "needsManual": 1, "needsCheck": 1 }
+          "counts": {
+            "taken": 2,
+            "needsManual": 1,
+            "needsCheck": 1,
+            "modelCalls": 1
+          }
         },
         "nodes": {
           "byTask": { "in": 2, "ports": { "out": 1 } },
@@ -1362,6 +1916,8 @@
           "eligible": { "in": 1, "ports": { "match": 1 } },
           "gate": { "in": 1, "ports": { "out": 1 } },
           "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "judge": { "in": 1, "ports": { "out": 1 } },
+          "judged": { "in": 1, "ports": { "match": 1 } },
           "merge": {
             "in": 1,
             "ports": {},
@@ -1378,7 +1934,13 @@
         },
         "windows": {},
         "effects": [],
-        "ai": []
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
       }
     ],
     "parked": [],
@@ -1389,11 +1951,13 @@
         "decision@state:route:hasPr",
         "decision@ci:route:green",
         "decision@eligible:match",
+        "decision@judged:match",
         "error@merge:effect_needs_check",
         "ended@merge:needsManual",
         "decision@state:route:hasPr",
         "decision@ci:route:green",
         "decision@eligible:match",
+        "decision@judged:match",
         "error@merge:effect_needs_check",
         "ended@merge:needsManual"
       ],
@@ -1407,7 +1971,10 @@
         "label": "merged, announced in the findings channel",
         "at": "2026-10-19T12:00:00.000Z",
         "outcome": "ran",
-        "run": { "status": "succeeded", "counts": { "taken": 1, "done": 1 } },
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 1 }
+        },
         "nodes": {
           "byTask": { "in": 1, "ports": { "out": 1 } },
           "check": { "in": 1, "ports": { "out": 1 } },
@@ -1417,6 +1984,8 @@
           "gate": { "in": 1, "ports": { "out": 1 } },
           "inFlight": { "in": 0, "ports": { "out": 1 } },
           "inSlack": { "in": 1, "ports": { "otherwise": 1 } },
+          "judge": { "in": 1, "ports": { "out": 1 } },
+          "judged": { "in": 1, "ports": { "match": 1 } },
           "merge": { "in": 1, "ports": { "out": 1 } },
           "readPr": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 1 } },
@@ -1462,7 +2031,13 @@
             }
           }
         ],
-        "ai": []
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:90fde8925619f"]
+          }
+        ]
       }
     ],
     "parked": [],
@@ -1473,6 +2048,7 @@
         "decision@state:route:hasPr",
         "decision@ci:route:green",
         "decision@eligible:match",
+        "decision@judged:match",
         "effect@merge"
       ],
       "a1": [
@@ -1489,7 +2065,10 @@
         "at": "2026-10-19T12:00:00.000Z",
         "mode": "dry",
         "outcome": "ran",
-        "run": { "status": "succeeded", "counts": { "taken": 2, "done": 2 } },
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "done": 2, "modelCalls": 1 }
+        },
         "nodes": {
           "byTask": { "in": 2, "ports": { "out": 1 } },
           "check": { "in": 1, "ports": { "out": 1 } },
@@ -1499,6 +2078,8 @@
           "gate": { "in": 1, "ports": { "out": 1 } },
           "inFlight": { "in": 0, "ports": { "out": 2 } },
           "inSlack": { "in": 2, "ports": { "match": 2 } },
+          "judge": { "in": 1, "ports": { "out": 1 } },
+          "judged": { "in": 1, "ports": { "match": 1 } },
           "merge": { "in": 1, "ports": { "out": 1 } },
           "readPr": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 2 } },
@@ -1512,7 +2093,13 @@
         },
         "windows": {},
         "effects": [],
-        "ai": []
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
       }
     ],
     "parked": [],
@@ -1523,6 +2110,7 @@
         "decision@state:route:hasPr",
         "decision@ci:route:green",
         "decision@eligible:match",
+        "decision@judged:match",
         "effect@merge"
       ],
       "r1": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"],
@@ -1542,6 +2130,26 @@
         "windows": {},
         "effects": [],
         "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {}
+  },
+  "a-test-of-the-judge-runs-only-the-judge-and-merges-nothing": {
+    "ticks": [
+      {
+        "label": "test the judge",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "test",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "modelCalls": 1 } },
+        "nodes": { "judge": { "in": 1, "ports": { "out": 1 } } },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [{ "node": "judge", "mode": "perItem", "items": ["sample-task"] }]
       }
     ],
     "parked": [],

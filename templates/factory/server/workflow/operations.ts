@@ -258,6 +258,8 @@ export const operationDefinitionSchema = z
     emptyRange: z
       .strictObject({ errorIncludes: z.string().trim().min(3).max(120) })
       .optional(),
+    // For a lookup: the most characters of the provider's answer it hands on, cut and reported the way any over-long answer is. One step carries 64 KB in all, summed over every item it emits and every earlier answer still attached, so a lookup that runs once per item is sized to what a full step of items can hold.
+    answerBudgetChars: z.number().int().min(1_000).max(30_000).optional(),
     // What `nodes.<step>` carries once this operation ran. A graph that reads a name not listed here is refused on save; an operation that lists none is not checked.
     outputs: z.array(operationOutputSchema).min(1).max(60).optional(),
     receipt: z
@@ -327,6 +329,12 @@ export const operationDefinitionSchema = z
       (kinds.has("source") || kinds.has("lookup"))
     ) {
       fail("a write operation cannot be a source or lookup", "effect");
+    }
+    if (
+      def.answerBudgetChars !== undefined &&
+      !(def.effect === "read" && kinds.size === 1 && kinds.has("lookup"))
+    ) {
+      fail("only a lookup read declares an answer budget", "answerBudgetChars");
     }
     if (def.effect === "read" && kinds.has("action")) {
       fail("a read operation cannot be an action", "effect");

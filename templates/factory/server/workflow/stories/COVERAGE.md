@@ -18,7 +18,7 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 | `switch`   | ●   | ●   |     | ●   |     | ●   |     | ●   |     |     |
 | `combine`  | ●   | ●   | ●   |     |     |     |     |     |     | ●   |
 | `split`    | ●   | ●   |     |     | ●   |     |     |     |     |     |
-| `ai`       | ●   |     |     | ●   | ●   | ●   | ●   | ●   |     | ●   |
+| `ai`       | ●   | ●   |     | ●   | ●   | ●   | ●   | ●   |     | ●   |
 | `agent`    | ●   | ●   |     |     |     |     |     | ●   |     |     |
 | `wait`     | ●   |     |     | ●   |     |     | ●   |     | ●   | ●   |
 | `end`      | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   |
@@ -93,7 +93,7 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 | `itemFailed`      | ●   | ●   |     | ●   | ●   | ●   | ●   | ●   | ●   |     |
 | `needsCheck`      | ●   | ●   |     |     | ●   |     |     | ●   | ●   |     |
 | `lookupFailed`    |     |     |     |     | ●   | ●   |     |     |     |     |
-| `aiInvalidOutput` |     |     |     |     |     | ●   | ●   |     |     |     |
+| `aiInvalidOutput` |     | ●   |     |     |     | ●   | ●   |     |     |     |
 | `crashRecovery`   | ●   |     |     |     | ●   |     |     |     | ●   |     |
 | `restart`         | ●   |     |     |     | ●   |     |     |     |     |     |
 | `parkedThenWoken` | ●   |     |     | ●   |     |     | ●   |     | ●   | ●   |
@@ -106,11 +106,14 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 | `slack.findUserByEmail`                                                                                |     |     |     | ●   |     |     |     |     |     |     |
 | `slack.postMessage`                                                                                    | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   |
 | `slack.replyInThread`                                                                                  | ●   | ●   |     |     |     |     |     |     |     |     |
+| `slack.addReaction` (unused on purpose: no story wires it yet, run by issue-writes.scenario.spec.ts)   |     |     |     |     |     |     |     |     |     |     |
 | `github.listCommits`                                                                                   |     |     | ●   |     |     |     |     |     |     |     |
 | `github.listSecurityAlerts`                                                                            |     |     |     |     |     |     |     | ●   |     |     |
 | `github.mergedPullRequests`                                                                            |     |     |     |     |     |     |     |     |     | ●   |
 | `github.readPullRequest`                                                                               |     | ●   |     |     |     |     |     |     |     |     |
 | `github.mergePullRequest`                                                                              |     | ●   |     |     |     |     |     |     |     |     |
+| `github.addLabels` (unused on purpose: no story wires it yet, run by issue-writes.scenario.spec.ts)    |     |     |     |     |     |     |     |     |     |     |
+| `github.removeLabel` (unused on purpose: no story wires it yet, run by issue-writes.scenario.spec.ts)  |     |     |     |     |     |     |     |     |     |     |
 | `github.readFile`                                                                                      |     |     |     |     |     |     |     | ●   |     |     |
 | `github.searchCode`                                                                                    |     |     |     |     |     |     |     | ●   |     |     |
 | `factory.listItems`                                                                                    | ●   |     |     |     |     |     |     |     |     |     |
@@ -134,9 +137,14 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 | `posthog.usage`                                                                                        |     |     |     |     |     |     |     |     | ●   |     |
 | `bigquery.billingQuery`                                                                                |     |     |     |     |     |     |     |     |     | ●   |
 | `jira.createIssue`                                                                                     |     |     |     |     |     | ●   |     |     |     |     |
+| `jira.getIssue` (unused on purpose: no story wires it yet, run by jira-sentry.scenario.spec.ts)        |     |     |     |     |     |     |     |     |     |     |
+| `jira.listTransitions` (unused on purpose: no story wires it yet, run by jira-sentry.scenario.spec.ts) |     |     |     |     |     |     |     |     |     |     |
+| `jira.transitionIssue` (unused on purpose: no story wires it yet, run by jira-sentry.scenario.spec.ts) |     |     |     |     |     |     |     |     |     |     |
 | `notion.createPage`                                                                                    |     |     |     |     |     |     | ●   |     |     |     |
 | `sentry.issueStatus`                                                                                   |     |     |     |     |     |     | ●   |     |     |     |
 | `sentry.issueEvents`                                                                                   |     |     |     |     |     |     | ●   |     |     |     |
+| `sentry.resolveIssue` (unused on purpose: no story wires it yet, run by jira-sentry.scenario.spec.ts)  |     |     |     |     |     |     |     |     |     |     |
+| `sentry.assignIssue` (unused on purpose: no story wires it yet, run by jira-sentry.scenario.spec.ts)   |     |     |     |     |     |     |     |     |     |     |
 | `email.send`                                                                                           |     |     |     | ●   |     | ●   | ●   | ●   | ●   | ●   |
 | `slack.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)    |     |     |     |     |     |     |     |     |     |     |
 | `github.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)   |     |     |     |     |     |     |     |     |     |     |
@@ -163,6 +171,14 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 - `jira.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
 - `notion.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
 - `sentry.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `jira.getIssue`: no story wires it yet, run by jira-sentry.scenario.spec.ts
+- `jira.listTransitions`: no story wires it yet, run by jira-sentry.scenario.spec.ts
+- `jira.transitionIssue`: no story wires it yet, run by jira-sentry.scenario.spec.ts
+- `sentry.resolveIssue`: no story wires it yet, run by jira-sentry.scenario.spec.ts
+- `sentry.assignIssue`: no story wires it yet, run by jira-sentry.scenario.spec.ts
+- `github.addLabels`: no story wires it yet, run by issue-writes.scenario.spec.ts
+- `github.removeLabel`: no story wires it yet, run by issue-writes.scenario.spec.ts
+- `slack.addReaction`: no story wires it yet, run by issue-writes.scenario.spec.ts
 
 ## Follow-ups
 

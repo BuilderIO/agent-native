@@ -134,11 +134,58 @@ function sharedShapes(): Record<string, JsonSchema> {
   };
 }
 
+// The node, edge and settings shapes of a graph. The index, and anything an
+// agent reads, gets the same one-line notation as each kind's settings; only
+// the app's full view keeps the JSON Schema.
+function graphShapes(oneLine: boolean): {
+  node: JsonSchema | string;
+  edge: JsonSchema | string;
+  settings: JsonSchema | string;
+} {
+  const { shape } = workflowNodeSchema.options[0];
+  const node = toJsonSchema(
+    z.object({
+      id: shape.id,
+      name: shape.name,
+      label: shape.label,
+      position: shape.position,
+    }),
+  );
+  const edge = toJsonSchema(workflowEdgeSchema);
+  const settings = toJsonSchema(workflowSettingsSchema);
+  if (!oneLine) return { node, edge, settings };
+  return {
+    node: describeSettingsShape(node).shape,
+    edge: describeSettingsShape(edge).shape,
+    settings: describeSettingsShape(settings).shape,
+  };
+}
+
 function hasOpenEndpoint(operation: OperationDefinition): boolean {
   return (
     operation.implementation.type === "provider-request" &&
     operation.implementation.freeForm !== undefined
   );
+}
+
+// An index line for an agent drops what its id already says: the provider key,
+// and the "Slack: " the labels start with for the canvas, so the room goes to
+// operations instead.
+function labelWithoutProvider(operation: OperationDefinition): string {
+  const [first = "", ...rest] = operation.label.split(": ");
+  const bare = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return rest.length > 0 && bare(first) === bare(operation.provider)
+    ? rest.join(": ")
+    : operation.label;
+}
+
+// Field notes are for the agent that writes graphs, so like an operation's own
+// description they come with the operation asked for by id or provider, not
+// with all of them at once.
+function withoutFieldNotes(
+  fields: OperationDefinition["fields"],
+): OperationDefinition["fields"] {
+  return fields.map(({ description: _note, ...field }) => field);
 }
 
 // One line per field, `name:type`, `!` when required, an enum's values inline:
@@ -157,7 +204,7 @@ function indexOutputs(outputs: readonly OperationOutput[]): string[] {
 
 export default defineAction({
   description:
-    'Read the building blocks of a Factory workflow: the twelve node kinds with their ports and the shape of each kind\'s settings, the operation catalog (what each Source, Lookup, Action and Agent node can call, with its fields), the edge and graph shape, and whether each provider is connected for this person. The full catalog is too large for one tool result, so call it with view index first: connection status, the graph shape, every kind with its ports and a one-line settingsShape (key required, key? optional, "a"|"b" choices, 1-10 range, [x] list, {<name>:x} map, a bare name such as binding is defined in shapes), and one compact line per operation (id, label, provider, node kinds, effect, field names and types, ! for required, and outputs: the only names a later step may read as nodes.<step>.<name>, ? after one that can be null, for the operations that declare them; a save that reads another name is refused). That is enough to write most graphs. Then read operations in full with one more call: operationIds (or provider) returns those operations\' fields and outputs, each with its description, and only the node kinds they serve; kind returns one kind\'s full settings JSON Schema. Call it before building or editing a graph with save-factory-workflow.',
+    'Read the building blocks of a Factory workflow: the twelve node kinds with their ports and the shape of each kind\'s settings, the operation catalog (what each Source, Lookup, Action and Agent node can call, with its fields), the edge and graph shape, and whether each provider is connected for this person. The full catalog is too large for one tool result, so call it with view index first: connection status, the graph shape, every kind with its ports and a one-line settingsShape (key required, key? optional, "a"|"b" choices, 1-10 range, [x] list, {<name>:x} map, a bare name such as binding is defined in shapes), and one compact line per operation (id, whose first part is the provider, label, node kinds, effect, field names and types, ! for required). That is enough to choose the operations. Then read the ones you use in full with one more call: operationIds (or provider) returns those operations\' fields, each with its description and the notes on how to fill it, and their outputs: the only names a later step may read as nodes.<step>.<name>, ? after one that can be null (a save that reads another name is refused), and only the node kinds they serve; kind returns one kind\'s full settings JSON Schema. Call it before building or editing a graph with save-factory-workflow.',
   schema: z.object({
     view: z
       .enum(["full", "index"])
@@ -255,19 +302,26 @@ export default defineAction({
           return { ...base, settingsShape: shape };
         });
         const indexed = compact && !named;
+        const dense = indexed && forAgent;
         const describeOperation = (operation: OperationDefinition) => {
           const outputs = operationOutputs(operation);
           return {
             id: operation.id,
-            provider: operation.provider,
-            label: operation.label,
+            ...(dense ? {} : { provider: operation.provider }),
+            label: dense ? labelWithoutProvider(operation) : operation.label,
             ...(operation.description && named
               ? { description: operation.description }
               : {}),
             nodeKinds: operation.nodeKinds,
             effect: operation.effect,
-            fields: indexed ? indexFields(operation) : operation.fields,
-            ...(outputs
+            fields: indexed
+              ? indexFields(operation)
+              : named
+                ? operation.fields
+                : withoutFieldNotes(operation.fields),
+            // An agent's index leaves outputs to the call that reads the operation
+            // in full, which is where they are needed; the app's index keeps them.
+            ...(outputs && !dense
               ? { outputs: indexed ? indexOutputs(outputs) : outputs }
               : {}),
           };
@@ -275,8 +329,7 @@ export default defineAction({
         // The API request is one definition per provider. The index an agent
         // reads lists it once, with the providers it exists for, so it does not
         // pay for eleven copies of the same line.
-        const openRequests =
-          indexed && forAgent ? matching.filter(hasOpenEndpoint) : [];
+        const openRequests = dense ? matching.filter(hasOpenEndpoint) : [];
         const operations = [
           ...matching
             .filter((operation) => !openRequests.includes(operation))
@@ -299,7 +352,6 @@ export default defineAction({
           providerIds.length === 0
             ? []
             : await readProviderConnections(providerIds, { userEmail, orgId });
-        const { shape } = workflowNodeSchema.options[0];
         // The tool result is cut at the tail, so what an agent must not lose (who
         // is connected, how a graph is wired) comes before the long lists.
         const result = {
@@ -308,16 +360,7 @@ export default defineAction({
           graph: kind
             ? undefined
             : {
-                node: toJsonSchema(
-                  z.object({
-                    id: shape.id,
-                    name: shape.name,
-                    label: shape.label,
-                    position: shape.position,
-                  }),
-                ),
-                edge: toJsonSchema(workflowEdgeSchema),
-                settings: toJsonSchema(workflowSettingsSchema),
+                ...graphShapes(forAgent || compact),
                 limits: { maxNodes: MAX_NODES, maxEdges: MAX_EDGES },
                 loopPort: LIMIT_REACHED_PORT,
               },

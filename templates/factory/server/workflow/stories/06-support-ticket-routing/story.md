@@ -21,7 +21,7 @@
 
 ## The path
 
-1. **`tickets` (Source, provider query, remembered in the inbox):** `pylon.newTickets` since the cursor.
+1. **`tickets` (Source, provider query, remembered in the inbox):** `pylon.newTickets` since the cursor, at most 8 a run. Each ticket carries its thread through every later step and one step hands on 64 KB in all, so 8 tickets with a thread of at most 5,000 characters each fit with room for the classification. Taken at 50, a real queue's threads (about 10 KB each) failed the `thread` step with `output_over_cap` for every ticket in the run.
 2. **`thread` (Lookup, `pylon.ticketThread`):** the ticket's messages. A read that returns nothing at all is a failed lookup.
 3. **`classify` (AI, per ticket):** `category` (bug, billing, urgent, other), `severity`, `confidence`, `summary`.
 4. **`route` (Switch):**

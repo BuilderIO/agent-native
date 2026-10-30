@@ -249,6 +249,8 @@ describe("apps", () => {
       strings.creator.actions,
       "Find a person by email",
       "Read a thread",
+      // oracle-change: Slack gained a step that puts a reaction on a message
+      "Add a reaction",
       "Post a message",
       "Reply in a thread",
       "API request",
@@ -602,11 +604,11 @@ describe("API request", () => {
   it("is the only row of an app with nothing else to do, and then has no caption", () => {
     const items = list(NEXT, {
       hasTrigger: true,
-      view: { kind: "app", provider: "jira", from: "next" },
+      view: { kind: "app", provider: "notion", from: "next" },
     }).items;
     expect(labelsOf(items)).toEqual([
       strings.creator.actions,
-      "Create an issue",
+      "Create a page",
       "API request",
     ]);
     expect(items.some((item) => item.type === "caption")).toBe(false);

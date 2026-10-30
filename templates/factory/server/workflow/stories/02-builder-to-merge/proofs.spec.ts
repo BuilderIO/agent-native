@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { STORY_GRAPHS } from "../../story-graphs.fixture.js";
+import { runScenario, type ScenarioSummary } from "../../testing/story-data.js";
+import type { StoryRun } from "../../testing/story-harness.js";
 import {
   callsTo,
   effectsOf,
@@ -7,6 +10,7 @@ import {
   scenarioRun,
   tickAt,
 } from "../proof-kit.js";
+import { STORIES } from "../registry.js";
 
 const STORY = "builder-to-merge";
 const PR = "https://github.example.test/example-org/example-repo/pull/7";
@@ -14,6 +18,43 @@ const R1_THREAD = "1760000000.000100";
 const R2_THREAD = "1760000000.000200";
 
 const scenario = (name: string) => scenarioRun(STORY, name);
+
+/** Every time the model was asked to judge a pull request's Verified notes. */
+const judgeTurns = (summary: ScenarioSummary) =>
+  summary.ticks
+    .flatMap((tick) => tick.ai)
+    .filter((turn) => turn.node === "judge");
+
+/** What a tick did at one node, or a loud failure naming the nodes it did reach. */
+function nodeAt(summary: ScenarioSummary, index: number, node: string) {
+  const { nodes } = tickAt(summary, index);
+  const found = nodes[node];
+  if (found === undefined) {
+    throw new Error(
+      `Tick ${index} never reached "${node}"; it reached ${Object.keys(nodes).join(", ") || "nothing"}.`,
+    );
+  }
+  return found;
+}
+
+/** The judge's turn on a tick, and the one pull request it was asked about. */
+function judgeRequestAt(run: StoryRun, index: number) {
+  const turn = run.ticks[index]?.aiRequests[0];
+  const item = turn?.items[0];
+  if (turn === undefined || item === undefined) {
+    throw new Error(`Tick ${index} asked the model nothing.`);
+  }
+  return { turn, item };
+}
+
+/** Every scenario in which the judge does not say verified, and so nothing may merge. */
+const HELD_BY_THE_JUDGE = [
+  "a-green-pull-request-the-judge-is-unsure-about-is-held-for-a-person",
+  "a-pull-request-whose-evidence-is-only-a-screenshot-is-held-for-a-person",
+  "a-judge-that-cannot-sign-in-holds-the-pull-request",
+  "a-judge-that-keeps-timing-out-holds-the-pull-request-after-three-tries",
+  "a-judge-answer-outside-its-schema-holds-the-pull-request",
+];
 
 describe("story 2 proofs: Builder to merge", () => {
   it("checks a task once for all its reports and leaves a working task alone", async () => {
@@ -101,6 +142,9 @@ describe("story 2 proofs: Builder to merge", () => {
     );
 
     expect(callsTo(summary, "factory.mergeGate")).toBe(1);
+    // The judge looked once, at the whole task, and its verified is what let the merge through.
+    expect(judgeTurns(summary)).toHaveLength(1);
+    expect(nodeAt(summary, 0, "judged").ports).toEqual({ match: 1 });
     const [merge] = effectsOf(summary, "github.mergePullRequest");
     expect(merge.fields).toMatchObject({
       repo: "example-org/example-repo",
@@ -132,6 +176,8 @@ describe("story 2 proofs: Builder to merge", () => {
     // The gate's rules, and the merge action re-running the gate itself, are proved where they live:
     // server/lib/factory-merge-gate.spec.ts and actions/merge-factory-pull-request.spec.ts.
     expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+    // The gate comes first: a pull request it holds is never put to the judge.
+    expect(judgeTurns(summary)).toEqual([]);
     expect(effectsOf(summary, "slack.postMessage")).toEqual([
       expect.objectContaining({
         node: "refused",
@@ -157,6 +203,7 @@ describe("story 2 proofs: Builder to merge", () => {
     // server/lib/factory-merge-approval.spec.ts and factory-merge-gate.spec.ts; here the gate's answer reaches a person.
     expect(callsTo(summary, "factory.mergeGate")).toBe(1);
     expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+    expect(judgeTurns(summary)).toEqual([]);
     expect(effectsOf(summary, "slack.postMessage")).toEqual([
       expect.objectContaining({
         node: "refused",
@@ -183,6 +230,7 @@ describe("story 2 proofs: Builder to merge", () => {
     // server/lib/factory-merge-gate.spec.ts and pull-request-evidence.spec.ts; here the gate's answer reaches a person.
     expect(callsTo(summary, "factory.mergeGate")).toBe(1);
     expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+    expect(judgeTurns(summary)).toEqual([]);
     expect(effectsOf(summary, "slack.postMessage")).toEqual([
       expect.objectContaining({
         node: "refused",
@@ -198,6 +246,271 @@ describe("story 2 proofs: Builder to merge", () => {
       r2: "needs_manual",
     });
     expect(tickAt(summary, 1)).toMatchObject({ calls: {}, effects: [] });
+  });
+
+  it("shows the judge what was reported, the pull request's title, its Verified notes and its checks, one pull request per call, and lets it answer only verified or unsure", async () => {
+    const { run } = await scenario(
+      "a-green-pull-request-is-merged-and-every-thread-is-told-once",
+    );
+
+    const { turn, item } = judgeRequestAt(run, 0);
+    expect(turn).toMatchObject({
+      mode: "perItem",
+      tools: [],
+      resultSchemaFields: {
+        verdict: { type: "enum", enum: ["verified", "unsure"] },
+        reason: { type: "string" },
+      },
+    });
+    expect(turn.items).toHaveLength(1);
+    expect(item.item).toMatchObject({
+      title: "Checkout button does nothing",
+      text: "When I click Pay on the checkout page nothing happens and no order is created.",
+      reports: [
+        { title: "Checkout button does nothing" },
+        { title: "Pay button dead on checkout" },
+      ],
+    });
+    expect(item.nodes.readPr).toMatchObject({
+      title: "Fix the checkout Pay button",
+      checks: { passed: 3, failed: 0, allPassing: true },
+      verification: {
+        present: true,
+        hasMedia: true,
+        excerpt: expect.stringContaining("checkout spec fails without the fix"),
+      },
+    });
+  });
+
+  it("holds a pull request the judge is unsure about, tells the triage owner its reason once, and never merges", async () => {
+    const { summary } = await scenario(
+      "a-green-pull-request-the-judge-is-unsure-about-is-held-for-a-person",
+    );
+
+    // Only the judge's verified reaches the merge; the gate had already said yes, and the judge cannot undo that or add to it.
+    expect(callsTo(summary, "factory.mergeGate")).toBe(1);
+    expect(judgeTurns(summary)).toHaveLength(1);
+    expect(nodeAt(summary, 0, "judged").ports).toEqual({ otherwise: 1 });
+    expect(tickAt(summary, 0).nodes.merge).toBeUndefined();
+    expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([
+      expect.objectContaining({
+        node: "judgeHold",
+        fields: expect.objectContaining({
+          to: "triage-owner@example.test",
+          text: expect.stringContaining(
+            "The notes say it was tested but do not name a test or say what the result was.",
+          ),
+        }),
+      }),
+    ]);
+    expect(effectsOf(summary, "slack.replyInThread")).toEqual([]);
+    expect(summary.statuses).toEqual({
+      r1: "needs_manual",
+      r2: "needs_manual",
+    });
+    expect(tickAt(summary, 1)).toMatchObject({ calls: {}, effects: [] });
+  });
+
+  it("holds a pull request whose only evidence is a screenshot: the judge is given no text to read and says it cannot see the image", async () => {
+    const { run, summary } = await scenario(
+      "a-pull-request-whose-evidence-is-only-a-screenshot-is-held-for-a-person",
+    );
+
+    expect(judgeRequestAt(run, 0).item.nodes.readPr).toMatchObject({
+      verification: { present: true, hasMedia: true, excerpt: "" },
+    });
+    expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([
+      expect.objectContaining({
+        node: "judgeHold",
+        fields: expect.objectContaining({
+          text: expect.stringContaining("screenshots, which I cannot see"),
+        }),
+      }),
+    ]);
+    expect(summary.statuses).toEqual({
+      r1: "needs_manual",
+      r2: "needs_manual",
+    });
+  });
+
+  it("never reads a judge that cannot sign in as verified: the task fails at the judge, nothing is sent, and a person sees the typed failure", async () => {
+    const { run, summary } = await scenario(
+      "a-judge-that-cannot-sign-in-holds-the-pull-request",
+    );
+
+    // No credential is not worth retrying, so the first failure hands the task to a person.
+    expect(tickAt(summary, 0).nodes.judge).toMatchObject({
+      status: "failed",
+      error: "credential_missing",
+    });
+    expect(tickAt(summary, 0).nodes.judged).toBeUndefined();
+    expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+    expect(effectsOf(summary)).toEqual([]);
+    expect(judgeTurns(summary)).toHaveLength(1);
+    expect(summary.statuses).toEqual({
+      r1: "needs_manual",
+      r2: "needs_manual",
+    });
+    const reasons = Object.values(run.events)
+      .flat()
+      .filter((event) => event.kind === "ended")
+      .map((event) => event.summary);
+    expect(reasons).toHaveLength(3);
+    for (const reason of reasons) {
+      expect(reason).toContain("credential_missing");
+      expect(reason).toContain("No usable model credential");
+    }
+    expect(tickAt(summary, 1)).toMatchObject({ calls: {}, effects: [] });
+  });
+
+  it("retries a judge that keeps timing out twice, five and then ten minutes on, hands the task to a person after the third try, and never merges", async () => {
+    const { summary } = await scenario(
+      "a-judge-that-keeps-timing-out-holds-the-pull-request-after-three-tries",
+    );
+
+    expect(judgeTurns(summary)).toHaveLength(3);
+    for (const index of [0, 1, 2]) {
+      expect(tickAt(summary, index).nodes.judge).toMatchObject({
+        status: "failed",
+        error: "provider_error",
+      });
+      expect(tickAt(summary, index).nodes.judged).toBeUndefined();
+    }
+    // The reports are offered again while the task waits for its retry, and are not taken a second time.
+    expect(tickAt(summary, 1).run?.counts.taken).toBeUndefined();
+    expect(tickAt(summary, 2).run?.counts.needsManual).toBe(1);
+    expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+    expect(effectsOf(summary)).toEqual([]);
+    expect(summary.statuses).toEqual({
+      r1: "needs_manual",
+      r2: "needs_manual",
+    });
+    expect(summary.parked).toEqual([]);
+    expect(tickAt(summary, 3)).toMatchObject({ calls: {}, effects: [] });
+  });
+
+  it("never reads an answer outside the declared fields as verified: a verdict that is neither word, verified with no reason, and a wrong-case verdict each fail the task", async () => {
+    const { summary } = await scenario(
+      "a-judge-answer-outside-its-schema-holds-the-pull-request",
+    );
+
+    expect(judgeTurns(summary)).toHaveLength(3);
+    for (const index of [0, 1, 2]) {
+      expect(tickAt(summary, index).nodes.judge).toMatchObject({
+        status: "failed",
+        error: "ai_invalid_output",
+      });
+      expect(tickAt(summary, index).nodes.judged).toBeUndefined();
+    }
+    expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+    expect(effectsOf(summary)).toEqual([]);
+    expect(summary.statuses).toEqual({
+      r1: "needs_manual",
+      r2: "needs_manual",
+    });
+  });
+
+  it("reaches the merge on nothing but a verified from the judge", async () => {
+    for (const name of HELD_BY_THE_JUDGE) {
+      const { summary } = await scenario(name);
+
+      expect(callsTo(summary, "factory.mergeGate"), name).toBeGreaterThan(0);
+      expect(callsTo(summary, "github.mergePullRequest"), name).toBe(0);
+      expect(effectsOf(summary, "github.mergePullRequest"), name).toEqual([]);
+      expect(effectsOf(summary, "slack.replyInThread"), name).toEqual([]);
+      for (const tick of summary.ticks) {
+        expect(tick.nodes.merge, name).toBeUndefined();
+        expect(tick.nodes.reports, name).toBeUndefined();
+      }
+      expect(Object.values(summary.statuses), name).toEqual([
+        "needs_manual",
+        "needs_manual",
+      ]);
+    }
+    const merged = await scenario(
+      "a-green-pull-request-is-merged-and-every-thread-is-told-once",
+    );
+    expect(callsTo(merged.summary, "github.mergePullRequest")).toBe(1);
+  });
+
+  it("pauses a task the run's model-call cap leaves unjudged, merges nothing for it, and judges it on the next run", async () => {
+    // The cap is a setting of the workflow that no scenario can set, so this one proof runs the story with a cap of 1.
+    const story = STORIES["builder-to-merge"];
+    const green =
+      story.script.scenarios[
+        "a-green-pull-request-is-merged-and-every-thread-is-told-once"
+      ];
+    expect(green).toBeDefined();
+    const steps = (green?.steps ?? []).map((step) =>
+      step.kind === "offer" && step.recording === "twoReports"
+        ? { ...step, recording: "twoTasks" }
+        : step,
+    );
+    const graph = STORY_GRAPHS["builder-to-merge"];
+    STORY_GRAPHS["builder-to-merge"] = {
+      ...graph,
+      settings: { ...graph.settings, modelCallCap: 1 },
+    };
+    let summary: ScenarioSummary;
+    try {
+      ({ summary } = await runScenario(
+        "builder-to-merge",
+        { description: "Two green tasks, one model call.", steps },
+        story.fixtures,
+      ));
+    } finally {
+      STORY_GRAPHS["builder-to-merge"] = graph;
+    }
+
+    // Tick 0: one task is judged and merged; the other is set aside before the judge, not merged and not failed.
+    expect(tickAt(summary, 0).run).toMatchObject({
+      status: "paused",
+      error: "budget_paused",
+      counts: { modelCalls: 1, setAside: 1 },
+    });
+    expect(nodeAt(summary, 0, "judge")).toMatchObject({
+      in: 2,
+      ports: { out: 1 },
+      error: "ai_cap_reached",
+    });
+    expect(nodeAt(summary, 0, "merge").in).toBe(1);
+    expect(tickAt(summary, 0).calls["github.mergePullRequest"]).toBe(1);
+    // Tick 1: the set-aside task is judged on its own and then merged.
+    expect(judgeTurns(summary)).toHaveLength(2);
+    expect(nodeAt(summary, 1, "judged").ports).toEqual({ match: 1 });
+    expect(tickAt(summary, 1).calls["github.mergePullRequest"]).toBe(1);
+    expect(summary.statuses).toEqual({ r1: "merged", r3: "merged" });
+  });
+
+  it("puts the judge between the gate and the merge, with one way into the merge and a model that sees one pull request at a time", () => {
+    const graph = STORY_GRAPHS["builder-to-merge"];
+    const into = (node: string) =>
+      graph.edges
+        .filter((edge) => edge.to.node === node)
+        .map((edge) => `${edge.from.node}:${edge.from.port}`);
+
+    expect(into("judge")).toEqual(["eligible:match"]);
+    expect(into("judged")).toEqual(["judge:out"]);
+    expect(into("merge")).toEqual(["judged:match"]);
+    expect(into("judgeHold")).toEqual(["judged:otherwise"]);
+    const judged = graph.nodes.find((node) => node.id === "judged");
+    expect(
+      judged?.kind === "filter" ? judged.settings.rules : undefined,
+    ).toEqual([
+      { left: "nodes.judge.verdict", op: "equals", right: "verified" },
+    ]);
+    const judge = graph.nodes.find((node) => node.id === "judge");
+    expect(judge?.kind === "ai" ? judge.settings : undefined).toMatchObject({
+      mode: "perItem",
+      batchSize: 1,
+      tools: [],
+      result: {
+        verdict: { type: "enum", enum: ["verified", "unsure"] },
+        reason: { type: "string" },
+      },
+    });
   });
 
   it("tells the threads of a pull request someone else merged, without merging or asking the gate", async () => {
@@ -329,6 +642,8 @@ describe("story 2 proofs: Builder to merge", () => {
     const { summary } = await scenario("a-dry-run-merges-nothing");
 
     expect(tickAt(summary, 0)).toMatchObject({ mode: "dry", effects: [] });
+    // A dry run runs the model like any read, so the judge answers; the merge it clears still writes nothing.
+    expect(judgeTurns(summary)).toHaveLength(1);
     expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
     expect(callsTo(summary, "slack.replyInThread")).toBe(0);
     expect(summary.statuses).toEqual({});
@@ -345,6 +660,23 @@ describe("story 2 proofs: Builder to merge", () => {
       effects: [],
     });
     expect(Object.keys(tickAt(summary, 0).nodes)).toEqual(["readPr"]);
+  });
+
+  it("tests the judge on a pinned sample: the model is asked about that sample only, and nothing is read, sent or merged", async () => {
+    const { summary } = await scenario(
+      "a-test-of-the-judge-runs-only-the-judge-and-merges-nothing",
+    );
+
+    expect(tickAt(summary, 0)).toMatchObject({
+      mode: "test",
+      calls: {},
+      effects: [],
+    });
+    expect(Object.keys(tickAt(summary, 0).nodes)).toEqual(["judge"]);
+    expect(judgeTurns(summary)).toEqual([
+      { node: "judge", mode: "perItem", items: ["sample-task"] },
+    ]);
+    expect(summary.statuses).toEqual({});
   });
 
   it("hands a task to a person after six fix rounds, one follow-up per head commit", async () => {

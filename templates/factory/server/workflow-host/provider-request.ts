@@ -1420,18 +1420,26 @@ export function parseProviderResponse(
     };
   }
   const receipt = extractReceipt(def, body, options.observe);
+  // A lookup that runs once per item declares its own, smaller budget.
+  const budgetChars =
+    def.answerBudgetChars === undefined
+      ? options.budgetChars
+      : Math.min(
+          options.budgetChars ?? PROVIDER_PAYLOAD_BUDGET_CHARS,
+          def.answerBudgetChars,
+        );
   if (options.includeStatus) {
     return {
       ...withStatus(
         def,
         body,
         options.includeStatus,
-        options.budgetChars,
+        budgetChars,
         options.fieldsMissing,
       ),
       ...receipt,
     };
   }
-  const bounded = boundOutput(body, options.budgetChars, options.fieldsMissing);
+  const bounded = boundOutput(body, budgetChars, options.fieldsMissing);
   return { ...bounded, ...receipt };
 }

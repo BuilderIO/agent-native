@@ -60,6 +60,11 @@ export const pylonOperations: OperationDefinitionInput[] = [
     label: "Pylon: read a ticket's messages",
     nodeKinds: ["lookup"],
     effect: "read",
+    // A thread is about 10 KB of message HTML, authors and recipients, and a
+    // ticket's whole thread stays attached to it through every later step. A
+    // step takes 64 KB in all, so unbounded threads fit about five tickets;
+    // this fits the eight tickets story 06 takes a run.
+    answerBudgetChars: 5_000,
     fields: [ticket],
     implementation: {
       type: "provider-request",

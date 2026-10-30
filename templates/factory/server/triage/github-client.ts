@@ -11,6 +11,7 @@ import type {
 const DEFAULT_BASE_URL = "https://api.github.com";
 const MAX_PAGE_SIZE = 100;
 const APPROVAL_REQUEST_TIMEOUT_MS = 10_000;
+const ISSUE_WRITE_TIMEOUT_MS = 15_000;
 
 type FetchLike = typeof fetch;
 
@@ -167,6 +168,13 @@ export interface GitHubIssueCommentObservation {
 export interface GitHubIssueCommentPage {
   comments: readonly GitHubIssueCommentObservation[];
   truncated: boolean;
+}
+
+export interface GitHubLabelRemoval {
+  /** False when the item did not carry the label, so nothing changed. */
+  removed: boolean;
+  /** The labels left on the item; null when it never carried the one asked for. */
+  labels: readonly string[] | null;
 }
 
 export class GitHubRequestError extends Error {
@@ -373,6 +381,19 @@ function requirePositivePullRequestNumber(pullRequestNumber: number): void {
   if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) {
     throw new Error("GitHub pull request number must be a positive integer");
   }
+}
+
+function requirePositiveIssueNumber(issueNumber: number): void {
+  if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+    throw new Error("GitHub issue number must be a positive integer");
+  }
+}
+
+/** The names on a labels response; one without a name is not a labels response. */
+function parseLabelNames(value: unknown): string[] {
+  return requireArray(value, "label").map((label) =>
+    requiredString(record(label).name, "label name"),
+  );
 }
 
 function normalizeReviewState(
@@ -1329,6 +1350,60 @@ export function createGitHubClient(options: GitHubClientOptions) {
         merged: true,
         message: requiredString(item.message, "merge message"),
       };
+    },
+
+    /** Adds labels; one already on the item stays, so a repeat changes nothing. Returns every label the item carries now. */
+    async addIssueLabels(
+      repository: GitHubRepositoryRef,
+      issueNumber: number,
+      labels: readonly string[],
+    ): Promise<string[]> {
+      requirePositiveIssueNumber(issueNumber);
+      if (labels.length === 0) {
+        // An empty list would clear every label, which no caller asks for.
+        throw new Error("GitHub labels to add must not be empty");
+      }
+      return parseLabelNames(
+        await request<unknown>(
+          `${repositoryPath(repository)}/issues/${issueNumber}/labels`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ labels }),
+            signal: AbortSignal.timeout(ISSUE_WRITE_TIMEOUT_MS),
+          },
+        ),
+      );
+    },
+
+    /** Removes one label. GitHub answers 404 "Label does not exist" for one the item never had; that is `removed: false`, not a missing item. */
+    async removeIssueLabel(
+      repository: GitHubRepositoryRef,
+      issueNumber: number,
+      label: string,
+    ): Promise<GitHubLabelRemoval> {
+      requirePositiveIssueNumber(issueNumber);
+      try {
+        const labels = parseLabelNames(
+          await request<unknown>(
+            `${repositoryPath(repository)}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`,
+            {
+              method: "DELETE",
+              signal: AbortSignal.timeout(ISSUE_WRITE_TIMEOUT_MS),
+            },
+          ),
+        );
+        return { removed: true, labels };
+      } catch (error) {
+        if (
+          error instanceof GitHubRequestError &&
+          error.status === 404 &&
+          /label does not exist/i.test(error.message)
+        ) {
+          return { removed: false, labels: null };
+        }
+        throw error;
+      }
     },
   };
 }

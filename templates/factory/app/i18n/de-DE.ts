@@ -491,6 +491,8 @@ const messages = {
         "Führe den Workflow einmal aus, damit dieser Schritt Elemente zum Testen hat.",
       testStepSamplesFailed:
         "Die Elemente zum Testen dieses Schritts konnten nicht geladen werden.",
+      testStepOlderSample:
+        "Test mit Elementen aus einem früheren Lauf: Die neuesten Läufe haben diesem Schritt keine geliefert.",
     },
     nodeDetails: {
       dialogName: "Schrittdetails",

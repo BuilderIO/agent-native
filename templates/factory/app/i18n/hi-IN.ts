@@ -467,6 +467,8 @@ const messages = {
       testStepNeedsRun:
         "वर्कफ़्लो एक बार चलाएँ, ताकि इस चरण के पास टेस्ट करने के लिए आइटम हों।",
       testStepSamplesFailed: "इस चरण के टेस्ट के लिए आइटम लोड नहीं हो सके।",
+      testStepOlderSample:
+        "पिछले रन के आइटम पर टेस्ट: नवीनतम रनों में इस चरण को कोई आइटम नहीं मिला।",
     },
     nodeDetails: {
       dialogName: "चरण का विवरण",

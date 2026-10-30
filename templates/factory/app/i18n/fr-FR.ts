@@ -494,6 +494,8 @@ const messages = {
         "Exécutez le flux de travail une fois pour que cette étape ait des éléments à tester.",
       testStepSamplesFailed:
         "Impossible de charger les éléments à tester pour cette étape.",
+      testStepOlderSample:
+        "Essai sur les éléments d’une exécution précédente : les dernières exécutions n’en ont fourni aucun pour cette étape.",
     },
     nodeDetails: {
       dialogName: "Détails de l’étape",

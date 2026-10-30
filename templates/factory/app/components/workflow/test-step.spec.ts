@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { workflowNodeSchema, type WorkflowNode } from "@/lib/workflow-editor";
 
 import type { NodeAudit } from "./items/read-types";
-import { sampleItemIdsFor, stepNeedsItems } from "./test-step";
+import { stepNeedsItems, testSampleFor } from "./test-step";
 
 function node(kind: string, settings: unknown): WorkflowNode {
   return workflowNodeSchema.parse({
@@ -84,32 +84,70 @@ describe("stepNeedsItems", () => {
   });
 });
 
-describe("sampleItemIdsFor", () => {
-  const step = (startedAt: string, ids: (string | null)[]) =>
-    ({
-      latest: {
-        startedAt,
-        in: [
-          {
-            items: ids.map((itemId, index) => ({
-              itemId: itemId ?? `blank-${index}`,
-              title: itemId === null ? null : `Item ${itemId}`,
-            })),
-          },
-        ],
+describe("testSampleFor", () => {
+  const step = (runId: string, startedAt: string, ids: (string | null)[]) => ({
+    runId,
+    startedAt,
+    in: [
+      {
+        items: ids.map((itemId, index) => ({
+          itemId: itemId ?? `blank-${index}`,
+          title: itemId === null ? null : `Item ${itemId}`,
+        })),
       },
-    }) as unknown as NodeAudit;
+    ],
+  });
+  /** An audit as the server returns it: `steps` are the latest runs, `latest` the newest that took items. */
+  const audit = (
+    steps: { runId: string; startedAt: string }[],
+    latest: ReturnType<typeof step> | null,
+  ) => ({ steps, latest }) as unknown as NodeAudit;
 
   it("takes at most three titled items from the newest run", () => {
+    const old = step("r1", "2026-10-01T00:00:00.000Z", ["old"]);
+    const newest = step("r2", "2026-10-02T00:00:00.000Z", [
+      "a",
+      "b",
+      "c",
+      "d",
+      null,
+    ]);
     expect(
-      sampleItemIdsFor([
-        step("2026-10-01T00:00:00.000Z", ["old"]),
-        step("2026-10-02T00:00:00.000Z", ["a", "b", "c", "d", null]),
-      ]),
-    ).toEqual(["a", "b", "c"]);
+      testSampleFor([audit([old], old), audit([newest, old], newest)]),
+    ).toEqual({ itemIds: ["a", "b", "c"], fromOlderRun: false });
   });
 
   it("has nothing to give before any run has shown the step an item", () => {
-    expect(sampleItemIdsFor([undefined, undefined])).toEqual([]);
+    expect(testSampleFor([undefined, undefined])).toEqual({
+      itemIds: [],
+      fromOlderRun: false,
+    });
+  });
+
+  it("samples an older run when the newest runs gave the step no items, and says so", () => {
+    const empty = step("r3", "2026-10-03T00:00:00.000Z", []);
+    const emptyLive = step("r2", "2026-10-02T00:00:00.000Z", []);
+    const older = step("r1", "2026-10-01T00:00:00.000Z", ["a", "b"]);
+
+    expect(
+      testSampleFor([
+        // The server hands back the newest step that took items: here the older one.
+        audit([empty, older], older),
+        audit([emptyLive], null),
+      ]),
+    ).toEqual({ itemIds: ["a", "b"], fromOlderRun: true });
+  });
+
+  it("does not call a sample old when it is from the newest run", () => {
+    const newest = step("r2", "2026-10-02T00:00:00.000Z", ["a"]);
+    expect(testSampleFor([audit([newest], newest)]).fromOlderRun).toBe(false);
+  });
+
+  it("is blocked, not sampled from an untitled item, when no run gave it an item that can be pinned", () => {
+    const untitled = step("r1", "2026-10-01T00:00:00.000Z", [null]);
+    expect(testSampleFor([audit([untitled], untitled)])).toEqual({
+      itemIds: [],
+      fromOlderRun: false,
+    });
   });
 });

@@ -10,7 +10,11 @@ import {
 import type { WorkflowNode } from "@/lib/workflow-editor";
 
 import type { NodeAudit } from "./items/read-types";
-import { sampleItemIdsFor, stepNeedsItems } from "./test-step";
+import {
+  TEST_STEP_LOOKBACK_STEPS,
+  stepNeedsItems,
+  testSampleFor,
+} from "./test-step";
 import { useWorkflowStrings } from "./workflow-strings";
 
 interface TestStepButtonProps {
@@ -43,12 +47,14 @@ export function TestStepButton({
 
   const needsItems = stepNeedsItems(node);
   // Only runs of the whole workflow are read: a test run has no upstream steps, so it records no items going in.
+  // The sample is the newest of the latest runs that gave the step items, not just the newest run.
   const read = (mode: "dry" | "live") => ({
     factoryId,
     workflowId,
     nodeId: node.id,
     mode,
-    limit: 1,
+    limit: TEST_STEP_LOOKBACK_STEPS,
+    sampleStepWithItems: true,
   });
   const enabled = needsItems && onServer;
   const dry = useActionQuery<NodeAudit>(
@@ -64,7 +70,10 @@ export function TestStepButton({
     { enabled },
   );
 
-  const sampleItemIds = sampleItemIdsFor([dry.data, live.data]);
+  const { itemIds: sampleItemIds, fromOlderRun } = testSampleFor([
+    dry.data,
+    live.data,
+  ]);
   const waiting = needsItems && sampleItemIds.length === 0;
   const reading = waiting && (dry.isLoading || live.isLoading);
   let blocked: string | null = null;
@@ -89,7 +98,9 @@ export function TestStepButton({
       {dirty ? ws.nodePanel.saveAndTestStep : ws.nodePanel.testStep}
     </Button>
   );
-  if (blocked === null) return button;
+  const note =
+    blocked ?? (fromOlderRun ? ws.nodePanel.testStepOlderSample : null);
+  if (note === null) return button;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -98,7 +109,7 @@ export function TestStepButton({
           {button}
         </span>
       </TooltipTrigger>
-      <TooltipContent>{blocked}</TooltipContent>
+      <TooltipContent>{note}</TooltipContent>
     </Tooltip>
   );
 }

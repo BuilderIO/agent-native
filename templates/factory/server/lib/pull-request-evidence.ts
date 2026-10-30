@@ -12,7 +12,11 @@ export interface PullRequestVerification {
   excerpt: string;
 }
 
-export const VERIFICATION_EXCERPT_CHARS = 600;
+/**
+ * Part of what `get-factory-pull-request` returns, under the same 40,000
+ * characters as its check and thread lists: raise it only with room to spare.
+ */
+export const VERIFICATION_EXCERPT_CHARS = 1_500;
 const MIN_VERIFICATION_TEXT_CHARS = 20;
 
 const VERIFIED_HEADING =

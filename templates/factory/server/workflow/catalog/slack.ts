@@ -40,6 +40,8 @@ export const slackOperations: OperationDefinitionInput[] = [
     id: "slack.readThread",
     provider: "slack",
     label: "Slack: read a thread",
+    description:
+      "Reads a whole thread. A message's reactions are everyone's but the app's own bot, whose are listed apart as ownReactions.",
     nodeKinds: ["lookup"],
     effect: "read",
     fields: [
@@ -128,6 +130,54 @@ export const slackOperations: OperationDefinitionInput[] = [
     },
     outputs: [...postOutputs],
     receipt: postReceipt,
+    credential: { provider: "slack" },
+  },
+  {
+    id: "slack.addReaction",
+    provider: "slack",
+    label: "Slack: add a reaction",
+    description:
+      "Adds an emoji reaction to a message as the bot. channel is an id, not a name; ts is the message's time. A repeat is a success with alreadyReacted true. The bot's own reaction never counts as a person's claim or reply.",
+    nodeKinds: ["action"],
+    effect: "write",
+    fields: [
+      {
+        name: "channel",
+        type: "string",
+        required: true,
+        target: true,
+        label: "Channel",
+      },
+      {
+        name: "ts",
+        type: "string",
+        required: true,
+        target: true,
+        label: "Message",
+      },
+      {
+        name: "name",
+        type: "string",
+        required: true,
+        label: "Emoji name, without colons",
+        description:
+          "Lowercase letters, digits, _, + and -, such as eyes or white_check_mark.",
+      },
+    ],
+    implementation: {
+      type: "action",
+      action: "add-slack-reaction",
+      argMap: { channel: "channel", ts: "ts", name: "name" },
+    },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      {
+        name: "alreadyReacted",
+        type: "boolean",
+        description: "True when the bot had already put this reaction there.",
+      },
+    ],
+    receipt: { externalRef: "externalRef" },
     credential: { provider: "slack" },
   },
 ];

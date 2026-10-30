@@ -448,6 +448,8 @@ const messages = {
       saveAndTestStep: "儲存並測試步驟",
       testStepNeedsRun: "請先執行一次工作流程，讓此步驟有可用於測試的項目。",
       testStepSamplesFailed: "無法載入用於測試此步驟的項目。",
+      testStepOlderSample:
+        "正在使用較早一次執行的項目測試：最近的執行沒有為此步驟提供任何項目。",
     },
     nodeDetails: {
       dialogName: "步驟詳細資料",

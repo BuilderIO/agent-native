@@ -475,6 +475,8 @@ const messages = {
         "このステップでテストする項目を用意するため、ワークフローを一度実行してください。",
       testStepSamplesFailed:
         "このステップでテストする項目を読み込めませんでした。",
+      testStepOlderSample:
+        "以前の実行の項目でテスト中: 直近の実行では、このステップに項目がありませんでした。",
     },
     nodeDetails: {
       dialogName: "ステップの詳細",

@@ -28,7 +28,7 @@ interface WorkflowActionCaller {
  */
 export async function requireWorkflowActionCaller(
   context: ActionRunContext | undefined,
-  input: { factoryId?: string },
+  input: { factoryId?: string | undefined },
 ): Promise<WorkflowActionCaller> {
   const { userEmail, orgId } = await requireWorkspaceMember(
     workspaceMemberIdentityFromContext(context),

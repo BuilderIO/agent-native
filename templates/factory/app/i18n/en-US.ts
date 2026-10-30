@@ -474,6 +474,8 @@ const messages = {
       testStepNeedsRun:
         "Run the workflow once so this step has items to test on.",
       testStepSamplesFailed: "Could not load items to test this step on.",
+      testStepOlderSample:
+        "Testing on items from an earlier run: the newest runs gave this step none.",
     },
     nodeDetails: {
       dialogName: "Step details",
