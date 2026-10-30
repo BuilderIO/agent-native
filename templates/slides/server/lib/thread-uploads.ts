@@ -1,10 +1,11 @@
 import {
+  compareAndSetAppState,
   readAppState,
-  writeAppState,
 } from "@agent-native/core/application-state";
 import { isAttachmentRef } from "@agent-native/core/private-blob";
 
 const MAX_THREAD_UPLOADS = 50;
+const MAX_WRITE_ATTEMPTS = 5;
 
 export interface ThreadUpload {
   name: string;
@@ -40,13 +41,22 @@ export async function rememberThreadUploads(
   const fresh = uploads.filter((upload) => isAttachmentRef(upload.path));
   if (fresh.length === 0) return;
   const key = threadUploadsKey(threadId);
-  const existing = parseThreadUploads(await readAppState(key));
   const freshPaths = new Set(fresh.map((upload) => upload.path));
-  const files = [
-    ...existing.filter((upload) => !freshPaths.has(upload.path)),
-    ...fresh,
-  ].slice(-MAX_THREAD_UPLOADS);
-  await writeAppState(key, { files });
+  // Two turns can save uploads for one thread at once; a plain write would
+  // drop the other turn's files, so each write lands only on what it read.
+  for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
+    const current = await readAppState(key);
+    const files = [
+      ...parseThreadUploads(current).filter(
+        (upload) => !freshPaths.has(upload.path),
+      ),
+      ...fresh,
+    ].slice(-MAX_THREAD_UPLOADS);
+    if (await compareAndSetAppState(key, current, { files })) return;
+  }
+  throw new Error(
+    `Could not record this thread's uploads after ${MAX_WRITE_ATTEMPTS} concurrent updates.`,
+  );
 }
 
 export async function readThreadUploads(
