@@ -137,17 +137,19 @@ const ICONS = {
   ),
 };
 
+type OverlayReply = { ok?: boolean; state?: Partial<OverlayState> };
+
 function send(
   type: string,
   extra: Record<string, unknown> = {},
-  onComplete?: (ok: boolean) => void,
+  onComplete?: (ok: boolean, response?: OverlayReply) => void,
 ): void {
   try {
     chrome.runtime.sendMessage(
       { type, ...extra },
-      (response?: { ok?: boolean }) => {
+      (response?: OverlayReply) => {
         const error = chrome.runtime.lastError;
-        onComplete?.(!error && response?.ok !== false);
+        onComplete?.(!error && response?.ok !== false, response);
       },
     );
   } catch {
@@ -455,7 +457,7 @@ function initToolbar(): void {
       toolbarRender?.();
       send(command, {}, (ok) => {
         pauseCommandPending = false;
-        if (!ok) send("CLIPS_OVERLAY_HELLO", { part });
+        if (!ok) sendHello();
       });
     },
     true,
@@ -530,10 +532,7 @@ const state: OverlayState = {
 };
 let toolbarRender: (() => void) | null = null;
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (!message || typeof message !== "object") return;
-  if ((message as { type?: unknown }).type !== "CLIPS_OVERLAY_STATE") return;
-  const next = (message as { state?: Partial<OverlayState> }).state;
+function applyOverlayState(next: Partial<OverlayState> | undefined): void {
   if (!next) return;
   if (typeof next.phase === "string") state.phase = next.phase as OverlayPhase;
   if (typeof next.baseElapsedMs === "number")
@@ -543,6 +542,21 @@ chrome.runtime.onMessage.addListener((message) => {
   if (typeof next.countdownEndsAtMs === "number")
     state.countdownEndsAtMs = next.countdownEndsAtMs;
   toolbarRender?.();
+}
+
+// An incognito tab's extension frames can't receive the background's
+// runtime broadcasts, so the HELLO reply is the only way a reloaded toolbar
+// learns how long the recording has been running.
+function sendHello(): void {
+  send("CLIPS_OVERLAY_HELLO", { part }, (_ok, response) =>
+    applyOverlayState(response?.state),
+  );
+}
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message || typeof message !== "object") return;
+  if ((message as { type?: unknown }).type !== "CLIPS_OVERLAY_STATE") return;
+  applyOverlayState((message as { state?: Partial<OverlayState> }).state);
 });
 
 if (part === "bubble") void initBubble();
@@ -550,4 +564,4 @@ else if (part === "countdown") initCountdown();
 else if (part === "toolbar") initToolbar();
 else if (part === "saving") initSaving();
 
-send("CLIPS_OVERLAY_HELLO", { part });
+sendHello();
