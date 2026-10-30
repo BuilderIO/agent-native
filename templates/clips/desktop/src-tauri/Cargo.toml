@@ -65,11 +65,39 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "std",
   "NSEvent",
   "block2",
+  "NSColor",
+  "NSGraphics",
+  "NSResponder",
+  "NSScreen",
+  "NSView",
+  "NSWindow",
+  "objc2-core-foundation",
+  "objc2-quartz-core",
+] }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = [
+  "std",
+  "CGColor",
+  "CGPath",
+] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = [
+  "std",
+  "block2",
+  "objc2-core-foundation",
+  "objc2-core-graphics",
+  "CAAnimation",
+  "CALayer",
+  "CAMediaTiming",
+  "CAMediaTimingFunction",
+  "CAShapeLayer",
+  "CATransaction",
 ] }
 unicode-segmentation = "1.13"
 objc2-foundation = { version = "0.3", features = [
+  "NSArray",
   "NSBundle",
   "NSDictionary",
+  "NSGeometry",
   "NSString",
   "NSError",
   "NSLocale",
