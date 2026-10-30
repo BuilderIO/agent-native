@@ -195,6 +195,11 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/workspace-connections/actions/list-workspace-user-groups",
   },
   {
+    name: "list-workspace-connection-scopes",
+    specifier:
+      "@agent-native/core/workspace-connections/actions/list-workspace-connection-scopes",
+  },
+  {
     name: "upsert-workspace-user-group",
     specifier:
       "@agent-native/core/workspace-connections/actions/upsert-workspace-user-group",

@@ -18,6 +18,46 @@ import {
 
 describe("provider API action factories", () => {
   it.each([
+    { method: "PATCH", path: "/crm/v3/objects/deals/1" },
+    { method: "POST", path: "/crm/v3/objects/contacts" },
+    { method: "DELETE", path: "/crm/v3/objects/contacts/1" },
+  ])(
+    "refuses a HubSpot write through the agent request tool: %j",
+    async ({ method, path }) => {
+      const executeRequest = vi.fn();
+      const action = createProviderApiRequestAction({ executeRequest });
+
+      await expect(
+        action.run({ provider: "hubspot", method, path }),
+      ).rejects.toMatchObject({
+        errorCode: "provider_writes_not_allowed",
+        statusCode: 403,
+      });
+      expect(executeRequest).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { provider: "hubspot", method: "GET", path: "/crm/v3/objects/deals/1" },
+    {
+      provider: "hubspot",
+      method: "POST",
+      path: "/crm/v3/objects/deals/search",
+    },
+    { provider: "github", method: "PATCH", path: "/repos/o/r/issues/1" },
+  ])(
+    "still runs HubSpot reads and other providers' writes: %j",
+    async (request) => {
+      const response = { ok: true, status: 200, json: { ok: true } };
+      const executeRequest = vi.fn(async () => response);
+      const action = createProviderApiRequestAction({ executeRequest });
+
+      await expect(action.run(request)).resolves.toBe(response);
+      expect(executeRequest).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
     { status: 200, saved: false, code: "provider_api_rejected" },
     { status: 429, saved: false, code: "http_429" },
     { status: 503, saved: false, code: "http_503" },

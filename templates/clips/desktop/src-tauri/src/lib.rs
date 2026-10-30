@@ -431,7 +431,14 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             {
-                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                // `CLIPS_TRAY_REGULAR_APP=1` runs the tray as a normal app with a
+                // Dock tile so window-automation tools can target it when testing.
+                let policy = if std::env::var_os("CLIPS_TRAY_REGULAR_APP").is_some() {
+                    tauri::ActivationPolicy::Regular
+                } else {
+                    tauri::ActivationPolicy::Accessory
+                };
+                app.set_activation_policy(policy);
             }
 
             util::build_popover_window(app).map_err(|err| {

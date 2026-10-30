@@ -13,17 +13,39 @@ const mocks = vi.hoisted(() => ({
   versionsQuery: null as any,
   versionQuery: null as any,
   versionArgs: [] as Array<[string | null, string | null]>,
+  calls: [] as string[],
+  flushDeckSave: vi.fn(),
+  refreshOpenDeck: vi.fn(),
+  restore: vi.fn(),
+  designSystemIds: [] as Array<string | null | undefined>,
+  rendererDesignSystems: [] as unknown[],
+  toastError: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
-vi.mock("@/components/deck/SlideRenderer", () => ({ default: () => null }));
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: vi.fn() },
+}));
+vi.mock("@/components/deck/SlideRenderer", () => ({
+  default: ({ designSystem }: { designSystem?: unknown }) => {
+    mocks.rendererDesignSystems.push(designSystem);
+    return null;
+  },
+}));
 vi.mock("@/context/DeckContext", () => ({
   useDecks: () => ({
-    flushDeckSave: vi.fn(),
-    refreshOpenDeck: vi.fn(),
+    flushDeckSave: mocks.flushDeckSave,
+    refreshOpenDeck: mocks.refreshOpenDeck,
+    getDeck: () => ({ id: "deck-1", designSystemId: "ds-deck", slides: [] }),
   }),
+}));
+vi.mock("@/hooks/use-deck-design-system", () => ({
+  useDeckDesignSystem: (id: string | null | undefined) => {
+    mocks.designSystemIds.push(id);
+    return { designSystem: id ? { id } : undefined };
+  },
 }));
 vi.mock("@/hooks/use-deck-versions", () => ({
   useDeckVersions: () => mocks.versionsQuery,
@@ -31,7 +53,10 @@ vi.mock("@/hooks/use-deck-versions", () => ({
     mocks.versionArgs.push([deckId, versionId]);
     return mocks.versionQuery;
   },
-  useRestoreDeckVersion: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRestoreDeckVersion: () => ({
+    mutateAsync: mocks.restore,
+    isPending: false,
+  }),
 }));
 vi.mock("@/components/ui/button", () => ({
   Button: ({ children, ...props }: any) => (
@@ -73,7 +98,61 @@ beforeEach(() => {
     refetch: vi.fn(),
   };
   mocks.versionArgs = [];
+  mocks.calls = [];
+  mocks.designSystemIds = [];
+  mocks.rendererDesignSystems = [];
+  mocks.toastError.mockReset();
+  mocks.flushDeckSave.mockReset().mockImplementation(async () => {
+    mocks.calls.push("flush");
+  });
+  mocks.refreshOpenDeck
+    .mockReset()
+    .mockImplementation(async (_deckId: string, options?: unknown) => {
+      mocks.calls.push(`refresh ${JSON.stringify(options ?? {})}`);
+      return null;
+    });
+  mocks.restore.mockReset().mockImplementation(async () => {
+    mocks.calls.push("restore");
+  });
 });
+
+function selectLoadedVersion(designSystemId: string | null) {
+  mocks.versionsQuery = {
+    data: {
+      versions: [
+        {
+          id: "version-1",
+          title: "Version 1",
+          slideCount: 1,
+          createdAt: "2026-09-29T12:00:00.000Z",
+          slidePreviews: [],
+        },
+      ],
+    },
+    isLoading: false,
+    isError: false,
+    isSuccess: true,
+    isFetching: false,
+    refetch: vi.fn(),
+  };
+  mocks.versionQuery = {
+    data: {
+      id: "version-1",
+      title: "Version 1",
+      createdAt: "2026-09-29T12:00:00.000Z",
+      slideCount: 1,
+      designSystemId,
+      slides: [{ id: "s1", content: "<p>old</p>" }],
+    },
+    isLoading: false,
+    isError: false,
+    isSuccess: true,
+    isFetching: false,
+    refetch: vi.fn(),
+  };
+  render(<HistoryPanel deckId="deck-1" open onOpenChange={vi.fn()} />);
+  fireEvent.click(screen.getByText("Version 1"));
+}
 
 afterEach(cleanup);
 
@@ -238,5 +317,47 @@ describe("HistoryPanel", () => {
       expect(screen.queryByText("history.backToSavedVersions")).toBeNull();
       expect(screen.getByText("Version 1")).toBeTruthy();
     });
+  });
+
+  it("previews a snapshot with the deck's design system", () => {
+    selectLoadedVersion(null);
+
+    expect(mocks.designSystemIds.at(-1)).toBe("ds-deck");
+    expect(mocks.rendererDesignSystems.at(-1)).toEqual({ id: "ds-deck" });
+  });
+
+  it("asks before discarding edits that cannot be saved, then restores", async () => {
+    mocks.flushDeckSave.mockRejectedValue(new Error("slide_content_conflict"));
+    selectLoadedVersion("ds-version");
+
+    fireEvent.click(screen.getByText("history.restoreThisVersion"));
+    expect(await screen.findByText("history.restoreDiscardTitle")).toBeTruthy();
+    expect(mocks.restore).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("history.restoreDiscardConfirm"));
+
+    await waitFor(() =>
+      expect(mocks.calls).toEqual([
+        'refresh {"clearPendingWrites":true}',
+        "restore",
+        'refresh {"clearPendingWrites":true}',
+      ]),
+    );
+  });
+
+  it("explains a refused restore in plain words", async () => {
+    mocks.restore.mockRejectedValue(
+      Object.assign(new Error("HTTP 403 Forbidden"), { status: 403 }),
+    );
+    selectLoadedVersion("ds-version");
+
+    fireEvent.click(screen.getByText("history.restoreThisVersion"));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("history.restoreFailed", {
+        description: "history.restoreNoAccess",
+      }),
+    );
   });
 });

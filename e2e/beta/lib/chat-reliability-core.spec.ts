@@ -1098,6 +1098,66 @@ test("active-run diagnostics keep stage labels and omit stage details", () => {
   assert.doesNotMatch(view.detail, /PRIVATE_DETAIL/);
 });
 
+test("active-run diagnostics omit token-shaped raw failure detail", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    diagStage: JSON.stringify({
+      stage: "route_threw",
+      detail:
+        "errorMetadata=unreadable errorName=Error errorCode=customer_secret failure=PRIVATE_DETAIL errorCode=other_secret httpStatus=500",
+      evidence: {
+        format: "route_failure_v1",
+        errorMetadata: "unreadable",
+        errorName: "Error",
+        errorCode: "dispatch_timeout",
+        httpStatus: "503",
+      },
+    }),
+  });
+
+  const detail = JSON.parse(view.detail);
+  assert.equal(
+    detail.diagEvidence,
+    "errorMetadata=unreadable errorName=Error errorCode=dispatch_timeout httpStatus=503",
+  );
+  assert.doesNotMatch(
+    view.detail,
+    /PRIVATE_DETAIL|customer_secret|other_secret|httpStatus=500/,
+  );
+});
+
+test("legacy route markers cannot turn raw detail into structured evidence", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    diagStage: JSON.stringify({
+      stage: "route_threw",
+      detail:
+        "errorName=Error errorCode=dispatch_timeout failure=raw errorCode=customer_secret httpStatus=500",
+    }),
+  });
+
+  const detail = JSON.parse(view.detail);
+  assert.equal(detail.diagEvidence, null);
+  assert.doesNotMatch(view.detail, /customer_secret|httpStatus=500/);
+});
+
+test("raw details from non-stale stages are never surfaced as diagnostic evidence", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    diagStage: JSON.stringify({
+      stage: "worker_threw",
+      detail: "errorName=Error errorCode=customer_secret httpStatus=500",
+    }),
+  });
+
+  const detail = JSON.parse(view.detail);
+  assert.equal(detail.diagEvidence, null);
+  assert.doesNotMatch(view.detail, /customer_secret|httpStatus=500/);
+});
+
 test("text helpers", () => {
   assert.equal(countOccurrences("a-b-a", "a"), 2);
   assert.equal(countOccurrences("abc", ""), 0);

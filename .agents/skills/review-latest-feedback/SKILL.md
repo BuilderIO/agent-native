@@ -21,6 +21,10 @@ not judged by ledgers, receipts, or checker output, so don't produce them.
 
 ## The contract
 
+The detailed Slack reaction and reply rules are in
+[slack-reaction-replies.md](references/slack-reaction-replies.md); read it before
+marking, replying to, or closing any Slack report.
+
 Slack reactions on a report's root message mean exactly this:
 
 | Mark | Meaning                                   | When to add                                                                                      |
@@ -43,7 +47,8 @@ might need to take back. Every 👀 you add ends the run with a reply, plus
 either ✅ or 🎫, or a fix PR that is still open and lists the report (its
 merge adds the ✅). A 👀 with no follow-up is the most common complaint about this workflow.
 
-Every claimed report gets **one** reply in its thread per outcome. People
+Every claimed report gets **one** reply in its thread per outcome. The one exception is
+the merged `✅` close-out after an in-review reply, which gets no second reply. People
 have pushed back on replies that were long, technical, condescending, vague
 about who does what next, or that handed them work. Each reply must be:
 
@@ -158,17 +163,28 @@ checkout, or the expected worktree is missing, create one
 to stop.
 
 Window: roots posted in the last 5 days (or since the timestamp or permalink
-the invocation gives), for new reports and open items alike. Older threads
-are left as they are, except reports listed under `Reports` in a sweep PR
-opened or merged in that window: those always get their close-out.
+the invocation gives), for new reports and open items alike. An older thread
+is in the window too when we have already replied in it and a person has
+replied since the window began: a channel read only shows roots, so search for
+recent thread replies (`in:<#channel> is:thread after:<date>`) to find them.
+Roots listed in `memory.md` under "Claimed, not yet answered" or "Must handle
+next run" (from the coverage check) are always in the window. Other older threads are left as they are, except reports listed under
+`Reports` in a sweep PR opened or merged in that window: those always get
+their close-out.
+
+Give each source below its own helper on the cheapest model (Luna in Codex,
+Haiku in Claude Code), and close it as soon as it reports. A helper gathers;
+you triage. The Slack helper returns every root a person posted in the window with no ✅, 🎫, or `:mag:`,
+and every root with a person's reply newer than ours, one line each (link,
+author, first line). It never filters, ranks, or drops one: a new report has
+no reaction and no thread yet.
 
 - **Read the channels.** Use `slack_read_channel` with
   `response_format: detailed` (paginate) back 5 days. Its output shows
   reaction counts but not who added them, so call `slack_get_reactions` on any
   root showing `eyes`, `white_check_mark`, `ticket`, `mag`, `yes-party`, or
   `upvote`. Don't rely on
-  `hasmy:` searches, which have returned nothing for roots that do carry
-  Steve's marks.
+  `hasmy:` searches.
 - **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
   hand to things he is working on himself, so a 👀 from his account is not
   enough to make a root this workflow's. Treat it as the workflow's only when
@@ -177,9 +193,8 @@ opened or merged in that window: those always get their close-out.
   phrase may be on its own line or, in older replies, at the end of the
   sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
   yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
-  has it: leave it alone. Read the thread of every workflow root in the
-  window, not just the channel row: a human reply newer than ours only shows
-  there, and runs that skipped this left people waiting after our 🎫. A root
+  has it: leave it alone. Read the thread of every workflow root in the window: a human reply newer
+  than ours only shows there. A root
   listed in the `Reports` section of a sweep
   PR that is still open and that this run didn't open belongs to the run
   working on that PR: don't react
@@ -240,29 +255,35 @@ Issues from the error and health sources above go in the same buckets,
 ranked with the Slack reports by people affected. They have no thread to react on,
 so they appear only in the recap.
 
-Take the Fix reports in order of how many people they hurt, and claim as
-many as the run can finish. Any Fix, Build, or Needs-a-person root you leave
+Take the Fix reports in order of how many people they hurt, and claim all
+of them. A claim you can't finish stays under "Claimed, not yet answered" for
+the next run. Any Fix, Build, or Needs-a-person root you leave
 unclaimed gets no reaction, only one line in the recap saying why, so
-nothing is dropped silently.
+nothing is dropped silently. That covers every candidate your source helpers
+return: each one ends the run either claimed or on a recap line with its
+reason.
 
-Then add 👀 to every root you claimed (Fix, Build, or Needs a person) in one
-pass, before you investigate. In an automation run, immediately list those roots (channel and
-ts) under "Claimed, not yet answered" in its `memory.md`, and remove each one
-once it has its reply. That list is how the next run tells an unfinished claim
+In an automation run, first list every root you claimed (Fix, Build, or Needs
+a person), channel and ts, under "Claimed, not yet answered" in its
+`memory.md`, and remove each one once it has its reply. Then add 👀 to them
+in one pass, before you investigate. That list is how the next run tells an unfinished claim
 apart from Steve's own 👀.
 
 ## 3. Fix as many as you can
 
 - Group related reports so one cause gets one fix. Give each independent
-  group a subagent on a cheaper model with disjoint files. The main thread
-  plans, reviews diffs, and integrates.
+  group a fresh subagent on your own model and effort, with disjoint files,
+  or fix it in the main thread. Never hand a finished helper a new job; start
+  a fresh one. The main thread plans, reviews diffs, and integrates.
 - **Reproduce before you edit.** Get the failure on screen first: a test
   that fails, the action returning the wrong thing, a stack trace, or the
   flow broken in a signed-in local app. Reading code is not an attempt:
   write the report's steps as a failing test, or walk them in the signed-in
-  app. Only after a real attempt fails does a report become 🎫, and its
-  recap line says what you ran. No reproduction means no code change;
-  guessing at a fix is how one Clips popover got "fixed" four times.
+  app. A broken setup isn't an attempt either: when a test can't load or an
+  install fails, fix the setup (install what's missing, or free space by
+  removing only this run's own build output) or
+  walk the steps in the signed-in app instead. Only after a real attempt fails does a report become 🎫, and its
+  recap line says what you ran. No reproduction means no code change.
 - **Check the history.** `git log --since=30.days --oneline -- <files>`: if
   this surface was fixed before for the same symptom, that fix treated a
   symptom. Find the shared cause (`fix-at-the-boundary`) instead of adding
@@ -270,16 +291,18 @@ apart from Steve's own 👀.
 - **Prove it.** The check has to fail with the fix's source changes put
   back to `main` and pass with them. A check that passes without your fix
   doesn't test the bug: write one that does. Tests that read source text
-  never count. For a purely visual fix, a before and after screenshot of the
-  signed-in app stands in. Put the proof under the report in the PR's
-  `Reports` section.
+  never count. For a purely visual fix, before and after screenshots are
+  evidence for a person to inspect, not automated proof. Before merging, a
+  human must open both images and confirm they show the reported change. Put
+  the evidence under the report in the PR's `Reports` section.
 <!-- framework-repo-only:start -->
   Commit the fix and its check, then run
   `node scripts/fix-proof.ts --fix <that commit> -- <the check>` from the
   repo root and paste its `fix-proof: proven ...` line, unchanged, under
   each report it fixes (`visual: <before> <after>` for a purely visual
-  fix). CI's `Feedback fix proof` check re-runs every line and fails the PR
-  on a report without one, so write the check before you push. The second
+  fix). The required `Lint & format` check runs this gate for PRs with a
+  `Reports` section and re-runs machine proofs. It marks visual-only reports
+  as needing human validation before merge. Write the check before you push. The second
   opinion below reads the red output to confirm the check failed on the
   bug, not on setup.
 <!-- framework-repo-only:end -->
@@ -287,9 +310,10 @@ apart from Steve's own 👀.
   green, stop editing and capture the real failure first (stack, logs, the
   reporter's actual data). If that doesn't settle it within about 30
   minutes, it becomes 🎫 with one line on what you learned.
-- **Second opinion before the PR.** Give a fresh subagent only the report
-  text, the diff, and the proof, and ask: does the check exercise what the
-  reporter saw, and is this the cause or a symptom? Fix what it finds.
+- **Second opinion before the PR, every time.** Give a fresh subagent on
+  your own model only the report text, the diff, and the proof, and ask: does
+  the check exercise what the reporter saw, is this the cause or a symptom,
+  and what edge case breaks it? Fix what it finds before you open the PR.
 - **Keep fixes small.** Each report's fix goes in its own commit so a bad
   one can be reverted alone. A fix that grows past about 300 lines, or into
   a new subsystem (timeouts, cancellation, retries) the reporter didn't ask
@@ -305,6 +329,32 @@ PR per item. End the PR body with a
 `## Reports` heading listing the link of every report the PR fixes: the
 Slack thread, or the Sentry, Analytics, or GitHub issue. That list is the
 only set of threads a later `/ship` may close out as fixed.
+
+Wait for CI with one command that blocks until every check finishes, and
+wait on it with the longest call your tool allows, not a short call you
+repeat: every call re-sends your whole context.
+<!-- framework-repo-only:start -->
+Here that command is `pnpm ci:wait <number>`: it prints nothing until CI is
+done, then one summary. Exit 1 means a check failed. Exit 2 means it couldn't
+tell, and its last line says why: rerun a cancelled check, run the command
+again when time ran out with checks still going, and otherwise look at the PR
+yourself. To need fewer calls, pass `--max-minutes` about a minute
+under your tool's call limit.
+<!-- framework-repo-only:end -->
+Without a repo command for it, run
+`gh pr checks <number> --watch --interval 60 > /dev/null` in one call bounded
+by your tool's limit, then read `gh pr checks <number>` twice, a minute
+apart: CI is done only when both reads list the same checks, at least one,
+and none is pending. Otherwise wait again the same way and rerun any cancelled check; after
+about two hours, stop and look at the PR yourself.
+
+Fix each review round's findings in one batch. If a second round still finds
+a problem in the same fix, take that fix out of the PR, remove its whole entry
+from the PR's `Reports` section: the link and its `fix-proof:` and `visual:`
+lines (close-out marks every listed report fixed, and a stray evidence line
+counts toward the report above it). Then 🎫 its
+report with what review found, and merge the rest. Close the PR only when nothing verified
+is left in it.
 
 Merge it the way this repo merges PRs. In a Factory workspace, that means
 the workflow's merge step after its merge gate, never a direct merge.
@@ -377,7 +427,7 @@ Before ending, re-read each thread you touched and check:
 
 ## 6. Recap
 
-Keep the recap short and written for Steve:
+Keep the recap short, for Steve:
 
 ```md
 ## Feedback sweep - <date, Pacific>
@@ -386,6 +436,7 @@ Closed out from earlier runs (N): <Slack thread link> · PR <link>
 Needs a person (N): <what's needed, who, what you tried>
 Still open from earlier runs (N): <why>
 Seen, not picked (N): <Slack thread link> - <one-line reason>
+Roots: <n> seen, <n> claimed, <n> left
 Sources unavailable: <list or "none">
 Lesson (optional): <one line>
 ```
@@ -393,5 +444,4 @@ Lesson (optional): <one line>
 "Fixed and merged" is this run's PR only; reports you closed out for an
 earlier run's merged PR go under "Closed out from earlier runs".
 
-If the run came from an automation, append the same recap to that
-automation's `memory.md`.
+In an automation, append the same recap to its `memory.md`.

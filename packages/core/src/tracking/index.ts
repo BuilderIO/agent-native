@@ -1,5 +1,6 @@
 export {
   track,
+  trackQuestionIntakeExposure,
   identify,
   flushTracking,
   registerTrackingProvider,

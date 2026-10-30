@@ -202,7 +202,14 @@ function codeAgentHttpMcpServers(
   // its credential headers) silently replace another. Reject that instead.
   const idsByKey = new Map<string, string>();
   return Object.entries(servers).flatMap(([serverId, server]) => {
-    if (server.type !== "http" || !server.url || server.configurationError)
+    // A workspace-connection server's bearer is resolved per request inside
+    // this process, so a CLI copy would have no credentials.
+    if (
+      server.type !== "http" ||
+      !server.url ||
+      server.configurationError ||
+      server.workspaceConnection
+    )
       return [];
     const key = codexConfigKey(serverId);
     const existing = idsByKey.get(key);

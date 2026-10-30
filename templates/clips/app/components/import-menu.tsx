@@ -1,4 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
+import { CLIPS_SCREENSHOTS } from "@shared/labs";
 import { IconChevronDown, IconUpload } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -63,6 +65,7 @@ export function ImportMenu({
   variant = "outline",
 }: ImportMenuProps) {
   const t = useT();
+  const screenshotsEnabled = useLab(CLIPS_SCREENSHOTS);
   const { input, openUploadPicker } = useUploadVideoPicker();
   const [loomDialogOpen, setLoomDialogOpen] = useState(false);
 
@@ -118,7 +121,7 @@ export function ImportMenu({
               {t("preRecord.uploadVideo")}
             </DropdownMenuItem>
           ) : null}
-          {onScreenshot ? (
+          {onScreenshot && screenshotsEnabled ? (
             <DropdownMenuItem
               disabled={screenshotPending}
               onSelect={(event) => {

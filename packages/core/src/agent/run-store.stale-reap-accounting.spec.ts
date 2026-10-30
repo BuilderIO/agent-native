@@ -74,6 +74,7 @@ mockDb.transaction = vi.fn(async (fn: (tx: any) => Promise<unknown>) =>
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
+  getScopedDbExec: () => undefined,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({

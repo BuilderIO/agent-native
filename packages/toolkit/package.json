@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.221.0",
+  "version": "0.222.2",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -243,6 +243,13 @@
       "development": "./dist/design-tweaks/index.js",
       "import": "./dist/design-tweaks/index.js",
       "default": "./dist/design-tweaks/index.js"
+    },
+    "./design-tweaks/google-fonts": {
+      "types": "./dist/design-tweaks/google-fonts.d.ts",
+      "browser": "./dist/design-tweaks/google-fonts.js",
+      "development": "./dist/design-tweaks/google-fonts.js",
+      "import": "./dist/design-tweaks/google-fonts.js",
+      "default": "./dist/design-tweaks/google-fonts.js"
     },
     "./design-system": {
       "types": "./dist/design-system/index.d.ts",
@@ -743,7 +750,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.221.1",
+    "@agent-native/core": ">=0.222.0-0",
     "@excalidraw/excalidraw": ">=0.18",
     "@excalidraw/mermaid-to-excalidraw": ">=2",
     "@tanstack/react-query": "^5.99.2",

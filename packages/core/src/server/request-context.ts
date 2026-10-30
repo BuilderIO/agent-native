@@ -115,6 +115,14 @@ export interface RequestRunContext {
     string,
     { totalTools: number; resultNames: string[] }
   >;
+  /** Signup-time question-intake assignment loaded for this authenticated run. */
+  questionIntakeExperimentAssignment?: {
+    authUserId: string;
+    experimentId: string;
+    variantId: "control" | "no_questions";
+  };
+  /** Tools unavailable to the current agent run and its tool-search surface. */
+  excludedActionNames?: readonly string[];
 }
 
 export interface RequestContext {

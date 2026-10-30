@@ -2055,6 +2055,7 @@ function validateEventPayload(event: UnknownRecord, path: string): void {
     }
     case "message.created":
     case "message.completed":
+    case "message.replaced":
       parseAgentMessage(event.message, `${path}.message`);
       return;
     case "message.delta":

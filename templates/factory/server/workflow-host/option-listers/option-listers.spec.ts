@@ -171,6 +171,81 @@ describe("slack channels", () => {
   });
 });
 
+describe("slack channel by id", () => {
+  function findChannel(http: ProviderHttp, search: string) {
+    if (!slackChannels.find) throw new Error("Slack channels have no find.");
+    return slackChannels.find(http, search);
+  }
+  const info = (channel: unknown) => answer({ ok: true, channel });
+
+  it("finds a channel by its id, marked private, however far down the pages it sits", async () => {
+    const { http, calls } = serving(
+      info({
+        id: "C0BQ5UF8P2Q",
+        name: "an-factory-test",
+        is_private: true,
+        is_member: true,
+      }),
+    );
+    expect(await findChannel(http, "C0BQ5UF8P2Q")).toEqual({
+      value: "C0BQ5UF8P2Q",
+      label: "#an-factory-test",
+      hint: "C0BQ5UF8P2Q",
+      tags: ["private"],
+    });
+    expect(calls).toEqual([
+      { path: "/conversations.info", query: { channel: "C0BQ5UF8P2Q" } },
+    ]);
+  });
+
+  it("marks a public channel the bot is not in", async () => {
+    const { http } = serving(
+      info({ id: "C01234567890", name: "random", is_member: false }),
+    );
+    expect(await findChannel(http, "C01234567890")).toMatchObject({
+      tags: ["bot_not_member"],
+    });
+  });
+
+  it("asks Slack only about text shaped like a channel id", async () => {
+    const { http, calls } = serving();
+    for (const word of ["an-factory", "DEV", "c0bq5uf8p2q", "U0BQ5UF8P2Q"]) {
+      expect(await findChannel(http, word)).toBeUndefined();
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("answers no channel when Slack says this credential has none, and fails on anything else", async () => {
+    const { http } = serving(answer({ ok: false, error: "channel_not_found" }));
+    expect(await findChannel(http, "C0BQ5UF8P2Q")).toBeUndefined();
+
+    const missing = await failureOf(
+      findChannel(
+        serving(
+          answer({ ok: false, error: "missing_scope", needed: "groups:read" }),
+        ).http,
+        "C0BQ5UF8P2Q",
+      ),
+    );
+    expect(missing).toMatchObject({
+      code: "credential_missing",
+      reason: "missing_scope",
+      scope: "groups:read",
+    });
+    const limited = await failureOf(
+      findChannel(
+        serving(answer({}, { status: 429, retryAfterSeconds: 5 })).http,
+        "C0BQ5UF8P2Q",
+      ),
+    );
+    expect(limited.code).toBe("rate_limited");
+    const odd = await failureOf(
+      findChannel(serving(info({ id: "C0BQ5UF8P2Q" })).http, "C0BQ5UF8P2Q"),
+    );
+    expect(odd.code).toBe("provider_unreadable");
+  });
+});
+
 describe("sentry organizations and projects", () => {
   const link = (cursor: string, more: boolean) =>
     `<https://sentry.io/api/0/x/?cursor=0:0:1>; rel="previous"; results="false"; cursor="0:0:1", <https://sentry.io/api/0/x/?cursor=${cursor}>; rel="next"; results="${more}"; cursor="${cursor}"`;
@@ -438,5 +513,58 @@ describe("listProviderOptions", () => {
     });
     expect(page.options.map((option) => option.value)).toEqual(["C8a"]);
     expect(page.nextCursor).toBeUndefined();
+  });
+  describe("a search that names one resource's id", () => {
+    const withFind = (
+      find: NonNullable<OptionLister["find"]>,
+    ): OptionLister => ({ ...paged, find });
+
+    it("answers with that resource alone, without scanning the pages", async () => {
+      const list = vi.fn(paged.list);
+      const lister = {
+        ...withFind(async (_http, search) => ({
+          value: search,
+          label: "#found",
+        })),
+        list,
+      };
+      const page = await listProviderOptions(lister, http, {
+        search: " C9z ",
+      });
+      expect(page).toEqual({ options: [{ value: "C9z", label: "#found" }] });
+      expect(list).not.toHaveBeenCalled();
+    });
+
+    it("scans the pages when the provider has no such resource", async () => {
+      const find = vi.fn(async () => undefined);
+      const page = await listProviderOptions(withFind(find), http, {
+        search: "c2a",
+      });
+      expect(find).toHaveBeenCalledWith(http, "c2a");
+      expect(page.options.map((option) => option.value)).toEqual(["C2a"]);
+    });
+
+    it("does not look the resource up again on a later page of the search", async () => {
+      const find = vi.fn(async () => ({ value: "x", label: "#x" }));
+      const page = await listProviderOptions(withFind(find), http, {
+        search: "alpha-8",
+        cursor: "7",
+      });
+      expect(find).not.toHaveBeenCalled();
+      expect(page.options.map((option) => option.value)).toEqual(["C8a"]);
+    });
+
+    it("lets a failed lookup fail the search instead of reading as no match", async () => {
+      const failure = new OptionListError("rate_limited", "slack", "slow down");
+      await expect(
+        listProviderOptions(
+          withFind(async () => {
+            throw failure;
+          }),
+          http,
+          { search: "C1a" },
+        ),
+      ).rejects.toBe(failure);
+    });
   });
 });

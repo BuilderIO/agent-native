@@ -52,6 +52,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Outside assistants can open the Traffic dashboard in Analytics.
 - Tables, metric tiles and charts can show a number of seconds as a duration such as 16 min or 7.4 hours, and duration columns sort by time.
 
 ### Improved

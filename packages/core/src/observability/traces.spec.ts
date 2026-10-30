@@ -663,6 +663,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
   });
 
   it("emits a PostHog-compatible AI generation tracking event", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -702,10 +705,22 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
       experimentAssignments: [
         {
+          experimentId: "question-intake-experiment",
+          variantId: "no_questions",
+        },
+        {
+          experimentId: "selected-experiment",
+          variantId: "treatment",
+        },
+        {
           experimentId: "hosted-model-test",
           variantId: "gpt-5-6-luna",
         },
       ],
+      singularExperimentAssignment: {
+        experimentId: "selected-experiment",
+        variantId: "treatment",
+      },
       modelSelectionSource: "experiment",
     });
 
@@ -742,10 +757,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       ],
       tools_truncated: false,
       model_selection_source: "experiment",
-      experiment_id: "hosted-model-test",
-      experiment_variant: "gpt-5-6-luna",
-      experiment_ids: "hosted-model-test",
-      experiment_variants: "gpt-5-6-luna",
+      experiment_id: "selected-experiment",
+      experiment_variant: "treatment",
+      experiment_ids:
+        "question-intake-experiment,selected-experiment,hosted-model-test",
+      experiment_variants: "no_questions,treatment,gpt-5-6-luna",
       $ai_trace_id: "run-ai-1",
       $ai_session_id: "thread-ai-1",
       $ai_model: "claude-test",
@@ -756,6 +772,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       $ai_request_count: 1,
     });
     expect(event.properties?.cost_cents_x100).toEqual(expect.any(Number));
+    const runSpan = spans.find((span) => span.name === "invoke_agent");
+    expect(runSpan?.attributes).toMatchObject({
+      "agent.experiment_id": "selected-experiment",
+      "agent.experiment_variant": "treatment",
+    });
     expect(event.properties?.cost_usd).toEqual(expect.any(Number));
     expect(event.properties?.["$ai_total_cost_usd"]).toEqual(
       expect.any(Number),

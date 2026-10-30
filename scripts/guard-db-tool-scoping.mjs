@@ -121,6 +121,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "design:design_versions": "version rows scoped through designs",
   "design:design_visual_edit_snapshot_blob_cleanup":
     "private snapshot blob cleanup outbox processed by Design actions",
+  "design:design_first_output_experiment_claims":
+    "private experiment claims keyed by authenticated user; accessed only by the enrollment action",
   "design:design_review_agent_requests":
     "request rows scoped through designs and the requester; read via list-review-agent-requests",
   "design:design_screen_restore_claims":

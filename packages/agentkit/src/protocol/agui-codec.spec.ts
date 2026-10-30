@@ -77,6 +77,7 @@ function everyEventType(): AgentEvent[] {
     { ...base("message.created"), message },
     { ...base("message.delta"), messageId: "msg_1", text: "hel" },
     { ...base("message.completed"), message },
+    { ...base("message.replaced"), message },
     { ...base("reasoning.delta"), messageId: "msg_1", text: "thinking" },
     { ...base("tool.started"), toolCall },
     { ...base("tool.delta"), toolCallId: "tool_1", inputTextDelta: "{}" },

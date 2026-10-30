@@ -13,12 +13,6 @@ declare global {
 export const BRAIN_QUEUE_SWEEP_LIMIT = 25;
 export const BRAIN_MAX_DISTILLATIONS_PER_SWEEP = 2;
 
-function productionLike() {
-  return (
-    process.env.NODE_ENV === "production" || process.env.NETLIFY === "true"
-  );
-}
-
 function scheduledFunctionRuntime() {
   return globalThis.__AGENT_NATIVE_BRAIN_SCHEDULED_RUNTIME__ === true;
 }
@@ -35,7 +29,7 @@ function headerMatchesSecret(header: string | undefined, secret: string) {
 export default defineEventHandler(async (event) => {
   const secret = process.env.BRAIN_JOBS_SECRET?.trim(); // guard:allow-env-credential — deployment-level scheduler route secret
   const scheduled = scheduledFunctionRuntime();
-  if (!secret && productionLike() && !scheduled) {
+  if (!secret && !scheduled) {
     throw createError({
       statusCode: 503,
       statusMessage: "BRAIN_JOBS_SECRET is required",

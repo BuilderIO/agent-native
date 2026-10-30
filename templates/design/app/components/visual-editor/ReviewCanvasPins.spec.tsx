@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   agentMarkSurfaceUsed: vi.fn(),
   useRealComposer: false,
   useRealThreads: false,
+  session: null as { email: string; name?: string } | null,
   uploadImage: vi.fn().mockResolvedValue({
     src: "https://cdn.example.com/review.png",
   }),
@@ -80,6 +81,7 @@ const comment: ReviewComment = vi.hoisted(
       updatedAt: "2026-07-13T13:00:00.000Z",
       metadata: null,
       canDelete: true,
+      canDeleteThread: true,
     }) satisfies ReviewComment,
 );
 
@@ -112,6 +114,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
   setClientAppState: mocks.setClientAppState,
   useAvatarUrl: () => null,
+  useSession: () => ({ session: mocks.session }),
 }));
 
 vi.mock("@agent-native/core/client/uploads", () => ({
@@ -123,6 +126,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => ({ data: { orgId: "org-1" } }),
   useOrgMembers: () => ({
     data: {
       members: mocks.useRealComposer
@@ -431,6 +435,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     mocks.useRealComposer = false;
     mocks.useRealThreads = false;
+    mocks.session = null;
     mocks.createMutate.mockReset();
     mocks.replyMutate.mockReset();
     mocks.reactMutate.mockReset();
@@ -818,7 +823,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       await openThreadMenu();
       await act(async () => {
         Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-          .find((item) => item.textContent?.trim() === "review.deleteComment")
+          .find((item) => item.textContent?.trim() === "review.deleteThread")
           ?.click();
       });
       expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
@@ -871,7 +876,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
   });
 
-  it("confirms deleting in comment wording, since only the root comment is removed", async () => {
+  it("confirms deleting the thread in thread wording, since its replies go with it", async () => {
     mocks.useRealComposer = true;
     await act(async () => {
       root.render(
@@ -902,17 +907,17 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
     const deleteItem = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.trim() === "review.deleteComment");
+    ).find((item) => item.textContent?.trim() === "review.deleteThread");
     await act(async () => deleteItem?.click());
 
     const dialog = document.querySelector('[role="alertdialog"]');
     expect(dialog).not.toBeNull();
-    expect(dialog?.textContent).toContain("review.deleteCommentTitle");
-    expect(dialog?.textContent).toContain("review.deleteCommentDescription");
-    expect(dialog?.textContent).not.toContain("review.deleteThread");
+    expect(dialog?.textContent).toContain("review.deleteThreadTitle");
+    expect(dialog?.textContent).toContain("review.deleteThreadDescription");
+    expect(dialog?.textContent).not.toContain("review.deleteCommentTitle");
     const confirm = Array.from(
       dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [],
-    ).find((button) => button.textContent?.trim() === "review.deleteComment");
+    ).find((button) => button.textContent?.trim() === "review.deleteThread");
     expect(confirm).toBeDefined();
     await act(async () => confirm?.click());
     expect(mocks.deleteMutate).toHaveBeenCalledWith(
@@ -2487,7 +2492,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
     const deleteAction = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("review.deleteComment"));
+    ).find((item) => item.textContent?.includes("review.deleteThread"));
     expect(deleteAction).not.toBeUndefined();
     await act(async () => deleteAction?.click());
 
@@ -4847,6 +4852,23 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).find((item) => item.textContent?.trim() === label);
+    const commentMenuButton = (commentId: string) =>
+      document.querySelector<HTMLButtonElement>(
+        `[data-review-comment="${commentId}"] button[aria-label="review.moreActionsFor"]`,
+      );
+    const openCommentMenu = async (commentId: string) => {
+      const trigger = commentMenuButton(commentId);
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        trigger?.click();
+      });
+    };
 
     it("titles the thread card and lists the menu in the Figma order for an editor on an open thread", async () => {
       mocks.discussion.canSetThreadPreferences = true;
@@ -4875,20 +4897,36 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       expect(menuLayout()).toEqual([
         "review.sendToAgent",
         "review.suggestChanges",
-        "review.replyInThread",
         "---",
         "review.applyChangesAndResolve",
         "---",
-        "review.editComment",
-        "---",
         "review.copyLink",
-        "review.deleteComment",
+        "review.deleteThread",
       ]);
       // Marking as unread stays off the card menu even though the viewer may
-      // set preferences.
+      // set preferences. Editing belongs to each comment's own menu.
       expect(document.body.textContent).not.toContain("review.markUnread");
       expect(document.body.textContent).not.toContain("review.markRead");
-      expect(document.body.textContent).not.toContain("review.deleteThread");
+      expect(document.body.textContent).not.toContain("review.editComment");
+    });
+
+    it("hides Delete thread when the server says the thread cannot be deleted, though the first comment is theirs", async () => {
+      reviewComments = [
+        { ...comment, canDelete: true, canDeleteThread: false },
+      ];
+      await renderPins({ currentUserEmail: "reviewer@example.com" });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuLayout()).toEqual(["review.copyLink"]);
+    });
+
+    it("does not offer Delete thread when the server did not say", async () => {
+      const { canDeleteThread: _unsaid, ...withoutThreadFlag } = comment;
+      reviewComments = [withoutThreadFlag];
+      await renderPins({ currentUserEmail: "reviewer@example.com" });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuItem("review.deleteThread")).toBeUndefined();
     });
 
     it("keeps the agent items away from viewers who cannot edit the design", async () => {
@@ -4899,24 +4937,14 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       });
       await openFirstThread();
       await openCardMenu();
-      expect(menuLayout()).toEqual([
-        "review.editComment",
-        "---",
-        "review.copyLink",
-        "review.deleteComment",
-      ]);
+      expect(menuLayout()).toEqual(["review.copyLink", "review.deleteThread"]);
     });
 
     it("keeps the agent items away when the host offers no agent hand-off", async () => {
       await renderPins({ currentUserEmail: "reviewer@example.com" });
       await openFirstThread();
       await openCardMenu();
-      expect(menuLayout()).toEqual([
-        "review.editComment",
-        "---",
-        "review.copyLink",
-        "review.deleteComment",
-      ]);
+      expect(menuLayout()).toEqual(["review.copyLink", "review.deleteThread"]);
     });
 
     it("hides the agent items once the thread is resolved", async () => {
@@ -4927,25 +4955,29 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       });
       await openFirstThread();
       await openCardMenu();
-      expect(menuLayout()).toEqual([
-        "review.editComment",
-        "---",
-        "review.copyLink",
-        "review.deleteComment",
-      ]);
+      expect(menuLayout()).toEqual(["review.copyLink", "review.deleteThread"]);
     });
 
-    it("offers Edit to the comment's author and not to anyone else", async () => {
+    it("offers Edit to the comment's author", async () => {
+      await renderPins({ currentUserEmail: "reviewer@example.com" });
+      await openFirstThread();
+      await openCommentMenu("comment-1");
+      expect(menuLayout()).toEqual(["review.editComment"]);
+    });
+
+    it("offers Edit to no one else", async () => {
       await renderPins({ currentUserEmail: "someone-else@example.com" });
       await openFirstThread();
+      // Nothing is left in the first comment's menu, so it has no button.
+      expect(commentMenuButton("comment-1")).toBeNull();
       await openCardMenu();
-      expect(menuLayout()).toEqual(["review.copyLink", "review.deleteComment"]);
+      expect(menuLayout()).toEqual(["review.copyLink", "review.deleteThread"]);
     });
 
     it("matches the author's email without regard to case or spaces", async () => {
       await renderPins({ currentUserEmail: " Reviewer@Example.com " });
       await openFirstThread();
-      await openCardMenu();
+      await openCommentMenu("comment-1");
       expect(menuItem("review.editComment")).toBeDefined();
     });
 
@@ -4955,8 +4987,150 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         currentUserEmail: "reviewer@example.com",
       });
       await openFirstThread();
-      await openCardMenu();
-      expect(menuItem("review.editComment")).toBeUndefined();
+      expect(commentMenuButton("comment-1")).toBeNull();
+    });
+
+    describe("each comment's own menu", () => {
+      beforeEach(() => {
+        mocks.useRealThreads = true;
+      });
+      const reply = makeReply({
+        id: "reply-1",
+        authorEmail: "reviewer@example.com",
+        authorName: "Reviewer",
+      });
+
+      it("offers Edit and Delete on a reply", async () => {
+        reviewComments = [comment, reply];
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        await openCommentMenu("reply-1");
+        expect(menuLayout()).toEqual([
+          "review.editComment",
+          "---",
+          "review.deleteComment",
+        ]);
+      });
+
+      it("offers only Edit on the first comment, whose delete is the thread's", async () => {
+        reviewComments = [comment, reply];
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        await openCommentMenu("comment-1");
+        expect(menuLayout()).toEqual(["review.editComment"]);
+      });
+
+      it("names whose comment each menu belongs to", async () => {
+        reviewComments = [comment, reply];
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        expect(commentMenuButton("reply-1")?.getAttribute("aria-label")).toBe(
+          "review.moreActionsFor",
+        );
+      });
+
+      it("lets a reply's author edit it without touching the first comment", async () => {
+        mocks.useRealComposer = true;
+        reviewComments = [comment, reply];
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        await openCommentMenu("reply-1");
+        await act(async () => menuItem("review.editComment")?.click());
+
+        expect(
+          document.querySelector(
+            '[data-review-comment="comment-1"][data-review-comment-variant="root"]',
+          ),
+        ).not.toBeNull();
+        expect(
+          document.querySelector('[data-review-comment="reply-1"]'),
+        ).toBeNull();
+        expect(
+          document.querySelector(
+            '[data-review-comment-editing] [role="textbox"]',
+          )?.textContent,
+        ).toBe("A reply");
+      });
+
+      it("never offers Edit on a comment an agent wrote, even under the owner's address", async () => {
+        reviewComments = [
+          comment,
+          makeReply({
+            id: "agent-reply",
+            createdBy: "agent",
+            authorEmail: "reviewer@example.com",
+            authorName: "Claude",
+          }),
+        ];
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        await openCommentMenu("agent-reply");
+        expect(menuLayout()).toEqual(["review.deleteComment"]);
+      });
+
+      it("hides Delete from a reply the viewer is not allowed to delete", async () => {
+        reviewComments = [
+          comment,
+          makeReply({ id: "reply-1", canDelete: false }),
+        ];
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        expect(commentMenuButton("reply-1")).toBeNull();
+      });
+
+      it("deletes only the reply, in comment wording, and keeps the card open", async () => {
+        reviewComments = [comment, reply];
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        await openCommentMenu("reply-1");
+        await act(async () => menuItem("review.deleteComment")?.click());
+
+        const dialog = document.querySelector('[role="alertdialog"]');
+        expect(dialog?.textContent).toContain("review.deleteCommentTitle");
+        expect(dialog?.textContent).not.toContain("review.deleteThreadTitle");
+        await act(async () =>
+          Array.from(
+            dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+          )
+            .find(
+              (button) => button.textContent?.trim() === "review.deleteComment",
+            )
+            ?.click(),
+        );
+        expect(mocks.deleteMutate).toHaveBeenCalledWith(
+          expect.objectContaining({ commentId: "reply-1" }),
+          expect.any(Object),
+        );
+        await act(async () =>
+          mocks.deleteMutate.mock.calls[0]?.[1]?.onSuccess(),
+        );
+        expect(
+          document.querySelector("[data-review-thread-card]"),
+        ).not.toBeNull();
+      });
+
+      it("deletes the whole thread from the card menu, naming the first comment", async () => {
+        reviewComments = [comment, reply];
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        await openCardMenu();
+        await act(async () => menuItem("review.deleteThread")?.click());
+        await act(async () =>
+          Array.from(
+            document.querySelectorAll<HTMLButtonElement>(
+              '[role="alertdialog"] button',
+            ),
+          )
+            .find(
+              (button) => button.textContent?.trim() === "review.deleteThread",
+            )
+            ?.click(),
+        );
+        expect(mocks.deleteMutate).toHaveBeenCalledWith(
+          expect.objectContaining({ commentId: "comment-1" }),
+          expect.any(Object),
+        );
+      });
     });
 
     describe("editing a comment", () => {
@@ -4977,8 +5151,12 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       const startEditing = async () => {
         await renderPins({ currentUserEmail: "reviewer@example.com" });
         await openFirstThread();
-        await openCardMenu();
+        await openCommentMenu("comment-1");
         await act(async () => menuItem("review.editComment")?.click());
+        // The caret lands at the end of the text once the editor takes focus.
+        await vi.waitFor(() =>
+          expect(editor()?.contains(document.activeElement)).toBe(true),
+        );
       };
       const pressEscapeIn = async (target: Element | null) => {
         await act(async () => {
@@ -5061,7 +5239,6 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       const choices = [
         ["review.sendToAgent", "send"],
         ["review.suggestChanges", "suggest"],
-        ["review.replyInThread", "reply"],
         ["review.applyChangesAndResolve", "apply"],
       ] as const;
       for (const [label, action] of choices) {
@@ -5093,7 +5270,6 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         menuItem(label)?.getAttribute("aria-disabled") === "true";
       expect(disabled("review.sendToAgent")).toBe(true);
       expect(disabled("review.suggestChanges")).toBe(true);
-      expect(disabled("review.replyInThread")).toBe(true);
       expect(disabled("review.applyChangesAndResolve")).toBe(true);
       expect(disabled("review.copyLink")).toBe(false);
       await act(async () => menuItem("review.sendToAgent")?.click());
@@ -5112,6 +5288,33 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           ?.querySelector("[data-review-reply-input]")
           ?.getAttribute("placeholder"),
       ).toBe("review.reply");
+    });
+
+    describe("the signed-in person's own avatar", () => {
+      const replyAvatar = () =>
+        document.querySelector(".group\\/reply")?.firstElementChild
+          ?.textContent;
+
+      it("is drawn from their display name, so it matches their comments", async () => {
+        mocks.session = { email: "reviewer@example.com", name: "Riley Nash" };
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        expect(replyAvatar()).toBe("RN");
+      });
+
+      it("falls back to the address when the session has no name", async () => {
+        mocks.session = { email: "reviewer@example.com" };
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        expect(replyAvatar()).toBe("R");
+      });
+
+      it("ignores a session name that belongs to someone else", async () => {
+        mocks.session = { email: "someone-else@example.com", name: "Sam Lee" };
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        expect(replyAvatar()).toBe("R");
+      });
     });
 
     it("gives the draft card a title bar and no agent control", async () => {
@@ -5464,7 +5667,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         await renderPins();
         await openFromPin();
         await openCardMenu();
-        await act(async () => menuItem("review.deleteComment")?.click());
+        await act(async () => menuItem("review.deleteThread")?.click());
         await act(async () =>
           Array.from(
             document.querySelectorAll<HTMLButtonElement>(
@@ -5472,7 +5675,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
             ),
           )
             .find(
-              (button) => button.textContent?.trim() === "review.deleteComment",
+              (button) => button.textContent?.trim() === "review.deleteThread",
             )
             ?.click(),
         );
@@ -5587,7 +5790,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
               '[role="alertdialog"] button',
             ),
           ).find(
-            (button) => button.textContent?.trim() === "review.deleteComment",
+            (button) => button.textContent?.trim() === "review.deleteThread",
           );
         // Opens a pin's card from the keyboard, then deletes its thread. The
         // optimistic delete takes the pin off the canvas before the request
@@ -5601,7 +5804,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           target?.focus();
           await act(async () => target?.click());
           await openCardMenu();
-          await act(async () => menuItem("review.deleteComment")?.click());
+          await act(async () => menuItem("review.deleteThread")?.click());
           await act(async () => confirmButton()?.click());
           await act(async () => confirmButton()?.focus());
           reviewComments = remaining;
@@ -6127,7 +6330,6 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         const itemLabels = [
           "review.sendToAgent",
           "review.suggestChanges",
-          "review.replyInThread",
           "review.applyChangesAndResolve",
         ];
         const agentItems = () =>
@@ -6173,26 +6375,22 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         it.each([
           ["a localhost screen", { sourceType: "localhost" as const }],
           ["a fusion screen", { sourceType: "fusion" as const }],
-        ])(
-          "hides Apply for %s but keeps Suggest and Reply",
-          async (_name, props) => {
-            await renderPins(
-              {
-                currentUserEmail: "reviewer@example.com",
-                onSendThreadToAgent: vi.fn(),
-                ...props,
-              },
-              makeAgentController(),
-            );
-            await openFirstThread();
-            await openCardMenu();
-            expect(agentItems()).toEqual([
-              "review.sendToAgent",
-              "review.suggestChanges",
-              "review.replyInThread",
-            ]);
-          },
-        );
+        ])("hides Apply for %s but keeps Suggest", async (_name, props) => {
+          await renderPins(
+            {
+              currentUserEmail: "reviewer@example.com",
+              onSendThreadToAgent: vi.fn(),
+              ...props,
+            },
+            makeAgentController(),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          expect(agentItems()).toEqual([
+            "review.sendToAgent",
+            "review.suggestChanges",
+          ]);
+        });
 
         it("hides Apply for a board-level thread", async () => {
           reviewComments = [{ ...comment, targetId: null }];
@@ -6209,11 +6407,10 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           expect(agentItems()).toEqual([
             "review.sendToAgent",
             "review.suggestChanges",
-            "review.replyInThread",
           ]);
         });
 
-        it("hands each choice to the host: the three run modes and Send to agent", async () => {
+        it("hands each choice to the host: the two run modes and Send to agent", async () => {
           const onSendThreadToAgent = vi.fn();
           await renderPins(
             { currentUserEmail: "reviewer@example.com", onSendThreadToAgent },
@@ -6222,7 +6419,6 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           await openFirstThread();
           const choices = [
             ["review.suggestChanges", "suggest"],
-            ["review.replyInThread", "reply"],
             ["review.applyChangesAndResolve", "apply"],
             ["review.sendToAgent", "send"],
           ] as const;

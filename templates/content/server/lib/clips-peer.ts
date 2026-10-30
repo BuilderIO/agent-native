@@ -26,8 +26,9 @@ import {
   CONTENT_CLIP_AUDIENCE_PATH,
   CONTENT_CLIP_CLAIMS,
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
-  CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
+  CONTENT_CLIP_COMMENT_TEXT_CHARS,
   CONTENT_CLIP_MAX_COMMENT_THREADS,
+  CONTENT_CLIP_MAX_LISTED_REPLIES,
   CONTENT_CLIP_NOT_CONFIGURED,
   CONTENT_CLIP_PUBLIC_READER,
   CONTENT_CLIP_SCOPES,
@@ -47,26 +48,31 @@ export type ClipsResult =
 
 const CLIPS_REQUEST_TIMEOUT_MS = 10_000;
 
-// The longest thread start Clips sends: its cut fields with every character
-// escaped to six bytes (`\u0001`), an id at the 128 characters Clips takes
-// for one, and room for the keys and timestamp.
-const MAX_COMMENT_THREAD_BYTES =
+// The longest comment Clips lists, a thread start or a reply: its cut fields
+// with every character escaped to six bytes (`\u0001`), an id at the 128
+// characters Clips takes for one, and room for the keys, times and counts.
+const MAX_LISTED_COMMENT_BYTES =
   6 *
-    (CONTENT_CLIP_COMMENT_PREVIEW_CHARS +
-      2 * CONTENT_CLIP_COMMENT_AUTHOR_CHARS) +
+    (CONTENT_CLIP_COMMENT_TEXT_CHARS + 2 * CONTENT_CLIP_COMMENT_AUTHOR_CHARS) +
   128 +
   256;
 
 /**
  * The most Content reads of each answer: the longest one the contract allows,
  * with margin. A playback answer is a title Clips cuts to
- * `CONTENT_CLIP_RECORDING_TITLE_CHARS`, two URLs and a few short fields.
+ * `CONTENT_CLIP_RECORDING_TITLE_CHARS`, two URLs and a few short fields. The
+ * comment list is the open-threads view, the only one Content asks for.
  */
 export const CLIPS_ANSWER_MAX_BYTES = {
   playback: 64 * 1024,
   comments:
-    CONTENT_CLIP_MAX_COMMENT_THREADS * MAX_COMMENT_THREAD_BYTES + 64 * 1024,
+    (CONTENT_CLIP_MAX_COMMENT_THREADS + CONTENT_CLIP_MAX_LISTED_REPLIES) *
+      MAX_LISTED_COMMENT_BYTES +
+    64 * 1024,
 } as const;
+
+/** A comment write answers with a few ids and flags. */
+const CLIPS_COMMENT_WRITE_MAX_BYTES = 16 * 1024;
 
 function hostnameOf(url: string | undefined): string | undefined {
   return url && URL.canParse(url) ? new URL(url).hostname : undefined;
@@ -297,6 +303,54 @@ export async function requestClips(input: {
   resource: "playback" | "comments";
   query?: Record<string, string>;
 }): Promise<ClipsResult> {
+  const search = input.query ? `?${new URLSearchParams(input.query)}` : "";
+  return askClips({
+    reader: input.reader,
+    scope: scopeForReader(input.reader),
+    documentId: input.documentId,
+    recordingId: input.recordingId,
+    path: `${input.resource}${search}`,
+    maxBytes: CLIPS_ANSWER_MAX_BYTES[input.resource],
+  });
+}
+
+/** A change to a Clip's comments, as Clips' comment route takes it. */
+export type ClipCommentWrite =
+  | { operation: "add"; content: string; videoTimestampMs: number }
+  | { operation: "reply"; commentId: string; content: string }
+  | { operation: "resolve"; commentId: string; resolved: boolean };
+
+/**
+ * Changes a Clip's comments as a signed-in reader whose access to the page
+ * the caller has already checked. Clips decides whether the reader may: the
+ * Clip's comments may be off, or the thread someone else's to resolve.
+ */
+export async function writeClipComment(input: {
+  reader: ClipUploader;
+  documentId: string;
+  recordingId: string;
+  write: ClipCommentWrite;
+}): Promise<ClipsResult> {
+  return askClips({
+    reader: input.reader,
+    scope: CONTENT_CLIP_SCOPES.comment,
+    documentId: input.documentId,
+    recordingId: input.recordingId,
+    path: "comments",
+    json: input.write,
+    maxBytes: CLIPS_COMMENT_WRITE_MAX_BYTES,
+  });
+}
+
+async function askClips(input: {
+  reader: ClipReader;
+  scope: ClipReaderScope;
+  documentId: string;
+  recordingId: string;
+  path: string;
+  json?: ClipCommentWrite;
+  maxBytes: number;
+}): Promise<ClipsResult> {
   const clipsAppUrl = resolveClipsAppUrl();
   const secret = readPeerSecret();
   if (!clipsAppUrl || !secret) {
@@ -305,18 +359,18 @@ export async function requestClips(input: {
 
   const token = await mintContentClipToken({
     reader: input.reader,
-    scope: scopeForReader(input.reader),
+    scope: input.scope,
     documentId: input.documentId,
     recordingId: input.recordingId,
     clipsAppUrl,
     secret,
   });
 
-  const search = input.query ? `?${new URLSearchParams(input.query)}` : "";
   const answer = await fetchClips({
-    url: `${clipsAppUrl}/api/content-clips/${encodeURIComponent(input.recordingId)}/${input.resource}${search}`,
+    url: `${clipsAppUrl}/api/content-clips/${encodeURIComponent(input.recordingId)}/${input.path}`,
     token,
-    maxBytes: CLIPS_ANSWER_MAX_BYTES[input.resource],
+    maxBytes: input.maxBytes,
+    ...(input.json === undefined ? {} : { json: input.json }),
   });
   if (!answer.reachable) {
     return { ok: false, code: CLIP_PLAYBACK_ERRORS.unreachable };

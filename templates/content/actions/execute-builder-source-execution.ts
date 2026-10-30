@@ -4,7 +4,19 @@ import {
   isActionContractError,
 } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, exists, isNull, lt, notInArray, or } from "drizzle-orm";
+import {
+  and,
+  eq,
+  exists,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -148,6 +160,11 @@ export interface ExecuteBuilderSourceExecutionDeps {
     now: string;
     staleBefore: string;
     attemptToken: string;
+    /**
+     * The existing entry this execution overwrites. Its claim is refused while
+     * another source's push to the same entry holds a live claim.
+     */
+    builderEntry?: { model: string; entryId: string } | null;
   }) => Promise<boolean>;
   renewExecutionClaim: (args: {
     executionId: string;
@@ -311,6 +328,55 @@ export function builderExecutionAffectedRows(result: unknown) {
 
 export function builderExecutionConflict(message: string) {
   return Object.assign(new Error(message), { statusCode: 409 });
+}
+
+// Collections are separate sources, so the database lock a claim takes does not
+// keep two collections bound to the same Builder model apart. The live preflight
+// only protects a push if no other Content push to the entry can land between
+// its read and its write, so a push holds the entry from claim to write. A
+// write whose outcome is unknown may still land, so it holds the entry too,
+// until the claim lease outlasts any request still in flight.
+async function builderEntryHasOtherLiveClaim(
+  tx: ReturnType<typeof getDb>,
+  args: {
+    model: string;
+    entryId: string;
+    executionId: string;
+    staleBefore: string;
+  },
+) {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`content-builder-entry-write:${args.model}:${args.entryId}`}, 0::bigint))`,
+  );
+  const executions = schema.contentDatabaseSourceExecutions;
+  const changeSets = schema.contentDatabaseSourceChangeSets;
+  const rows = schema.contentDatabaseSourceRows;
+  const sources = schema.contentDatabaseSources;
+  const claims = await tx
+    .select({ id: executions.id })
+    .from(sources)
+    .innerJoin(rows, eq(rows.sourceId, sources.id))
+    .innerJoin(
+      changeSets,
+      and(
+        eq(changeSets.sourceId, sources.id),
+        eq(changeSets.databaseItemId, rows.databaseItemId),
+      ),
+    )
+    .innerJoin(executions, eq(executions.changeSetId, changeSets.id))
+    .where(
+      and(
+        eq(sources.sourceType, "builder-cms"),
+        eq(sources.sourceTable, args.model),
+        eq(rows.sourceRowId, args.entryId),
+        eq(executions.sourceId, sources.id),
+        ne(executions.id, args.executionId),
+        inArray(executions.state, ["running", "reconciliation_required"]),
+        gte(executions.updatedAt, args.staleBefore),
+      ),
+    )
+    .limit(1);
+  return claims.length > 0;
 }
 
 function isReclaimableRunningExecution(
@@ -1286,6 +1352,16 @@ export function realExecutionDeps(
             )
             .limit(1);
           if (!scope) return null;
+          if (
+            args.builderEntry &&
+            (await builderEntryHasOtherLiveClaim(transactionDb, {
+              ...args.builderEntry,
+              executionId: args.executionId,
+              staleBefore: args.staleBefore,
+            }))
+          ) {
+            return "entry_busy" as const;
+          }
           await lockContentDatabaseMutation(transactionDb, scope.databaseId);
           const updated = await tx
             .update(schema.contentDatabaseSourceExecutions)
@@ -1372,6 +1448,13 @@ export function realExecutionDeps(
           return true;
         }
         throw error;
+      }
+      if (result === "entry_busy") {
+        await discardUncommittedPayload(prepared);
+        fail(
+          "Another Content collection is pushing to this Builder entry. Try again in a moment.",
+          { errorCode: "builder_entry_write_in_progress", statusCode: 409 },
+        );
       }
       if (builderExecutionAffectedRows(result) === 0) {
         await discardUncommittedPayload(prepared);
@@ -2161,6 +2244,9 @@ export async function executeBuilderSourceExecutionWithDeps(
       now,
       staleBefore: staleRunningCutoff(now),
       attemptToken,
+      builderEntry: preflightEntryId
+        ? { model: plan.payload.target.model, entryId: preflightEntryId }
+        : null,
     });
     if (!claimed) {
       throw builderExecutionConflict("Builder execution is already running.");
@@ -2191,9 +2277,10 @@ export async function executeBuilderSourceExecutionWithDeps(
     let writePayload: BuilderCmsExecutionPayload = validatedPayload;
     if (preflightEntryId) {
       // This check runs after the claim so it sits as close to the write as
-      // possible. A Builder save that lands after this read and before the
-      // write below is still overwritten: the check narrows that race but
-      // cannot close it without a conditional write on Builder's side.
+      // possible. The claim keeps other Content pushes to this entry out, but a
+      // save made in Builder that lands after this read and before the write
+      // below is still overwritten: closing that needs a conditional write on
+      // Builder's side.
       let liveState: BuilderCmsEntryLiveState;
       try {
         liveState = await deps.readLiveEntry({

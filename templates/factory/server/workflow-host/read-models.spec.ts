@@ -674,6 +674,43 @@ describe("listItems", () => {
     });
   });
 
+  it("gives an item a person closed by hand a last event with no step, so it is not read as untouched", async () => {
+    const { wf, run } = await seedItems();
+    await addEvents(world, SCOPE, [
+      {
+        workflowId: wf,
+        runId: run.id,
+        itemId: "item-carol",
+        nodeId: "post",
+        kind: "ended",
+        outcome: "needsManual",
+        at: minute(0.1),
+        summary:
+          "needsManual: Slack rejected the message (status needs_manual)",
+      },
+      // The event dismissing an item writes: it names no step.
+      {
+        workflowId: wf,
+        runId: run.id,
+        itemId: "item-carol",
+        kind: "ended",
+        outcome: "dismissed",
+        at: minute(0.2),
+        summary: "dismissed: Dismissed by enzo (status dismissed)",
+      },
+    ]);
+    const carol = (await world.models.listItems(SCOPE, { search: "Carol" }))
+      .items[0];
+    expect(carol).toMatchObject({
+      status: "dismissed",
+      lastNode: null,
+      lastEvent: { kind: "ended", nodeId: null },
+    });
+    const dan = (await world.models.listItems(SCOPE, { search: "Dan" }))
+      .items[0];
+    expect(dan).toMatchObject({ lastNode: null, lastEvent: null });
+  });
+
   it("says whether an item's lease is still live", async () => {
     const workflow = await addWorkflow(world);
     world.at(minute(0));

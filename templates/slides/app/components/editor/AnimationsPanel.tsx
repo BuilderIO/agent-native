@@ -572,9 +572,11 @@ export function AnimationsPanel({
   useEffect(() => stopPreview, [stopPreview]);
 
   const addButtonLabel =
-    selectedTargets.length > 0
-      ? t("animations.addTransition")
-      : t("animations.selectObject");
+    selectedTargets.length === 0
+      ? t("animations.selectObject")
+      : newTargets.length === 0
+        ? t("animations.alreadyAnimated")
+        : t("animations.addAnimation");
 
   return (
     <div className="flex h-full w-72 min-w-0 flex-col bg-background">

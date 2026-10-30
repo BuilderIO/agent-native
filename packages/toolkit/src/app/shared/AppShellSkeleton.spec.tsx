@@ -122,9 +122,9 @@ describe("AppShellSkeleton home layout", () => {
     expect(
       shell.querySelector("main.agent-native-app-main .agent-prompt-home-hero"),
     ).not.toBeNull();
-    expect(shell.querySelector("textarea")?.placeholder).toBe(
-      "Describe your design",
-    );
+    // Tiptap cannot server-render in production builds, so the composer is a
+    // placeholder here and mounts once the client takes over.
+    expect(shell.querySelector("textarea")).toBeNull();
     expect(composerProps).toMatchObject({
       draftScope: "design:new:viewer-a:org-a",
       initialTextOverridesSavedDraft: true,

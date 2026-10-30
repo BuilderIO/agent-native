@@ -17,18 +17,18 @@ import {
 } from "./design-funnel-tracking";
 
 const mocks = vi.hoisted(() => ({
+  callAction: vi.fn(),
   trackDesignRelay: vi.fn(),
   readAgentRunStatus: vi.fn(),
-  callAction: vi.fn(),
-}));
-
-vi.mock("@/lib/agent-run-status", () => ({
-  readAgentRunStatus: (...args: unknown[]) => mocks.readAgentRunStatus(...args),
 }));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: (...args: unknown[]) => mocks.callAction(...args),
+}));
+
+vi.mock("@/lib/agent-run-status", () => ({
+  readAgentRunStatus: (...args: unknown[]) => mocks.readAgentRunStatus(...args),
 }));
 
 vi.mock("@/lib/design-relay-tracking", async (importOriginal) => ({
@@ -64,9 +64,9 @@ function ReadyHarness(props: ReadyProps) {
 }
 
 function readyEvents() {
-  return mocks.trackDesignRelay.mock.calls.filter(
-    ([name]) => name === "design_ready_viewed",
-  );
+  return mocks.trackDesignRelay.mock.calls
+    .filter(([name]) => name === "design_ready_viewed")
+    .map(([name, properties]) => [name, properties]);
 }
 
 async function renderReady(props: Partial<ReadyProps> = {}) {
@@ -118,6 +118,8 @@ beforeEach(() => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.trackDesignRelay.mockReset();
+  mocks.callAction.mockReset();
+  mocks.callAction.mockResolvedValue({ status: "has_output" });
   mocks.readAgentRunStatus.mockReset();
   mocks.callAction.mockReset();
   mocks.callAction.mockResolvedValue({ status: "has_output" });
@@ -232,13 +234,22 @@ describe("design_ready_viewed", () => {
         {
           output_id: "design-1",
           output_type: "design",
-          screen_count: 2,
-          is_owner: true,
           run_id: "run-1",
           turn_id: "turn-1",
+          screen_count: 2,
+          is_owner: true,
         },
       ],
     ]);
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "get-design-generation-output",
+      {
+        designId: "design-1",
+        runId: "run-1",
+        turnId: "turn-1",
+      },
+      { method: "GET", uiOnly: true },
+    );
   });
 
   it("fires for a completed run even when the editor's file list has not caught up", async () => {
@@ -248,7 +259,7 @@ describe("design_ready_viewed", () => {
     expect(readyEvents()).toHaveLength(1);
     expect(readyEvents()[0]![1]).toMatchObject({
       run_id: "run-1",
-      screen_count: 1,
+      turn_id: "turn-1",
     });
   });
 
@@ -267,10 +278,10 @@ describe("design_ready_viewed", () => {
         {
           output_id: "design-1",
           output_type: "design",
-          screen_count: 1,
           is_owner: true,
           run_id: "run-1",
           turn_id: "turn-1",
+          screen_count: 1,
         },
       ],
     ]);
@@ -288,26 +299,78 @@ describe("design_ready_viewed", () => {
     expect(readyEvents()[0]?.[1]).toMatchObject({
       output_id: "design-1",
       run_id: "run-1",
-      screen_count: 1,
     });
   });
 
-  it.each(["no_output", "unknown"] as const)(
-    "does not attribute existing screens when the run output is %s",
-    async (status) => {
-      mocks.callAction.mockResolvedValueOnce({ status });
-      await renderReady({ files: [screen("unrelated")] });
-      await agentRun({ isRunning: true });
-      await agentRun({ isRunning: false });
+  it("does not attribute existing screens when the run has no output receipt", async () => {
+    mocks.callAction.mockResolvedValueOnce({ status: "no_output" });
+    await renderReady({ files: [screen("unrelated")] });
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: false });
 
-      expect(readyEvents()).toHaveLength(0);
-      expect(mocks.callAction).toHaveBeenCalledWith(
-        "get-design-generation-output",
-        { designId: "design-1", runId: "run-1", turnId: "turn-1" },
-        { method: "GET" },
-      );
+    expect(readyEvents()).toHaveLength(0);
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "get-design-generation-output",
+      { designId: "design-1", runId: "run-1", turnId: "turn-1" },
+      { method: "GET", uiOnly: true },
+    );
+  });
+
+  it.each(["unknown", "rejected"] as const)(
+    "retries an %s output receipt before reporting the ready view",
+    async (failure) => {
+      vi.useFakeTimers();
+      try {
+        if (failure === "unknown") {
+          mocks.callAction.mockResolvedValueOnce({ status: "unknown" });
+        } else {
+          mocks.callAction.mockRejectedValueOnce(
+            new Error("temporarily unavailable"),
+          );
+        }
+        await renderReady({ files: [screen("generated")] });
+        await agentRun({ isRunning: true });
+        await agentRun({ isRunning: false });
+
+        expect(mocks.callAction).toHaveBeenCalledTimes(1);
+        expect(readyEvents()).toHaveLength(0);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+
+        expect(mocks.callAction).toHaveBeenCalledTimes(2);
+        expect(readyEvents()).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
     },
   );
+
+  it("rechecks a verified receipt if the tab becomes hidden before it resolves", async () => {
+    let resolveReceipt: (value: unknown) => void = () => {};
+    mocks.callAction.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveReceipt = resolve)),
+    );
+    await renderReady({ files: [screen("generated")] });
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: false });
+
+    visibility = "hidden";
+    await act(async () => {
+      resolveReceipt({ status: "has_output" });
+      await Promise.resolve();
+    });
+    expect(readyEvents()).toHaveLength(0);
+
+    visibility = "visible";
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    expect(readyEvents()).toHaveLength(1);
+  });
 
   it("expires a completed run if no generated screens arrive in the bounded window", async () => {
     let now = 1_000;
@@ -345,6 +408,31 @@ describe("design_ready_viewed", () => {
       });
     });
     await flushRunStatus();
+    expect(readyEvents()).toHaveLength(0);
+  });
+
+  it("does not report ready when the output receipt resolves after editor unmount", async () => {
+    let resolveOutput: (value: unknown) => void = () => {};
+    mocks.callAction.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveOutput = resolve)),
+    );
+    await renderReady({ files: [screen("a")] });
+    await agentRun({ isRunning: true });
+    await renderReady({ files: [screen("a", "t2")] });
+    await agentRun({ isRunning: false });
+
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "get-design-generation-output",
+      { designId: "design-1", runId: "run-1", turnId: "turn-1" },
+      { method: "GET", uiOnly: true },
+    );
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      resolveOutput({ status: "has_output" });
+      await Promise.resolve();
+    });
+
     expect(readyEvents()).toHaveLength(0);
   });
 

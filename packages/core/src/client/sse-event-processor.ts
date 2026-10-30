@@ -2496,7 +2496,7 @@ export function processEvent(
  * and started over", and `thread-data-builder` replays this same scoping on
  * rebuild, so the loss survived a reload.
  */
-function clearAssistantDraftContent(content: ContentPart[]): void {
+export function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;

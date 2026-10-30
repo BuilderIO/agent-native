@@ -105,4 +105,13 @@ export interface OptionLister {
   /** The resource that holds this one, listed first; a request without a `parent` is refused. */
   parentResource?: string;
   list(http: ProviderHttp, request: OptionListRequest): Promise<OptionPage>;
+  /**
+   * The one option a search that spells a resource's id exactly points at, for
+   * a provider whose pages may never reach it. `undefined` means the provider
+   * has no such resource for this credential; a failure to ask is thrown.
+   */
+  find?(
+    http: ProviderHttp,
+    search: string,
+  ): Promise<ProviderOption | undefined>;
 }

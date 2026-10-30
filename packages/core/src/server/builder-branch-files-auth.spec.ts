@@ -46,6 +46,7 @@ vi.mock("./builder-branch-git.js", () => ({
 import { resolveBuilderRequestAuthorization } from "./builder-api-auth.js";
 import {
   BuilderBranchFilesError,
+  readBuilderBranchBackupStatus,
   readBuilderBranchFiles,
 } from "./builder-branch-files.js";
 
@@ -94,6 +95,13 @@ describe("readBuilderBranchFiles authorization", () => {
     ).rejects.toMatchObject({
       code: "not_connected",
     } satisfies Partial<BuilderBranchFilesError>);
+
+    await expect(
+      readBuilderBranchBackupStatus({
+        projectId: "project-123",
+        branchName: "feature/example",
+      }),
+    ).rejects.toMatchObject({ code: "not_connected" });
 
     expect(mocks.resolveBuilderCredential).not.toHaveBeenCalled();
     expect(mocks.resolveBuilderCredentials).not.toHaveBeenCalled();

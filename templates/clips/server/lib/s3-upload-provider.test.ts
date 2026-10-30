@@ -53,8 +53,14 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 }));
 
 import {
+  withMediaUploadCheckpoint,
+  type ProducedMediaReference,
+} from "./recording-media-production-context.js";
+import {
   clipsOrganizationLogoPrivateBlobProvider,
   deleteS3ObjectByUrl,
+  deleteS3MediaForCleanup,
+  s3MediaCleanupFingerprint,
   fetchS3OrganizationLogoByLegacyUrl,
   fetchS3ObjectByUrl,
   isS3ObjectUrlBoundToRecording,
@@ -64,6 +70,171 @@ import {
 
 describe("s3FileUploadProvider", () => {
   const originalEnv = { ...process.env };
+  it.each([false, true])(
+    "checkpoints a resumable upload's original bucket and refuses a changed bucket (%s)",
+    async (changed) => {
+      const values: Record<string, string> = {
+        S3_BUCKET: "bucket-a",
+        S3_ACCESS_KEY_ID: "fake-access",
+        S3_SECRET_ACCESS_KEY: "fake-secret",
+        S3_ENDPOINT: "https://s3.example.test",
+        S3_PUBLIC_BASE_URL: "https://cdn.example.test/media",
+      };
+      mockResolveSecret.mockImplementation(
+        async (key: string) => values[key] ?? null,
+      );
+      const journal: ProducedMediaReference[] = [];
+      mockSsrfSafeFetch.mockImplementation(
+        async (url: string, init: RequestInit) => {
+          if (url.includes("?uploads="))
+            return new Response(
+              "<InitiateMultipartUploadResult><UploadId>fake-upload</UploadId></InitiateMultipartUploadResult>",
+            );
+          if (init.method === "POST")
+            expect(journal[0]).toMatchObject({
+              storageFingerprint: session.meta.storageFingerprint,
+              uploadConfirmed: false,
+            });
+          return new Response(null, { status: 200 });
+        },
+      );
+      const resumable = s3FileUploadProvider.resumable;
+      if (!resumable) throw new Error("Missing resumable provider");
+      const session = await resumable.startSession(
+        "rec_1.webm",
+        "video/webm",
+        100,
+      );
+      session.meta.parts = [{ partNumber: 1, etag: "fake-part", sizeBytes: 1 }];
+      if (changed) values.S3_BUCKET = "bucket-b";
+      const completion = withMediaUploadCheckpoint(
+        async (output) => {
+          journal.push(output);
+        },
+        () => resumable.completeSession(session, "rec_1.webm"),
+      );
+      if (changed) await expect(completion).rejects.toThrow(/binding|bucket/i);
+      else {
+        await expect(completion).resolves.toBe(
+          "https://cdn.example.test/media/clips/rec_1.webm",
+        );
+        expect(journal[1]).toMatchObject({
+          storageFingerprint: expect.any(String),
+          uploadConfirmed: true,
+        });
+      }
+    },
+  );
+  it("pins an actual buffered upload to its bucket before PUT and refuses a changed bucket behind the same public URL", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "bucket-a",
+      S3_ACCESS_KEY_ID: "fake-access",
+      S3_SECRET_ACCESS_KEY: "fake-secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/media",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => values[key] ?? null,
+    );
+    const journal: ProducedMediaReference[] = [];
+    mockSsrfSafeFetch.mockImplementation(async () => {
+      expect(journal[0]).toMatchObject({
+        uploadConfirmed: false,
+        storageFingerprint: expect.any(String),
+      });
+      return new Response(null, { status: 200 });
+    });
+    const output = await withMediaUploadCheckpoint(
+      async (reference) => {
+        journal.push(reference);
+      },
+      () =>
+        s3FileUploadProvider.upload({
+          data: new Uint8Array([1]),
+          filename: "rec_1.mp4",
+        }),
+    );
+    expect(journal[1]).toMatchObject({
+      url: output.url,
+      uploadConfirmed: true,
+    });
+    expect(await s3MediaCleanupFingerprint(output.url, "own")).toBe(
+      journal[0]?.storageFingerprint,
+    );
+    values.S3_BUCKET = "bucket-b";
+    const calls = mockSsrfSafeFetch.mock.calls.length;
+    expect(
+      await deleteS3MediaForCleanup(
+        output.url,
+        {
+          recordingId: "rec_1",
+          storageMode: "own",
+          objectKey:
+            "s3:" + new URL(output.url).pathname.slice("/media/".length),
+          fingerprint:
+            journal.find((entry) => entry.uploadConfirmed === false)
+              ?.storageFingerprint ?? null,
+        },
+        vi.fn(),
+      ),
+    ).toMatchObject({ phase: "blocked", reason: "credential_space_mismatch" });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(calls);
+    expect(await s3MediaCleanupFingerprint(output.url, "own")).not.toBe(
+      journal[0]?.storageFingerprint,
+    );
+  });
+
+  it("keeps a successful DELETE unconfirmed when bytes still exist or versions cannot be excluded", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips",
+      S3_ACCESS_KEY_ID: "fake-access",
+      S3_SECRET_ACCESS_KEY: "fake-secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => values[key] ?? null,
+    );
+    const url = "https://s3.example.com/clips/clips/rec_1/clip.mp4";
+    const binding = {
+      recordingId: "rec_1",
+      storageMode: "own" as const,
+      objectKey: "s3:clips/rec_1/clip.mp4",
+      fingerprint: await s3MediaCleanupFingerprint(url, "own"),
+    };
+    mockSsrfSafeFetch.mockImplementation(
+      async (_url: string, init: RequestInit) =>
+        new Response(null, { status: init.method === "DELETE" ? 204 : 200 }),
+    );
+    expect(await deleteS3MediaForCleanup(url, binding, vi.fn())).toMatchObject({
+      phase: "pending",
+      reason: "still_stored",
+    });
+    mockSsrfSafeFetch.mockImplementation(
+      async (_url: string, init: RequestInit) =>
+        new Response(null, {
+          status:
+            init.method === "DELETE" ? 204 : init.method === "HEAD" ? 404 : 403,
+        }),
+    );
+    expect(await deleteS3MediaForCleanup(url, binding, vi.fn())).toMatchObject({
+      phase: "blocked",
+      reason: "versioning_unconfirmed",
+    });
+    mockSsrfSafeFetch.mockImplementation(
+      async (_url: string, init: RequestInit) =>
+        init.method === "GET"
+          ? new Response(
+              "<VersioningConfiguration></VersioningConfiguration>",
+              { status: 200 },
+            )
+          : new Response(null, {
+              status: init.method === "DELETE" ? 204 : 404,
+            }),
+    );
+    expect(await deleteS3MediaForCleanup(url, binding, vi.fn())).toMatchObject({
+      phase: "complete",
+    });
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
