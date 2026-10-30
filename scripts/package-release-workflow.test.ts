@@ -67,6 +67,12 @@ const changesetsRequire = createRequire(
 const semver = changesetsRequire("semver") as {
   inc: (version: string, release: ReleaseBump) => string | null;
   satisfies: (version: string, range: string) => boolean;
+  minVersion: (range: string) => {
+    major: number;
+    minor: number;
+    patch: number;
+    version: string;
+  } | null;
 };
 
 const parseChangeset = (
@@ -1228,8 +1234,9 @@ esac
       const dispatchSnapshotPeer = fixtureManifest(
         "packages/dispatch/package.json",
       ).peerDependencies?.[core];
-      assert.equal(dispatchSnapshotPeer, dispatchPeer);
-      assert(semver.satisfies(String(snapshot), dispatchSnapshotPeer));
+      // oracle-change: snapshots now rewrite the peer alongside the workspace dev dependency.
+      assert.equal(dispatchSnapshotPeer, snapshot);
+      assert(semver.satisfies(String(snapshot), String(dispatchSnapshotPeer)));
       assert.equal(
         fixtureManifest("templates/community/range-fixture/package.json")
           .dependencies?.[core],
@@ -1319,20 +1326,15 @@ esac
       `Toolkit must accept the next fixed-group Core release, ${nextCoreRelease}`,
     );
 
-    for (const coreVersion of ["0.205.1", "0.220.0", "0.220.1"]) {
+    for (const coreVersion of ["0.205.1", "0.220.1", "0.221.1"]) {
       assert.equal(
         semver.satisfies(coreVersion, corePeerRange),
         false,
-        `Toolkit must not accept Core ${coreVersion} without the MCP approval client export`,
+        `Toolkit must not accept Core ${coreVersion} before the generation API requirement`,
       );
     }
 
-    for (const coreVersion of ["0.221.0", "0.221.1"]) {
-      assert.ok(
-        semver.satisfies(coreVersion, corePeerRange),
-        `Toolkit must accept Core ${coreVersion} with the MCP approval client export`,
-      );
-    }
+    assert.ok(semver.satisfies(corePackage.version, corePeerRange));
 
     assert.equal(
       toolkitPackage.peerDependenciesMeta?.["@agent-native/core"]?.optional,
@@ -1797,15 +1799,25 @@ esac
       readFileSync("packages/dispatch/package.json", "utf8"),
     ) as { peerDependencies?: Record<string, string> };
     const corePeerRange = dispatch.peerDependencies?.["@agent-native/core"];
-    assert.equal(corePeerRange, ">=0.220.1-0 || >=0.221.0-0");
+    assert(corePeerRange);
+    const minimum = semver.minVersion(corePeerRange);
+    assert(minimum);
+    assert(semver.satisfies(minimum.version, ">=0.222.0-0"));
+    const tuple = `${minimum.major}.${minimum.minor}.${minimum.patch}`;
+    const core = JSON.parse(
+      readFileSync("packages/core/package.json", "utf8"),
+    ) as {
+      version: string;
+    };
     for (const version of [
-      "0.220.1-beta.0",
-      "0.220.1",
-      "0.221.0-beta.0",
-      "0.221.0",
+      `${tuple}-beta.0`,
+      `${tuple}-rc.0`,
+      tuple,
+      core.version,
     ]) {
       assert(semver.satisfies(version, corePeerRange), version);
     }
+    assert(!semver.satisfies("0.221.1", corePeerRange));
   });
 
   it("restores the shared Changesets config when a stable version run fails", async () => {

@@ -8,16 +8,19 @@ import { encryptSecretValue } from "../secrets/crypto.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   ATTACHMENT_ERROR_CODES,
+  attachmentFailureToError,
+  describeAttachmentFailure,
+  isAttachmentArgumentFailure,
+  isAttachmentError,
+  unwrapAttachment,
+} from "./attachment-errors.js";
+import {
   ATTACHMENT_REF_MAX_CHARS,
   ATTACHMENT_REF_PREFIX,
   LEGACY_SLIDES_UPLOAD_REF_PREFIX,
   PrivateBlobError,
-  attachmentFailureToError,
   attachmentOwnerKey,
   deleteAttachment,
-  describeAttachmentFailure,
-  isAttachmentArgumentFailure,
-  isAttachmentError,
   isAttachmentRef,
   isRetryableAttachmentFailure,
   mintAttachmentRef,
@@ -25,7 +28,6 @@ import {
   resolveAttachment,
   setPrivateBlobPublicUploadFallbackEnabled,
   unregisterPrivateBlobProvider,
-  unwrapAttachment,
   type AttachmentFailure,
   type PrivateBlobHandle,
   type PrivateBlobProvider,
@@ -540,6 +542,8 @@ describe("what ends the turn", () => {
       expect(isActionContractError(error)).toBe(true);
       expect(isAttachmentError(error)).toBe(true);
       expect(error).toMatchObject({
+        name: "AttachmentArgumentError",
+        noWrite: true,
         errorCode: "attachment_malformed",
         statusCode: 400,
         details: {

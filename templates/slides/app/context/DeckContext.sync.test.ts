@@ -1614,26 +1614,39 @@ describe("DeckContext fallback polling", () => {
 
   it("parks a hidden open-deck poll after repeated server errors until the tab is visible", async () => {
     const { api } = await renderOpenDeck();
+    // A poll can use a revision probe or retry a full read.
+    const openDeckReads = () =>
+      api.fetchMock.mock.calls.filter(([url]) => {
+        const href = requestString(url);
+        return (
+          href.includes("/_agent-native/actions/get-deck") ||
+          (href.includes("/_agent-native/actions/list-decks") &&
+            href.includes("ids%5B%5D=") &&
+            !href.includes("includePreview"))
+        );
+      }).length;
 
     api.failDeckReads(500);
     hideDocument();
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    const deckBefore = deckCallCount(api.fetchMock);
+    const deckBefore = openDeckReads();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(31_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 1);
+    const afterFirstPoll = openDeckReads();
+    expect(afterFirstPoll).toBeGreaterThan(deckBefore);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(61_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 2);
+    const afterSecondPoll = openDeckReads();
+    expect(afterSecondPoll).toBeGreaterThan(afterFirstPoll);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 2);
+    expect(openDeckReads()).toBe(afterSecondPoll);
 
     restoreVisibility?.();
     restoreVisibility = null;
@@ -1641,7 +1654,7 @@ describe("DeckContext fallback polling", () => {
       document.dispatchEvent(new Event("visibilitychange"));
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 3);
+    expect(openDeckReads()).toBeGreaterThan(afterSecondPoll);
   });
 
   it("does not hold a failing deck list at the fast interval while the live channel is up", async () => {
