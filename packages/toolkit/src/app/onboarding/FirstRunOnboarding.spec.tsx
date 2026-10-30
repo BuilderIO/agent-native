@@ -342,6 +342,61 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
+  it("waits for the experiment configuration before showing the choice", async () => {
+    mocks.creditsV2ConfigState = { status: "ready", enabled: true };
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: true,
+      error: null,
+      profile: null,
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+    await act(async () => {
+      document.body
+        .querySelector<HTMLButtonElement>("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    expect(
+      document.body.querySelector("[data-onboarding-loading='true']"),
+    ).not.toBeNull();
+    expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_experiment_exposed",
+      expect.anything(),
+    );
+    mocks.recordCreditsV2Exposure.mockResolvedValue({
+      assignment: {
+        experiment_id: "first_run_builder_credits_v2",
+        experiment_variant: "credits",
+      },
+    });
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: { appId: "design", appName: "Design", capabilities: [] },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+      await Promise.resolve();
+    });
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenCalled();
+  });
+
   it("does not emit a second started event when the summary resolves", () => {
     mocks.useOnboarding.mockReturnValue({
       firstRun: true,

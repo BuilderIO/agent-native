@@ -17,7 +17,7 @@ describe("onboarding configuration", () => {
         .firstRunCreditsExperimentOverride,
     ).toBe("v1");
     expect(() =>
-      onboardingConfig.parse({ firstRunCreditsExperimentOverride: "invalid" }),
+      onboardingConfig.parse({ firstRunCreditsExperimentOverride: "v2" }),
     ).toThrow();
   });
 });

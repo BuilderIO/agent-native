@@ -20,7 +20,8 @@ vi.mock("@agent-native/core/server", () => ({
   getAppConfig: () => ({
     onboarding: {
       firstRunCreditsExperiment: "v2",
-      firstRunCreditsExperimentOverride: mocks.config,
+      firstRunCreditsExperimentOverride:
+        mocks.config === "v1" ? "v1" : undefined,
     },
   }),
   resolveFirstRunBuilderCreditsV2Assignment: (...args: unknown[]) =>
