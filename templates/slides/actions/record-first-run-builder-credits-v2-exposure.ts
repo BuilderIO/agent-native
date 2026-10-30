@@ -1,14 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import {
-  evaluateFeatureFlagRules,
-  getFeatureFlagRulesStrict,
-} from "@agent-native/core/feature-flags";
-import {
+  getAppConfig,
   getRequestContext,
   recordFirstRunBuilderCreditsV2Exposure,
   resolveFirstRunBuilderCreditsV2Assignment,
 } from "@agent-native/core/server";
-import { FIRST_RUN_BUILDER_CREDITS_V2_FLAG } from "@agent-native/toolkit/app/onboarding/first-run-builder-credits-flag";
 import { z } from "zod";
 
 export default defineAction({
@@ -30,19 +26,10 @@ export default defineAction({
     const context = getRequestContext();
     if (!context?.authUserId) return { assignment: null };
 
-    const flagScope = {
-      ...(context.userEmail ? { userEmail: context.userEmail } : {}),
-      ...(context.orgId ? { orgId: context.orgId } : {}),
-    };
-    const flagRules = await getFeatureFlagRulesStrict(
-      FIRST_RUN_BUILDER_CREDITS_V2_FLAG.key,
-      flagScope,
-    );
-    const flagEnabled = evaluateFeatureFlagRules(
-      FIRST_RUN_BUILDER_CREDITS_V2_FLAG.key,
-      flagRules,
-      flagScope,
-    );
+    const config = getAppConfig().onboarding;
+    const flagEnabled =
+      (config.firstRunCreditsExperimentOverride ??
+        config.firstRunCreditsExperiment) === "v2";
     if (!flagEnabled) return { assignment: null };
 
     const assignment = confirmedVariant

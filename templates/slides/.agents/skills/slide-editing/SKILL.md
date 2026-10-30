@@ -39,11 +39,15 @@ or "make it beautiful", read `slide-design`; a linked system's tokens still win.
 
 ## Updating a slide
 
-1. Call `view-screen` for the active deck, slide ID, HTML, and any
-   `slides-selection` target. The user navigates and reselects between turns:
-   on any turn that says this, here, that slide, or the selected one, call
-   `view-screen` again and never reuse a previous turn's slide ID or
-   selection. If nothing is selected or the target is unclear, ask which slide.
+A small edit is a same-or-shorter text replacement, a selected-object or
+`selectedText` edit, or a single style tweak. It is one `update-slide` call:
+skip steps 2, 4, and 5 and the fit and contrast checks below.
+
+1. Take the deck, slide ID, and selection from this turn's context block; call
+   `view-screen` only when they are missing. The user navigates and reselects
+   between turns, so never reuse a previous turn's slide ID or selection.
+   This, here, or this slide with nothing selected means the current slide;
+   ask which slide only when there is no current slide.
 2. When the edit changes facts, brand language, or layout, follow
    `creative-context` first. If retrieval yields a new context pack, keep its
    `contextPackId` with the deck provenance; existing HTML is not proof of
@@ -59,7 +63,8 @@ or "make it beautiful", read `slide-design`; a linked system's tokens still win.
      `fullContent` flow above. Keep it within the slide's existing layout and
      give it useful `alt` text. Do not add a separate image action: the slide
      sanitizer permits HTTPS image sources.
-   - **Selected text:** if `view-screen` returns an exact `selectedText` range,
+   - **Selected text:** if the context or `view-screen` gives an exact
+     `selectedText` range,
      send one literal replace with the selected text as `find` and
      `expectedMatches: 1`. Use `selectionSlideId` and
      `selectionSlideContentHash` when present (the selection can be on another
@@ -73,6 +78,11 @@ or "make it beautiful", read `slide-design`; a linked system's tokens still win.
      `get-deck` with that `slideId` (`compact=false` for full HTML, plus
      `format=true` for code-style work) and use its `contentHash` as
      `baseContentHash`.
+   - **Trend values:** when you change the number in a `data-trend="auto"`
+     element, set its `--trend` to `var(--trend-up)` for a leading "+" or
+     positive value, `var(--trend-down)` for "-" or "−", and
+     `var(--trend-flat)` for an unsigned zero when the element defines
+     `--trend-flat`.
    - Use `fullContent` only for an intentional full rewrite, never to make a
      small change. `format=true` persists readable line breaks.
 4. Read back with `get-deck` (or a thumbnail's `.slide-content`
@@ -98,11 +108,15 @@ instead of describing changes that did not land.
 The `create-deck` Fit budget applies: on 16:9 with `64px 80px` padding the
 content area is 800x412px, so use at most two title lines, three short bullets
 or cards, and two or three items per column. When an edit adds or lengthens
-text, redo the height arithmetic and split the slide instead of shrinking.
-Body text stays at least 16px. Never hide overflow with zoom,
-`transform: scale()`, clipping, or scroll; reducing explicit padding is allowed.
+text, redo the height arithmetic. When the user asks to add content to a named
+or current slide, keep it on that slide with a compact layout (columns, a
+metric grid, tighter gaps); split only if the user agrees, or if it cannot fit
+at 16px, and then say so. Body text stays at least 16px. Never hide overflow
+with zoom, `transform: scale()`, clipping, or scroll; reducing explicit padding
+is allowed.
 
-After all edits, call `get-layout-overflows` once, and once more only after
+Run the checks below only when an edit changes layout or makes text longer.
+After those edits, call `get-layout-overflows` once, and once more only after
 repairing a measured overflow. It reads the open editor's latest measurements
 and cannot trigger new ones, so repeating it this turn changes nothing. If
 status is unknown, name the unmeasured slide numbers and IDs and never claim
@@ -110,9 +124,9 @@ the deck fits.
 
 ## Contrast
 
-Run `audit-contrast` as the last step of any turn that created or changed
-slides (after layout repairs, right before the final response) and whenever
-readability or accessibility comes up. If the deck is not open in the editor,
+Run `audit-contrast` as the last step of any turn that created slides or
+changed colors, layout, or text length (after layout repairs, right before the
+final response), and whenever readability or accessibility comes up. If the deck is not open in the editor,
 say contrast was not checked.
 
 Fix failures in one pass by adjusting the role (`--deck-muted`, `--deck-ink`, a
@@ -144,6 +158,9 @@ Slides does, so write markup that maps cleanly:
 - Never write `contain` or `contain-intrinsic-size`; they break the editor's
   measuring and the PPTX export.
 - No inline `<svg>`; the sanitizer removes it. Use styled divs or an `<img>`.
+- Place and size absolute objects on the 8px grid: positions, sizes, gaps, and
+  padding in multiples of 8; borders, radius, and type in whole px. Never write
+  a fractional px value or one computed with arithmetic that can leave decimals.
 - Keep nesting shallow. Unpainted wrappers with no direct text (grid rows,
   columns) are fine; the pointer skips them.
 - Ids belong to freeform objects only. Never stamp `data-slide-object-id` on a

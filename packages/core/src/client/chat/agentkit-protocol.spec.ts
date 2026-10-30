@@ -4958,6 +4958,113 @@ describe("createAgentKitProtocolAdapter", () => {
     ).resolves.toMatchObject({ status: "cancelled" });
   });
 
+  it("keeps readers attached until a cancel whose stream closes first settles", async () => {
+    const streamClosed = Promise.withResolvers<void>();
+    const cancelSettled = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "status", message: "Working" };
+      await streamClosed.promise;
+    }
+    const cancel = vi.fn(async () => {
+      streamClosed.resolve();
+      await cancelSettled.promise;
+      return { status: "cancelled" as const };
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Copy the slides")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "activity.updated") break;
+    }
+    const remaining: AgentEvent[] = [];
+    const drained = (async () => {
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) return;
+        remaining.push(next.value);
+      }
+    })();
+
+    const cancelling = transport.cancelRun({ threadId: "thread-1", runId });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    // Let the closed stream end the pump and wake the reader.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    cancelSettled.resolve();
+    await cancelling;
+    await drained;
+
+    expect(remaining.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["run.status", "run.cancelled"]),
+    );
+    expect(remaining.at(-1)?.type).toBe("run.cancelled");
+    await transport.dispose();
+  });
+
+  it("releases readers when a cancel whose stream closed first fails", async () => {
+    const streamClosed = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "status", message: "Working" };
+      await streamClosed.promise;
+      yield { type: "done", reason: "complete" };
+    }
+    const cancel = vi.fn(async () => {
+      streamClosed.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      throw new Error("Cancel request failed");
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Copy the slides")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "activity.updated") break;
+    }
+    const drained = (async () => {
+      while (!(await iterator.next()).done) {}
+    })();
+
+    await expect(
+      transport.cancelRun({ threadId: "thread-1", runId }),
+    ).rejects.toThrow("Cancel request failed");
+    await expect(drained).resolves.toBeUndefined();
+    await transport.dispose();
+  });
+
   it("leaves a paused Core turn to the server when the adapter is disposed", async () => {
     const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
     const disposeSession = vi.fn(async () => undefined);

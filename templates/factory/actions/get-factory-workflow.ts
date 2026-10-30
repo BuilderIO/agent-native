@@ -43,7 +43,7 @@ function outlineOf(graph: WorkflowGraph) {
 
 export default defineAction({
   description:
-    "Read one workflow: its graph, version, whether it is enabled, the version with a clean dry run (a workflow can only be enabled when that is its current version), the health of its scheduled job including any drift from what the graph requires, and connections: each provider the graph needs with its status (connected, not connected, unknown), how to connect it, and the node ids that need it. Pass version to read an older graph. A graph too large for one tool result comes back to an agent as an outline under truncated, with no graph; read those nodes in full with nodeIds.",
+    "Read one workflow: its graph, version, whether it is enabled, the version with a clean dry run (a workflow can only be enabled when that is its current version), the health of its scheduled job including any drift from what the graph requires, and connections: each provider the graph needs with its status (connected, not connected, unknown), how to connect it, and the node ids that need it. hasDraft is true when the signed-in person has unsaved edits kept as a private draft (the editor holds them; tell them before saving a new version). Pass version to read an older graph. A graph too large for one tool result comes back to an agent as an outline under truncated, with no graph; read those nodes in full with nodeIds.",
   schema: z.object({
     factoryId: factoryIdSchema,
     workflowId: z.string().trim().min(1).max(64),
@@ -100,6 +100,11 @@ export default defineAction({
         version: graphVersion,
         currentVersion: workflow.version,
         connections: await readGraphConnections(graph, scoped),
+        hasDraft: await scoped.store.hasWorkflowDraft(
+          scoped.scope,
+          workflowId,
+          scoped.userEmail,
+        ),
         job: summarizeWorkflowJob(definition, {
           enabled: workflow.enabled,
           // Only the schedule is read; whether a Sentry Source can run is

@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -71,7 +71,7 @@ export function InsightsHub() {
   };
 
   const csvUrl = useMemo(() => {
-    const base = `${appBasePath()}/api/insights/export`;
+    const base = appApiPath("/api/insights/export");
     if (!data?.organizationId) return base;
     return `${base}?organizationId=${encodeURIComponent(data.organizationId)}`;
   }, [data?.organizationId]);

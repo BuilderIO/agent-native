@@ -6,15 +6,10 @@
  */
 import { getRequestURL, type H3Event } from "h3";
 
+import { BUILDER_HOST_FRAME_ANCESTORS } from "../../shared/builder-host-origins.js";
 import { SHELL_CANVAS_PATH } from "../../shared/shell-screens.js";
 
-const BUILDER_FRAME_ANCESTORS = [
-  "https://builder.io",
-  "https://*.builder.io",
-  "https://*.builder.my",
-  "http://localhost:*",
-  "http://127.0.0.1:*",
-].join(" ");
+const BUILDER_FRAME_ANCESTORS = BUILDER_HOST_FRAME_ANCESTORS.join(" ");
 
 export function isShellCanvasRequest(event: H3Event): boolean {
   try {

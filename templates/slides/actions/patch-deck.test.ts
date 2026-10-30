@@ -2048,6 +2048,34 @@ describe("run() — asynchronous layout fit metadata", () => {
     ).toBe(true);
   });
 
+  it("names the slides another writer deleted instead of failing untyped", async () => {
+    const data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div>One</div>" }],
+    });
+    mockDeckRow = { ...mockDeckRow, data };
+
+    const error = await runPatchDeckAction({
+      deckId: "deck-1",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-gone",
+          fields: { skipped: true },
+          baseFields: { skipped: { present: false } },
+        },
+      ],
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "slide_not_found",
+      statusCode: 404,
+      details: { slideIds: ["slide-gone"] },
+    });
+    expect(mockDeckRow).toMatchObject({ data });
+  });
+
   it("rejects extra widget operation metadata", () => {
     const operations = [
       {
