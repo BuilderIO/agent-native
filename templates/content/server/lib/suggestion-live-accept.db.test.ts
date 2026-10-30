@@ -359,21 +359,16 @@ async function proposeSplitEdit(
   );
 }
 
-/**
- * Accepts the lower edit whole, then the upper one piece by piece: once the
- * lower edit and the upper one's first pieces have changed the Page on both
- * sides of a piece, the spaces it was anchored to match in many places.
- */
-async function acceptUpperPiecesAfterLower(documentId: string) {
-  const upper = await proposeSplitEdit(documentId, listEdits[0]);
-  const lower = await proposeSplitEdit(documentId, listEdits[1]);
-  expect(upper.suggestions.length).toBeGreaterThan(5);
+/** Accepts every piece of an agent's edit in one decision. */
+async function acceptWhole(
+  proposed: Awaited<ReturnType<typeof proposeSplitEdit>>,
+) {
   await decideProposal.run(
     {
-      proposalId: lower.proposal.id,
+      proposalId: proposed.proposal.id,
       decision: "accepted",
-      idempotencyKey: `decide-lower-${documentId}`,
-      members: lower.suggestions.map((suggestion) => ({
+      idempotencyKey: `decide-${proposed.proposal.id}`,
+      members: proposed.suggestions.map((suggestion) => ({
         id: suggestion.id,
         observedRevision: suggestion.revision,
         observedBase: suggestion.baseRevision,
@@ -381,10 +376,28 @@ async function acceptUpperPiecesAfterLower(documentId: string) {
     },
     ctx,
   );
-  for (const piece of upper.suggestions)
-    expect((await decide(piece, "accepted")).suggestion.status).toBe(
-      "accepted",
-    );
+}
+
+/**
+ * Accepts the lower edit whole, then the upper one piece by piece or whole:
+ * once the lower edit and the upper one's first pieces have changed the Page
+ * on both sides of a piece, the spaces it was anchored to match in many
+ * places.
+ */
+async function acceptUpperAfterLower(
+  documentId: string,
+  upperBy: "piece" | "whole",
+) {
+  const upper = await proposeSplitEdit(documentId, listEdits[0]);
+  const lower = await proposeSplitEdit(documentId, listEdits[1]);
+  expect(upper.suggestions.length).toBeGreaterThan(5);
+  await acceptWhole(lower);
+  if (upperBy === "whole") await acceptWhole(upper);
+  else
+    for (const piece of upper.suggestions)
+      expect((await decide(piece, "accepted")).suggestion.status).toBe(
+        "accepted",
+      );
   return canonicalizeNfm(
     listEdits.reduce(
       (text, edit) => text.replace(edit.find, edit.replace),
@@ -585,15 +598,16 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
     },
   );
 
-  ownerIt(
-    "places each piece of an agent's edit after the edit below it was accepted",
-    async () => {
-      const documentId = await seedPage(listPage);
-      const expected = await acceptUpperPiecesAfterLower(documentId);
-      expect((await liveCopy(documentId)).text).toBe(expected);
-      expect((await stored(documentId)).content).toBe(expected);
-    },
-  );
+  for (const upperBy of ["piece", "whole"] as const)
+    ownerIt(
+      `places an agent's edit ${upperBy === "piece" ? "piece by piece" : "as a whole"} after the edit below it was accepted`,
+      async () => {
+        const documentId = await seedPage(listPage);
+        const expected = await acceptUpperAfterLower(documentId, upperBy);
+        expect((await liveCopy(documentId)).text).toBe(expected);
+        expect((await stored(documentId)).content).toBe(expected);
+      },
+    );
 
   ownerIt("accepts a proposal's members in one edit", async () => {
     const documentId = await seedPage(page);
@@ -928,14 +942,15 @@ describe("accepting a suggestion on a Page its legacy writer still writes", () =
     },
   );
 
-  ownerIt(
-    "places each piece of an agent's edit after the edit below it was accepted",
-    async () => {
-      const documentId = await insertPage(listPage);
-      const expected = await acceptUpperPiecesAfterLower(documentId);
-      expect((await stored(documentId)).content).toBe(expected);
-    },
-  );
+  for (const upperBy of ["piece", "whole"] as const)
+    ownerIt(
+      `places an agent's edit ${upperBy === "piece" ? "piece by piece" : "as a whole"} after the edit below it was accepted`,
+      async () => {
+        const documentId = await insertPage(listPage);
+        const expected = await acceptUpperAfterLower(documentId, upperBy);
+        expect((await stored(documentId)).content).toBe(expected);
+      },
+    );
 
   ownerIt("accepts on a switched Page whose flags are off", async () => {
     const documentId = await seedPage(page);

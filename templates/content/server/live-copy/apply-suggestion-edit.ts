@@ -16,7 +16,7 @@ import {
 import {
   applyMarkdownSuggestionWithSiblings,
   markdownPayload,
-  rebaseOntoAcceptedSiblings,
+  placeOnAcceptedSiblings,
   suggestionEditorSchema,
   supportedSuggestionStructure,
   withSiblingRanges,
@@ -143,11 +143,11 @@ function changedRange(
     acceptedSiblingRanges.length &&
     markdownPayload(operation.before, "before").markdown !== current
   ) {
-    const rebased = rebaseOntoAcceptedSiblings(
+    const moved = placeOnAcceptedSiblings(
+      current,
       operation,
       acceptedSiblingRanges,
     );
-    const moved = rebased && resolveMarkdownSuggestionRange(current, rebased);
     if (gives(moved)) return moved;
     const across = resolveMarkdownSuggestionRange(
       current,

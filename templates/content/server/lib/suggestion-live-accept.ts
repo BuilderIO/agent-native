@@ -1,6 +1,6 @@
 import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { LiveCopyError } from "@agent-native/core/collab";
-import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { getDbExec, sql, type DbExec } from "@agent-native/core/db";
 import {
   getSuggestion,
   type ResourceSuggestion,
@@ -96,19 +96,13 @@ export async function acceptedRangesOnSameText(
   beforeMarkdown: string,
 ): Promise<AcceptedSiblingRange[]> {
   const rows = (
-    await tx.execute({
-      sql: `SELECT o.anchor_json, o.after_json FROM agent_review_suggestions s
+    await tx.execute(sql`SELECT o.anchor_json, o.after_json FROM agent_review_suggestions s
             INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
-            WHERE s.resource_type = 'document' AND s.resource_id = ? AND s.adapter_kind = ?
-              AND s.status = 'accepted' AND s.id <> ?
-              AND (o.before_json::jsonb ->> 'markdown') = ?`,
-      args: [
-        suggestion.resourceId,
-        suggestion.adapterKind,
-        suggestion.id,
-        beforeMarkdown,
-      ],
-    })
+            WHERE s.resource_type = 'document'
+              AND s.resource_id = ${sql.value(suggestion.resourceId)}
+              AND s.adapter_kind = ${sql.value(suggestion.adapterKind)}
+              AND s.status = 'accepted' AND s.id <> ${sql.value(suggestion.id)}
+              AND (o.before_json::jsonb ->> 'markdown') = ${sql.value(beforeMarkdown)}`)
   ).rows;
   return rows.flatMap((row) => {
     const anchor = JSON.parse(
@@ -116,24 +110,23 @@ export async function acceptedRangesOnSameText(
     ) as Partial<MarkdownRange> | null;
     // Saved as a whole before and after, it has no range to excuse.
     if (anchor === null) return [];
+    const { from, to } = anchor;
+    if (
+      typeof from !== "number" ||
+      typeof to !== "number" ||
+      !Number.isInteger(from) ||
+      !Number.isInteger(to) ||
+      from < 0 ||
+      from > to ||
+      to > beforeMarkdown.length
+    )
+      return [];
     const text = (
       JSON.parse(String(row.after_json ?? "null")) as {
         changedText?: unknown;
       } | null
     )?.changedText;
-    return Number.isInteger(anchor.from) &&
-      Number.isInteger(anchor.to) &&
-      anchor.from! >= 0 &&
-      anchor.from! <= anchor.to! &&
-      anchor.to! <= beforeMarkdown.length
-      ? [
-          {
-            from: anchor.from!,
-            to: anchor.to!,
-            ...(typeof text === "string" && { text }),
-          },
-        ]
-      : [];
+    return [{ from, to, ...(typeof text === "string" && { text }) }];
   });
 }
 

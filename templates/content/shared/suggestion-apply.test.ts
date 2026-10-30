@@ -29,24 +29,26 @@ const edits = [
     replace:
       "\n\t- **Regions.** Which three should we test?\n\t- **Free tier.** Does it cover the demo?\n\t- **Benchmark.** Who reviews it?",
   },
-];
+] as const;
 
-const proposals = edits.map((edit) => {
-  const start = page.indexOf(edit.find);
+function split(edit: { find: string; replace: string }) {
   return markdownSuggestionOperationsForFindReplace({
     before: page,
     find: edit.find,
     replace: edit.replace,
-    start,
+    start: page.indexOf(edit.find),
   });
-});
+}
+
+const vendor = split(edits[0]);
+const host = split(edits[1]);
 
 const approved = edits.reduce(
   (text, edit) => text.replace(edit.find, edit.replace),
   page,
 );
 
-type Operation = (typeof proposals)[number][number];
+type Operation = (typeof vendor)[number];
 
 const accepted = (operation: Operation): AcceptedSiblingRange => ({
   from: operation.anchor.from,
@@ -54,9 +56,18 @@ const accepted = (operation: Operation): AcceptedSiblingRange => ({
   text: operation.after.changedText,
 });
 
+/** The piece of `pieces` that rewrites `text`. */
+function pieceChanging(pieces: Operation[], text: string) {
+  const piece = pieces.find(
+    (operation) => operation.before.changedText === text,
+  );
+  if (!piece) throw new Error(`No piece rewrites "${text}"`);
+  return piece;
+}
+
 /** Accepts each piece in turn, as the server does, or reports the first that fails. */
-function acceptInOrder(pieces: Operation[], withText = true) {
-  let body = page;
+function acceptInOrder(pieces: Operation[], withText = true, start = page) {
+  let body = start;
   const done: AcceptedSiblingRange[] = [];
   for (const piece of pieces) {
     const next = applyMarkdownSuggestionWithSiblings(
@@ -73,10 +84,9 @@ function acceptInOrder(pieces: Operation[], withText = true) {
 
 describe("placing a piece of an agent's edit after its siblings", () => {
   it("splits the first edit into pieces anchored to single spaces", () => {
-    const [vendor] = proposals;
-    expect(vendor!.length).toBeGreaterThan(5);
+    expect(vendor.length).toBeGreaterThan(5);
     expect(
-      vendor!.filter(
+      vendor.filter(
         (operation) =>
           operation.anchor.prefix === " " && operation.anchor.suffix === " ",
       ).length,
@@ -84,14 +94,13 @@ describe("placing a piece of an agent's edit after its siblings", () => {
   });
 
   it("places every piece when the edit below is accepted first", () => {
-    const [vendor, host] = proposals;
-    const result = acceptInOrder([...host!, ...vendor!]);
+    const result = acceptInOrder([...host, ...vendor]);
     expect(result.failed).toBeNull();
     expect(result.body).toBe(approved);
   });
 
   it("places every piece in page order and in reverse", () => {
-    const pieces = proposals.flat();
+    const pieces = [...vendor, ...host];
     expect(acceptInOrder(pieces).body).toBe(approved);
     const reversed = acceptInOrder([...pieces].reverse());
     expect(reversed.failed).toBeNull();
@@ -99,37 +108,72 @@ describe("placing a piece of an agent's edit after its siblings", () => {
   });
 
   it("needed the text the siblings wrote", () => {
-    const [vendor, host] = proposals;
-    expect(acceptInOrder([...host!, ...vendor!], false).failed).not.toBeNull();
+    expect(acceptInOrder([...host, ...vendor], false).failed).not.toBeNull();
+  });
+
+  it("places every piece after an edit to the Page below them", () => {
+    const signed = page.replace("Thanks.", "Thanks, Sam.");
+    const result = acceptInOrder([...host, ...vendor], true, signed);
+    expect(result.failed).toBeNull();
+    expect(result.body).toBe(approved.replace("Thanks.", "Thanks, Sam."));
   });
 
   it("still refuses a piece whose words someone else changed", () => {
-    const [vendor, host] = proposals;
-    const pieces = [...host!, ...vendor!];
-    const target = vendor!.find(
-      (operation) => operation.before.changedText === "can",
-    )!;
-    const before = acceptInOrder(pieces.slice(0, pieces.indexOf(target)));
+    const pieces = [...host, ...vendor];
+    const target = pieceChanging(vendor, "can");
+    const earlier = pieces.slice(0, pieces.indexOf(target));
+    const before = acceptInOrder(earlier);
     expect(before.failed).toBeNull();
     const edited = before.body.replace(" can point at", " could point at");
     expect(edited).not.toBe(before.body);
-    const done = pieces.slice(0, pieces.indexOf(target)).map(accepted);
     expect(
-      applyMarkdownSuggestionWithSiblings(edited, target, done),
+      applyMarkdownSuggestionWithSiblings(
+        edited,
+        target,
+        earlier.map(accepted),
+      ),
+    ).toBeNull();
+  });
+
+  it("refuses a piece whose context someone repeated elsewhere", () => {
+    // Accepting "A" to "C" makes the text around the first "foo" unique. Then
+    // someone rewrites that "foo" and changes the second copy's "A" to "C":
+    // the context is unique on the Page too, but around the wrong "foo".
+    const left = `${"x".repeat(20)} A ${"x".repeat(10)} `;
+    const block = `${left}foo ${"y".repeat(40)}`;
+    const before = `${block}\n\nMIDDLE\n\n${block}`;
+    const from = left.length;
+    const operation = {
+      kind: "replace_text",
+      before: { markdown: before, changedText: "foo" },
+      after: {
+        markdown: `${before.slice(0, from)}new${before.slice(from + 3)}`,
+        changedText: "new",
+      },
+      anchor: { from, to: from + 3, prefix: " ", suffix: " " },
+    };
+    const sibling = {
+      from: before.indexOf("A"),
+      to: before.indexOf("A") + 1,
+      text: "C",
+    };
+    const current = `${block.replace("A", "C").replace("foo", "bar")}\n\nMIDDLE\n\n${block.replace("A", "C")}`;
+    expect(
+      applyMarkdownSuggestionWithSiblings(current, operation, [sibling]),
     ).toBeNull();
   });
 });
 
 describe("rebaseOntoAcceptedSiblings", () => {
-  const [vendor] = proposals;
-  const target = vendor![3]!;
+  const target = pieceChanging(vendor, "can");
+  const earlier = vendor.slice(0, vendor.indexOf(target));
 
   it("needs the text every accepted sibling wrote", () => {
-    const sibling = vendor![2]!;
     expect(
-      rebaseOntoAcceptedSiblings(target, [
-        { from: sibling.anchor.from, to: sibling.anchor.to },
-      ]),
+      rebaseOntoAcceptedSiblings(
+        target,
+        earlier.map(({ anchor }) => ({ from: anchor.from, to: anchor.to })),
+      ),
     ).toBeNull();
   });
 
@@ -151,21 +195,15 @@ describe("rebaseOntoAcceptedSiblings", () => {
     ).toBeNull();
   });
 
-  it("reads its context from the text the siblings left", () => {
-    const earlier = vendor!.slice(0, 3).map(accepted);
-    const rebased = rebaseOntoAcceptedSiblings(target, earlier)!;
-    const text = rebased.before.markdown;
-    expect(text.slice(rebased.anchor.from, rebased.anchor.to)).toBe(
-      target.before.changedText,
+  it("rebuilds the before-text as the siblings left it", () => {
+    const rebased = rebaseOntoAcceptedSiblings(target, earlier.map(accepted));
+    expect(rebased?.text).toBe(
+      earlier.reduceRight(
+        (text, piece) =>
+          `${text.slice(0, piece.anchor.from)}${piece.after.changedText}${text.slice(piece.anchor.to)}`,
+        page,
+      ),
     );
-    expect(rebased.anchor.prefix.length).toBe(32);
-    expect(
-      text.slice(0, rebased.anchor.from).endsWith(rebased.anchor.prefix),
-    ).toBe(true);
-    expect(rebased.after.markdown).toBe(
-      text.slice(0, rebased.anchor.from) +
-        target.after.changedText +
-        text.slice(rebased.anchor.to),
-    );
+    expect(rebased && rebased.text.slice(rebased.from, rebased.to)).toBe("can");
   });
 });
