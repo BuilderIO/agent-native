@@ -1360,8 +1360,9 @@ export interface DeleteReviewCommentOptions {
 
 /**
  * Soft-deletes a comment, and with a thread's first comment the thread's live
- * replies too. Each row stays, but its text, mentions and image attachments are
- * cleared, as they are in apps that remove the row.
+ * replies too. Each row stays, but what someone wrote or attached is cleared:
+ * its text, mentions, image attachments and any resolution note, as they are
+ * in apps that remove the row.
  */
 export async function deleteReviewComment(
   id: string,
@@ -1370,6 +1371,7 @@ export async function deleteReviewComment(
 ): Promise<number> {
   await ensureReviewTables();
   const now = new Date().toISOString();
+  const actor = deletedBy ?? null;
   const client = getDbExec();
   const deleteIn = async (tx: DbExec) => {
     // A reply still being written holds its root `FOR SHARE`. Taking the root
@@ -1378,65 +1380,83 @@ export async function deleteReviewComment(
     // refuses.
     // raw-sql-ok: the statement is constant text; the id is bound.
     const { rows: roots } = await tx.execute({
-      sql: `SELECT thread_id FROM agent_review_comments
+      sql: `SELECT thread_id, resource_type, resource_id
+              FROM agent_review_comments
              WHERE id = ? AND parent_comment_id IS NULL FOR UPDATE`,
       args: [id],
     });
-    // A root's thread is usually its own id, but the store takes one given at
-    // insert, so the check and the delete both go by the thread stored on it.
-    const rootThreadId =
-      roots.length > 0
-        ? String((roots[0] as { thread_id: unknown }).thread_id)
-        : null;
-    if (rootThreadId !== null && options.assertThreadDeletable) {
-      // raw-sql-ok: the statement is constant text; the id is bound.
-      const { rows: replies } = await tx.execute({
-        sql: `SELECT author_email FROM agent_review_comments
-               WHERE thread_id = ? AND parent_comment_id IS NOT NULL
-                 AND deleted_at IS NULL`,
-        args: [rootThreadId],
-      });
-      options.assertThreadDeletable(
-        replies.map((row) => {
-          const email = (row as { author_email?: unknown }).author_email;
-          return typeof email === "string" ? email : null;
-        }),
-      );
-    }
+    const root = roots[0] as
+      | { thread_id: unknown; resource_type: unknown; resource_id: unknown }
+      | undefined;
     // A thread's first comment is the thread. Replies left behind would have no
     // root for any list to hang them on, but would still sit in the table.
-    // These are the replies the check above was shown.
-    // raw-sql-ok: the statement is constant text; the ids are bound.
-    const { rows: doomed } = await tx.execute({
-      sql: `SELECT id FROM agent_review_comments
-             WHERE id = ?
-                OR (thread_id = ? AND parent_comment_id IS NOT NULL
-                    AND deleted_at IS NULL)`,
-      args: [id, rootThreadId],
-    });
-    let deleted = 0;
-    for (const row of doomed) {
-      deleted += await clearDeletedReviewComment(
-        tx,
-        String((row as { id: unknown }).id),
-        deletedBy ?? null,
-        now,
+    // A root's thread is usually its own id, but the store takes one given at
+    // insert, which another resource could repeat, so the replies are found by
+    // the thread and resource stored on the root. The check is shown exactly
+    // the replies the delete takes.
+    const replies: DeletedReplyRow[] = root
+      ? ((
+          await tx.execute(sql`SELECT id, author_email, metadata_json
+               FROM agent_review_comments
+              WHERE thread_id = ${sql.value(String(root.thread_id))}
+                AND resource_type = ${sql.value(String(root.resource_type))}
+                AND resource_id = ${sql.value(String(root.resource_id))}
+                AND parent_comment_id IS NOT NULL
+                AND deleted_at IS NULL`)
+        ).rows as DeletedReplyRow[])
+      : [];
+    if (root && options.assertThreadDeletable) {
+      options.assertThreadDeletable(
+        replies.map((reply) =>
+          typeof reply.author_email === "string" ? reply.author_email : null,
+        ),
       );
     }
-    return deleted;
+    const deleted = await clearDeletedReviewComment(tx, id, actor, now);
+    const deletedReplies = await clearDeletedReviewReplies(
+      tx,
+      replies,
+      actor,
+      now,
+    );
+    return deleted + deletedReplies;
   };
   return client.transaction ? client.transaction(deleteIn) : deleteIn(client);
+}
+
+interface DeletedReplyRow {
+  id: unknown;
+  author_email?: unknown;
+  metadata_json?: unknown;
+}
+
+/** Metadata that holds what someone wrote or attached, cleared on delete. */
+const DELETED_COMMENT_METADATA_KEYS = ["attachments", "resolutionNote"];
+
+/**
+ * The metadata a deleted comment keeps, or `undefined` when nothing in it
+ * needs clearing.
+ */
+function metadataAfterDelete(metadataJson: unknown): string | null | undefined {
+  const metadata = parseObject(metadataJson);
+  if (
+    !metadata ||
+    !DELETED_COMMENT_METADATA_KEYS.some((key) => key in metadata)
+  ) {
+    return undefined;
+  }
+  for (const key of DELETED_COMMENT_METADATA_KEYS) delete metadata[key];
+  return Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null;
 }
 
 /** How many times a deletion rereads a comment that changed under it. */
 const DELETE_COMMENT_ATTEMPTS = 5;
 
 /**
- * Marks one comment deleted and clears its text, mentions and image
- * attachments. Another write, such as a resolution note, can change the
- * metadata between the read and the update. The update only lands on the
- * metadata it read, and reads again when that changed, so the other write
- * isn't lost.
+ * Marks one comment deleted and clears what someone wrote or attached in it.
+ * Another write, such as a resolution note, can change the metadata between
+ * the read and the update. The update only lands on the metadata it read, and
+ * reads again when that changed, so the other write isn't lost.
  */
 async function clearDeletedReviewComment(
   client: DbExec,
@@ -1452,17 +1472,16 @@ async function clearDeletedReviewComment(
     const row = existing.rows[0] as Record<string, unknown> | undefined;
     if (!row) return 0;
     const read = typeof row.metadata_json === "string" ? row.metadata_json : "";
-    const metadata = parseObject(row.metadata_json);
-    if (metadata) delete metadata.attachments;
-    const remainingMetadata =
-      metadata && Object.keys(metadata).length > 0
-        ? JSON.stringify(metadata)
-        : null;
+    const remainingMetadata = metadataAfterDelete(row.metadata_json);
+    const metadata =
+      remainingMetadata === undefined
+        ? sql`metadata_json`
+        : sql`${sql.value(remainingMetadata)}`;
     const result = await client.execute(sql`UPDATE agent_review_comments
           SET status = 'deleted',
               body = '',
               mentions_json = NULL,
-              metadata_json = ${sql.value(remainingMetadata)},
+              metadata_json = ${metadata},
               deleted_by = ${sql.value(deletedBy)},
               deleted_at = ${sql.value(now)},
               updated_at = ${sql.value(now)}
@@ -1473,6 +1492,42 @@ async function clearDeletedReviewComment(
   throw new Error(
     `Comment ${id} kept changing while it was being deleted; try again.`,
   );
+}
+
+/**
+ * Clears a deleted thread's replies in one statement. Only a thread's first
+ * comment has its metadata changed after it's written, so each reply's
+ * metadata, read under the thread's lock, is still current here.
+ */
+async function clearDeletedReviewReplies(
+  client: DbExec,
+  replies: readonly DeletedReplyRow[],
+  deletedBy: string | null,
+  now: string,
+): Promise<number> {
+  if (replies.length === 0) return 0;
+  const rewrites = replies.flatMap((reply) => {
+    const remainingMetadata = metadataAfterDelete(reply.metadata_json);
+    return remainingMetadata === undefined
+      ? []
+      : [
+          sql`WHEN ${sql.value(String(reply.id))} THEN ${sql.value(remainingMetadata)}`,
+        ];
+  });
+  const metadata =
+    rewrites.length > 0
+      ? sql`CASE id ${sql.join(rewrites, sql` `)} ELSE metadata_json END`
+      : sql`metadata_json`;
+  const result = await client.execute(sql`UPDATE agent_review_comments
+        SET status = 'deleted',
+            body = '',
+            mentions_json = NULL,
+            metadata_json = ${metadata},
+            deleted_by = ${sql.value(deletedBy)},
+            deleted_at = ${sql.value(now)},
+            updated_at = ${sql.value(now)}
+      WHERE id IN ${sql.in(replies.map((reply) => String(reply.id)))}`);
+  return result.rowsAffected;
 }
 
 /** Distinct authors of a thread's live comments, for reply emails. */

@@ -564,7 +564,7 @@ describe("review actions", () => {
 
   it("lets authors and editors delete a comment, which clears its text", async () => {
     expect(deleteReviewCommentAction.tool.description).toContain(
-      "clearing its text, mentions and image attachments",
+      "clearing its text, mentions, image attachments and any resolution note",
     );
     expect(deleteReviewCommentAction.tool.description).toContain(
       "deleting a reply removes only that reply",

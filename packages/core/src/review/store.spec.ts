@@ -392,6 +392,44 @@ describe("review store", () => {
       expect(await liveBodies("p1")).toEqual([]);
     });
 
+    it("leaves another resource's replies alone when a given thread id repeats there", async () => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: "repeated-thread",
+        body: "Root",
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const elsewhere = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p2",
+        threadId: "repeated-thread",
+        body: "Other root",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p2",
+        threadId: elsewhere.threadId,
+        parentCommentId: elsewhere.id,
+        body: "Carol's reply",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const assertThreadDeletable = vi.fn();
+
+      expect(
+        await deleteReviewComment(root.id, "alice@example.com", {
+          assertThreadDeletable,
+        }),
+      ).toBe(1);
+
+      expect(assertThreadDeletable).toHaveBeenCalledWith([]);
+      expect(await liveBodies("p2")).toEqual(["Other root", "Carol's reply"]);
+    });
+
     it("lists live reply authors by thread, for one resource, without the deleted", async () => {
       const first = await thread("p1");
       const other = await thread("p2");
@@ -822,7 +860,7 @@ describe("review store", () => {
     ]);
   });
 
-  it("clears the text, mentions and attachments of every comment a delete removes", async () => {
+  it("clears the text, mentions, attachments and note of every comment a delete removes", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
       resourceId: "d-delete",
@@ -850,8 +888,22 @@ describe("review store", () => {
         ],
       },
     });
+    const plainReply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Plain reply",
+      authorEmail: "carol@example.com",
+    });
+    await resolveReviewThread(
+      root.threadId,
+      "alice@example.com",
+      { resourceType: "doc", resourceId: "d-delete" },
+      "Fixed in the header",
+    );
 
-    expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(2);
+    expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(3);
     expect(await deleteReviewComment("missing", "alice@example.com")).toBe(0);
 
     const stored = await getReviewCommentById(
@@ -878,6 +930,9 @@ describe("review store", () => {
       deletedBy: "alice@example.com",
     });
     expect(storedReply?.metadata ?? {}).not.toHaveProperty("attachments");
+    expect(
+      await getReviewCommentById(plainReply.id, {}, { bypassScope: true }),
+    ).toMatchObject({ status: "deleted", body: "" });
   });
 
   it("lists the live replies of a root deleted before deletes took replies along, newest first too", async () => {
@@ -950,7 +1005,7 @@ describe("review store", () => {
           "UPDATE agent_review_comments SET metadata_json = ? WHERE id = ?",
         );
         await write.run(
-          JSON.stringify({ ...metadata, resolutionNote: "kept" }),
+          JSON.stringify({ ...metadata, label: "kept" }),
           root.id,
         );
       }
@@ -971,7 +1026,7 @@ describe("review store", () => {
     expect(stored).toMatchObject({
       status: "deleted",
       body: "",
-      metadata: { source: "pin", resolutionNote: "kept" },
+      metadata: { source: "pin", label: "kept" },
     });
     expect(stored?.metadata).not.toHaveProperty("attachments");
   });
