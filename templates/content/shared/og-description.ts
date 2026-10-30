@@ -332,9 +332,11 @@ export const EXCERPT_SOURCE_CHARS = 1000;
 export function buildListRowExcerpt({
   content,
   title,
+  maxLength,
 }: {
   content?: string | null;
   title?: string | null;
+  maxLength?: number;
 }): string {
   // Count characters the way the database does, not UTF-16 units. No
   // character takes more than two units.
@@ -346,5 +348,6 @@ export function buildListRowExcerpt({
     title,
     truncated: characters.length > EXCERPT_SOURCE_CHARS,
     nextCharacter: characters[EXCERPT_SOURCE_CHARS],
+    maxLength,
   });
 }
