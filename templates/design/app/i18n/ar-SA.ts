@@ -2339,7 +2339,11 @@ export default {
       pasteReplaceFailed: "تعذر استبدال تلك الطبقة",
       pasteTargetUnmeasured: "تعذر قياس الطبقة المحددة للصق فيها",
       pasteClipboardUnreadable: "اسمح بالوصول إلى الحافظة للصق هنا",
-      pasteClipboardUntrusted: "يتعذر لصق طبقات منسوخة من Design على موقع آخر",
+      clipboardImportPreparing: "جارٍ تحضير التصميم المنسوخ…",
+      clipboardImportedStatic: "يستخدم هذا اللصق نسخة ثابتة دون تفاعلات برمجية.",
+      clipboardImportFailed:
+        "تعذر استيراد هذا التصميم بأمان. لم يتم لصق أي شيء.",
+      pasteClipboardUntrusted: "بيانات Design المنسوخة غير صالحة أو غير مدعومة",
       swapFillStrokeLayeredFill:
         "لا يمكن نقل التعبئات المتعددة أو تعبئات الصور إلى حد بعد",
       alignNeedsTwoLayers: "حدّد طبقتين أو أكثر لمحاذاتها",

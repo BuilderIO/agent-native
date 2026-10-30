@@ -8,6 +8,7 @@ import {
   readDesignClipboardPasteData,
   readDesignClipboardPayloadFromDataTransfer,
   readDesignClipboardPayloadFromSystem,
+  readSystemClipboard,
   writeDesignClipboard,
   type DesignClipboardEnvironment,
 } from "./design-clipboard";
@@ -143,7 +144,38 @@ describe("writeDesignClipboard", () => {
 });
 
 describe("readDesignClipboardPayload", () => {
-  it("rejects a marker-shaped external clipboard payload without the local trust token", () => {
+  it("recognizes a bounded cross-site screen as structured content requiring preparation", () => {
+    const screenPayload: DesignClipboardPayload = {
+      version: 1,
+      entries: [],
+      screens: [
+        {
+          filename: "index.html",
+          sourceScreenId: "remote-screen",
+          content:
+            '<!doctype html><html><head><style>.card{color:red}</style></head><body><main class="card">Imported design</main></body></html>',
+        },
+      ],
+    };
+    const marker = serializeDesignClipboardPayload(
+      "Imported design",
+      screenPayload,
+      "source-site-token",
+    );
+    const read = readDesignClipboardPasteData(
+      {
+        getData: (type) => (type === "text/html" ? marker : "Imported design"),
+      },
+      { trustToken: "destination-site-token" },
+    );
+    expect(read).toMatchObject({
+      status: "found",
+      value: { payload: screenPayload, foreign: true },
+    });
+  });
+
+  // oracle-change: cross-site markers are validated transport, then prepared before adoption; the token no longer blocks portable copies.
+  it("marks another site's payload for preparation without treating it as locally trusted", () => {
     const trusted = serializeDesignClipboardPayload(
       "<p>Readable text</p>",
       payload,
@@ -165,7 +197,7 @@ describe("readDesignClipboardPayload", () => {
       );
 
     expect(read(trusted)?.payload).toEqual(payload);
-    expect(read(forged)).toBeNull();
+    expect(read(forged)).toMatchObject({ payload, foreign: true });
   });
 
   it("round-trips through the system clipboard across independent Design tabs", async () => {
@@ -298,7 +330,7 @@ describe("readDesignClipboardPayload", () => {
     ).resolves.toEqual({ status: "unavailable" });
   });
 
-  it("reports a marker written under another trust token as untrusted, not empty", async () => {
+  it("recognizes foreign structured content in both system clipboard representations", async () => {
     const foreign = serializeDesignClipboardPayload(
       "<p>Readable text</p>",
       payload,
@@ -309,7 +341,10 @@ describe("readDesignClipboardPayload", () => {
         clipboard: { readText: async () => foreign },
         trustToken: "this-origin-token",
       }),
-    ).resolves.toEqual({ status: "untrusted" });
+    ).resolves.toMatchObject({
+      status: "found",
+      value: { payload, foreign: true },
+    });
     await expect(
       readDesignClipboardPayloadFromSystem({
         clipboard: {
@@ -322,10 +357,31 @@ describe("readDesignClipboardPayload", () => {
         },
         trustToken: "this-origin-token",
       }),
-    ).resolves.toEqual({ status: "untrusted" });
+    ).resolves.toMatchObject({
+      status: "found",
+      value: { payload, foreign: true },
+    });
   });
 
-  it("tells a paste event's untrusted marker apart from no marker", () => {
+  it("keeps the foreign preparation flag when a context menu reads rich clipboard data", async () => {
+    const marker = serializeDesignClipboardPayload(
+      "Readable text",
+      payload,
+      "source-token",
+    );
+    await expect(
+      readSystemClipboard({
+        trustToken: "destination-token",
+        clipboard: {
+          read: async () => [
+            { types: ["text/html"], getType: async () => new Blob([marker]) },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({ design: { payload, foreign: true }, files: [] });
+  });
+
+  it("distinguishes foreign content, malformed markers, and absent markers", () => {
     const foreign = serializeDesignClipboardPayload(
       "<svg></svg>",
       payload,
@@ -338,12 +394,18 @@ describe("readDesignClipboardPayload", () => {
       readDesignClipboardPasteData(transfer(foreign), {
         trustToken: "this-origin-token",
       }),
-    ).toEqual({ status: "untrusted" });
+    ).toMatchObject({ status: "found", value: { payload, foreign: true } });
     expect(
       readDesignClipboardPasteData(transfer("<svg></svg>"), {
         trustToken: "this-origin-token",
       }),
     ).toEqual({ status: "absent" });
+    expect(
+      readDesignClipboardPasteData(
+        transfer("<!--agent-native-clipboard-v1:broken-->"),
+        { trustToken: "this-origin-token" },
+      ),
+    ).toEqual({ status: "untrusted" });
     const trusted = serializeDesignClipboardPayload(
       "<svg></svg>",
       payload,

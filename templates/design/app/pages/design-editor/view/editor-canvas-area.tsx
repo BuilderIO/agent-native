@@ -1,4 +1,5 @@
 import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
+import { toast } from "sonner";
 
 import {
   CanvasContextMenu,
@@ -427,22 +428,27 @@ export function renderEditorCanvasArea({
           const readId = ++menuClipboardReadIdRef.current;
           menuClipboardFilesRef.current = [];
           setHasSystemClipboardImages(false);
-          void readSystemClipboard().then((contents) => {
-            if (readId !== menuClipboardReadIdRef.current) return;
-            if (
-              contents?.design &&
-              contents.design.markerText !==
-                lastWrittenClipboardMarkerRef.current
-            ) {
-              adoptDesignClipboardPayload(
-                contents.design.payload,
-                contents.design.markerText,
-                contents.design.plainText,
-              );
-            }
-            menuClipboardFilesRef.current = contents?.files ?? [];
-            setHasSystemClipboardImages(Boolean(contents?.files.length));
-          });
+          void readSystemClipboard()
+            .then(async (contents) => {
+              if (readId !== menuClipboardReadIdRef.current) return;
+              if (
+                contents?.design &&
+                contents.design.markerText !==
+                  lastWrittenClipboardMarkerRef.current
+              ) {
+                await adoptDesignClipboardPayload(
+                  contents.design.payload,
+                  contents.design.markerText,
+                  contents.design.plainText,
+                  contents.design.foreign,
+                );
+              }
+              menuClipboardFilesRef.current = contents?.files ?? [];
+              setHasSystemClipboardImages(Boolean(contents?.files.length));
+            })
+            .catch(() =>
+              toast.error(t("designEditor.toasts.clipboardImportFailed")),
+            );
         }
       }}
       canPasteHere={

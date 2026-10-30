@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { isDesignHotkeyEditableTarget } from "@/hooks/useDesignHotkeys";
@@ -8,6 +8,7 @@ import {
   getFigmaClipboardContent,
   isAttemptedFigmaPaste,
 } from "@/lib/design-import";
+import { prepareForeignDesignClipboard } from "@/lib/foreign-design-clipboard";
 import { extractSvgMarkup } from "@/lib/svg-paste";
 
 export interface EditorPasteArgs {
@@ -15,7 +16,8 @@ export interface EditorPasteArgs {
     payload: DesignClipboardPayload,
     markerText: string,
     plainText?: string,
-  ) => void;
+    foreign?: boolean,
+  ) => void | Promise<void>;
   canEditDesign: boolean;
   handlePasteSelection: (
     position?: { x: number; y: number },
@@ -57,6 +59,51 @@ export function adoptDesignClipboardPayloadIntoRefs(
   return payload.entries.length > 0 || (payload.screens?.length ?? 0) > 0;
 }
 
+export async function runAdoptDesignClipboardPayload(
+  args: DesignClipboardRefs & {
+    pendingImportRef: RefObject<{
+      markerText: string;
+      promise: Promise<DesignClipboardPayload>;
+    } | null>;
+    setHasCanvasClipboard: Dispatch<SetStateAction<boolean>>;
+    uploadImage: (file: File) => Promise<string>;
+    t: EditorPasteArgs["t"];
+  },
+  payload: DesignClipboardPayload,
+  markerText: string,
+  plainText?: string,
+  foreign = false,
+): Promise<void> {
+  let prepared = payload;
+  if (foreign) {
+    args.setHasCanvasClipboard(false);
+    let pending = args.pendingImportRef.current;
+    if (!pending || pending.markerText !== markerText) {
+      const progress = toast.loading(
+        args.t("designEditor.toasts.clipboardImportPreparing"),
+      );
+      const promise = prepareForeignDesignClipboard(
+        payload,
+        args.uploadImage,
+      ).finally(() => toast.dismiss(progress));
+      pending = { markerText, promise };
+      args.pendingImportRef.current = pending;
+    }
+    try {
+      prepared = await pending.promise;
+    } catch (error) {
+      if (args.pendingImportRef.current === pending)
+        args.pendingImportRef.current = null;
+      throw error;
+    }
+  }
+  args.setHasCanvasClipboard(
+    adoptDesignClipboardPayloadIntoRefs(args, prepared, markerText, plainText),
+  );
+  if (foreign)
+    toast.warning(args.t("designEditor.toasts.clipboardImportedStatic"));
+}
+
 type DesignPasteDataArgs = Pick<
   EditorPasteArgs,
   | "adoptDesignClipboardPayload"
@@ -79,11 +126,17 @@ function pasteDesignClipboardData(
     });
     return true;
   }
-  const { payload, markerText, plainText } = read.value;
-  if (markerText !== args.lastWrittenClipboardMarkerRef.current) {
-    args.adoptDesignClipboardPayload(payload, markerText, plainText);
-  }
-  void args.handlePasteSelection(undefined, { payloadFromPasteEvent: true });
+  const { payload, markerText, plainText, foreign } = read.value;
+  void (async () => {
+    if (markerText !== args.lastWrittenClipboardMarkerRef.current) {
+      await (foreign
+        ? args.adoptDesignClipboardPayload(payload, markerText, plainText, true)
+        : args.adoptDesignClipboardPayload(payload, markerText, plainText));
+    }
+    await args.handlePasteSelection(undefined, { payloadFromPasteEvent: true });
+  })().catch(() =>
+    toast.error(args.t("designEditor.toasts.clipboardImportFailed")),
+  );
   return true;
 }
 

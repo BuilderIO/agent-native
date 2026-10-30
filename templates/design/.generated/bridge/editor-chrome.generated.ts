@@ -2730,6 +2730,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var runtimeLayerSnapshotMaxTimer = null;
     var runtimeLayerSnapshotReservationRequestId = 0;
     var runtimeLayerSnapshotReservationInFlight = false;
+    var runtimeLayerSnapshotResourceMode = "embedded";
+    var runtimeLayerSnapshotPendingResourceMode = "embedded";
     var runtimeLayerSnapshotReservationDirty = false;
     var runtimeLayerSnapshotReservationReadinessRequestId = null;
     var runtimeLayerSnapshotPendingReadinessRequestId = null;
@@ -2795,7 +2797,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return !(isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]"));
     }
-    function serializeRuntimeLayerSnapshot(excludedRoot, preparedImageSources, unavailableImageSources) {
+    function serializeRuntimeLayerSnapshot(excludedRoot, preparedImageSources, unavailableImageSources, canvasSnapshots) {
       if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
       var snapshotFailures = [];
       function cloneRuntimeStylesheet(sourceNode2, cloneNode2) {
@@ -2883,7 +2885,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           snapshotFailures.push("visual-media");
         }
         if (sourceNode instanceof HTMLCanvasElement) {
-          snapshotFailures.push("canvas-unavailable");
+          var canvasSnapshot = canvasSnapshots?.get(sourceNode);
+          if (canvasSnapshot) {
+            var canvasImage = document.createElement("img");
+            Array.from(cloneNode.attributes).forEach(function(attribute) {
+              canvasImage.setAttribute(attribute.name, attribute.value);
+            });
+            canvasImage.setAttribute(
+              "src",
+              "agent-native-clipboard-resource:" + canvasSnapshot.id
+            );
+            cloneNode.replaceWith(canvasImage);
+            cloneNode = canvasImage;
+          } else snapshotFailures.push("canvas-unavailable");
         }
         if (sourceNode instanceof HTMLIFrameElement) {
           snapshotFailures.push("embedded-document-unavailable");
@@ -3505,7 +3519,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         } : {}
       };
     }
-    function postRuntimeLayerSnapshot(reservationToken, requestId, readinessRequestId) {
+    function postRuntimeLayerSnapshot(reservationToken, requestId, readinessRequestId, resourceMode = "embedded") {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -3542,19 +3556,47 @@ export const editorChromeBridgeScript: string = `"use strict";
         clearPendingPostReadiness();
       }
       var imagePreparationSignal = AbortSignal.timeout(15e3);
-      var responsiveImages = Array.prototype.slice.call(document.querySelectorAll("img")).filter(isResponsiveExportImage);
-      void Promise.all(
-        responsiveImages.map(async function(image) {
-          try {
-            return [
-              image,
-              await prepareExportImageSource(image, imagePreparationSignal)
-            ];
-          } catch {
-            return [image, null];
-          }
-        })
-      ).then(function(preparedResults) {
+      var responsiveImages = Array.prototype.slice.call(
+        resourceMode === "references" ? [] : document.querySelectorAll("img")
+      ).filter(isResponsiveExportImage);
+      var canvasSnapshots = /* @__PURE__ */ new Map();
+      var canvases = resourceMode === "references" ? Array.from(document.querySelectorAll("canvas")) : [];
+      var canvasPreparation = Promise.resolve().then(async function() {
+        if (canvases.length > 32) throw new Error("Too many canvas resources");
+        var totalCanvasBytes = 0;
+        for (var canvas of canvases) {
+          if (canvas.width * canvas.height > 16e6)
+            throw new Error("Canvas exceeds pixel limit");
+          var blob = await new Promise(
+            (resolve, reject) => canvas.toBlob(function(value) {
+              if (value) resolve(value);
+              else reject(new Error("Canvas could not be captured"));
+            }, "image/png")
+          );
+          totalCanvasBytes += blob.size;
+          if (blob.size > 2e6 || totalCanvasBytes > 8e6)
+            throw new Error("Canvas exceeds resource limit");
+          canvasSnapshots.set(canvas, {
+            id: "canvas-" + canvasSnapshots.size,
+            blob
+          });
+        }
+      });
+      void Promise.all([
+        Promise.all(
+          responsiveImages.map(async function(image) {
+            try {
+              return [
+                image,
+                await prepareExportImageSource(image, imagePreparationSignal)
+              ];
+            } catch {
+              return [image, null];
+            }
+          })
+        ),
+        canvasPreparation
+      ]).then(function([preparedResults]) {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
         var preparedImageSources = /* @__PURE__ */ new Map();
         var unavailableImageSources = /* @__PURE__ */ new Set();
@@ -3572,7 +3614,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         var snapshot = serializeRuntimeLayerSnapshot(
           void 0,
           preparedImageSources,
-          unavailableImageSources
+          unavailableImageSources,
+          resourceMode === "references" ? canvasSnapshots : void 0
         );
         if (!snapshot.ok) {
           window.parent.postMessage(
@@ -3591,60 +3634,66 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearPendingPostReadiness();
           return;
         }
-        return inlineRuntimeSnapshotResources(snapshot.html, 5e6).then(
-          function(inlined) {
-            if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
-            snapshot.html = inlined.html;
-            if (inlined.errorCode === "export_too_large" || snapshot.html.length > 14e6) {
-              postSnapshotTooLargeError();
-              return;
-            }
-            var snapshotReservationToken = reservationToken || "";
-            if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(postReadinessRequestId)) {
-              if (inlined.complete) {
-                snapshotImageSources.forEach(function(source, image) {
-                  runtimeLayerSnapshotImageSources.set(image, source);
-                });
-              }
-              window.parent.postMessage(
-                {
-                  type: "agent-native:runtime-layer-snapshot-unchanged",
-                  payload: {
-                    requestId,
-                    documentId: snapshot.documentId,
-                    ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
-                    ...reservationToken ? { reservationToken } : {}
-                  }
-                },
-                "*"
-              );
-              clearPendingPostReadiness();
-              return;
-            }
-            if (requestId !== void 0) snapshot.requestId = requestId;
-            if (Number.isSafeInteger(postReadinessRequestId)) {
-              snapshot.readinessRequestId = postReadinessRequestId;
-            }
-            if (reservationToken) snapshot.reservationToken = reservationToken;
-            var snapshotMessage = {
-              type: "agent-native:runtime-layer-snapshot",
-              payload: snapshot
-            };
-            if (new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength > 5e6) {
-              postSnapshotTooLargeError();
-              return;
-            }
+        var resources = resourceMode === "references" ? Promise.resolve({
+          html: snapshot.html,
+          complete: true,
+          errorCode: void 0
+        }) : inlineRuntimeSnapshotResources(snapshot.html, 5e6);
+        return resources.then(function(inlined) {
+          if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+          snapshot.html = inlined.html;
+          if (inlined.errorCode === "export_too_large" || snapshot.html.length > 14e6) {
+            postSnapshotTooLargeError();
+            return;
+          }
+          var snapshotReservationToken = reservationToken || "";
+          if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(postReadinessRequestId)) {
             if (inlined.complete) {
               snapshotImageSources.forEach(function(source, image) {
                 runtimeLayerSnapshotImageSources.set(image, source);
               });
             }
-            lastRuntimeLayerSnapshotHtml = snapshot.html;
-            lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
-            window.parent.postMessage(snapshotMessage, "*");
+            window.parent.postMessage(
+              {
+                type: "agent-native:runtime-layer-snapshot-unchanged",
+                payload: {
+                  requestId,
+                  documentId: snapshot.documentId,
+                  ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
+                  ...reservationToken ? { reservationToken } : {}
+                }
+              },
+              "*"
+            );
             clearPendingPostReadiness();
+            return;
           }
-        );
+          if (requestId !== void 0) snapshot.requestId = requestId;
+          if (Number.isSafeInteger(postReadinessRequestId)) {
+            snapshot.readinessRequestId = postReadinessRequestId;
+          }
+          if (reservationToken) snapshot.reservationToken = reservationToken;
+          var snapshotMessage = {
+            type: "agent-native:runtime-layer-snapshot",
+            payload: {
+              ...snapshot,
+              ...resourceMode === "references" ? { resources: Array.from(canvasSnapshots.values()) } : {}
+            }
+          };
+          if (new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength > 5e6) {
+            postSnapshotTooLargeError();
+            return;
+          }
+          if (inlined.complete) {
+            snapshotImageSources.forEach(function(source, image) {
+              runtimeLayerSnapshotImageSources.set(image, source);
+            });
+          }
+          lastRuntimeLayerSnapshotHtml = snapshot.html;
+          lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+          window.parent.postMessage(snapshotMessage, "*");
+          clearPendingPostReadiness();
+        });
       }).catch(function() {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
         window.parent.postMessage(
@@ -3664,7 +3713,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         clearPendingPostReadiness();
       });
     }
-    function requestRuntimeLayerSnapshot(readinessRequestId) {
+    function requestRuntimeLayerSnapshot(readinessRequestId, resourceMode = "embedded") {
+      runtimeLayerSnapshotPendingResourceMode = resourceMode;
       if (Number.isSafeInteger(readinessRequestId)) {
         runtimeLayerSnapshotPendingReadinessRequestId = readinessRequestId;
       }
@@ -3682,6 +3732,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       runtimeLayerSnapshotReservationInFlight = true;
+      runtimeLayerSnapshotResourceMode = resourceMode;
       runtimeLayerSnapshotReservationRequestId += 1;
       runtimeLayerSnapshotReservationReadinessRequestId = runtimeLayerSnapshotPendingReadinessRequestId;
       runtimeLayerSnapshotPendingReadinessRequestId = null;
@@ -3689,7 +3740,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         {
           type: "agent-native:runtime-layer-snapshot-reservation-request",
           requestId: runtimeLayerSnapshotReservationRequestId,
-          documentId: runtimeDocumentId
+          documentId: runtimeDocumentId,
+          resourceMode
         },
         "*"
       );
@@ -4139,6 +4191,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       return Boolean(
         selectedEl && selectedEl !== group && group.contains(selectedEl) || selectionContainerScope && group.contains(selectionContainerScope)
       );
+    }
+    function usesDirectScreenSelection() {
+      return !readOnly && !designCanvasBoardSurface;
     }
     function modifierClickSelectionTarget(hit) {
       return selectionTargetForHit(hit, true);
@@ -12039,7 +12094,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       hoveredSpacingHandleKey = "";
-      var resolvedClickTarget = e.metaKey || e.ctrlKey ? modifierClickSelectionTarget(target) : selectedContainerForPlainClick(target, e) || containerFirstSelectionTarget(target);
+      var resolvedClickTarget = e.metaKey || e.ctrlKey ? modifierClickSelectionTarget(target) : usesDirectScreenSelection() ? selectionTargetForHit(target) : selectedContainerForPlainClick(target, e) || containerFirstSelectionTarget(target);
       var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
       if (toggled !== void 0) {
         postToggledSelection(toggled);
@@ -12468,7 +12523,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (target) {
         hoveredSpacingHandleKey = "";
         var keepsSelection = !!selectedEl && document.documentElement.contains(selectedEl) && (selectedEl === target || selectedEl.contains(target));
-        selectedEl = keepsSelection ? selectedEl : (isApplePlatformBridge() ? e.metaKey : e.ctrlKey) ? selectionTargetForHit(target) : containerFirstSelectionTarget(target);
+        selectedEl = keepsSelection ? selectedEl : (isApplePlatformBridge() ? e.metaKey : e.ctrlKey) ? selectionTargetForHit(target) : usesDirectScreenSelection() ? selectionTargetForHit(target) : containerFirstSelectionTarget(target);
         if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
           info = getElementInfo(selectedEl);
           positionOverlay(selectionOverlay, selectedEl);
@@ -22501,7 +22556,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (labeledFrame) return;
         if (ev) stopNativeInteraction(ev);
         var cycledEl = isModifierCycleClick ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
-        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev) || clickThroughSelectionTarget(hit, ev, repeatedMouseClick) : null) || containerFirstSelectionTarget(hit);
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : usesDirectScreenSelection() ? selectionTargetForHit(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev) || clickThroughSelectionTarget(hit, ev, repeatedMouseClick) : null) || containerFirstSelectionTarget(hit);
         var preservesNestedHit = Boolean(
           isModifierCycleClick && !continuesModifierCycle && selectedEl && hit && selectedEl.contains(hit) && primaryClickTarget && primaryClickTarget !== selectedEl
         );
@@ -23788,7 +23843,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function resolveHoverTarget(clientX, clientY, deepSelect) {
       var rawHit = elementFromEditorPoint(clientX, clientY);
-      return deepSelect ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
+      return deepSelect || usesDirectScreenSelection() ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
     }
     function reresolveHoverAtLastPoint(deepSelect) {
       if (!lastHoverClientPoint) return;
@@ -25278,8 +25333,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "request-runtime-layer-snapshot") {
+        if (e.data.resourceMode !== void 0 && e.data.resourceMode !== "references" && e.data.resourceMode !== "embedded") {
+          window.parent.postMessage(
+            {
+              type: "agent-native:runtime-layer-snapshot-error",
+              payload: { ok: false, reason: "unsupported-resource-mode" }
+            },
+            "*"
+          );
+          return;
+        }
         requestRuntimeLayerSnapshot(
-          Number.isSafeInteger(e.data.readinessRequestId) ? e.data.readinessRequestId : void 0
+          Number.isSafeInteger(e.data.readinessRequestId) ? e.data.readinessRequestId : void 0,
+          e.data.resourceMode ?? "embedded"
         );
         return;
       }
@@ -25292,7 +25358,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           runtimeLayerSnapshotReservationDirty = false;
           var queuedReadinessRequestId = runtimeLayerSnapshotPendingReadinessRequestId ?? runtimeLayerSnapshotReservationReadinessRequestId;
           runtimeLayerSnapshotReservationReadinessRequestId = null;
-          requestRuntimeLayerSnapshot(queuedReadinessRequestId ?? void 0);
+          requestRuntimeLayerSnapshot(
+            queuedReadinessRequestId ?? void 0,
+            runtimeLayerSnapshotPendingResourceMode
+          );
           return;
         }
         var reservationReadinessRequestId = runtimeLayerSnapshotReservationReadinessRequestId;
@@ -25300,7 +25369,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         postRuntimeLayerSnapshot(
           typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0,
           Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0,
-          reservationReadinessRequestId ?? void 0
+          reservationReadinessRequestId ?? void 0,
+          runtimeLayerSnapshotResourceMode
         );
         return;
       }

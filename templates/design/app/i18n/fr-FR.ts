@@ -2406,8 +2406,13 @@ export default {
         "Impossible de mesurer le calque sélectionné pour y coller",
       pasteClipboardUnreadable:
         "Autorisez l'accès au presse-papiers pour coller ici",
+      clipboardImportPreparing: "Préparation du design copié…",
+      clipboardImportedStatic:
+        "Ce collage utilise une copie statique sans interactions programmées.",
+      clipboardImportFailed:
+        "Impossible d’importer ce design en toute sécurité. Rien n’a été collé.",
       pasteClipboardUntrusted:
-        "Impossible de coller des calques copiés depuis Design sur un autre site",
+        "Les données Design copiées sont invalides ou non prises en charge",
       swapFillStrokeLayeredFill:
         "Les remplissages multiples ou d'image ne peuvent pas encore devenir un contour",
       alignNeedsTwoLayers:

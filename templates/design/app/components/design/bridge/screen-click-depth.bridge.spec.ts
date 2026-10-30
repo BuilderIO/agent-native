@@ -15,6 +15,7 @@ function hydratedScreenBridge(): string {
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+    .replace("__SELECTED_LAYER_DRAG_PRIORITY__", "true")
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
@@ -37,11 +38,10 @@ const FIXTURE = `<!doctype html><html><body style="margin:0;width:900px;height:6
 // Points inside each layer, deepest first.
 const PRIMARY_LABEL = { x: 120, y: 160 };
 const SECONDARY = { x: 260, y: 160 };
-const TITLE = { x: 200, y: 80 };
 const HERO_COPY = { x: 600, y: 110 };
 
-async function openFixture(page: Page) {
-  await page.setContent(FIXTURE);
+async function openFixture(page: Page, html = FIXTURE) {
+  await page.setContent(html);
   await page.evaluate(() => {
     (window as any).__selected = [];
     window.addEventListener("message", (event: MessageEvent) => {
@@ -76,13 +76,13 @@ async function selectionAfter(page: Page, gesture: () => Promise<void>) {
   return selected;
 }
 
-async function withPage(run: (page: Page) => Promise<void>) {
+async function withPage(run: (page: Page) => Promise<void>, html = FIXTURE) {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({
       viewport: { width: 900, height: 600 },
     });
-    await openFixture(page);
+    await openFixture(page, html);
     await run(page);
   } finally {
     await browser.close();
@@ -95,57 +95,138 @@ const dblclick = (page: Page, point: { x: number; y: number }) => () =>
   page.mouse.dblclick(point.x, point.y);
 
 describe("click depth inside a screen", () => {
-  it("a plain click selects the screen's top-level layer under the pointer", async () => {
+  // oracle-change: screen clicks directly select semantic content; the board retains container-first selection.
+  it("a plain click selects the nested layer under the pointer", async () => {
     await withPage(async (page) => {
       expect(await selectionAfter(page, click(page, PRIMARY_LABEL))).toBe(
-        "card",
+        "primary-label",
       );
     });
   });
 
-  it("a top-level section is selected like any other top-level layer", async () => {
+  it("the click-only shield path selects the same nested layer", async () => {
     await withPage(async (page) => {
-      expect(await selectionAfter(page, click(page, HERO_COPY))).toBe("hero");
+      expect(
+        await selectionAfter(page, () =>
+          page
+            .locator('[data-agent-native-edit-overlay="shield"]')
+            .dispatchEvent("click", {
+              clientX: PRIMARY_LABEL.x,
+              clientY: PRIMARY_LABEL.y,
+              detail: 1,
+            }),
+        ),
+      ).toBe("primary-label");
     });
   });
 
-  it("each double-click drills one level into the selection", async () => {
+  it("selects content inside a section directly", async () => {
     await withPage(async (page) => {
-      expect(await selectionAfter(page, click(page, PRIMARY_LABEL))).toBe(
-        "card",
+      expect(await selectionAfter(page, click(page, HERO_COPY))).toBe(
+        "hero-copy",
       );
-      expect(await selectionAfter(page, dblclick(page, PRIMARY_LABEL))).toBe(
-        "actions",
-      );
-      expect(await selectionAfter(page, dblclick(page, PRIMARY_LABEL))).toBe(
-        "primary",
-      );
+    });
+  });
+
+  it("a double-click on a non-text leaf keeps that leaf selected", async () => {
+    await withPage(async (page) => {
       expect(await selectionAfter(page, dblclick(page, PRIMARY_LABEL))).toBe(
         "primary-label",
       );
     });
   });
 
-  it("once inside a container, a click selects siblings at that depth", async () => {
+  it("selects siblings and content in another container without retaining depth", async () => {
     await withPage(async (page) => {
-      await selectionAfter(page, click(page, PRIMARY_LABEL));
-      await selectionAfter(page, dblclick(page, PRIMARY_LABEL));
-      expect(await selectionAfter(page, dblclick(page, PRIMARY_LABEL))).toBe(
-        "primary",
+      expect(await selectionAfter(page, click(page, PRIMARY_LABEL))).toBe(
+        "primary-label",
       );
       expect(await selectionAfter(page, click(page, SECONDARY))).toBe(
         "secondary",
       );
+      expect(await selectionAfter(page, click(page, HERO_COPY))).toBe(
+        "hero-copy",
+      );
+      expect(await selectionAfter(page, click(page, PRIMARY_LABEL))).toBe(
+        "primary-label",
+      );
     });
   });
 
-  it("a click on another top-level layer leaves the container", async () => {
+  it.each(["frame", "auto-layout"] as const)(
+    "clicks select a child while dragging at the same point moves its selected %s",
+    async (kind) => {
+      const html = `<!doctype html><html><body style="margin:0;width:900px;height:600px">
+        <div data-agent-native-node-id="parent" ${kind === "frame" ? 'data-an-primitive="frame"' : ""}
+          style="position:absolute;left:40px;top:40px;width:300px;height:220px;background:#ddd;${kind === "auto-layout" ? "display:flex;padding:20px;box-sizing:border-box" : ""}">
+          <div data-agent-native-node-id="child" style="${kind === "frame" ? "position:absolute;left:20px;top:20px;" : ""}width:100px;height:80px;background:#333"></div>
+        </div>
+      </body></html>`;
+      await withPage(async (page) => {
+        const selectParent = async () => {
+          await selectionAfter(page, () =>
+            page.evaluate(() => {
+              window.postMessage(
+                {
+                  type: "select-element",
+                  selector: '[data-agent-native-node-id="parent"]',
+                },
+                "*",
+              );
+            }),
+          );
+        };
+        await selectParent();
+        expect(await selectionAfter(page, click(page, { x: 100, y: 90 }))).toBe(
+          "child",
+        );
+        await selectParent();
+        const child = page.locator('[data-agent-native-node-id="child"]');
+        const before = await child.boundingBox();
+        if (!before) throw new Error("Child geometry is missing");
+        await page.mouse.move(100, 90);
+        await page.mouse.down();
+        await page.mouse.move(173, 147, { steps: 8 });
+        await page.mouse.up();
+        await expect
+          .poll(() =>
+            page
+              .locator('[data-agent-native-node-id="parent"]')
+              .evaluate((el) => ({
+                left: (el as HTMLElement).style.left,
+                top: (el as HTMLElement).style.top,
+              })),
+          )
+          .toEqual({ left: "113px", top: "97px" });
+        const after = await child.boundingBox();
+        if (!after) throw new Error("Child geometry is missing after dragging");
+        expect(after).toEqual({
+          ...before,
+          x: before.x + 73,
+          y: before.y + 57,
+        });
+        expect(
+          await child.evaluate((el) =>
+            el.parentElement?.getAttribute("data-agent-native-node-id"),
+          ),
+        ).toBe("parent");
+      }, html);
+    },
+  );
+
+  it("previews the same nested target that a click selects", async () => {
     await withPage(async (page) => {
-      await selectionAfter(page, click(page, PRIMARY_LABEL));
-      expect(await selectionAfter(page, dblclick(page, TITLE))).toBe("title");
-      expect(await selectionAfter(page, click(page, HERO_COPY))).toBe("hero");
+      await page.mouse.move(PRIMARY_LABEL.x, PRIMARY_LABEL.y);
+      const highlight = page.locator(
+        '[data-agent-native-edit-overlay="highlight"]',
+      );
+      await highlight.waitFor({ state: "visible" });
+      const leaf = await page
+        .locator('[data-agent-native-node-id="primary-label"]')
+        .boundingBox();
+      expect(await highlight.boundingBox()).toEqual(leaf);
       expect(await selectionAfter(page, click(page, PRIMARY_LABEL))).toBe(
-        "card",
+        "primary-label",
       );
     });
   });
@@ -185,19 +266,20 @@ describe("right-click inside a screen", () => {
     return page.evaluate(() => (window as any).__menu as string | null);
   };
 
-  it("targets what a plain click would select, not the deepest layer", async () => {
+  it("targets the same nested content as a plain click", async () => {
     await withPage(async (page) => {
-      expect(await contextMenuTarget(page, PRIMARY_LABEL)).toBe("card");
+      expect(await contextMenuTarget(page, PRIMARY_LABEL)).toBe(
+        "primary-label",
+      );
     });
   });
 
   it("keeps a nested selection the pointer is inside", async () => {
     await withPage(async (page) => {
-      await selectionAfter(page, click(page, PRIMARY_LABEL));
-      expect(await selectionAfter(page, dblclick(page, PRIMARY_LABEL))).toBe(
-        "actions",
+      expect(await selectionAfter(page, click(page, { x: 200, y: 220 }))).toBe(
+        "card",
       );
-      expect(await contextMenuTarget(page, PRIMARY_LABEL)).toBe("actions");
+      expect(await contextMenuTarget(page, PRIMARY_LABEL)).toBe("card");
     });
   });
 });

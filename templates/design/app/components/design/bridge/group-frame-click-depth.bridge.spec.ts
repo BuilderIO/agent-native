@@ -117,14 +117,15 @@ describe("click depth for groups and frames inside a screen", () => {
     });
   });
 
-  it("an Alt+Cmd+G Frame takes clicks like any other container", async () => {
+  // oracle-change: screen frames expose their content to a single click; explicit groups stay closed.
+  it("an Alt+Cmd+G Frame exposes its child to a single click", async () => {
     await withPage(async (page) => {
       expect(await selectionAfter(page, () => page.mouse.click(470, 280))).toBe(
-        "card",
+        "card-kid",
       );
       await page.waitForTimeout(600);
       expect(await selectionAfter(page, () => page.mouse.click(110, 280))).toBe(
-        "frame",
+        "frame-kid",
       );
       await page.waitForTimeout(600);
       expect(

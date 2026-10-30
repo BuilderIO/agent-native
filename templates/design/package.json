@@ -38,6 +38,7 @@
     "alpinejs": "^3.15.12",
     "css-tree": "3.2.1",
     "diff-match-patch": "^1.0.5",
+    "dompurify": "^3.4.17",
     "drizzle-orm": "^0.45.2",
     "entities": "8.0.0",
     "fflate": "^0.8.3",

@@ -2366,8 +2366,13 @@ export default {
         "선택한 레이어를 측정할 수 없어 붙여넣을 수 없습니다",
       pasteClipboardUnreadable:
         "여기에 붙여넣으려면 클립보드 접근을 허용하세요",
+      clipboardImportPreparing: "복사한 디자인 준비 중…",
+      clipboardImportedStatic:
+        "이 붙여넣기는 스크립트 상호 작용이 없는 정적 사본을 사용합니다.",
+      clipboardImportFailed:
+        "이 디자인을 안전하게 가져올 수 없습니다. 붙여넣은 내용이 없습니다.",
       pasteClipboardUntrusted:
-        "다른 사이트의 Design에서 복사한 레이어는 붙여넣을 수 없습니다",
+        "복사한 Design 데이터가 잘못되었거나 지원되지 않습니다",
       swapFillStrokeLayeredFill:
         "여러 채우기나 이미지 채우기는 아직 선으로 옮길 수 없습니다",
       alignNeedsTwoLayers: "정렬하려면 레이어를 두 개 이상 선택하세요",

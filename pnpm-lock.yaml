@@ -6195,6 +6195,9 @@ importers:
       diff-match-patch:
         specifier: ^1.0.5
         version: 1.0.5
+      dompurify:
+        specifier: ^3.4.17
+        version: 3.4.17
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(expo-sqlite@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9)
@@ -19331,6 +19334,9 @@ packages:
 
   dompurify@3.4.11:
     resolution: {integrity: sha512-zhlUV12GsaRzMsf9q5M254YhA4+VuF0fG+QFqu6aYpoGlKtz+w8//jBcGVYBgQkR5GHjUomejY84AV+/uPbWdw==}
+
+  dompurify@3.4.17:
+    resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
 
   domutils@3.2.2:
     resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
@@ -37954,6 +37960,10 @@ snapshots:
       '@types/trusted-types': 2.0.7
 
   dompurify@3.4.11:
+    optionalDependencies:
+      '@types/trusted-types': 2.0.7
+
+  dompurify@3.4.17:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 

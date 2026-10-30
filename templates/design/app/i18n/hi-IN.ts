@@ -2345,8 +2345,13 @@ export default {
       pasteReplaceFailed: "उस परत को बदला नहीं जा सका",
       pasteTargetUnmeasured: "चुनी गई परत में पेस्ट करने के लिए उसे मापा नहीं जा सका",
       pasteClipboardUnreadable: "यहां पेस्ट करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
+      clipboardImportPreparing: "कॉपी किया गया डिज़ाइन तैयार हो रहा है…",
+      clipboardImportedStatic:
+        "इस पेस्ट में स्क्रिप्ट वाले इंटरैक्शन के बिना एक स्थिर कॉपी का उपयोग होता है।",
+      clipboardImportFailed:
+        "यह डिज़ाइन सुरक्षित रूप से आयात नहीं हो सका। कुछ भी पेस्ट नहीं किया गया।",
       pasteClipboardUntrusted:
-        "किसी दूसरी साइट पर Design से कॉपी की गई परतें पेस्ट नहीं की जा सकतीं",
+        "कॉपी किया गया Design डेटा अमान्य है या समर्थित नहीं है",
       swapFillStrokeLayeredFill:
         "एक से ज़्यादा फ़िल या इमेज फ़िल अभी स्ट्रोक में नहीं बदल सकते",
       alignNeedsTwoLayers: "संरेखित करने के लिए दो या अधिक परतें चुनें",

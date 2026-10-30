@@ -2393,8 +2393,13 @@ export default {
         "選択したレイヤーを測定できないため、貼り付けられません",
       pasteClipboardUnreadable:
         "ここに貼り付けるには、クリップボードへのアクセスを許可してください",
+      clipboardImportPreparing: "コピーしたデザインを準備中…",
+      clipboardImportedStatic:
+        "この貼り付けでは、スクリプトによる操作機能のない静的なコピーを使用します。",
+      clipboardImportFailed:
+        "このデザインを安全にインポートできませんでした。何も貼り付けていません。",
       pasteClipboardUntrusted:
-        "別のサイトの Design からコピーしたレイヤーは貼り付けられません",
+        "コピーした Design データは無効か、サポートされていません",
       swapFillStrokeLayeredFill:
         "複数の塗りや画像の塗りはまだ線に移動できません",
       alignNeedsTwoLayers: "整列するには2つ以上のレイヤーを選択してください",

@@ -55,6 +55,20 @@ export interface ReadDesignClipboardPayload {
   payload: DesignClipboardPayload;
   markerText: string;
   plainText: string;
+  foreign?: true;
+}
+
+function readClipboardMarker(
+  markerText: string,
+  plainText: string,
+  trustToken?: string | null,
+): ReadDesignClipboardPayload | null {
+  const trusted = parseDesignClipboardMarker(markerText, trustToken);
+  if (trusted) return { payload: trusted, markerText, plainText };
+  const foreign = parseDesignClipboardMarker(markerText);
+  return foreign
+    ? { payload: foreign, markerText, plainText, foreign: true }
+    : null;
 }
 
 export type ReadDesignClipboardPayloadFromSystemResult =
@@ -68,11 +82,12 @@ export type ReadDesignClipboardPayloadFromSystemResult =
 export type DesignClipboardRefreshStatus =
   | "adopted"
   | "unchanged"
+  | "failed"
   | Exclude<ReadDesignClipboardPayloadFromSystemResult["status"], "found">;
 
 /**
- * A paste event's Design payload, or why its marker was refused. "untrusted"
- * means a marker is present but this browser did not write it.
+ * Foreign markers remain transport data until asynchronous preparation makes
+ * them safe to adopt. Invalid or unsupported markers remain distinguishable from absence.
  */
 export function readDesignClipboardPasteData(
   clipboardData: Pick<DataTransfer, "getData"> | null | undefined,
@@ -223,11 +238,12 @@ export function readDesignClipboardPayloadFromDataTransfer(
     clipboardData.getData("text/html") ?? "",
     plainText,
   ]) {
-    const payload = parseDesignClipboardMarker(
+    const value = readClipboardMarker(
       markerText,
+      plainText,
       environment.trustToken,
     );
-    if (payload) return { payload, markerText, plainText };
+    if (value) return value;
   }
   return null;
 }
@@ -251,16 +267,12 @@ export async function readDesignClipboardPayloadFromSystem(
         for (const type of ["text/html", "text/plain"]) {
           if (!item.types.includes(type)) continue;
           const markerText = await (await item.getType(type)).text();
-          const payload = parseDesignClipboardMarker(
+          const value = readClipboardMarker(
             markerText,
+            plainText,
             environment.trustToken,
           );
-          if (payload) {
-            return {
-              status: "found",
-              value: { payload, markerText, plainText },
-            };
-          }
+          if (value) return { status: "found", value };
           if (hasDesignClipboardMarker(markerText)) untrusted = true;
         }
       }
@@ -278,15 +290,13 @@ export async function readDesignClipboardPayloadFromSystem(
   }
   try {
     const markerText = await clipboard.readText();
-    const payload = parseDesignClipboardMarker(
+    const value = readClipboardMarker(
+      markerText,
       markerText,
       environment.trustToken,
     );
-    return payload
-      ? {
-          status: "found",
-          value: { payload, markerText, plainText: markerText },
-        }
+    return value
+      ? { status: "found", value }
       : untrusted || hasDesignClipboardMarker(markerText)
         ? { status: "untrusted" }
         : { status: "empty" };
@@ -336,11 +346,12 @@ export async function readSystemClipboard(
       };
       const plainText = await text("text/plain");
       for (const markerText of [await text("text/html"), plainText]) {
-        const payload = parseDesignClipboardMarker(
+        const value = readClipboardMarker(
           markerText,
+          plainText,
           environment.trustToken,
         );
-        if (payload && !design) design = { payload, markerText, plainText };
+        if (value && !design) design = value;
       }
       const svg = design ? null : extractSvgMarkup(plainText);
       if (svg) {

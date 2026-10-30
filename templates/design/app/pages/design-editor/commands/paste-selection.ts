@@ -761,6 +761,7 @@ export async function runPasteSelection(
     options.payloadFromPasteEvent
       ? "unchanged"
       : await refreshClipboardFromSystemClipboard();
+  if (refreshStatus === "failed") return;
   const entries = getCanvasClipboardEntries();
   if (entries.length === 0) {
     const screens = getCanvasScreenClipboardEntries();

@@ -2300,8 +2300,12 @@ export default {
       pasteTargetUnmeasured:
         "Could not measure the selected layer to paste into it",
       pasteClipboardUnreadable: "Allow clipboard access to paste here",
-      pasteClipboardUntrusted:
-        "Can't paste layers copied from Design on another site",
+      clipboardImportPreparing: "Preparing copied design…",
+      clipboardImportedStatic:
+        "This paste uses a static copy without scripted interactions.",
+      clipboardImportFailed:
+        "Could not safely import this copied design. Nothing was pasted.",
+      pasteClipboardUntrusted: "Copied Design data is invalid or unsupported",
       swapFillStrokeLayeredFill:
         "Multiple or image fills can't move to a stroke yet",
       alignNeedsTwoLayers: "Select two or more layers to align them",
