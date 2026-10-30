@@ -8,6 +8,8 @@
 // couldn't tell (a check was cancelled, gh unreadable, PR not open, no checks
 // reported, or out of time). The default limit is 9 minutes so one call fits a
 // 10-minute shell cap; if it runs out with checks still going, run it again.
+// The limit stops polling; a poll already under way can add up to 45 seconds
+// (three gh reads of at most 15 seconds each).
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
@@ -63,22 +65,19 @@ export function parseArgs(argv: string[]): Options | null {
   };
 }
 
-function gh(args: string[], deadline: number): string {
+const GH_TIMEOUT_MS = 15_000;
+
+function gh(args: string[]): string {
   return execFileSync("gh", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: Math.max(30_000, deadline - Date.now()),
+    timeout: GH_TIMEOUT_MS,
   });
 }
 
-function readPr(
-  pr: string,
-  deadline: number,
-): { state: string; head: string; checks: Check[] } {
+function readPr(pr: string): { state: string; head: string; checks: Check[] } {
   const view = () =>
-    JSON.parse(
-      gh(["pr", "view", pr, "--json", "state,headRefOid"], deadline),
-    ) as {
+    JSON.parse(gh(["pr", "view", pr, "--json", "state,headRefOid"])) as {
       state: string;
       headRefOid: string;
     };
@@ -86,7 +85,7 @@ function readPr(
   let checks: Check[] = [];
   try {
     checks = JSON.parse(
-      gh(["pr", "checks", pr, "--json", "name,bucket,link"], deadline),
+      gh(["pr", "checks", pr, "--json", "name,bucket,link"]),
     ) as Check[];
   } catch (error) {
     // gh exits non-zero while checks are pending or failing, but still prints
@@ -125,7 +124,7 @@ function main(): number {
   let settled = "";
   for (;;) {
     try {
-      const { state, head, checks } = readPr(pr, deadline);
+      const { state, head, checks } = readPr(pr);
       misses = 0;
       if (state !== "OPEN") {
         console.log(`PR #${pr} is ${state}; nothing to wait for.`);
