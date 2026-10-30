@@ -702,4 +702,31 @@ describe("formatWebContentResult", () => {
     expect(formatted).toContain("topbar");
     expect(formatted).toContain("<frameset>");
   });
+
+  it("appends formatted matches in raw mode so fetch callers see search hits", async () => {
+    const { formatWebContentResult } = await import("./web-content.js");
+    const rawBody = "<html><body>some raw content</body></html>";
+    const formatted = formatWebContentResult({
+      mode: "raw",
+      extract: "none",
+      contentType: "text/html",
+      content: rawBody,
+      matches: [
+        {
+          kind: "query",
+          query: "raw content",
+          match: "raw content",
+          index: 23,
+          snippet: "...some raw content...",
+        },
+      ],
+      totalMatches: 1,
+      omittedMatches: 0,
+      searchSource: "raw",
+      searchTruncated: false,
+    });
+    expect(formatted).toContain(rawBody);
+    expect(formatted).toContain("Matches: 1 shown of 1 [source: raw]");
+    expect(formatted).toContain("raw content");
+  });
 });

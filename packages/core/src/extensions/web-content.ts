@@ -336,7 +336,14 @@ export async function processWebContent(
 }
 
 export function formatWebContentResult(result: WebContentResult): string {
-  if (result.mode === "raw") return result.content ?? "";
+  if (result.mode === "raw") {
+    const lines: string[] = [];
+    if (result.content) lines.push(result.content);
+    if (result.matches?.length) {
+      lines.push("", formatMatches(result));
+    }
+    return lines.join("\n");
+  }
 
   const lines: string[] = [];
   if (result.title) lines.push(`# ${result.title}`, "");
