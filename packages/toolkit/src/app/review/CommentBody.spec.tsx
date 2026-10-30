@@ -216,9 +216,37 @@ describe("CommentBody", () => {
     ]);
 
     // Brackets with no definition behind them are text, so a mention there
-    // is still a chip.
+    // is still a chip. So is a reference to a label nothing defines, and a
+    // definition inside a code block defines nothing.
     render(<CommentBody body="[ask @Sam] later" mentions={mentions} />);
     expect(chips()).toEqual(["@Sam"]);
+    render(
+      <CommentBody
+        body={
+          "[ask @Sam][missing], [@Sam][] and [@Sam]\n\n```\n[@Sam]: https://example.com\n```"
+        }
+        mentions={mentions}
+      />,
+    );
+    expect(chips()).toEqual(["@Sam", "@Sam", "@Sam"]);
+    expect(links()).toEqual([]);
+
+    // Addresses with parentheses nested deeper, a title with a parenthesis in
+    // it, and a definition inside a quote.
+    render(
+      <CommentBody
+        body={
+          '[ask @Sam](https://example.com/a(b(c))), [ask @Sam](https://example.com "a (b") and [@Sam]\n\n> [@Sam]: https://example.com/q'
+        }
+        mentions={mentions}
+      />,
+    );
+    expect(chips()).toEqual([]);
+    expect(links()).toEqual([
+      ["ask @Sam", "https://example.com/a(b(c))"],
+      ["ask @Sam", "https://example.com"],
+      ["@Sam", "https://example.com/q"],
+    ]);
   });
 
   it("keeps a mention that spans lines as text, so a code fence in it stays a fence", () => {
@@ -234,6 +262,17 @@ describe("CommentBody", () => {
 
     expect(chips()).toEqual([]);
     expect(container.querySelector("pre")?.textContent).toContain(nested);
+  });
+
+  it("shows a table too wide for its rows as written", () => {
+    // 300 columns wide, so each one-cell row would draw 300 cells.
+    const wide = `${"|a".repeat(300)}|\n${"|-".repeat(300)}|${"\n|a|".repeat(200)}`;
+    render(<CommentBody body={`| a | b |\n| - | - |\n| 1 | 2 |\n\n${wide}`} />);
+
+    // A comment draws a table's cells as text. The small one is read as a
+    // table, so its delimiter row goes; the wide one shows as written.
+    expect(container.textContent).not.toContain("| - | - |");
+    expect(container.textContent).toContain(wide);
   });
 
   it("shows mentions as written when drawing them as links would tangle the text", () => {

@@ -44,6 +44,13 @@ const MAX_BRACKET_DEPTH = 16;
 const MAX_BRACKET_LOOKBACK = 500_000;
 /** Quote and list markers opening one line, as in `> > - 1. text`. */
 const MAX_LINE_NESTING = 16;
+/**
+ * Cells in one table. The renderer gives every row as many cells as the
+ * table has columns, filling in empty ones, so a table 300 columns wide with
+ * rows of one cell each draws 300 per row, and a few thousand characters of
+ * them take it seconds.
+ */
+const MAX_TABLE_CELLS = 5_000;
 
 /**
  * Splits a comment where its Markdown stops: before the first paragraph too
@@ -94,6 +101,51 @@ export function isCommentMarkdownTangled(markdown: string): boolean {
   return readCommentLines(markdown).tangledAt !== undefined;
 }
 
+/** The links `commentLinkRanges` finds, and the definitions that make some. */
+const LINK_NODES = new Set<Nodes["type"]>([
+  "link",
+  "linkReference",
+  "image",
+  "imageReference",
+  "definition",
+]);
+
+/**
+ * Where a comment's links sit, as offsets into `markdown`, in order: links and
+ * images written inline or by reference, autolinks, bare URLs and addresses
+ * GitHub's extensions link, and the definitions references use. The parser
+ * finds them as the renderer does, so a renderer that draws `@` mentions as
+ * links can leave a mention inside one to that link. Only the Markdown part
+ * `splitCommentAtMarkdownLimit` keeps is read; the rest has no links.
+ */
+export function commentLinkRanges(
+  markdown: string,
+): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const visit = (node: Nodes) => {
+    if (LINK_NODES.has(node.type)) {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start !== undefined && end !== undefined) ranges.push({ start, end });
+    } else if ("children" in node) {
+      node.children.forEach(visit);
+    }
+  };
+  try {
+    visit(
+      fromMarkdown(splitCommentAtMarkdownLimit(markdown).markdown, {
+        extensions: [gfm()],
+        mdastExtensions: [gfmFromMarkdown()],
+      }),
+    );
+  } catch {
+    // Should the parser fail, the renderer shows the comment as written,
+    // with no links in it.
+    return [];
+  }
+  return ranges;
+}
+
 /**
  * A code block fenced at the left margin, from the start of its opening line
  * to the end of its closing line (Infinity if it doesn't close within the
@@ -133,6 +185,9 @@ function readCommentLines(body: string): {
   // Where each `[` still open in the paragraph sits.
   let brackets: number[] = [];
   let lookback = 0;
+  // Columns of a table opened in the paragraph, and the cells drawn so far.
+  let tableColumns = 0;
+  let tableCells = 0;
   let start = 0;
   while (start < body.length) {
     // Lines end as the parser ends them: at `\n`, `\r\n` or a lone `\r`.
@@ -164,6 +219,8 @@ function readCommentLines(body: string): {
       htmlComments = 0;
       brackets = [];
       lookback = 0;
+      tableColumns = 0;
+      tableCells = 0;
     } else {
       const text = body.slice(at, end);
       if (text.startsWith("<")) html = true;
@@ -177,6 +234,15 @@ function readCommentLines(body: string): {
       const nesting = lineNesting(body, at, end);
       if (nesting > MAX_LINE_NESTING) return { tangledAt: paragraph, fences };
       if (nesting > 0 || text.startsWith("[^")) containers = true;
+      // A row after a delimiter row draws the table's full width, as do the
+      // header and the delimiter row itself.
+      const columns = delimiterRowColumns(text);
+      if (columns > 0) {
+        tableColumns = Math.max(tableColumns, columns);
+        tableCells += tableColumns;
+      }
+      tableCells += tableColumns;
+      if (tableCells > MAX_TABLE_CELLS) return { tangledAt: paragraph, fences };
       for (let index = at; index < end; index += 1) {
         const char = body.charAt(index);
         if (char === "*" || char === "_" || char === "~") {
@@ -208,6 +274,25 @@ function readCommentLines(body: string): {
   }
   if (fence !== undefined) fences.push({ start: fence.start, end: Infinity });
   return { tangledAt: undefined, fences };
+}
+
+/**
+ * How many columns a line gives a table if it's a delimiter row, like
+ * `| --- | :-: |` or `> |-|-|` in a quote, or else 0. Every pipe is counted as
+ * a column break, so it counts a column or two too many rather than too few.
+ */
+function delimiterRowColumns(text: string): number {
+  let pipes = 0;
+  let dashes = false;
+  let quoted = true;
+  for (const char of text) {
+    if (char === "|") pipes += 1;
+    else if (char === "-") dashes = true;
+    else if (char === ">" && quoted) continue;
+    else if (char !== ":" && !isSpace(char)) return 0;
+    if (!isSpace(char)) quoted = false;
+  }
+  return pipes > 0 && dashes ? pipes + 1 : 0;
 }
 
 /**
@@ -338,8 +423,9 @@ function isDigit(char: string): boolean {
  * links keep their text, so `@[Name](mailto:…)` mentions read `@Name`; HTML
  * comments, images, rules and task checkboxes drop, as the renderer skips
  * them. Footnotes read as the renderer numbers them, `[1]` in the text and the
- * notes at the end, and a note nothing cites drops, as it does on screen. Other raw HTML, code, list markers and line breaks stay as written,
- * and blocks keep the blank lines the author put between them. Where the
+ * notes at the end, and a note nothing cites drops, as it does on screen.
+ * Other raw HTML, code, list markers and line breaks stay as written, and
+ * blocks keep the blank lines the author put between them. Where the
  * Markdown stops, at the limit or a paragraph too tangled to read quickly,
  * the rest stays as written, as the renderer shows it.
  */

@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   COMMENT_MARKDOWN_LIMIT,
   commentExcerpt,
+  commentLinkRanges,
   commentPlainText,
   isCommentMarkdownTangled,
   splitCommentAtMarkdownLimit,
@@ -220,6 +221,8 @@ describe("commentPlainText", () => {
       `${"![".repeat(3_000)}x${"](u)".repeat(3_000)}`,
       "*a".repeat(10_000),
       "x <!--".repeat(1_000),
+      // 300 columns wide, so each one-cell row draws 300.
+      `${"|a".repeat(300)}|\n${"|-".repeat(300)}|${"\n|a|".repeat(200)}`,
     ]) {
       expect(commentPlainText(`**Intro**\n\n${tangled}`)).toBe(
         `Intro\n\n${tangled}`,
@@ -343,6 +346,58 @@ describe("splitCommentAtMarkdownLimit", () => {
   it("says whether a paragraph is too tangled, as the split measures it", () => {
     expect(isCommentMarkdownTangled(`ok\n\n${"[".repeat(17)}x`)).toBe(true);
     expect(isCommentMarkdownTangled(`ok\n\n${"[".repeat(16)}x`)).toBe(false);
+  });
+
+  it("finds a comment's links where the renderer's parser does", () => {
+    const links = (body: string) =>
+      commentLinkRanges(body).map(({ start, end }) => body.slice(start, end));
+
+    expect(
+      links(
+        'see [docs](https://x.com/a(b(c)) "t (") and [ref][], www.x.com\n\n' +
+          "```\n[code](y)\n```\n\n> [ref]: https://x.com/r",
+      ),
+    ).toEqual([
+      '[docs](https://x.com/a(b(c)) "t (")',
+      "[ref][]",
+      "www.x.com",
+      "[ref]: https://x.com/r",
+    ]);
+    // A reference to a label nothing defines is text.
+    expect(links("[ask][missing] and [ask]")).toEqual([]);
+    // Past where the Markdown stops, nothing is a link.
+    expect(links(`ok\n\n${"[".repeat(17)}x [a](b)`)).toEqual([]);
+  });
+
+  it("counts a table's cells at its full width", () => {
+    const table = (columns: number, rows: number) =>
+      [
+        `| ${Array.from({ length: columns }, (_, i) => `h${i}`).join(" | ")} |`,
+        `|${" :-- |".repeat(columns)}`,
+        ...Array.from({ length: rows }, () => "| a |"),
+      ].join("\n");
+    // Ten columns by 200 rows is a big table for a comment.
+    expect(isCommentMarkdownTangled(table(10, 200))).toBe(false);
+    expect(isCommentMarkdownTangled(table(50, 100))).toBe(true);
+    // In a quote too.
+    expect(
+      isCommentMarkdownTangled(
+        table(50, 100)
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n"),
+      ),
+    ).toBe(true);
+    // A blank line ends a table, so two tables count apart.
+    expect(
+      isCommentMarkdownTangled(`${table(10, 200)}\n\n${table(10, 200)}`),
+    ).toBe(false);
+    // Dashes and pipes in a sentence aren't a delimiter row.
+    expect(
+      isCommentMarkdownTangled(
+        `${"|a".repeat(300)}|\nuse a-b | c-d${"\n|a|".repeat(200)}`,
+      ),
+    ).toBe(false);
   });
 
   it("ends lines where the parser does, even at a lone carriage return", () => {

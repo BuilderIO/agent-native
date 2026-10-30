@@ -1,4 +1,5 @@
 import {
+  commentLinkRanges,
   isCommentMarkdownTangled,
   splitCommentAtMarkdownLimit,
 } from "@agent-native/core/review/plain-text";
@@ -355,60 +356,21 @@ function sameIdentity(a: CommentBodyMention, b: CommentBodyMention): boolean {
   );
 }
 
-// The link shapes people write. A mention inside one of them stays part of
-// the link, rather than break it apart. Brackets nested in a link's text are
-// rare enough to leave out.
-const LINK_PATTERNS = [
-  // `[text](address)` and images, with an address that may hold a pair of
-  // parentheses, as in `https://example.com/a(b)`.
-  /!?\[[^[\]]*\]\((?:[^()]|\([^()]*\))*\)/g,
-  // `[text][label]` and `[text][]`, which a definition elsewhere links.
-  /!?\[[^[\]]*\]\[[^[\]]*\]/g,
-  // `<https://…>` autolinks.
-  /<(?:https?|mailto):[^\s<>]*>/gi,
-  // Bare URLs, which GitHub-flavored Markdown links.
-  /\b(?:https?:\/\/|www\.)[^\s<]*/gi,
-];
-// `[label]: address`, which turns `[label]` on its own into a link too.
-const LINK_DEFINITION = /^ {0,3}\[([^[\]]+)\]:/gm;
-const BRACKETED = /!?\[([^[\]]*)\]/g;
-
-/** Whether an offset falls inside a link, with the links found once. */
+/**
+ * Whether an offset falls inside a link, as the renderer's parser finds them,
+ * so a mention there stays part of the link rather than break it apart. The
+ * comment is parsed the first time it's asked, and only then.
+ */
 function linkRanges(body: string): (at: number) => boolean {
-  const ranges: { start: number; end: number }[] = [];
-  for (const pattern of LINK_PATTERNS) {
-    for (const match of body.matchAll(pattern)) {
-      ranges.push({ start: match.index, end: match.index + match[0].length });
-    }
-  }
-  const defined = new Set(
-    [...body.matchAll(LINK_DEFINITION)].map(([, label = ""]) =>
-      linkLabelKey(label),
-    ),
-  );
-  if (defined.size > 0) {
-    for (const match of body.matchAll(BRACKETED)) {
-      const [link, label = ""] = match;
-      if (defined.has(linkLabelKey(label))) {
-        ranges.push({ start: match.index, end: match.index + link.length });
-      }
-    }
-  }
-  ranges.sort((a, b) => a.start - b.start);
-  // Overlaps merge, so at most one range can hold an offset.
-  const merged: { start: number; end: number }[] = [];
-  for (const range of ranges) {
-    const last = merged.at(-1);
-    if (last && range.start <= last.end)
-      last.end = Math.max(last.end, range.end);
-    else merged.push({ ...range });
-  }
+  let ranges: Array<{ start: number; end: number }> | undefined;
   return (at) => {
+    // In order and apart, so a binary search finds the one that could hold it.
+    ranges ??= commentLinkRanges(body);
     let low = 0;
-    let high = merged.length - 1;
+    let high = ranges.length - 1;
     while (low <= high) {
       const middle = (low + high) >> 1;
-      const range = merged.at(middle);
+      const range = ranges.at(middle);
       if (!range) return false;
       if (at < range.start) high = middle - 1;
       else if (at >= range.end) low = middle + 1;
@@ -416,11 +378,6 @@ function linkRanges(body: string): (at: number) => boolean {
     }
     return false;
   };
-}
-
-/** A link label as Markdown matches it to a definition. */
-function linkLabelKey(label: string): string {
-  return label.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function codePointBefore(text: string, index: number): string | undefined {
