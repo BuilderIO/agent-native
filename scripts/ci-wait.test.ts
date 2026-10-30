@@ -18,12 +18,17 @@ describe("judge", () => {
     );
   });
 
-  it("passes when nothing failed, listing cancelled runs", () => {
+  it("passes only when nothing failed or was cancelled", () => {
     const verdict = judge(
       [check("lint", "pass"), check("e2e", "skipping"), check("old", "cancel")],
       "0123456789abcdef",
     );
-    assert.equal(verdict.done && verdict.exit, 0);
+    assert.equal(verdict.done && verdict.exit, 2);
+    const clean = judge(
+      [check("lint", "pass"), check("e2e", "skipping")],
+      "abc",
+    );
+    assert.equal(clean.done && clean.exit, 0);
     assert.match(
       verdict.done ? verdict.summary : "",
       /^head 0123456789ab: 1 passed, 0 failed, 1 cancelled, 1 skipped\nCANCELLED old /,
@@ -45,7 +50,7 @@ describe("parseArgs", () => {
     assert.deepEqual(parseArgs(["--interval", "60", "8456"]), {
       pr: "8456",
       intervalMs: 60_000,
-      maxMs: 7_200_000,
+      maxMs: 540_000,
     });
     assert.equal(parseArgs(["8456", "--max-minutes", "5"])?.maxMs, 300_000);
   });

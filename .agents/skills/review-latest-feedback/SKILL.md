@@ -342,8 +342,10 @@ repeat: every call re-sends your whole context, and on 10/28 polling CI
 every minute was half the main thread's cost.
 <!-- framework-repo-only:start -->
 Here that command is `pnpm ci:wait <number>`: it prints nothing until CI is
-done, then one summary, and exits 1 if a check failed. A `CANCELLED` line
-isn't a pass: rerun that check before the merge gate.
+done, then one summary. Exit 1 means a check failed; exit 2 means a check was
+cancelled (rerun it) or it ran out of its 9 minutes with checks still going
+(run it again). Pass `--max-minutes` up to your tool's call limit to need
+fewer calls.
 <!-- framework-repo-only:end -->
 Without a repo command for it, use `gh pr checks <number> --watch --interval 60 > /dev/null`, then
 read `gh pr checks <number>` once.

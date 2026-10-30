@@ -4,9 +4,10 @@
 //
 //   pnpm ci:wait <pr> [--interval <seconds>] [--max-minutes <minutes>]
 //
-// Exit 0: no check failed (a cancelled check is listed, not counted as a
-// pass). Exit 1: a check failed. Exit 2: couldn't tell
-// (gh unreadable, PR not open, no checks reported, or out of time).
+// Exit 0: every check passed or was skipped. Exit 1: a check failed. Exit 2:
+// couldn't tell (a check was cancelled, gh unreadable, PR not open, no checks
+// reported, or out of time). The default limit is 9 minutes so one call fits a
+// 10-minute shell cap; if it runs out with checks still going, run it again.
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
@@ -14,7 +15,7 @@ export type Check = { name: string; bucket: string; link: string };
 
 export type Verdict =
   | { done: false }
-  | { done: true; exit: 0 | 1; summary: string };
+  | { done: true; exit: 0 | 1 | 2; summary: string };
 
 export function judge(checks: Check[], head: string): Verdict {
   if (checks.length === 0 || checks.some((c) => c.bucket === "pending"))
@@ -28,7 +29,11 @@ export function judge(checks: Check[], head: string): Verdict {
     ...failed.map((c) => `FAILED ${c.name} ${c.link}`),
     ...cancelled.map((c) => `CANCELLED ${c.name} ${c.link}`),
   ];
-  return { done: true, exit: failed.length ? 1 : 0, summary: lines.join("\n") };
+  return {
+    done: true,
+    exit: failed.length ? 1 : cancelled.length ? 2 : 0,
+    summary: lines.join("\n"),
+  };
 }
 
 const NO_CHECKS_GRACE_MS = 10 * 60_000;
@@ -38,7 +43,7 @@ export type Options = { pr: string; intervalMs: number; maxMs: number };
 export function parseArgs(argv: string[]): Options | null {
   const values: Record<string, number> = {
     "--interval": 60,
-    "--max-minutes": 120,
+    "--max-minutes": 9,
   };
   const positional: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -54,25 +59,25 @@ export function parseArgs(argv: string[]): Options | null {
   return {
     pr,
     intervalMs: (values["--interval"] ?? 60) * 1000,
-    maxMs: (values["--max-minutes"] ?? 120) * 60_000,
+    maxMs: (values["--max-minutes"] ?? 9) * 60_000,
   };
 }
 
-function gh(args: string[], timeout: number): string {
+function gh(args: string[], deadline: number): string {
   return execFileSync("gh", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    timeout,
+    timeout: Math.max(1000, deadline - Date.now()),
   });
 }
 
 function readPr(
   pr: string,
-  timeout: number,
+  deadline: number,
 ): { state: string; head: string; checks: Check[] } {
   const view = () =>
     JSON.parse(
-      gh(["pr", "view", pr, "--json", "state,headRefOid"], timeout),
+      gh(["pr", "view", pr, "--json", "state,headRefOid"], deadline),
     ) as {
       state: string;
       headRefOid: string;
@@ -81,7 +86,7 @@ function readPr(
   let checks: Check[] = [];
   try {
     checks = JSON.parse(
-      gh(["pr", "checks", pr, "--json", "name,bucket,link"], timeout),
+      gh(["pr", "checks", pr, "--json", "name,bucket,link"], deadline),
     ) as Check[];
   } catch (error) {
     // gh exits non-zero while checks are pending or failing, but still prints
@@ -117,10 +122,7 @@ function main(): void {
   let emptySince = started;
   for (;;) {
     try {
-      const { state, head, checks } = readPr(
-        pr,
-        Math.max(1000, deadline - Date.now()),
-      );
+      const { state, head, checks } = readPr(pr, deadline);
       misses = 0;
       if (state !== "OPEN") {
         console.log(`PR #${pr} is ${state}; nothing to wait for.`);
