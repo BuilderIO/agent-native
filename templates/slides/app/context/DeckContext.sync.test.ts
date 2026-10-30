@@ -1564,6 +1564,12 @@ describe("DeckContext fallback polling", () => {
       ),
     ).toBe(true);
     expect(hasFailedDeckSave(deckId)).toBe(false);
+    // Let the deferred resync this save leaves behind run inside this test. The
+    // module-level deck sets outlive the test, so an undrained one would fire
+    // its read during whichever later test next settles a save.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
   });
 
   it("does not let a superseded successful read clear a newer denial", async () => {

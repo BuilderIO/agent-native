@@ -9,7 +9,7 @@ import type {
   ShareDeckResponse,
   SharedDeckResponse,
 } from "@shared/api";
-import { eq, lt } from "drizzle-orm";
+import { lt } from "drizzle-orm";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
 import {
@@ -17,14 +17,16 @@ import {
   readDeckLinkedDesignSystem,
 } from "../../actions/_linked-design-system.js";
 import { getDb, schema } from "../db";
+import {
+  findLiveDeckShareLink,
+  SHARE_LINK_TTL_MS,
+} from "../lib/deck-share-links.js";
 import { slideRevealIssues } from "../lib/slide-reveal-issues.js";
 import { trackSlides } from "../lib/slides-tracking.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
-
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface DeckShareResource {
   title?: string | null;
@@ -119,6 +121,7 @@ async function createShareLink(event: any, deckId: string, userEmail: string) {
 
   await db.insert(schema.deckShareLinks).values({
     token,
+    deckId,
     title: title || storedDeck.title || "Untitled",
     slides: JSON.stringify(slides),
     aspectRatio: storedDeck.aspectRatio ?? null,
@@ -141,7 +144,7 @@ async function createShareLink(event: any, deckId: string, userEmail: string) {
     .where(
       lt(
         schema.deckShareLinks.createdAt,
-        new Date(Date.now() - THIRTY_DAYS_MS).toISOString(),
+        new Date(Date.now() - SHARE_LINK_TTL_MS).toISOString(),
       ),
     )
     .catch(() => {});
@@ -157,21 +160,8 @@ export const getSharedDeck = defineEventHandler(async (event) => {
     return { error: "Token is required" };
   }
 
-  const db = getDb();
-  const rows = await db
-    .select()
-    .from(schema.deckShareLinks)
-    .where(eq(schema.deckShareLinks.token, token))
-    .limit(1);
-
-  const shared = rows[0];
+  const shared = await findLiveDeckShareLink(token);
   if (!shared) {
-    setResponseStatus(event, 404);
-    return { error: "Shared presentation not found or has expired" };
-  }
-
-  const age = Date.now() - new Date(shared.createdAt).getTime();
-  if (age > THIRTY_DAYS_MS) {
     setResponseStatus(event, 404);
     return { error: "Shared presentation not found or has expired" };
   }
