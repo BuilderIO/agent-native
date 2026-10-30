@@ -410,7 +410,7 @@ function normalizedSourceGap(source: string, from: number, to: number): string {
 }
 
 const TABLE_TAG = /<\/?(?:table|tr|td|th)\b[^>]*>/;
-const TABLE_TAG_AT = /<\/?(?:table|tr|td|th)\b[^>\r\n]*>/y;
+const TABLE_TAG_AT = new RegExp(TABLE_TAG.source, "y");
 
 const ASCII_PUNCTUATION = /^[!-/:-@[-`{-~]$/; // L7 bridge
 
@@ -515,7 +515,7 @@ function mapStoredSourceRuns(
           return start;
         continue;
       }
-      if (!/[\s|:-]/.test(source[start]!)) return -1;
+      if (!/[\s|:-]/.test(source.charAt(start))) return -1;
       start += 1;
       if (source[start - 1] !== "|") continue;
       const lineFrom = source.lastIndexOf("\n", start - 1) + 1;

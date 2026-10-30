@@ -241,7 +241,7 @@ describe("editor-normalized revisions", () => {
         ),
       ).toBe(after);
       const [draft] = draftSuggestionAnchors(operations, after);
-      expect(after.slice(draft!.from, draft!.to)).toBe("Filled");
+      expect(after.slice(draft.from, draft.to)).toBe("Filled");
     },
   );
 });
