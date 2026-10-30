@@ -400,21 +400,33 @@ describe("splitCommentAtMarkdownLimit", () => {
         isCommentMarkdownTangled(`${table(2, 1)}\n${ending}${lines}`),
       ).toBe(false);
     }
+    const quoted = table(2, 1).replaceAll(/^/gm, "> ");
     expect(
       isCommentMarkdownTangled(
-        `${table(2, 1).replaceAll(/^/gm, "> ")}\nlazy${lines.replaceAll("\n", "\n> ")}`,
+        `${quoted}\nlazy${lines.replaceAll("\n", "\n> ")}`,
       ),
     ).toBe(false);
+    // A list item ends a quoted table too, though it's as deep as the quote.
+    expect(isCommentMarkdownTangled(`${quoted}${"\n- a".repeat(2_600)}`)).toBe(
+      false,
+    );
     // But the cells a table drew still count after it ends,
     expect(isCommentMarkdownTangled(`${table(50, 50)}\n# Next\nx`)).toBe(false);
     expect(
       isCommentMarkdownTangled(`${table(50, 50)}\n# Next\n${table(50, 50)}`),
     ).toBe(true);
     // and a line the parser reads as a row doesn't end it.
-    for (const row of ["#x", "####### x", "-x", "**", "<3"]) {
+    for (const row of ["#x", "####### x", "-x", "+1", "**", "<3"]) {
       const [header, delimiter, ...rows] = table(50, 100).split("\n");
       expect(
         isCommentMarkdownTangled([header, delimiter, row, ...rows].join("\n")),
+      ).toBe(true);
+      expect(
+        isCommentMarkdownTangled(
+          [header, delimiter, row, ...rows]
+            .map((line) => `> ${line}`)
+            .join("\n"),
+        ),
       ).toBe(true);
     }
     // Dashes and pipes in a sentence aren't a delimiter row.

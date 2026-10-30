@@ -185,10 +185,10 @@ function readCommentLines(body: string): {
   // Where each `[` still open in the paragraph sits.
   let brackets: number[] = [];
   let lookback = 0;
-  // Columns of a table opened in the paragraph, the quote and list markers
-  // that open its delimiter row, and the cells drawn so far.
+  // Columns of a table opened in the paragraph, the quotes its delimiter row
+  // sits in, and the cells drawn so far.
   let tableColumns = 0;
-  let tableNesting = 0;
+  let tableQuotes = 0;
   let tableCells = 0;
   let start = 0;
   while (start < body.length) {
@@ -233,20 +233,25 @@ function readCommentLines(body: string): {
       ) {
         trustFences = false;
       }
-      const nesting = lineNesting(body, at, end);
+      const { quotes, lists } = lineMarkers(body, at, end);
+      const nesting = quotes + lists;
       if (nesting > MAX_LINE_NESTING) return { tangledAt: paragraph, fences };
       if (nesting > 0 || text.startsWith("[^")) containers = true;
       // A row after a delimiter row draws the table's full width, as do the
-      // header and the delimiter row itself. A line in another quote or list,
-      // or a heading or thematic break, ends the table; the cells it drew
-      // still count.
-      if (nesting !== tableNesting || startsHeadingOrBreak(body, at, end)) {
+      // header and the delimiter row itself. A line that opens a list item,
+      // sits in more or fewer quotes, or is a heading or thematic break ends
+      // the table; the cells it drew still count.
+      if (
+        lists > 0 ||
+        quotes !== tableQuotes ||
+        startsHeadingOrBreak(body, at, end)
+      ) {
         tableColumns = 0;
       }
       const columns = delimiterRowColumns(text);
       if (columns > 0) {
         tableColumns = Math.max(tableColumns, columns);
-        tableNesting = nesting;
+        tableQuotes = quotes;
         tableCells += tableColumns;
       }
       tableCells += tableColumns;
@@ -386,13 +391,18 @@ function closesFence(
 }
 
 /** How many quote and list markers open the line from `at` to `end`. */
-function lineNesting(body: string, at: number, end: number): number {
-  let nesting = 0;
+function lineMarkers(
+  body: string,
+  at: number,
+  end: number,
+): { quotes: number; lists: number } {
+  let quotes = 0;
+  let lists = 0;
   for (;;) {
     while (at < end && isSpace(body.charAt(at))) at += 1;
     const char = body.charAt(at);
     if (char === ">") {
-      nesting += 1;
+      quotes += 1;
       at += 1;
       continue;
     }
@@ -403,13 +413,15 @@ function lineNesting(body: string, at: number, end: number): number {
       while (marker - at < 9 && isDigit(body.charAt(marker))) marker += 1;
       const delimiter = body.charAt(marker);
       if (marker === at || (delimiter !== "." && delimiter !== ")")) {
-        return nesting;
+        return { quotes, lists };
       }
       marker += 1;
     }
     // A list marker is followed by a space or ends the line.
-    if (marker < end && !isSpace(body.charAt(marker))) return nesting;
-    nesting += 1;
+    if (marker < end && !isSpace(body.charAt(marker))) {
+      return { quotes, lists };
+    }
+    lists += 1;
     at = marker;
   }
 }
