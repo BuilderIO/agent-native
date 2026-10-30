@@ -765,7 +765,7 @@ function useAgentReadSendTo(
   const locale = useOptionalLocale()?.locale;
   if (props.basicSharingOnly) return undefined;
   const sendTo = props.sendTo;
-  if (!agentRead || sendTo?.openInAgent || sendTo?.copyAgentPrompt) {
+  if (!agentRead || (sendTo?.openInAgent && sendTo.copyAgentPrompt)) {
     return sendTo;
   }
   const prompt = () => {
@@ -784,37 +784,42 @@ function useAgentReadSendTo(
       id: props.resourceId,
     });
   };
+  // An app's own callback replaces only its own default.
   return {
     ...sendTo,
-    openInAgent: (destination) => {
-      trackEvent("agent_share_opened", {
-        resource_type: props.resourceType,
-        resource_id: props.resourceId,
-        destination,
-      });
-      window.location.assign(buildAgentShareDeepLink(destination, prompt()));
-    },
-    copyAgentPrompt: async () => {
-      if (!(await writeClipboardText(prompt()))) {
-        toast.error(
-          t("agentChat.share.copyAgentPromptFailed", {
-            defaultValue: "Couldn't copy the agent prompt.",
+    openInAgent:
+      sendTo?.openInAgent ??
+      ((destination) => {
+        trackEvent("agent_share_opened", {
+          resource_type: props.resourceType,
+          resource_id: props.resourceId,
+          destination,
+        });
+        window.location.assign(buildAgentShareDeepLink(destination, prompt()));
+      }),
+    copyAgentPrompt:
+      sendTo?.copyAgentPrompt ??
+      (async () => {
+        if (!(await writeClipboardText(prompt()))) {
+          toast.error(
+            t("agentChat.share.copyAgentPromptFailed", {
+              defaultValue: "Couldn't copy the agent prompt.",
+            }),
+          );
+          return false;
+        }
+        trackEvent("share_link_copied", {
+          resource_type: props.resourceType,
+          resource_id: props.resourceId,
+          link_type: "agent_prompt",
+        });
+        toast.success(
+          t("agentChat.share.copiedAgentPrompt", {
+            defaultValue: "Copied agent prompt",
           }),
         );
-        return false;
-      }
-      trackEvent("share_link_copied", {
-        resource_type: props.resourceType,
-        resource_id: props.resourceId,
-        link_type: "agent_prompt",
-      });
-      toast.success(
-        t("agentChat.share.copiedAgentPrompt", {
-          defaultValue: "Copied agent prompt",
-        }),
-      );
-      return true;
-    },
+        return true;
+      }),
   };
 }
 

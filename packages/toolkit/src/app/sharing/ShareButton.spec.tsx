@@ -1142,7 +1142,9 @@ describe("ShareButton", () => {
     expect(toastMock.success).toHaveBeenCalledWith("Copied agent prompt");
   });
 
-  it("keeps an app's own agent destinations over the type's read tool", async () => {
+  // oracle-change: an app's own destinations no longer drop the generated
+  // Copy agent prompt; each callback replaces only its own default.
+  it("keeps an app's own agent destinations and still offers the generated prompt", async () => {
     const openInAgent = vi.fn();
     const withAgentRead = {
       ...sharesData.current,
@@ -1167,6 +1169,7 @@ describe("ShareButton", () => {
       "Open in Claude",
       "Open in Claude Code",
       "Open in Codex",
+      "Copy agent prompt",
     ]);
     act(() => menuItem("Open in Codex").click());
     expect(openInAgent).toHaveBeenCalledWith("codex");
