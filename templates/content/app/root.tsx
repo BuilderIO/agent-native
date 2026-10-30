@@ -1,6 +1,9 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import {
+  createAgentNativeQueryClient,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
@@ -326,15 +329,18 @@ function ThemeToggleItem({ query }: { query: string }) {
   );
 }
 
+// The agent sidebar loads only for a signed-in reader. A visitor without an
+// account has no model to chat with, so they get the page alone.
 function PublicAgentShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const t = useT();
+  const { status } = useSession();
 
   useEffect(() => setMounted(true), []);
 
   const content = <>{children}</>;
 
-  if (!mounted) {
+  if (!mounted || status !== "authenticated") {
     return (
       <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-auto">

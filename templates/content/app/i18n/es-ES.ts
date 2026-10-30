@@ -1181,10 +1181,19 @@ const rawLiterals = {
   },
   publicDocument: {
     chat: "Chat",
+    pagePath: "Ruta de la página",
     privateDescription:
       "Pide al propietario que lo comparta con tu cuenta o espacio de trabajo antes de abrir este enlace.",
     privateTitle: "Este documento es privado",
+    signIn: "Iniciar sesión",
+    signUp: "Registrarse",
+    signUpFree: "Regístrate gratis",
+    subPages: "Subpáginas",
+    tryContentFree: "Prueba Content gratis",
     updated: "Actualizado {{date}}",
+    writtenIn: "Escrito en Agent-Native Content.",
+    writtenInDescription:
+      "Escribe y publica tus propias páginas, con un agente de IA que trabaja dentro de tus documentos.",
   },
   database: {
     click: "Haz clic",

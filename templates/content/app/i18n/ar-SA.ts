@@ -1234,6 +1234,22 @@ const rawLiterals = {
     restoreDatabaseNamed: "استعادة {{title}}",
     trash: "المهملات",
   },
+  publicDocument: {
+    chat: "الدردشة",
+    pagePath: "مسار الصفحة",
+    privateDescription:
+      "اطلب من المالك مشاركته مع حسابك أو مساحة عملك قبل فتح هذا الرابط.",
+    privateTitle: "هذا المستند خاص",
+    signIn: "تسجيل الدخول",
+    signUp: "إنشاء حساب",
+    signUpFree: "أنشئ حسابًا مجانًا",
+    subPages: "الصفحات الفرعية",
+    tryContentFree: "جرّب Content مجانًا",
+    updated: "آخر تحديث {{date}}",
+    writtenIn: "كُتبت في Agent-Native Content.",
+    writtenInDescription:
+      "اكتب صفحاتك وانشرها، مع وكيل ذكاء اصطناعي يعمل داخل مستنداتك.",
+  },
 };
 
 const landing = {

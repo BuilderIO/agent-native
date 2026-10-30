@@ -1229,6 +1229,22 @@ const rawLiterals = {
     restoreDatabaseNamed: "{{title}} बहाल करें",
     trash: "ट्रैश",
   },
+  publicDocument: {
+    chat: "चैट",
+    pagePath: "पेज पथ",
+    privateDescription:
+      "इस लिंक को खोलने से पहले मालिक से इसे आपके खाते या वर्कस्पेस के साथ साझा करने के लिए कहें।",
+    privateTitle: "यह दस्तावेज़ निजी है",
+    signIn: "साइन इन",
+    signUp: "साइन अप",
+    signUpFree: "मुफ़्त में साइन अप करें",
+    subPages: "उप-पेज",
+    tryContentFree: "Content मुफ़्त में आज़माएँ",
+    updated: "{{date}} को अपडेट किया गया",
+    writtenIn: "Agent-Native Content में लिखा गया।",
+    writtenInDescription:
+      "अपने पेज लिखें और प्रकाशित करें, एक AI एजेंट के साथ जो आपके दस्तावेज़ों के अंदर काम करता है।",
+  },
 };
 
 const landing = {

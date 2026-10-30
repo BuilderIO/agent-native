@@ -1291,6 +1291,22 @@ const rawLiterals = {
     restoreDatabaseNamed: "{{title}} wiederherstellen",
     trash: "Papierkorb",
   },
+  publicDocument: {
+    chat: "Chat",
+    pagePath: "Seitenpfad",
+    privateDescription:
+      "Bitte den Eigentümer, es mit deinem Konto oder Arbeitsbereich zu teilen, bevor du diesen Link öffnest.",
+    privateTitle: "Dieses Dokument ist privat",
+    signIn: "Anmelden",
+    signUp: "Registrieren",
+    signUpFree: "Kostenlos registrieren",
+    subPages: "Unterseiten",
+    tryContentFree: "Content kostenlos testen",
+    updated: "Aktualisiert am {{date}}",
+    writtenIn: "Geschrieben in Agent-Native Content.",
+    writtenInDescription:
+      "Schreibe und veröffentliche eigene Seiten, mit einem KI-Agenten, der direkt in deinen Dokumenten arbeitet.",
+  },
 };
 
 const landing = {
