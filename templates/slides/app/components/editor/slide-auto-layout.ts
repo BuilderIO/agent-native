@@ -66,6 +66,7 @@ export type SlideAutoLayoutResult =
         | "unidentified-children"
         | "placed-by-stylesheet"
         | "loose-text"
+        | "cannot-wrap"
         | Extract<LayoutWrite, { status: "unreadable" }>["reason"];
       objectIds: readonly string[];
     };
@@ -875,6 +876,28 @@ export function wrapSlideFlowMembers(
       status: "refused",
       reason: "not-in-layout",
       objectIds: selected.map((member) => member.getAttribute(OBJECT_ID) ?? ""),
+    };
+  }
+  // The wrapper hugs what it holds, so it can stand in for members only
+  // where that leaves them in place: side by side in the flow, sized by
+  // themselves, in a group that packs them rather than spreading them out.
+  const first = inFlow.indexOf(wrapped[0] ?? group);
+  const sideBySide = wrapped.every(
+    (member, offset) => inFlow[first + offset] === member,
+  );
+  const fills = wrapped.some((member) => {
+    const sizing = readModel(member, measureSlideLayoutBox, "sizing-box").frame
+      .sizing;
+    return sizing.horizontal.mode === "fill" || sizing.vertical.mode === "fill";
+  });
+  const spreads =
+    readModel(group, measureSlideLayoutBox, "sizing-box").frame.spacing ===
+    "space-between";
+  if (!sideBySide || fills || spreads) {
+    return {
+      status: "refused",
+      reason: "cannot-wrap",
+      objectIds: wrapped.map((member) => member.getAttribute(OBJECT_ID) ?? ""),
     };
   }
   const computed = computedStyleOf(group);

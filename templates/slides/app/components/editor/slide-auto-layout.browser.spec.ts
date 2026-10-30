@@ -728,6 +728,47 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("refuses to wrap flow members that would move", async () => {
+    const page = await openPage();
+    const outcomes = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      api.enableSlideGroupAutoLayout(group);
+      const member = (id: string) =>
+        group.querySelector<HTMLElement>(`[data-slide-object-id="${id}"]`)!;
+      const untouched = (attempt: () => unknown) => {
+        const before = group.outerHTML;
+        const result = attempt();
+        return { result, untouched: group.outerHTML === before };
+      };
+      const apart = untouched(() =>
+        api.wrapSlideFlowMembers(group, [member("first"), member("third")]),
+      );
+      api.setSlideLayoutSizing(member("first"), "horizontal", "fill");
+      const filling = untouched(() =>
+        api.wrapSlideFlowMembers(group, [member("first"), member("second")]),
+      );
+      return { apart, filling };
+    });
+    expect(outcomes.apart).toEqual({
+      result: {
+        status: "refused",
+        reason: "cannot-wrap",
+        objectIds: ["first", "third"],
+      },
+      untouched: true,
+    });
+    expect(outcomes.filling).toEqual({
+      result: {
+        status: "refused",
+        reason: "cannot-wrap",
+        objectIds: ["first", "second"],
+      },
+      untouched: true,
+    });
+    await page.close();
+  });
+
   it("refuses a member that is not rendered and leaves the group as it was", async () => {
     const page = await openPage();
     const outcome = await page.evaluate(() => {
