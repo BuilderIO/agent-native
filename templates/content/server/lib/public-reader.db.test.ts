@@ -187,6 +187,20 @@ describe("public reader context", () => {
     expect(JSON.stringify(context)).not.toContain("Board minutes");
   });
 
+  it("reads hundreds of page blocks, in reading order, up to the limit", () => {
+    const ids = Array.from(
+      { length: reader.PUBLIC_READER_MAX_PAGE_LINKS + 1 },
+      (_, index) => `linked-page-${index}`,
+    );
+    const content = ids
+      .map((id) => `<page id="${id}">Untitled</page>`)
+      .join("\n");
+
+    expect(reader.pageLinkBlockIds(content)).toEqual(
+      ids.slice(0, reader.PUBLIC_READER_MAX_PAGE_LINKS),
+    );
+  });
+
   it("opens a Notion page link at the same owner's public import of it", async () => {
     const notionPage = "0123456789abcdef0123456789abcdef";
     const own = await page({ title: "Imported" });

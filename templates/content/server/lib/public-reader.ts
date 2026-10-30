@@ -4,7 +4,6 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 
 import { softDeletedDatabaseDocumentExclusions } from "../../actions/_document-discovery-query.js";
 import {
-  CONTENT_LINK_BATCH_MAX,
   dashedNotionPageId,
   isContentLinkId,
   normalizeNotionPageId,
@@ -19,6 +18,8 @@ import { getDb, schema } from "../db/index.js";
 
 export const PUBLIC_READER_MAX_ANCESTORS = 8;
 export const PUBLIC_READER_MAX_SUB_PAGES = 100;
+/** Page blocks past this many, in reading order, show their stored label. */
+export const PUBLIC_READER_MAX_PAGE_LINKS = 500;
 
 /**
  * An icon a signed-out reader can load. An uploaded icon is served only to
@@ -55,7 +56,7 @@ function parseAttrsJson(value: unknown): Record<string, string> {
   }
 }
 
-/** The pages the body's page-link blocks name, at most one batch of them. */
+/** The pages the body's page-link blocks name, in reading order. */
 export function pageLinkBlockIds(content: string): string[] {
   const ids = new Set<string>();
   const visit = (node: PMNode) => {
@@ -66,7 +67,7 @@ export function pageLinkBlockIds(content: string): string[] {
     for (const child of node.content ?? []) visit(child);
   };
   for (const node of nfmToDoc(content).content) visit(node);
-  return [...ids].slice(0, CONTENT_LINK_BATCH_MAX);
+  return [...ids].slice(0, PUBLIC_READER_MAX_PAGE_LINKS);
 }
 
 /**

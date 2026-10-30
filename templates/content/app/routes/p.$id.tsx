@@ -433,6 +433,9 @@ export function ReadOnlyMarkdownContent({
         : null;
     };
   }, [pageLinks]);
+  // The editor reads its options once, when it mounts, so page data that
+  // arrives with different targets mounts a new one.
+  const pageLinksKey = useMemo(() => JSON.stringify(pageLinks), [pageLinks]);
   const openPageLink = useCallback(
     (id: string) => {
       window.location.assign(
@@ -458,6 +461,7 @@ export function ReadOnlyMarkdownContent({
       ctx={blockContext}
     >
       <VisualEditor
+        key={pageLinksKey}
         content={content}
         onChange={() => {}}
         editable={false}
