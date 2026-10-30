@@ -542,6 +542,57 @@ describe("review store", () => {
       }
     });
 
+    it("has resolving a thread and marking its feedback consumed lock its first comments in a thread delete's order", async () => {
+      const { root, reply } = await thread("p-resolve-lock");
+      const resource = { resourceType: "plan", resourceId: "p-resolve-lock" };
+      const statements = () =>
+        rawClient.execute.mock.calls.map(([input]) =>
+          typeof input === "string" ? input : input.sql,
+        );
+      const lockAt = (texts: string[]) =>
+        texts.findIndex((text) =>
+          /parent_comment_id IS NULL\s+ORDER BY id\s+FOR UPDATE/.test(text),
+        );
+      Object.assign(rawClient, {
+        transaction: <T>(run: (tx: typeof rawClient) => Promise<T>) =>
+          run(rawClient),
+      });
+      try {
+        rawClient.execute.mockClear();
+        await expect(
+          resolveReviewThread(root.threadId, "alice@example.com", resource),
+        ).resolves.toBe(2);
+        const resolved = statements();
+        expect(lockAt(resolved)).toBeGreaterThanOrEqual(0);
+        expect(lockAt(resolved)).toBeLessThan(
+          resolved.findIndex((text) => text.includes("SET status")),
+        );
+
+        // Only a reply is named, and its thread's first comment is still
+        // taken first.
+        rawClient.execute.mockClear();
+        await expect(
+          consumeReviewFeedback([reply.id], undefined, resource),
+        ).resolves.toBe(1);
+        const consumed = statements();
+        expect(lockAt(consumed)).toBeGreaterThanOrEqual(0);
+        expect(lockAt(consumed)).toBeLessThan(
+          consumed.findIndex((text) => text.includes("SET consumed_at")),
+        );
+        const lock = rawClient.execute.mock.calls.find(
+          ([input]) =>
+            typeof input !== "string" && /FOR UPDATE/.test(input.sql),
+        );
+        if (!lock) throw new Error("No lock was taken");
+        const [lockInput] = lock;
+        expect((await rawClient.execute(lockInput)).rows).toEqual([
+          { id: root.id },
+        ]);
+      } finally {
+        Reflect.deleteProperty(rawClient, "transaction");
+      }
+    });
+
     it("deletes a comment whose resolution is plain text, not an object", async () => {
       const root = await insertReviewComment({
         resourceType: "plan",

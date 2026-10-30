@@ -520,20 +520,23 @@ async function assertLiveReviewRoot(
 
 /**
  * Locks every first comment in a thread `FOR UPDATE`, in id order. A thread
- * delete, a routed reply and routing a thread all change them, and taking them
- * in one order makes each wait for the other rather than each holding a row
- * the other needs.
+ * delete, a routed reply, routing a thread, resolving it and marking its
+ * feedback consumed all change them, and taking them in one order makes each
+ * wait for the other rather than each holding a row the other needs.
  */
 async function lockReviewThreadRoots(
   client: DbExec,
   threadId: string,
-  resource: { resourceType: string; resourceId: string },
+  resource?: { resourceType: string; resourceId: string },
 ): Promise<void> {
+  const onResource = resource
+    ? sql`AND resource_type = ${sql.value(resource.resourceType)}
+        AND resource_id = ${sql.value(resource.resourceId)}`
+    : sql``;
   await client.execute(sql`SELECT id
        FROM agent_review_comments
       WHERE thread_id = ${sql.value(threadId)}
-        AND resource_type = ${sql.value(resource.resourceType)}
-        AND resource_id = ${sql.value(resource.resourceId)}
+        ${onResource}
         AND parent_comment_id IS NULL
       ORDER BY id
         FOR UPDATE`);
@@ -1222,6 +1225,10 @@ export async function resolveReviewThreadWithClient(
   if (status === "open" && resolutionNote !== undefined) {
     throw new Error("Resolution notes are only supported when resolving");
   }
+  // Resolving updates every comment in the thread. It takes the first ones in
+  // the order a thread delete does, so neither holds one while it waits for
+  // another the other holds.
+  await lockReviewThreadRoots(client, threadId, resource);
   const now = new Date().toISOString();
   const resourceClause = resource
     ? "AND resource_type = ? AND resource_id = ?"
@@ -1710,23 +1717,34 @@ export async function consumeReviewFeedback(
     return 0;
   }
   await ensureReviewTables();
-  const placeholders = ids.map(() => "?").join(", ");
-  const resourceClause = resource
-    ? "AND resource_type = ? AND resource_id = ?"
-    : "";
-  const result = await getDbExec().execute({
-    sql: `UPDATE agent_review_comments
-        SET consumed_at = ?,
-            updated_at = ?
-      WHERE id IN (${placeholders}) ${resourceClause}`,
-    args: [
-      consumedAt,
-      consumedAt,
-      ...ids,
-      ...(resource ? [resource.resourceType, resource.resourceId] : []),
-    ],
-  });
-  return result.rowsAffected ?? 0;
+  const onResource = resource
+    ? sql`AND resource_type = ${sql.value(resource.resourceType)}
+        AND resource_id = ${sql.value(resource.resourceId)}`
+    : sql``;
+  const client = getDbExec();
+  const consume = async (tx: DbExec) => {
+    // The comments can be in several threads. The first comments of each are
+    // taken in one id order, as a thread delete takes its own, so neither
+    // holds one while it waits for another the other holds.
+    await tx.execute(sql`SELECT id
+         FROM agent_review_comments
+        WHERE thread_id IN (
+                SELECT thread_id
+                  FROM agent_review_comments
+                 WHERE id IN ${sql.in(ids)}
+                   ${onResource})
+          ${onResource}
+          AND parent_comment_id IS NULL
+        ORDER BY id
+          FOR UPDATE`);
+    const result = await tx.execute(sql`UPDATE agent_review_comments
+          SET consumed_at = ${sql.value(consumedAt)},
+              updated_at = ${sql.value(consumedAt)}
+        WHERE id IN ${sql.in(ids)}
+          ${onResource}`);
+    return result.rowsAffected;
+  };
+  return client.transaction ? client.transaction(consume) : consume(client);
 }
 
 export async function upsertReviewStatus(
