@@ -1099,6 +1099,8 @@ export function AiInboxSetup({
         disabled={
           saving ||
           (step === 0 && customTagIncomplete) ||
+          (step === 1 && !importantPrompt.trim()) ||
+          (step === 2 && !archivePrompt.trim()) ||
           (step === 2 && !firstRunPreferences && automationSettingsUnknown)
         }
         aria-busy={saving}
@@ -1205,6 +1207,7 @@ export function AiInboxSetup({
         disabled={
           saving ||
           (step === 0 && customTagIncomplete) ||
+          (step === 1 && !importantPrompt.trim()) ||
           (step === 2 &&
             (rulesLoading ||
               (!firstRunPreferences && automationSettingsUnknown)))
