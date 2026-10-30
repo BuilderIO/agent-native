@@ -748,9 +748,10 @@ async function resolveProviderBaseUrl(
 ): Promise<ResolvedProviderBaseUrl | undefined> {
   const isOllama = envVar === OLLAMA_BASE_URL_ENV_VAR;
   // raw-sql-ok: envVar names a provider endpoint secret, never SQL.
-  const resolved = await resolveSecretDetailed(envVar, {
-    endpointForCredential: credential,
-  });
+  const resolved = await resolveSecretDetailed(
+    envVar,
+    credential ? { endpointForCredential: credential } : {},
+  );
   const raw = resolved.value;
   const deployValue = canUseDeployCredentialFallbackForRequest(envVar)
     ? readDeployCredentialEnv(envVar)

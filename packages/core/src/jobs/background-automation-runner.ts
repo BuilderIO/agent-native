@@ -1360,7 +1360,9 @@ export async function checkBackgroundAutomationCredentials(
       },
       async () => {
         const engine = await resolveUsableBackgroundEngine(
-          { ownerEmail: identity.userEmail, orgId: identity.orgId },
+          identity.orgId === undefined
+            ? { ownerEmail: identity.userEmail }
+            : { ownerEmail: identity.userEmail, orgId: identity.orgId },
           deps,
           () => undefined,
         );
