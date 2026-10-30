@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/agent-browser-extension",
-  "version": "0.1.347",
+  "version": "0.1.348",
   "private": true,
   "description": "Public Agent-Native browser context and chat extension.",
   "type": "module",

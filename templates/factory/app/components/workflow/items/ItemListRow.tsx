@@ -62,12 +62,9 @@ export function ItemListRow({
   const last = row.lastEvent ? lastEventText(row.lastEvent) : null;
   const source = sourceLabel(row.source, s);
   const preview = itemPreview(row);
-  const secondary = [
-    source,
-    row.workflowName,
-    where ?? (last ? null : s.where.notStarted),
-    last,
-  ].filter((part): part is string => Boolean(part));
+  const secondary = [source, row.workflowName, where, last].filter(
+    (part): part is string => Boolean(part),
+  );
   return (
     <div role="listitem" className="border-b border-border last:border-b-0">
       <button

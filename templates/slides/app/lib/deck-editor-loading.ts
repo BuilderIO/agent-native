@@ -79,7 +79,7 @@ export function deckAccessRequestStateFor(
   mutation: {
     isPending: boolean;
     isError: boolean;
-    data?: { notifiedOwner: boolean };
+    data?: { notifiedOwner: boolean } | undefined;
   },
   recordedRequest: { notifiedOwner: boolean } | null | undefined,
 ): DeckAccessRequestState {

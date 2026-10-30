@@ -120,6 +120,27 @@ export function isSlideCanvasShortcutTarget(
   );
 }
 
+/** Surfaces whose own keys must never reach a canvas shortcut. */
+export const SLIDE_CANVAS_SHORTCUT_BLOCKERS =
+  "[data-slide-thumbnail-id], [data-slide-context-toolbar], [data-radix-popper-content-wrapper], [role='dialog'], [role='menu']";
+
+export function isSlideCanvasShortcutBlocked(
+  activeElement: Element | null,
+): boolean {
+  return Boolean(activeElement?.closest(SLIDE_CANVAS_SHORTCUT_BLOCKERS));
+}
+
+/**
+ * Tab only cycles objects while the canvas itself holds focus. From the page
+ * body it moves focus into the page, as everywhere else.
+ */
+export function isSlideCanvasTabTarget(
+  activeElement: Element | null,
+  canvas: HTMLElement | null,
+): boolean {
+  return Boolean(activeElement && canvas?.contains(activeElement));
+}
+
 const RICH_TEXT_TABLE_TAGS = new Set([
   "CAPTION",
   "COL",
@@ -187,7 +208,9 @@ export function isTextLeaf(element: HTMLElement): boolean {
   if (element.tagName === "H5" || element.tagName === "H6") return false;
   if (element.classList.contains("fmd-img-placeholder")) return false;
   if (element.classList.contains("fmd-text-box")) return true;
-  if (!element.textContent?.trim()) return false;
+  // A cell is where a caret goes even before it holds any text.
+  const cell = element.tagName === "TD" || element.tagName === "TH";
+  if (!cell && !element.textContent.trim()) return false;
   for (const child of Array.from(element.children)) {
     if (!isInlineTextElement(child)) return false;
   }
@@ -360,7 +383,8 @@ export function paintsFill(element: HTMLElement): boolean {
   return fillsBox(window.getComputedStyle(element));
 }
 
-function paintsOwnBox(element: HTMLElement): boolean {
+/** A fill, shadow, outline or visible border of the element's own. */
+export function paintsOwnBox(element: HTMLElement): boolean {
   const style = window.getComputedStyle(element);
   if (fillsBox(style)) return true;
   if (style.boxShadow && style.boxShadow !== "none") return true;

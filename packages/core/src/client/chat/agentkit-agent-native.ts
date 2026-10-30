@@ -4387,6 +4387,7 @@ export function createAgentNativeAgentKitTransport(
         threadId: input.threadId,
         tabId: input.threadId,
         runId: run.runId,
+        reason: "run.submitted",
       });
       return run;
     } catch (error) {

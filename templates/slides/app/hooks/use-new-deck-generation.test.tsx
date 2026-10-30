@@ -24,9 +24,12 @@ import {
 
 import { CHAT_STOP_DEBOUNCE_MS } from "./use-agent-generating";
 import {
+  beginNewDeckGenerationSetup,
   clearNewDeckGenerationRun,
+  NEW_DECK_GENERATION_SETUP_TIMEOUT_MS,
   useNewDeckGeneration,
   useNewDeckGenerationRun,
+  useNewDeckGenerationSetupPending,
 } from "./use-new-deck-generation";
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -108,6 +111,83 @@ describe("useNewDeckGeneration", () => {
         waitingOnQuestions: false,
       }),
     ).toBeNull();
+  });
+
+  it("does not report a failure while Home is still setting up the prompt", () => {
+    const submitMessageId = "slow-setup-submit";
+    const settleSetup = beginNewDeckGenerationSetup(submitMessageId);
+    const { result } = renderHook(() => {
+      const setupPending = useNewDeckGenerationSetupPending(submitMessageId);
+      return useNewDeckGeneration({
+        deckId: "deck-slow-setup",
+        isNewDeckRoute: true,
+        generating: false,
+        waitingOnQuestions: false,
+        slideCount: 0,
+        setupPending,
+      });
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(3 * 60 * 1000);
+    });
+    expect(result.current.phase).toBe("pending");
+
+    act(() => settleSetup());
+    act(() => {
+      vi.advanceTimersByTime(NEW_DECK_GENERATION_START_TIMEOUT_MS - 1);
+    });
+    expect(result.current.phase).toBe("pending");
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(result.current.phase).toBe("abandoned");
+  });
+
+  it("gives up on a setup that never settles", () => {
+    const settleSetup = beginNewDeckGenerationSetup("hung-setup-submit");
+    const { result } = renderHook(() =>
+      useNewDeckGeneration({
+        deckId: "deck-hung-setup",
+        isNewDeckRoute: true,
+        generating: false,
+        waitingOnQuestions: false,
+        slideCount: 0,
+        setupPending: useNewDeckGenerationSetupPending("hung-setup-submit"),
+      }),
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(NEW_DECK_GENERATION_SETUP_TIMEOUT_MS - 1);
+    });
+    expect(result.current.phase).toBe("pending");
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(result.current.phase).toBe("abandoned");
+    settleSetup();
+  });
+
+  it("tracks setup per submit and not after it settles", () => {
+    const { result } = renderHook(() => ({
+      first: useNewDeckGenerationSetupPending("setup-a"),
+      second: useNewDeckGenerationSetupPending("setup-b"),
+      none: useNewDeckGenerationSetupPending(null),
+    }));
+    expect(result.current).toEqual({
+      first: false,
+      second: false,
+      none: false,
+    });
+
+    let settle = () => {};
+    act(() => {
+      settle = beginNewDeckGenerationSetup("setup-a");
+    });
+    expect(result.current).toEqual({ first: true, second: false, none: false });
+
+    act(() => settle());
+    expect(result.current.first).toBe(false);
   });
 
   it("resets lifecycle state on deck navigation and a new-generation route", () => {

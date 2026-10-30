@@ -154,7 +154,10 @@ import {
 } from "../shared/cache-control.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import { FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES } from "../shared/first-run-builder-credits-experiment.js";
-import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
+import {
+  isGoogleDefaultAvatarUrl,
+  isGoogleProfileImageUrl,
+} from "../shared/google-profile-image.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import {
   EMBED_TRANSPLANT_HEADER,
@@ -6833,7 +6836,12 @@ export function createCoreRoutesPlugin(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
             const storedImage = (data as any)?.image;
-            if (typeof storedImage === "string" && storedImage.trim()) {
+            // A silhouette saved before it was recognized is not a photo either.
+            if (
+              typeof storedImage === "string" &&
+              storedImage.trim() &&
+              !isGoogleDefaultAvatarUrl(storedImage)
+            ) {
               return { image: storedImage };
             }
             if (getBetterAuthSync()) {

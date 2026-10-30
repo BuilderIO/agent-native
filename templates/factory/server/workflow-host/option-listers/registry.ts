@@ -46,7 +46,9 @@ function matches(option: ProviderOption, search: string): boolean {
 /**
  * One page, or with `search` the matches from the next few pages. The
  * providers listed here have no search of their own, so the scan is ours; a
- * scan that stops before the end hands back the cursor to continue from.
+ * scan that stops before the end hands back the cursor to continue from. A
+ * search that is one resource's exact id is answered by asking the provider for
+ * that resource when the lister can, since the scan stops after a few pages.
  */
 export async function listProviderOptions(
   lister: OptionLister,
@@ -57,13 +59,17 @@ export async function listProviderOptions(
     cursor?: string | undefined;
   },
 ): Promise<OptionPage> {
-  const search = request.search?.trim().toLowerCase();
-  if (!search) {
+  const typed = request.search?.trim();
+  if (!typed) {
     return lister.list(http, {
       ...(request.parent ? { parent: request.parent } : {}),
       ...(request.cursor ? { cursor: request.cursor } : {}),
     });
   }
+  // A later page of a search is the scan going on, never a second lookup.
+  const exact = request.cursor ? undefined : await lister.find?.(http, typed);
+  if (exact) return { options: [exact] };
+  const search = typed.toLowerCase();
   const found: ProviderOption[] = [];
   let cursor = request.cursor;
   for (let pages = 0; pages < MAX_SEARCH_PAGES; pages += 1) {

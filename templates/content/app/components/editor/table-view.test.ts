@@ -16,6 +16,7 @@ import {
 } from "@tiptap/pm/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { TABLE_SCROLLS_ATTRIBUTE } from "./table-sizing";
 import {
   COLUMN_SIZING_ATTRIBUTE,
   ContentTableView,
@@ -211,19 +212,44 @@ function holdDecorations(state: EditorState): Decoration[] {
 }
 
 // Tiptap's view leaves the rows to ProseMirror, so the tests lay out the first
-// row themselves with the widths the browser would have given it.
+// row themselves with the widths the browser would have given it, in a page
+// `pageWidth` px wide.
 function renderFirstRow(view: ContentTableView, widths: number[]) {
   view.contentDOM.replaceChildren();
   const row = view.contentDOM.appendChild(document.createElement("tr"));
-  const cells = widths.map((width) => {
-    const cell = row.appendChild(document.createElement("td"));
-    cell.getBoundingClientRect = () => ({ width }) as DOMRect;
-    return cell;
-  });
-  return cells;
+  widths.forEach(() => row.appendChild(document.createElement("td")));
+  layOut(row, widths);
+  return row;
 }
 
-// A hold measures the cells once ProseMirror has drawn them, in a microtask.
+/** Gives the row's cells the widths the browser would lay them out at. */
+function layOut(row: HTMLTableRowElement, widths: number[]) {
+  widths.forEach((width, index) => {
+    const cell = row.cells.item(index);
+    if (cell)
+      cell.getBoundingClientRect = () => ({ width, left: 0 }) as DOMRect;
+  });
+}
+
+const pageWidth = 600;
+const views: ContentTableView[] = [];
+
+function laidOut(node: ProseMirrorNode) {
+  const view = new ContentTableView(node, 25);
+  Object.defineProperty(view.dom, "clientWidth", { value: pageWidth });
+  document.body.append(view.dom);
+  views.push(view);
+  return view;
+}
+
+afterEach(() => {
+  for (const view of views.splice(0)) {
+    view.destroy();
+    view.dom.remove();
+  }
+});
+
+// The table is measured once ProseMirror has drawn its cells, in a microtask.
 function cellsDrawn() {
   return Promise.resolve();
 }
@@ -232,6 +258,18 @@ function colWidths(view: ContentTableView) {
   return Array.from(view.colgroup.children).map(
     (col) => (col as HTMLElement).style.width,
   );
+}
+
+const pixels = (view: ContentTableView) =>
+  colWidths(view).map((width) => Number.parseFloat(width));
+
+/** The first two columns' widths, in px. */
+function firstTwo(view: ContentTableView) {
+  const widths = pixels(view);
+  if (widths.length < 2)
+    throw new Error("The table has fewer than two columns");
+  const [first, second] = widths as [number, number, ...number[]];
+  return { first, second };
 }
 
 describe("content-sized columns", () => {
@@ -252,37 +290,82 @@ describe("content-sized columns", () => {
     expect(fully.table.hasAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe(false);
   });
 
-  it("holds the widths while the selection is in the table, then lets go", async () => {
+  it("measures the table once its cells are drawn and fills the page", async () => {
     const node = table([{}, {}]);
-    const view = new ContentTableView(node, 25);
-    const cells = renderFirstRow(view, [100, 300]);
-    view.table.getBoundingClientRect = () => ({ width: 900 }) as DOMRect;
-    const inside = holdDecorations(stateWith(node, 4));
-
-    expect(view.update(node, inside)).toBe(true);
-    await cellsDrawn();
-    expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("held");
-    expect(colWidths(view)).toEqual(["25.000%", "75.000%"]);
-    // It stays as wide as it was, so a long word doesn't break once held.
-    expect(floorOf(view)).toBe("900px");
-
-    // Typing reflows nothing: the shares stay as they were when it began.
-    cells[0].getBoundingClientRect = () => ({ width: 200 }) as DOMRect;
-    cells[1].getBoundingClientRect = () => ({ width: 200 }) as DOMRect;
-    view.update(table([{}, {}]), inside);
-    await cellsDrawn();
-    expect(colWidths(view)).toEqual(["25.000%", "75.000%"]);
+    const view = laidOut(node);
+    renderFirstRow(view, [100, 300]);
 
     view.update(node, []);
-    expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("content");
-    expect(colWidths(view)).toEqual(["", ""]);
-    expect(floorOf(view)).toBe(`${2 * READABLE_TABLE_COLUMN_MIN_WIDTH}px`);
+    await cellsDrawn();
+
+    expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("measured");
+    const { first, second } = firstTwo(view);
+    expect(first + second).toBeCloseTo(pageWidth, 1);
+    expect(second).toBeGreaterThan(first);
+    expect(floorOf(view)).toBe("0px");
   });
 
-  it("measures a hold once ProseMirror has drawn the cells", async () => {
+  it("holds the widths while the selection is in the table, then measures again", async () => {
     const node = table([{}, {}]);
-    const view = new ContentTableView(node, 25);
+    const view = laidOut(node);
+    const row = renderFirstRow(view, [100, 300]);
+    view.update(node, []);
+    await cellsDrawn();
+    const before = colWidths(view);
+    const inside = holdDecorations(stateWith(node, 4));
+
+    // oracle-change: the hold keeps measured pixel widths instead of #8152's
+    // percentages, so its "held" state, percentage and floor checks went.
+    // Typing reflows nothing, though the text, and so its widths, changed.
+    layOut(row, [300, 100]);
+    view.update(table([{}, {}]), inside);
+    await cellsDrawn();
+    expect(colWidths(view)).toEqual(before);
+
+    view.update(node, []);
+    await cellsDrawn();
+    const { first, second } = firstTwo(view);
+    expect(first).toBeGreaterThan(second);
+  });
+
+  it("fits a held table to the page width as soon as it is set to", async () => {
+    // Text 8 px a character: three 25-letter words need 603 px of 600.
+    const ranges = vi
+      .spyOn(Range.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Range) {
+        return { width: this.toString().length * 8, left: 0 } as DOMRect;
+      });
+    try {
+      const node = table([{}, {}, {}]);
+      const view = laidOut(node);
+      const row = renderFirstRow(view, [250, 250, 250]);
+      for (const cell of Array.from(row.cells)) {
+        cell.innerHTML = "<p>Internationalisationalism</p>";
+      }
+      view.update(node, []);
+      await cellsDrawn();
+      expect(view.dom.hasAttribute(TABLE_SCROLLS_ATTRIBUTE)).toBe(true);
+
+      // Set from the table's menu, with the caret still in the table.
+      const fitted = table([{}, {}, {}], { fitPageWidth: true });
+      view.update(fitted, holdDecorations(stateWith(fitted, 4)));
+
+      expect(view.dom.hasAttribute(TABLE_SCROLLS_ATTRIBUTE)).toBe(false);
+      expect(pixels(view).reduce((sum, width) => sum + width)).toBeCloseTo(
+        pageWidth,
+        1,
+      );
+    } finally {
+      ranges.mockRestore();
+    }
+  });
+
+  it("measures a held table again once it has another column", async () => {
+    const node = table([{}, {}]);
+    const view = laidOut(node);
     renderFirstRow(view, [100, 300]);
+    view.update(node, []);
+    await cellsDrawn();
 
     // An update can start a hold and change the cells at once, as an undo
     // that puts the caret back in the table does; ProseMirror draws the new
@@ -293,36 +376,23 @@ describe("content-sized columns", () => {
     renderFirstRow(view, [100, 100, 200]);
     await cellsDrawn();
 
-    expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("held");
-    expect(colWidths(view)).toEqual(["25.000%", "25.000%", "50.000%"]);
+    expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("measured");
+    expect(pixels(view)).toHaveLength(3);
   });
 
-  it("doesn't hold a column the cells haven't been drawn for", async () => {
+  it("drops its widths once the table has stored widths", async () => {
     const node = table([{}, {}]);
-    const view = new ContentTableView(node, 25);
+    const view = laidOut(node);
     renderFirstRow(view, [100, 300]);
-
-    const wider = table([{}, {}, {}]);
-    view.update(wider, holdDecorations(stateWith(wider, 4)));
+    view.update(node, []);
     await cellsDrawn();
-
-    expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("content");
-    expect(colWidths(view)).toEqual(["", "", ""]);
-  });
-
-  it("drops a held share once the table has stored widths", async () => {
-    const node = table([{}, {}]);
-    const view = new ContentTableView(node, 25);
-    renderFirstRow(view, [100, 300]);
-    view.update(node, holdDecorations(stateWith(node, 4)));
-    await cellsDrawn();
-    expect(colWidths(view)).toEqual(["25.000%", "75.000%"]);
 
     // The second column is left unsized, as a drag leaves the one after it.
     view.update(table([{ colwidth: [150] }, { colwidth: [0] }]));
 
     expect(view.table.hasAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe(false);
     expect(colWidths(view)).toEqual(["150px", ""]);
+    expect(floorOf(view)).toBe(`${150 + READABLE_TABLE_COLUMN_MIN_WIDTH}px`);
   });
 
   it("clears the widths an undone resize leaves on the columns", () => {
