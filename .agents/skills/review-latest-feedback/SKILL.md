@@ -126,10 +126,11 @@ Real replies that missed, and what to send instead:
 
 ## Boundaries
 
-- **Slack:** only `#product-agent-native-feedback` (`C0ATH3CCZT4`),
-  `#qa-agent-native` (`C0C4U4XRT6X`), and `#dev-agent-native-feedback`
-  (`C0AJ5QV0J03`), or the narrower set the invocation names. Never react or
-  reply anywhere else.
+- **Slack:** only `#product-agent-native-feedback` (`C0ATH3CCZT4`)
+  and `#qa-agent-native` (`C0C4U4XRT6X`), or the narrower set the invocation
+  names. Never react or reply anywhere else. Reply only in a report thread
+  that this workflow claimed with 👀 and investigated; an old bot reply alone
+  is not evidence of a claim. Never start a new channel message.
 - **Leave a report alone** when:
   - Steve put `:mag:` or his own 👀 on it (table above);
   - someone in the thread asked a specific person to look, a teammate says
@@ -167,8 +168,8 @@ the invocation gives), for new reports and open items alike. An older thread
 is in the window too when we have already replied in it and a person has
 replied since the window began: a channel read only shows roots, so search for
 recent thread replies (`in:<#channel> is:thread after:<date>`) to find them.
-Roots listed in `memory.md` under "Claimed, not yet answered" or "Must handle
-next run" (from the coverage check) are always in the window. Other older threads are left as they are, except reports listed under
+Roots in `memory.md` under "Claimed reports", "Claimed, not yet answered",
+or "Must handle next run" are always in the window. Other older threads are left as they are, except reports listed under
 `Reports` in a sweep PR opened or merged in that window: those always get
 their close-out.
 
@@ -185,26 +186,20 @@ no reaction and no thread yet.
   root showing `eyes`, `white_check_mark`, `ticket`, `mag`, `yes-party`, or
   `upvote`. Don't rely on
   `hasmy:` searches.
-- **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
-  hand to things he is working on himself, so a 👀 from his account is not
-  enough to make a root this workflow's. Treat it as the workflow's only when
-  the thread already has a reply from Steve's account that ends with "This
-  was sent from a bot", ignoring case, `*`, punctuation, and whitespace. The
-  phrase may be on its own line or, in older replies, at the end of the
-  sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
-  yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
-  has it: leave it alone. Read the thread of every workflow root in the window: a human reply newer
-  than ours only shows there. A root
+- **Open items first.** Verify Steve's 👀 on the root and workflow ownership
+  from a matching run recap, proof-bearing PR, or automation memory claim.
+  A bot reply, reaction, or memory entry alone is insufficient. Investigate
+  before replying, and read the thread for human updates. A root
   listed in the `Reports` section of a sweep
   PR that is still open and that this run didn't open belongs to the run
   working on that PR: don't react
   or reply there, and leave it out of your self-check; just list it under
   "Still open from earlier runs". If that PR has had no push in 24 hours,
   its run has stopped: its reports are yours again. Of the remaining
-  workflow roots, any
-  without ✅ or 🎫, or with a human reply newer than our last reply, comes
-  first in this run. A root with 🎫 and our reply after its latest human
-  message is already answered: you may still fix it, but post nothing there
+  workflow roots, those without ✅ or 🎫 come first in this run. A newer
+  human reply is context, not by itself a reason to respond: investigate the
+  claimed report and leave conversations already handled by people alone. A
+  root with 🎫 and our reply after its latest human message is already answered: you may still fix it, but post nothing there
   until the fix merges. A
   reply like "still broken" after a ✅ means the earlier fix failed. Find what
   that fix changed and why it didn't hold before trying again.
@@ -255,19 +250,19 @@ Issues from the error and health sources above go in the same buckets,
 ranked with the Slack reports by people affected. They have no thread to react on,
 so they appear only in the recap.
 
-Take the Fix reports in order of how many people they hurt, and claim all
-of them. A claim you can't finish stays under "Claimed, not yet answered" for
-the next run. Any Fix, Build, or Needs-a-person root you leave
+Claim Fix reports in order of people affected. Unfinished claims stay in
+"Claimed reports" for the next run. Any Fix, Build, or Needs-a-person root you leave
 unclaimed gets no reaction, only one line in the recap saying why, so
 nothing is dropped silently. That covers every candidate your source helpers
 return: each one ends the run either claimed or on a recap line with its
 reason.
 
-In an automation run, first list every root you claimed (Fix, Build, or Needs
-a person), channel and ts, under "Claimed, not yet answered" in its
-`memory.md`, and remove each one once it has its reply. Then add 👀 to them
-in one pass, before you investigate. That list is how the next run tells an unfinished claim
-apart from Steve's own 👀.
+In scheduled and manual runs, record each root (channel and ts) under "Claimed
+reports" in the feedback automation's `memory.md`, then add and verify 👀
+before investigating. A record alone does not establish a claim: the root
+must also have the verified 👀 from this workflow. Retain the record until
+the report is resolved or a person takes over. If shared memory is unavailable,
+do not claim new roots.
 
 ## 3. Fix as many as you can
 
@@ -411,17 +406,14 @@ the PR, and then get closed. Post it even when someone else opened the issue,
 or the PR already closed it: Steve wants reporters told, and this comment is
 allowed under his "only message Steve" account rule.
 <!-- framework-repo-only:start -->
-CI, deploy, and chat-health failures you couldn't fix get one grouped message
-per run in `#qa-agent-native`: one short line per workflow that is still
-failing, linking only its latest failed run. Leave out runs that later passed
-or were superseded. Never post one message per failure, and never open GitHub
-issues for them.
+Report unresolved CI, deploy, and chat-health failures in the private run
+recap. Do not create Slack channel messages or GitHub issues for them.
 <!-- framework-repo-only:end -->
 
 Before ending, re-read each thread you touched and check:
 
-- every 👀 from this run has a reply after the latest human message, plus
-  ✅, 🎫, or an open fix PR that lists it under `Reports`;
+- every 👀 from this run has an investigated disposition and, unless a person
+  has taken over, a reply plus ✅, 🎫, or an open fix PR listed under `Reports`;
 - every ✅ corresponds to a merged fix;
 - no reply is technical or duplicated.
 

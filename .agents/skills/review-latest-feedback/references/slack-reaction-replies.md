@@ -6,15 +6,16 @@ At sweep exit, reconcile every report root in the scoped inventory that has
 this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Capture
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
 owned by this task only when its reaction owner ID matches that actor ID and the
-root is the workflow's by the parent skill's evidence: a bot-disclosure reply from
-that account, or a root listed under "Claimed, not yet answered" in memory.md. A
+root is the workflow's by the parent skill's claim evidence. Investigate the
+report before replying. A
 matching reaction without that evidence is a manual mark: leave it alone. Keep
 the disposition, evidence, scopes, and human actions in the internal inventory.
-Post a reporter reply when this run adds a root reaction, when a newer human reporter
-message needs a direct answer, or when this workflow owns a root from an earlier run
-that has no verified reply in its thread yet, unless a person is already handling the root
-or has asked the workflow to stop. The reply is one short, plain-language
-sentence (about 25 words at most), plus the exact bot disclosure, which does not count toward
+Post a reporter reply only in the two channels named by the parent skill, on a
+report this workflow claimed with a verified root 👀 and investigated. A previous
+bot reply, reaction without verified claim and investigation, or a newer human
+message alone does not authorize a reply. Leave the thread alone when a person
+is handling it or has asked the workflow to stop. The reply is one short,
+plain-language sentence (about 25 words at most), plus the exact bot disclosure, which does not count toward
 that limit. If the root asks a question, that sentence answers
 it first and also explains only the reaction(s) added in this run. An answer to a newer human message
 answers only that message. Skip the reply when the only reaction added is the merged
@@ -101,8 +102,9 @@ reporter-facing reply or change that actor's reactions.
 
 Count an answer only when a human posts after the question, without this
 workflow's disclosure, and the reply addresses it. Read the full thread to
-exclude partial, unrelated, or deferred answers; a newer human post reopens the
-question. Attempt the fix with new evidence before asking again. Do not send a
+exclude partial, unrelated, or deferred answers; a newer human post alone does
+not reopen a question or authorize a reply. Attempt the fix with new evidence
+before asking again. Do not send a
 progress reply when no reaction is added. Do not ask again while the question
 is less than four days old. At four days, record **Abandoned - no answer in 4
 days** internally without re-asking, then carry any remaining defect as
