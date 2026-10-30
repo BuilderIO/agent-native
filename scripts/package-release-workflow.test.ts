@@ -1438,8 +1438,12 @@ esac
       (step) => step.run === "node scripts/guard-no-major-changeset.mjs",
     );
     assert.ok(install >= 0 && install < check && check < bumpPolicy);
+    assert.equal(steps[install].id, "setup");
     for (const index of [check, bumpPolicy]) {
       const condition = String(steps[index].if);
+      assert.match(condition, /!cancelled\(\)/);
+      assert.match(condition, /needs\.change-scope\.result == 'success'/);
+      assert.match(condition, /steps\.setup\.outcome == 'success'/);
       assert.match(
         condition,
         /needs\.change-scope\.outputs\.changeset == 'true'/,
@@ -1450,6 +1454,61 @@ esac
       (steps[check].env as Workflow).GITHUB_BASE_REF,
       "${{ github.base_ref }}",
     );
+  });
+
+  it("installs from the frozen lockfile without restoring the pnpm store", () => {
+    const action = parse(
+      readFileSync(".github/actions/setup-pnpm/action.yml", "utf8"),
+    ) as { runs: { steps: Workflow[] } };
+    const steps = action.runs.steps;
+    const setupNode = steps.find((step) =>
+      String(step.uses).startsWith("actions/setup-node@"),
+    );
+    assert(setupNode);
+    assert.equal((setupNode.with as Workflow).cache, undefined);
+    assert(
+      !steps.some((step) =>
+        String((step.with as Workflow | undefined)?.path).includes(
+          "pnpm/store",
+        ),
+      ),
+    );
+
+    const install = steps.find((step) => step.name === "Install dependencies");
+    assert(install);
+    assert.notEqual(install["continue-on-error"], true);
+    const dir = mkdtempSync(path.join(tmpdir(), "ci-pnpm-install-"));
+    try {
+      const pnpm = path.join(dir, "pnpm");
+      writeFileSync(
+        pnpm,
+        '#!/bin/bash\nprintf "%s\\n" "$*"\nexit "${TEST_EXIT:-0}"\n',
+      );
+      chmodSync(pnpm, 0o755);
+      for (const [mode, expected] of [
+        ["full", "install --frozen-lockfile"],
+        ["no-scripts", "install --frozen-lockfile --ignore-scripts"],
+      ]) {
+        const script = String(install.run).replaceAll(
+          "${{ inputs.install }}",
+          mode,
+        );
+        const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+        const success = spawnSync("bash", ["-e", "-c", script], {
+          env,
+          encoding: "utf8",
+        });
+        assert.equal(success.status, 0);
+        assert.equal(success.stdout.trim(), expected);
+        const failure = spawnSync("bash", ["-e", "-c", script], {
+          env: { ...env, TEST_EXIT: "9" },
+          encoding: "utf8",
+        });
+        assert.equal(failure.status, 9);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("consumes concurrent public changesets after stable publication", () => {

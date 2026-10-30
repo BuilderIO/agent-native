@@ -1,14 +1,16 @@
 name: Setup pnpm
 description: >-
-  Install pnpm and Node with the shared pnpm store cache, then run the standard
+  Install pnpm and Node, then run the standard
   frozen-lockfile install. Wraps the pnpm/action-setup + actions/setup-node +
   install trio duplicated across ~20 CI jobs so the action pins, Node version,
-  and cache strategy only need to change in one place. Requires
+  and install strategy only need to change in one place. Requires
   actions/checkout to have already run.
 
   Deliberately does NOT cache node_modules: the installed tree is 3.5 GB here,
   so restoring it is slower than the 14-55s `pnpm install` it would replace.
-  The pnpm store cache from setup-node is the one that pays for itself.
+  Do not restore the pnpm store here: a stalled cache download cannot be
+  bounded by a step timeout inside a composite action. A cold install keeps
+  cache service failures from blocking every dependent job.
 
 inputs:
   node-version:
@@ -58,7 +60,6 @@ runs:
     - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: ${{ inputs.node-version }}
-        cache: pnpm
 
     - name: Restore dist + tsBuildInfo cache
       if: inputs.restore-dist-cache == 'true'
