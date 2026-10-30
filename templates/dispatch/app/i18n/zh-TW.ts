@@ -2,6 +2,9 @@ import { chatFirstPageTranslations } from "../chat-first-pages";
 
 const messages = {
   root: {
+    builderWorkspaceNotice:
+      "Builder \u5718\u968a\u61c9\u7528\u7a0b\u5f0f\u4f4d\u65bc Builder \u5de5\u4f5c\u5340\u3002",
+    openBuilderWorkspace: "\u958b\u555f Builder \u5de5\u4f5c\u5340",
     commandActions: "操作",
     commandSearch: "搜尋",
     commandAppearance: "外觀",

@@ -167,7 +167,8 @@ jobs:
       - id: setup
         uses: ./.github/actions/setup-pnpm
         with:
-          install: no-scripts
+          install: ${{ needs.change-scope.outputs.has_reports == 'true' && 'full' || 'no-scripts' }}
+          restore-dist-cache: ${{ needs.change-scope.outputs.has_reports == 'true' && 'true' || 'false' }}
 
       - name: Check the full tree
         if: needs.change-scope.outputs.full == 'true'

@@ -1,9 +1,8 @@
 import { getSession } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { parseHTML } from "linkedom/worker";
 
-import { getDb, schema } from "../../db";
+import { findLiveDeckShareLink } from "../../lib/deck-share-links.js";
 import {
   fetchRemoteImage,
   type RemoteImageFailure,
@@ -464,19 +463,8 @@ export default defineEventHandler(async (event) => {
   const raw = query.url;
   let publicShare = false;
   if (typeof shareToken === "string" && shareToken) {
-    const [shared] = await getDb()
-      .select({
-        createdAt: schema.deckShareLinks.createdAt,
-        slides: schema.deckShareLinks.slides,
-      })
-      .from(schema.deckShareLinks)
-      .where(eq(schema.deckShareLinks.token, shareToken))
-      .limit(1);
-    const isLive =
-      Boolean(shared) &&
-      Date.now() - new Date(shared.createdAt).getTime() <=
-        30 * 24 * 60 * 60 * 1000;
-    if (!shared || !isLive || typeof raw !== "string") {
+    const shared = await findLiveDeckShareLink(shareToken);
+    if (!shared || typeof raw !== "string") {
       setResponseStatus(event, 404);
       return { error: "Shared presentation not found or has expired" };
     }

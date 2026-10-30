@@ -346,6 +346,11 @@ ALTER TABLE decks ADD COLUMN IF NOT EXISTS aspect_ratio TEXT;
 ALTER TABLE decks ADD COLUMN IF NOT EXISTS slide_count INTEGER;
 ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
     },
+    {
+      version: 36,
+      name: "slides-deck-share-links-deck-id",
+      sql: `ALTER TABLE IF EXISTS deck_share_links ADD COLUMN IF NOT EXISTS deck_id TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );
