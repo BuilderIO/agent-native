@@ -3437,7 +3437,7 @@ function PendingUploadPreview({
   );
 }
 
-function AssetActionsMenu({
+export function AssetActionsMenu({
   asset,
   folders,
   busy,
