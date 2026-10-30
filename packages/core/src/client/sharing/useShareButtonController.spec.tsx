@@ -45,10 +45,10 @@ describe("useShareButtonController agents", () => {
   let queryClient: QueryClient;
   let controller: ShareButtonController | undefined;
 
-  function Harness() {
+  function Harness({ resourceId }: { resourceId: string }) {
     controller = useShareButtonController({
       resourceType: "deck",
-      resourceId: "deck-1",
+      resourceId,
     });
     return null;
   }
@@ -58,11 +58,11 @@ describe("useShareButtonController agents", () => {
     return controller;
   }
 
-  async function render() {
+  async function render(resourceId = "deck-1") {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
-          <Harness />
+          <Harness resourceId={resourceId} />
         </QueryClientProvider>,
       );
       await Promise.resolve();
@@ -170,6 +170,20 @@ describe("useShareButtonController agents", () => {
     expect(current().shares.map((share) => share.principalId)).not.toContain(
       writer.email,
     );
+  });
+
+  it("leaves a failed invite behind when the panel has moved to another resource", async () => {
+    await render("deck-1");
+    act(() => current().selectAgent(writer));
+    act(() => current().handleAdd());
+    const failed = lastShareCall();
+
+    await render("deck-2");
+    act(() => failed.callbacks.onError?.(new Error("refused")));
+
+    expect(current().selectedAgent).toBeNull();
+    expect(current().inviteEmail).toBe("");
+    expect(current().shareError).toBeNull();
   });
 
   it("drops the picked agent once the field is edited or a group is picked", async () => {

@@ -93,6 +93,28 @@ async function readDeck(
   return { row, data, accessRole, ...normalized };
 }
 
+function canPersistSlideIdRepair(accessRole: "owner" | ShareRole): boolean {
+  return (
+    accessRole === "owner" || accessRole === "admin" || accessRole === "editor"
+  );
+}
+
+function normalizeDeckReadInMemory(
+  snapshot: Awaited<ReturnType<typeof readDeck>>,
+) {
+  return {
+    ...snapshot,
+    data: snapshot.changed
+      ? repairDeckSlideReferences(
+          snapshot.data,
+          snapshot.slides,
+          snapshot.originalIds,
+        )
+      : snapshot.data,
+    repaired: false,
+  };
+}
+
 async function loadDeckWithUniqueSlideIds(
   deckId: string,
   reviewPreview = false,
@@ -108,11 +130,17 @@ async function loadDeckWithUniqueSlideIds(
   for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
     const snapshot = await readDeck(deckId);
     if (!snapshot.changed) return { ...snapshot, repaired: false };
+    if (!canPersistSlideIdRepair(snapshot.accessRole)) {
+      return normalizeDeckReadInMemory(snapshot);
+    }
 
     const repaired = await withDeckLock(deckId, async () => {
       const lockedSnapshot = await readDeck(deckId);
       if (!lockedSnapshot.changed) {
         return { ...lockedSnapshot, repaired: false };
+      }
+      if (!canPersistSlideIdRepair(lockedSnapshot.accessRole)) {
+        return normalizeDeckReadInMemory(lockedSnapshot);
       }
 
       const repairedData = {

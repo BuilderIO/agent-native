@@ -525,6 +525,32 @@ describe("get-deck", () => {
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
 
+  it("returns normalized duplicate IDs to viewers without persisting a repair", async () => {
+    currentAccessRole = "viewer";
+    const originalData = JSON.stringify({
+      title: "Quarterly Review",
+      slides: [
+        { id: "duplicate", content: "<h1>First</h1>" },
+        { id: "duplicate", content: "<h1>Second</h1>" },
+      ],
+    });
+    const resource = currentResource;
+    if (!resource) throw new Error("The deck fixture is missing");
+    resource.data = originalData;
+    const originalUpdatedAt = resource.updatedAt;
+
+    const result = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "tool" },
+    )) as { slides: Array<{ id: string }> };
+
+    expect(new Set(result.slides.map((slide) => slide.id)).size).toBe(2);
+    expect(resource.data).toBe(originalData);
+    expect(resource.updatedAt).toBe(originalUpdatedAt);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed persisted slide entries explicitly", async () => {
     currentResource!.data = JSON.stringify({ slides: [null] });
 

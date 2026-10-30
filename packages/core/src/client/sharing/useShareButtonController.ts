@@ -178,6 +178,12 @@ export function useShareButtonController(
   const shareTabDefaultValue = options.shareTabs?.defaultValue ?? "share";
   const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const resourceKey = `${options.resourceType}:${options.resourceId}`;
+  // A save that settles after the panel moves to another resource must not
+  // put its inputs back there: a retry would share the wrong resource.
+  const currentResourceKeyRef = useRef(resourceKey);
+  useEffect(() => {
+    currentResourceKeyRef.current = resourceKey;
+  }, [resourceKey]);
   // Tied to the resource it was made for: a click that lands on a new resource
   // before any effect runs must not see the previous resource's value.
   const [visibilityOverrideState, setVisibilityOverrideState] = useState<{
@@ -487,6 +493,7 @@ export function useShareButtonController(
   const handleAdd = useCallback(() => {
     const trimmed = inviteEmail.trim();
     if (!trimmed || !canManage) return;
+    const startedOnResource = resourceKey;
     const principalType = selectedGroup ? "group" : "user";
     const principalId = selectedGroup?.id ?? selectedAgent?.email ?? trimmed;
     const notify = principalType === "user" && !selectedAgent && notifyPeople;
@@ -555,6 +562,7 @@ export function useShareButtonController(
             previous.filter((item) => item.id !== optimistic.id),
           );
           clearInFlight(key);
+          if (currentResourceKeyRef.current !== startedOnResource) return;
           setInviteEmail(trimmed);
           setSelectedGroup(selectedGroup);
           setSelectedAgent(selectedAgent);
@@ -574,6 +582,7 @@ export function useShareButtonController(
     options.resourceType,
     options.onShareSuccess,
     options.shareUrl,
+    resourceKey,
     role,
     selectedAgent,
     selectedGroup,
