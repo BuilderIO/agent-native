@@ -139,8 +139,8 @@ export function commentLinkRanges(
       }),
     );
   } catch {
-    // Should the parser fail, the renderer shows the comment as written,
-    // with no links in it.
+    // coercion-ok: should the parser fail, the renderer shows the comment as
+    // written, so no links are drawn in it.
     return [];
   }
   return ranges;
