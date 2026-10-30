@@ -2065,7 +2065,9 @@ export function AssetFolderChips({
   onSelectFolder: (folderId: string | null) => void;
 }) {
   const t = useT();
-  const tabAssets = assets;
+  const tabAssets = assets.filter((asset) =>
+    assetMatchesLibraryTab(asset, activeTab),
+  );
   return (
     <>
       <FolderChip
