@@ -140,14 +140,6 @@ function isLoopbackHost(host: string): boolean {
   return host.startsWith("localhost:") || host.startsWith("127.0.0.1:");
 }
 
-/** Positive origin evidence must be paired with browser-cookie identity for UI proof. */
-export function hasSameOriginBrowserEvidence(event: H3Event): boolean {
-  const fetchSite = getRequestHeader(event, "sec-fetch-site");
-  if (fetchSite) return fetchSite === "same-origin";
-  const origin = getRequestHeader(event, "origin");
-  return !!origin && origin === getForwardedRequestOrigin(event);
-}
-
 /**
  * An origin the operator listed in `CORS_ALLOWED_ORIGINS` is the app's own UI
  * served from elsewhere (`runtime.apiBaseUrl`), so the first-party checks
@@ -158,9 +150,18 @@ function isListedUiOrigin(event: H3Event): boolean {
   return !!origin && isExplicitCorsAllowedOrigin(origin);
 }
 
+/** Positive origin evidence must be paired with browser-cookie identity for UI proof. */
+export function hasSameOriginBrowserEvidence(event: H3Event): boolean {
+  if (isListedUiOrigin(event)) return true;
+  const fetchSite = getRequestHeader(event, "sec-fetch-site");
+  if (fetchSite) return fetchSite === "same-origin";
+  const origin = getRequestHeader(event, "origin");
+  return !!origin && origin === getForwardedRequestOrigin(event);
+}
+
 /** A cookie-writing POST requires positive origin evidence. */
 export function isSameOriginPost(event: H3Event): boolean {
-  return hasSameOriginBrowserEvidence(event) || isListedUiOrigin(event);
+  return hasSameOriginBrowserEvidence(event);
 }
 
 export function isSameOriginRequest(event: H3Event): boolean {

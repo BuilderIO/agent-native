@@ -434,6 +434,19 @@ describe("isSameOriginPost", () => {
     expect(post({ "sec-fetch-site": "same-site" })).toBe(false);
   });
 
+  it("counts the listed UI origin as same-origin browser evidence", () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.com");
+    const evidence = (origin: string, fetchSite: string) =>
+      hasSameOriginBrowserEvidence(
+        fakeEvent(
+          { origin, "sec-fetch-site": fetchSite },
+          { url: "https://api.example.com/_agent-native/ui-action-capability" },
+        ),
+      );
+    expect(evidence("https://app.example.com", "same-site")).toBe(true);
+    expect(evidence("https://evil.example", "cross-site")).toBe(false);
+  });
+
   it("admits the listed UI origin on guarded same-origin endpoints too", () => {
     vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.com");
     const request = (headers: Record<string, string>) =>

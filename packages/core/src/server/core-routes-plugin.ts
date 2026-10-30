@@ -152,6 +152,7 @@ import {
   EMPTY_SPECULATION_RULES,
   resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
+import { normalizeCorsOrigin } from "../shared/cors-origin.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import { FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES } from "../shared/first-run-builder-credits-experiment.js";
 import {
@@ -3000,6 +3001,15 @@ function oauthPopupCompletionHtml(
   const completionMessage = completionId
     ? `{type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}`
     : '{type:"agent-native:workspace-connection-complete"}';
+  // A UI served from another origin (runtime.apiBaseUrl) may have opened this
+  // popup. postMessage to an origin other than the opener's is dropped, so
+  // naming every listed UI origin reaches only the real opener.
+  const uiOrigins = [
+    ...new Set(readCorsAllowedOrigins().map(normalizeCorsOrigin)),
+  ];
+  const notifyUiOrigins = uiOrigins.length
+    ? `for (const origin of ${JSON.stringify(uiOrigins).replace(/</g, "\\u003c")}) window.opener?.postMessage(${completionMessage}, origin);`
+    : "";
   const direction = locale === "ar-SA" ? "rtl" : "ltr";
   return `<!doctype html>
 <html lang="${locale}" dir="${direction}">
@@ -3029,6 +3039,7 @@ function oauthPopupCompletionHtml(
       ${persistCompletion}
       setTimeout(() => window.close(), 2000);
       window.opener?.postMessage(${completionMessage}, window.location.origin);
+      ${notifyUiOrigins}
     </script>
   </body>
 </html>`;
