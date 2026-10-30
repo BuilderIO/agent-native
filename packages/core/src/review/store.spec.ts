@@ -35,6 +35,7 @@ const {
   getReviewCommentById,
   getReviewStatus,
   insertReviewComment,
+  insertReviewReply,
   listReviewThreadParticipantEmails,
   queryReviewComments,
   resolveReviewThread,
@@ -488,6 +489,47 @@ describe("review store", () => {
 
       expect(assertThreadDeletable).toHaveBeenCalledWith([]);
       expect(await liveBodies("p2")).toEqual(["Other root", "Carol's reply"]);
+    });
+
+    it("has a routed reply lock its thread's first comments in a thread delete's order, and a plain one not", async () => {
+      const { root } = await thread("p-route");
+      const resource = { resourceType: "plan", resourceId: "p-route" };
+      const reply = (body: string) => ({
+        ...resource,
+        threadId: root.threadId,
+        parentCommentId: root.id,
+        body,
+        authorEmail: "bob@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const statements = () =>
+        rawClient.execute.mock.calls.map(([input]) =>
+          typeof input === "string" ? input : input.sql,
+        );
+      const lockAt = (texts: string[]) =>
+        texts.findIndex((text) =>
+          /parent_comment_id IS NULL\s+ORDER BY id\s+FOR UPDATE/.test(text),
+        );
+      // The locks only matter inside a transaction, where the store takes them.
+      Object.assign(rawClient, {
+        transaction: <T>(run: (tx: typeof rawClient) => Promise<T>) =>
+          run(rawClient),
+      });
+      try {
+        rawClient.execute.mockClear();
+        await insertReviewReply(reply("Plain"), null, resource);
+        expect(lockAt(statements())).toBe(-1);
+
+        rawClient.execute.mockClear();
+        await insertReviewReply(reply("Routed"), "human", resource);
+        const routed = statements();
+        expect(lockAt(routed)).toBeGreaterThanOrEqual(0);
+        expect(lockAt(routed)).toBeLessThan(
+          routed.findIndex((text) => text.includes("SET resolution_target")),
+        );
+      } finally {
+        Reflect.deleteProperty(rawClient, "transaction");
+      }
     });
 
     it("lists who wrote in each thread, on one resource, once each, without the deleted", async () => {

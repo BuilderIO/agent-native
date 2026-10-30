@@ -518,6 +518,27 @@ async function assertLiveReviewRoot(
   if (rows.length === 0) throw new Error("Open review thread not found");
 }
 
+/**
+ * Locks every first comment in a thread `FOR UPDATE`, in id order. A thread
+ * delete and a routed reply both change them, and taking them in one order
+ * makes each wait for the other rather than each holding a row the other
+ * needs.
+ */
+async function lockReviewThreadRoots(
+  client: DbExec,
+  threadId: string,
+  resource: { resourceType: string; resourceId: string },
+): Promise<void> {
+  await client.execute(sql`SELECT id
+       FROM agent_review_comments
+      WHERE thread_id = ${sql.value(threadId)}
+        AND resource_type = ${sql.value(resource.resourceType)}
+        AND resource_id = ${sql.value(resource.resourceId)}
+        AND parent_comment_id IS NULL
+      ORDER BY id
+        FOR UPDATE`);
+}
+
 export async function insertReviewReply(
   input: InsertReviewCommentInput & {
     threadId: string;
@@ -529,6 +550,9 @@ export async function insertReviewReply(
   await ensureReviewTables();
   const client = getDbExec();
   const insertAndRoute = async (tx: DbExec) => {
+    // Routing updates every first comment in the thread, so a routed reply
+    // takes them all up front, in the order a thread delete does.
+    if (routeTarget) await lockReviewThreadRoots(tx, input.threadId, resource);
     // raw-sql-ok: the helper's statement is constant text; the ids are bound.
     await assertLiveReviewRoot(tx, input.threadId, resource);
     if (routeTarget) {
@@ -581,6 +605,9 @@ export async function insertReviewReplyIdempotently(
   await ensureReviewTables();
   const client = getDbExec();
   const insertAndRoute = async (tx: DbExec) => {
+    // As in insertReviewReply, a routed reply locks the thread's first
+    // comments in a thread delete's order before it changes them.
+    if (routeTarget) await lockReviewThreadRoots(tx, input.threadId, resource);
     // raw-sql-ok: the helper's statement is constant text; the ids are bound.
     await assertLiveReviewRoot(tx, input.threadId, resource);
     const result = await insertReviewCommentIdempotentlyWithClient(
@@ -1390,16 +1417,12 @@ export async function deleteReviewComment(
       // first comment in the thread `FOR UPDATE` first waits that out, so
       // everything read or updated below sees the reply and takes it along. A
       // later reply finds its root gone and refuses. They're taken in id
-      // order, so two deletes of first comments in one thread wait for each
-      // other rather than each holding one and waiting for the other.
-      await tx.execute(sql`SELECT id
-           FROM agent_review_comments
-          WHERE thread_id = ${sql.value(String(root.thread_id))}
-            AND resource_type = ${sql.value(String(root.resource_type))}
-            AND resource_id = ${sql.value(String(root.resource_id))}
-            AND parent_comment_id IS NULL
-          ORDER BY id
-            FOR UPDATE`);
+      // order, as another delete or a routed reply in the thread takes them,
+      // so neither holds one the other is waiting for.
+      await lockReviewThreadRoots(tx, String(root.thread_id), {
+        resourceType: String(root.resource_type),
+        resourceId: String(root.resource_id),
+      });
     }
     // A thread's first comment is the thread. Comments left behind would have
     // no root for any list to hang them on, but would still sit in the table.
