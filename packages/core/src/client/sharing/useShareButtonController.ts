@@ -352,6 +352,15 @@ export function useShareButtonController(
   >({});
   const [inFlight, setInFlight] = useState<Set<string>>(new Set());
   const inFlightRef = useRef<Set<string>>(new Set());
+  // Optimistic rows, removals and role picks belong to one resource; a panel
+  // reused for another must not show or be blocked by them.
+  useEffect(() => {
+    setPendingAdds([]);
+    setPendingRemoves(new Set());
+    setRoleOverrides({});
+    inFlightRef.current = new Set();
+    setInFlight(new Set());
+  }, [resourceKey]);
 
   const addInFlight = useCallback((key: string) => {
     inFlightRef.current.add(key);
@@ -552,6 +561,7 @@ export function useShareButtonController(
             options.onShareSuccess?.();
           }
           void sharesQuery.refetch().then(() => {
+            if (currentResourceKeyRef.current !== startedOnResource) return;
             setPendingAdds((previous) =>
               previous.filter((item) => item.id !== optimistic.id),
             );
@@ -560,11 +570,11 @@ export function useShareButtonController(
         },
         onError: (error: unknown) => {
           rollbackShareCache(queryClient, shareQueryKey, previous);
+          if (currentResourceKeyRef.current !== startedOnResource) return;
           setPendingAdds((previous) =>
             previous.filter((item) => item.id !== optimistic.id),
           );
           clearInFlight(key);
-          if (currentResourceKeyRef.current !== startedOnResource) return;
           setInviteEmail(trimmed);
           setSelectedGroup(selectedGroup);
           setSelectedAgent(selectedAgent);
@@ -604,6 +614,7 @@ export function useShareButtonController(
       }
       const key = keyOf(currentShare);
       if (inFlightRef.current.has(key)) return;
+      const startedOnResource = resourceKey;
       setRoleOverrides((previous) => ({ ...previous, [key]: next }));
       addInFlight(key);
       const previous =
@@ -633,6 +644,7 @@ export function useShareButtonController(
           onSuccess: () => {
             notifyShareChanged(options.resourceType);
             void sharesQuery.refetch().then(() => {
+              if (currentResourceKeyRef.current !== startedOnResource) return;
               setRoleOverrides((previous) => {
                 const { [key]: _removed, ...rest } = previous;
                 return rest;
@@ -642,6 +654,7 @@ export function useShareButtonController(
           },
           onError: (error: unknown) => {
             rollbackShareCache(queryClient, shareQueryKey, previous);
+            if (currentResourceKeyRef.current !== startedOnResource) return;
             setRoleOverrides((previous) => {
               const { [key]: _removed, ...rest } = previous;
               return rest;
@@ -659,6 +672,7 @@ export function useShareButtonController(
       options.resourceId,
       options.resourceType,
       queryClient,
+      resourceKey,
       shareQueryKey,
       share,
       sharesQuery,
@@ -673,6 +687,7 @@ export function useShareButtonController(
       }
       const key = keyOf(currentShare);
       if (inFlightRef.current.has(key)) return;
+      const startedOnResource = resourceKey;
       setPendingRemoves((previous) => new Set(previous).add(key));
       addInFlight(key);
       const previous =
@@ -698,6 +713,7 @@ export function useShareButtonController(
           onSuccess: () => {
             notifyShareChanged(options.resourceType);
             void sharesQuery.refetch().then(() => {
+              if (currentResourceKeyRef.current !== startedOnResource) return;
               setPendingRemoves((previous) => {
                 const next = new Set(previous);
                 next.delete(key);
@@ -708,6 +724,7 @@ export function useShareButtonController(
           },
           onError: (error: unknown) => {
             rollbackShareCache(queryClient, shareQueryKey, previous);
+            if (currentResourceKeyRef.current !== startedOnResource) return;
             setPendingRemoves((previous) => {
               const next = new Set(previous);
               next.delete(key);
@@ -726,6 +743,7 @@ export function useShareButtonController(
       options.resourceId,
       options.resourceType,
       queryClient,
+      resourceKey,
       shareQueryKey,
       sharesQuery,
       unshare,

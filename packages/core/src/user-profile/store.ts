@@ -92,13 +92,34 @@ async function profileFromAuthUserWithStoredName(
     onboardingRole?: unknown;
   },
 ): Promise<UserProfile> {
+  return (await readAuthUserWithStoredName(email, user)).profile;
+}
+
+/** The auth profile with its stored name; `storedNameRead` is false on failure. */
+async function readAuthUserWithStoredName(
+  email: string,
+  user: {
+    name?: string | null;
+    image?: string | null;
+    onboardingRole?: unknown;
+  },
+): Promise<{ profile: UserProfile; storedNameRead: boolean }> {
   const profile = profileFromAuthUser(email, user);
   const storedResult = (
     await Promise.allSettled([getStoredUserProfile(email)])
   )[0];
-  if (storedResult.status !== "fulfilled") return profile;
+  if (storedResult.status !== "fulfilled") {
+    return { profile, storedNameRead: false };
+  }
 
-  return profileFromAuthUserAndStoredProfile(email, user, storedResult.value);
+  return {
+    profile: profileFromAuthUserAndStoredProfile(
+      email,
+      user,
+      storedResult.value,
+    ),
+    storedNameRead: true,
+  };
 }
 
 async function getStoredUserProfile(email: string): Promise<UserProfile> {
@@ -128,6 +149,18 @@ export async function getUserProfile(email: string): Promise<UserProfile> {
 export async function getUserProfiles(
   emails: readonly string[],
 ): Promise<Map<string, UserProfile>> {
+  return (await getUserProfilesWithStatus(emails)).profiles;
+}
+
+/**
+ * `getUserProfiles`, plus whether any name read failed. `incomplete` is true
+ * when stored names fell back to auth-only names or a per-person lookup was
+ * dropped, so a caller can say names are unavailable instead of showing a
+ * partial result as complete.
+ */
+export async function getUserProfilesWithStatus(
+  emails: readonly string[],
+): Promise<{ profiles: Map<string, UserProfile>; incomplete: boolean }> {
   const uniqueEmails = Array.from(
     new Set(
       emails
@@ -136,8 +169,11 @@ export async function getUserProfiles(
         .map((email) => email.toLowerCase()),
     ),
   );
-  if (uniqueEmails.length === 0) return new Map();
+  if (uniqueEmails.length === 0) {
+    return { profiles: new Map(), incomplete: false };
+  }
 
+  let incomplete = false;
   const adapter = getBetterAuthSync()
     ? await getBetterAuthInternalAdapter().catch(() => undefined)
     : undefined;
@@ -174,13 +210,19 @@ export async function getUserProfiles(
         usersResult.value.map(async (user) => {
           const email = user.email.trim().toLowerCase();
           if (!email) return null;
-          const profile = storedProfiles
-            ? profileFromAuthUserAndStoredProfile(
-                email,
-                user,
-                storedProfileFrom(email, storedProfiles.get(email) ?? null),
-              )
-            : await profileFromAuthUserWithStoredName(email, user);
+          if (storedProfiles) {
+            const profile = profileFromAuthUserAndStoredProfile(
+              email,
+              user,
+              storedProfileFrom(email, storedProfiles.get(email) ?? null),
+            );
+            return [email, profile] as const;
+          }
+          const { profile, storedNameRead } = await readAuthUserWithStoredName(
+            email,
+            user,
+          );
+          if (!storedNameRead) incomplete = true;
           return [email, profile] as const;
         }),
       );
@@ -215,6 +257,7 @@ export async function getUserProfiles(
     );
     for (const result of results) {
       if (result.status === "fulfilled") profiles.set(...result.value);
+      else incomplete = true;
     }
   } else {
     const results = await Promise.allSettled(
@@ -224,9 +267,10 @@ export async function getUserProfiles(
     );
     for (const result of results) {
       if (result.status === "fulfilled") profiles.set(...result.value);
+      else incomplete = true;
     }
   }
-  return profiles;
+  return { profiles, incomplete };
 }
 
 export async function updateUserProfile(

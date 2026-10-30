@@ -6,7 +6,7 @@ import { getAppConfig } from "../../app-config/index.js";
 import { organizations } from "../../org/schema.js";
 import { getRequestOrgId } from "../../server/request-context.js";
 import { isEmailDerivedName } from "../../user-profile/shared.js";
-import { getUserProfiles } from "../../user-profile/store.js";
+import { getUserProfilesWithStatus } from "../../user-profile/store.js";
 import { listWorkspaceUserGroupsForOrg } from "../../workspace-connections/groups.js";
 import { assertAccess, resolveAccess } from "../access.js";
 import {
@@ -97,7 +97,7 @@ async function loadUserDisplayNames(
 ): Promise<{ names: Map<string, string>; unavailable: boolean }> {
   if (!emails.length) return { names: new Map(), unavailable: false };
   try {
-    const profiles = await getUserProfiles(emails);
+    const { profiles, incomplete } = await getUserProfilesWithStatus(emails);
     const names = new Map<string, string>();
     for (const [email, profile] of profiles) {
       const name = profile.name.trim();
@@ -105,7 +105,7 @@ async function loadUserDisplayNames(
         names.set(email.toLowerCase(), name);
       }
     }
-    return { names, unavailable: false };
+    return { names, unavailable: incomplete };
   } catch (error) {
     console.error(
       "[list-resource-shares] Could not read profile names:",

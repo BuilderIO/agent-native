@@ -186,6 +186,33 @@ describe("useShareButtonController agents", () => {
     expect(current().shareError).toBeNull();
   });
 
+  it("keeps a pending invite on its own resource when the panel moves on", async () => {
+    await render("deck-1");
+    act(() => current().selectAgent(writer));
+    act(() => current().handleAdd());
+    expect(current().shares.map((share) => share.principalId)).toContain(
+      writer.email,
+    );
+    const firstInvite = lastShareCall();
+
+    await render("deck-2");
+    expect(current().shares.map((share) => share.principalId)).not.toContain(
+      writer.email,
+    );
+    expect(current().inFlight.size).toBe(0);
+
+    act(() => current().selectAgent(writer));
+    act(() => current().handleAdd());
+    expect(mocks.share.mutate).toHaveBeenCalledTimes(2);
+    const secondInvite = lastShareCall();
+
+    act(() => firstInvite.callbacks.onError?.(new Error("refused")));
+    expect(current().shares.map((share) => share.principalId)).toContain(
+      writer.email,
+    );
+    expect(secondInvite.args.principalId).toBe(writer.email);
+  });
+
   it("drops the picked agent once the field is edited or a group is picked", async () => {
     await render();
     act(() => current().selectAgent(writer));

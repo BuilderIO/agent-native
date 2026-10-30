@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   policies: [] as ServicePrincipalPolicy[],
   tokensError: null as Error | null,
   profilesError: null as Error | null,
+  profilesIncomplete: false,
   sendEmail: vi.fn(async () => ({ status: "sent" as const })),
 }));
 
@@ -68,13 +69,16 @@ vi.mock("../../email-catalog/templates.js", async (importOriginal) => ({
 
 vi.mock("../../user-profile/store.js", () => ({
   getUserProfile: async (email: string) => ({ email, name: "Owner" }),
-  getUserProfiles: async (emails: readonly string[]) => {
+  getUserProfilesWithStatus: async (emails: readonly string[]) => {
     if (state.profilesError) throw state.profilesError;
-    return new Map(
-      emails
-        .filter((email) => email === memberEmail)
-        .map((email) => [email, { email, name: "Vee Member" }]),
-    );
+    return {
+      profiles: new Map(
+        emails
+          .filter((email) => email === memberEmail)
+          .map((email) => [email, { email, name: "Vee Member" }]),
+      ),
+      incomplete: state.profilesIncomplete,
+    };
   },
 }));
 
@@ -157,6 +161,7 @@ beforeEach(async () => {
   state.policies = [retiredPolicy("retired")];
   state.tokensError = null;
   state.profilesError = null;
+  state.profilesIncomplete = false;
   state.sendEmail.mockClear();
 
   pglite = await createTestPglite();
@@ -429,6 +434,17 @@ describe("sharing with org agents", () => {
       );
     });
     consoleError.mockRestore();
+  });
+
+  it("says profile names are unavailable when only some of them could be read", async () => {
+    state.profilesIncomplete = true;
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const result = (await listResourceShares.run({
+        resourceType,
+        resourceId: "doc-1",
+      })) as any;
+      expect(result.displayNamesUnavailable).toBe(true);
+    });
   });
 
   it("reports agents as unavailable, not empty, when they cannot be read", async () => {
