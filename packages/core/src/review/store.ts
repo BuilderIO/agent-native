@@ -1361,7 +1361,7 @@ export interface DeleteReviewCommentOptions {
 /**
  * Soft-deletes a comment, and with a thread's first comment the thread's live
  * replies too. Each row stays, but what someone wrote or attached is cleared:
- * its text, mentions, image attachments and any resolution note, as they are
+ * its text, mentions, anchor, image attachments and any resolution note, as they are
  * in apps that remove the row.
  */
 export async function deleteReviewComment(
@@ -1504,6 +1504,7 @@ async function clearDeletedReviewComment(
           SET status = 'deleted',
               body = '',
               mentions_json = NULL,
+              anchor_json = NULL,
               metadata_json = ${metadata},
               deleted_by = ${sql.value(deletedBy)},
               deleted_at = ${sql.value(now)},
@@ -1554,6 +1555,7 @@ async function clearDeletedReviewReplies(
           SET status = 'deleted',
               body = '',
               mentions_json = NULL,
+              anchor_json = NULL,
               metadata_json = ${metadata},
               deleted_by = ${sql.value(deletedBy)},
               deleted_at = ${sql.value(now)},

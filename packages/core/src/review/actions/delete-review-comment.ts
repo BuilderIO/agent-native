@@ -16,7 +16,7 @@ const schema = z.object({
 
 export default defineAction({
   description:
-    "Delete a review comment, clearing its text, mentions, image attachments and any resolution note. Deleting a thread's first comment deletes the whole thread, replies included, so it is allowed only to an editor or to the author of a thread that holds no one else's reply; deleting a reply removes only that reply.",
+    "Delete a review comment, clearing its text, mentions, anchor, image attachments and any resolution note. Deleting a thread's first comment deletes the whole thread, replies included, so it is allowed only to an editor or to the author of a thread that holds no one else's reply; deleting a reply removes only that reply.",
   schema,
   mcpAnnotations: {
     readOnlyHint: false,

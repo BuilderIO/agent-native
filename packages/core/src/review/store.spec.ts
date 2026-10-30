@@ -860,13 +860,14 @@ describe("review store", () => {
     ]);
   });
 
-  it("clears the text, mentions, attachments and note of every comment a delete removes", async () => {
+  it("clears the text, mentions, anchor, attachments and note of every comment a delete removes", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
       resourceId: "d-delete",
       body: "Ask @Bob about this",
       authorEmail: "alice@example.com",
       mentions: [{ label: "Bob", email: "bob@example.com" }],
+      anchor: { quote: "the quoted heading", offset: 12 },
       metadata: {
         source: "pin",
         attachments: [
@@ -929,6 +930,7 @@ describe("review store", () => {
       status: "deleted",
       body: "",
       mentions: [],
+      anchor: null,
       metadata: { source: "pin" },
       deletedBy: "alice@example.com",
     });
