@@ -1795,26 +1795,29 @@ describe("DeckContext fallback polling", () => {
 
   it("parks a hidden open-deck poll after repeated server errors until the tab is visible", async () => {
     const { api } = await renderOpenDeck();
+    // A save another test left queued drains on hide and reads its own deck.
+    const openDeckReads = () =>
+      deckCallIds(api.fetchMock).filter((id) => id === "open-deck").length;
 
     api.failDeckReads(500);
     hideDocument();
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    const deckBefore = deckCallCount(api.fetchMock);
+    const deckBefore = openDeckReads();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(31_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 1);
+    expect(openDeckReads()).toBe(deckBefore + 1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(61_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 2);
+    expect(openDeckReads()).toBe(deckBefore + 2);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300_000);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 2);
+    expect(openDeckReads()).toBe(deckBefore + 2);
 
     restoreVisibility?.();
     restoreVisibility = null;
@@ -1822,7 +1825,7 @@ describe("DeckContext fallback polling", () => {
       document.dispatchEvent(new Event("visibilitychange"));
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(deckCallCount(api.fetchMock)).toBe(deckBefore + 3);
+    expect(openDeckReads()).toBe(deckBefore + 3);
   });
 
   it("does not hold a failing deck list at the fast interval while the live channel is up", async () => {
