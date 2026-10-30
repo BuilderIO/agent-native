@@ -3684,10 +3684,26 @@ const A2A_OVERDELEGATION_REGEX_CASES = [
   ],
 ];
 
+const FEEDBACK_UNREQUESTED_SLACK_POSTS_RE =
+  /(?=[^.!?\n]*\bslack\b)(?=[^.!?\n]*\b(?:messages?|posts?|repl(?:y|ies)|threads?)\b)(?=[^.!?\n]*\b(?:never asked|unrequested|unsolicited|random|didn['’]t ask)\b)[^.!?\n]+/i;
+
+const FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES = [
+  [true, "The bot reply in Slack was unrequested."],
+  [true, "wtf are these slack messages that i never asked for"],
+  [false, "Review the Slack thread. I never asked for a random report."],
+  [false, "The Slack reply was requested."],
+];
+
 if (process.argv.includes("--self-test")) {
-  const failures = FEEDBACK_REGEX_CASES.filter(
+  const failures = FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES.filter(
     ([expected, message]) =>
-      UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
+      FEEDBACK_UNREQUESTED_SLACK_POSTS_RE.test(message) !== expected,
+  );
+  failures.push(
+    ...FEEDBACK_REGEX_CASES.filter(
+      ([expected, message]) =>
+        UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
+    ),
   );
   failures.push(
     ...RESOURCE_CLEANUP_REGEX_CASES.filter(
@@ -4048,7 +4064,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_UNREQUESTED_SLACK_POSTS_CASES.length + FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + SNAPSHOT_DIFF_REVIEW_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -4379,7 +4395,7 @@ const PATTERNS = [
     label: "Reported unrequested feedback sweep Slack posts",
     fixedBy:
       ".agents/skills/review-latest-feedback (claimed and investigated threads)",
-    re: /(?=.*\bslack\b)(?=.*\b(?:messages?|posts?|replies|threads?)\b)(?=.*\b(?:never asked|unrequested|unsolicited|random|didn['’]t ask)\b)/is,
+    re: FEEDBACK_UNREQUESTED_SLACK_POSTS_RE,
   },
   {
     key: "feedback-question-volume",

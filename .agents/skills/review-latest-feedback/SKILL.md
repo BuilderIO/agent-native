@@ -186,9 +186,10 @@ short list of candidates with links, and close it as soon as it reports.
 - **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
   hand to things he is working on himself, so a 👀 from his account is not
   enough to make a root this workflow's. Require evidence that this workflow
-  claimed the root with 👀 and investigated the report, such as a matching
-  run recap or its proof-bearing PR report. A bot reply or reaction alone
-  does not establish that evidence. Otherwise leave the root alone. Read the thread of every workflow root in the
+  claimed the root with 👀, such as a matching run recap, proof-bearing PR
+  report, or the automation memory's "Claimed, not yet answered" list. A bot
+  reply or reaction alone does not establish ownership. Investigate an owned
+  report before replying; otherwise leave the root alone. Read the thread of every workflow root in the
   window, not just the channel row: a human reply newer than ours only shows
   there, and runs that skipped this left people waiting after our 🎫. A root
   listed in the `Reports` section of a sweep

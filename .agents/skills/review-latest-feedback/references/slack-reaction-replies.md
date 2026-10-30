@@ -6,7 +6,8 @@ At sweep exit, reconcile every report root in the scoped inventory that has
 this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Capture
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
 owned by this task only when its reaction owner ID matches that actor ID and the
-root is the workflow's by the parent skill's evidence of a claim and investigation. A
+root is the workflow's by the parent skill's claim evidence. Investigate the
+report before replying. A
 matching reaction without that evidence is a manual mark: leave it alone. Keep
 the disposition, evidence, scopes, and human actions in the internal inventory.
 Post a reporter reply only in the two channels named by the parent skill, on a
