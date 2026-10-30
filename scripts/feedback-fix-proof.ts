@@ -47,6 +47,9 @@ const WORKSPACE = /^(?:@[a-z0-9-]+\/)?[a-z0-9-]+$/;
 export function parseProofCommand(command: string): string[] | null {
   const args = command.split(/\s+/);
   if (args.some((arg) => !arg || /[;&|`$<>]/.test(arg))) return null;
+  // Codex shells often lack pnpm on PATH, so local proofs say `corepack pnpm`;
+  // CI has pnpm itself.
+  if (args[0] === "corepack" && args[1] === "pnpm") args.shift();
 
   const nodeTestPath = args[2];
   if (

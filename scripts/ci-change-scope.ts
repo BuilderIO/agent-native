@@ -58,6 +58,7 @@ const RELATED_SCRIPT_TESTS = new Map([
   [".github/workflows/ci.yml", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/fix-proof.ts", "scripts/fix-proof.test.ts"],
   ["scripts/feedback-fix-proof.ts", "scripts/feedback-fix-proof.test.ts"],
+  ["scripts/ci-wait.ts", "scripts/ci-wait.test.ts"],
   [
     "scripts/design-e2e-regression-pins.ts",
     "scripts/design-e2e-regression-pins.test.ts",

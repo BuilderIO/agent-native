@@ -260,7 +260,10 @@ so they appear only in the recap.
 Take the Fix reports in order of how many people they hurt, and claim as
 many as the run can finish. Any Fix, Build, or Needs-a-person root you leave
 unclaimed gets no reaction, only one line in the recap saying why, so
-nothing is dropped silently.
+nothing is dropped silently. That covers every candidate your source helpers
+return: each one ends the run either claimed or on a recap line with its
+reason. On 10/29 a helper found a teammate's question and three product
+reports, and the run claimed none of them and said nothing about them.
 
 Then add 👀 to every root you claimed (Fix, Build, or Needs a person) in one
 pass, before you investigate. In an automation run, immediately list those roots (channel and
@@ -278,7 +281,9 @@ apart from Steve's own 👀.
   that fails, the action returning the wrong thing, a stack trace, or the
   flow broken in a signed-in local app. Reading code is not an attempt:
   write the report's steps as a failing test, or walk them in the signed-in
-  app. Only after a real attempt fails does a report become 🎫, and its
+  app. A broken setup isn't an attempt either: when a test can't load or an
+  install fails, fix the setup (install what's missing, free the disk) or
+  walk the steps in the signed-in app instead. Only after a real attempt fails does a report become 🎫, and its
   recap line says what you ran. No reproduction means no code change;
   guessing at a fix is how one Clips popover got "fixed" four times.
 - **Check the history.** `git log --since=30.days --oneline -- <files>`: if
@@ -330,10 +335,16 @@ PR per item. End the PR body with a
 Slack thread, or the Sentry, Analytics, or GitHub issue. That list is the
 only set of threads a later `/ship` may close out as fixed.
 
-Wait for CI with one blocking command, such as
-`gh pr checks <number> --watch --required --interval 60`, and don't post a
-status line while it runs: every turn re-sends your whole context, and on
-10/28 polling CI was half the main thread's cost.
+Wait for CI with one command that blocks until every check finishes, and
+wait on it in one long call (your tool allows hours), not a short call you
+repeat: every call re-sends your whole context, and on 10/28 polling CI
+every minute was half the main thread's cost.
+<!-- framework-repo-only:start -->
+Here that command is `pnpm ci:wait <number>`: it prints nothing until CI is
+done, then one summary, and exits 1 if a check failed.
+<!-- framework-repo-only:end -->
+Without a repo command for it, use `gh pr checks <number> --watch --interval 60 > /dev/null`, then
+read `gh pr checks <number>` once.
 
 Fix each review round's findings in one batch. If a second round still finds
 a problem in the same fix, take that fix out of the PR, remove its whole entry
