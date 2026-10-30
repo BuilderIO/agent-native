@@ -1429,6 +1429,7 @@ export async function deleteReviewComment(
         String(other.id),
         actor,
         now,
+        { onlyLive: true },
       );
     }
     const replies = rest.filter((comment) => comment.parent_comment_id);
@@ -1506,11 +1507,15 @@ async function clearDeletedReviewComment(
   id: string,
   deletedBy: string | null,
   now: string,
+  { onlyLive = false }: { onlyLive?: boolean } = {},
 ): Promise<number> {
+  // A comment a thread delete takes along may have been deleted on its own
+  // since the thread was read; it keeps who deleted it and when.
+  const live = onlyLive ? sql` AND deleted_at IS NULL` : sql``;
   for (let attempt = 0; attempt < DELETE_COMMENT_ATTEMPTS; attempt += 1) {
     const existing = await client.execute(sql`SELECT metadata_json
          FROM agent_review_comments
-        WHERE id = ${sql.value(id)}
+        WHERE id = ${sql.value(id)}${live}
         LIMIT 1`);
     const row = existing.rows[0] as Record<string, unknown> | undefined;
     if (!row) return 0;
@@ -1529,7 +1534,7 @@ async function clearDeletedReviewComment(
               deleted_by = ${sql.value(deletedBy)},
               deleted_at = ${sql.value(now)},
               updated_at = ${sql.value(now)}
-        WHERE id = ${sql.value(id)}
+        WHERE id = ${sql.value(id)}${live}
           AND COALESCE(metadata_json, '') = ${sql.value(read)}`);
     if (result.rowsAffected > 0) return result.rowsAffected;
   }
@@ -1544,7 +1549,10 @@ const DELETED_REPLIES_PER_STATEMENT = 1_000;
 /**
  * Clears a deleted thread's replies, a thousand to a statement. Only a comment
  * with no parent has its metadata changed after it's written, so each reply's
- * metadata, read under the thread's lock, is still current here.
+ * metadata, read under the thread's lock, is still current here. A reply can
+ * still be deleted on its own in between, as that takes no thread lock, so
+ * only those still live are cleared, and one deleted meanwhile keeps who
+ * deleted it and when.
  */
 async function clearDeletedReviewReplies(
   client: DbExec,
@@ -1580,7 +1588,8 @@ async function clearDeletedReviewReplies(
               deleted_by = ${sql.value(deletedBy)},
               deleted_at = ${sql.value(now)},
               updated_at = ${sql.value(now)}
-        WHERE id IN ${sql.in(batch.map((reply) => String(reply.id)))}`);
+        WHERE id IN ${sql.in(batch.map((reply) => String(reply.id)))}
+          AND deleted_at IS NULL`);
     deleted += result.rowsAffected;
   }
   return deleted;

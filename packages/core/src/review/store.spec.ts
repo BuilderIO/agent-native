@@ -1111,6 +1111,75 @@ describe("review store", () => {
     }
   });
 
+  it("leaves who deleted a comment alone when it's deleted on its own while its thread is being deleted", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete-race",
+      threadId: "race-thread",
+      body: "Root",
+      authorEmail: "alice@example.com",
+    });
+    const second = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete-race",
+      threadId: "race-thread",
+      body: "Second root",
+      authorEmail: "alice@example.com",
+    });
+    const reply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete-race",
+      threadId: "race-thread",
+      parentCommentId: root.id,
+      body: "Reply",
+      authorEmail: "alice@example.com",
+    });
+    const run = rawClient.execute.getMockImplementation();
+    if (!run) throw new Error("The test client has no implementation");
+    let raced = false;
+    rawClient.execute.mockImplementation(async (input) => {
+      if (
+        !raced &&
+        typeof input !== "string" &&
+        input.sql.includes("status = 'deleted'")
+      ) {
+        raced = true;
+        // Both are deleted on their own after the thread was read.
+        const write = await pglite.prepare(
+          `UPDATE agent_review_comments
+              SET status = 'deleted', deleted_by = ?, deleted_at = ?
+            WHERE id IN (?, ?)`,
+        );
+        await write.run(
+          "bob@example.com",
+          "2026-01-01T00:00:00.000Z",
+          second.id,
+          reply.id,
+        );
+      }
+      return run(input);
+    });
+    try {
+      expect(await deleteReviewComment(root.id, "carol@example.com")).toBe(1);
+    } finally {
+      rawClient.execute.mockImplementation(run);
+    }
+
+    expect(raced).toBe(true);
+    for (const id of [second.id, reply.id]) {
+      expect(
+        await getReviewCommentById(id, {}, { bypassScope: true }),
+      ).toMatchObject({
+        status: "deleted",
+        deletedBy: "bob@example.com",
+        deletedAt: "2026-01-01T00:00:00.000Z",
+      });
+    }
+    expect(
+      await getReviewCommentById(root.id, {}, { bypassScope: true }),
+    ).toMatchObject({ status: "deleted", deletedBy: "carol@example.com" });
+  });
+
   it("keeps metadata another write adds while a comment is being deleted", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
