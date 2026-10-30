@@ -962,6 +962,38 @@ describe("ShareButton", () => {
     expect(menuItem("Preparing agent link...")).toBeDefined();
   });
 
+  it("says names could not load instead of showing emails as if complete", async () => {
+    const withoutNames = {
+      ...sharesData.current,
+      displayNamesUnavailable: true,
+    };
+    sharesData.current = withoutNames;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="deck" resourceId="deck-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Couldn't load names, so emails are shown.",
+    );
+  });
+
+  it("shows no names notice when names loaded", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="deck" resourceId="deck-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Couldn't load names");
+  });
+
   it("offers no Send to menu for a resource agents cannot read and no destinations", async () => {
     await act(async () => {
       root.render(

@@ -1356,6 +1356,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.agentBadge": "代理",
   "share.removeAccess": "移除存取權",
   "share.loadAgentsFailed": "無法載入代理。",
+  "share.namesUnavailable": "無法載入名稱，因此顯示電子郵件地址。",
   "share.copyLink": "複製連結",
   "share.copyLinkFailed": "無法複製連結。",
   "share.sendTo": "傳送至",

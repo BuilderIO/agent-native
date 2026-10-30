@@ -1468,6 +1468,8 @@ const messages: ToolkitAgentChatTranslation = {
   "share.agentBadge": "エージェント",
   "share.removeAccess": "アクセスを削除",
   "share.loadAgentsFailed": "エージェントを読み込めませんでした。",
+  "share.namesUnavailable":
+    "名前を読み込めなかったため、メールアドレスを表示しています。",
   "share.copyLink": "リンクをコピー",
   "share.copyLinkFailed": "リンクをコピーできませんでした。",
   "share.sendTo": "送信先",

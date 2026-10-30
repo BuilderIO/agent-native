@@ -1395,6 +1395,13 @@ export function SharePeopleList({
           })}
         </li>
       ) : null}
+      {data?.displayNamesUnavailable ? (
+        <li role="status" className="px-1 py-1 text-xs text-muted-foreground">
+          {t("agentChat.share.namesUnavailable", {
+            defaultValue: "Couldn't load names, so emails are shown.",
+          })}
+        </li>
+      ) : null}
     </ul>
   );
 }

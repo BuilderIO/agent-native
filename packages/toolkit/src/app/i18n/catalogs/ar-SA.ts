@@ -1447,6 +1447,8 @@ const messages: ToolkitAgentChatTranslation = {
   "share.agentBadge": "وكيل",
   "share.removeAccess": "إزالة الوصول",
   "share.loadAgentsFailed": "تعذّر تحميل الوكلاء.",
+  "share.namesUnavailable":
+    "تعذّر تحميل الأسماء، لذا تظهر عناوين البريد الإلكتروني.",
   "share.copyLink": "نسخ الرابط",
   "share.copyLinkFailed": "تعذّر نسخ الرابط.",
   "share.sendTo": "إرسال إلى",

@@ -1442,6 +1442,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.agentBadge": "에이전트",
   "share.removeAccess": "액세스 삭제",
   "share.loadAgentsFailed": "에이전트를 불러올 수 없습니다.",
+  "share.namesUnavailable": "이름을 불러올 수 없어 이메일을 표시합니다.",
   "share.copyLink": "링크 복사",
   "share.copyLinkFailed": "링크를 복사할 수 없습니다.",
   "share.sendTo": "보내기",

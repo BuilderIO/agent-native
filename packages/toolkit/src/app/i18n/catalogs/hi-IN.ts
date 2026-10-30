@@ -1423,6 +1423,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.agentBadge": "एजेंट",
   "share.removeAccess": "एक्सेस हटाएं",
   "share.loadAgentsFailed": "एजेंट लोड नहीं हो सके।",
+  "share.namesUnavailable": "नाम लोड नहीं हो सके, इसलिए ईमेल दिखाए जा रहे हैं।",
   "share.copyLink": "लिंक कॉपी करें",
   "share.copyLinkFailed": "लिंक कॉपी नहीं हो सका।",
   "share.sendTo": "इसमें भेजें",

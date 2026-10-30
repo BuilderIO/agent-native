@@ -1351,6 +1351,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.agentBadge": "智能体",
   "share.removeAccess": "移除访问权限",
   "share.loadAgentsFailed": "无法加载智能体。",
+  "share.namesUnavailable": "无法加载名称，因此显示电子邮件地址。",
   "share.copyLink": "复制链接",
   "share.copyLinkFailed": "无法复制链接。",
   "share.sendTo": "发送到",

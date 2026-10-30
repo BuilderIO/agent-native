@@ -1446,6 +1446,7 @@ const messages = {
   "share.agentBadge": "Agent",
   "share.removeAccess": "Remove access",
   "share.loadAgentsFailed": "Could not load agents.",
+  "share.namesUnavailable": "Couldn't load names, so emails are shown.",
   "share.copyLink": "Copy link",
   "share.copyLinkFailed": "Couldn't copy the link.",
   "share.sendTo": "Send to",

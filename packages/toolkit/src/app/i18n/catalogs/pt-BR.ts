@@ -1611,6 +1611,8 @@ const messages: ToolkitAgentChatTranslation = {
   "share.agentBadge": "Agente",
   "share.removeAccess": "Remover acesso",
   "share.loadAgentsFailed": "Não foi possível carregar os agentes.",
+  "share.namesUnavailable":
+    "Não foi possível carregar os nomes, por isso os e-mails são exibidos.",
   "share.copyLink": "Copiar link",
   "share.copyLinkFailed": "Não foi possível copiar o link.",
   "share.sendTo": "Enviar para",
