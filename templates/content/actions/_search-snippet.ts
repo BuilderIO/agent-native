@@ -13,6 +13,12 @@ const SNIPPET_RADIUS = 120;
 const LEADING_TAG_REST = /^(?:\/?[\w-]*|[^<>\n]*["=][^<>\n]*)\/?>/;
 
 /**
+ * The start of a tag the text ends inside: `<`, `</`, or a tag name and any
+ * attributes. A `<` followed by a space, as in `a < b`, is text.
+ */
+const TRAILING_TAG_START = /<(?:\/?[A-Za-z][\w-]*(?:\s[^<>\n]*)?|\/)?$/;
+
+/**
  * Where a match at `matchOffset` in the stored window falls in its text: the
  * length of the text before it. A tag or link target the match sits inside
  * counts as nothing, since the text doesn't show it.
@@ -25,7 +31,7 @@ function textOffset(
   let before = Array.from(window).slice(0, matchOffset).join("");
   if (clippedStart) before = before.replace(LEADING_TAG_REST, "");
   before = before
-    .replace(/<[^>\n]*$/, "")
+    .replace(TRAILING_TAG_START, "")
     .replace(/\[([^\]\n]*)\]\([^)\n]*$/, "$1");
   const text = stripMarkdownForPreview(before);
   return text ? text.length + 1 : 0;
@@ -56,7 +62,7 @@ export function searchSnippet(
   let source = window;
   if (clippedStart) source = source.replace(LEADING_TAG_REST, "");
   // A tag the window ends inside.
-  if (clippedEnd) source = source.replace(/<[^>\n]*$/, "");
+  if (clippedEnd) source = source.replace(TRAILING_TAG_START, "");
   const text = stripMarkdownForPreview(source);
   if (!text) return "";
 

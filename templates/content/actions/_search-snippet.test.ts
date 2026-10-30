@@ -56,6 +56,24 @@ describe("searchSnippet", () => {
     expect(snippet).not.toContain("q3-roadmap-x");
   });
 
+  it("counts a plain less-than sign before the match as text", () => {
+    const before = Array.from({ length: 30 }, (_, i) => `filler${i}`).join(" ");
+    const middle = Array.from({ length: 40 }, (_, i) => `middle${i}`).join(" ");
+    const window = `${before} when x < y ${middle} See [the roadmap](https://content.test/page/q3-roadmap-x) for dates.`;
+
+    const snippet = searchSnippet(window, "q3-roadmap-x", {
+      matchOffset: window.indexOf("q3-roadmap-x"),
+    });
+
+    expect(snippet).toContain("See the roadmap for dates.");
+  });
+
+  it("keeps a plain less-than sign where the window ends", () => {
+    expect(
+      searchSnippet("Keep x < y in view while", "keep", { clippedEnd: true }),
+    ).toBe("Keep x < y in view...");
+  });
+
   it("centres on where the match was found when no exact phrase is given", () => {
     const before = Array.from({ length: 60 }, (_, i) => `early${i}`).join(" ");
     const after = Array.from({ length: 60 }, (_, i) => `late${i}`).join(" ");
