@@ -1,4 +1,4 @@
-import { appApiPath, appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
@@ -148,7 +148,7 @@ export function useDropVideoUpload(
           );
         });
 
-        const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
+        const uploadBase = appApiPath(info.uploadChunkUrl);
         const totalChunks = Math.max(
           1,
           Math.ceil(file.size / UPLOAD_SLICE_BYTES),

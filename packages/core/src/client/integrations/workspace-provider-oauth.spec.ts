@@ -70,7 +70,8 @@ describe("workspaceProviderOAuthUrl", () => {
     );
     expect(url.origin).toBe("https://api.example.com");
     const hop = new URL(url.searchParams.get("return")!, url.origin);
-    expect(hop.pathname).toBe("/mail/_agent-native/auth/ui-return");
+    // The connection callback joins this to the server's mount itself.
+    expect(hop.pathname).toBe("/_agent-native/auth/ui-return");
     expect(hop.searchParams.get("to")).toBe(
       "https://app.example.com/settings?tab=github",
     );

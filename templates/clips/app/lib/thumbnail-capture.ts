@@ -12,6 +12,7 @@ const VIDEO_METADATA_TIMEOUT_MS = 10_000;
 function resolveAppUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
   if (url.startsWith("/") && !url.startsWith("//")) {
+    if (url === "/api" || url.startsWith("/api/")) return appApiPath(url);
     return `${appBasePath()}${url}`;
   }
   return url;

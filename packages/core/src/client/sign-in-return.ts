@@ -70,6 +70,21 @@ export function serverAuthReturnPath(
   return uiReturnRoute(base, new URL(uiPath, window.location.origin).href);
 }
 
+/**
+ * `serverAuthReturnPath` for server flows that resolve their return against
+ * the server's own mount (workspace connection OAuth): the UI-return route
+ * relative to that mount, in its internal `/_agent-native` form.
+ */
+export function serverMountReturnPath(
+  uiPath: string,
+  sameOriginReturn: string = uiPath,
+): string {
+  if (!apiBaseUrl() || typeof window === "undefined") return sameOriginReturn;
+  return `${UI_RETURN_PATH}?${new URLSearchParams({
+    [UI_RETURN_TARGET_PARAM]: new URL(uiPath, window.location.origin).href,
+  })}`;
+}
+
 export function resolveSignInReturnHref(opts?: {
   returnTo?: string;
 }): string | null {

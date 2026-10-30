@@ -149,17 +149,22 @@ export function hasSameOriginBrowserEvidence(event: H3Event): boolean {
 }
 
 /**
- * A cookie-writing POST requires positive origin evidence. An origin the
- * operator listed in `CORS_ALLOWED_ORIGINS` is the app's own UI served from
- * elsewhere (`runtime.apiBaseUrl`), so it counts as first-party here.
+ * An origin the operator listed in `CORS_ALLOWED_ORIGINS` is the app's own UI
+ * served from elsewhere (`runtime.apiBaseUrl`), so the first-party checks
+ * below admit it.
  */
-export function isSameOriginPost(event: H3Event): boolean {
-  if (hasSameOriginBrowserEvidence(event)) return true;
+function isListedUiOrigin(event: H3Event): boolean {
   const origin = getRequestHeader(event, "origin");
   return !!origin && isExplicitCorsAllowedOrigin(origin);
 }
 
+/** A cookie-writing POST requires positive origin evidence. */
+export function isSameOriginPost(event: H3Event): boolean {
+  return hasSameOriginBrowserEvidence(event) || isListedUiOrigin(event);
+}
+
 export function isSameOriginRequest(event: H3Event): boolean {
+  if (isListedUiOrigin(event)) return true;
   const fetchSite = getRequestHeader(event, "sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
 

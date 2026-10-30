@@ -1,5 +1,5 @@
 import { agentNativePath } from "../api-path.js";
-import { serverAuthReturnPath } from "../sign-in-return.js";
+import { serverMountReturnPath } from "../sign-in-return.js";
 
 export type WorkspaceProviderOAuthScope = "user" | "organization" | "app";
 
@@ -8,8 +8,9 @@ export interface WorkspaceProviderOAuthOptions {
   /** A UI page to land on once the connection completes. */
   returnPath?: string;
   /**
-   * A route on the app's server to land on instead, written relative to the
-   * server's own mount (for example its OAuth popup completion page).
+   * A route on the app's server to land on instead. The server joins it to
+   * its own mount, so it is written mount-relative (for example its OAuth
+   * popup completion page).
    */
   serverReturnPath?: string;
   scope?: WorkspaceProviderOAuthScope;
@@ -25,7 +26,9 @@ export function workspaceProviderOAuthUrl(
   });
   const returnTarget =
     options.serverReturnPath ??
-    (options.returnPath ? serverAuthReturnPath(options.returnPath) : undefined);
+    (options.returnPath
+      ? serverMountReturnPath(options.returnPath)
+      : undefined);
   if (returnTarget) params.set("return", returnTarget);
   return agentNativePath(
     `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,

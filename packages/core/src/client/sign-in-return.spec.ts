@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { decodeContinuation } from "../shared/sign-in-journey.js";
-import { workspaceProviderOAuthUrl } from "./integrations/workspace-provider-oauth.js";
 import { signInLandingLoader } from "./sign-in-landing.js";
 import {
   buildSignInReturnHref,
   resolveSignInReturnHref,
   serverAuthReturnPath,
+  serverMountReturnPath,
 } from "./sign-in-return.js";
 
 function stubUi(pathname: string, search = "", apiBaseUrl?: string) {
@@ -82,18 +82,20 @@ describe("sign-in return with a separate server", () => {
     expect(hop.searchParams.get("to")).toBe(
       "https://app.example.com/clip/1?at=90",
     );
+  });
 
-    const oauth = new URL(
-      workspaceProviderOAuthUrl("github", {
-        appId: "mail",
-        returnPath: "/settings",
-      }),
+  it("writes the UI return mount-relative for flows the server joins itself", () => {
+    stubUi("/inbox", "", "https://api.example.com/mail");
+    const hop = new URL(
+      serverMountReturnPath("/settings?tab=github"),
+      "https://api.example.com",
     );
-    expect(
-      new URL(oauth.searchParams.get("return")!, oauth.origin).searchParams.get(
-        "to",
-      ),
-    ).toBe("https://app.example.com/settings");
+    expect(hop.pathname).toBe("/_agent-native/auth/ui-return");
+    expect(hop.searchParams.get("to")).toBe(
+      "https://app.example.com/settings?tab=github",
+    );
+    stubUi("/inbox");
+    expect(serverMountReturnPath("/settings")).toBe("/settings");
   });
 
   it("keeps the caller's return when the server shares the UI origin", () => {

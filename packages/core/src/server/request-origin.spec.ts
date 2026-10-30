@@ -433,4 +433,27 @@ describe("isSameOriginPost", () => {
     ).toBe(false);
     expect(post({ "sec-fetch-site": "same-site" })).toBe(false);
   });
+
+  it("admits the listed UI origin on guarded same-origin endpoints too", () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.com");
+    const request = (headers: Record<string, string>) =>
+      isSameOriginRequest(
+        fakeEvent(
+          { host: "api.example.com", ...headers },
+          { url: "https://api.example.com/speak" },
+        ),
+      );
+    expect(
+      request({
+        origin: "https://app.example.com",
+        "sec-fetch-site": "same-site",
+      }),
+    ).toBe(true);
+    expect(
+      request({
+        origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
+      }),
+    ).toBe(false);
+  });
 });
