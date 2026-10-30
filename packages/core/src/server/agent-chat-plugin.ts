@@ -1566,7 +1566,6 @@ export function createAgentChatPlugin(
       const routePath = options?.path ?? "/_agent-native/agent-chat";
       const streamTokenPath =
         routePath.replace(/\/+$/, "") + AGENT_CHAT_STREAM_TOKEN_SUFFIX;
-      const streamingRuntime = isAgentChatStreamingRuntime();
       const a2aAgentDelegationEnabled =
         resolveA2AAgentDelegationEnabled(options);
 
@@ -10000,10 +9999,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      if (streamingRuntime) {
+      {
         // The exact public-path registry bypasses the normal cookie guard for
         // this one route. The route immediately below still verifies the
         // purpose-bound bearer token before entering the shared chat handler.
+        // It is registered always and checks the setting per request, so an
+        // app's own config plugin can enable it: plugins run after this one
+        // reads its setup-time options.
         const app = getH3App(nitroApp);
         registerAuthPublicPaths([AGENT_CHAT_STREAM_PATH], app);
         app.use(
@@ -10012,6 +10014,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             AGENT_CHAT_STREAM_PATH,
             async (event) => {
               setResponseHeader(event, "Cache-Control", "private, no-store");
+              if (!isAgentChatStreamingRuntime()) {
+                setResponseStatus(event, 404);
+                return { error: "Not found" };
+              }
               if (getMethod(event) !== "POST") {
                 setResponseStatus(event, 405);
                 return { error: "Method not allowed" };

@@ -4699,6 +4699,78 @@ describe("createAgentNativeChatRuntime", () => {
     expect(events.some((event) => event.type === "message-done")).toBe(true);
   });
 
+  it.each([401, 403, 404, 405])(
+    "falls back to the primary route when the streaming origin refuses with %i",
+    async (status) => {
+      const apiUrl = "/_agent-native/agent-chat";
+      const streamingUrl = "https://stream.example.test/agent-chat";
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === `${apiUrl}/stream-token`) {
+          return Response.json({ token: "short-lived-token" });
+        }
+        if (url === streamingUrl) {
+          return Response.json({ error: "refused" }, { status });
+        }
+        return sseResponse([
+          { type: "text", text: "primary" },
+          { type: "done" },
+        ]);
+      });
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl,
+        streamingUrl,
+        fetch: fetchMock as typeof fetch,
+      });
+
+      const session = await runtime.createSession({
+        threadId: `thread-refused-${status}`,
+      });
+      const events = await drain(
+        (await session.startTurn({ prompt: "Use fallback" })).events,
+      );
+
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+        `${apiUrl}/stream-token`,
+        streamingUrl,
+        apiUrl,
+      ]);
+      expect(events.some((event) => event.type === "message-done")).toBe(true);
+    },
+  );
+
+  it("does not retry on the primary route after a streaming-origin server error", async () => {
+    const apiUrl = "/_agent-native/agent-chat";
+    const streamingUrl = "https://stream.example.test/agent-chat";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${apiUrl}/stream-token`) {
+        return Response.json({ token: "short-lived-token" });
+      }
+      if (url === streamingUrl) {
+        return new Response("Bad gateway", { status: 502 });
+      }
+      return sseResponse([{ type: "done" }]);
+    });
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl,
+      streamingUrl,
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const session = await runtime.createSession({
+      threadId: "thread-stream-502",
+    });
+    await drain(
+      (await session.startTurn({ prompt: "No double run" })).events,
+    ).catch(() => {});
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      `${apiUrl}/stream-token`,
+      streamingUrl,
+    ]);
+  });
+
   it("keeps legacy status events while adding structured activity", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([

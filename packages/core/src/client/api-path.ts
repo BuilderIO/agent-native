@@ -492,8 +492,27 @@ export function agentNativePath(path: string): string {
   );
 }
 
+/**
+ * A host that mounts the app at runtime names its streaming origin on the
+ * external-embed config, so one bundle serves environments with different
+ * streaming origins; the build-time variable covers apps that own their build.
+ */
+function externalEmbedStreamingUrl(): unknown {
+  if (typeof window === "undefined") return undefined;
+  const externalEmbed = (
+    window as Window & {
+      __AGENT_NATIVE_EXTERNAL_EMBED?: { streamingUrl?: unknown };
+    }
+  ).__AGENT_NATIVE_EXTERNAL_EMBED;
+  return externalEmbed?.streamingUrl;
+}
+
 export function agentChatStreamingUrl(): string | undefined {
-  const value = clientEnv()?.VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL;
+  const runtimeValue = externalEmbedStreamingUrl();
+  const value =
+    typeof runtimeValue === "string" && runtimeValue.trim()
+      ? runtimeValue
+      : clientEnv()?.VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL;
   if (typeof value !== "string" || !value.trim()) return undefined;
   const candidate = value.trim();
   const base =

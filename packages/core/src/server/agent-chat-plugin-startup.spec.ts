@@ -97,7 +97,7 @@ describe("agent chat startup", () => {
       "utf8",
     );
     const streamRoute = source.slice(
-      source.indexOf("if (streamingRuntime)"),
+      source.indexOf("registerAuthPublicPaths([AGENT_CHAT_STREAM_PATH]"),
       source.indexOf("// ─── Durable background agent-chat run processor"),
     );
 

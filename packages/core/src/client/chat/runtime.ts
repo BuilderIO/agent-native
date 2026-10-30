@@ -5070,6 +5070,9 @@ export interface AgentNativeChatRuntimeTelemetry {
   readonly onTurnSubmitted?: (report: TurnSubmittedReport) => void;
 }
 
+/** Streaming-origin replies that mean no run started, so the primary route may retry. */
+const STREAM_HANDOFF_REFUSED_STATUSES = new Set([401, 403, 404, 405]);
+
 export function createAgentNativeChatRuntime(
   options: CreateAgentNativeChatRuntimeOptions = {},
   telemetry: AgentNativeChatRuntimeTelemetry = {},
@@ -5133,11 +5136,21 @@ export function createAgentNativeChatRuntime(
           headers.delete("x-agent-native-session-id");
         }
         try {
-          return await fetchImpl(streamingUrl, {
+          const streamed = await fetchImpl(streamingUrl, {
             ...init,
             headers,
             credentials: "omit",
           });
+          // These mean the streaming origin never started a run (no route,
+          // token refused, method not served), so the primary route can take
+          // the turn without running it twice. Other failures may come after
+          // the run began and are returned as they are.
+          if (STREAM_HANDOFF_REFUSED_STATUSES.has(streamed.status)) {
+            void streamed.body?.cancel().catch(() => {});
+            warnAndUsePrimary(new Error(`HTTP ${streamed.status}`));
+            return fetchImpl(input, init);
+          }
+          return streamed;
         } catch (error) {
           if (init?.signal?.aborted) throw error;
           warnAndUsePrimary(error);

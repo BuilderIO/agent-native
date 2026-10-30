@@ -139,6 +139,30 @@ describe("agentNativePath", () => {
     expect(agentChatStreamingUrl()).toBeUndefined();
   });
 
+  it("prefers the streaming origin a host sets at runtime over the build-time one", () => {
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL",
+      "https://build.example.test/_agent-native/agent-chat-stream",
+    );
+    vi.stubGlobal("window", {
+      location: { href: "https://host.example.test/app", pathname: "/app" },
+      __AGENT_NATIVE_EXTERNAL_EMBED: {
+        target: "/an/design/_agent-native",
+        streamingUrl:
+          "https://runtime.example.test/_agent-native/agent-chat-stream",
+      },
+    });
+    expect(agentChatStreamingUrl()).toBe(
+      "https://runtime.example.test/_agent-native/agent-chat-stream",
+    );
+
+    vi.stubGlobal("window", {
+      location: { href: "https://host.example.test/app", pathname: "/app" },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { streamingUrl: "javascript:alert(1)" },
+    });
+    expect(agentChatStreamingUrl()).toBeUndefined();
+  });
+
   it("uses the projected workspace path for app API paths under nested routes", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
