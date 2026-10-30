@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CommentDraftProvider,
+  CommentHistoryScrollContainer,
   commentDraftStorageKey,
   useCommentDraft,
   useCommentDraftContext,
@@ -92,7 +93,6 @@ describe("comment drafts", () => {
       ]);
       currentPanel!.setHistoryStatus("resolved");
       currentPanel!.setHistoryAuthor("reviewer@example.com");
-      currentPanel!.setHistoryScrollTop(184);
       currentDraft!.setAiDraft({
         selection: {
           model: "openai/gpt-5.6-sol",
@@ -121,7 +121,86 @@ describe("comment drafts", () => {
     expect(currentPanel).toMatchObject({
       historyStatus: "resolved",
       historyAuthor: "reviewer@example.com",
-      historyScrollTop: 184,
+    });
+  });
+
+  describe("Discussion scroll", () => {
+    let renders = 0;
+    function RenderCounter() {
+      useCommentDraftContext();
+      renders += 1;
+      return null;
+    }
+
+    function renderDiscussion(showPanel = true, showThreads = true) {
+      const host = (container ??= document.createElement("div"));
+      if (!host.isConnected) document.body.appendChild(host);
+      const reactRoot = (root ??= createRoot(host));
+      act(() => {
+        reactRoot.render(
+          <CommentDraftProvider
+            documentId="document-a"
+            currentUserEmail="person@example.com"
+            currentUserOrgId="org-a"
+          >
+            <RenderCounter />
+            {showPanel ? (
+              <CommentHistoryScrollContainer data-testid="discussion">
+                {showThreads ? <div style={{ height: 4000 }} /> : null}
+              </CommentHistoryScrollContainer>
+            ) : null}
+          </CommentDraftProvider>,
+        );
+      });
+      return host.querySelector<HTMLElement>('[data-testid="discussion"]');
+    }
+
+    function openDiscussion() {
+      const panel = renderDiscussion();
+      if (!panel) throw new Error("The Discussion scroller didn't render");
+      return panel;
+    }
+
+    function scrollTo(panel: HTMLElement, top: number) {
+      panel.scrollTop = top;
+      panel.dispatchEvent(new Event("scroll"));
+    }
+
+    it("keeps moving with the reader when a render runs behind the scroll", () => {
+      const panel = openDiscussion();
+      act(() => {
+        scrollTo(panel, 100);
+        // A trackpad or wheel scroll keeps going before React renders.
+        panel.scrollTop = 160;
+      });
+      expect(panel.scrollTop).toBe(160);
+    });
+
+    it("doesn't re-render comments while the reader scrolls", () => {
+      const panel = openDiscussion();
+      renders = 0;
+      act(() => {
+        for (const top of [40, 80, 120, 160]) scrollTo(panel, top);
+      });
+      expect(renders).toBe(0);
+    });
+
+    it("reopens where the reader left it", () => {
+      const panel = openDiscussion();
+      act(() => scrollTo(panel, 184));
+      renderDiscussion(false);
+      expect(openDiscussion().scrollTop).toBe(184);
+    });
+
+    it("reopens where the reader left it when only the threads unmount", () => {
+      const panel = openDiscussion();
+      act(() => scrollTo(panel, 184));
+      // The page's Discussion rail keeps its scroller and drops the threads
+      // while closed, which pulls the emptied scroller back to the top.
+      renderDiscussion(true, false);
+      act(() => scrollTo(panel, 0));
+      renderDiscussion();
+      expect(panel.scrollTop).toBe(184);
     });
   });
 
