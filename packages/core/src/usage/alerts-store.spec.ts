@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { __resetSchemaSnapshotForTests } from "../db/ddl-guard.js";
+import { builderCreditsFromCostCents } from "./store.js";
 
 const mockNotifyWithDelivery = vi.hoisted(() => vi.fn());
 const mockDeleteNotification = vi.hoisted(() => vi.fn());
@@ -41,6 +42,7 @@ const {
   enqueueUsageAlertEvaluation,
   listUsageAlerts,
   saveUsageAlert,
+  USAGE_ALERT_DEFAULT_MONTHLY_USD,
   USAGE_ALERT_UNIT_SCALE,
 } = await import("./alerts-store.js");
 
@@ -111,6 +113,23 @@ afterEach(async () => {
 });
 
 describe("usage alerts", () => {
+  it("gives a new alert the monthly default for its unit", async () => {
+    const save = (unit: "usd" | "builder-credits" | "tokens") =>
+      saveUsageAlert({ scope: "user", appId: `app-${unit}`, unit }, access);
+
+    expect((await save("usd")).rule).toMatchObject({
+      unit: "usd",
+      period: "month",
+      limit: USAGE_ALERT_DEFAULT_MONTHLY_USD,
+    });
+    expect((await save("builder-credits")).rule.limit).toBe(
+      builderCreditsFromCostCents(USAGE_ALERT_DEFAULT_MONTHLY_USD * 100),
+    );
+    await expect(save("tokens")).rejects.toThrow(
+      "Usage alert limit must be greater than zero.",
+    );
+  });
+
   it("moves an untouched $100 daily default to $20 a month and leaves an edited one alone", async () => {
     await listUsageAlerts({ scope: "user" }, access);
     await pglite.exec(

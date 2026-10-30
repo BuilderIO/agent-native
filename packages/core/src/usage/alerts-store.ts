@@ -24,6 +24,8 @@ const DEFAULT_MONTHLY_USD = 20;
 const PREVIOUS_DEFAULT_DAILY_USD = 100;
 
 export const USAGE_ALERT_DEFAULT_MONTHLY_USD = DEFAULT_MONTHLY_USD;
+/** @deprecated The default is monthly now. Use USAGE_ALERT_DEFAULT_MONTHLY_USD. */
+export const USAGE_ALERT_DEFAULT_DAILY_USD = DEFAULT_MONTHLY_USD;
 export const USAGE_ALERT_UNIT_SCALE = {
   usd: 100,
   "builder-credits": 1,
@@ -395,6 +397,7 @@ async function storedRows(
 
 async function ensureDefaultRule(partition: ResolvedScope): Promise<void> {
   const now = Date.now();
+  // raw-sql-ok: static statement, every value is a bound parameter
   await getDbExec().execute({
     sql: `INSERT INTO usage_alert_rules (
         id, scope, owner_email, org_id, app_id, unit, period, limit_value,
@@ -541,6 +544,7 @@ async function persistRule(
     : null;
   const unit = (input.unit ??
     (existing ? stringField(existing, "unit") : "usd")) as UsageAlertUnit;
+  // raw-sql-ok: not SQL, the word "period" only names a column read
   const period = (input.period ??
     (existing ? stringField(existing, "period") : "month")) as UsageAlertPeriod;
   const currentLimit = existing
