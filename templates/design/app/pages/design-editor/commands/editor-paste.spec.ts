@@ -248,7 +248,7 @@ describe("runEditorPaste", () => {
     expect(toastError).toHaveBeenCalledWith("common.genericError");
   });
 
-  it("pastes a trusted Design SVG layer payload before importing raw SVG markup", async () => {
+  it("pastes a trusted Design SVG layer payload before importing raw SVG markup", () => {
     const h = harness();
     const trustToken = "design-clipboard-test-token";
     const localStorageDescriptor = Object.getOwnPropertyDescriptor(
@@ -308,7 +308,7 @@ describe("runEditorPaste", () => {
     );
     expect(handlePastedSvg).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(true);
-    await vi.waitFor(() => expect(h.pasted).toBe(1));
+    expect(h.pasted).toBe(1);
     expect(toastError).not.toHaveBeenCalled();
   });
 
@@ -336,7 +336,7 @@ describe("runEditorPaste", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
-  it("skips the async clipboard read for a Design payload the paste event carried", async () => {
+  it("skips the async clipboard read for a Design payload the paste event carried", () => {
     const h = harness();
     const handlePasteSelection = vi.fn(async () => {});
     h.args.handlePasteSelection = handlePasteSelection;
@@ -351,20 +351,15 @@ describe("runEditorPaste", () => {
 
     withTrustToken("paste-event-token", () => runEditorPaste(h.args, event));
 
-    await vi.waitFor(() =>
-      expect(handlePasteSelection).toHaveBeenCalledWith(undefined, {
-        payloadFromPasteEvent: true,
-      }),
-    );
+    expect(handlePasteSelection).toHaveBeenCalledWith(undefined, {
+      payloadFromPasteEvent: true,
+    });
   });
 
-  // oracle-change: foreign structured content is prepared before paste instead of rejected or reduced to its first SVG.
-  it("waits for cross-site Design preparation instead of pasting its lone SVG", async () => {
+  it("says why a Design copy from another origin cannot paste instead of pasting its lone SVG", () => {
     const h = harness();
     const handlePastedSvg = vi.fn(() => true);
     h.args.handlePastedSvg = handlePastedSvg;
-    const adopt = vi.fn(async () => {});
-    h.args.adoptDesignClipboardPayload = adopt;
     const markerText = serializeDesignClipboardPayload(
       '<div><svg width="16" height="16"></svg>Icon row</div>',
       designPayload,
@@ -380,59 +375,11 @@ describe("runEditorPaste", () => {
     expect(handlePastedSvg).not.toHaveBeenCalled();
     expect(h.pasted).toBe(0);
     expect(event.defaultPrevented).toBe(true);
-    expect(adopt).toHaveBeenCalledWith(
-      designPayload,
-      markerText,
-      "Icon row",
-      true,
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.pasteClipboardUntrusted",
+      expect.anything(),
     );
-    await vi.waitFor(() => expect(h.pasted).toBe(1));
-    expect(toastError).not.toHaveBeenCalled();
   });
-  it("waits for trusted asynchronous adoption before pasting", async () => {
-    const h = harness();
-    let finish: (() => void) | undefined;
-    const adoption = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    h.args.adoptDesignClipboardPayload = () => adoption;
-    const marker = serializeDesignClipboardPayload(
-      "Card",
-      designPayload,
-      "this-origin-token",
-    );
-    const event = pasteEvent({ "text/html": marker, "text/plain": "Card" });
-    withTrustToken("this-origin-token", () => runEditorPaste(h.args, event));
-    expect(event.defaultPrevented).toBe(true);
-    expect(h.pasted).toBe(0);
-    if (!finish) throw new Error("Missing adoption resolver");
-    finish();
-    await vi.waitFor(() => expect(h.pasted).toBe(1));
-  });
-
-  it.each(["this-origin-token", "another-origin-token"])(
-    "does not paste when %s adoption fails",
-    async (sourceToken) => {
-      const h = harness();
-      h.args.adoptDesignClipboardPayload = async () => {
-        throw new Error("Snapshot failed");
-      };
-      const marker = serializeDesignClipboardPayload(
-        "Card",
-        designPayload,
-        sourceToken,
-      );
-      const event = pasteEvent({ "text/html": marker, "text/plain": "Card" });
-      withTrustToken("this-origin-token", () => runEditorPaste(h.args, event));
-      await vi.waitFor(() =>
-        expect(toastError).toHaveBeenCalledWith(
-          "designEditor.toasts.clipboardImportFailed",
-        ),
-      );
-      expect(h.pasted).toBe(0);
-      expect(event.defaultPrevented).toBe(true);
-    },
-  );
 });
 
 const designPayload = {
@@ -457,7 +404,7 @@ function withTrustToken<T>(token: string, run: () => T): T {
 }
 
 describe("runCanvasClipboardRelayPaste", () => {
-  it("pastes a Design copy relayed from a focused screen iframe instead of dropping it", async () => {
+  it("pastes a Design copy relayed from a focused screen iframe instead of dropping it", () => {
     const h = harness();
     const adopt = vi.fn();
     const handlePasteSelection = vi.fn(async () => {});
@@ -482,11 +429,9 @@ describe("runCanvasClipboardRelayPaste", () => {
 
     expect(handled).toBe(true);
     expect(adopt).toHaveBeenCalledWith(designPayload, markerText, "Icon row");
-    await vi.waitFor(() =>
-      expect(handlePasteSelection).toHaveBeenCalledWith(undefined, {
-        payloadFromPasteEvent: true,
-      }),
-    );
+    expect(handlePasteSelection).toHaveBeenCalledWith(undefined, {
+      payloadFromPasteEvent: true,
+    });
     expect(handlePastedSvg).not.toHaveBeenCalled();
   });
 

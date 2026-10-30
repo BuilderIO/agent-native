@@ -2412,13 +2412,8 @@ export default {
         "Die ausgewählte Ebene konnte zum Einfügen nicht gemessen werden",
       pasteClipboardUnreadable:
         "Erlaube den Zugriff auf die Zwischenablage, um hier einzufügen",
-      clipboardImportPreparing: "Kopiertes Design wird vorbereitet…",
-      clipboardImportedStatic:
-        "Beim Einfügen wird eine statische Kopie ohne skriptgesteuerte Interaktionen verwendet.",
-      clipboardImportFailed:
-        "Dieses Design konnte nicht sicher importiert werden. Es wurde nichts eingefügt.",
       pasteClipboardUntrusted:
-        "Die kopierten Design-Daten sind ungültig oder werden nicht unterstützt",
+        "Aus Design auf einer anderen Website kopierte Ebenen können nicht eingefügt werden",
       swapFillStrokeLayeredFill:
         "Mehrere Füllungen oder Bildfüllungen können noch nicht zur Kontur werden",
       alignNeedsTwoLayers:

@@ -119,7 +119,6 @@ export async function runPasteOverSelection({
   t,
 }: PasteOverSelectionArgs) {
   const refreshStatus = await refreshClipboardFromSystemClipboard();
-  if (refreshStatus === "failed") return;
   const entries = getCanvasClipboardEntries();
   if (entries.length === 0) {
     if (refreshStatus === "unreadable" || refreshStatus === "untrusted") {

@@ -2179,9 +2179,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   var runtimeLayerSnapshotMaxTimer: number | null = null;
   var runtimeLayerSnapshotReservationRequestId = 0;
   var runtimeLayerSnapshotReservationInFlight = false;
-  var runtimeLayerSnapshotResourceMode: "references" | "embedded" = "embedded";
-  var runtimeLayerSnapshotPendingResourceMode: "references" | "embedded" =
-    "embedded";
   var runtimeLayerSnapshotReservationDirty = false;
   var runtimeLayerSnapshotReservationReadinessRequestId: number | null = null;
   var runtimeLayerSnapshotPendingReadinessRequestId: number | null = null;
@@ -2279,7 +2276,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     excludedRoot?: Element,
     preparedImageSources?: Map<HTMLImageElement, HTMLImageElement>,
     unavailableImageSources?: Set<HTMLImageElement>,
-    canvasSnapshots?: Map<HTMLCanvasElement, { id: string; blob: Blob }>,
   ):
     | { ok: true; html: string; nodeCount: number; documentId: string }
     | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
@@ -2412,19 +2408,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         snapshotFailures.push("visual-media");
       }
       if (sourceNode instanceof HTMLCanvasElement) {
-        var canvasSnapshot = canvasSnapshots?.get(sourceNode);
-        if (canvasSnapshot) {
-          var canvasImage = document.createElement("img");
-          Array.from(cloneNode.attributes).forEach(function (attribute) {
-            canvasImage.setAttribute(attribute.name, attribute.value);
-          });
-          canvasImage.setAttribute(
-            "src",
-            "agent-native-clipboard-resource:" + canvasSnapshot.id,
-          );
-          cloneNode.replaceWith(canvasImage);
-          cloneNode = canvasImage;
-        } else snapshotFailures.push("canvas-unavailable");
+        snapshotFailures.push("canvas-unavailable");
       }
       if (sourceNode instanceof HTMLIFrameElement) {
         snapshotFailures.push("embedded-document-unavailable");
@@ -3195,7 +3179,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     reservationToken?: string,
     requestId?: number,
     readinessRequestId?: number,
-    resourceMode: "references" | "embedded" = "embedded",
   ): void {
     if (runtimeLayerSnapshotTimer !== null) {
       window.clearTimeout(runtimeLayerSnapshotTimer);
@@ -3242,55 +3225,21 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
     var imagePreparationSignal = AbortSignal.timeout(15_000);
     var responsiveImages = Array.prototype.slice
-      .call(
-        resourceMode === "references" ? [] : document.querySelectorAll("img"),
-      )
+      .call(document.querySelectorAll("img"))
       .filter(isResponsiveExportImage) as HTMLImageElement[];
-    var canvasSnapshots = new Map<
-      HTMLCanvasElement,
-      { id: string; blob: Blob }
-    >();
-    var canvases =
-      resourceMode === "references"
-        ? Array.from(document.querySelectorAll("canvas"))
-        : [];
-    var canvasPreparation = Promise.resolve().then(async function () {
-      if (canvases.length > 32) throw new Error("Too many canvas resources");
-      var totalCanvasBytes = 0;
-      for (var canvas of canvases) {
-        if (canvas.width * canvas.height > 16_000_000)
-          throw new Error("Canvas exceeds pixel limit");
-        var blob = await new Promise<Blob>((resolve, reject) =>
-          canvas.toBlob(function (value) {
-            if (value) resolve(value);
-            else reject(new Error("Canvas could not be captured"));
-          }, "image/png"),
-        );
-        totalCanvasBytes += blob.size;
-        if (blob.size > 2_000_000 || totalCanvasBytes > 8_000_000)
-          throw new Error("Canvas exceeds resource limit");
-        canvasSnapshots.set(canvas, {
-          id: "canvas-" + canvasSnapshots.size,
-          blob: blob,
-        });
-      }
-    });
-    void Promise.all([
-      Promise.all(
-        responsiveImages.map(async function (image) {
-          try {
-            return [
-              image,
-              await prepareExportImageSource(image, imagePreparationSignal),
-            ] as const;
-          } catch {
-            return [image, null] as const;
-          }
-        }),
-      ),
-      canvasPreparation,
-    ])
-      .then(function ([preparedResults]) {
+    void Promise.all(
+      responsiveImages.map(async function (image) {
+        try {
+          return [
+            image,
+            await prepareExportImageSource(image, imagePreparationSignal),
+          ] as const;
+        } catch {
+          return [image, null] as const;
+        }
+      }),
+    )
+      .then(function (preparedResults) {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
         var preparedImageSources = new Map<
           HTMLImageElement,
@@ -3312,7 +3261,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           undefined,
           preparedImageSources,
           unavailableImageSources,
-          resourceMode === "references" ? canvasSnapshots : undefined,
         );
         if (!snapshot.ok) {
           (window.parent as Window).postMessage(
@@ -3333,84 +3281,73 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           clearPendingPostReadiness();
           return;
         }
-        var resources =
-          resourceMode === "references"
-            ? Promise.resolve({
-                html: snapshot.html,
-                complete: true,
-                errorCode: undefined,
-              })
-            : inlineRuntimeSnapshotResources(snapshot.html, 5_000_000);
-        return resources.then(function (inlined) {
-          if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
-          snapshot.html = inlined.html;
-          if (
-            inlined.errorCode === "export_too_large" ||
-            snapshot.html.length > 14_000_000
-          ) {
-            postSnapshotTooLargeError();
-            return;
-          }
-          var snapshotReservationToken = reservationToken || "";
-          if (
-            snapshot.html === lastRuntimeLayerSnapshotHtml &&
-            snapshotReservationToken ===
-              lastRuntimeLayerSnapshotReservationToken &&
-            !Number.isSafeInteger(postReadinessRequestId)
-          ) {
+        return inlineRuntimeSnapshotResources(snapshot.html, 5_000_000).then(
+          function (inlined) {
+            if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+            snapshot.html = inlined.html;
+            if (
+              inlined.errorCode === "export_too_large" ||
+              snapshot.html.length > 14_000_000
+            ) {
+              postSnapshotTooLargeError();
+              return;
+            }
+            var snapshotReservationToken = reservationToken || "";
+            if (
+              snapshot.html === lastRuntimeLayerSnapshotHtml &&
+              snapshotReservationToken ===
+                lastRuntimeLayerSnapshotReservationToken &&
+              !Number.isSafeInteger(postReadinessRequestId)
+            ) {
+              if (inlined.complete) {
+                snapshotImageSources.forEach(function (source, image) {
+                  runtimeLayerSnapshotImageSources.set(image, source);
+                });
+              }
+              (window.parent as Window).postMessage(
+                {
+                  type: "agent-native:runtime-layer-snapshot-unchanged",
+                  payload: {
+                    requestId,
+                    documentId: snapshot.documentId,
+                    ...(Number.isSafeInteger(postReadinessRequestId)
+                      ? { readinessRequestId: postReadinessRequestId }
+                      : {}),
+                    ...(reservationToken ? { reservationToken } : {}),
+                  },
+                },
+                "*",
+              );
+              clearPendingPostReadiness();
+              return;
+            }
+            if (requestId !== undefined) snapshot.requestId = requestId;
+            if (Number.isSafeInteger(postReadinessRequestId)) {
+              snapshot.readinessRequestId = postReadinessRequestId;
+            }
+            if (reservationToken) snapshot.reservationToken = reservationToken;
+            var snapshotMessage = {
+              type: "agent-native:runtime-layer-snapshot",
+              payload: snapshot,
+            };
+            if (
+              new TextEncoder().encode(JSON.stringify(snapshotMessage))
+                .byteLength > 5_000_000
+            ) {
+              postSnapshotTooLargeError();
+              return;
+            }
             if (inlined.complete) {
               snapshotImageSources.forEach(function (source, image) {
                 runtimeLayerSnapshotImageSources.set(image, source);
               });
             }
-            (window.parent as Window).postMessage(
-              {
-                type: "agent-native:runtime-layer-snapshot-unchanged",
-                payload: {
-                  requestId,
-                  documentId: snapshot.documentId,
-                  ...(Number.isSafeInteger(postReadinessRequestId)
-                    ? { readinessRequestId: postReadinessRequestId }
-                    : {}),
-                  ...(reservationToken ? { reservationToken } : {}),
-                },
-              },
-              "*",
-            );
+            lastRuntimeLayerSnapshotHtml = snapshot.html;
+            lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+            (window.parent as Window).postMessage(snapshotMessage, "*");
             clearPendingPostReadiness();
-            return;
-          }
-          if (requestId !== undefined) snapshot.requestId = requestId;
-          if (Number.isSafeInteger(postReadinessRequestId)) {
-            snapshot.readinessRequestId = postReadinessRequestId;
-          }
-          if (reservationToken) snapshot.reservationToken = reservationToken;
-          var snapshotMessage = {
-            type: "agent-native:runtime-layer-snapshot",
-            payload: {
-              ...snapshot,
-              ...(resourceMode === "references"
-                ? { resources: Array.from(canvasSnapshots.values()) }
-                : {}),
-            },
-          };
-          if (
-            new TextEncoder().encode(JSON.stringify(snapshotMessage))
-              .byteLength > 5_000_000
-          ) {
-            postSnapshotTooLargeError();
-            return;
-          }
-          if (inlined.complete) {
-            snapshotImageSources.forEach(function (source, image) {
-              runtimeLayerSnapshotImageSources.set(image, source);
-            });
-          }
-          lastRuntimeLayerSnapshotHtml = snapshot.html;
-          lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
-          (window.parent as Window).postMessage(snapshotMessage, "*");
-          clearPendingPostReadiness();
-        });
+          },
+        );
       })
       .catch(function () {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
@@ -3434,11 +3371,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       });
   }
 
-  function requestRuntimeLayerSnapshot(
-    readinessRequestId?: number,
-    resourceMode: "references" | "embedded" = "embedded",
-  ): void {
-    runtimeLayerSnapshotPendingResourceMode = resourceMode;
+  function requestRuntimeLayerSnapshot(readinessRequestId?: number): void {
     if (Number.isSafeInteger(readinessRequestId)) {
       runtimeLayerSnapshotPendingReadinessRequestId =
         readinessRequestId as number;
@@ -3458,7 +3391,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       return;
     }
     runtimeLayerSnapshotReservationInFlight = true;
-    runtimeLayerSnapshotResourceMode = resourceMode;
     runtimeLayerSnapshotReservationRequestId += 1;
     runtimeLayerSnapshotReservationReadinessRequestId =
       runtimeLayerSnapshotPendingReadinessRequestId;
@@ -3468,7 +3400,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         type: "agent-native:runtime-layer-snapshot-reservation-request",
         requestId: runtimeLayerSnapshotReservationRequestId,
         documentId: runtimeDocumentId,
-        resourceMode: resourceMode,
       },
       "*",
     );
@@ -3987,7 +3918,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var generatedGroupMarker =
       group.getAttribute("data-agent-native-group-wrapper") === "true" &&
       group.getAttribute("data-an-primitive") !== "frame" &&
-      group.getAttribute("data-agent-native-clone-root") !== "true";
+      (usesDirectScreenSelection() ||
+        group.getAttribute("data-agent-native-clone-root") !== "true");
     var legacyNodeId = group.getAttribute("data-agent-native-node-id");
     var legacyGeneratedGroup =
       /^an-[a-z0-9]+$/i.test(legacyNodeId || "") &&
@@ -32320,25 +32252,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       return;
     }
     if (e.data.type === "request-runtime-layer-snapshot") {
-      if (
-        e.data.resourceMode !== undefined &&
-        e.data.resourceMode !== "references" &&
-        e.data.resourceMode !== "embedded"
-      ) {
-        (window.parent as Window).postMessage(
-          {
-            type: "agent-native:runtime-layer-snapshot-error",
-            payload: { ok: false, reason: "unsupported-resource-mode" },
-          },
-          "*",
-        );
-        return;
-      }
       requestRuntimeLayerSnapshot(
         Number.isSafeInteger(e.data.readinessRequestId)
           ? e.data.readinessRequestId
           : undefined,
-        e.data.resourceMode ?? "embedded",
       );
       return;
     }
@@ -32356,10 +32273,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           runtimeLayerSnapshotPendingReadinessRequestId ??
           runtimeLayerSnapshotReservationReadinessRequestId;
         runtimeLayerSnapshotReservationReadinessRequestId = null;
-        requestRuntimeLayerSnapshot(
-          queuedReadinessRequestId ?? undefined,
-          runtimeLayerSnapshotPendingResourceMode,
-        );
+        requestRuntimeLayerSnapshot(queuedReadinessRequestId ?? undefined);
         return;
       }
       var reservationReadinessRequestId =
@@ -32371,7 +32285,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           : undefined,
         Number.isSafeInteger(e.data.requestId) ? e.data.requestId : undefined,
         reservationReadinessRequestId ?? undefined,
-        runtimeLayerSnapshotResourceMode,
       );
       return;
     }

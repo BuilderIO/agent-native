@@ -266,7 +266,7 @@ describe("DesignEditor context-menu clipboard snapshot", () => {
     expect(source).toContain("clipboardFiles: menuClipboardFilesRef.current");
     expect(
       openChange.indexOf("menuClipboardFilesRef.current = []"),
-    ).toBeLessThan(openChange.indexOf("readSystemClipboard()"));
+    ).toBeLessThan(openChange.indexOf("readSystemClipboard().then"));
     expect(
       openChange.indexOf(
         "if (readId !== menuClipboardReadIdRef.current) return",

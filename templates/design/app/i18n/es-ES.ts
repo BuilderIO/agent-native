@@ -2393,13 +2393,8 @@ export default {
         "No se pudo medir la capa seleccionada para pegar en ella",
       pasteClipboardUnreadable:
         "Permite el acceso al portapapeles para pegar aquí",
-      clipboardImportPreparing: "Preparando el diseño copiado…",
-      clipboardImportedStatic:
-        "Este pegado usa una copia estática sin interacciones programadas.",
-      clipboardImportFailed:
-        "No se pudo importar este diseño de forma segura. No se pegó nada.",
       pasteClipboardUntrusted:
-        "Los datos copiados de Design no son válidos o no son compatibles",
+        "No se pueden pegar capas copiadas de Design en otro sitio",
       swapFillStrokeLayeredFill:
         "Los rellenos múltiples o de imagen aún no pueden pasar a un trazo",
       alignNeedsTwoLayers: "Selecciona dos o más capas para alinearlas",

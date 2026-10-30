@@ -2388,13 +2388,8 @@ export default {
         "Não foi possível medir a camada selecionada para colar nela",
       pasteClipboardUnreadable:
         "Permita o acesso à área de transferência para colar aqui",
-      clipboardImportPreparing: "Preparando o design copiado…",
-      clipboardImportedStatic:
-        "Esta colagem usa uma cópia estática sem interações programadas.",
-      clipboardImportFailed:
-        "Não foi possível importar este design com segurança. Nada foi colado.",
       pasteClipboardUntrusted:
-        "Os dados copiados do Design são inválidos ou incompatíveis",
+        "Não é possível colar camadas copiadas do Design em outro site",
       swapFillStrokeLayeredFill:
         "Vários preenchimentos ou preenchimentos de imagem ainda não podem virar contorno",
       alignNeedsTwoLayers: "Selecione duas ou mais camadas para alinhá-las",

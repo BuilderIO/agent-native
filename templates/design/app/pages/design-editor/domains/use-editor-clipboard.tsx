@@ -67,7 +67,7 @@ import { runCutSelection } from "../commands/cut-selection";
 import { runDeleteSelection } from "../commands/delete-selection";
 import { runDuplicateSelection } from "../commands/duplicate-selection";
 import {
-  runAdoptDesignClipboardPayload,
+  adoptDesignClipboardPayloadIntoRefs,
   runCanvasClipboardRelayPaste,
   runEditorPaste,
 } from "../commands/editor-paste";
@@ -554,42 +554,29 @@ export function useEditorClipboard({
     return copiedScreenEntriesRef.current ?? [];
   }, []);
 
-  const uploadImageFileForHtmlRef = useRef<(file: File) => Promise<string>>(
-    async () => {
-      throw new Error("Clipboard image uploader is not initialized");
-    },
-  );
-  const pendingClipboardImportRef = useRef<{
-    markerText: string;
-    promise: Promise<DesignClipboardPayload>;
-  } | null>(null);
-
   const adoptDesignClipboardPayload = useCallback(
     (
       payload: DesignClipboardPayload,
       markerText: string,
       plainText?: string,
-      foreign = false,
-    ) =>
-      runAdoptDesignClipboardPayload(
-        {
-          copiedLayerEntriesRef,
-          copiedLayerHtmlRef,
-          copiedScreenEntriesRef,
-          lastWrittenClipboardMarkerRef,
-          lastWrittenClipboardPlainTextRef,
-          pasteCascadeRef,
-          pendingImportRef: pendingClipboardImportRef,
-          setHasCanvasClipboard,
-          uploadImage: (file) => uploadImageFileForHtmlRef.current(file),
-          t,
-        },
-        payload,
-        markerText,
-        plainText,
-        foreign,
-      ),
-    [t],
+    ) => {
+      setHasCanvasClipboard(
+        adoptDesignClipboardPayloadIntoRefs(
+          {
+            copiedLayerEntriesRef,
+            copiedLayerHtmlRef,
+            copiedScreenEntriesRef,
+            lastWrittenClipboardMarkerRef,
+            lastWrittenClipboardPlainTextRef,
+            pasteCascadeRef,
+          },
+          payload,
+          markerText,
+          plainText,
+        ),
+      );
+    },
+    [],
   );
 
   const refreshClipboardFromSystemClipboard =
@@ -599,19 +586,13 @@ export function useEditorClipboard({
       if (result.value.markerText === lastWrittenClipboardMarkerRef.current) {
         return "unchanged";
       }
-      try {
-        await adoptDesignClipboardPayload(
-          result.value.payload,
-          result.value.markerText,
-          result.value.plainText,
-          result.value.foreign,
-        );
-        return "adopted";
-      } catch {
-        toast.error(t("designEditor.toasts.clipboardImportFailed"));
-        return "failed";
-      }
-    }, [adoptDesignClipboardPayload, t]);
+      adoptDesignClipboardPayload(
+        result.value.payload,
+        result.value.markerText,
+        result.value.plainText,
+      );
+      return "adopted";
+    }, [adoptDesignClipboardPayload]);
 
   const selectInsertedLayers = useCallback(
     (screenId: string, content: string, rootNodeIds: string[]) => {
@@ -902,6 +883,9 @@ export function useEditorClipboard({
 
   const getScreenContentRef = useRef(getScreenContent);
   getScreenContentRef.current = getScreenContent;
+  const uploadImageFileForHtmlRef = useRef<(file: File) => Promise<string>>(
+    async () => "",
+  );
 
   const showPastedImagesNotice = useCallback(
     ({ count, fileIds }: { count: number; fileIds: string[] }) => {

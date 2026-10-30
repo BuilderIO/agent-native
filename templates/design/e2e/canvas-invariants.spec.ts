@@ -647,7 +647,7 @@ test.describe("moving", () => {
 });
 
 test.describe("selection", () => {
-  test("a click replaces the selection with the top-level layer, Cmd+click reaches the leaf, Backslash walks up, and Escape clears", async ({
+  test("a click selects the content layer, Cmd+click reaches the leaf, Backslash walks up, and Escape clears", async ({
     app,
   }) => {
     const id = await openPage(app);
@@ -656,7 +656,7 @@ test.describe("selection", () => {
     await expect.poll(() => app.selectedLayers()).toEqual(["Plain Box"]);
 
     await clickNode(app, "intro-title");
-    await expect.poll(() => app.selectedLayers()).toEqual(["Intro"]);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Title"]);
     const title = await app.designRect("intro-title");
     const titleCenter = await app.pagePoint(
       title.x + title.width / 2,
