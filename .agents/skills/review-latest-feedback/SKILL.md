@@ -174,8 +174,9 @@ their close-out.
 Give each source below its own helper on the cheapest model (Luna in Codex,
 Haiku in Claude Code), and close it as soon as it reports. A helper gathers;
 you triage. The Slack helper returns every root a person posted in the window with no ✅, 🎫, or `:mag:`,
-one line each (link, author, first line). It never filters, ranks, or drops
-one: a new report has no reaction and no thread yet.
+and every root with a person's reply newer than ours, one line each (link,
+author, first line). It never filters, ranks, or drops one: a new report has
+no reaction and no thread yet.
 
 - **Read the channels.** Use `slack_read_channel` with
   `response_format: detailed` (paginate) back 5 days. Its output shows
@@ -191,9 +192,8 @@ one: a new report has no reaction and no thread yet.
   phrase may be on its own line or, in older replies, at the end of the
   sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
   yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
-  has it: leave it alone. Read the thread of every workflow root in the
-  window, not just the channel row: a human reply newer than ours only shows
-  there, and runs that skipped this left people waiting after our 🎫. A root
+  has it: leave it alone. Read the thread of every workflow root in the window: a human reply newer
+  than ours only shows there. A root
   listed in the `Reports` section of a sweep
   PR that is still open and that this run didn't open belongs to the run
   working on that PR: don't react
@@ -255,7 +255,8 @@ ranked with the Slack reports by people affected. They have no thread to react o
 so they appear only in the recap.
 
 Take the Fix reports in order of how many people they hurt, and claim all
-of them. If time runs out, close what's left with 🎫 and a reply. Any Fix, Build, or Needs-a-person root you leave
+of them. A claim you can't finish stays under "Claimed, not yet answered" for
+the next run. Any Fix, Build, or Needs-a-person root you leave
 unclaimed gets no reaction, only one line in the recap saying why, so
 nothing is dropped silently. That covers every candidate your source helpers
 return: each one ends the run either claimed or on a recap line with its

@@ -2352,14 +2352,17 @@ const FEEDBACK_NO_LOCAL_REPRO_RE = new RegExp(
   "i",
 );
 const FEEDBACK_REPORTS_MISSED_RE =
-  /\b(?:missed|dropped|skipped|ignored|never\s+(?:saw|claimed|picked\s+up))\b[^\n]{0,40}\b(?:reports?|threads?|(?:slack\s+)?(?:posts?|chats?|messages?))\b|\b(?:reports?|threads?|slack\s+(?:posts?|chats?|messages?))\b[^\n]{0,40}\b(?:missed|dropped|never\s+(?:seen|claimed|picked\s+up))\b/i;
+  /(?<!\bI\s)\b(?:missed|dropped|skipped|ignored|overlooked|didn['’]?t\s+see|never\s+(?:saw|claimed|picked\s+up))\b[^\n]{0,40}\b(?:reports?|threads?|(?:slack\s+)?(?:posts?|chats?|messages?))\b|\b(?:reports?|threads?|slack\s+(?:posts?|chats?|messages?))\b[^\n]{0,40}\b(?:missed|dropped|never\s+(?:seen|claimed|picked\s+up))\b/i;
 const FEEDBACK_REPORTS_MISSED_REGEX_CASES = [
   [true, "looks like TONS of slack chats missed"],
   [true, "you missed 14 reports"],
   [true, "the sweep dropped reports"],
   [true, "the sweep never picked up that thread"],
+  [true, "the sweep overlooked reports"],
+  [true, "the sweep didn't see the report"],
   [false, "the sweep missed the deadline"],
   [false, "I missed your last update"],
+  [false, "I missed the reports call"],
   [false, "The sweep fixed every report."],
 ];
 const FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES = [
