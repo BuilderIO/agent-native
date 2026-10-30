@@ -1,8 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { appPath } from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
-import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import {
+  buildSignInReturnHref,
+  serverAuthReturnPath,
+} from "@agent-native/core/client/sign-in-return";
 import { isTestIdentityEmail } from "@agent-native/core/shared";
 import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
 import {
@@ -204,10 +207,13 @@ export function AccountGateDialog({
       const flowId = createOAuthFlowId();
       const verifier = createOAuthVerifier();
       const authUrl = new URL(
-        appPath("/_agent-native/google/auth-url"),
+        agentNativePath("/_agent-native/google/auth-url"),
         window.location.origin,
       );
-      authUrl.searchParams.set("return", appPath(returnTo));
+      authUrl.searchParams.set(
+        "return",
+        serverAuthReturnPath(appPath(returnTo)),
+      );
       authUrl.searchParams.set("desktop", "1");
       authUrl.searchParams.set("flow_id", flowId);
       const authResponse = await fetch(authUrl.toString(), {
@@ -237,7 +243,7 @@ export function AccountGateDialog({
           closedAt ??= Date.now();
         }
         const exchangeResponse = await fetch(
-          `${appPath("/_agent-native/auth/desktop-exchange")}?flow_id=${encodeURIComponent(flowId)}`,
+          `${agentNativePath("/_agent-native/auth/desktop-exchange")}?flow_id=${encodeURIComponent(flowId)}`,
           {
             credentials: "include",
             headers: {
@@ -322,15 +328,18 @@ export function AccountGateDialog({
       normalizedEmail,
     );
     try {
-      const response = await fetch(appPath("/_agent-native/auth/magic-link"), {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: normalizedEmail,
-          callbackURL: appPath(returnTo),
-        }),
-      });
+      const response = await fetch(
+        agentNativePath("/_agent-native/auth/magic-link"),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: normalizedEmail,
+            callbackURL: serverAuthReturnPath(appPath(returnTo)),
+          }),
+        },
+      );
       const data = await response.json();
       if (!response.ok) {
         setErrorMessage(responseError(data) ?? copy.magicLinkFailed);
@@ -367,7 +376,7 @@ export function AccountGateDialog({
     );
     try {
       const registerResponse = await fetch(
-        appPath("/_agent-native/auth/register"),
+        agentNativePath("/_agent-native/auth/register"),
         {
           method: "POST",
           credentials: "include",
@@ -375,7 +384,10 @@ export function AccountGateDialog({
           body: JSON.stringify({
             email: normalizedEmail,
             password,
-            callbackURL: buildCreateAccountHref(returnTo),
+            callbackURL: serverAuthReturnPath(
+              appPath(returnTo),
+              buildCreateAccountHref(returnTo),
+            ),
           }),
         },
       );
@@ -385,12 +397,15 @@ export function AccountGateDialog({
         return;
       }
 
-      const loginResponse = await fetch(appPath("/_agent-native/auth/login"), {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: normalizedEmail, password }),
-      });
+      const loginResponse = await fetch(
+        agentNativePath("/_agent-native/auth/login"),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: normalizedEmail, password }),
+        },
+      );
       if (loginResponse.ok) {
         trackAccountAuthEvent(
           "auth.signup_completed",
@@ -428,14 +443,17 @@ export function AccountGateDialog({
     setVerificationMessage(null);
     try {
       const response = await fetch(
-        appPath("/_agent-native/auth/ba/send-verification-email"),
+        agentNativePath("/_agent-native/auth/ba/send-verification-email"),
         {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             email: verificationPendingEmail,
-            callbackURL: buildCreateAccountHref(returnTo),
+            callbackURL: serverAuthReturnPath(
+              appPath(returnTo),
+              buildCreateAccountHref(returnTo),
+            ),
           }),
         },
       );

@@ -55,6 +55,7 @@ import {
   setWorkspaceAppDefaultVisibilityHandler,
   setOrgVisualIdentityHandler,
 } from "./handlers.js";
+import { schedulePreviewDevOrgMembership } from "./preview-dev-membership.js";
 import {
   readWorkspacePrivateIconHandler,
   uploadWorkspacePrivateIconHandler,
@@ -128,6 +129,7 @@ export function createOrgPlugin(): NitroPluginDef {
     markDefaultPluginProvided(nitroApp, "org");
     await awaitBootstrap(nitroApp);
     await orgStore.ready();
+    schedulePreviewDevOrgMembership();
 
     const app = getH3App(nitroApp);
 

@@ -25,6 +25,14 @@ Binary uploads hit the **custom API** routes (`/api/uploads/:id/chunk` and `/api
 
 Some recordings are linked to a meeting — when `meeting_id` is non-null on the recording row, it was created via `start-meeting-recording` and both the `recording` and `meetings` skills apply. See the `meetings` skill for the bidirectional link.
 
+## Permanent removal
+
+`delete-recording-permanent` removes an owned recording and its access rows in the same transaction that saves its media cleanup intent. Its `recordingRemoved` result is separate from `mediaCleanup.status`: `pending` and `blocked` retain recovery references; `retained_shared` means another recording still uses the files; only `complete` confirms cleanup and settled hosted accounting. Repeating the action returns the existing intent.
+
+`list-recording-media-cleanups` exposes the owner's safe summaries, also shown in Trash after a reload. `retry-recording-media-cleanup` queues an attempt under the original owner, organization and provider space. Missing credentials, uncertain provider outcomes and unresolved producers remain visible. Tokenized media URLs stay encrypted in the server journal and do not appear in these results.
+
+Builder uploads remain hidden. New hidden uploads record server-side ownership provenance. Cleanup registers those files with compression disabled, deletes the exact registered URL and delays stored-URL verification for at least two minutes. A successful delete request alone is pending; serving bytes, access denial and uncertain responses remain retryable. Only negative checks of every recorded URL can complete an owned object's cleanup. This is serving evidence, not an inventory of unknown provider variants. Files without provenance and unresolved compression remain blocked. Existing orphaned files are not swept.
+
 ## Lifecycle
 
 1. **Intent.** Either the user clicks Record (global `Cmd+Shift+L`) or the agent calls `pnpm action start-recording --mode=screen`. The agent version writes `record-intent` to application state; the UI picks it up and initiates the same flow as a user click.

@@ -1135,6 +1135,7 @@ interface RealtimeVoiceSessionOptions {
   preferences?: RealtimeVoicePreferences;
   browserLanguages?: readonly string[];
   protocol?: RealtimeVoiceProtocol;
+  resolvePath?: ((path: string) => string) | undefined;
 }
 
 export async function createRealtimeVoiceSessionWithCapability(
@@ -1142,7 +1143,8 @@ export async function createRealtimeVoiceSessionWithCapability(
   options: RealtimeVoiceSessionOptions = {},
 ): Promise<RealtimeVoiceSessionAnswer> {
   const preferences = options.preferences;
-  const response = await fetch(REALTIME_VOICE_SESSION_PATH, {
+  const resolvePath = options.resolvePath ?? ((path: string) => path);
+  const response = await fetch(resolvePath(REALTIME_VOICE_SESSION_PATH), {
     method: "POST",
     credentials: "same-origin",
     headers: {
@@ -1170,7 +1172,7 @@ export async function createRealtimeVoiceSessionWithCapability(
         : {}),
     },
     body: offerSdp,
-    signal: options.signal,
+    signal: options.signal ?? null,
   });
   if (!response.ok) {
     const message = await readErrorResponse(response);
@@ -1237,8 +1239,10 @@ export async function executeRealtimeVoiceTool(input: {
   approvalId?: string | undefined;
   /** Declines that approval record instead of running the call. */
   declinedApprovalId?: string | undefined;
+  resolvePath?: ((path: string) => string) | undefined;
 }): Promise<RealtimeVoiceToolResult> {
-  const response = await fetch(REALTIME_VOICE_TOOL_PATH, {
+  const resolvePath = input.resolvePath ?? ((path: string) => path);
+  const response = await fetch(resolvePath(REALTIME_VOICE_TOOL_PATH), {
     method: "POST",
     credentials: "same-origin",
     headers: {
@@ -1261,7 +1265,7 @@ export async function executeRealtimeVoiceTool(input: {
         ? { declinedApprovalId: input.declinedApprovalId }
         : {}),
     }),
-    signal: input.signal,
+    signal: input.signal ?? null,
   });
   if (!response.ok) {
     throw new Error(await readErrorResponse(response));
@@ -2000,6 +2004,8 @@ function useRealtimeVoiceModeController(
   // transport cleanup depends on them, and a new instance would end the call.
   const trackEventRef = useRef(adapters.voice.trackEvent);
   trackEventRef.current = adapters.voice.trackEvent;
+  const resolvePathRef = useRef(adapters.resolvePath);
+  resolvePathRef.current = adapters.resolvePath;
   const turnMetrics = useMemo(
     () =>
       createRealtimeVoiceTurnMetrics((name, properties) =>
@@ -2481,6 +2487,7 @@ function useRealtimeVoiceModeController(
           browserTabId,
           capability: capabilityRef.current,
           signal: toolAbortController.signal,
+          resolvePath: resolvePathRef.current,
         });
       } catch (toolError) {
         result = {
@@ -2580,6 +2587,7 @@ function useRealtimeVoiceModeController(
             capability: capabilityRef.current,
             signal: toolAbortController.signal,
             approvalId: pending.approvalId,
+            resolvePath: resolvePathRef.current,
           });
         } catch (toolError) {
           result = {
@@ -2603,6 +2611,7 @@ function useRealtimeVoiceModeController(
           browserTabId,
           capability: capabilityRef.current,
           declinedApprovalId: pending.approvalId,
+          resolvePath: resolvePathRef.current,
         }).catch((declineError: unknown) => {
           console.warn(
             "Could not record the declined voice approval.",
@@ -3006,6 +3015,7 @@ function useRealtimeVoiceModeController(
         signal: abortController.signal,
         preferences: preferencesRef.current,
         browserLanguages: navigator.languages,
+        resolvePath: resolvePathRef.current,
       });
       if (!isCurrentAttempt()) return;
       capabilityRef.current = answer.capability;

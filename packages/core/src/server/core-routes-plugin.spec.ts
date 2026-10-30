@@ -233,6 +233,29 @@ describe("OAuth popup waiting route", () => {
     );
   });
 
+  it("also notifies an opener on a listed UI origin", async () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.test");
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    const completionId = "8d1bd7cf-419e-4ff0-8545-19dedb819154";
+
+    const html = await (
+      await app.fetch(
+        new Request(
+          `http://example.test/_agent-native/oauth/popup?complete=workspace-connection&resume=${completionId}`,
+        ),
+      )
+    ).text();
+
+    expect(html).toContain(
+      `postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}, window.location.origin)`,
+    );
+    expect(html).toContain(
+      `for (const origin of ["https://app.example.test"]) window.opener?.postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}, origin);`,
+    );
+    vi.unstubAllEnvs();
+  });
+
   it("stays reachable from the framework pages that open it", async () => {
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());

@@ -306,6 +306,29 @@ const messages = {
     clipsRestoreFailed: "{{count}} क्लिप पुनर्स्थापित नहीं की जा सकीं",
     clipsPermanentlyDeleted: "{{count}} क्लिप स्थायी रूप से हटा दी गईं",
     clipsDeleteFailed: "{{count}} क्लिप हटाई नहीं जा सकीं",
+    deletedMediaPending:
+      "रिकॉर्डिंग हटा दी गई। उसकी मीडिया फ़ाइलें अभी हटाई जा रही हैं।",
+    deletedMediaBlocked:
+      "रिकॉर्डिंग हटा दी गई, लेकिन उसकी मीडिया फ़ाइलें हटाई नहीं जा सकीं।",
+    deletedMediaRetained:
+      "रिकॉर्डिंग हटा दी गई। जिन मीडिया फ़ाइलों का अन्य रिकॉर्डिंग अब भी उपयोग करती हैं, उन्हें रखा गया।",
+    clipsDeletedMediaPending:
+      "हटाई गई रिकॉर्डिंग: {{count}}। मीडिया फ़ाइलें अभी हटाई जा रही हैं।",
+    clipsDeletedMediaBlocked:
+      "हटाई गई रिकॉर्डिंग: {{count}}। मीडिया फ़ाइलें हटाई नहीं जा सकीं।",
+    clipsDeletedMediaRetained:
+      "हटाई गई रिकॉर्डिंग: {{count}}। जिन मीडिया फ़ाइलों का अन्य रिकॉर्डिंग अब भी उपयोग करती हैं, उन्हें रखा गया।",
+    mediaCleanupListLabel: "मीडिया हटाना",
+    mediaCleanupPending: "हटाई गई रिकॉर्डिंग की मीडिया फ़ाइलें हटाई जा रही हैं",
+    mediaCleanupBlocked: "हटाई गई रिकॉर्डिंग की मीडिया फ़ाइलें हटाई नहीं जा सकीं",
+    mediaCleanupReconnect:
+      "हटाई गई रिकॉर्डिंग की मीडिया फ़ाइलें हटाने के लिए स्टोरेज फिर से कनेक्ट करें",
+    mediaCleanupRetained:
+      "हटाई गई रिकॉर्डिंग की साझा मीडिया फ़ाइलें तब तक रखी जाती हैं जब तक अन्य रिकॉर्डिंग उनका उपयोग करती हैं",
+    mediaCleanupRemoved: "मीडिया फ़ाइलें हटा दी गईं",
+    mediaCleanupStillBlocked: "मीडिया फ़ाइलें अब भी हटाई नहीं जा सकीं",
+    mediaCleanupRetryFailed: "मीडिया हटाने की दोबारा कोशिश नहीं हो सकी",
+    mediaCleanupLoadFailed: "मीडिया हटाने की स्थिति लोड नहीं हो सकी",
   },
   recordingRoute: {
     pageTitle: "क्लिप रिकॉर्डिंग · Clips",
