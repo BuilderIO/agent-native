@@ -19,6 +19,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Deleted recordings retain media removal status and retries until storage cleanup is confirmed
 - Fixed the Share → Advanced popover so the Save buttons fit and the password toggle matches other switches
 - Clips desktop preserves your server choice across updates and reconnects after temporary sign-in outages.
 - Recording chapters remain reachable when the list extends below the player.

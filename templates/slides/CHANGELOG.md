@@ -3,10 +3,34 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-29
+## 2026-10-30
 
 ### Fixed
 
+- Asking to import a file you attached earlier in the chat now finds it, instead of stopping with a setup error.
+
+## 2026-10-29
+
+### Added
+
+- Undo the agent's last change from a toast or with Cmd+Z, and review both versions side by side when edits conflict.
+
+### Improved
+
+- Decks open faster, the deck list loads in pages, and collaborators' edits refresh only the slide that changed.
+- Import is one button that opens your files, and pasting a Google Slides link into the home prompt offers to import it.
+- Moving, resizing, drawing and pasting objects snaps to an 8px grid, and inspector values show whole pixels.
+- Teammates can request edit access, owners choose the role, and presentation links always show the latest on-brand slides.
+- The font menu lists the full Google Fonts library with each font previewed in its own face, and font size offers a type scale.
+
+### Fixed
+
+- Fixed text edits saving the editor's height lock into slide HTML, which made edited paragraphs overlap the block below after they grew.
+- Hiding a slide while someone else edits the deck no longer fails to save or loses the slide.
+- Present starts in one click, presentation clickers work, exports warn instead of silently dropping content, images have a Crop button, zoom has Fit to screen and keyboard shortcuts, and new decks no longer report a false failure or generate twice.
+- Pressing Enter on a card edits its first value, new table cells take typing, spreadsheet paste fills table cells, and overflowing text can shrink to fit.
+- Restoring a deck version keeps the deck's design system.
+- Slides saves edits to large, image-heavy slides when the tab is hidden or closed.
 - Deck change notifications are now only sent to people who can open the deck, so private decks no longer reveal their ids, slide ids, or editing activity to other users.
 
 ## 2026-10-28

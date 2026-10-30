@@ -51,6 +51,25 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.222.3
+
+### Patch Changes
+
+- 7c3cfbb: Keep AgentKit run readers attached while a cancel is in flight, so a turn whose event stream closes before the cancel settles still delivers its `run.cancelled` event instead of ending with "event stream ended without a completion".
+- d32865c: A file path that isn't an upload reference, or no path at all, is now a normal tool error the agent corrects instead of a stop that ends the run. Stops for a missing, expired or inaccessible upload now say to attach the file again instead of listing credentials, roles, connected accounts or approvals.
+- 2428fde: Deleting a review thread's first comment now deletes the whole thread, replies included, instead of leaving the replies behind with no comment to hang them on. Only an editor, or the author of a thread that holds no one else's reply, may do it, and `list-review-comments` reports that per thread as `canDeleteThread`. The check runs inside the delete, after the thread is locked, so a reply that lands at the last moment is checked too, and a reply can no longer be added to a thread that was deleted, even while the delete is running.
+- 252c80b: Expose the existing migration database URL resolver so app release commands can open direct connections for concurrent index builds.
+- 17abb90: Feedback sweep skill: account for every candidate a source helper returns, treat a broken setup as something to fix rather than an attempt, and wait for CI in one long blocking call.
+- 1a4191a: Expose the configured first-run credits experiment in onboarding profiles.
+- 2428fde: Google's generic default silhouette (`/a/default-user`) is no longer served as a person's profile photo, so an account with no photo shows initials instead of a stock icon. A silhouette saved before this change is ignored when the avatar is read.
+- 92d54bb: `@agent-native/core/server` reads Google's public font catalog with `readGoogleFontCatalog`, listing every family with the weights and italics it ships, most popular first. The toolkit font picker searches that whole library, previews each family in its own face, and loads any catalog family on the canvas through `ensureGoogleFontStylesheets`.
+- Release all public npm packages with a patch version bump.
+- 7704185: Preserve PostgreSQL quoted bodies and identifiers when splitting migration statements.
+- d7a6890: Route each Netlify workspace app's OAuth discovery requests to that app. Dispatch's `/.well-known/*` function path overlapped the apps' own discovery paths, and Netlify picks the function whose name sorts first, so apps after "dispatch" (for example `sales-tools`) advertised Dispatch's authorization server and MCP clients could not sign in to them.
+- Updated dependencies
+  - @agent-native/agentkit@0.222.3
+  - @agent-native/recap-cli@0.5.94
+
 ## 0.222.2
 
 ### Patch Changes
@@ -4401,11 +4420,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 3afcb54: Add pin, reorder, and reload actions to workspace app rail context menus.
-
-## 0.171.1
-
-### Patch Changes
-
-- c56a23e: Preserve explicitly safe stopped-action error codes and details across browser action transport.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
