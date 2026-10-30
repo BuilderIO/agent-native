@@ -35,8 +35,10 @@ import {
   listDocComments,
 } from "./adapters/google-docs.js";
 import {
+  deleteIntegrationConfigIfUnchanged,
   getIntegrationConfig,
   integrationConfigWriteEpoch,
+  listIntegrationConfigs,
   saveIntegrationConfig,
   saveIntegrationConfigIfUnchanged,
   type IntegrationConfig,
@@ -79,6 +81,8 @@ let pollerGeneration = 0;
 const WATCH_CHANNEL_TTL_MS = 23 * 60 * 60 * 1000;
 const WATCH_RETRY_MS = 5 * 60 * 1000;
 const WATCH_STOP_CLAIM_TTL_MS = WATCH_RETRY_MS - 30 * 1000;
+/** Turning Docs off waits on this request, so a stalled one fails and is retried. */
+const WATCH_STOP_TIMEOUT_MS = 10_000;
 let watchRenewalTimer: ReturnType<typeof setTimeout> | null = null;
 
 type WatchStopResult =
@@ -453,6 +457,7 @@ export async function stopGoogleDocsWatchChannel(
           id: channelId,
           ...(typeof resourceId === "string" && { resourceId }),
         }),
+        signal: AbortSignal.timeout(WATCH_STOP_TIMEOUT_MS),
       },
     );
 
@@ -590,6 +595,57 @@ async function setPageToken(token: string): Promise<void> {
   await saveIntegrationConfig(PLATFORM, { pageToken: token }, "page-token");
 }
 
+/** How many polls check a document whose comment check failed before giving up on it. */
+const COMMENT_CHECK_MAX_ATTEMPTS = 5;
+const COMMENT_RETRY_KEY_PREFIX = "comment-retry:";
+
+interface CommentCheckRetry {
+  attempts: number;
+  /** The row as read, so clearing it never removes a newer failure. */
+  row: IntegrationConfig;
+}
+
+/**
+ * Documents whose comment check failed, with how many times it has. Each has
+ * its own row, so polls running at once never overwrite each other's.
+ */
+async function getCommentCheckRetries(): Promise<
+  Map<string, CommentCheckRetry>
+> {
+  const retries = new Map<string, CommentCheckRetry>();
+  for (const row of await listIntegrationConfigs(PLATFORM)) {
+    if (!row.configKey.startsWith(COMMENT_RETRY_KEY_PREFIX)) continue;
+    const attempts = row.configData?.attempts;
+    retries.set(row.configKey.slice(COMMENT_RETRY_KEY_PREFIX.length), {
+      // Count a malformed row as one failure rather than skipping or trusting it.
+      attempts:
+        typeof attempts === "number" &&
+        Number.isInteger(attempts) &&
+        attempts > 0
+          ? attempts
+          : 1,
+      row,
+    });
+  }
+  return retries;
+}
+
+async function recordCommentCheckFailure(
+  fileId: string,
+  retry: CommentCheckRetry | undefined,
+): Promise<void> {
+  const key = COMMENT_RETRY_KEY_PREFIX + fileId;
+  const attempts = (retry?.attempts ?? 0) + 1;
+  if (!retry || attempts < COMMENT_CHECK_MAX_ATTEMPTS) {
+    await saveIntegrationConfig(PLATFORM, { attempts }, key);
+    return;
+  }
+  console.warn(
+    `[google-docs] Giving up on comments in ${fileId} after ${attempts} failed checks`,
+  );
+  await deleteIntegrationConfigIfUnchanged(PLATFORM, key, retry.row);
+}
+
 function isAgentMention(commentText: string, triggerKeyword: string): boolean {
   return commentText.toLowerCase().includes(triggerKeyword.toLowerCase());
 }
@@ -725,9 +781,16 @@ export async function processChanges(
   const { changes, nextPageToken } = await listChanges(pageToken, accessToken);
   await setPageToken(nextPageToken);
 
-  if (changes.length === 0) return;
-
-  const docFileIds = new Set<string>();
+  // The cursor has moved past these changes, so a document whose check
+  // fails is recorded and checked again on later polls.
+  const retries = await getCommentCheckRetries().catch((err) => {
+    console.error(
+      "[google-docs] Could not read documents to check again:",
+      err,
+    );
+    return new Map<string, CommentCheckRetry>();
+  });
+  const docFileIds = new Set<string>(retries.keys());
   for (const change of changes) {
     if (change.removed) continue;
     if (
@@ -739,10 +802,24 @@ export async function processChanges(
   }
 
   for (const fileId of docFileIds) {
+    const retry = retries.get(fileId);
     try {
       await checkDocumentComments(fileId, accessToken, options);
+      if (retry) {
+        await deleteIntegrationConfigIfUnchanged(
+          PLATFORM,
+          COMMENT_RETRY_KEY_PREFIX + fileId,
+          retry.row,
+        );
+      }
     } catch (err) {
       console.error(`[google-docs] Error checking comments on ${fileId}:`, err);
+      await recordCommentCheckFailure(fileId, retry).catch((saveErr) => {
+        console.error(
+          `[google-docs] Could not record the failed check on ${fileId}:`,
+          saveErr,
+        );
+      });
     }
   }
 }

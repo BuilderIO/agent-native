@@ -126,6 +126,28 @@ export async function deleteIntegrationConfig(
   _configWriteEpoch += 1;
 }
 
+/** Deletes the row only if it hasn't been written since `expected` was read. */
+export async function deleteIntegrationConfigIfUnchanged(
+  platform: string,
+  configKey: string,
+  expected: IntegrationConfig,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `DELETE FROM integration_configs WHERE platform = ? AND config_key = ? AND config_data = ? AND updated_at = ?`,
+    args: [
+      platform,
+      configKey,
+      JSON.stringify(expected.configData),
+      expected.updatedAt,
+    ],
+  });
+  if (result.rowsAffected === 0) return false;
+  _configWriteEpoch += 1;
+  return true;
+}
+
 export async function listIntegrationConfigPage(
   options: {
     platform?: string;
