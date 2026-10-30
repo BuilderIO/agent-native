@@ -232,6 +232,7 @@ import {
   slideAutoLayoutGroupOf,
   slideFlowIndexOf,
   updateSlideAutoLayoutFrame,
+  wrapSlideFlowMembers,
   type LayoutAxis,
   type LayoutSizing,
   type SlideAutoLayoutFrameChange,
@@ -6854,6 +6855,35 @@ export default function SlideEditor({
       if (commitAutoLayoutEdit(enableSlideGroupAutoLayout(sole))) {
         const selector = getBuilderSelector(sole);
         if (selector) selectElementForStyling(sole, selector);
+      }
+      return true;
+    }
+
+    // Members of an auto layout group are wrapped where they sit in its flow;
+    // making them freeform would pull them out of it. A selection that mixes
+    // them with other objects has no one place to put the new group.
+    const flowGroups = new Set(selection.elements.map(slideAutoLayoutGroupOf));
+    if (
+      flowGroups.size > 1 ||
+      (flowGroups.size === 1 && !flowGroups.has(null))
+    ) {
+      const [outer] = flowGroups;
+      const wrapped =
+        flowGroups.size === 1 && outer
+          ? wrapSlideFlowMembers(outer, selection.elements)
+          : null;
+      if (wrapped?.status !== "applied") {
+        toast.error(t("contextToolbar.autoLayoutUnavailable"));
+        return true;
+      }
+      ensureBuilderId(wrapped.group);
+      stampBuilderIds(wrapped.group);
+      if (commitAutoLayoutEdit({ status: "applied" })) {
+        const selector = getBuilderSelector(wrapped.group);
+        if (selector) {
+          clearMultiSelection();
+          selectElementForStyling(wrapped.group, selector);
+        }
       }
       return true;
     }

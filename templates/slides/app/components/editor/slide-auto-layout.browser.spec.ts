@@ -636,6 +636,98 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("turns on without moving members in a right-to-left group", async () => {
+    const page = await openPage(
+      GROUP.replace(
+        "box-sizing: border-box;",
+        "box-sizing: border-box; direction: rtl;",
+      ),
+    );
+    const before = await memberRects(page);
+    const result = await page.evaluate(() =>
+      window.slideAutoLayout.enableSlideGroupAutoLayout(
+        document.querySelector<HTMLElement>(".fmd-slide-group")!,
+      ),
+    );
+    expect(result).toEqual({ status: "applied" });
+    expectSameRects(await memberRects(page), before);
+    await page.close();
+  });
+
+  it("turns on without moving a member that carries inert flex-item styles", async () => {
+    const page = await openPage(
+      GROUP.replace(
+        'data-slide-object-id="first" style="',
+        'data-slide-object-id="first" style="order: 5; flex-grow: 1; align-self: flex-end; ',
+      ),
+    );
+    const before = await memberRects(page);
+    const result = await page.evaluate(() =>
+      window.slideAutoLayout.enableSlideGroupAutoLayout(
+        document.querySelector<HTMLElement>(".fmd-slide-group")!,
+      ),
+    );
+    expect(result).toEqual({ status: "applied" });
+    expectSameRects(await memberRects(page), before);
+    await page.close();
+  });
+
+  it("wraps members of an auto layout group in a nested one where they sit", async () => {
+    const page = await openPage();
+    const before = await page.evaluate(() => {
+      window.slideAutoLayout.enableSlideGroupAutoLayout(
+        document.querySelector<HTMLElement>(".fmd-slide-group")!,
+      );
+      return null;
+    });
+    expect(before).toBeNull();
+    const rects = await memberRects(page);
+    const outcome = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      const member = (id: string) =>
+        group.querySelector<HTMLElement>(`[data-slide-object-id="${id}"]`)!;
+      const result = api.wrapSlideFlowMembers(group, [
+        member("second"),
+        member("first"),
+      ]);
+      if (result.status !== "applied") return { status: result.status };
+      return {
+        status: result.status,
+        nested: api.isAutoLayoutSlideGroup(result.group),
+        inner: Array.from(result.group.children, (child) =>
+          child.getAttribute("data-slide-object-id"),
+        ),
+        outer: Array.from(group.children, (child) =>
+          child === result.group
+            ? "wrapper"
+            : child.getAttribute("data-slide-object-id"),
+        ),
+      };
+    });
+    expect(outcome).toEqual({
+      status: "applied",
+      nested: true,
+      inner: ["first", "second"],
+      outer: ["wrapper", "third"],
+    });
+    const after = await page.evaluate(() => {
+      const rects: Record<
+        string,
+        { left: number; top: number; width: number; height: number }
+      > = {};
+      for (const id of ["first", "second", "third"]) {
+        const { left, top, width, height } = document
+          .querySelector(`[data-slide-object-id="${id}"]`)!
+          .getBoundingClientRect();
+        rects[id] = { left, top, width, height };
+      }
+      return rects;
+    });
+    expectSameRects(after, rects);
+    await page.close();
+  });
+
   it("refuses a member that is not rendered and leaves the group as it was", async () => {
     const page = await openPage();
     const outcome = await page.evaluate(() => {

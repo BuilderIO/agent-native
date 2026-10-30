@@ -22,8 +22,10 @@ import {
 } from "@agent-native/toolkit/canvas-interactions/layout-model";
 
 import {
+  createSlideObjectId,
   isSlideObjectGroup,
   resolveFreeformSizing,
+  SLIDE_OBJECT_GROUP_CLASS,
 } from "./slide-object-interactions";
 
 /**
@@ -406,7 +408,13 @@ export function enableSlideGroupAutoLayout(
     (element) => [element, element.getAttribute("style")] as const,
   );
   const startOrder = Array.from(group.childNodes);
-  for (const id of write.order ?? []) {
+  // The order is left to right as members render, but a row under rtl lays
+  // the first member out on the right.
+  const order = write.order ?? [];
+  const rightToLeft =
+    write.frame.flexDirection === "row" &&
+    computedStyleOf(group).direction === "rtl";
+  for (const id of rightToLeft ? [...order].reverse() : order) {
     const member = members.get(id);
     if (member) group.append(member);
   }
@@ -414,14 +422,34 @@ export function enableSlideGroupAutoLayout(
   applyWrite(group, write, members, (member, patch) => {
     if (patch.position !== null) return patch;
     joining.add(member);
-    // A member joins at the size it had, which flex would shrink under a
-    // smaller group; Fixed means it keeps that size.
+    // A placed member's flex-item styles were inert and would come alive
+    // here, resizing or reordering it. It joins at the size it had, which
+    // flex would shrink under a smaller group; Fixed means it keeps it.
     return {
+      order: null,
+      flexGrow: null,
+      flexBasis: null,
+      alignSelf: null,
       ...patch,
       flexShrink: "0",
       ...(anchors.has(member) ? { position: "relative" } : {}),
     };
   });
+  // A stylesheet can carry them too, which clearing inline ones leaves.
+  const neutral: Record<string, string> = {
+    order: "0",
+    "flex-grow": "0",
+    "flex-basis": "auto",
+    "align-self": "auto",
+  };
+  for (const member of joining) {
+    const computed = computedStyleOf(member);
+    for (const [property, value] of Object.entries(neutral)) {
+      if (computed.getPropertyValue(property) !== value) {
+        member.style.setProperty(property, value);
+      }
+    }
+  }
   // Clearing the inline position leaves a stylesheet one in force, so a
   // member placed by a class is put in flow explicitly; one the stylesheet
   // still places after that cannot join, and nothing is written.
@@ -827,6 +855,43 @@ export function moveSlideFlowMember(
   if (anchor) group.insertBefore(member, anchor);
   else group.insertBefore(member, others.at(-1)?.nextSibling ?? null);
   return true;
+}
+
+/**
+ * Wraps members of an auto layout group in a nested auto layout group that
+ * takes their place in its flow, laid out the way the outer group lays
+ * them out, so members next to each other stay where they render.
+ */
+export function wrapSlideFlowMembers(
+  group: HTMLElement,
+  selected: readonly HTMLElement[],
+):
+  | { status: "applied"; group: HTMLElement }
+  | Extract<SlideAutoLayoutResult, { status: "refused" }> {
+  const inFlow = flowMembers(group);
+  const wrapped = inFlow.filter((member) => selected.includes(member));
+  if (wrapped.length === 0 || wrapped.length !== selected.length) {
+    return {
+      status: "refused",
+      reason: "not-in-layout",
+      objectIds: selected.map((member) => member.getAttribute(OBJECT_ID) ?? ""),
+    };
+  }
+  const computed = computedStyleOf(group);
+  const vertical = mainAxisOf(group) === "vertical";
+  const wrapper = group.ownerDocument.createElement("div");
+  wrapper.className = SLIDE_OBJECT_GROUP_CLASS;
+  wrapper.setAttribute("data-slide-group", "true");
+  wrapper.setAttribute(OBJECT_ID, createSlideObjectId());
+  wrapper.style.boxSizing = "border-box";
+  wrapper.style.display = "flex";
+  wrapper.style.flexDirection = computed.flexDirection;
+  wrapper.style.gap = vertical ? computed.rowGap : computed.columnGap;
+  wrapper.style.alignItems = computed.alignItems;
+  wrapper.style.flexShrink = "0";
+  group.insertBefore(wrapper, wrapped[0] ?? null);
+  wrapper.append(...wrapped);
+  return { status: "applied", group: wrapper };
 }
 
 export { LAYOUT_AXES };
