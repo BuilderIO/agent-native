@@ -56,8 +56,9 @@ async function contextFor(id: string) {
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, id));
-  if (rows.length !== 1) throw new Error(`No page ${id}`);
-  return reader.loadPublicReaderContext(rows[0]);
+  const row = rows[0];
+  if (!row) throw new Error(`No page ${id}`);
+  return reader.loadPublicReaderContext(row);
 }
 
 beforeAll(async () => {

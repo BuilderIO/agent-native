@@ -177,8 +177,8 @@ export async function loadPublicReaderContext(doc: {
         ),
       )
       .limit(1);
-    if (rows.length === 0) break;
     const parent = rows[0];
+    if (!parent) break;
     ancestors.unshift(readerPage(parent));
     parentId = parent.parentId;
   }
