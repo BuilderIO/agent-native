@@ -10,7 +10,11 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
-import { resolveAccess, type ShareRole } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  resolveAccess,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -36,11 +40,14 @@ import {
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
 import { normalizeSlideTransition } from "../shared/slide-transitions.js";
+import { isAppUiRead } from "./_app-ui-read.js";
 import { getDeckUrl } from "./_app-url.js";
 import getDesignSystem from "./get-design-system.js";
 import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
+const SLIDE_ID_REPAIR_PENDING_NOTE =
+  "These slides share a stored ID with an earlier slide. Their IDs here are assigned for this read and saved the next time an editor opens the deck in the app; until then, edits that target them fail with slide not found.";
 
 async function readDeck(
   deckId: string,
@@ -94,30 +101,70 @@ async function readDeck(
   const data = JSON.parse(row.data);
   const normalized = ensureUniqueSlideIds(
     Array.isArray(data?.slides) ? data.slides : [],
+    (index, attempt) => repairedSlideId(deckId, index, attempt),
   );
   return { row, data, accessRole, ...normalized };
 }
 
+// Readers that may not save a duplicate-ID repair see the same replacement IDs
+// that an editor's next load saves, so an ID read before the repair still
+// names the same slide after it.
+function repairedSlideId(deckId: string, index: number, attempt: number) {
+  return `slide-${hashSlideContent(`${deckId}:${index}:${attempt}`).slice(0, 8)}`;
+}
+
+function canPersistSlideIdRepair(
+  accessRole: "owner" | ShareRole,
+  appUiRead: boolean,
+): boolean {
+  return (
+    appUiRead &&
+    (accessRole === "owner" ||
+      accessRole === "admin" ||
+      accessRole === "editor")
+  );
+}
+
+function normalizeDeckReadInMemory(
+  snapshot: Awaited<ReturnType<typeof readDeck>>,
+) {
+  return {
+    ...snapshot,
+    data: snapshot.changed
+      ? repairDeckSlideReferences(
+          snapshot.data,
+          snapshot.slides,
+          snapshot.originalIds,
+        )
+      : snapshot.data,
+    repaired: false,
+  };
+}
+
 async function loadDeckWithUniqueSlideIds(
   deckId: string,
+  appUiRead: boolean,
   reviewPreview = false,
   reviewOrgId?: string,
 ) {
   if (reviewPreview) {
-    return {
-      ...(await readDeck(deckId, true, reviewOrgId)),
-      repaired: false,
-    };
+    return normalizeDeckReadInMemory(await readDeck(deckId, true, reviewOrgId));
   }
 
   for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
     const snapshot = await readDeck(deckId);
     if (!snapshot.changed) return { ...snapshot, repaired: false };
+    if (!canPersistSlideIdRepair(snapshot.accessRole, appUiRead)) {
+      return normalizeDeckReadInMemory(snapshot);
+    }
 
     const repaired = await withDeckLock(deckId, async () => {
       const lockedSnapshot = await readDeck(deckId);
       if (!lockedSnapshot.changed) {
         return { ...lockedSnapshot, repaired: false };
+      }
+      if (!canPersistSlideIdRepair(lockedSnapshot.accessRole, appUiRead)) {
+        return normalizeDeckReadInMemory(lockedSnapshot);
       }
 
       const repairedData = {
@@ -143,6 +190,7 @@ async function loadDeckWithUniqueSlideIds(
             eq(schema.decks.id, lockedSnapshot.row.id),
             versionCondition,
             eq(schema.decks.data, lockedSnapshot.row.data),
+            accessFilter(schema.decks, schema.deckShares, undefined, "editor"),
           ),
         );
 
@@ -343,8 +391,7 @@ export default defineAction({
         });
       }
     }),
-  readOnly: false, // GET repairs duplicate slide IDs.
-  // The only write is that repair, and a replay finds no duplicates left to fix.
+  readOnly: true,
   retrySafe: true,
   http: { method: "GET" },
   mcpApp: {
@@ -358,11 +405,12 @@ export default defineAction({
     }),
   },
   mcpAnnotations: {
-    readOnlyHint: false,
+    readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: false,
   },
   run: async (args, ctx) => {
+    const appUiRead = isAppUiRead(ctx);
     const isWidgetCaller =
       ctx?.caller === "mcp-widget" || ctx?.caller === "mcp-widget-write";
     const deckId = args.deckId ?? args.id;
@@ -376,17 +424,38 @@ export default defineAction({
       row,
       data,
       slides: storedSlides,
+      originalIds,
       accessRole,
-    } = ctx?.caller === "mcp-widget"
-      ? await readDeck(deckId)
-      : await loadDeckWithUniqueSlideIds(
-          deckId,
-          args.reviewPreview,
-          args.reviewOrgId,
-        );
-    if (!args.reviewPreview) await backfillDeckListColumns(row, data);
+    } = await loadDeckWithUniqueSlideIds(
+      deckId,
+      appUiRead,
+      args.reviewPreview,
+      args.reviewOrgId,
+    );
     // Both the compact and full branches read these; normalize once, here.
     const slides = storedSlides.map(canonicalReadSlide);
+    const pendingRepairSlideIds = slides.flatMap((slide, index) =>
+      typeof slide.id === "string" && slide.id !== originalIds[index]
+        ? [slide.id]
+        : [],
+    );
+    const slideIdRepair =
+      pendingRepairSlideIds.length > 0
+        ? {
+            slideIdRepairPending: {
+              slideIds: pendingRepairSlideIds,
+              note: SLIDE_ID_REPAIR_PENDING_NOTE,
+            },
+          }
+        : {};
+    // The list columns mirror the stored body, which an unsaved repair is not.
+    if (
+      !args.reviewPreview &&
+      appUiRead &&
+      pendingRepairSlideIds.length === 0
+    ) {
+      await backfillDeckListColumns(row, data);
+    }
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -486,6 +555,7 @@ export default defineAction({
             }
           : null,
         sourceCoverage,
+        ...slideIdRepair,
         slideCount: slides.length,
         appUrl: getDeckUrl(row.id),
         slideNumbering:
@@ -542,6 +612,7 @@ export default defineAction({
       ...(includeAgentContext ? { designSystem } : {}),
       ...(styleSummary ?? {}),
       sourceCoverage,
+      ...slideIdRepair,
       slideCount: slides.length,
       appUrl: getDeckUrl(row.id),
       slideNumbering:
