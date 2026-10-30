@@ -25,7 +25,7 @@ const PREVIOUS_DEFAULT_DAILY_USD = 100;
 
 export const USAGE_ALERT_DEFAULT_MONTHLY_USD = DEFAULT_MONTHLY_USD;
 /** @deprecated The default is monthly now. Use USAGE_ALERT_DEFAULT_MONTHLY_USD. */
-export const USAGE_ALERT_DEFAULT_DAILY_USD = DEFAULT_MONTHLY_USD;
+export const USAGE_ALERT_DEFAULT_DAILY_USD = PREVIOUS_DEFAULT_DAILY_USD;
 export const USAGE_ALERT_UNIT_SCALE = {
   usd: 100,
   "builder-credits": 1,
@@ -669,11 +669,13 @@ export async function dismissUsageAlert(
     args: [ruleId, window.start],
   });
   const notificationId = eventResult.rows[0]?.notification_id;
+  // Dismissing is not an edit: updated_at marks a default the owner changed.
+  // raw-sql-ok: the interpolated fragment is a fixed partition clause with bound args
   await getDbExec().execute({
     sql: `UPDATE usage_alert_rules
-      SET dismissed_window_start = ?, updated_at = ?
+      SET dismissed_window_start = ?
       WHERE id = ? AND scope = ? AND ${partition.partitionSql}`,
-    args: [window.start, Date.now(), ruleId, scope, ...partition.partitionArgs],
+    args: [window.start, ruleId, scope, ...partition.partitionArgs],
   });
   if (typeof notificationId === "string" && notificationId) {
     await deleteNotification(notificationId, partition.ownerEmail);

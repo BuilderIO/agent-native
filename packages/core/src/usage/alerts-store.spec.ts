@@ -42,6 +42,7 @@ const {
   enqueueUsageAlertEvaluation,
   listUsageAlerts,
   saveUsageAlert,
+  USAGE_ALERT_DEFAULT_DAILY_USD,
   USAGE_ALERT_DEFAULT_MONTHLY_USD,
   USAGE_ALERT_UNIT_SCALE,
 } = await import("./alerts-store.js");
@@ -113,6 +114,27 @@ afterEach(async () => {
 });
 
 describe("usage alerts", () => {
+  it("still moves a default whose alert was only dismissed", async () => {
+    const [rule] = await listUsageAlerts({ scope: "user" }, access);
+    await pglite.exec(
+      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', updated_at = created_at",
+    );
+
+    await dismissUsageAlert(rule!.id, "user", access);
+
+    expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
+      {
+        limit: 20,
+        period: "month",
+      },
+    );
+  });
+
+  it("keeps the deprecated daily export at its old value", () => {
+    expect(USAGE_ALERT_DEFAULT_DAILY_USD).toBe(100);
+    expect(USAGE_ALERT_DEFAULT_MONTHLY_USD).toBe(20);
+  });
+
   it("gives a new alert the monthly default for its unit", async () => {
     const save = (unit: "usd" | "builder-credits" | "tokens") =>
       saveUsageAlert({ scope: "user", appId: `app-${unit}`, unit }, access);
