@@ -294,7 +294,7 @@ jobs:
           npm install --global netlify-cli@27.5.2 @netlify/build@36.4.8 --ignore-scripts
 
       - name: Download every inert candidate artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: trusted-acceptance-build-*
           path: ${{ runner.temp }}/acceptance-artifacts
@@ -523,7 +523,7 @@ jobs:
       - name: Download redacted deployment results
         if: ${{ inputs.deploy && needs.deploy.result != 'skipped' }}
         continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: trusted-acceptance-deploy-*
           path: ${{ runner.temp }}/deploy-results
