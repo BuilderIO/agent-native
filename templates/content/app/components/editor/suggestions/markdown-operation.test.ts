@@ -200,6 +200,7 @@ describe("editor-normalized revisions", () => {
 
   it.each([
     ["the pipe table's", "<td>gamma</td>\n<td></td>"],
+    ["the HTML table's header", "<td>Head</td>\n<td></td>"],
     ["the HTML table's", "<td>kilo</td>\n<td></td>"],
   ])(
     "fills %s empty cell on a page with an empty cell in each kind of table",
@@ -212,6 +213,10 @@ describe("editor-normalized revisions", () => {
         "| gamma |  |",
         "",
         "<table>",
+        "<tr>",
+        "<th>Head</th>",
+        "<th></th>",
+        "</tr>",
         "<tr>",
         "<td>kilo</td>",
         "<td></td>",
