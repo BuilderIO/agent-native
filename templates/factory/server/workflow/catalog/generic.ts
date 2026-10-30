@@ -27,7 +27,7 @@ const CONNECTION_PLACEHOLDERS: Readonly<
 };
 
 const DESCRIPTION =
-  "Reads any endpoint of a connected provider with a GET, for when no other step covers it. Type the path on the provider's own API, such as repos/acme/web/issues, with optional query parameters and headers. It only reads: no body, no writes, and a full URL is refused because the host comes from the connection. Find a path with provider-api-docs or the examples from provider-api-catalog. The answer is the provider's own JSON. Past about 33,000 characters it is cut and says so first: truncated: true and cuts (each list shortened, kept of of; a cut list arrives as {truncated, count, totalAvailable, cuts, value}). One step may hand on about 64 KB across all its items, earlier answers included, so keep answers small. A model is never given this step as an AI tool.";
+  "Reads any endpoint of a connected provider with a GET, for when no other step covers it. Type the path on the provider's own API, such as repos/acme/web/issues, with optional query parameters and headers. It only reads: no body, no writes, and a full URL is refused because the host comes from the connection. Find a path with provider-api-docs or the examples from provider-api-catalog. The answer is the provider's own JSON. Past about 33,000 characters it is cut and says so first: truncated: true and cuts (each list shortened, kept of of; a cut list arrives as {truncated, count, totalAvailable, cuts, value}). One step may hand on about 64 KB across all its items, earlier answers included, so for lists or big objects set Fields to keep; paths that match nothing are named in fieldsMissing. A model is never given this step as an AI tool.";
 
 function apiRequest(provider: string): OperationDefinitionInput {
   const placeholders = CONNECTION_PLACEHOLDERS[provider];
@@ -90,6 +90,13 @@ function apiRequest(provider: string): OperationDefinitionInput {
         description:
           "true answers {status, headers, body}; headers are content-type, link, etag, date, retry-after, x-ratelimit-*. Not with pagination.",
       },
+      {
+        name: "fieldsToKeep",
+        type: "json",
+        label: "Fields to keep",
+        description:
+          'Dotted paths to pass on, for lists or big answers, such as ["number", "title", "user.login"].',
+      },
     ],
     implementation: {
       type: "provider-request",
@@ -103,6 +110,7 @@ function apiRequest(provider: string): OperationDefinitionInput {
         timeoutSeconds: "timeoutSeconds",
         pagination: "pagination",
         includeStatus: "includeStatus",
+        fieldsToKeep: "fieldsToKeep",
         ...(placeholders ? { placeholders: [...placeholders] } : {}),
       },
     },

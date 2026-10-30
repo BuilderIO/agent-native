@@ -319,6 +319,7 @@ export function ApiRequestForm({
         open={importOpen}
         onOpenChange={setImportOpen}
         catalog={context.catalog}
+        currentArgs={args}
         providers={curlProviders}
         providersFailed={apiCatalog.isError}
         onRetryProviders={() => void apiCatalog.refetch()}

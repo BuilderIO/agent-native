@@ -6,6 +6,7 @@ import type { OperationDefinition } from "../workflow/operations.js";
 import {
   PROVIDER_OUTPUT_BUDGET_CHARS,
   ProviderOperationError,
+  boundOutput,
   buildProviderRequest,
   parseProviderResponse,
 } from "./provider-request.js";
@@ -117,6 +118,18 @@ describe("the API request, built", () => {
     expect(error.code).toBe("incompatible_fields");
   });
 
+  it("carries the paths to keep, checked, and nothing when none were given", () => {
+    const built = build({
+      path: "repos/acme/web/pulls",
+      fieldsToKeep: ["number", " user.login "],
+    });
+    expect(built.fieldsToKeep).toEqual({
+      paths: ["number", "user.login"],
+      segments: [["number"], ["user", "login"]],
+    });
+    expect(build({ path: "user" })).not.toHaveProperty("fieldsToKeep");
+  });
+
   it("keeps a {name} that core fills from the connection, and only for the providers that have one", () => {
     const posthog = build(
       { path: "api/projects/{projectId}/query/" },
@@ -209,6 +222,26 @@ describe("the API request, refused", () => {
       "an unknown sign-in",
       { path: "user", authentication: "basic" },
       "invalid_field",
+    ],
+    [
+      "an empty list of paths to keep",
+      { path: "user", fieldsToKeep: [] },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "paths to keep that are text",
+      { path: "user", fieldsToKeep: "number" },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "a path to keep that reaches a prototype",
+      { path: "user", fieldsToKeep: ["a.__proto__"] },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "a path to keep listed twice",
+      { path: "user", fieldsToKeep: ["a", "a"] },
+      "invalid_fields_to_keep",
     ],
   ])("refuses %s with %s", (_label, fields, code) => {
     expect(failureOf(() => build(fields)).code).toBe(code);
@@ -305,6 +338,114 @@ describe("the API request, answered", () => {
     expect(JSON.stringify(parsed.output).length).toBeLessThanOrEqual(
       PROVIDER_OUTPUT_BUDGET_CHARS,
     );
+  });
+
+  it("leads an object answer with the paths that matched nothing, and adds nothing else", () => {
+    const parsed = parseProviderResponse(
+      github,
+      { number: 1 },
+      {
+        fieldsMissing: { fieldsMissing: ["usr.login"] },
+      },
+    );
+    expect(parsed.output).toEqual({ fieldsMissing: ["usr.login"], number: 1 });
+    expect(Object.keys(parsed.output as object)).toEqual([
+      "fieldsMissing",
+      "number",
+    ]);
+    expect(parsed.truncated).toBe(false);
+  });
+
+  it("wraps a list, or a body that already has the report's names, as value beside the report", () => {
+    const missing = { fieldsMissing: ["x"] };
+    expect(
+      parseProviderResponse(github, [{ a: 1 }], { fieldsMissing: missing })
+        .output,
+    ).toEqual({ fieldsMissing: ["x"], value: [{ a: 1 }] });
+    expect(
+      parseProviderResponse(
+        github,
+        { fieldsMissing: "mine", a: 1 },
+        {
+          fieldsMissing: missing,
+        },
+      ).output,
+    ).toEqual({
+      fieldsMissing: ["x"],
+      value: { fieldsMissing: "mine", a: 1 },
+    });
+    expect(
+      parseProviderResponse(github, "text", { fieldsMissing: missing }).output,
+    ).toEqual({ fieldsMissing: ["x"], value: "text" });
+  });
+
+  it("leaves the answer exactly as it was when nothing is missing", () => {
+    const body = { number: 1, truncated: "mine" };
+    expect(parseProviderResponse(github, body).output).toBe(body);
+    expect(parseProviderResponse(github, body, {}).output).toBe(body);
+    expect(
+      boundOutput({ items: Array.from({ length: 5_000 }, (_, i) => ({ i })) }),
+    ).toMatchObject({ truncated: true });
+  });
+
+  it("puts the missing paths beside the cut report, in order, when the answer is still too big", () => {
+    const body = {
+      items: Array.from({ length: 5_000 }, (_, index) => ({
+        id: index,
+        title: `A fairly long issue title number ${index}`,
+      })),
+    };
+    const parsed = parseProviderResponse(github, body, {
+      fieldsMissing: { fieldsMissing: ["nope"], fieldsMissingMore: 3 },
+    });
+    expect(parsed.truncated).toBe(true);
+    const keys = Object.keys(parsed.output as object);
+    expect(keys.slice(0, 4)).toEqual([
+      "truncated",
+      "fieldsMissing",
+      "fieldsMissingMore",
+      "cuts",
+    ]);
+    expect(parsed.output).toMatchObject({
+      fieldsMissing: ["nope"],
+      fieldsMissingMore: 3,
+    });
+    expect(JSON.stringify(parsed.output).length).toBeLessThanOrEqual(
+      PROVIDER_OUTPUT_BUDGET_CHARS,
+    );
+  });
+
+  it("counts the report's own size against the budget, so an answer that only just fit is cut", () => {
+    const filler = (chars: number) => ({ text: "x".repeat(chars) });
+    const budget = 3_000;
+    const body = filler(budget - 20);
+    expect(boundOutput(body, budget).truncated).toBe(false);
+    const missing = { fieldsMissing: ["a".repeat(200)] };
+    const cut = boundOutput(body, budget, missing);
+    expect(cut.truncated).toBe(true);
+    expect(cut.output).toMatchObject({ truncated: true, ...missing });
+  });
+
+  it("with the status, leads with the report and leaves the status and headers alone", () => {
+    const parsed = parseProviderResponse(github, [{ id: 1 }], {
+      includeStatus: {
+        status: 200,
+        headers: { etag: '"x"', "set-cookie": "s" },
+      },
+      fieldsMissing: { fieldsMissing: ["login"] },
+    });
+    expect(parsed.output).toEqual({
+      fieldsMissing: ["login"],
+      status: 200,
+      headers: { etag: '"x"' },
+      body: [{ id: 1 }],
+    });
+    expect(Object.keys(parsed.output as object)).toEqual([
+      "fieldsMissing",
+      "status",
+      "headers",
+      "body",
+    ]);
   });
 
   it("refuses an answer that is not JSON instead of passing it on as empty", () => {

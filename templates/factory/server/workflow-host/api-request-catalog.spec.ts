@@ -134,6 +134,7 @@ describe("the generated API request operations", () => {
         required: false,
         default: false,
       },
+      { name: "fieldsToKeep", type: "json", required: false },
     ]);
     expect(
       fields.every(
@@ -288,6 +289,18 @@ describe("what an operation may declare as free-form", () => {
         }),
       ),
     ).toThrow(/declared as a number field/);
+    expect(() =>
+      register(
+        withImplementation({ freeForm: { ...freeForm, fieldsToKeep: "path" } }),
+      ),
+    ).toThrow(/declared as a json field/);
+    expect(() =>
+      register(
+        withImplementation({
+          freeForm: { ...freeForm, fieldsToKeep: "pagination" },
+        }),
+      ),
+    ).toThrow(/of its own/);
   });
 
   it("needs the path to be required and the sign-in to be provider or none", () => {

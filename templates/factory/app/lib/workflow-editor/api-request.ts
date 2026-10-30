@@ -24,13 +24,23 @@ import {
   type WorkflowIssue,
   type WorkflowNode,
 } from "./engine.js";
+import {
+  firstKeepProblem,
+  type KeepListReason,
+  type KeepPathReason,
+} from "./fields-to-keep.js";
 import type { WorkflowCatalog } from "./types.js";
 
 export type ApiRequestArgs = Record<string, FieldBinding>;
 
+/** The field that keeps only some of an answer's fields, as the operation names it. */
+export const FIELDS_TO_KEEP_FIELD = "fieldsToKeep";
+
 export interface ApiRequestShape {
   /** The operation's own field names, by what each one is for. */
   fields: FreeFormRequest;
+  /** Every field the operation declares, for the ones that are not a free-form role. */
+  declared: readonly string[];
   /** Names the connection fills, which a typed path may keep as a whole segment. */
   placeholders: readonly string[];
 }
@@ -42,7 +52,11 @@ export function apiRequestShape(
   if (def?.implementation.type !== "provider-request") return undefined;
   const fields = def.implementation.freeForm;
   if (!fields) return undefined;
-  return { fields, placeholders: fields.placeholders ?? [] };
+  return {
+    fields,
+    declared: def.fields.map((field) => field.name),
+    placeholders: fields.placeholders ?? [],
+  };
 }
 
 /** The API request operations a lookup may run, one per provider, by provider name. */
@@ -289,22 +303,47 @@ export const API_REQUEST_OPTIONS = [
   "timeout",
   "pagination",
   "includeStatus",
+  "fieldsToKeep",
 ] as const;
 export type ApiRequestOption = (typeof API_REQUEST_OPTIONS)[number];
 
 type OptionRole = "timeoutSeconds" | "pagination" | "includeStatus";
 
-const OPTION_ROLE: Record<ApiRequestOption, OptionRole> = {
+const OPTION_ROLE: Record<
+  Exclude<ApiRequestOption, typeof FIELDS_TO_KEEP_FIELD>,
+  OptionRole
+> = {
   timeout: "timeoutSeconds",
   pagination: "pagination",
   includeStatus: "includeStatus",
 };
 
+/** The field an option writes, as the operation declares it; undefined when the operation has no such option. */
 export function optionName(
   shape: ApiRequestShape,
   option: ApiRequestOption,
 ): string | undefined {
+  if (option === "fieldsToKeep") {
+    // The operation names it as a free-form role; a field it declares by that name counts the same.
+    const role = Object.entries(shape.fields).find(
+      ([name]) => name === FIELDS_TO_KEEP_FIELD,
+    )?.[1];
+    if (typeof role === "string") return role;
+    return shape.declared.includes(FIELDS_TO_KEEP_FIELD)
+      ? FIELDS_TO_KEEP_FIELD
+      : undefined;
+  }
   return shape.fields[OPTION_ROLE[option]];
+}
+
+/** The field a problem is about, as the operation names it, to match it to the validator's `args.<field>:`. */
+function problemFieldName(
+  shape: ApiRequestShape,
+  field: ApiRequestProblem["field"],
+): string | undefined {
+  return field === "fieldsToKeep"
+    ? optionName(shape, "fieldsToKeep")
+    : shape.fields[field];
 }
 
 /** The options this operation declares a field for. */
@@ -389,7 +428,20 @@ function initialOptionValue(option: ApiRequestOption): unknown {
       });
     case "includeStatus":
       return true;
+    case "fieldsToKeep":
+      return [];
   }
+}
+
+/** The fields to keep as the step saves them: a list of paths, and nothing at all when there are none, which the server would refuse as an empty list. */
+export function withFieldsToKeep(
+  shape: ApiRequestShape,
+  args: ApiRequestArgs,
+  paths: readonly string[],
+): ApiRequestArgs {
+  return paths.length === 0
+    ? withoutOption(shape, args, "fieldsToKeep")
+    : withFixed(args, optionName(shape, "fieldsToKeep"), [...paths]);
 }
 
 export function withOption(
@@ -445,7 +497,14 @@ export type ApiRequestProblem =
     }
   | { field: "timeoutSeconds"; code: "invalid_timeout" }
   | { field: "pagination"; code: "invalid_pagination"; part: PaginationPart }
-  | { field: "includeStatus"; code: "incompatible_fields" };
+  | { field: "includeStatus"; code: "incompatible_fields" }
+  | {
+      field: "fieldsToKeep";
+      code: "invalid_fields_to_keep";
+      reason: KeepListReason | KeepPathReason;
+      /** The path the reason is about, for a reason that is about one. */
+      path?: string;
+    };
 
 function pathReason(text: string): PathReason {
   if (text.includes("?")) return "query";
@@ -558,6 +617,18 @@ export function apiRequestProblems(
   const active = activeOptions(shape, args);
   if (active.includes("includeStatus") && active.includes("pagination")) {
     found.push({ field: "includeStatus", code: "incompatible_fields" });
+  }
+  const keep = fixedValue(args, optionName(shape, "fieldsToKeep"));
+  if (keep !== undefined && !holesIn(keep)) {
+    const problem = firstKeepProblem(keep);
+    if (problem) {
+      found.push({
+        field: "fieldsToKeep",
+        code: "invalid_fields_to_keep",
+        reason: problem.reason,
+        ...(problem.path === undefined ? {} : { path: problem.path }),
+      });
+    }
   }
   return found;
 }
@@ -714,10 +785,15 @@ export function withSplitPath(
 
 type ImportSuccess = Extract<CurlImportResult, { ok: true }>;
 
-/** What a parsed command sets: it overwrites the step's settings, so nothing from before survives. */
+/**
+ * What a parsed command sets: it overwrites the step's settings, so nothing from
+ * before survives but the fields to keep, which say what to do with the answer
+ * and not what request a command makes, and are the person's own choice.
+ */
 export function applyCurlImport(
   catalog: WorkflowCatalog,
   result: ImportSuccess,
+  current: ApiRequestArgs = {},
 ): { operation: string; args: ApiRequestArgs } | undefined {
   const def = apiRequestOperationFor(catalog, result.provider);
   const shape = apiRequestShape(def);
@@ -729,6 +805,11 @@ export function applyCurlImport(
   }
   if (Object.keys(result.headers).length > 0) {
     args = withFixed(args, shape.fields.headers, result.headers);
+  }
+  const keepName = optionName(shape, "fieldsToKeep");
+  const kept = keepName === undefined ? undefined : current[keepName];
+  if (keepName !== undefined && kept !== undefined) {
+    args = { ...args, [keepName]: kept };
   }
   return { operation: def.id, args };
 }
@@ -867,7 +948,8 @@ export function annotateApiRequestIssues(
     )?.[1];
     const apiProblem = apiRequestProblems(found.shape, found.args).find(
       (problem) =>
-        field !== undefined && found.shape.fields[problem.field] === field,
+        field !== undefined &&
+        problemFieldName(found.shape, problem.field) === field,
     );
     return apiProblem ? { ...issue, apiProblem } : issue;
   });

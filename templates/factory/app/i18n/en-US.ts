@@ -532,6 +532,8 @@ const messages = {
       cutsMore_other: "and {{count}} more cuts",
       tooLargeHint:
         "A step can hand on about 64 KB and 100 items in all, counting every earlier answer still attached to them. Narrow the query, use pagination, or make fewer calls in one run.",
+      fieldsMissing: "These fields were not found in the answer: {{names}}",
+      fieldsMissingMore: "and {{count}} more",
       cutNotice:
         "Only the start of the answer is shown: a step keeps a short record of what it read.",
       noOutputRecorded: "This run recorded no answer for this step.",
@@ -565,6 +567,7 @@ const messages = {
         invalid_timeout: "The timeout is not valid",
         incompatible_fields:
           "Status and headers can't be returned with pagination",
+        invalid_fields_to_keep: "Fields to keep is not valid",
         invalid_field: "A field is empty or not valid",
       },
     },
@@ -1397,6 +1400,23 @@ const messages = {
         optionTimeout: "Timeout",
         optionPagination: "Pagination",
         optionStatus: "Include response status and headers",
+        optionFieldsToKeep: "Fields to keep",
+        optionFieldsToKeepHint:
+          "Keep only the fields later steps use, so long answers fit.",
+        fieldsPlaceholder: "Type a field, such as user.login, and press Enter",
+        fieldsInputLabel: "Add a field to keep",
+        removeField: "Remove {{path}}",
+        pickFromResponse: "Pick from last response",
+        pickSearch: "Search fields",
+        pickNeedsTest: "Run Test step first, then pick from its answer.",
+        pickRunning: "Test step is still running.",
+        pickFailed: "The last test failed, so there is no answer to pick from.",
+        pickNoFields: "The answer has no fields to pick from.",
+        pickCutNote:
+          "The answer was cut, so fields that only appear in later entries are not listed.",
+        pickCapped: "Showing the first {{count}} fields.",
+        pickKeptNote:
+          "Shows the fields of the last answer. Run Test step with no fields to keep to see all of them.",
         optionBlockedByPagination: "Not available with pagination.",
         optionBlockedByStatus:
           "Not available while the response status and headers are included.",
@@ -1447,6 +1467,17 @@ const messages = {
           paginationMaxPages: "Use a whole number of pages from 1 to 5.",
           statusWithPaging:
             "Turn off the status and headers, or turn off pagination: only the last page's status is known.",
+          fieldsToKeepShape: "Fields to keep must be a list of field names.",
+          fieldsToKeepEmpty: "Add at least one field, or remove this option.",
+          fieldsToKeepCount: "Keep at most 50 fields.",
+          fieldsToKeepControl: "A field name cannot hold a control character.",
+          fieldsToKeepSegment:
+            "Name each level between the dots, such as user.login.",
+          fieldsToKeepLong:
+            "Each level of a field name can be at most 64 characters.",
+          fieldsToKeepDeep: "A field can go at most 8 levels deep.",
+          fieldsToKeepReserved: "That name is reserved and cannot be used.",
+          fieldsToKeepDuplicate: "This field is already listed.",
           droppedCredentials:
             "Left out {{names}}: credentials are never kept in a step.",
         },

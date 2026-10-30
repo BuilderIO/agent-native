@@ -550,6 +550,9 @@ const messages = {
       cutsMore_other: "und {{count}} weitere Kürzungen",
       tooLargeHint:
         "Ein Schritt kann insgesamt etwa 64 KB und 100 Elemente weitergeben, einschließlich aller früheren Antworten, die noch an ihnen hängen. Schränke die Abfrage ein, nutze Paginierung oder mache in einem Lauf weniger Aufrufe.",
+      fieldsMissing:
+        "Diese Felder wurden in der Antwort nicht gefunden: {{names}}",
+      fieldsMissingMore: "und {{count}} weitere",
       cutNotice:
         "Nur der Anfang der Antwort wird angezeigt: Ein Schritt behält einen kurzen Auszug von dem, was er gelesen hat.",
       noOutputRecorded:
@@ -586,6 +589,7 @@ const messages = {
         invalid_timeout: "Das Zeitlimit ist ungültig",
         incompatible_fields:
           "Status und Header können nicht mit Paginierung zurückgegeben werden",
+        invalid_fields_to_keep: "Die beizubehaltenden Felder sind ungültig",
         invalid_field: "Ein Feld ist leer oder ungültig",
       },
     },
@@ -1440,6 +1444,26 @@ const messages = {
         optionTimeout: "Zeitlimit",
         optionPagination: "Paginierung",
         optionStatus: "Antwortstatus und Header einbeziehen",
+        optionFieldsToKeep: "Beizubehaltende Felder",
+        optionFieldsToKeepHint:
+          "Behalten Sie nur die Felder, die spätere Schritte verwenden, damit lange Antworten passen.",
+        fieldsPlaceholder:
+          "Geben Sie ein Feld ein, z. B. user.login, und drücken Sie die Eingabetaste",
+        fieldsInputLabel: "Beizubehaltendes Feld hinzufügen",
+        removeField: "{{path}} entfernen",
+        pickFromResponse: "Aus der letzten Antwort auswählen",
+        pickSearch: "Felder durchsuchen",
+        pickNeedsTest:
+          "Führen Sie zuerst „Schritt testen“ aus und wählen Sie dann aus dessen Antwort.",
+        pickRunning: "„Schritt testen“ läuft noch.",
+        pickFailed:
+          "Der letzte Test ist fehlgeschlagen, daher gibt es keine Antwort zum Auswählen.",
+        pickNoFields: "Die Antwort enthält keine Felder zum Auswählen.",
+        pickCutNote:
+          "Die Antwort wurde gekürzt, daher werden Felder, die nur in späteren Einträgen vorkommen, nicht angezeigt.",
+        pickCapped: "Die ersten {{count}} Felder werden angezeigt.",
+        pickKeptNote:
+          "Zeigt die Felder der letzten Antwort. Führen Sie „Schritt testen“ ohne beizubehaltende Felder aus, um alle zu sehen.",
         optionBlockedByPagination: "Mit Paginierung nicht verfügbar.",
         optionBlockedByStatus:
           "Nicht verfügbar, solange Antwortstatus und Header enthalten sind.",
@@ -1493,6 +1517,21 @@ const messages = {
           paginationMaxPages: "Verwende eine ganze Zahl von 1 bis 5 Seiten.",
           statusWithPaging:
             "Schalte Status und Header oder die Paginierung aus: Nur der Status der letzten Seite ist bekannt.",
+          fieldsToKeepShape:
+            "Beizubehaltende Felder müssen eine Liste von Feldnamen sein.",
+          fieldsToKeepEmpty:
+            "Fügen Sie mindestens ein Feld hinzu oder entfernen Sie diese Option.",
+          fieldsToKeepCount: "Behalten Sie höchstens 50 Felder bei.",
+          fieldsToKeepControl:
+            "Ein Feldname darf kein Steuerzeichen enthalten.",
+          fieldsToKeepSegment:
+            "Benennen Sie jede Ebene zwischen den Punkten, z. B. user.login.",
+          fieldsToKeepLong:
+            "Jede Ebene eines Feldnamens darf höchstens 64 Zeichen lang sein.",
+          fieldsToKeepDeep: "Ein Feld darf höchstens 8 Ebenen tief sein.",
+          fieldsToKeepReserved:
+            "Dieser Name ist reserviert und kann nicht verwendet werden.",
+          fieldsToKeepDuplicate: "Dieses Feld ist bereits aufgeführt.",
           droppedCredentials:
             "Weggelassen: {{names}}. Zugangsdaten werden nie in einem Schritt gespeichert.",
         },

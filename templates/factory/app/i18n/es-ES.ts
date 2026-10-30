@@ -550,6 +550,9 @@ const messages = {
       cutsMore_other: "y {{count}} recortes más",
       tooLargeHint:
         "Un paso puede pasar unos 64 KB y 100 elementos en total, contando las respuestas anteriores que sigan adjuntas. Reduce la consulta, usa paginación o haz menos llamadas en una misma ejecución.",
+      fieldsMissing:
+        "No se encontraron estos campos en la respuesta: {{names}}",
+      fieldsMissingMore: "y {{count}} más",
       cutNotice:
         "Solo se muestra el inicio de la respuesta: un paso guarda un registro breve de lo que leyó.",
       noOutputRecorded:
@@ -584,6 +587,7 @@ const messages = {
         invalid_timeout: "El tiempo límite no es válido",
         incompatible_fields:
           "No se pueden devolver el estado y los encabezados con la paginación",
+        invalid_fields_to_keep: "Los campos que conservar no son válidos",
         invalid_field: "Un campo está vacío o no es válido",
       },
     },
@@ -1451,6 +1455,24 @@ const messages = {
         optionTimeout: "Tiempo límite",
         optionPagination: "Paginación",
         optionStatus: "Incluir el estado y los encabezados de la respuesta",
+        optionFieldsToKeep: "Campos que conservar",
+        optionFieldsToKeepHint:
+          "Conserva solo los campos que usan los pasos siguientes, para que quepan las respuestas largas.",
+        fieldsPlaceholder: "Escribe un campo, como user.login, y pulsa Intro",
+        fieldsInputLabel: "Añade un campo que conservar",
+        removeField: "Quitar {{path}}",
+        pickFromResponse: "Elegir de la última respuesta",
+        pickSearch: "Buscar campos",
+        pickNeedsTest: "Ejecuta primero “Probar paso” y elige de su respuesta.",
+        pickRunning: "“Probar paso” sigue en curso.",
+        pickFailed:
+          "La última prueba falló, así que no hay respuesta de la que elegir.",
+        pickNoFields: "La respuesta no tiene campos de los que elegir.",
+        pickCutNote:
+          "La respuesta se recortó, así que no se muestran los campos que solo aparecen en entradas posteriores.",
+        pickCapped: "Mostrando los primeros {{count}} campos.",
+        pickKeptNote:
+          "Muestra los campos de la última respuesta. Ejecuta “Probar paso” sin campos que conservar para verlos todos.",
         optionBlockedByPagination: "No disponible con la paginación.",
         optionBlockedByStatus:
           "No disponible mientras se incluyan el estado y los encabezados de la respuesta.",
@@ -1504,6 +1526,20 @@ const messages = {
           paginationMaxPages: "Usa un número entero de páginas, de 1 a 5.",
           statusWithPaging:
             "Desactiva el estado y los encabezados, o desactiva la paginación: solo se conoce el estado de la última página.",
+          fieldsToKeepShape:
+            "Los campos que conservar deben ser una lista de nombres de campo.",
+          fieldsToKeepEmpty: "Añade al menos un campo o quita esta opción.",
+          fieldsToKeepCount: "Conserva como máximo 50 campos.",
+          fieldsToKeepControl:
+            "Un nombre de campo no puede contener un carácter de control.",
+          fieldsToKeepSegment:
+            "Nombra cada nivel entre los puntos, como user.login.",
+          fieldsToKeepLong:
+            "Cada nivel de un nombre de campo puede tener como máximo 64 caracteres.",
+          fieldsToKeepDeep:
+            "Un campo puede tener como máximo 8 niveles de profundidad.",
+          fieldsToKeepReserved: "Ese nombre está reservado y no se puede usar.",
+          fieldsToKeepDuplicate: "Este campo ya está en la lista.",
           droppedCredentials:
             "Se omitieron {{names}}: las credenciales nunca se guardan en un paso.",
         },

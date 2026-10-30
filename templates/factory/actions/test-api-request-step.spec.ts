@@ -347,6 +347,67 @@ describe("test-api-request-step: a step that reads only what it is given", () =>
     );
   });
 
+  it("keeps only the listed fields, so three big answers fit whole, and names a path that matched nothing", async () => {
+    const created = await createWorkflow({
+      ...issues,
+      fieldsToKeep: fixed(["number", "title", "user.login", "nope"]),
+    });
+    const pull = (n: number) => ({
+      number: n,
+      title: `Pull request ${n}`,
+      body: `${n}`.repeat(25_000),
+      user: { login: "octocat", id: n },
+    });
+    providerMock.mockResolvedValue(answer([pull(1), pull(2), pull(3)]));
+
+    const result = await call(created.workflowId);
+
+    expect(result).toMatchObject({ ok: true, truncated: false });
+    expect(result.output).toEqual({
+      fieldsMissing: ["nope"],
+      value: [1, 2, 3].map((n) => ({
+        number: n,
+        title: `Pull request ${n}`,
+        user: { login: "octocat" },
+      })),
+    });
+    expect(JSON.stringify(result.output).length).toBeLessThan(1_000);
+  });
+
+  it("keeps the provider's refusal in a trimmed answer, so the pane shows why nothing matched", async () => {
+    const created = await createWorkflow({
+      ...issues,
+      fieldsToKeep: fixed(["channels.name"]),
+    });
+    providerMock.mockResolvedValue(
+      answer({ ok: false, error: "missing_scope", channels: [] }),
+    );
+
+    const result = await call(created.workflowId);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(result.output).toEqual({
+      fieldsMissing: ["channels.name"],
+      ok: false,
+      error: "missing_scope",
+    });
+  });
+
+  it("trims the answer after it arrives and never sends the paths to the provider", async () => {
+    const created = await createWorkflow({
+      ...issues,
+      fieldsToKeep: fixed(["number", "user.login"]),
+    });
+    providerMock.mockResolvedValue(
+      answer({ number: 7, title: "t", user: { login: "ada", id: 1 } }),
+    );
+
+    const result = await call(created.workflowId);
+
+    expect(result.output).toEqual({ number: 7, user: { login: "ada" } });
+    expect(providerMock.mock.calls[0][0]).not.toHaveProperty("fieldsToKeep");
+  });
+
   it("wraps the status and a few headers around the body when the step asks", async () => {
     const created = await createWorkflow({
       ...issues,
@@ -450,6 +511,24 @@ describe("test-api-request-step: a request that is refused", () => {
       { ...issues, pagination: fromPath("settings.extras.v") },
       { v: { cursorPath: "n", cursorParam: "c", maxPages: 50 } },
       "invalid_pagination",
+    ],
+    [
+      "an empty list of paths to keep",
+      { ...issues, fieldsToKeep: fromPath("settings.extras.v") },
+      { v: [] },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "a path to keep that reaches a prototype",
+      { ...issues, fieldsToKeep: fromPath("settings.extras.v") },
+      { v: ["a.constructor"] },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "paths to keep that are one text",
+      { ...issues, fieldsToKeep: fromPath("settings.extras.v") },
+      { v: "number,title" },
+      "invalid_fields_to_keep",
     ],
   ];
 

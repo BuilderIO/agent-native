@@ -484,6 +484,316 @@ describe("an API request whose answer is cut, through the engine", () => {
   });
 });
 
+/** What a step handed on, read back from the summary a person reads (whole while it is under 1,500 characters). */
+async function outputOf(
+  test: Awaited<ReturnType<typeof setup>>["test"],
+  workflowId: string,
+  itemId = "test-no-item",
+): Promise<{ text: string; json: any }> {
+  const summary =
+    (await eventsOf(test, workflowId, itemId)).find(
+      (event) => event.nodeId === "fetch" && event.kind === "output",
+    )?.summary ?? "";
+  const text = summary.slice("fetch: ".length);
+  return { text, json: JSON.parse(text) };
+}
+
+const KEEP = ["number", "title", "user.login"];
+const KEPT = (number: number) => ({
+  number,
+  title: `Pull request ${number}`,
+  user: { login: "octocat" },
+});
+
+describe("an API request that keeps only some fields, through the engine", () => {
+  const pulls = [pull(1), pull(2), pull(3)];
+  const testNode = (args: Record<string, unknown>) =>
+    setup(() => chain([fetchNode("github", args)]));
+
+  it("keeps all three of three 25 KB pull requests in under 1 KB, where the same answer is cut without it", async () => {
+    const { test, id } = await testNode({
+      path: fixed("repos/acme/web/pulls"),
+      fieldsToKeep: fixed(KEEP),
+    });
+    providerMock.mockResolvedValue(answer(pulls));
+
+    const result = await ran(test, id, { mode: "test", testNodeId: "fetch" });
+
+    const { text, json } = await outputOf(test, id);
+    expect(json).toEqual([KEPT(1), KEPT(2), KEPT(3)]);
+    expect(text.length).toBeLessThan(1_000);
+    expect(stepOf(result, "fetch").fields).not.toHaveProperty(
+      "outputsTruncated",
+    );
+    expect(stepOf(result, "fetch").status).toBe("succeeded");
+
+    // The control: the same answer with nothing to keep is cut as it always was.
+    providerMock.mockClear();
+    const plain = await testNode({ path: fixed("repos/acme/web/pulls") });
+    providerMock.mockResolvedValue(answer(pulls));
+    const cut = await ran(plain.test, plain.id, {
+      mode: "test",
+      testNodeId: "fetch",
+    });
+    expect(stepOf(cut, "fetch").fields).toMatchObject({ outputsTruncated: 1 });
+  });
+
+  it("asks the provider for exactly what it asked for before: keeping fields trims after the answer, not the request", async () => {
+    const { test, id } = await testNode({
+      path: fixed("repos/acme/web/pulls"),
+      query: fixed({ state: "open" }),
+      fieldsToKeep: fixed(KEEP),
+    });
+    providerMock.mockResolvedValue(answer(pulls));
+
+    await ran(test, id, { mode: "test", testNodeId: "fetch" });
+
+    expect(sent()).toMatchObject({
+      path: "/repos/acme/web/pulls",
+      query: { state: "open" },
+    });
+    expect(sent()).not.toHaveProperty("fieldsToKeep");
+  });
+
+  it("names a path that matched nothing, beside the data it kept", async () => {
+    const { test, id } = await testNode({
+      path: fixed("repos/acme/web/pulls/1"),
+      fieldsToKeep: fixed(["number", "tittle", "user.logon"]),
+    });
+    providerMock.mockResolvedValue(answer(pull(1)));
+
+    const result = await ran(test, id, { mode: "test", testNodeId: "fetch" });
+
+    const { json } = await outputOf(test, id);
+    expect(json).toEqual({
+      fieldsMissing: ["tittle", "user.logon"],
+      number: 1,
+    });
+    expect(Object.keys(json).slice(0, 2)).toEqual(["fieldsMissing", "number"]);
+    expect(stepOf(result, "fetch").status).toBe("succeeded");
+  });
+
+  it("wraps a list that has a missing path as value, with the report first", async () => {
+    const { test, id } = await testNode({
+      path: fixed("repos/acme/web/pulls"),
+      fieldsToKeep: fixed(["number", "tittle"]),
+    });
+    providerMock.mockResolvedValue(answer(pulls));
+
+    await ran(test, id, { mode: "test", testNodeId: "fetch" });
+
+    const { json } = await outputOf(test, id);
+    expect(Object.keys(json)).toEqual(["fieldsMissing", "value"]);
+    expect(json.fieldsMissing).toEqual(["tittle"]);
+    expect(json.value).toEqual([{ number: 1 }, { number: 2 }, { number: 3 }]);
+  });
+
+  it("keeps the provider's refusal beside an empty trim, so it never reads as a typo in a path", async () => {
+    const { test, id } = await setup(() =>
+      chain([
+        [
+          "fetch",
+          "lookup",
+          {
+            operation: "slack.apiRequest",
+            args: {
+              path: fixed("conversations.list"),
+              fieldsToKeep: fixed(["channels.name"]),
+            },
+          },
+        ],
+      ]),
+    );
+    providerMock.mockResolvedValue(
+      answer({ ok: false, error: "missing_scope", channels: [] }),
+    );
+
+    const result = await ran(test, id, { mode: "test", testNodeId: "fetch" });
+
+    const { json } = await outputOf(test, id);
+    expect(json).toEqual({
+      fieldsMissing: ["channels.name"],
+      ok: false,
+      error: "missing_scope",
+    });
+    expect(stepOf(result, "fetch").status).toBe("succeeded");
+  });
+
+  it("lets the next step read the kept fields at their usual path", async () => {
+    const { test, fake, id } = await setup(
+      () =>
+        buildGraph({
+          nodes: [
+            ["start", "trigger", { schedule: { every: "5m" } }],
+            [
+              "src",
+              "source",
+              {
+                source: "provider-query",
+                operation: "test.items",
+                args: {},
+                memory: "inbox",
+                maxItems: 50,
+              },
+            ],
+            fetchNode("github", {
+              path: fixed("repos/acme/web/pulls"),
+              fieldsToKeep: fixed(KEEP),
+            }),
+            [
+              "third",
+              "filter",
+              {
+                combinator: "all",
+                rules: [
+                  rule("nodes.fetch[2].number", "equals", 3),
+                  rule("nodes.fetch[2].user.login", "equals", "octocat"),
+                  rule("nodes.fetch[0].title", "equals", "Pull request 1"),
+                ],
+              },
+            ],
+            ["done", "end", { outcome: "done" }],
+            ["other", "end", { outcome: "dismissed", reason: "no" }],
+          ],
+          edges: [
+            ["start", "out", "src"],
+            ["src", "out", "fetch"],
+            ["fetch", "out", "third"],
+            ["third", "match", "done"],
+            ["third", "otherwise", "other"],
+          ],
+        }) as never,
+    );
+    fake.script("test.items", offered("x"));
+    providerMock.mockResolvedValue(answer(pulls));
+
+    const result = await ran(test, id, { mode: "dry" });
+
+    expect(result.run.counts).toMatchObject({ done: 1, itemFailures: 0 });
+  });
+
+  it("lets three big requests in a row pass the step cap, which they fail without it", async () => {
+    const big = { id: 1, body: "x".repeat(25_000) };
+    const chained = (fieldsToKeep: Record<string, unknown>) =>
+      setup(() =>
+        chain(
+          ["fetch1", "fetch2", "fetch3"].map((name) => [
+            name,
+            "lookup",
+            {
+              operation: "github.apiRequest",
+              args: { path: fixed("repos/acme/web/pulls"), ...fieldsToKeep },
+            },
+          ]),
+        ),
+      );
+    const { test, fake, id } = await chained({ fieldsToKeep: fixed(["id"]) });
+    fake.script("test.items", offered("x"));
+    providerMock.mockResolvedValue(answer(big));
+
+    const result = await ran(test, id, { mode: "dry" });
+
+    expect(stepOf(result, "fetch3").status).toBe("succeeded");
+    expect(result.run.counts.itemFailures).toBe(0);
+    expect(providerMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("trims the entries of a paged read, so two pages of three fit", async () => {
+    const six = [1, 2, 3, 4, 5, 6].map(pull);
+    const paging = {
+      cursorPath: "next",
+      cursorParam: "after",
+      itemsPath: "data",
+    };
+    const paged = {
+      pagesRead: 2,
+      totalItems: 6,
+      lastStatus: 200,
+      truncated: false,
+      nextCursor: null,
+      items: six,
+    };
+    const { test, id } = await testNode({
+      path: fixed("repos/acme/web/pulls"),
+      pagination: fixed(paging),
+      fieldsToKeep: fixed(KEEP),
+    });
+    providerMock.mockResolvedValue(paged);
+
+    const result = await ran(test, id, { mode: "test", testNodeId: "fetch" });
+
+    expect(sent()).toMatchObject({
+      fetchAllPages: { cursorPath: "next", cursorParam: "after" },
+    });
+    const { json, text } = await outputOf(test, id);
+    expect(json).toEqual({
+      pagesRead: 2,
+      moreAvailable: false,
+      nextCursor: null,
+      items: [1, 2, 3, 4, 5, 6].map(KEPT),
+    });
+    expect(text.length).toBeLessThan(1_500);
+    expect(stepOf(result, "fetch").fields).not.toHaveProperty(
+      "outputsTruncated",
+    );
+
+    // The control: the same two pages with nothing to keep lose most of their entries.
+    const plain = await testNode({
+      path: fixed("repos/acme/web/pulls"),
+      pagination: fixed(paging),
+    });
+    const cut = await ran(plain.test, plain.id, {
+      mode: "test",
+      testNodeId: "fetch",
+    });
+    expect(stepOf(cut, "fetch").fields).toMatchObject({ outputsTruncated: 1 });
+  });
+
+  it("keeps the status and the headers as they were when only the body is trimmed", async () => {
+    const { test, id } = await testNode({
+      path: fixed("repos/acme/web/pulls"),
+      includeStatus: fixed(true),
+      fieldsToKeep: fixed(["number", "user.login", "nope"]),
+    });
+    providerMock.mockResolvedValue({
+      request: { method: "GET", path: "/repos/acme/web/pulls" },
+      response: {
+        status: 200,
+        ok: true,
+        truncated: false,
+        size: 80_000,
+        headers: {
+          "content-type": "application/json",
+          etag: '"abc"',
+          "x-ratelimit-remaining": "58",
+          "set-cookie": "session=abc",
+        },
+        json: pulls,
+      },
+    });
+
+    await ran(test, id, { mode: "test", testNodeId: "fetch" });
+
+    const { json } = await outputOf(test, id);
+    expect(json).toEqual({
+      fieldsMissing: ["nope"],
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        etag: '"abc"',
+        "x-ratelimit-remaining": "58",
+      },
+      body: [1, 2, 3].map((number) => ({ number, user: { login: "octocat" } })),
+    });
+    expect(Object.keys(json)).toEqual([
+      "fieldsMissing",
+      "status",
+      "headers",
+      "body",
+    ]);
+  });
+});
+
 describe("a chain of big API requests, through the engine", () => {
   it("fails the step that passes the cap, naming it and the answers it carries", async () => {
     const big = { id: 1, body: "x".repeat(25_000) };
@@ -597,6 +907,30 @@ describe("a refused API request never reaches the provider", () => {
       { path: fixed("user"), pagination: fromPath("item.extras.paging") },
       { paging: { cursorPath: "n", cursorParam: "c", maxPages: 50 } },
       "invalid_pagination",
+    ],
+    [
+      "an empty list of paths to keep",
+      { path: fixed("user"), fieldsToKeep: fromPath("item.extras.keep") },
+      { keep: [] },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "a path to keep that reaches a prototype",
+      { path: fixed("user"), fieldsToKeep: fromPath("item.extras.keep") },
+      { keep: ["user.__proto__"] },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "a path to keep with an empty part",
+      { path: fixed("user"), fieldsToKeep: fromPath("item.extras.keep") },
+      { keep: ["a..b"] },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "paths to keep that are one text",
+      { path: fixed("user"), fieldsToKeep: fromPath("item.extras.keep") },
+      { keep: "number,title" },
+      "invalid_fields_to_keep",
     ],
   ];
 

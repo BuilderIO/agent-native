@@ -553,6 +553,8 @@ const messages = {
       cutsMore_other: "و{{count}} اقتطاع آخر",
       tooLargeHint:
         "يمكن للخطوة أن تمرّر نحو 64 KB و100 عنصر في المجموع، مع احتساب كل إجابة سابقة ما زالت مرفقة بها. ضيّق الاستعلام، أو استخدم ترقيم الصفحات، أو أجرِ طلبات أقل في التشغيل الواحد.",
+      fieldsMissing: "لم يتم العثور على هذه الحقول في الإجابة: {{names}}",
+      fieldsMissingMore: "و{{count}} أخرى",
       cutNotice: "يُعرض بداية الإجابة فقط، فالخطوة تحتفظ بسجل قصير لما قرأته.",
       noOutputRecorded: "لم يسجّل هذا التشغيل إجابة لهذه الخطوة.",
       liveMark: "HTTP {{status}}، {{ms}} مللي ث",
@@ -583,6 +585,7 @@ const messages = {
         invalid_pagination: "إعدادات ترقيم الصفحات غير صالحة",
         invalid_timeout: "المهلة غير صالحة",
         incompatible_fields: "لا يمكن إرجاع الحالة والترويسات مع ترقيم الصفحات",
+        invalid_fields_to_keep: "الحقول المراد الاحتفاظ بها غير صالحة",
         invalid_field: "حقل فارغ أو غير صالح",
       },
     },
@@ -1488,6 +1491,23 @@ const messages = {
         optionTimeout: "المهلة",
         optionPagination: "ترقيم الصفحات",
         optionStatus: "تضمين حالة الاستجابة والترويسات",
+        optionFieldsToKeep: "الحقول المراد الاحتفاظ بها",
+        optionFieldsToKeepHint:
+          "احتفظ فقط بالحقول التي تستخدمها الخطوات اللاحقة، لتتسع الإجابات الطويلة.",
+        fieldsPlaceholder: "اكتب حقلاً، مثل user.login، ثم اضغط Enter",
+        fieldsInputLabel: "أضف حقلاً للاحتفاظ به",
+        removeField: "إزالة {{path}}",
+        pickFromResponse: "الاختيار من آخر استجابة",
+        pickSearch: "البحث في الحقول",
+        pickNeedsTest: "شغّل اختبار الخطوة أولاً، ثم اختر من إجابته.",
+        pickRunning: "اختبار الخطوة ما زال يعمل.",
+        pickFailed: "فشل آخر اختبار، لذلك لا توجد إجابة للاختيار منها.",
+        pickNoFields: "الإجابة لا تحتوي على حقول للاختيار منها.",
+        pickCutNote:
+          "قُصّت الإجابة، لذلك لا تظهر الحقول التي تظهر فقط في المدخلات اللاحقة.",
+        pickCapped: "عرض أول {{count}} حقول.",
+        pickKeptNote:
+          "يعرض حقول آخر إجابة. شغّل اختبار الخطوة دون حقول للاحتفاظ بها لرؤيتها كلها.",
         optionBlockedByPagination: "غير متاح مع ترقيم الصفحات.",
         optionBlockedByStatus: "غير متاح عند تضمين حالة الاستجابة والترويسات.",
         removeOption: "إزالة {{option}}",
@@ -1533,6 +1553,17 @@ const messages = {
           paginationMaxPages: "استخدم عدداً صحيحاً من الصفحات من 1 إلى 5.",
           statusWithPaging:
             "أوقِف تضمين الحالة والترويسات، أو أوقِف ترقيم الصفحات: لا تُعرف إلا حالة الصفحة الأخيرة.",
+          fieldsToKeepShape:
+            "يجب أن تكون الحقول المراد الاحتفاظ بها قائمة بأسماء الحقول.",
+          fieldsToKeepEmpty: "أضف حقلاً واحداً على الأقل، أو أزل هذا الخيار.",
+          fieldsToKeepCount: "احتفظ بـ 50 حقلاً كحد أقصى.",
+          fieldsToKeepControl: "لا يمكن أن يحتوي اسم الحقل على محرف تحكم.",
+          fieldsToKeepSegment: "سمِّ كل مستوى بين النقاط، مثل user.login.",
+          fieldsToKeepLong:
+            "يمكن أن يكون كل مستوى في اسم الحقل 64 حرفاً كحد أقصى.",
+          fieldsToKeepDeep: "يمكن أن يمتد الحقل إلى 8 مستويات كحد أقصى.",
+          fieldsToKeepReserved: "هذا الاسم محجوز ولا يمكن استخدامه.",
+          fieldsToKeepDuplicate: "هذا الحقل مدرج بالفعل.",
           droppedCredentials:
             "تم استبعاد {{names}}: لا تُحفظ بيانات الاعتماد في الخطوة أبداً.",
         },

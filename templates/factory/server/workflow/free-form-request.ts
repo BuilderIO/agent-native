@@ -6,6 +6,7 @@
  * other. A refusal names the part that was wrong and never echoes a value,
  * except a header or parameter name that has already passed its character set.
  */
+import { parseFieldsToKeep, type FieldsToKeep } from "./fields-to-keep.js";
 import type { FreeFormRequest } from "./operations.js";
 
 /**
@@ -36,6 +37,7 @@ export type FreeFormFailureCode =
   | "invalid_pagination"
   | "invalid_timeout"
   | "incompatible_fields"
+  | "invalid_fields_to_keep"
   | "invalid_field";
 
 export type FreeFormCheck<T> =
@@ -471,6 +473,16 @@ export function readFreePagination(
   });
 }
 
+/** The paths a step keeps of the provider's answer; see `fields-to-keep.ts` for the rules. */
+export function readFreeFieldsToKeep(
+  value: unknown,
+): FreeFormCheck<FieldsToKeep> {
+  const parsed = parseFieldsToKeep(value);
+  return parsed.ok
+    ? ok(parsed.value)
+    : refused("invalid_fields_to_keep", parsed.message);
+}
+
 /** The response headers a step may hand to a graph: the ones that describe the answer, never a cookie or anything that signs in. */
 export function allowedResponseHeaders(
   headers: unknown,
@@ -502,7 +514,8 @@ export type FreeFormRole =
   | "auth"
   | "timeoutSeconds"
   | "pagination"
-  | "includeStatus";
+  | "includeStatus"
+  | "fieldsToKeep";
 
 export function freeFormRoleOf(
   freeForm: FreeFormRequest,
@@ -516,6 +529,7 @@ export function freeFormRoleOf(
     "timeoutSeconds",
     "pagination",
     "includeStatus",
+    "fieldsToKeep",
   ];
   return roles.find((role) => freeForm[role] === fieldName);
 }
@@ -550,6 +564,9 @@ export function checkFreeFormValue(
       break;
     case "pagination":
       check = readFreePagination(value);
+      break;
+    case "fieldsToKeep":
+      check = readFreeFieldsToKeep(value);
       break;
     case "auth":
     case "includeStatus":

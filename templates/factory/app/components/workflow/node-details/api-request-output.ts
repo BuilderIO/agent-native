@@ -6,6 +6,7 @@
  * that record, and a record the step cut is shown as far as it goes and says so.
  */
 import type { FreeFormFailureCode } from "@/lib/workflow-editor";
+import { wrappedValueOf } from "@/lib/workflow-editor/fields-to-keep";
 
 import type { ItemJourneyData } from "../items/read-types";
 
@@ -23,9 +24,10 @@ export type ApiErrorKind =
   | "expression_failed"
   | "test_not_allowed"
   | "failed"
+  | "invalid_fields_to_keep"
   | FreeFormFailureCode;
 
-const REFUSAL_CODES: readonly FreeFormFailureCode[] = [
+const REFUSAL_CODES: readonly ApiErrorKind[] = [
   "full_url_refused",
   "unsafe_path_value",
   "invalid_query",
@@ -34,10 +36,11 @@ const REFUSAL_CODES: readonly FreeFormFailureCode[] = [
   "invalid_pagination",
   "invalid_timeout",
   "incompatible_fields",
+  "invalid_fields_to_keep",
   "invalid_field",
 ];
 
-function refusalCode(code: string): FreeFormFailureCode | undefined {
+function refusalCode(code: string): ApiErrorKind | undefined {
   return REFUSAL_CODES.find((candidate) => candidate === code);
 }
 
@@ -243,8 +246,8 @@ export interface AnswerList {
 
 /**
  * The list the answer is, for the count and the table: a list as it stands, the
- * entries of a paged answer, or the kept entries of a list the step cut, which
- * it hands on as `{ truncated, count, totalAvailable, cuts, value }`.
+ * entries of a paged answer, or a list the step wrapped in a report, as
+ * `{ truncated, fieldsMissing, count, totalAvailable, cuts, value }`.
  */
 export function listOf(value: unknown): AnswerList | null {
   if (Array.isArray(value)) return { entries: value, total: null };
@@ -252,9 +255,10 @@ export function listOf(value: unknown): AnswerList | null {
   if (Array.isArray(value.items) && typeof value.pagesRead === "number") {
     return { entries: value.items, total: null };
   }
-  if (value.truncated === true && Array.isArray(value.value)) {
+  const wrapped = wrappedValueOf(value);
+  if (wrapped && Array.isArray(wrapped.value)) {
     return {
-      entries: value.value,
+      entries: wrapped.value,
       total:
         typeof value.totalAvailable === "number" ? value.totalAvailable : null,
     };
@@ -265,6 +269,27 @@ export function listOf(value: unknown): AnswerList | null {
 /** The step cut the provider's answer to fit, and says so with `truncated: true` at the head of it. */
 export function isCutByStep(value: unknown): boolean {
   return isRecord(value) && value.truncated === true;
+}
+
+export interface MissingFields {
+  /** The paths, as they were typed. */
+  names: string[];
+  /** Paths the step counted as missing but did not list, to keep its report short. */
+  more: number;
+}
+
+/** The fields to keep that the answer had no value for, which the step lists in `fieldsMissing` at the head of its answer. */
+export function fieldsMissingOf(value: unknown): MissingFields {
+  if (!isRecord(value) || !Array.isArray(value.fieldsMissing)) {
+    return { names: [], more: 0 };
+  }
+  return {
+    names: value.fieldsMissing.filter(
+      (name): name is string => typeof name === "string",
+    ),
+    more:
+      typeof value.fieldsMissingMore === "number" ? value.fieldsMissingMore : 0,
+  };
 }
 
 /** One place the step cut: a list kept to fewer entries, a text kept to fewer characters, or fields left out. */

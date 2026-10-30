@@ -55,6 +55,8 @@ interface ImportCurlDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   catalog: WorkflowCatalog;
+  /** The step's settings now: an import keeps the fields to keep from them. */
+  currentArgs: ApiRequestArgs;
   /** The providers a command can be matched against; undefined while the provider list loads. */
   providers: readonly CurlImportProvider[] | undefined;
   providersFailed: boolean;
@@ -68,6 +70,7 @@ export function ImportCurlDialog({
   open,
   onOpenChange,
   catalog,
+  currentArgs,
   providers,
   providersFailed,
   onRetryProviders,
@@ -106,7 +109,7 @@ export function ImportCurlDialog({
       });
       return;
     }
-    const applied = applyCurlImport(catalog, parsed);
+    const applied = applyCurlImport(catalog, parsed, currentArgs);
     if (!applied) {
       dispatch({ type: "refused", error: s.fail.unknown_host });
       return;

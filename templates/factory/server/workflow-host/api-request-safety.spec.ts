@@ -186,6 +186,52 @@ describe("what an API request refuses is refused at save too, when the value is 
     ).toMatchObject({ code: "enum_value_invalid" });
   });
 
+  it("refuses a bad list of paths to keep, naming the path", () => {
+    const refusedKeep = (value: unknown) =>
+      refusedAt({ path: fixed("user"), fieldsToKeep: fixed(value) });
+    for (const [value, words] of [
+      [[], "is empty"],
+      [["a..b"], 'The path "a..b" has an empty part'],
+      [["a.__proto__"], "cannot be kept"],
+      [["a.constructor"], "cannot be kept"],
+      [["prototype"], "cannot be kept"],
+      [["a", "a"], "is listed twice"],
+      [["a.b.c.d.e.f.g.h.i"], "more than 8 parts"],
+      [["x".repeat(65)], "longer than 64 characters"],
+      [["a", 5], "not text"],
+      ["number", "must be a list"],
+    ] as const) {
+      const issues = refusedKeep(value);
+      expect(issues, JSON.stringify(value)).toHaveLength(1);
+      expect(issues[0], JSON.stringify(value)).toMatchObject({
+        code: "field_type_mismatch",
+        nodeId: "fetch",
+      });
+      expect(issues[0]?.detail, JSON.stringify(value)).toContain(
+        "args.fieldsToKeep:",
+      );
+      expect(issues[0]?.detail, JSON.stringify(value)).toContain(words);
+    }
+    expect(
+      refusedKeep(Array.from({ length: 51 }, (_unused, index) => `p${index}`)),
+    ).toHaveLength(1);
+  });
+
+  it("accepts a good list of paths to keep, and one read from an earlier step", () => {
+    expect(
+      refusedAt({
+        path: fixed("user"),
+        fieldsToKeep: fixed(["number", "title", "user.login", "first name"]),
+      }),
+    ).toEqual([]);
+    expect(
+      refusedAt({
+        path: fixed("user"),
+        fieldsToKeep: fromPath("item.extras.keep"),
+      }),
+    ).toEqual([]);
+  });
+
   it("accepts a well-formed request, and leaves a value with a hole for the run to check", () => {
     expect(
       refusedAt({
@@ -264,6 +310,21 @@ describe("every refusal a typed value gets names its code, at save as at run", (
       "paging with no cursor parameter",
       { path: fixed("a"), pagination: fixed({ cursorPath: "n" }) },
       "invalid_pagination",
+    ],
+    [
+      "an empty list of paths to keep",
+      { path: fixed("a"), fieldsToKeep: fixed([]) },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "a path to keep that reaches a prototype",
+      { path: fixed("a"), fieldsToKeep: fixed(["x.__proto__"]) },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "paths to keep that are not a list",
+      { path: fixed("a"), fieldsToKeep: fixed("number") },
+      "invalid_fields_to_keep",
     ],
     [
       "a status request beside paging",

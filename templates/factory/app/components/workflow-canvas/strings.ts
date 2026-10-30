@@ -516,6 +516,32 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
           "workflowCanvas.inspector.apiRequest.optionPagination",
         ),
         optionStatus: t("workflowCanvas.inspector.apiRequest.optionStatus"),
+        optionFieldsToKeep: t(
+          "workflowCanvas.inspector.apiRequest.optionFieldsToKeep",
+        ),
+        optionFieldsToKeepHint: t(
+          "workflowCanvas.inspector.apiRequest.optionFieldsToKeepHint",
+        ),
+        fieldsPlaceholder: t(
+          "workflowCanvas.inspector.apiRequest.fieldsPlaceholder",
+        ),
+        fieldsInputLabel: t(
+          "workflowCanvas.inspector.apiRequest.fieldsInputLabel",
+        ),
+        removeField: (path: string) =>
+          t("workflowCanvas.inspector.apiRequest.removeField", { path }),
+        pickFromResponse: t(
+          "workflowCanvas.inspector.apiRequest.pickFromResponse",
+        ),
+        pickSearch: t("workflowCanvas.inspector.apiRequest.pickSearch"),
+        pickNeedsTest: t("workflowCanvas.inspector.apiRequest.pickNeedsTest"),
+        pickRunning: t("workflowCanvas.inspector.apiRequest.pickRunning"),
+        pickFailed: t("workflowCanvas.inspector.apiRequest.pickFailed"),
+        pickNoFields: t("workflowCanvas.inspector.apiRequest.pickNoFields"),
+        pickCutNote: t("workflowCanvas.inspector.apiRequest.pickCutNote"),
+        pickCapped: (count: number) =>
+          t("workflowCanvas.inspector.apiRequest.pickCapped", { count }),
+        pickKeptNote: t("workflowCanvas.inspector.apiRequest.pickKeptNote"),
         optionBlockedByPagination: t(
           "workflowCanvas.inspector.apiRequest.optionBlockedByPagination",
         ),
@@ -721,6 +747,45 @@ function apiRequestSentence(
       return t("workflowCanvas.inspector.apiRequest.problem.timeout");
     case "includeStatus":
       return t("workflowCanvas.inspector.apiRequest.problem.statusWithPaging");
+    case "fieldsToKeep":
+      switch (problem.reason) {
+        case "shape":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepShape",
+          );
+        case "empty":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepEmpty",
+          );
+        case "count":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepCount",
+          );
+        case "control":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepControl",
+          );
+        case "segment":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepSegment",
+          );
+        case "long":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepLong",
+          );
+        case "deep":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepDeep",
+          );
+        case "reserved":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepReserved",
+          );
+        case "duplicate":
+          return t(
+            "workflowCanvas.inspector.apiRequest.problem.fieldsToKeepDuplicate",
+          );
+      }
     case "pagination":
       switch (problem.part) {
         case "cursorPath":

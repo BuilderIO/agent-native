@@ -35,7 +35,9 @@ vi.mock("../server/lib/factory-workflow-connections.js", () => ({
   readProviderConnections: vi.fn(async () => []),
 }));
 
+import { runProviderOperation } from "../server/lib/provider-operation.js";
 import { PROVIDER_PAYLOAD_BUDGET_CHARS } from "../server/workflow-host/provider-request.js";
+import { OPERATION_CATALOG } from "../server/workflow/catalog/index.js";
 import action from "./run-workflow-operation.js";
 
 const context = {
@@ -289,6 +291,339 @@ describe("an API request, sent", () => {
     expect(result.output.items.length).toBeLessThan(items.length);
   });
 
+  it("keeps only the listed fields, so three big answers fit whole, and names a path that matched nothing", async () => {
+    const pull = (n: number) => ({
+      number: n,
+      title: `Pull request ${n}`,
+      body: `${n}`.repeat(25_000),
+      user: { login: "octocat", id: n },
+    });
+    executeRequestMock.mockResolvedValue(answer([pull(1), pull(2), pull(3)]));
+    const result = await run("github.apiRequest", {
+      path: "repos/acme/web/pulls",
+      fieldsToKeep: ["number", "title", "user.login", "nope"],
+    });
+
+    expect(result.truncated).toBe(false);
+    expect(result.output).toEqual({
+      fieldsMissing: ["nope"],
+      value: [1, 2, 3].map((n) => ({
+        number: n,
+        title: `Pull request ${n}`,
+        user: { login: "octocat" },
+      })),
+    });
+    expect(JSON.stringify(result.output).length).toBeLessThan(1_000);
+    expect(executeRequestMock.mock.calls[0][0]).not.toHaveProperty(
+      "fieldsToKeep",
+    );
+  });
+
+  it("leaves the answer as it is when every path matched, and when no paths were given", async () => {
+    const body = { number: 7, title: "t", user: { login: "ada", id: 1 } };
+    executeRequestMock.mockResolvedValue(answer(body));
+    const kept = await run("github.apiRequest", {
+      path: "repos/acme/web/pulls/7",
+      fieldsToKeep: ["number", "user.login"],
+    });
+    expect(kept.output).toEqual({ number: 7, user: { login: "ada" } });
+    expect(kept.output).not.toHaveProperty("fieldsMissing");
+    const whole = await run("github.apiRequest", {
+      path: "repos/acme/web/pulls/7",
+    });
+    expect(whole.output).toEqual(body);
+  });
+
+  it("watches the provider's own answer for its failure flag, not the trimmed one", async () => {
+    const def = OPERATION_CATALOG.get("slack.apiRequest");
+    if (!def) throw new Error("slack.apiRequest is not in the catalog");
+    const events: { details: Record<string, any> }[] = [];
+    const sent = { ok: false, error: "channel_not_found" };
+    executeRequestMock.mockResolvedValue(answer(sent));
+
+    const payload = await runProviderOperation({
+      def,
+      fields: {
+        path: "conversations.history",
+        fieldsToKeep: ["messages.text"],
+      },
+      identity: {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        factoryId: "f1",
+      },
+      caller: "run-workflow-operation",
+      tripwire: (event) => void events.push(event as never),
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.details).toMatchObject({
+      reason: "provider_flag",
+      flag: "ok_false",
+      errorWord: "channel_not_found",
+      body: sent,
+    });
+    expect(payload.output).toEqual({
+      fieldsMissing: ["messages.text"],
+      ok: false,
+      error: "channel_not_found",
+    });
+  });
+
+  describe("an answer that says the provider did not do it, trimmed", () => {
+    it("keeps ok and error beside the data it kept, for Slack's ok:false", async () => {
+      executeRequestMock.mockResolvedValue(
+        answer({
+          ok: false,
+          error: "missing_scope",
+          needed: "channels:read",
+          provided: "chat:write",
+          channels: [],
+        }),
+      );
+      const result = await run("slack.apiRequest", {
+        path: "conversations.list",
+        fieldsToKeep: ["channels.name"],
+      });
+
+      expect(result.output).toEqual({
+        fieldsMissing: ["channels.name"],
+        ok: false,
+        error: "missing_scope",
+      });
+      expect(Object.keys(result.output)).toEqual([
+        "fieldsMissing",
+        "ok",
+        "error",
+      ]);
+    });
+
+    it("keeps warning and response_metadata when the flagged answer has them, and nothing else", async () => {
+      executeRequestMock.mockResolvedValue(
+        answer({
+          ok: false,
+          error: "ratelimited",
+          warning: "superfluous_charset",
+          response_metadata: { warnings: ["superfluous_charset"] },
+          members: [{ id: "U1", secret_note: "do not pass on" }],
+          token_hint: "xoxb-fake",
+        }),
+      );
+      const result = await run("slack.apiRequest", {
+        path: "users.list",
+        fieldsToKeep: ["members.id"],
+      });
+
+      expect(result.output).toEqual({
+        ok: false,
+        error: "ratelimited",
+        warning: "superfluous_charset",
+        response_metadata: { warnings: ["superfluous_charset"] },
+        members: [{ id: "U1" }],
+      });
+      expect(JSON.stringify(result.output)).not.toContain("secret_note");
+      expect(JSON.stringify(result.output)).not.toContain("xoxb-fake");
+    });
+
+    it("keeps jobComplete for BigQuery's unfinished job", async () => {
+      executeRequestMock.mockResolvedValue(
+        answer({
+          kind: "bigquery#queryResponse",
+          jobComplete: false,
+          jobReference: { projectId: "p", jobId: "j" },
+          rows: [{ f: [{ v: "1" }] }],
+        }),
+      );
+      const result = await run("bigquery.apiRequest", {
+        path: "projects/{projectId}/queries/j",
+        fieldsToKeep: ["totalRows"],
+      });
+
+      expect(result.output).toEqual({
+        fieldsMissing: ["totalRows"],
+        jobComplete: false,
+      });
+    });
+
+    it("keeps a non-empty errors list, and the path the person asked for", async () => {
+      executeRequestMock.mockResolvedValue(
+        answer({
+          errors: [{ message: "Field 'nope' not found" }],
+          data: null,
+          extensions: { cost: 1 },
+          viewer: { login: "ada", id: 1 },
+        }),
+      );
+      const result = await run("github.apiRequest", {
+        path: "graphql",
+        fieldsToKeep: ["viewer.login", "data.id"],
+      });
+
+      expect(result.output).toEqual({
+        fieldsMissing: ["data.id"],
+        errors: [{ message: "Field 'nope' not found" }],
+        viewer: { login: "ada" },
+      });
+    });
+
+    it("leaves the keys the person asked for whole, ahead of a path that kept part of one", async () => {
+      executeRequestMock.mockResolvedValue(
+        answer({
+          ok: false,
+          error: "invalid_auth",
+          errors: [{ code: 1, text: "bad" }],
+        }),
+      );
+      const result = await run("slack.apiRequest", {
+        path: "auth.test",
+        fieldsToKeep: ["errors.code"],
+      });
+
+      expect(result.output).toEqual({
+        ok: false,
+        error: "invalid_auth",
+        errors: [{ code: 1, text: "bad" }],
+      });
+    });
+
+    it("adds nothing to a clean answer: ok true, an empty errors list, jobComplete true", async () => {
+      for (const clean of [
+        {
+          ok: true,
+          channels: [{ id: "C1", name: "general" }],
+          response_metadata: { next_cursor: "" },
+          warning: "ignored",
+        },
+        { errors: [], channels: [{ id: "C1", name: "general" }] },
+        { jobComplete: true, channels: [{ id: "C1", name: "general" }] },
+      ]) {
+        executeRequestMock.mockResolvedValue(answer(clean));
+        const result = await run("slack.apiRequest", {
+          path: "conversations.list",
+          fieldsToKeep: ["channels.name"],
+        });
+        expect(result.output).toEqual({ channels: [{ name: "general" }] });
+      }
+    });
+
+    it("reads a flag only from the wrapping object, never from the entries of a list", async () => {
+      executeRequestMock.mockResolvedValue(
+        answer([
+          { ok: false, error: "x", id: 1 },
+          { ok: true, id: 2 },
+        ]),
+      );
+      const result = await run("slack.apiRequest", {
+        path: "things",
+        fieldsToKeep: ["id"],
+      });
+
+      expect(result.output).toEqual([{ id: 1 }, { id: 2 }]);
+    });
+
+    it("keeps the flag in the body when the status is asked for", async () => {
+      executeRequestMock.mockResolvedValue(
+        answer(
+          { ok: false, error: "channel_not_found", messages: [] },
+          { headers: { etag: '"x"' } },
+        ),
+      );
+      const result = await run("slack.apiRequest", {
+        path: "conversations.history",
+        includeStatus: true,
+        fieldsToKeep: ["messages.text"],
+      });
+
+      expect(result.output).toEqual({
+        fieldsMissing: ["messages.text"],
+        status: 200,
+        headers: { etag: '"x"' },
+        body: { ok: false, error: "channel_not_found" },
+      });
+    });
+
+    it("trims a paged read as before: the pages' own flags are not an answer's", async () => {
+      executeRequestMock.mockResolvedValue(
+        paged({
+          items: [{ id: "U1", name: "a", ok: false, error: "inner" }],
+          pagesRead: 1,
+        }),
+      );
+      const result = await run("slack.apiRequest", {
+        path: "users.list",
+        pagination: { cursorPath: "next", cursorParam: "cursor" },
+        fieldsToKeep: ["id"],
+      });
+
+      expect(result.output).toEqual({
+        pagesRead: 1,
+        moreAvailable: false,
+        nextCursor: null,
+        items: [{ id: "U1" }],
+      });
+    });
+  });
+
+  it("trims the entries of a paged read and leaves the paging facts as they were", async () => {
+    const items = [1, 2, 3, 4, 5, 6].map((n) => ({
+      id: n,
+      name: `member ${n}`,
+      profile: { email: `m${n}@example.test`, bio: "b".repeat(20_000) },
+    }));
+    executeRequestMock.mockResolvedValue(
+      paged({ items, pagesRead: 2, truncated: true, nextCursor: "c3" }),
+    );
+    const result = await run("slack.apiRequest", {
+      path: "users.list",
+      pagination: {
+        cursorPath: "response_metadata.next_cursor",
+        cursorParam: "cursor",
+        itemsPath: "members",
+        maxPages: 2,
+      },
+      fieldsToKeep: ["id", "profile.email", "nope"],
+    });
+
+    expect(result.truncated).toBe(false);
+    expect(result.output).toEqual({
+      fieldsMissing: ["nope"],
+      pagesRead: 2,
+      moreAvailable: true,
+      nextCursor: "c3",
+      items: items.map(({ id, profile }) => ({
+        id,
+        profile: { email: profile.email },
+      })),
+    });
+    expect(Object.keys(result.output)).toEqual([
+      "fieldsMissing",
+      "pagesRead",
+      "moreAvailable",
+      "nextCursor",
+      "items",
+    ]);
+  });
+
+  it("trims only the body when the status is asked for, and leads with the missing paths", async () => {
+    executeRequestMock.mockResolvedValue(
+      answer([{ id: 1, noise: "n" }], {
+        status: 200,
+        headers: { etag: '"x"', "set-cookie": "session=abc" },
+      }),
+    );
+    const result = await run("github.apiRequest", {
+      path: "issues",
+      includeStatus: true,
+      fieldsToKeep: ["id", "gone"],
+    });
+    expect(result.output).toEqual({
+      fieldsMissing: ["gone"],
+      status: 200,
+      headers: { etag: '"x"' },
+      body: [{ id: 1 }],
+    });
+  });
+
   it("refuses a paged answer it cannot read instead of calling it empty", async () => {
     executeRequestMock.mockResolvedValue({ items: "nope" });
     const failure = await failureOf(
@@ -329,6 +664,26 @@ describe("an API request, refused before it is sent", () => {
       "a long timeout",
       { path: "user", timeoutSeconds: 120 },
       "invalid_timeout",
+    ],
+    [
+      "an empty list of paths to keep",
+      { path: "user", fieldsToKeep: [] },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "a path to keep that reaches a prototype",
+      { path: "user", fieldsToKeep: ["__proto__"] },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "a path to keep with an empty part",
+      { path: "user", fieldsToKeep: ["a..b"] },
+      "invalid_fields_to_keep",
+    ],
+    [
+      "paths to keep that are one text",
+      { path: "user", fieldsToKeep: "number,title" },
+      "invalid_fields_to_keep",
     ],
   ])(
     "fails %s as %s, with no side effect and no request",

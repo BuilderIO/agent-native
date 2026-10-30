@@ -524,6 +524,8 @@ const messages = {
       cutsMore_other: "그 밖에 {{count}}건 더 잘림",
       tooLargeHint:
         "단계는 항목에 붙은 이전 응답까지 합쳐 약 64 KB와 항목 100개까지 넘길 수 있습니다. 쿼리를 좁히거나, 페이지네이션을 쓰거나, 한 번의 실행에서 호출 수를 줄이세요.",
+      fieldsMissing: "응답에서 다음 필드를 찾을 수 없습니다: {{names}}",
+      fieldsMissingMore: "그리고 {{count}}개 더",
       cutNotice:
         "응답의 앞부분만 표시됩니다. 단계는 읽은 내용의 짧은 기록만 보관합니다.",
       noOutputRecorded: "이 실행에서는 이 단계의 응답이 기록되지 않았습니다.",
@@ -557,6 +559,7 @@ const messages = {
         invalid_timeout: "제한 시간이 올바르지 않습니다",
         incompatible_fields:
           "페이지네이션과 함께 상태와 헤더는 반환할 수 없습니다",
+        invalid_fields_to_keep: "유지할 필드가 올바르지 않습니다",
         invalid_field: "필드가 비어 있거나 올바르지 않습니다",
       },
     },
@@ -1372,6 +1375,23 @@ const messages = {
         optionTimeout: "제한 시간",
         optionPagination: "페이지네이션",
         optionStatus: "응답 상태와 헤더 포함",
+        optionFieldsToKeep: "유지할 필드",
+        optionFieldsToKeepHint:
+          "이후 단계에서 사용하는 필드만 유지해 긴 응답이 맞도록 합니다.",
+        fieldsPlaceholder: "user.login 같은 필드를 입력하고 Enter를 누르세요",
+        fieldsInputLabel: "유지할 필드 추가",
+        removeField: "{{path}} 삭제",
+        pickFromResponse: "마지막 응답에서 선택",
+        pickSearch: "필드 검색",
+        pickNeedsTest: "먼저 단계 테스트를 실행한 다음 그 응답에서 선택하세요.",
+        pickRunning: "단계 테스트가 아직 실행 중입니다.",
+        pickFailed: "마지막 테스트가 실패해서 선택할 응답이 없습니다.",
+        pickNoFields: "응답에 선택할 필드가 없습니다.",
+        pickCutNote:
+          "응답이 잘려서 뒤쪽 항목에만 나오는 필드는 목록에 없습니다.",
+        pickCapped: "처음 {{count}}개 필드를 보여 주는 중입니다.",
+        pickKeptNote:
+          "마지막 응답의 필드를 보여 줍니다. 모두 보려면 유지할 필드 없이 단계 테스트를 실행하세요.",
         optionBlockedByPagination: "페이지네이션과 함께 사용할 수 없습니다.",
         optionBlockedByStatus:
           "응답 상태와 헤더가 포함된 동안에는 사용할 수 없습니다.",
@@ -1423,6 +1443,18 @@ const messages = {
           paginationMaxPages: "1부터 5까지의 정수 페이지 수를 쓰세요.",
           statusWithPaging:
             "상태와 헤더를 끄거나 페이지네이션을 끄세요. 마지막 페이지의 상태만 알 수 있습니다.",
+          fieldsToKeepShape: "유지할 필드는 필드 이름의 목록이어야 합니다.",
+          fieldsToKeepEmpty:
+            "필드를 하나 이상 추가하거나 이 옵션을 삭제하세요.",
+          fieldsToKeepCount: "필드는 최대 50개까지 유지할 수 있습니다.",
+          fieldsToKeepControl: "필드 이름에는 제어 문자를 쓸 수 없습니다.",
+          fieldsToKeepSegment:
+            "user.login처럼 점 사이의 각 단계에 이름을 붙이세요.",
+          fieldsToKeepLong:
+            "필드 이름의 각 단계는 최대 64자까지 쓸 수 있습니다.",
+          fieldsToKeepDeep: "필드는 최대 8단계 깊이까지 가능합니다.",
+          fieldsToKeepReserved: "그 이름은 예약되어 있어 사용할 수 없습니다.",
+          fieldsToKeepDuplicate: "이 필드는 이미 목록에 있습니다.",
           droppedCredentials:
             "제외됨 {{names}}: 자격 증명은 단계에 절대 저장되지 않습니다.",
         },

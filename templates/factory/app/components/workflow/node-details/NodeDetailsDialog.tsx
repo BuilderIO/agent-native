@@ -6,7 +6,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useRef, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,7 @@ import { requestPathOf } from "@/lib/workflow-editor/api-request";
 import type { NodeData } from "../../../../server/workflow-host/read-models.js";
 import { docsUrlOf } from "../api-provider-catalog";
 import { canTestRequestOnItsOwn } from "../api-request-test";
+import { ApiResponseContext, pickableResponseOf } from "../api-response-picker";
 import { classifyReadError } from "../items/read-failure";
 import { useApiRequestTest } from "../use-api-request-test";
 import { useProviderApiCatalog } from "../use-provider-api-catalog";
@@ -213,6 +214,11 @@ export function NodeDetailsDialog({
     save: onSave,
     unknownMessage: ws.errors.unknown,
   });
+  // The form's "Pick from last response" reads the answer the Output column is showing, and nothing else holds it.
+  const pickable = useMemo(
+    () => pickableResponseOf(apiTest.state),
+    [apiTest.state],
+  );
 
   if (!node) return null;
   const KindIcon = NODE_KIND_ICONS[node.kind];
@@ -344,58 +350,63 @@ export function NodeDetailsDialog({
               </Button>
             </DialogClose>
           </header>
-          <MapDragProvider readOnly={readOnly} onMapped={onEngage}>
-            <div className="flex min-h-0 flex-1 overflow-x-auto">
-              {hasInput && (
-                <NodeDetailsInputPane
-                  key={`input-${node.id}`}
+          <ApiResponseContext.Provider value={pickable}>
+            <MapDragProvider readOnly={readOnly} onMapped={onEngage}>
+              <div className="flex min-h-0 flex-1 overflow-x-auto">
+                {hasInput && (
+                  <NodeDetailsInputPane
+                    key={`input-${node.id}`}
+                    node={node}
+                    graph={graph}
+                    catalog={editor.catalog}
+                    data={data}
+                    loading={dataLoading}
+                    failure={dataFailure}
+                    onRetry={refetchData}
+                    starting={starting}
+                    onTestWorkflow={onTestWorkflow}
+                  />
+                )}
+                <NodeDetailsParameters
+                  key={node.id}
+                  sectionRef={parametersRef}
+                  editor={editor}
+                  factoryId={factoryId}
+                  workflowId={workflowId}
                   node={node}
-                  graph={graph}
-                  catalog={editor.catalog}
-                  data={data}
-                  loading={dataLoading}
-                  failure={dataFailure}
-                  onRetry={refetchData}
+                  title={title}
+                  quiet={quiet}
+                  onEngage={onEngage}
+                  runId={runId}
+                  runPending={runPending}
+                  steps={steps}
+                  serverNodeIds={serverNodeIds}
+                  dirty={dirty}
                   starting={starting}
-                  onTestWorkflow={onTestWorkflow}
+                  onTestStep={onTestStep}
+                  {...(testsInWindow
+                    ? {
+                        onTestRequest: apiTest.run,
+                        testingRequest: apiTest.running,
+                      }
+                    : {})}
+                  onAskAgent={onClose}
                 />
-              )}
-              <NodeDetailsParameters
-                key={node.id}
-                sectionRef={parametersRef}
-                editor={editor}
-                factoryId={factoryId}
-                workflowId={workflowId}
-                node={node}
-                title={title}
-                quiet={quiet}
-                onEngage={onEngage}
-                runId={runId}
-                runPending={runPending}
-                steps={steps}
-                serverNodeIds={serverNodeIds}
-                dirty={dirty}
-                starting={starting}
-                onTestStep={onTestStep}
-                {...(testsInWindow
-                  ? {
-                      onTestRequest: apiTest.run,
-                      testingRequest: apiTest.running,
-                    }
-                  : {})}
-                onAskAgent={onClose}
-              />
-              {isApiRequest ? (
-                <ApiRequestOutputPane
-                  key={`output-${node.id}`}
-                  {...output}
-                  liveTest={apiTest.state}
-                />
-              ) : (
-                <NodeDetailsOutputPane key={`output-${node.id}`} {...output} />
-              )}
-            </div>
-          </MapDragProvider>
+                {isApiRequest ? (
+                  <ApiRequestOutputPane
+                    key={`output-${node.id}`}
+                    {...output}
+                    liveTest={apiTest.state}
+                  />
+                ) : (
+                  <NodeDetailsOutputPane
+                    key={`output-${node.id}`}
+                    {...output}
+                  />
+                )}
+              </div>
+            </MapDragProvider>
+          </ApiResponseContext.Provider>
         </DialogContent>
       </Dialog>
     </TooltipProvider>

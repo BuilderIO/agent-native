@@ -123,9 +123,9 @@ const operationOutputSchema = z.strictObject({
 export type OperationOutput = z.infer<typeof operationOutputSchema>;
 
 // An operation with no fixed endpoint: the declared fields below carry the
-// path a person typed and the optional query, headers, sign-in, timeout and
-// paging, and the request builder checks each one. Only a GET read may declare
-// it, and a model is never given one as a tool.
+// path a person typed and the optional query, headers, sign-in, timeout,
+// paging and paths to keep, and the request builder checks each one. Only a GET
+// read may declare it, and a model is never given one as a tool.
 const freeFormSchema = z.strictObject({
   path: identifierSchema,
   query: identifierSchema.optional(),
@@ -134,6 +134,7 @@ const freeFormSchema = z.strictObject({
   timeoutSeconds: identifierSchema.optional(),
   pagination: identifierSchema.optional(),
   includeStatus: identifierSchema.optional(),
+  fieldsToKeep: identifierSchema.optional(),
   // Names core fills from the provider's connection, such as `{projectId}`; a typed path may keep one as a whole segment.
   placeholders: z.array(identifierSchema).max(5).optional(),
 });
@@ -379,6 +380,7 @@ export const operationDefinitionSchema = z
         timeoutSeconds: "number",
         pagination: "json",
         includeStatus: "boolean",
+        fieldsToKeep: "json",
       } as const;
       const named: string[] = [];
       for (const [role, type] of Object.entries(roles)) {

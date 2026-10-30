@@ -210,10 +210,20 @@ gong, pylon, stripe, posthog, bigquery, jira, notion or sentry. Read it with
   and tell the user how many came back of how many. The step carries
   `outputsTruncated`. Fewer or narrower results (`per_page`, a filter) are the
   fix, not a bigger read.
+- **For a list or big objects, set `fieldsToKeep`** (Fields to keep): dotted
+  paths such as `["number", "title", "user.login"]`. The step passes on only
+  those, cut before any size limit, so three 25 KB pull requests stay whole.
+  A path inside a list applies to every entry, and `user` keeps all of `user`.
+  Paths that matched nothing come back in `nodes.<name>.fieldsMissing` (a list
+  then reads `nodes.<name>.value[0]`): fix the typo and tell the user. With
+  `pagination` it trims each entry; with `includeStatus` only the `body`. An
+  answer that says the provider did not do it (Slack `ok: false`, BigQuery
+  `jobComplete: false`, an `errors` list) always keeps those keys, so read
+  `nodes.<name>.ok` and `.error` before trusting an empty result.
 - **One step hands on about 64 KB in all**, counting every item it emits and
   every earlier answer still attached to each (`nodes.<step>`). Three big reads
   in a row, or one read over several items, fail as `output_over_cap` naming the
-  step; the cap is not raised. Narrow the request, keep fewer fields, or split
+  step; the cap is not raised. Set `fieldsToKeep`, narrow the request, or split
   the work.
 - **Never from a model.** `path` may be typed, a setting, an item field or an
   earlier lookup, not AI-written (`model_written_target`), and the step is never
@@ -222,7 +232,8 @@ gong, pylon, stripe, posthog, bigquery, jira, notion or sentry. Read it with
 - **Limits to tell the user:** GET only, JSON only, no body, no POST searches,
   no page-number or `Link` paging. A refused request fails the item as
   `lookup_failed` with the reason in brackets, such as `unsafe_path_value`,
-  `full_url_refused`, `header_denied`; a 404 is not retried.
+  `full_url_refused`, `header_denied`, `invalid_fields_to_keep`; a 404 is not
+  retried.
 - **What the app shows.** Test step on an API request shows the whole response on
   screen for the person and keeps none of it; a run, and so anything you read back
   with `get-workflow-node-audit`, keeps only a short summary of the answer.

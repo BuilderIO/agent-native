@@ -2,10 +2,15 @@ import { operationItemId } from "../triage/ids.js";
 import type { TripwireSink } from "../tripwire/types.js";
 import type { WorkflowScope } from "../workflow/adapter.js";
 import { evaluatePath, validateResponsePath } from "../workflow/expressions.js";
+import type {
+  FieldsToKeep,
+  MissingReport,
+} from "../workflow/fields-to-keep.js";
 import {
   STATUS_WITH_PAGING_REFUSAL,
   allowedResponseHeaders,
   readFreeAuth,
+  readFreeFieldsToKeep,
   readFreeHeaders,
   readFreePagination,
   readFreePath,
@@ -94,6 +99,8 @@ export interface BuiltProviderRequest {
   fetchAllPages?: FreeFormPagination;
   /** The answer carries the status and a few headers around the body. */
   includeStatus?: true;
+  /** Only these paths of the provider's answer are kept, before any size budget. */
+  fieldsToKeep?: FieldsToKeep;
 }
 
 const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -487,7 +494,12 @@ function renderFreeForm(
   query?: Record<string, string | string[]>;
   rest: Pick<
     BuiltProviderRequest,
-    "headers" | "auth" | "timeoutMs" | "fetchAllPages" | "includeStatus"
+    | "headers"
+    | "auth"
+    | "timeoutMs"
+    | "fetchAllPages"
+    | "includeStatus"
+    | "fieldsToKeep"
   >;
 } {
   const given = (name: string | undefined): unknown => {
@@ -501,6 +513,7 @@ function renderFreeForm(
   const timeoutValue = given(names.timeoutSeconds);
   const paginationValue = given(names.pagination);
   const status = given(names.includeStatus) === true;
+  const keepValue = given(names.fieldsToKeep);
 
   const query =
     queryValue === undefined
@@ -522,6 +535,10 @@ function renderFreeForm(
     paginationValue === undefined
       ? undefined
       : takeFreeForm(def, readFreePagination(paginationValue));
+  const fieldsToKeep =
+    keepValue === undefined
+      ? undefined
+      : takeFreeForm(def, readFreeFieldsToKeep(keepValue));
   if (status && pagination) {
     fail(
       STATUS_WITH_PAGING_REFUSAL.code,
@@ -537,6 +554,7 @@ function renderFreeForm(
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
       ...(pagination ? { fetchAllPages: pagination } : {}),
       ...(status ? { includeStatus: true as const } : {}),
+      ...(fieldsToKeep ? { fieldsToKeep } : {}),
     },
   };
 }
@@ -835,6 +853,11 @@ function trimToFit(
 // Names a cut answer's own report uses; a body that has one is wrapped as `value`.
 const REPORT_KEYS = ["truncated", "cuts", "cutsOmitted"] as const;
 
+/** The size a report of the paths that matched nothing takes, and what it adds to the room a body has. */
+function leadChars(lead: MissingReport | undefined): number {
+  return lead ? jsonLength(lead) + 2 : 0;
+}
+
 /**
  * The response as a node reads it: the provider's own JSON, so a graph path
  * such as `nodes.thread.data[0].id` is a path into the provider's answer. Over
@@ -842,25 +865,39 @@ const REPORT_KEYS = ["truncated", "cuts", "cutsOmitted"] as const;
  * which names each list shortened (`kept` of `of`), text clipped and key left
  * out, so a clipped summary of the answer still shows it. A list is wrapped as
  * `value` (with `count` and `totalAvailable`) and so is a response that is not
- * an object or already uses the report's names.
+ * an object or already uses the report's names. `lead` is the report of the
+ * "fields to keep" paths that matched nothing: it sits at the front, beside
+ * `truncated`, under the same wrapping rule, and takes its room off the body's.
  */
 export function boundOutput(
   body: unknown,
   budgetChars: number = PROVIDER_PAYLOAD_BUDGET_CHARS,
+  lead?: MissingReport,
 ): { output: unknown; truncated: boolean } {
-  if (jsonLength(body) <= budgetChars)
-    return { output: body, truncated: false };
-  const room = budgetChars - 40 - CUT_REPORT_RESERVE_CHARS;
+  const leadKeys = lead ? Object.keys(lead) : [];
+  const collides = (key: string) =>
+    isRecord(body) && Object.prototype.hasOwnProperty.call(body, key);
+  const fits = jsonLength(body) + leadChars(lead) <= budgetChars;
+  if (fits && !lead) return { output: body, truncated: false };
   const wrap =
     !isRecord(body) ||
-    REPORT_KEYS.some((key) => Object.prototype.hasOwnProperty.call(body, key));
+    [...REPORT_KEYS, ...leadKeys].some((key) => collides(key));
+  if (fits && lead) {
+    return {
+      output: wrap
+        ? { ...lead, value: body }
+        : { ...lead, ...(body as object) },
+      truncated: false,
+    };
+  }
+  const room = budgetChars - 40 - CUT_REPORT_RESERVE_CHARS - leadChars(lead);
   const log = new CutLog();
   const trimmed = trimToFit(body, room, log, wrap ? "value" : "");
   const list =
     wrap && Array.isArray(body) && Array.isArray(trimmed)
       ? { count: trimmed.length, totalAvailable: body.length }
       : {};
-  const report = { truncated: true, ...list, ...log.report() };
+  const report = { truncated: true, ...lead, ...list, ...log.report() };
   return {
     output: wrap
       ? { ...report, value: trimmed }
@@ -1252,20 +1289,22 @@ const STATUS_FRAME_RESERVE_CHARS = 40;
  * `{ status, headers, body }`, with the body cut to what the budget leaves
  * once the status and the allow-listed headers are counted. A cut answer leads
  * with its report (`truncated`, `cuts`, whose paths start at `body`), so the
- * provider's own data is never mixed with ours.
+ * provider's own data is never mixed with ours. The report of "fields to keep"
+ * paths that matched nothing (`lead`) leads, and only the body was trimmed.
  */
 function withStatus(
   def: OperationDefinition,
   body: unknown,
   frame: { status: number; headers: unknown },
   budgetChars: number = PROVIDER_PAYLOAD_BUDGET_CHARS,
+  lead?: MissingReport,
 ): { output: unknown; truncated: boolean } {
   const headers = allowedResponseHeaders(frame.headers);
-  const fixed = jsonLength({ status: frame.status, headers });
+  const fixed = jsonLength({ status: frame.status, headers }) + leadChars(lead);
   const room = budgetChars - fixed - STATUS_FRAME_RESERVE_CHARS;
   if (jsonLength(body) <= room) {
     return {
-      output: { status: frame.status, headers, body },
+      output: { ...lead, status: frame.status, headers, body },
       truncated: false,
     };
   }
@@ -1277,6 +1316,7 @@ function withStatus(
   return {
     output: {
       truncated: true,
+      ...lead,
       ...log.report(),
       status: frame.status,
       headers,
@@ -1324,6 +1364,8 @@ export function parseProviderResponse(
     observe?: ProviderObservation | undefined;
     /** A free-form request that asked for the status: the answer is wrapped around the body. */
     includeStatus?: { status: number; headers: unknown } | undefined;
+    /** The "fields to keep" paths that matched nothing, to lead the answer. */
+    fieldsMissing?: MissingReport | undefined;
   } = {},
 ): ParsedOperationResponse {
   if (body === undefined) {
@@ -1380,10 +1422,16 @@ export function parseProviderResponse(
   const receipt = extractReceipt(def, body, options.observe);
   if (options.includeStatus) {
     return {
-      ...withStatus(def, body, options.includeStatus, options.budgetChars),
+      ...withStatus(
+        def,
+        body,
+        options.includeStatus,
+        options.budgetChars,
+        options.fieldsMissing,
+      ),
       ...receipt,
     };
   }
-  const bounded = boundOutput(body, options.budgetChars);
+  const bounded = boundOutput(body, options.budgetChars, options.fieldsMissing);
   return { ...bounded, ...receipt };
 }

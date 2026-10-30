@@ -14,6 +14,12 @@ import {
   type ProviderObservation,
 } from "../workflow-host/provider-request.js";
 import type { WorkflowScope } from "../workflow/adapter.js";
+import {
+  keepFields,
+  reportMissing,
+  type FieldsToKeep,
+  type MissingReport,
+} from "../workflow/fields-to-keep.js";
 import type { OperationDefinition } from "../workflow/operations.js";
 import { reportConnectionStatusMismatch } from "./connection-status-tripwire.js";
 import { executeProviderApiRequest } from "./provider-api.js";
@@ -160,6 +166,43 @@ function providerFlag(json: unknown): Record<string, unknown> | null {
     return { flag: "errors_present", errorCount: body.errors.length };
   }
   return null;
+}
+
+// What a flagged answer says about itself. A trim keeps these beside the paths
+// it was asked for, so "the provider did not do it" is never trimmed into what
+// reads like a typo in a path.
+const PROVIDER_FLAG_KEYS = [
+  "ok",
+  "error",
+  "errors",
+  "jobComplete",
+  "warning",
+  "response_metadata",
+] as const;
+
+/**
+ * `trimmed` with the keys that carry the provider's failure flag, whole and
+ * first, when the untrimmed answer is flagged. A list, or an answer with no
+ * flag, comes back as it was.
+ */
+function withProviderFlag(json: unknown, trimmed: unknown): unknown {
+  if (providerFlag(json) === null) return trimmed;
+  const source = json as Record<string, unknown>;
+  const flagged: Record<string, unknown> = {};
+  for (const key of PROVIDER_FLAG_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      flagged[key] = source[key];
+    }
+  }
+  if (
+    typeof trimmed !== "object" ||
+    trimmed === null ||
+    Array.isArray(trimmed)
+  ) {
+    return trimmed;
+  }
+  // The flag keys lead, and a path that kept part of one gives way to the whole.
+  return { ...flagged, ...trimmed, ...flagged };
 }
 
 function isCredentialAbsence(error: unknown): boolean {
@@ -442,6 +485,7 @@ const FIELD_ERROR_CODES: Record<string, string> = {
   invalid_pagination: "invalid_pagination",
   invalid_timeout: "invalid_timeout",
   incompatible_fields: "incompatible_fields",
+  invalid_fields_to_keep: "invalid_fields_to_keep",
 };
 
 function buildOrFail(
@@ -481,6 +525,7 @@ function parseWithinRenderedLimit(
     status: number;
     observe: ProviderObservation;
     includeStatus?: { status: number; headers: unknown } | undefined;
+    fieldsMissing?: MissingReport | undefined;
   },
 ): ReturnType<typeof envelope> {
   let budgetChars = PROVIDER_PAYLOAD_BUDGET_CHARS;
@@ -496,6 +541,7 @@ function parseWithinRenderedLimit(
         budgetChars,
         observe: options.observe,
         includeStatus: options.includeStatus,
+        fieldsMissing: options.fieldsMissing,
       }),
     );
     if (JSON.stringify(result, null, 2).length <= RENDERED_RESULT_LIMIT_CHARS) {
@@ -512,6 +558,40 @@ function parseWithinRenderedLimit(
 }
 
 export type ProviderOperationPayload = ReturnType<typeof envelope>;
+
+/**
+ * Cuts the provider's answer to the paths a step keeps, before any budget or cap
+ * sees it. An answer that says the provider did not do it (`providerFlag`) keeps
+ * the keys that say so. A paged read is trimmed entry by entry: its pages were concatenated
+ * into `items`, which is the same as trimming each page's entries before they
+ * are merged, and the paging facts stay as they were.
+ */
+function keepAnswerFields(
+  def: OperationDefinition,
+  keep: FieldsToKeep,
+  json: unknown,
+  paged: boolean,
+): { body: unknown; missing: MissingReport | undefined } {
+  if (!paged) {
+    const kept = keepFields(json, keep);
+    return {
+      body: withProviderFlag(json, kept.body),
+      missing: reportMissing(kept.missing),
+    };
+  }
+  const facts = json as { items?: unknown } | null;
+  if (!Array.isArray(facts?.items)) {
+    return failUnexpected(
+      def,
+      `${def.id} read a paged answer with no entries to keep fields of.`,
+    );
+  }
+  const kept = keepFields(facts.items, keep);
+  return {
+    body: { ...facts, items: kept.body },
+    missing: reportMissing(kept.missing),
+  };
+}
 
 export interface ProviderOperationCall {
   def: OperationDefinition;
@@ -616,15 +696,24 @@ export async function runProviderOperation(
     });
   }
 
+  const kept = built.fieldsToKeep
+    ? keepAnswerFields(
+        def,
+        built.fieldsToKeep,
+        response.json,
+        built.fetchAllPages !== undefined,
+      )
+    : undefined;
   let payload: ProviderOperationPayload;
   try {
-    payload = parseWithinRenderedLimit(def, response.json, {
+    payload = parseWithinRenderedLimit(def, kept ? kept.body : response.json, {
       scope: { orgId, factoryId },
       limit,
       prime,
       cursor,
       status: response.status,
       observe: { tripwire, status: response.status },
+      fieldsMissing: kept?.missing,
       ...(built.includeStatus
         ? {
             includeStatus: {

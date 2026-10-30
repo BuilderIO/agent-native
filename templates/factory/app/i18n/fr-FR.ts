@@ -556,6 +556,9 @@ const messages = {
       cutsMore_other: "et {{count}} coupures de plus",
       tooLargeHint:
         "Une étape peut transmettre environ 64 Ko et 100 éléments au total, en comptant chaque réponse précédente qui leur est encore attachée. Affinez la requête, utilisez la pagination ou effectuez moins d’appels dans une même exécution.",
+      fieldsMissing:
+        "Ces champs n’ont pas été trouvés dans la réponse : {{names}}",
+      fieldsMissingMore: "et {{count}} de plus",
       cutNotice:
         "Seul le début de la réponse est affiché : une étape garde un bref relevé de ce qu’elle a lu.",
       noOutputRecorded:
@@ -591,6 +594,7 @@ const messages = {
         invalid_timeout: "Le délai d’expiration n’est pas valide",
         incompatible_fields:
           "L’état et les en-têtes ne peuvent pas être renvoyés avec la pagination",
+        invalid_fields_to_keep: "Les champs à conserver ne sont pas valides",
         invalid_field: "Un champ est vide ou non valide",
       },
     },
@@ -1469,6 +1473,26 @@ const messages = {
         optionTimeout: "Délai d’expiration",
         optionPagination: "Pagination",
         optionStatus: "Inclure l’état et les en-têtes de la réponse",
+        optionFieldsToKeep: "Champs à conserver",
+        optionFieldsToKeepHint:
+          "Ne conservez que les champs utilisés par les étapes suivantes, pour que les longues réponses tiennent.",
+        fieldsPlaceholder:
+          "Saisissez un champ, comme user.login, puis appuyez sur Entrée",
+        fieldsInputLabel: "Ajouter un champ à conserver",
+        removeField: "Supprimer {{path}}",
+        pickFromResponse: "Choisir dans la dernière réponse",
+        pickSearch: "Rechercher des champs",
+        pickNeedsTest:
+          "Lancez d’abord un essai sur l’étape, puis choisissez dans sa réponse.",
+        pickRunning: "L’essai sur l’étape est toujours en cours.",
+        pickFailed:
+          "Le dernier essai a échoué, il n’y a donc aucune réponse où choisir.",
+        pickNoFields: "La réponse ne contient aucun champ à choisir.",
+        pickCutNote:
+          "La réponse a été tronquée, les champs qui n’apparaissent que dans les entrées suivantes ne sont donc pas listés.",
+        pickCapped: "Affichage des {{count}} premiers champs.",
+        pickKeptNote:
+          "Affiche les champs de la dernière réponse. Lancez un essai sur l’étape sans champ à conserver pour tous les voir.",
         optionBlockedByPagination: "Indisponible avec la pagination.",
         optionBlockedByStatus:
           "Indisponible tant que l’état et les en-têtes de la réponse sont inclus.",
@@ -1525,6 +1549,22 @@ const messages = {
           paginationMaxPages: "Utilisez un nombre entier de pages, de 1 à 5.",
           statusWithPaging:
             "Désactivez l’état et les en-têtes, ou désactivez la pagination : seul l’état de la dernière page est connu.",
+          fieldsToKeepShape:
+            "Les champs à conserver doivent être une liste de noms de champs.",
+          fieldsToKeepEmpty:
+            "Ajoutez au moins un champ, ou supprimez cette option.",
+          fieldsToKeepCount: "Conservez 50 champs au maximum.",
+          fieldsToKeepControl:
+            "Un nom de champ ne peut pas contenir de caractère de contrôle.",
+          fieldsToKeepSegment:
+            "Nommez chaque niveau entre les points, comme user.login.",
+          fieldsToKeepLong:
+            "Chaque niveau d’un nom de champ ne peut pas dépasser 64 caractères.",
+          fieldsToKeepDeep:
+            "Un champ peut avoir 8 niveaux de profondeur au maximum.",
+          fieldsToKeepReserved:
+            "Ce nom est réservé et ne peut pas être utilisé.",
+          fieldsToKeepDuplicate: "Ce champ est déjà listé.",
           droppedCredentials:
             "Omis : {{names}}. Les identifiants ne sont jamais conservés dans une étape.",
         },

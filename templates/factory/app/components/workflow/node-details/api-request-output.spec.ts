@@ -11,6 +11,7 @@ import type {
 import {
   cutsOf,
   failureOf,
+  fieldsMissingOf,
   isCutByStep,
   liveAnswerOf,
   listOf,
@@ -399,6 +400,55 @@ describe("what the answer is", () => {
     });
     // A `value` beside no cut is just a field of the answer.
     expect(listOf({ value: [1] })).toBe(null);
+  });
+
+  it("counts a list the step wrapped only to name the fields it did not find", () => {
+    expect(
+      listOf({ fieldsMissing: ["nope"], value: [{ id: 1 }, { id: 2 }] }),
+    ).toEqual({ entries: [{ id: 1 }, { id: 2 }], total: null });
+    // An object that only has a `value` of its own is not a list.
+    expect(listOf({ fieldsMissing: ["nope"], id: 1, value: [1] })).toBe(null);
+  });
+
+  it("reads the fields to keep the answer had no value for, with those the step did not list", () => {
+    expect(fieldsMissingOf({ fieldsMissing: ["a", "b.c"], id: 1 })).toEqual({
+      names: ["a", "b.c"],
+      more: 0,
+    });
+    expect(
+      fieldsMissingOf({
+        truncated: true,
+        fieldsMissing: ["a"],
+        fieldsMissingMore: 12,
+        value: [],
+      }),
+    ).toEqual({ names: ["a"], more: 12 });
+    expect(
+      fieldsMissingOf({
+        status: 200,
+        headers: {},
+        fieldsMissing: ["x"],
+        body: {},
+      }),
+    ).toEqual({ names: ["x"], more: 0 });
+  });
+
+  it("reads nothing missing from an answer that says nothing, or from a value that is not an answer", () => {
+    for (const value of [{ id: 1 }, [1], "x", null, { fieldsMissing: "a" }]) {
+      expect(fieldsMissingOf(value)).toEqual({ names: [], more: 0 });
+    }
+    expect(fieldsMissingOf({ fieldsMissing: ["a", 1, null] }).names).toEqual([
+      "a",
+    ]);
+  });
+
+  it("names a refusal of the fields to keep", () => {
+    expect(
+      failureOf(
+        "lookup_failed",
+        'The path "a..b" has an empty part. (invalid_fields_to_keep)',
+      ),
+    ).toMatchObject({ kind: "invalid_fields_to_keep" });
   });
 
   it("knows the step cut the provider's answer", () => {

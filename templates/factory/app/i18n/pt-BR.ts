@@ -548,6 +548,9 @@ const messages = {
       cutsMore_other: "e mais {{count}} cortes",
       tooLargeHint:
         "Uma etapa pode repassar cerca de 64 KB e 100 itens no total, contando todas as respostas anteriores que ainda estão anexadas a eles. Restrinja a consulta, use paginação ou faça menos chamadas em uma execução.",
+      fieldsMissing:
+        "Estes campos não foram encontrados na resposta: {{names}}",
+      fieldsMissingMore: "e mais {{count}}",
       cutNotice:
         "Só o início da resposta é exibido: uma etapa mantém um registro curto do que leu.",
       noOutputRecorded: "Esta execução não registrou resposta para esta etapa.",
@@ -581,6 +584,7 @@ const messages = {
         invalid_timeout: "O tempo limite não é válido",
         incompatible_fields:
           "Status e cabeçalhos não podem ser retornados com paginação",
+        invalid_fields_to_keep: "Os campos a manter não são válidos",
         invalid_field: "Um campo está vazio ou não é válido",
       },
     },
@@ -1445,6 +1449,26 @@ const messages = {
         optionTimeout: "Tempo limite",
         optionPagination: "Paginação",
         optionStatus: "Incluir status e cabeçalhos da resposta",
+        optionFieldsToKeep: "Campos a manter",
+        optionFieldsToKeepHint:
+          "Mantém apenas os campos que as etapas seguintes usam, para que respostas longas caibam.",
+        fieldsPlaceholder:
+          "Digite um campo, como user.login, e pressione Enter",
+        fieldsInputLabel: "Adicionar um campo a manter",
+        removeField: "Remover {{path}}",
+        pickFromResponse: "Escolher da última resposta",
+        pickSearch: "Pesquisar campos",
+        pickNeedsTest:
+          "Execute primeiro “Testar etapa” e depois escolha na resposta dela.",
+        pickRunning: "“Testar etapa” ainda está em execução.",
+        pickFailed:
+          "O último teste falhou, então não há resposta para escolher.",
+        pickNoFields: "A resposta não tem campos para escolher.",
+        pickCutNote:
+          "A resposta foi cortada, então campos que só aparecem em entradas posteriores não são listados.",
+        pickCapped: "Mostrando os primeiros {{count}} campos.",
+        pickKeptNote:
+          "Mostra os campos da última resposta. Execute “Testar etapa” sem campos a manter para ver todos.",
         optionBlockedByPagination: "Não disponível com a paginação.",
         optionBlockedByStatus:
           "Não disponível enquanto o status e os cabeçalhos da resposta estiverem incluídos.",
@@ -1497,6 +1521,21 @@ const messages = {
           paginationMaxPages: "Use um número inteiro de páginas de 1 a 5.",
           statusWithPaging:
             "Desative o status e os cabeçalhos, ou desative a paginação: só o status da última página é conhecido.",
+          fieldsToKeepShape:
+            "Os campos a manter devem ser uma lista de nomes de campos.",
+          fieldsToKeepEmpty:
+            "Adicione pelo menos um campo ou remova esta opção.",
+          fieldsToKeepCount: "Mantenha no máximo 50 campos.",
+          fieldsToKeepControl:
+            "Um nome de campo não pode conter caractere de controle.",
+          fieldsToKeepSegment:
+            "Dê nome a cada nível entre os pontos, como user.login.",
+          fieldsToKeepLong:
+            "Cada nível de um nome de campo pode ter no máximo 64 caracteres.",
+          fieldsToKeepDeep:
+            "Um campo pode ter no máximo 8 níveis de profundidade.",
+          fieldsToKeepReserved: "Esse nome é reservado e não pode ser usado.",
+          fieldsToKeepDuplicate: "Este campo já está na lista.",
           droppedCredentials:
             "Ignorados: {{names}}. Credenciais nunca são mantidas em uma etapa.",
         },

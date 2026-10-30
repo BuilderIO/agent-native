@@ -28,6 +28,7 @@ import { useWorkflowStrings } from "../workflow-strings";
 import {
   cutsOf,
   failureOf,
+  fieldsMissingOf,
   isCutByStep,
   listOf,
   readRecordedAnswer,
@@ -36,6 +37,7 @@ import {
   type AnswerCuts,
   type ApiRequestFailure,
   type LiveAnswer,
+  type MissingFields,
   type RecordedAnswer,
   type StandaloneResult,
 } from "./api-request-output";
@@ -92,6 +94,22 @@ function CutByStepNotice({ answer }: { answer: AnswerCuts }) {
       ) : null}
       {answer.omitted > 0 ? (
         <p>{ws.apiRequest.cutsMore(answer.omitted)}</p>
+      ) : null}
+    </Notice>
+  );
+}
+
+/** The fields to keep that the answer had no value for, by the names they were typed with. */
+function FieldsMissingNotice({ missing }: { missing: MissingFields }) {
+  const ws = useWorkflowStrings();
+  if (missing.names.length === 0 && missing.more === 0) return null;
+  return (
+    <Notice>
+      <p className="break-words">
+        {ws.apiRequest.fieldsMissing(missing.names.join(", "))}
+      </p>
+      {missing.more > 0 ? (
+        <p>{ws.apiRequest.fieldsMissingMore(missing.more)}</p>
       ) : null}
     </Notice>
   );
@@ -308,6 +326,9 @@ function answerView({
     <>
       {value !== undefined && isCutByStep(value) ? (
         <CutByStepNotice answer={cutsOf(value)} />
+      ) : null}
+      {value !== undefined ? (
+        <FieldsMissingNotice missing={fieldsMissingOf(value)} />
       ) : null}
       {cutShort ? (
         <Notice>

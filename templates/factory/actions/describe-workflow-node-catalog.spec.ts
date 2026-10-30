@@ -397,6 +397,7 @@ describe("describe-workflow-node-catalog: the API request", () => {
         "timeoutSeconds:number",
         "pagination:json",
         "includeStatus:boolean",
+        "fieldsToKeep:json",
       ],
     });
     expect(entries[0]).not.toHaveProperty("provider");
@@ -449,7 +450,15 @@ describe("describe-workflow-node-catalog: the API request", () => {
       "timeoutSeconds",
       "pagination",
       "includeStatus",
+      "fieldsToKeep",
     ]);
+    expect(entry.description).toContain("Fields to keep");
+    expect(entry.description).toContain("fieldsMissing");
+    const keepField = (
+      entry.fields as { name: string; label?: string; description?: string }[]
+    ).find((field) => field.name === "fieldsToKeep");
+    expect(keepField?.label).toBe("Fields to keep");
+    expect(keepField?.description).toContain("user.login");
     for (const field of entry.fields as { description?: string }[]) {
       expect(field.description?.length ?? 0).toBeGreaterThan(10);
     }

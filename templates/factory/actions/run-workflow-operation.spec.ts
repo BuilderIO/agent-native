@@ -841,6 +841,7 @@ describe("run-workflow-operation: every operation in the catalog", () => {
         return { cursorPath: "next", cursorParam: "cursor" };
       }
       if (field.name === "includeStatus") return false;
+      if (field.name === "fieldsToKeep") return ["number", "user.login"];
     }
     switch (field.type) {
       case "number":

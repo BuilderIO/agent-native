@@ -84,6 +84,32 @@ describe("an API request card", () => {
     ).not.toContain("missing_required_field");
   });
 
+  it("words a refused list of fields to keep, each reason in its own sentence", () => {
+    const sentenceFor = (list: unknown) => {
+      const { editor, nodeId } = stepWith({
+        path: fixed("repos/acme/web/pulls"),
+        fieldsToKeep: fixed(list),
+      });
+      return card(editor, nodeId).issues.map((issue) =>
+        strings.issue.sentence(issue),
+      );
+    };
+    expect(sentenceFor(["number", "a..b"])).toContain(
+      "Name each level between the dots, such as user.login.",
+    );
+    expect(sentenceFor(["a", "a"])).toContain("This field is already listed.");
+    expect(sentenceFor(["a.__proto__"])).toContain(
+      "That name is reserved and cannot be used.",
+    );
+    // A list the server accepts adds no problem to the card.
+    const plain = stepWith({ path: fixed("repos/acme/web/pulls") });
+    expect(sentenceFor(["number", "user.login"])).toEqual(
+      card(plain.editor, plain.nodeId).issues.map((issue) =>
+        strings.issue.sentence(issue),
+      ),
+    );
+  });
+
   it("words a refused field from its typed code, not from the validator's English", () => {
     const { editor, nodeId } = stepWith({
       path: fixed("https://api.github.com/repos/a/b"),

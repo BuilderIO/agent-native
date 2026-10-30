@@ -9,6 +9,7 @@ import {
   freeFormRoleOf,
   isDeniedHeader,
   readFreeAuth,
+  readFreeFieldsToKeep,
   readFreeHeaders,
   readFreePagination,
   readFreePath,
@@ -406,11 +407,13 @@ describe("checkFreeFormValue", () => {
     timeoutSeconds: "timeoutSeconds",
     pagination: "pagination",
     includeStatus: "includeStatus",
+    fieldsToKeep: "fieldsToKeep",
     placeholders: ["projectId"],
   };
 
   it("names the role of each field", () => {
     expect(freeFormRoleOf(names, "path")).toBe("path");
+    expect(freeFormRoleOf(names, "fieldsToKeep")).toBe("fieldsToKeep");
     expect(freeFormRoleOf(names, "authentication")).toBe("auth");
     expect(freeFormRoleOf(names, "timeoutSeconds")).toBe("timeoutSeconds");
     expect(freeFormRoleOf(names, "other")).toBeUndefined();
@@ -440,9 +443,40 @@ describe("checkFreeFormValue", () => {
     ).toBeNull();
   });
 
+  it("gives the typed refusal for a list of paths to keep that a run would give", () => {
+    expect(
+      checkFreeFormValue(names, "fieldsToKeep", ["number", "user.login"]),
+    ).toBeNull();
+    expect(checkFreeFormValue(names, "fieldsToKeep", [])).toEqual({
+      code: "invalid_fields_to_keep",
+      message: `"fieldsToKeep" is empty. Leave it out to keep the whole answer.`,
+    });
+    expect(
+      checkFreeFormValue(names, "fieldsToKeep", ["a.__proto__"])?.code,
+    ).toBe("invalid_fields_to_keep");
+  });
+
   it("leaves an empty path to the required-field check and has nothing to say about the rest", () => {
     expect(checkFreeFormValue(names, "path", "  ")).toBeNull();
     expect(checkFreeFormValue(names, "auth", "none")).toBeNull();
     expect(checkFreeFormValue(names, "includeStatus", true)).toBeNull();
+  });
+});
+
+describe("readFreeFieldsToKeep", () => {
+  it("hands back the paths and their parts", () => {
+    expect(value(readFreeFieldsToKeep(["number", " user.login "]))).toEqual({
+      paths: ["number", "user.login"],
+      segments: [["number"], ["user", "login"]],
+    });
+  });
+
+  it("refuses with its own code, naming the path and never a value", () => {
+    const refused = refusal(readFreeFieldsToKeep(["a..b"]));
+    expect(refused.code).toBe("invalid_fields_to_keep");
+    expect(refused.message).toBe(`The path "a..b" has an empty part.`);
+    expect(refusal(readFreeFieldsToKeep("number")).code).toBe(
+      "invalid_fields_to_keep",
+    );
   });
 });

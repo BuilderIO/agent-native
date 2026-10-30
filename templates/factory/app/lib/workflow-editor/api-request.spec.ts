@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { argsForOperation } from "@/components/workflow-canvas/inspector/OperationFields";
 import { WORKFLOW_CATALOG } from "@/components/workflow/workflow-catalog";
 
 import {
@@ -12,6 +13,7 @@ import {
   apiRequestShape,
   applyCurlImport,
   authenticationOf,
+  availableOptions,
   fitsRows,
   hasEmptyPath,
   hasLeftOut,
@@ -32,6 +34,7 @@ import {
   rowsOf,
   splitQueryFromPath,
   withAuthentication,
+  withFieldsToKeep,
   withOption,
   withoutOption,
   withParams,
@@ -140,6 +143,11 @@ describe("what the form writes", () => {
     expect(typeof written(shape.fields.timeoutSeconds)).toBe("number");
     expect(fieldType(shape.fields.includeStatus!)).toBe("boolean");
     expect(written(shape.fields.includeStatus)).toBe(true);
+    const keep = optionName(shape, "fieldsToKeep");
+    expect(keep).toBeDefined();
+    args = withFieldsToKeep(shape, args, ["number", "user.login"]);
+    expect(fieldType(keep!)).toBe("json");
+    expect(written(keep)).toEqual(["number", "user.login"]);
   });
 
   it("produces a node the catalog's own checks accept", () => {
@@ -814,5 +822,136 @@ describe("the problems the editor lists", () => {
     expect(annotated.filter((issue) => issue.nodeId === nodeId)).toEqual([
       { code: "port_leads_nowhere", nodeId, port: "out" },
     ]);
+  });
+});
+
+describe("fields to keep", () => {
+  const keepName = optionName(shape, "fieldsToKeep")!;
+  const base = (): ApiRequestArgs => ({
+    ...defaultArgs(github!),
+    [shape.fields.path]: fixed("repos/acme/web/pulls"),
+  });
+
+  it("is an option of every provider's API request, written under the operation's own field name", () => {
+    expect(keepName).toBe("fieldsToKeep");
+    for (const def of apiRequestOperations(WORKFLOW_CATALOG)) {
+      const own = shapeOf(def);
+      expect(availableOptions(own)).toContain("fieldsToKeep");
+      const field = def.fields.find(
+        (candidate) => candidate.name === optionName(own, "fieldsToKeep"),
+      );
+      expect(field?.type).toBe("json");
+      expect(field?.required).toBeFalsy();
+    }
+  });
+
+  it("writes the chips as a list of text, and nothing at all when there are none", () => {
+    const set = withFieldsToKeep(shape, base(), ["number", "user.login"]);
+    expect(set[keepName]).toEqual(fixed(["number", "user.login"]));
+    expect(activeOptions(shape, set)).toEqual(["fieldsToKeep"]);
+    const cleared = withFieldsToKeep(shape, set, []);
+    expect(keepName in cleared).toBe(false);
+    expect(activeOptions(shape, cleared)).toEqual([]);
+  });
+
+  it("goes with the options, and the other options leave it alone", () => {
+    let args = withFieldsToKeep(shape, base(), ["number"]);
+    args = withOption(shape, args, "timeout");
+    expect(withoutOption(shape, args, "timeout")[keepName]).toEqual(
+      fixed(["number"]),
+    );
+    expect(keepName in withoutOption(shape, args, "fieldsToKeep")).toBe(false);
+  });
+
+  it("is kept when the step moves to another provider's API request", () => {
+    const args = withFieldsToKeep(shape, base(), ["number", "user.login"]);
+    const other = apiRequestOperationFor(WORKFLOW_CATALOG, "slack")!;
+    expect(argsForOperation(other, args)[keepName]).toEqual(
+      fixed(["number", "user.login"]),
+    );
+  });
+
+  it("is kept when a cURL command is imported, which resets the rest of the step", () => {
+    const parsed = parseCurlImport("curl https://slack.com/api/users.list", [
+      { id: "slack", baseUrl: "https://slack.com/api" },
+    ]);
+    if (!parsed.ok) throw new Error("expected the import to succeed");
+    let current = withFieldsToKeep(shape, base(), ["members.id"]);
+    current = withOption(shape, current, "timeout");
+    const applied = applyCurlImport(WORKFLOW_CATALOG, parsed, current);
+    expect(applied?.args[keepName]).toEqual(fixed(["members.id"]));
+    expect(applied?.args[shape.fields.timeoutSeconds!]).toBe(undefined);
+    // With nothing to keep, an import adds nothing.
+    expect(
+      keepName in
+        (applyCurlImport(WORKFLOW_CATALOG, parsed, base())?.args ?? {}),
+    ).toBe(false);
+  });
+
+  it("flags a list the server would refuse, by the first thing wrong with it", () => {
+    const problem = (value: unknown) =>
+      apiRequestProblems(shape, { ...base(), [keepName]: fixed(value) }).find(
+        (entry) => entry.field === "fieldsToKeep",
+      );
+    expect(problem(["number", "user.login"])).toBe(undefined);
+    expect(problem([])).toEqual({
+      field: "fieldsToKeep",
+      code: "invalid_fields_to_keep",
+      reason: "empty",
+    });
+    expect(problem("number")).toMatchObject({ reason: "shape" });
+    expect(problem(["ok", "a..b"])).toEqual({
+      field: "fieldsToKeep",
+      code: "invalid_fields_to_keep",
+      reason: "segment",
+      path: "a..b",
+    });
+    expect(problem(["a", "a"])).toMatchObject({
+      reason: "duplicate",
+      path: "a",
+    });
+    expect(problem(["__proto__"])).toMatchObject({ reason: "reserved" });
+  });
+
+  it("does not judge a list that holds a {{ }} hole, which only a run can fill", () => {
+    expect(
+      apiRequestProblems(shape, {
+        ...base(),
+        [keepName]: fixed(["{{ settings.field }}", "a..b"]),
+      }),
+    ).toEqual([]);
+  });
+
+  it("words the validator's refusal of the list from its typed code", () => {
+    const editor = createWorkflowEditor({
+      graph: workflowGraphSchema.parse({ nodes: [], edges: [], settings: {} }),
+      catalog: WORKFLOW_CATALOG,
+    });
+    const trigger = editor.addNode("trigger");
+    if (!trigger.ok) throw new Error("no trigger");
+    const added = editor.addNode("lookup", {
+      operationId: "github.apiRequest",
+      after: { node: trigger.node.id, port: "out" },
+    });
+    if (!added.ok) throw new Error("no lookup");
+    const set = editor.updateNodeSettings(added.node.id, {
+      operation: "github.apiRequest",
+      args: { ...base(), [keepName]: fixed(["number", "bad..path"]) },
+    });
+    if (!set.ok) throw new Error("settings refused");
+    const annotated = annotateApiRequestIssues(
+      editor.getSnapshot().graph,
+      WORKFLOW_CATALOG,
+      editor.validate().issues,
+    );
+    expect(
+      annotated.find((issue) => issue.apiProblem?.field === "fieldsToKeep")
+        ?.apiProblem,
+    ).toEqual({
+      field: "fieldsToKeep",
+      code: "invalid_fields_to_keep",
+      reason: "segment",
+      path: "bad..path",
+    });
   });
 });

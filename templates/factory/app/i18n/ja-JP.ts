@@ -531,6 +531,8 @@ const messages = {
       cutsMore_other: "ほか {{count}} 件を切り詰め",
       tooLargeHint:
         "ステップが次に渡せるのは、合計で約 64 KB と 100 件の項目までです。項目に付いている前の回答もすべて数えます。クエリを絞るか、ページネーションを使うか、1 回の実行での呼び出しを減らしてください。",
+      fieldsMissing: "回答に次のフィールドが見つかりませんでした: {{names}}",
+      fieldsMissingMore: "ほか {{count}} 件",
       cutNotice:
         "回答の冒頭だけを表示しています。ステップは読み取った内容の短い記録を保持します。",
       noOutputRecorded:
@@ -565,6 +567,7 @@ const messages = {
         invalid_timeout: "タイムアウトが正しくありません",
         incompatible_fields:
           "ステータスとヘッダーはページネーションと一緒に返せません",
+        invalid_fields_to_keep: "保持するフィールドが正しくありません",
         invalid_field: "フィールドが空か、正しくありません",
       },
     },
@@ -1385,6 +1388,25 @@ const messages = {
         optionTimeout: "タイムアウト",
         optionPagination: "ページネーション",
         optionStatus: "レスポンスのステータスとヘッダーを含める",
+        optionFieldsToKeep: "保持するフィールド",
+        optionFieldsToKeepHint:
+          "後続のステップが使うフィールドだけを残し、長い回答を収めます。",
+        fieldsPlaceholder:
+          "user.login などのフィールドを入力して Enter を押してください",
+        fieldsInputLabel: "保持するフィールドを追加",
+        removeField: "{{path}} を削除",
+        pickFromResponse: "前回の回答から選択",
+        pickSearch: "フィールドを検索",
+        pickNeedsTest:
+          "先に「ステップをテスト」を実行し、その回答から選んでください。",
+        pickRunning: "「ステップをテスト」を実行中です。",
+        pickFailed: "前回のテストが失敗したため、選択できる回答がありません。",
+        pickNoFields: "回答には選択できるフィールドがありません。",
+        pickCutNote:
+          "回答が途中で切れているため、後のエントリにだけ現れるフィールドは一覧に含まれていません。",
+        pickCapped: "最初の {{count}} 件のフィールドを表示しています。",
+        pickKeptNote:
+          "前回の回答のフィールドを表示します。すべて見るには、保持するフィールドを指定せずに「ステップをテスト」を実行してください。",
         optionBlockedByPagination: "ページネーションとは併用できません。",
         optionBlockedByStatus:
           "レスポンスのステータスとヘッダーを含めている間は使用できません。",
@@ -1435,6 +1457,19 @@ const messages = {
           paginationMaxPages: "1 〜 5 の整数でページ数を指定してください。",
           statusWithPaging:
             "ステータスとヘッダーをオフにするか、ページネーションをオフにしてください。ステータスが分かるのは最後のページだけです。",
+          fieldsToKeepShape:
+            "保持するフィールドは、フィールド名のリストである必要があります。",
+          fieldsToKeepEmpty:
+            "フィールドを 1 つ以上追加するか、このオプションを削除してください。",
+          fieldsToKeepCount: "保持するフィールドは最大 50 個までです。",
+          fieldsToKeepControl:
+            "フィールド名に制御文字を含めることはできません。",
+          fieldsToKeepSegment:
+            "user.login のように、ドットで区切った各階層に名前を付けてください。",
+          fieldsToKeepLong: "フィールド名の各階層は最大 64 文字までです。",
+          fieldsToKeepDeep: "フィールドの階層は最大 8 段までです。",
+          fieldsToKeepReserved: "その名前は予約されているため使用できません。",
+          fieldsToKeepDuplicate: "このフィールドはすでに一覧にあります。",
           droppedCredentials:
             "{{names}} を除外しました。認証情報はステップに保存されません。",
         },

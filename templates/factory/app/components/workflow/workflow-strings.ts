@@ -309,6 +309,10 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
       cutsMore: (count: number) =>
         t("workflows.apiRequest.cutsMore", { count }),
       tooLargeHint: t("workflows.apiRequest.tooLargeHint"),
+      fieldsMissing: (names: string) =>
+        t("workflows.apiRequest.fieldsMissing", { names }),
+      fieldsMissingMore: (count: number) =>
+        t("workflows.apiRequest.fieldsMissingMore", { count }),
       cutNotice: t("workflows.apiRequest.cutNotice"),
       noOutputRecorded: t("workflows.apiRequest.noOutputRecorded"),
       liveMark: (status: number, ms: number) =>
@@ -343,6 +347,9 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
         invalid_timeout: t("workflows.apiRequest.heading.invalid_timeout"),
         incompatible_fields: t(
           "workflows.apiRequest.heading.incompatible_fields",
+        ),
+        invalid_fields_to_keep: t(
+          "workflows.apiRequest.heading.invalid_fields_to_keep",
         ),
         invalid_field: t("workflows.apiRequest.heading.invalid_field"),
       } satisfies Record<ApiErrorKind, string>,

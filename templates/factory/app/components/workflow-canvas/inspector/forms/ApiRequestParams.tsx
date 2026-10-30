@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import type { OperationDefinition } from "@/lib/workflow-editor";
 import {
   activeOptions,
+  API_REQUEST_OPTIONS,
   apiRequestProblems,
   availableOptions,
   fitsRows,
@@ -40,6 +41,7 @@ import {
   type ParamKind,
   type ParamRow,
 } from "@/lib/workflow-editor/api-request";
+import { chipsOf } from "@/lib/workflow-editor/fields-to-keep";
 
 import { useWorkflowCanvasStrings } from "../../strings";
 import { BindingField, JsonValueInput } from "../BindingField";
@@ -52,6 +54,7 @@ import {
   TextInput,
 } from "../fields";
 import { useQuietMarks } from "../issue-marks";
+import { FieldsToKeepBody } from "./FieldsToKeep";
 
 interface SectionProps {
   def: OperationDefinition;
@@ -353,17 +356,31 @@ export function OptionsSection(section: SectionProps) {
   const s = useWorkflowCanvasStrings().inspector.apiRequest;
   const quiet = useQuietMarks();
   const { shape, args, onArgs } = section;
+  // Fields to keep saves nothing until there is a path, so an option added and still empty is only open here.
+  const [keepOpen, setKeepOpen] = useState(false);
   const active = activeOptions(shape, args);
-  const addable = availableOptions(shape).filter(
-    (option) => !active.includes(option),
+  const available = availableOptions(shape);
+  const shown = API_REQUEST_OPTIONS.filter(
+    (option) =>
+      active.includes(option) ||
+      (option === "fieldsToKeep" &&
+        keepOpen &&
+        available.includes("fieldsToKeep")),
   );
+  const addable = available.filter((option) => !shown.includes(option));
   const problems = quiet ? [] : apiRequestProblems(shape, args);
-  const label = (option: ApiRequestOption) =>
-    option === "timeout"
-      ? s.optionTimeout
-      : option === "pagination"
-        ? s.optionPagination
-        : s.optionStatus;
+  const label = (option: ApiRequestOption) => {
+    switch (option) {
+      case "timeout":
+        return s.optionTimeout;
+      case "pagination":
+        return s.optionPagination;
+      case "includeStatus":
+        return s.optionStatus;
+      case "fieldsToKeep":
+        return s.optionFieldsToKeep;
+    }
+  };
   const blockedReason = (option: ApiRequestOption) => {
     const block = optionBlock(shape, args, option);
     if (block === "pagination_on") return s.optionBlockedByPagination;
@@ -372,30 +389,42 @@ export function OptionsSection(section: SectionProps) {
 
   return (
     <div className="flex flex-col gap-2.5">
-      {active.map((option) => {
+      {shown.map((option) => {
         const name = optionName(shape, option);
         if (name === undefined) return null;
-        const body = !isPlainBinding(args, name) ? (
-          <GenericField {...section} name={name} label={label(option)} />
-        ) : option === "timeout" ? (
-          <TimeoutBody {...section} problems={problems} />
-        ) : option === "pagination" ? (
-          <PaginationFields
-            shape={shape}
-            args={args}
-            onArgs={onArgs}
-            problem={problems.find(
-              (
-                entry,
-              ): entry is Extract<ApiRequestProblem, { field: "pagination" }> =>
-                entry.field === "pagination",
-            )}
-          />
-        ) : (
-          <StatusProblem
-            problem={problems.find((entry) => entry.field === "includeStatus")}
-          />
-        );
+        const saved = optionValue(shape, args, "fieldsToKeep");
+        const body =
+          !isPlainBinding(args, name) ||
+          // A value that is not a list of text goes to the generic editor, which shows it as it is.
+          (option === "fieldsToKeep" &&
+            saved !== undefined &&
+            chipsOf(saved) === undefined) ? (
+            <GenericField {...section} name={name} label={label(option)} />
+          ) : option === "fieldsToKeep" ? (
+            <FieldsToKeepBody shape={shape} args={args} onArgs={onArgs} />
+          ) : option === "timeout" ? (
+            <TimeoutBody {...section} problems={problems} />
+          ) : option === "pagination" ? (
+            <PaginationFields
+              shape={shape}
+              args={args}
+              onArgs={onArgs}
+              problem={problems.find(
+                (
+                  entry,
+                ): entry is Extract<
+                  ApiRequestProblem,
+                  { field: "pagination" }
+                > => entry.field === "pagination",
+              )}
+            />
+          ) : (
+            <StatusProblem
+              problem={problems.find(
+                (entry) => entry.field === "includeStatus",
+              )}
+            />
+          );
         return (
           <div
             key={option}
@@ -409,7 +438,10 @@ export function OptionsSection(section: SectionProps) {
                 size="icon-xs"
                 aria-label={s.removeOption(label(option))}
                 title={s.removeOption(label(option))}
-                onClick={() => onArgs(withoutOption(shape, args, option))}
+                onClick={() => {
+                  if (option === "fieldsToKeep") setKeepOpen(false);
+                  onArgs(withoutOption(shape, args, option));
+                }}
               >
                 <IconX />
               </Button>
@@ -421,9 +453,10 @@ export function OptionsSection(section: SectionProps) {
       {addable.length > 0 ? (
         <Select
           value=""
-          onValueChange={(option) =>
-            onArgs(withOption(shape, args, option as ApiRequestOption))
-          }
+          onValueChange={(option) => {
+            if (option === "fieldsToKeep") setKeepOpen(true);
+            else onArgs(withOption(shape, args, option as ApiRequestOption));
+          }}
         >
           <SelectTrigger size="sm" aria-label={s.addOption}>
             <SelectValue placeholder={s.addOption} />
@@ -442,6 +475,10 @@ export function OptionsSection(section: SectionProps) {
                     {reason ? (
                       <span className="text-xs text-muted-foreground">
                         {reason}
+                      </span>
+                    ) : option === "fieldsToKeep" ? (
+                      <span className="text-xs text-muted-foreground">
+                        {s.optionFieldsToKeepHint}
                       </span>
                     ) : null}
                   </span>
