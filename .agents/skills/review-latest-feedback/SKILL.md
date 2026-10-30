@@ -168,8 +168,8 @@ the invocation gives), for new reports and open items alike. An older thread
 is in the window too when we have already replied in it and a person has
 replied since the window began: a channel read only shows roots, so search for
 recent thread replies (`in:<#channel> is:thread after:<date>`) to find them.
-Roots listed in `memory.md` under "Claimed, not yet answered" or "Must handle
-next run" (from the coverage check) are always in the window. Other older threads are left as they are, except reports listed under
+Roots in `memory.md` under "Claimed reports", "Claimed, not yet answered",
+or "Must handle next run" are always in the window. Other older threads are left as they are, except reports listed under
 `Reports` in a sweep PR opened or merged in that window: those always get
 their close-out.
 
@@ -186,16 +186,10 @@ no reaction and no thread yet.
   root showing `eyes`, `white_check_mark`, `ticket`, `mag`, `yes-party`, or
   `upvote`. Don't rely on
   `hasmy:` searches.
-- **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
-  hand to things he is working on himself, so a 👀 from his account is not
-  enough to make a root this workflow's. Require evidence that this workflow
-  claimed the root with 👀, such as a matching run recap, proof-bearing PR
-  report, or the automation memory's "Claimed reports" list (including legacy
-  "Claimed, not yet answered" entries). A bot
-  reply or reaction alone does not establish ownership. Investigate an owned
-  report before replying; otherwise leave the root alone. Read the thread of every workflow root in the
-  window, not just the channel row: a human reply newer than ours only shows
-  there, and runs that skipped this left people waiting after our 🎫. A root
+- **Open items first.** Verify Steve's 👀 on the root and workflow ownership
+  from a matching run recap, proof-bearing PR, or automation memory claim.
+  A bot reply, reaction, or memory entry alone is insufficient. Investigate
+  before replying, and read the thread for human updates. A root
   listed in the `Reports` section of a sweep
   PR that is still open and that this run didn't open belongs to the run
   working on that PR: don't react
@@ -256,9 +250,8 @@ Issues from the error and health sources above go in the same buckets,
 ranked with the Slack reports by people affected. They have no thread to react on,
 so they appear only in the recap.
 
-Take the Fix reports in order of how many people they hurt, and claim all
-of them. A claim you can't finish stays under "Claimed reports" for the
-next run. Any Fix, Build, or Needs-a-person root you leave
+Claim Fix reports in order of people affected. Unfinished claims stay in
+"Claimed reports" for the next run. Any Fix, Build, or Needs-a-person root you leave
 unclaimed gets no reaction, only one line in the recap saying why, so
 nothing is dropped silently. That covers every candidate your source helpers
 return: each one ends the run either claimed or on a recap line with its
