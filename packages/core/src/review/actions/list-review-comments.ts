@@ -15,7 +15,7 @@ import {
 } from "../identity.js";
 import { assertReviewableResourceAccess } from "../registry.js";
 import {
-  getLiveReviewReplyAuthorsByThread,
+  getOtherLiveReviewAuthorsByRoot,
   getReviewStatus,
   getReviewDiscussionStateForComments,
   getReviewThreadSummary,
@@ -104,11 +104,11 @@ export default defineAction({
     const redactIdentity = shouldRedactReviewIdentity(actionCtx, access);
     const isEditor = roleSatisfies(access.role, "editor");
     const canComment = roleSatisfies(access.role, "commenter");
-    // Only a commenter's own threads can turn on who replied: an editor may
-    // delete any, and nobody else may delete one they did not start.
-    const replyAuthorsByThread =
+    // Only a commenter's own threads can turn on who else wrote in them: an
+    // editor may delete any, and nobody else may delete one they did not start.
+    const otherAuthorsByRoot =
       canComment && !isEditor
-        ? await getLiveReviewReplyAuthorsByThread(
+        ? await getOtherLiveReviewAuthorsByRoot(
             comments
               .filter(
                 (comment) =>
@@ -120,7 +120,10 @@ export default defineAction({
                     replyAuthorEmails: [],
                   }),
               )
-              .map((comment) => comment.threadId),
+              .map((comment) => ({
+                id: comment.id,
+                threadId: comment.threadId,
+              })),
             { resourceType: args.resourceType, resourceId: args.resourceId },
           )
         : new Map<string, Array<string | null>>();
@@ -150,8 +153,7 @@ export default defineAction({
                 isEditor,
                 actorEmail: actionCtx?.userEmail,
                 rootAuthorEmail: comment.authorEmail,
-                replyAuthorEmails:
-                  replyAuthorsByThread.get(comment.threadId) ?? [],
+                replyAuthorEmails: otherAuthorsByRoot.get(comment.id) ?? [],
               }),
           }),
     }));

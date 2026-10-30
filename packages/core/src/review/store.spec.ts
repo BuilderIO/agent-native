@@ -31,7 +31,7 @@ const {
   consumeReviewFeedback,
   deleteReviewComment,
   ensureReviewTables,
-  getLiveReviewReplyAuthorsByThread,
+  getOtherLiveReviewAuthorsByRoot,
   getReviewCommentById,
   getReviewStatus,
   insertReviewComment,
@@ -355,7 +355,7 @@ describe("review store", () => {
       expect(await liveBodies("p1")).toEqual([]);
     });
 
-    it("checks and deletes the same replies when a root's thread is not its own id", async () => {
+    it("checks and deletes the same replies when a root's thread is not its own id, as a correction comment's isn't", async () => {
       const root = await insertReviewComment({
         resourceType: "plan",
         resourceId: "p1",
@@ -390,6 +390,52 @@ describe("review store", () => {
       expect(await liveBodies("p1")).toEqual(["Root", "Carol's reply"]);
       expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(2);
       expect(await liveBodies("p1")).toEqual([]);
+    });
+
+    it("takes the whole thread, another first-level comment included, and checks all its authors", async () => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: "shared-thread",
+        body: "Root",
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const second = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: "shared-thread",
+        body: "Second root",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+        metadata: { resolutionNote: "Carol's note", source: "pin" },
+      });
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: "shared-thread",
+        parentCommentId: second.id,
+        body: "Dave's reply",
+        authorEmail: "dave@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const seen: Array<ReadonlyArray<string | null>> = [];
+
+      expect(
+        await deleteReviewComment(root.id, "alice@example.com", {
+          assertThreadDeletable: (authors) => {
+            seen.push(authors);
+          },
+        }),
+      ).toBe(3);
+
+      expect(seen.map((authors) => [...authors].sort())).toEqual([
+        ["carol@example.com", "dave@example.com"],
+      ]);
+      expect(await liveBodies("p1")).toEqual([]);
+      expect(
+        await getReviewCommentById(second.id, {}, { bypassScope: true }),
+      ).toMatchObject({ body: "", metadata: { source: "pin" } });
     });
 
     it("leaves another resource's replies alone when a given thread id repeats there", async () => {
@@ -430,7 +476,7 @@ describe("review store", () => {
       expect(await liveBodies("p2")).toEqual(["Other root", "Carol's reply"]);
     });
 
-    it("lists live reply authors by thread, for one resource, without the deleted", async () => {
+    it("lists who else wrote in each first comment's thread, on one resource, without the deleted", async () => {
       const first = await thread("p1");
       const other = await thread("p2");
       await insertReviewComment({
@@ -442,16 +488,31 @@ describe("review store", () => {
         authorEmail: "carol@example.com",
         ownerEmail: "alice@example.com",
       });
+      const second = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: first.root.threadId,
+        body: "Second root",
+        authorEmail: "dave@example.com",
+        ownerEmail: "alice@example.com",
+      });
       await deleteReviewComment(first.reply.id, "bob@example.com");
       const resource = { resourceType: "plan", resourceId: "p1" };
 
+      const authors = await getOtherLiveReviewAuthorsByRoot(
+        [first.root, second, other.root],
+        resource,
+      );
       expect(
-        await getLiveReviewReplyAuthorsByThread(
-          [first.root.threadId, other.root.threadId, first.root.threadId],
-          resource,
-        ),
-      ).toEqual(new Map([[first.root.threadId, ["carol@example.com"]]]));
-      expect(await getLiveReviewReplyAuthorsByThread([], resource)).toEqual(
+        new Map([...authors].map(([id, emails]) => [id, [...emails].sort()])),
+      ).toEqual(
+        new Map([
+          [first.root.id, ["carol@example.com", "dave@example.com"]],
+          [second.id, ["alice@example.com", "carol@example.com"]],
+          [other.root.id, []],
+        ]),
+      );
+      expect(await getOtherLiveReviewAuthorsByRoot([], resource)).toEqual(
         new Map(),
       );
     });

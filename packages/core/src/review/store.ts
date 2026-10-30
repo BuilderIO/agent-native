@@ -1316,42 +1316,49 @@ export async function sendReviewThreadToAgent(
 }
 
 /**
- * Who wrote each live reply, by the thread it sits under. Read on its own, so a
- * list cut short by its limit cannot hide a reply from the answer.
+ * For each of a thread's first comments, who wrote every other live comment in
+ * its thread, which deleting it would take along. Read on its own, so a list
+ * cut short by its limit cannot hide one from the answer.
  */
-export async function getLiveReviewReplyAuthorsByThread(
-  threadIds: ReadonlyArray<string>,
+export async function getOtherLiveReviewAuthorsByRoot(
+  roots: ReadonlyArray<{ id: string; threadId: string }>,
   resource: { resourceType: string; resourceId: string },
 ): Promise<Map<string, Array<string | null>>> {
-  const authorsByThread = new Map<string, Array<string | null>>();
-  const ids = [...new Set(threadIds)];
-  if (!ids.length) return authorsByThread;
+  const authorsByRoot = new Map<string, Array<string | null>>();
+  const threadIds = [...new Set(roots.map((root) => root.threadId))];
+  if (!threadIds.length) return authorsByRoot;
   await ensureReviewTables();
   // raw-sql-ok: the interpolation is only `?` placeholders; the ids are bound.
   const { rows } = await getDbExec().execute({
-    sql: `SELECT thread_id, author_email FROM agent_review_comments
-           WHERE resource_type = ? AND resource_id = ?
-             AND parent_comment_id IS NOT NULL AND deleted_at IS NULL
-             AND thread_id IN (${ids.map(() => "?").join(",")})`,
-    args: [resource.resourceType, resource.resourceId, ...ids],
+    sql: `SELECT id, thread_id, author_email FROM agent_review_comments
+           WHERE resource_type = ? AND resource_id = ? AND deleted_at IS NULL
+             AND thread_id IN (${threadIds.map(() => "?").join(",")})`,
+    args: [resource.resourceType, resource.resourceId, ...threadIds],
   });
-  for (const row of rows) {
-    const { thread_id: threadId, author_email: email } = row as {
-      thread_id: unknown;
-      author_email?: unknown;
-    };
-    const authors = authorsByThread.get(String(threadId)) ?? [];
-    authors.push(typeof email === "string" ? email : null);
-    authorsByThread.set(String(threadId), authors);
+  for (const root of roots) {
+    authorsByRoot.set(
+      root.id,
+      rows.flatMap((row) => {
+        const {
+          id,
+          thread_id: threadId,
+          author_email: email,
+        } = row as { id: unknown; thread_id: unknown; author_email?: unknown };
+        return String(threadId) === root.threadId && String(id) !== root.id
+          ? [typeof email === "string" ? email : null]
+          : [];
+      }),
+    );
   }
-  return authorsByThread;
+  return authorsByRoot;
 }
 
 export interface DeleteReviewCommentOptions {
   /**
-   * Called for a thread's first comment with the author of each live reply,
-   * read after the thread is locked, so no reply can land between the check and
-   * the delete. Throwing refuses the delete and removes nothing.
+   * Called for a thread's first comment with the author of every other live
+   * comment in the thread, which the delete takes along. They're read after the
+   * thread is locked, so no reply can land between the check and the delete.
+   * Throwing refuses the delete and removes nothing.
    */
   assertThreadDeletable?: (
     replyAuthorEmails: ReadonlyArray<string | null>,
@@ -1359,10 +1366,10 @@ export interface DeleteReviewCommentOptions {
 }
 
 /**
- * Soft-deletes a comment, and with a thread's first comment the thread's live
- * replies too. Each row stays, but what someone wrote or attached is cleared:
- * its text, mentions, anchor, image attachments and any resolution note, as they are
- * in apps that remove the row.
+ * Soft-deletes a comment, and with a thread's first comment the rest of the
+ * thread too. Each row stays, but what someone wrote or attached is cleared:
+ * its text, mentions, anchor, image attachments and any resolution note, as
+ * they are in apps that remove the row.
  */
 export async function deleteReviewComment(
   id: string,
@@ -1388,31 +1395,49 @@ export async function deleteReviewComment(
     const root = roots[0] as
       | { thread_id: unknown; resource_type: unknown; resource_id: unknown }
       | undefined;
-    // A thread's first comment is the thread. Replies left behind would have no
-    // root for any list to hang them on, but would still sit in the table.
-    // A root's thread is usually its own id, but the store takes one given at
-    // insert, which another resource could repeat, so the replies are found by
+    // A thread's first comment is the thread. Comments left behind would have
+    // no root for any list to hang them on, but would still sit in the table.
+    // A thread is everything that shares its id, as listing, resolving and
+    // muting take it, so that's what goes, including any other comment with no
+    // parent. A root's thread isn't always its own id (a suggestion's
+    // correction comment opens one of its own), and a thread given at insert
+    // could repeat on another resource, so the rest of the thread is found by
     // the thread and resource stored on the root. The check is shown exactly
-    // the replies the delete takes.
-    const replies: DeletedReplyRow[] = root
+    // the comments the delete takes.
+    const rest: DeletedCommentRow[] = root
       ? ((
-          await tx.execute(sql`SELECT id, author_email, metadata_json
+          await tx.execute(sql`SELECT id, parent_comment_id, author_email,
+                metadata_json
                FROM agent_review_comments
               WHERE thread_id = ${sql.value(String(root.thread_id))}
                 AND resource_type = ${sql.value(String(root.resource_type))}
                 AND resource_id = ${sql.value(String(root.resource_id))}
-                AND parent_comment_id IS NOT NULL
+                AND id <> ${sql.value(id)}
                 AND deleted_at IS NULL`)
-        ).rows as DeletedReplyRow[])
+        ).rows as DeletedCommentRow[])
       : [];
     if (root && options.assertThreadDeletable) {
       options.assertThreadDeletable(
-        replies.map((reply) =>
-          typeof reply.author_email === "string" ? reply.author_email : null,
+        rest.map((comment) =>
+          typeof comment.author_email === "string"
+            ? comment.author_email
+            : null,
         ),
       );
     }
-    const deleted = await clearDeletedReviewComment(tx, id, actor, now);
+    let deleted = await clearDeletedReviewComment(tx, id, actor, now);
+    // Another comment with no parent can have its metadata changed while this
+    // runs, as resolving writes a note to each, so it gets the same rechecked
+    // update as the root.
+    for (const other of rest.filter((comment) => !comment.parent_comment_id)) {
+      deleted += await clearDeletedReviewComment(
+        tx,
+        String(other.id),
+        actor,
+        now,
+      );
+    }
+    const replies = rest.filter((comment) => comment.parent_comment_id);
     const deletedReplies = await clearDeletedReviewReplies(
       tx,
       replies,
@@ -1424,8 +1449,9 @@ export async function deleteReviewComment(
   return client.transaction ? client.transaction(deleteIn) : deleteIn(client);
 }
 
-interface DeletedReplyRow {
+interface DeletedCommentRow {
   id: unknown;
+  parent_comment_id?: unknown;
   author_email?: unknown;
   metadata_json?: unknown;
 }
@@ -1522,13 +1548,13 @@ async function clearDeletedReviewComment(
 const DELETED_REPLIES_PER_STATEMENT = 1_000;
 
 /**
- * Clears a deleted thread's replies, a thousand to a statement. Only a
- * thread's first comment has its metadata changed after it's written, so each
- * reply's metadata, read under the thread's lock, is still current here.
+ * Clears a deleted thread's replies, a thousand to a statement. Only a comment
+ * with no parent has its metadata changed after it's written, so each reply's
+ * metadata, read under the thread's lock, is still current here.
  */
 async function clearDeletedReviewReplies(
   client: DbExec,
-  replies: readonly DeletedReplyRow[],
+  replies: readonly DeletedCommentRow[],
   deletedBy: string | null,
   now: string,
 ): Promise<number> {
