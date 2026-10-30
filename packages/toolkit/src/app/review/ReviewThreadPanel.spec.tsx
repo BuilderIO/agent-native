@@ -1304,9 +1304,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
         items[1]?.querySelector('[aria-label="Add reaction"]'),
       ).not.toBeNull();
       expect(items[1]?.textContent).toContain("Agent");
-      expect(
-        items[1]?.querySelector("[data-review-comment-clock]"),
-      ).not.toBeNull();
+      expect(items[1]?.querySelector("[data-review-comment-clock]")).toBeNull();
       expect(
         items[1]
           ?.querySelector('[aria-label="🔥, 1 reaction"]')

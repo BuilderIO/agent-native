@@ -193,6 +193,18 @@ describe("ReviewThreadRow", () => {
     expect(onSelect).toHaveBeenCalledWith(thread);
   });
 
+  it("draws one letter at the row's 16px avatar size", () => {
+    const container = renderRow({
+      thread: makeThread({ authorName: "Maya Singh" }),
+    });
+
+    const avatar = container.querySelector<HTMLElement>(
+      '[data-review-thread-row] > span[aria-hidden="true"]',
+    );
+    expect(avatar?.textContent).toBe("M");
+    expect(avatar?.classList.contains("size-4")).toBe(true);
+  });
+
   it("shows no initials for an agent author, only its mark", () => {
     const container = renderRow({
       thread: makeThread({

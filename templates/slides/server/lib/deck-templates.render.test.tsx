@@ -60,3 +60,14 @@ describe("built-in templates through the actual slide renderer", () => {
     );
   }
 });
+
+describe("built-in template geometry", () => {
+  for (const template of listBuiltInDeckTemplates()) {
+    it.each(template.slides)(
+      `${template.id} $id authors only whole pixels`,
+      (slide) => {
+        expect(slide.content.match(/\d*\.\d+px/g) ?? []).toEqual([]);
+      },
+    );
+  }
+});

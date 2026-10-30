@@ -18,6 +18,7 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
 import {
@@ -515,7 +516,7 @@ export default defineAction({
             .update(schema.decks)
             .set({
               title: existingDeckTitle,
-              data: JSON.stringify(data),
+              ...deckDataColumns(data),
               designSystemId: designSystemId ?? previousDesignSystemId,
               updatedAt: writeNow,
             })
@@ -683,7 +684,7 @@ export default defineAction({
       await db.insert(schema.decks).values({
         id,
         title: resolvedTitle,
-        data: JSON.stringify(data),
+        ...deckDataColumns(data),
         designSystemId: resolvedDesignSystemId ?? null,
         ownerEmail,
         orgId: getRequestOrgId(),
