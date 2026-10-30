@@ -12,7 +12,8 @@ vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
 }));
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (definition: unknown) => definition,
 }));
 
@@ -76,6 +77,29 @@ describe("duplicate-deck", () => {
     expect(insertedData.slides).toEqual([
       { id: "slide-copy", content: "<div />" },
     ]);
+  });
+
+  it("maps a newId collision to a 409 without leaking the SQL", async () => {
+    // Drizzle wraps the driver error: the SQL text is on the outer message and the 23505 code on its cause.
+    mocks.insertValues.mockRejectedValueOnce(
+      Object.assign(
+        new Error('Failed query: insert into "decks" params: ["deck-taken"]'),
+        {
+          cause: Object.assign(new Error("duplicate key value"), {
+            code: "23505",
+          }),
+        },
+      ),
+    );
+
+    const failure = await action
+      .run({ deckId: "deck-source", newId: "deck-taken" })
+      .catch(
+        (error: unknown) => error as { statusCode?: number; message: string },
+      );
+
+    expect(failure.statusCode).toBe(409);
+    expect(failure.message).not.toContain("insert into");
   });
 
   it("reports the copy as a duplicated deck", async () => {

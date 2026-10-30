@@ -325,11 +325,10 @@ export function assertServerPptxExportable(
   if (html.includes('data-imported-pptx="true"')) return;
   if (!hasPersistedFreeformObject) return;
 
-  const error = new Error(
+  fail(
     `Slide ${slideNumber} contains freeform positioned objects. Export this deck from the Slides editor with Export > PowerPoint so browser-rendered geometry is preserved. The server export stopped instead of silently reflowing those objects.`,
+    { errorCode: "unsupported_positioned_slide_export", statusCode: 422 },
   );
-  error.name = "UnsupportedPositionedSlideExportError";
-  throw error;
 }
 
 interface ParsedSlide {

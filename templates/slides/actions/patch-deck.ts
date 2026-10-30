@@ -740,8 +740,9 @@ export function assertSourceImportSlidesCovered(
   );
   if (missingSlideIds.length === 0) return;
 
-  throw new Error(
+  fail(
     `Deck-wide source restyle requires one content patch per imported slide. Missing ${missingSlideIds.length} slide(s): ${missingSlideIds.slice(0, 12).join(", ")}${missingSlideIds.length > 12 ? ", …" : ""}. Continue with every source slide ID in one patch-deck call before verifying the changed slides with get-deck slideIds and compact=false.`,
+    { errorCode: "source_restyle_incomplete", statusCode: 400 },
   );
 }
 
@@ -1086,9 +1087,10 @@ export function applyOperation(
       const { orderedIds } = op;
       const duplicateId = firstDuplicate(orderedIds);
       if (duplicateId !== undefined) {
-        throw new Error(
-          `Cannot reorder slides with duplicate ID ${duplicateId}`,
-        );
+        fail(`Cannot reorder slides with duplicate ID ${duplicateId}`, {
+          errorCode: "duplicate_slide_id",
+          statusCode: 400,
+        });
       }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
       // Build the new order from the client's desired order, keeping only

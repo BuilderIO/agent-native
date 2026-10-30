@@ -1,6 +1,10 @@
 import { getAppConfig } from "../app-config/store.js";
 import { safeValue } from "../tracking/redaction.js";
 import { listTrackingProviders, track } from "../tracking/registry.js";
+import {
+  DATABASE_FAILURE_MESSAGE,
+  isDatabaseQueryFailure,
+} from "./embed-redaction.js";
 
 const CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo";
 const PROTOCOL_VERSION_META_KEY = "io.modelcontextprotocol/protocolVersion";
@@ -301,6 +305,12 @@ export function describeMcpError(err: unknown): {
   errorType: string;
   errorMessage: string;
 } {
+  if (isDatabaseQueryFailure(err)) {
+    return {
+      errorType: "DrizzleQueryError",
+      errorMessage: DATABASE_FAILURE_MESSAGE,
+    };
+  }
   if (err && typeof err === "object") {
     const record = err as Record<string, unknown>;
     const code = record.errorCode ?? record.code;
