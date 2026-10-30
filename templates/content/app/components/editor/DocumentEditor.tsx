@@ -10843,6 +10843,10 @@ function PageEditorSessionBody({
                                 }
                                 suggesting={isSuggesting}
                                 localFileMode={isLocalFileDocument}
+                                privateImageUploads={
+                                  !isLocalFileDocument &&
+                                  !isGitHubSourceDocument
+                                }
                                 localFilePath={
                                   isLocalFileDocument
                                     ? document.source?.path

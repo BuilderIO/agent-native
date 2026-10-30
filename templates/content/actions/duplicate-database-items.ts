@@ -9,7 +9,7 @@ import {
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconCopiedFromDocument,
 } from "../server/lib/private-icon-references.js";
@@ -242,7 +242,7 @@ export default defineAction({
             orgId: duplicate.row.document.orgId,
           },
         );
-        await syncPrivateCalloutReferences(
+        await syncPrivateBodyReferences(
           tx as unknown as ReturnType<typeof getDb>,
           {
             documentId: duplicate.duplicatedDocumentId,

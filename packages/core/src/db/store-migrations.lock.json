@@ -875,6 +875,12 @@
       "checksum": null
     }
   ],
+  "private_media": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
   "progress": [
     {
       "name": "baseline",
