@@ -125,7 +125,15 @@ describe("usage alerts", () => {
     await pglite.exec(
       "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', dismissed_window_start = 1",
     );
+    await pglite.exec(
+      `INSERT INTO usage_alert_events (id, rule_id, window_start, created_at) VALUES ('old', '${rule!.id}', 1, 1)`,
+    );
     await move();
+    expect(
+      await (
+        await pglite.prepare("SELECT COUNT(*) AS n FROM usage_alert_events")
+      ).get(),
+    ).toMatchObject({ n: 0 });
     expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
       {
         limit: 20,
