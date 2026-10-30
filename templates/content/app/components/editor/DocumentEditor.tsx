@@ -40,6 +40,7 @@ import type {
   DocumentProperty,
   DocumentSyncStatus,
 } from "@shared/api";
+import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import { commentPropertyTarget } from "@shared/comment-property-target";
 import { DOCUMENT_FLUSH_PROTOCOL } from "@shared/document-flush-protocol";
 import {
@@ -196,6 +197,10 @@ import {
   BlockFieldCommentsProvider,
   useBlockFieldComments,
 } from "./block-field-comments";
+import {
+  BlocksFieldSuggestionsProvider,
+  useBlocksFieldSuggestions,
+} from "./blocks-field-suggestion-sessions";
 import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
@@ -456,9 +461,6 @@ export function restoreCapturedEditorSelection(
   if (!controller || !snapshot) return false;
   return controller.restoreSelection(snapshot);
 }
-
-const NO_SUGGESTIONS: ResourceSuggestion[] = [];
-const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 
 export function documentEditorCommentThreads(
   threads: CommentThread[] | null | undefined,
@@ -6194,7 +6196,7 @@ function PageEditorSessionBody({
     ],
   );
 
-  const savedSuggestions = useMemo(() => {
+  const allSavedSuggestions = useMemo(() => {
     // Its author took a withdrawn suggestion back before anyone reviewed it,
     // so it has no card, highlight, or history entry.
     return freshestSavedSuggestions(
@@ -6202,6 +6204,54 @@ function PageEditorSessionBody({
       suggestionsQuery.data?.suggestions ?? [],
     ).filter((suggestion) => suggestion.status !== "withdrawn");
   }, [locallyCreatedSuggestions, suggestionsQuery.data?.suggestions]);
+  // The body's suggestions. Those on the page's other Blocks field tabs are
+  // drafted, shown, and decided by their tabs (useBlocksFieldSuggestions).
+  const savedSuggestions = useMemo(
+    () =>
+      allSavedSuggestions.filter(
+        (suggestion) => suggestionBlocksFieldId(suggestion) === null,
+      ),
+    [allSavedSuggestions],
+  );
+  const rememberFieldSuggestions = useCallback(
+    (saved: ResourceSuggestion[]) => {
+      setLocallyCreatedSuggestions((current) => {
+        const byId = new Map(
+          current.map((suggestion) => [suggestion.id, suggestion]),
+        );
+        for (const suggestion of saved) byId.set(suggestion.id, suggestion);
+        return [...byId.values()];
+      });
+    },
+    [],
+  );
+  const refetchSuggestions = suggestionsQuery.refetch;
+  const refetchSavedSuggestions = useCallback(
+    async () => (await refetchSuggestions()).data?.suggestions,
+    [refetchSuggestions],
+  );
+  // Declared further down; a tab's highlight opens its card the same way.
+  const activateSuggestionOrThreadRef = useRef<(suggestionId: string) => void>(
+    () => undefined,
+  );
+  const activateFieldSuggestion = useCallback(
+    (suggestionId: string) =>
+      activateSuggestionOrThreadRef.current(suggestionId),
+    [],
+  );
+  const fieldSuggestions = useBlocksFieldSuggestions({
+    documentId,
+    suggesting: isSuggesting,
+    authorEmail: session?.email ?? null,
+    saved: allSavedSuggestions,
+    presentations: documentEditorSuggestionPresentations,
+    onSaved: rememberFieldSuggestions,
+    refetchSuggestions: refetchSavedSuggestions,
+    activeSuggestionId: hoveredSuggestionId ?? selectedSuggestionId,
+    onActivateSuggestion: activateFieldSuggestion,
+    onHoverSuggestion: setHoveredSuggestionId,
+  });
+  const flushFieldSuggestions = fieldSuggestions.flushAll;
   const renderedSuggestionTransitions = useMemo(
     () =>
       hydrateSuggestionPresentationTransitions(
@@ -7343,12 +7393,15 @@ function PageEditorSessionBody({
         }
         return;
       }
+      // A tab's draft that couldn't be saved keeps the page suggesting.
+      if (!(await flushFieldSuggestions())) return;
       await flushSuggestionDraft();
     },
     [
       canSuggest,
       document.databaseMembership,
       documentId,
+      flushFieldSuggestions,
       flushSuggestionDraft,
       prepareSuggestionDraftDocument,
       savedSuggestions,
@@ -8282,7 +8335,9 @@ function PageEditorSessionBody({
         suggestion.status === "pending" &&
         (!anchoredSuggestionIds ||
           anchoredSuggestionIds.includes(suggestion.id)),
-    ) || draftSuggestions.length > 0;
+    ) ||
+    draftSuggestions.length > 0 ||
+    fieldSuggestions.hasOpen;
   const hasSelectedCommentThread =
     !!selectedThreadId &&
     (clipThreads.some((thread) => thread.threadId === selectedThreadId) ||
@@ -8447,12 +8502,44 @@ function PageEditorSessionBody({
       handleBlockComment(target, offsetTop, fieldId),
     [handleBlockComment],
   );
+  const reviewSuggestions = useMemo(
+    () =>
+      fieldSuggestions.suggestions.length > 0
+        ? [...sidebarSuggestions, ...fieldSuggestions.suggestions]
+        : sidebarSuggestions,
+    [fieldSuggestions.suggestions, sidebarSuggestions],
+  );
+  const reviewDraftSuggestions = useMemo(
+    () =>
+      fieldSuggestions.drafts.length > 0
+        ? [...draftSuggestions, ...fieldSuggestions.drafts]
+        : draftSuggestions,
+    [draftSuggestions, fieldSuggestions.drafts],
+  );
+  // A tab's suggestion counts as placed until its tab's editor says it
+  // isn't; the editor of a tab that isn't open can't say.
+  const fieldSuggestionAnchors = fieldSuggestions.anchors;
+  const reviewAnchoredSuggestionIds = useMemo(() => {
+    if (!anchoredSuggestionIds || fieldSuggestions.suggestions.length === 0)
+      return anchoredSuggestionIds;
+    const ids = [...anchoredSuggestionIds];
+    for (const suggestion of fieldSuggestions.suggestions) {
+      const fieldId = suggestionBlocksFieldId(suggestion);
+      const placed = fieldId ? fieldSuggestionAnchors.get(fieldId) : undefined;
+      if (!placed || placed.includes(suggestion.id)) ids.push(suggestion.id);
+    }
+    return ids;
+  }, [
+    anchoredSuggestionIds,
+    fieldSuggestionAnchors,
+    fieldSuggestions.suggestions,
+  ]);
   const blockFieldComments = useBlockFieldComments({
     expectsBlockFields: !!document.databaseMembership && !isLocalFileDocument,
     threads,
-    suggestions: sidebarSuggestions,
-    draftSuggestions,
-    anchoredSuggestionIds,
+    suggestions: reviewSuggestions,
+    draftSuggestions: reviewDraftSuggestions,
+    anchoredSuggestionIds: reviewAnchoredSuggestionIds,
     selectedThreadId,
     selectedSuggestionId,
     focusSuggestionId,
@@ -8638,6 +8725,7 @@ function PageEditorSessionBody({
     },
     [activateCommentThread, activateSuggestion, suggestionThreadOnPage],
   );
+  activateSuggestionOrThreadRef.current = activateSuggestionOrThread;
 
   const handleComment = useCallback(
     async (
@@ -8836,7 +8924,7 @@ function PageEditorSessionBody({
     )
       return;
     appliedSuggestionLinkRef.current = key;
-    const suggestion = savedSuggestions.find(
+    const suggestion = allSavedSuggestions.find(
       (entry) => entry.id === suggestionId,
     );
     if (!suggestion) {
@@ -8860,7 +8948,7 @@ function PageEditorSessionBody({
     location.search,
     visit,
     suggestionsQuery.data,
-    savedSuggestions,
+    allSavedSuggestions,
     clearCommentFocus,
     replyDrafts.setOpenReply,
     activateCommentThread,
@@ -9091,7 +9179,8 @@ function PageEditorSessionBody({
     }
     if (
       isSuggesting &&
-      (await flushSuggestionDraft({ keepMode: true })) === null
+      (!(await flushFieldSuggestions()) ||
+        (await flushSuggestionDraft({ keepMode: true })) === null)
     ) {
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
@@ -9730,7 +9819,7 @@ function PageEditorSessionBody({
       focusSuggestionId={focusSuggestionId}
       onSuggestionFocused={() => setFocusSuggestionId(null)}
       hoveredSuggestionId={hoveredSuggestionId ?? editingSuggestionId}
-      anchoredSuggestionIds={anchoredSuggestionIds}
+      anchoredSuggestionIds={reviewAnchoredSuggestionIds}
       onActivateSuggestion={activateSuggestionOrThread}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
@@ -9743,16 +9832,21 @@ function PageEditorSessionBody({
       alignToAnchors={alignToAnchors}
       forceVisible
       suggestions={
-        presentation === "history" || blockFieldComments.railShowsSuggestions
-          ? sidebarSuggestions
-          : NO_SUGGESTIONS
+        presentation === "history"
+          ? reviewSuggestions
+          : blockFieldComments.railSuggestions
       }
       draftSuggestions={
-        presentation === "history" || blockFieldComments.railShowsSuggestions
-          ? draftSuggestions
-          : NO_DRAFT_SUGGESTIONS
+        presentation === "history"
+          ? reviewDraftSuggestions
+          : blockFieldComments.railDraftSuggestions
       }
       onMaterializeDraft={async (draft) => {
+        if (suggestionBlocksFieldId(draft)) {
+          const suggestion = await fieldSuggestions.materializeDraft(draft);
+          if (suggestion) setSelectedSuggestionId(suggestion.id);
+          return suggestion;
+        }
         const persisted = await flushSuggestionDraft({ keepMode: true });
         if (!persisted) return null;
         const suggestion = materializedSuggestionForDraft(persisted, draft);
@@ -9761,6 +9855,7 @@ function PageEditorSessionBody({
       }}
       canDecideSuggestions={canEdit}
       decidingSuggestion={(suggestionId) =>
+        fieldSuggestions.deciding ||
         isSubmittingSuggestions ||
         isStartingSuggestion ||
         !!pendingSuggestionDecision ||
@@ -9774,6 +9869,10 @@ function PageEditorSessionBody({
             queuedDecisions.length > 0)
       }
       onDecideSuggestionProposal={async (proposalId, decision, members) => {
+        if (members.some((member) => suggestionBlocksFieldId(member))) {
+          await fieldSuggestions.decideProposal(proposalId, decision, members);
+          return;
+        }
         if (decisionQueueActive) {
           if (
             members.length === 0 ||
@@ -9950,12 +10049,16 @@ function PageEditorSessionBody({
           }
         }
       }}
-      onDecideSuggestion={(suggestion, decision) =>
-        void decideSingleSuggestion(suggestion, decision)
-      }
-      onDecideDraftSuggestion={(suggestion, decision) =>
-        void decideSingleSuggestion(suggestion, decision)
-      }
+      onDecideSuggestion={(suggestion, decision) => {
+        if (suggestionBlocksFieldId(suggestion))
+          void fieldSuggestions.decide(suggestion, decision);
+        else void decideSingleSuggestion(suggestion, decision);
+      }}
+      onDecideDraftSuggestion={(suggestion, decision) => {
+        if (suggestionBlocksFieldId(suggestion))
+          void fieldSuggestions.decide(suggestion, decision);
+        else void decideSingleSuggestion(suggestion, decision);
+      }}
       canSuggest={canSuggest}
       commentAi={commentAi}
       visibleThreadId={visibleThreadId}
@@ -10912,35 +11015,43 @@ function PageEditorSessionBody({
                           <BlockFieldCommentsProvider
                             value={blockFieldComments.provider}
                           >
-                            <DocumentBlockFields
-                              documentId={documentId}
-                              databaseId={
-                                databaseId ??
-                                document.databaseMembership.databaseId
-                              }
-                              databaseDocumentId={
-                                databaseDocumentId ??
-                                document.databaseMembership.databaseDocumentId
-                              }
-                              canEdit={
-                                editorCanEdit && !mcpDirectoryWidgetReadOnly
-                              }
-                              usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
-                              suggesting={isSuggesting || isStartingSuggestion}
-                              enteringSuggestion={isStartingSuggestion}
-                              onPrimaryFieldAvailabilityChange={
-                                handlePrimaryFieldAvailabilityChange
-                              }
-                              primaryEditor={primaryEditor}
-                              primaryContent={exportContent}
-                              onFieldTabChange={
-                                blockFieldComments.onFieldTabChange
-                              }
-                              pageProperties={document.properties}
-                              onAdditionalContentChange={
-                                handleAdditionalBlockContentChange
-                              }
-                            />
+                            <BlocksFieldSuggestionsProvider
+                              value={fieldSuggestions.provider}
+                            >
+                              <DocumentBlockFields
+                                documentId={documentId}
+                                databaseId={
+                                  databaseId ??
+                                  document.databaseMembership.databaseId
+                                }
+                                databaseDocumentId={
+                                  databaseDocumentId ??
+                                  document.databaseMembership.databaseDocumentId
+                                }
+                                canEdit={
+                                  editorCanEdit && !mcpDirectoryWidgetReadOnly
+                                }
+                                usePagePropertiesOnly={
+                                  mcpDirectoryWidgetReadOnly
+                                }
+                                suggesting={
+                                  isSuggesting || isStartingSuggestion
+                                }
+                                enteringSuggestion={isStartingSuggestion}
+                                onPrimaryFieldAvailabilityChange={
+                                  handlePrimaryFieldAvailabilityChange
+                                }
+                                primaryEditor={primaryEditor}
+                                primaryContent={exportContent}
+                                onFieldTabChange={
+                                  blockFieldComments.onFieldTabChange
+                                }
+                                pageProperties={document.properties}
+                                onAdditionalContentChange={
+                                  handleAdditionalBlockContentChange
+                                }
+                              />
+                            </BlocksFieldSuggestionsProvider>
                           </BlockFieldCommentsProvider>
                         );
                       }

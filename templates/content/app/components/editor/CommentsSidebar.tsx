@@ -32,6 +32,7 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
   commentMentionsForText,
@@ -1756,20 +1757,24 @@ export function CommentsSidebar({
     suggestions,
     threads,
   ]);
-  // Suggestions edit the page body, so they sit in its tab.
-  const historyBodyTabShown =
-    activeHistoryTab === null || activeHistoryTab === commentTabKey(null);
   // Suggested edits point at text and carry no @mentions of their own.
   const historyShowsSuggestions =
     historyKind !== "comments" &&
-    historyBodyTabShown &&
     (historyTarget === "all" || historyTarget === "text") &&
     !historyMentionsMe;
+  // A suggestion sits in the tab it edits.
+  const historyTabShowsSuggestion = useCallback(
+    (suggestion: Parameters<typeof suggestionBlocksFieldId>[0]) =>
+      activeHistoryTab === null ||
+      commentTabKey(suggestionBlocksFieldId(suggestion)) === activeHistoryTab,
+    [activeHistoryTab],
+  );
   const historySuggestions = useMemo(() => {
     if (!historyShowsSuggestions) return [];
     return suggestions.filter((suggestion) => {
       if (historyKind === "all" && embeddedSuggestionIds.has(suggestion.id))
         return false;
+      if (!historyTabShowsSuggestion(suggestion)) return false;
       const unresolved =
         suggestion.status === "pending" || suggestion.status === "stale";
       if (historyStatus === "open" && !unresolved) {
@@ -1789,6 +1794,7 @@ export function CommentsSidebar({
     historySearch,
     historyShowsSuggestions,
     historyStatus,
+    historyTabShowsSuggestion,
     suggestions,
   ]);
   const historyDraftSuggestions = useMemo(() => {
@@ -1797,6 +1803,7 @@ export function CommentsSidebar({
     return draftSuggestions.filter(
       (suggestion) =>
         (!historyAuthor || suggestion.authorEmail === historyAuthor) &&
+        historyTabShowsSuggestion(suggestion) &&
         suggestionMatchesSearch(suggestion, historySearch),
     );
   }, [
@@ -1805,6 +1812,7 @@ export function CommentsSidebar({
     historySearch,
     historyShowsSuggestions,
     historyStatus,
+    historyTabShowsSuggestion,
   ]);
   // Comments someone just posted on the page stay in view even when their
   // filters would hide them, until they change the filters.
@@ -2450,7 +2458,9 @@ export function CommentsSidebar({
     const hiddenTabIds = new Set<string>();
     for (const thread of measuredThreads) {
       const fieldId =
-        "suggestion" in thread ? null : commentThreadFieldId(thread);
+        "suggestion" in thread
+          ? suggestionBlocksFieldId(thread.suggestion)
+          : commentThreadFieldId(thread);
       const position = findThreadPosition(
         "suggestion" in thread ? thread.suggestion.id : thread.threadId,
         "suggestion" in thread ? null : thread.quotedText,
@@ -3650,7 +3660,10 @@ export function CommentsSidebar({
                 (entry): CommentTabPlacement =>
                   entry.kind === "comment"
                     ? commentThreadPlacement(entry.thread)
-                    : { fieldId: null, fieldName: null },
+                    : {
+                        fieldId: suggestionBlocksFieldId(entry.suggestion),
+                        fieldName: null,
+                      },
               ).map((group) => (
                 <Fragment key={`tab:${group.key}`}>
                   <h3
