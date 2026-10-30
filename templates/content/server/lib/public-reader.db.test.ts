@@ -116,6 +116,24 @@ describe("public reader context", () => {
     expect((await contextFor(underOrgOnly)).ancestors).toEqual([]);
   });
 
+  it("stops the path at a deleted database's page", async () => {
+    const root = await page({ title: "Handbook" });
+    const tracker = await page({ title: "Old tracker", parentId: root });
+    await db.insert(schema.contentDatabases).values({
+      id: `public-reader-database-${tracker}`,
+      ownerEmail: OWNER,
+      documentId: tracker,
+      deletedAt: new Date().toISOString(),
+    });
+    const row = await page({ parentId: tracker });
+
+    const context = await contextFor(row);
+
+    expect(context.ancestors).toEqual([]);
+    expect(JSON.stringify(context)).not.toContain("Old tracker");
+    expect(JSON.stringify(context)).not.toContain("Handbook");
+  });
+
   it("lists only public sub-pages that are not in the trash, in sidebar order", async () => {
     const parent = await page({ title: "Garden" });
     const second = await page({

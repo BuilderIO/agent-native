@@ -173,6 +173,7 @@ export async function loadPublicReaderContext(doc: {
           eq(schema.documents.id, parentId),
           eq(schema.documents.visibility, "public"),
           isNull(schema.documents.trashedAt),
+          ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
         ),
       )
       .limit(1);
