@@ -1,8 +1,10 @@
 export { createGetDb } from "./db/create-get-db.js";
 
 export {
+  AGENT_PATH_PROVIDERS,
   conformanceMcpConfig,
   DIRECTORY_PROFILE_MODULE,
+  listAgentToolSchemas,
   listMcpCatalogTools,
   loadTemplateDirectoryProfile,
   loadTemplateMcpActions,
@@ -12,6 +14,7 @@ export {
   providerSchemaViolations,
   SCHEMA_PROVIDERS,
   templateMcpCatalogModes,
+  type AgentToolSchema,
   type McpCatalogMode,
   type McpDirectoryProfileFixture,
   type ProviderRuleBasis,
