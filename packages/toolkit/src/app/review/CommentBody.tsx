@@ -78,10 +78,14 @@ export function CommentBody({
   );
   // The parser reads the comment with each mention swapped for a link. Should
   // that text be one the split above would cut, the mentions show as written,
-  // so the split guards the text the parser reads.
+  // so the split guards the text the parser reads. So do more mentions than a
+  // comment names: each link adds about 50 characters and each chip two
+  // elements, so thousands would take longer to read and draw than the
+  // longest comment without them.
   if (
-    spans.length > 0 &&
-    isCommentMarkdownTangled(protectInlineMarkdownSpans(markdown, spans))
+    spans.length > MAX_MENTION_CHIPS ||
+    (spans.length > 0 &&
+      isCommentMarkdownTangled(protectInlineMarkdownSpans(markdown, spans)))
   ) {
     found = [];
     spans = [];
@@ -292,6 +296,9 @@ function findCommentBodyMentions(
 
 /** Longer labels aren't names; skipping them bounds the scan per `@`. */
 const MAX_MENTION_LABEL = 200;
+
+/** The most mentions a comment draws as chips. */
+const MAX_MENTION_CHIPS = 2_000;
 
 interface LabelNode {
   next: Map<string, LabelNode>;

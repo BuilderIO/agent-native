@@ -392,6 +392,31 @@ describe("splitCommentAtMarkdownLimit", () => {
     expect(
       isCommentMarkdownTangled(`${table(10, 200)}\n\n${table(10, 200)}`),
     ).toBe(false);
+    // So does a heading, list item, thematic break or line outside the
+    // table's quote, and the lines after it aren't drawn at its width.
+    const lines = "\nx".repeat(2_600);
+    for (const ending of ["# Next", "- item", "1. item", "***", "-- -"]) {
+      expect(
+        isCommentMarkdownTangled(`${table(2, 1)}\n${ending}${lines}`),
+      ).toBe(false);
+    }
+    expect(
+      isCommentMarkdownTangled(
+        `${table(2, 1).replaceAll(/^/gm, "> ")}\nlazy${lines.replaceAll("\n", "\n> ")}`,
+      ),
+    ).toBe(false);
+    // But the cells a table drew still count after it ends,
+    expect(isCommentMarkdownTangled(`${table(50, 50)}\n# Next\nx`)).toBe(false);
+    expect(
+      isCommentMarkdownTangled(`${table(50, 50)}\n# Next\n${table(50, 50)}`),
+    ).toBe(true);
+    // and a line the parser reads as a row doesn't end it.
+    for (const row of ["#x", "####### x", "-x", "**", "<3"]) {
+      const [header, delimiter, ...rows] = table(50, 100).split("\n");
+      expect(
+        isCommentMarkdownTangled([header, delimiter, row, ...rows].join("\n")),
+      ).toBe(true);
+    }
     // Dashes and pipes in a sentence aren't a delimiter row.
     expect(
       isCommentMarkdownTangled(

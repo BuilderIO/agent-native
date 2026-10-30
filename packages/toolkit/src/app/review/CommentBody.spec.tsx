@@ -301,6 +301,15 @@ describe("CommentBody", () => {
     expect(drawn.at(-1)).toBe("@Person 1499");
   });
 
+  it("shows mentions as written past the most a comment draws", () => {
+    // Each would be a link of about 50 characters and a chip.
+    const body = "@a ".repeat(6_000).trim();
+    render(<CommentBody body={body} mentions={[{ label: "a" }]} />);
+
+    expect(chips()).toEqual([]);
+    expect(container.textContent).toBe(body);
+  });
+
   it("draws the kit's chip when an app's renderer returns nothing", () => {
     render(
       <CommentBody

@@ -185,8 +185,10 @@ function readCommentLines(body: string): {
   // Where each `[` still open in the paragraph sits.
   let brackets: number[] = [];
   let lookback = 0;
-  // Columns of a table opened in the paragraph, and the cells drawn so far.
+  // Columns of a table opened in the paragraph, the quote and list markers
+  // that open its delimiter row, and the cells drawn so far.
   let tableColumns = 0;
+  let tableNesting = 0;
   let tableCells = 0;
   let start = 0;
   while (start < body.length) {
@@ -235,10 +237,16 @@ function readCommentLines(body: string): {
       if (nesting > MAX_LINE_NESTING) return { tangledAt: paragraph, fences };
       if (nesting > 0 || text.startsWith("[^")) containers = true;
       // A row after a delimiter row draws the table's full width, as do the
-      // header and the delimiter row itself.
+      // header and the delimiter row itself. A line in another quote or list,
+      // or a heading or thematic break, ends the table; the cells it drew
+      // still count.
+      if (nesting !== tableNesting || startsHeadingOrBreak(body, at, end)) {
+        tableColumns = 0;
+      }
       const columns = delimiterRowColumns(text);
       if (columns > 0) {
         tableColumns = Math.max(tableColumns, columns);
+        tableNesting = nesting;
         tableCells += tableColumns;
       }
       tableCells += tableColumns;
@@ -293,6 +301,35 @@ function delimiterRowColumns(text: string): number {
     if (!isSpace(char)) quoted = false;
   }
   return pipes > 0 && dashes ? pipes + 1 : 0;
+}
+
+/**
+ * Whether the line from `at` to `end`, past any quote markers, opens an ATX
+ * heading (`#` to `######`, then a space or the line's end) or is a thematic
+ * break (three or more of one of `-*_`, spaced or not).
+ */
+function startsHeadingOrBreak(body: string, at: number, end: number): boolean {
+  while (at < end && (isSpace(body.charAt(at)) || body.charAt(at) === ">")) {
+    at += 1;
+  }
+  let hashes = at;
+  while (hashes < end && body.charAt(hashes) === "#") hashes += 1;
+  if (
+    hashes > at &&
+    hashes - at <= 6 &&
+    (hashes === end || isSpace(body.charAt(hashes)))
+  ) {
+    return true;
+  }
+  const marker = body.charAt(at);
+  if (marker !== "-" && marker !== "*" && marker !== "_") return false;
+  let markers = 0;
+  for (let index = at; index < end; index += 1) {
+    const char = body.charAt(index);
+    if (char === marker) markers += 1;
+    else if (!isSpace(char)) return false;
+  }
+  return markers >= 3;
 }
 
 /**
