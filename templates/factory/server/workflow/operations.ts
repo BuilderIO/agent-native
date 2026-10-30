@@ -122,6 +122,23 @@ const operationOutputSchema = z.strictObject({
 });
 export type OperationOutput = z.infer<typeof operationOutputSchema>;
 
+// An operation with no fixed endpoint: the declared fields below carry the
+// path a person typed and the optional query, headers, sign-in, timeout and
+// paging, and the request builder checks each one. Only a GET read may declare
+// it, and a model is never given one as a tool.
+const freeFormSchema = z.strictObject({
+  path: identifierSchema,
+  query: identifierSchema.optional(),
+  headers: identifierSchema.optional(),
+  auth: identifierSchema.optional(),
+  timeoutSeconds: identifierSchema.optional(),
+  pagination: identifierSchema.optional(),
+  includeStatus: identifierSchema.optional(),
+  // Names core fills from the provider's connection, such as `{projectId}`; a typed path may keep one as a whole segment.
+  placeholders: z.array(identifierSchema).max(5).optional(),
+});
+export type FreeFormRequest = z.infer<typeof freeFormSchema>;
+
 const implementationSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("action"),
@@ -134,6 +151,7 @@ const implementationSchema = z.discriminatedUnion("type", [
     pathTemplate: z.string().min(1).max(500),
     query: z.record(z.string().min(1), z.string()).optional(),
     bodyTemplate: z.unknown().optional(),
+    freeForm: freeFormSchema.optional(),
   }),
   z.strictObject({
     type: z.literal("builder"),
@@ -202,6 +220,8 @@ export const operationDefinitionSchema = z
     id: operationIdSchema,
     provider: z.string().min(1).max(60),
     label: z.string().min(1).max(120),
+    // For the agent that writes graphs, not for the canvas: what the operation is for and where its limits are.
+    description: z.string().min(1).max(1000).optional(),
     nodeKinds: z.array(z.enum(OPERATION_NODE_KINDS)).min(1).max(4),
     effect: z.enum(["read", "write"]),
     // A read that goes out as a POST (a search or query), so a write cannot hide behind `read`.
@@ -327,6 +347,68 @@ export const operationDefinitionSchema = z
     if (def.readsViaPost && !(def.effect === "read" && method === "POST")) {
       fail('"readsViaPost" marks a read that sends a POST', "readsViaPost");
     }
+    if (
+      def.implementation.type === "provider-request" &&
+      def.implementation.freeForm
+    ) {
+      const { freeForm, pathTemplate, query, bodyTemplate } =
+        def.implementation;
+      if (def.effect !== "read" || method !== "GET") {
+        fail("a free-form request is a GET read", "implementation");
+      }
+      if (query !== undefined || bodyTemplate !== undefined) {
+        fail(
+          "a free-form request has no fixed query or body",
+          "implementation",
+        );
+      }
+      if (def.nodeKinds.some((kind) => kind !== "lookup")) {
+        fail("a free-form request serves only lookup nodes", "nodeKinds");
+      }
+      if (pathTemplate !== `/{${freeForm.path}}`) {
+        fail(
+          `a free-form request's path is exactly "/{${freeForm.path}}"`,
+          "implementation",
+        );
+      }
+      const roles = {
+        path: "string",
+        query: "json",
+        headers: "json",
+        auth: "enum",
+        timeoutSeconds: "number",
+        pagination: "json",
+        includeStatus: "boolean",
+      } as const;
+      const named: string[] = [];
+      for (const [role, type] of Object.entries(roles)) {
+        const name = freeForm[role as keyof typeof roles];
+        if (name === undefined) continue;
+        named.push(name);
+        const field = def.fields.find((candidate) => candidate.name === name);
+        if (field?.type !== type) {
+          fail(`"${name}" is declared as a ${type} field`, "implementation");
+        }
+      }
+      if (new Set(named).size !== named.length) {
+        fail("each free-form role has a field of its own", "implementation");
+      }
+      const pathField = def.fields.find(
+        (field) => field.name === freeForm.path,
+      );
+      if (pathField && !pathField.required) {
+        fail("the path field is required", "implementation");
+      }
+      const auth = def.fields.find((field) => field.name === freeForm.auth);
+      if (
+        auth &&
+        (auth.enum?.length !== 2 ||
+          !auth.enum.includes("provider") ||
+          !auth.enum.includes("none"))
+      ) {
+        fail('the sign-in field is "provider" or "none"', "implementation");
+      }
+    }
     if (kinds.has("agent")) {
       if (def.nodeKinds.length !== 1) {
         fail("an agent operation serves only agent nodes", "nodeKinds");
@@ -365,6 +447,19 @@ export function isWriteAllowedForNode(
   if (def.effect === "write")
     return nodeKind === "action" || nodeKind === "agent";
   return true;
+}
+
+/**
+ * A model may be given a read as a tool only when a person fixed what it
+ * reads. An operation that takes a typed endpoint path is never one: letting a
+ * model choose the path would let it read anything the connection can reach.
+ */
+export function isModelToolAllowed(def: OperationDefinition): boolean {
+  if (def.effect !== "read") return false;
+  return !(
+    def.implementation.type === "provider-request" &&
+    def.implementation.freeForm !== undefined
+  );
 }
 
 /**

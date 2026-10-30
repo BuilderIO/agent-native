@@ -143,6 +143,7 @@ export function NodeCreator({
       catalog,
       target,
       hasTrigger,
+      connections,
       view: frame.view,
       query: frame.query,
       open: frame.open,
@@ -222,6 +223,7 @@ export function NodeCreator({
   const choose = (row: CreatorRow) => {
     switch (row.type) {
       case "entry":
+      case "providerStep":
         onPick(row.entry);
         close(true);
         return;
@@ -324,7 +326,9 @@ export function NodeCreator({
       case "root":
         return s.creator.searchPlaceholder;
       case "list":
-        return view.list === "sources" || view.list === "actions"
+        return view.list === "sources" ||
+          view.list === "actions" ||
+          view.list === "apiRequest"
           ? s.creator.searchApps
           : s.creator.searchPlaceholder;
       case "app":
@@ -385,6 +389,7 @@ export function NodeCreator({
         );
       }
       case "provider":
+      case "providerStep":
         return (
           <>
             <ProviderIcon provider={row.provider} className="size-6" />
@@ -397,10 +402,12 @@ export function NodeCreator({
                 onConnect={onConnect}
               />
             </span>
-            <IconChevronRight
-              className="size-4 shrink-0 text-muted-foreground"
-              aria-hidden
-            />
+            {row.type === "provider" && (
+              <IconChevronRight
+                className="size-4 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+            )}
           </>
         );
       case "group":
@@ -452,6 +459,24 @@ export function NodeCreator({
             className="px-4 py-3 text-sm text-muted-foreground"
           >
             {item.label}
+          </p>
+        );
+      case "tip":
+        return (
+          <p
+            key={item.id}
+            role="presentation"
+            className="px-4 pb-3 text-sm text-muted-foreground"
+          >
+            {item.before}
+            <Button
+              variant="link"
+              className="inline h-auto p-0 text-sm font-normal whitespace-normal"
+              onClick={() => push(item.view)}
+            >
+              {item.link}
+            </Button>
+            {item.after}
           </p>
         );
       default:

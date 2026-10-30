@@ -1,3 +1,4 @@
+import { genericOperations } from "../catalog/generic.js";
 import { OPERATION_CATALOG } from "../catalog/index.js";
 import { END_OUTCOMES, NODE_KINDS } from "../contract.js";
 import type { StoryKey } from "../story-graphs.fixture.js";
@@ -12,11 +13,20 @@ import { STORIES } from "./registry.js";
 // story uses it.
 
 /**
- * Catalog operations no story uses, each with the reason. Empty today: all
- * thirty-six are used. An entry here is a decision a reviewer should see, and
- * the spec fails when an operation listed here turns out to be covered.
+ * Catalog operations no story uses, each with the reason. Only the API request,
+ * which is one definition generated per provider: the ten stories are product
+ * narratives and none reads an endpoint no curated step covers, so
+ * api-request.scenario.spec.ts runs each of them through the engine instead. An
+ * entry here is a decision a reviewer should see, and the spec fails when an
+ * operation listed here turns out to be covered.
  */
-export const UNUSED_ON_PURPOSE: Readonly<Record<string, string>> = {};
+export const UNUSED_ON_PURPOSE: Readonly<Record<string, string>> =
+  Object.fromEntries(
+    genericOperations.map(({ id }) => [
+      id,
+      "generated per provider, run by api-request.scenario.spec.ts",
+    ]),
+  );
 
 /**
  * What no story can prove yet because the engine lacks the feature, each with

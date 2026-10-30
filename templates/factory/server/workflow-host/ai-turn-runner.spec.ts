@@ -21,6 +21,7 @@ import type {
   OperationResult,
   RunBudget,
 } from "../workflow/adapter.js";
+import { OPERATION_CATALOG } from "../workflow/catalog/index.js";
 import type { ResultField } from "../workflow/contract.js";
 import {
   createOperationRegistry,
@@ -725,6 +726,53 @@ describe("tools", () => {
 
     expect(turn).toMatchObject({ ok: false, errorCode: "engine_error" });
     expect(turn.ok ? "" : turn.reason).toContain("tool_not_read_only");
+    expect(requests()).toBe(0);
+  });
+
+  it("refuses a tool that takes a typed endpoint path before any model call, though it only reads", async () => {
+    const open = OPERATION_CATALOG.get("github.apiRequest");
+    if (!open) throw new Error("github.apiRequest is not in the catalog");
+    const { engine, requests } = scriptedEngine([]);
+    const { deps } = makeDeps(engine);
+
+    const turn = await runStructuredAgentTurn(
+      turnInput({ tools: [toolFor(open).tool] }),
+      deps,
+    );
+
+    expect(open.effect).toBe("read");
+    expect(turn).toMatchObject({ ok: false, errorCode: "engine_error" });
+    expect(turn.ok ? "" : turn.reason).toContain("tool_endpoint_not_fixed");
+    expect(requests()).toBe(0);
+  });
+
+  it("refuses the same through the runner when the catalog is the real one", async () => {
+    const { engine, requests } = scriptedEngine([]);
+    const { deps } = makeDeps(engine);
+    const runner = createAiTurnRunner({
+      owner: "owner@example.test",
+      orgId: "org-1",
+      factoryId: "factory-1",
+      workflowId: "wf-1",
+      catalog: OPERATION_CATALOG,
+      operations: recordingExecutor(() => ({ ok: true, output: {} })),
+      deps,
+    });
+
+    const result = await runner.run({
+      instruction: "Judge.",
+      items: ITEMS,
+      mode: "perItem",
+      resultSchemaFields: SCHEMA,
+      tools: ["slack.apiRequest"],
+      maxRepairs: 1,
+      budget: makeBudget(10),
+      signal: new AbortController().signal,
+      runId: "run-1",
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "engine_error" });
+    expect(result.ok ? "" : result.reason).toContain("tool_endpoint_not_fixed");
     expect(requests()).toBe(0);
   });
 

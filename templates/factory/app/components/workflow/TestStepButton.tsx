@@ -7,7 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { NodeKind } from "@/lib/workflow-editor";
+import type { WorkflowNode } from "@/lib/workflow-editor";
 
 import type { NodeAudit } from "./items/read-types";
 import { sampleItemIdsFor, stepNeedsItems } from "./test-step";
@@ -16,7 +16,7 @@ import { useWorkflowStrings } from "./workflow-strings";
 interface TestStepButtonProps {
   factoryId: string;
   workflowId: string;
-  node: { id: string; kind: NodeKind };
+  node: WorkflowNode;
   /** The step is in the workflow the server has: a step that is not has never run, and reading its audit is a 404. */
   onServer: boolean;
   dirty: boolean;
@@ -27,7 +27,8 @@ interface TestStepButtonProps {
 
 /**
  * Runs the one step on the items it last received, without side effects. A step
- * that takes items waits for a run of the whole workflow to have shown it some.
+ * that takes items waits for a run of the whole workflow to have shown it some,
+ * unless it reads nothing about an item and so runs once on its own.
  */
 export function TestStepButton({
   factoryId,
@@ -40,7 +41,7 @@ export function TestStepButton({
 }: TestStepButtonProps) {
   const ws = useWorkflowStrings();
 
-  const needsItems = stepNeedsItems(node.kind);
+  const needsItems = stepNeedsItems(node);
   // Only runs of the whole workflow are read: a test run has no upstream steps, so it records no items going in.
   const read = (mode: "dry" | "live") => ({
     factoryId,

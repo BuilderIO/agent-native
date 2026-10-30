@@ -1,5 +1,11 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { IconCopy, IconMessage, IconTrash, IconX } from "@tabler/icons-react";
+import {
+  IconCopy,
+  IconExternalLink,
+  IconMessage,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
 import { useRef, type ReactNode } from "react";
 import { toast } from "sonner";
 
@@ -21,7 +27,11 @@ import {
   useEditorSnapshot,
   type StepOverlay,
 } from "@/components/workflow-canvas";
-import { NODE_KIND_ICONS } from "@/components/workflow-canvas/node-kinds";
+import {
+  NODE_KIND_ICONS,
+  nodeProvider,
+  providerName,
+} from "@/components/workflow-canvas/node-kinds";
 import { nodeTitle } from "@/components/workflow-canvas/node-summary";
 import { useWorkflowCanvasStrings } from "@/components/workflow-canvas/strings";
 import type {
@@ -29,10 +39,16 @@ import type {
   WorkflowEditor,
   WorkflowNode,
 } from "@/lib/workflow-editor";
+import { requestPathOf } from "@/lib/workflow-editor/api-request";
 
 import type { NodeData } from "../../../../server/workflow-host/read-models.js";
+import { docsUrlOf } from "../api-provider-catalog";
+import { canTestRequestOnItsOwn } from "../api-request-test";
 import { classifyReadError } from "../items/read-failure";
+import { useApiRequestTest } from "../use-api-request-test";
+import { useProviderApiCatalog } from "../use-provider-api-catalog";
 import { useWorkflowStrings } from "../workflow-strings";
+import { ApiRequestOutputPane } from "./ApiRequestOutputPane";
 import { MapDragProvider } from "./MapDrag";
 import { leaveField, NodeDetailsName } from "./NodeDetailsName";
 import {
@@ -76,6 +92,31 @@ function IconAction({
   );
 }
 
+/** A link to the provider's API docs, for a step that reads one of its endpoints. Nothing shows until the catalog has a page for it. */
+function ApiDocsLink({ node }: { node: WorkflowNode }) {
+  const ws = useWorkflowStrings();
+  const catalog = useProviderApiCatalog();
+  const provider = nodeProvider(node);
+  const url =
+    provider === null
+      ? undefined
+      : docsUrlOf(catalog.data?.providers, provider);
+  if (provider === null || url === undefined) return null;
+  return (
+    <Button asChild variant="ghost" size="sm">
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={ws.apiRequest.docsFor(providerName(provider))}
+      >
+        {ws.apiRequest.docs}
+        <IconExternalLink />
+      </a>
+    </Button>
+  );
+}
+
 interface NodeDetailsDialogProps {
   editor: WorkflowEditor;
   factoryId: string;
@@ -101,6 +142,8 @@ interface NodeDetailsDialogProps {
   starting: boolean;
   /** Resolves to whether the run started. */
   onTestStep: (nodeId: string, sampleItemIds: string[]) => Promise<boolean>;
+  /** Saves the page's edits, which a test of one API request sends from the saved workflow. Resolves to whether they are saved. */
+  onSave: () => Promise<boolean>;
   /** Items waiting at this step, when it is a Wait. */
   parkedCount: number;
   /** Saves the page and runs a dry run of the whole workflow, as the toolbar's Test does. */
@@ -131,6 +174,7 @@ export function NodeDetailsDialog({
   dirty,
   starting,
   onTestStep,
+  onSave,
   parkedCount,
   onTestWorkflow,
   onAskAgent,
@@ -161,12 +205,42 @@ export function NodeDetailsDialog({
     ? classifyReadError(dataQuery.error)
     : null;
   const refetchData = () => void dataQuery.refetch();
+  // An API request that reads nothing about an item is sent from here and answers on this screen; the answer lives in this state and goes with the window.
+  const apiTest = useApiRequestTest({
+    factoryId,
+    workflowId,
+    nodeId: node?.id,
+    save: onSave,
+    unknownMessage: ws.errors.unknown,
+  });
 
   if (!node) return null;
   const KindIcon = NODE_KIND_ICONS[node.kind];
   const title = nodeTitle(node, editor.catalog, s);
   // A trigger has no upstream items, so it has no input pane.
   const hasInput = node.kind !== "trigger";
+  const isApiRequest = requestPathOf(node, editor.catalog) !== undefined;
+  const testsInWindow = canTestRequestOnItsOwn(node, editor.catalog);
+
+  const output = {
+    factoryId,
+    workflowId,
+    node,
+    catalog: editor.catalog,
+    data,
+    loading: dataLoading,
+    failure: dataFailure,
+    onRetry: refetchData,
+    onServer,
+    dirty,
+    starting: starting || apiTest.running,
+    parkedCount,
+    onTest: (nodeId: string, sampleItemIds: string[]) => {
+      onEngage();
+      if (testsInWindow) apiTest.run();
+      else void onTestStep(nodeId, sampleItemIds);
+    },
+  };
 
   const refuse = (outcome: { ok: boolean; rejection?: Rejection }) => {
     if (!outcome.ok && outcome.rejection) {
@@ -191,7 +265,11 @@ export function NodeDetailsDialog({
               nameRef.current?.select();
               return;
             }
+            // A form can name the field a person fills first (an API request's path) when it is not the first control.
             const field =
+              parametersRef.current?.querySelector<HTMLElement>(
+                "[data-autofocus-field] :is(input, textarea)",
+              ) ??
               parametersRef.current?.querySelector<HTMLElement>(
                 PARAMETER_FIELD,
               );
@@ -225,6 +303,9 @@ export function NodeDetailsDialog({
               inputRef={nameRef}
               onCommitAndClose={focusName ? onClose : undefined}
             />
+            {requestPathOf(node, editor.catalog) !== undefined ? (
+              <ApiDocsLink node={node} />
+            ) : null}
             <IconAction
               label={s.toolbar.duplicate}
               onClick={() => refuse(editor.duplicateNodes([node.id]))}
@@ -296,27 +377,23 @@ export function NodeDetailsDialog({
                 dirty={dirty}
                 starting={starting}
                 onTestStep={onTestStep}
+                {...(testsInWindow
+                  ? {
+                      onTestRequest: apiTest.run,
+                      testingRequest: apiTest.running,
+                    }
+                  : {})}
                 onAskAgent={onClose}
               />
-              <NodeDetailsOutputPane
-                key={`output-${node.id}`}
-                factoryId={factoryId}
-                workflowId={workflowId}
-                node={node}
-                catalog={editor.catalog}
-                data={data}
-                loading={dataLoading}
-                failure={dataFailure}
-                onRetry={refetchData}
-                onServer={onServer}
-                dirty={dirty}
-                starting={starting}
-                parkedCount={parkedCount}
-                onTest={(nodeId, sampleItemIds) => {
-                  onEngage();
-                  void onTestStep(nodeId, sampleItemIds);
-                }}
-              />
+              {isApiRequest ? (
+                <ApiRequestOutputPane
+                  key={`output-${node.id}`}
+                  {...output}
+                  liveTest={apiTest.state}
+                />
+              ) : (
+                <NodeDetailsOutputPane key={`output-${node.id}`} {...output} />
+              )}
             </div>
           </MapDragProvider>
         </DialogContent>

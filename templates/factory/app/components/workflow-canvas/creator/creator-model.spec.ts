@@ -11,6 +11,7 @@ import {
 } from "@/lib/workflow-editor";
 
 import { OPERATION_CATALOG } from "../../../../server/workflow/catalog/index.js";
+import { providerIdentity } from "../provider-identity";
 import { createWorkflowCanvasStrings } from "../strings";
 import {
   creatorList,
@@ -23,6 +24,7 @@ import {
   type CreatorRow,
   type CreatorTarget,
   type CreatorView,
+  type ProviderLinkStatus,
 } from "./creator-model";
 
 const strings = createWorkflowCanvasStrings(createEnglishTranslator());
@@ -35,12 +37,14 @@ function list(
     view?: CreatorView;
     query?: string;
     describable?: boolean;
+    connections?: Record<string, ProviderLinkStatus>;
   } = {},
 ) {
   return creatorList({
     catalog,
     target,
     hasTrigger: overrides.hasTrigger ?? false,
+    connections: overrides.connections,
     view: overrides.view ?? { kind: "root" },
     query: overrides.query ?? "",
     open: {},
@@ -51,6 +55,10 @@ function list(
 
 function labelsOf(items: CreatorItem[]): string[] {
   return selectableRows(items).map((row) => row.label);
+}
+
+function last<T>(items: readonly T[]): T | undefined {
+  return items[items.length - 1];
 }
 
 function ok<T extends { ok: boolean }>(outcome: T): T & { ok: true } {
@@ -123,9 +131,11 @@ describe("root lists", () => {
 
   it("opens the next list once the workflow has a trigger", () => {
     const items = list({ kind: "append" }, { hasTrigger: true }).items;
+    // oracle-change: the API request step every app has is one row after the apps row, not eleven
     expect(labelsOf(items)).toEqual([
       strings.creator.ai,
       strings.creator.appAction,
+      strings.creator.apiRequest,
       strings.creator.data,
       strings.creator.flow,
       strings.creator.describeIt,
@@ -183,8 +193,10 @@ describe("apps", () => {
 
   it("lists the apps with actions, but not an app with only a source", () => {
     const providers = selectableRows(
-      list({ kind: "append" }, { view: { kind: "list", list: "actions" } })
-        .items,
+      list(
+        { kind: "append" },
+        { hasTrigger: true, view: { kind: "list", list: "actions" } },
+      ).items,
     ).flatMap((row) => (row.type === "provider" ? [row.provider] : []));
     expect(providers).toContain("slack");
     expect(providers).toContain("hubspot");
@@ -227,9 +239,11 @@ describe("apps", () => {
     const captions = items.flatMap((item) =>
       item.type === "caption" ? [item.label] : [],
     );
+    // oracle-change: Slack's API request step is pinned after its other rows, under a caption of its own
     expect(captions).toEqual([
       strings.creator.lookUpCaption,
       strings.creator.sendOrChangeCaption,
+      strings.creator.anythingElseCaption,
     ]);
     expect(labelsOf(items)).toEqual([
       strings.creator.actions,
@@ -237,6 +251,7 @@ describe("apps", () => {
       "Read a thread",
       "Post a message",
       "Reply in a thread",
+      "API request",
       strings.creator.triggers,
     ]);
   });
@@ -334,7 +349,10 @@ describe("search", () => {
       { kind: "append" },
       { hasTrigger: true, query: "slack" },
     ).items;
-    expect(items.every((item) => item.type === "entry")).toBe(true);
+    // oracle-change: the apps' API request steps stand as one row that opens the list of apps, and it is the one row that is not a step
+    expect(
+      items.flatMap((item) => (item.type === "entry" ? [] : [item])),
+    ).toEqual([expect.objectContaining({ id: "list:apiRequest" })]);
     expect(labelsOf(items)).toContain("Slack: post a message");
   });
 
@@ -375,6 +393,332 @@ describe("search", () => {
     expect(
       list(target, { view: { kind: "list", list: "actions" } }).searchable,
     ).toBe(true);
+  });
+});
+
+const API_REQUEST_KEYWORDS = [
+  "http",
+  "api",
+  "request",
+  "rest",
+  "endpoint",
+  "fetch",
+  "get",
+  "curl",
+];
+const API_REQUEST_APPS = [
+  "bigquery",
+  "gong",
+  "github",
+  "hubspot",
+  "jira",
+  "notion",
+  "posthog",
+  "pylon",
+  "sentry",
+  "slack",
+  "stripe",
+];
+const NEXT: CreatorTarget = {
+  kind: "append",
+  after: { nodeId: "n", port: "out" },
+};
+const API_REQUEST_LIST: CreatorView = { kind: "list", list: "apiRequest" };
+
+function apiRequestRows(items: CreatorItem[]) {
+  return selectableRows(items).flatMap((row) =>
+    row.type === "providerStep" ? [row] : [],
+  );
+}
+
+describe("API request", () => {
+  it("is one row on the next list, with a plain description, and opens the list of apps", () => {
+    const row = selectableRows(list(NEXT, { hasTrigger: true }).items).find(
+      (candidate) => candidate.label === strings.creator.apiRequest,
+    );
+    expect(row).toMatchObject({
+      type: "list",
+      kind: "lookup",
+      description: strings.creator.hint.apiRequest,
+      view: API_REQUEST_LIST,
+    });
+  });
+
+  it.each(API_REQUEST_KEYWORDS)(
+    "is found once on the root by searching %s, and never as one row for each app",
+    (keyword) => {
+      const items = list(NEXT, { hasTrigger: true, query: keyword }).items;
+      const rows = selectableRows(items);
+      expect(rows.filter((row) => row.label === "API request")).toEqual([
+        expect.objectContaining({ type: "list", id: "list:apiRequest" }),
+      ]);
+      expect(
+        rows.filter(
+          (row) =>
+            row.type === "entry" &&
+            row.entry.options.operationId?.endsWith(".apiRequest"),
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it("shows once in every root search, however many apps the query names", () => {
+    for (const query of ["", "slack", "github", "api request", "lookup"]) {
+      const rows = selectableRows(
+        list(NEXT, { hasTrigger: true, query }).items,
+      );
+      expect(
+        rows.filter((row) => row.label === strings.creator.apiRequest).length,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        rows.filter(
+          (row) =>
+            row.type === "entry" &&
+            row.entry.options.operationId?.endsWith(".apiRequest"),
+        ),
+      ).toEqual([]);
+    }
+  });
+
+  it("is on the root of an insertion into a connection too", () => {
+    expect(
+      labelsOf(
+        list({ kind: "insert", edgeId: "e" }, { hasTrigger: true }).items,
+      ),
+    ).toContain(strings.creator.apiRequest);
+  });
+
+  it("lists the eleven apps, alphabetical until their connection is known, each adding its own step", () => {
+    const view = list(NEXT, { hasTrigger: true, view: API_REQUEST_LIST });
+    expect(view.searchable).toBe(true);
+    const rows = apiRequestRows(view.items);
+    expect(rows.map((row) => row.provider)).toEqual(
+      [...API_REQUEST_APPS].sort((a, b) =>
+        providerIdentity(a).label.localeCompare(providerIdentity(b).label),
+      ),
+    );
+    for (const row of rows) {
+      expect(row.entry.options.operationId).toBe(`${row.provider}.apiRequest`);
+      expect(row.entry.kind).toBe("lookup");
+      expect(row.label).toBe(providerIdentity(row.provider).label);
+    }
+    expect(view.items.every((item) => item.type === "providerStep")).toBe(true);
+  });
+
+  it("lists the connected apps first, each half alphabetical", () => {
+    const rows = apiRequestRows(
+      list(NEXT, {
+        hasTrigger: true,
+        view: API_REQUEST_LIST,
+        connections: {
+          stripe: "connected",
+          github: "connected",
+          slack: "not connected",
+          jira: "unknown",
+        },
+      }).items,
+    );
+    expect(rows.map((row) => row.label)).toEqual([
+      "GitHub",
+      "Stripe",
+      "BigQuery",
+      "Gong",
+      "HubSpot",
+      "Jira",
+      "Notion",
+      "PostHog",
+      "Pylon",
+      "Sentry",
+      "Slack",
+    ]);
+  });
+
+  it("narrows the list of apps by a search", () => {
+    const rows = apiRequestRows(
+      list(NEXT, {
+        hasTrigger: true,
+        view: API_REQUEST_LIST,
+        query: "sl",
+      }).items,
+    );
+    expect(rows.map((row) => row.provider)).toEqual(["slack"]);
+  });
+
+  it("is pinned after every other row in each app's actions, once", () => {
+    for (const provider of API_REQUEST_APPS) {
+      const entries = selectableRows(
+        list(NEXT, {
+          hasTrigger: true,
+          view: { kind: "app", provider, from: "next" },
+        }).items,
+      ).flatMap((row) => (row.type === "entry" ? [row] : []));
+      expect(last(entries)?.label).toBe("API request");
+      expect(last(entries)?.entry.options.operationId).toBe(
+        `${provider}.apiRequest`,
+      );
+      expect(entries.filter((row) => row.label === "API request")).toHaveLength(
+        1,
+      );
+    }
+  });
+
+  it("is pinned last from the start list's apps too, without captions", () => {
+    const items = list(NEXT, {
+      hasTrigger: true,
+      view: { kind: "app", provider: "slack", from: "start" },
+      query: "slack",
+    }).items;
+    expect(items.some((item) => item.type === "caption")).toBe(false);
+    expect(last(labelsOf(items))).toBe("API request");
+  });
+
+  it("stays last in an app when a search ranks every row alike", () => {
+    const actions = selectableRows(
+      list(NEXT, {
+        hasTrigger: true,
+        view: { kind: "app", provider: "slack", from: "next" },
+        query: "slack",
+      }).items,
+    ).flatMap((row) =>
+      row.type === "entry" && row.entry.kind !== "source" ? [row.label] : [],
+    );
+    expect(last(actions)).toBe("API request");
+    expect(actions).toContain("Post a message");
+  });
+
+  it("is found inside an app by the same words", () => {
+    for (const query of API_REQUEST_KEYWORDS) {
+      const labels = labelsOf(
+        list(NEXT, {
+          hasTrigger: true,
+          view: { kind: "app", provider: "github", from: "next" },
+          query,
+        }).items,
+      );
+      expect(labels).toContain("API request");
+    }
+  });
+
+  it("is the only row of an app with nothing else to do, and then has no caption", () => {
+    const items = list(NEXT, {
+      hasTrigger: true,
+      view: { kind: "app", provider: "jira", from: "next" },
+    }).items;
+    expect(labelsOf(items)).toEqual([
+      strings.creator.actions,
+      "Create an issue",
+      "API request",
+    ]);
+    expect(items.some((item) => item.type === "caption")).toBe(false);
+  });
+
+  it("keeps an app whose only action is the API request out of the list of apps with actions", () => {
+    const providers = selectableRows(
+      list(NEXT, { hasTrigger: true, view: { kind: "list", list: "actions" } })
+        .items,
+    ).flatMap((row) => (row.type === "provider" ? [row.provider] : []));
+    expect(providers).toContain("jira");
+    expect(providers).not.toContain("bigquery");
+  });
+
+  it("is never offered where the first step goes", () => {
+    const first: CreatorTarget = { kind: "append" };
+    for (const query of ["", ...API_REQUEST_KEYWORDS, "slack"]) {
+      const items = list(first, { query }).items;
+      expect(labelsOf(items)).not.toContain(strings.creator.apiRequest);
+      expect(labelsOf(items)).not.toContain("API request");
+    }
+    expect(labelsOf(list(first, { view: API_REQUEST_LIST }).items)).toEqual([]);
+    const inApp = list(first, {
+      view: { kind: "app", provider: "slack", from: "start" },
+      query: "api",
+    }).items;
+    expect(labelsOf(inApp)).not.toContain("API request");
+    expect(
+      labelsOf(
+        list(first, {
+          view: { kind: "app", provider: "slack", from: "start" },
+        }).items,
+      ),
+    ).not.toContain("API request");
+  });
+});
+
+describe("empty search", () => {
+  it("links the API request step under the no-results line, above the agent", () => {
+    const items = list(NEXT, { hasTrigger: true, query: "zzqx" }).items;
+    expect(items.map((item) => item.type)).toEqual([
+      "notice",
+      "tip",
+      "describe",
+    ]);
+    expect(items[1]).toEqual({
+      type: "tip",
+      id: "tip:apiRequest",
+      before: "Read any endpoint of a connected app with the ",
+      link: strings.creator.apiRequestLink,
+      after: ".",
+      view: API_REQUEST_LIST,
+    });
+  });
+
+  it("keeps the whole sentence, then the link, when a translation leaves out the link's place", () => {
+    const english = createEnglishTranslator();
+    const unplaced = createWorkflowCanvasStrings((key, options) =>
+      key === "workflowCanvas.creator.apiRequestTip"
+        ? "Read any endpoint."
+        : english(key, options),
+    );
+    const tip = creatorList({
+      catalog,
+      target: NEXT,
+      hasTrigger: true,
+      view: { kind: "root" },
+      query: "zzqx",
+      open: {},
+      describable: false,
+      strings: unplaced,
+    }).items.find((item) => item.type === "tip");
+    expect(tip).toMatchObject({
+      before: "Read any endpoint.",
+      link: unplaced.creator.apiRequestLink,
+      after: "",
+    });
+  });
+
+  it("keeps the tip when the agent cannot be offered, and leaves it out of the keyboard's rows", () => {
+    const items = list(NEXT, {
+      hasTrigger: true,
+      query: "zzqx",
+      describable: false,
+    }).items;
+    expect(items.map((item) => item.type)).toEqual(["notice", "tip"]);
+    expect(selectableRows(items)).toEqual([]);
+  });
+
+  it("opens a list whose rows add each app's step", () => {
+    const tip = list(NEXT, { hasTrigger: true, query: "zzqx" }).items.find(
+      (item) => item.type === "tip",
+    );
+    if (tip?.type !== "tip") throw new Error("expected a tip");
+    expect(
+      apiRequestRows(list(NEXT, { hasTrigger: true, view: tip.view }).items),
+    ).toHaveLength(API_REQUEST_APPS.length);
+  });
+
+  it("offers no tip on the start list, where the step cannot go, nor inside an app", () => {
+    expect(
+      list({ kind: "append" }, { query: "zzqx" }).items.map(
+        (item) => item.type,
+      ),
+    ).toEqual(["notice", "describe"]);
+    expect(
+      list(NEXT, {
+        hasTrigger: true,
+        view: { kind: "app", provider: "slack", from: "next" },
+        query: "zzqx",
+      }).items.map((item) => item.type),
+    ).toEqual(["notice", "describe"]);
   });
 });
 

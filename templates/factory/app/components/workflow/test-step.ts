@@ -1,13 +1,19 @@
-import type { NodeKind } from "@/lib/workflow-editor";
+import { testNeedsItems, type WorkflowNode } from "@/lib/workflow-editor";
 
 import type { NodeAudit } from "./items/read-types";
 
 /** Each item an AI step is tested on costs a model call, and a few are enough to tune a step on. */
 const TEST_STEP_SAMPLE_ITEMS = 3;
 
-/** A trigger and a source make their own items, so testing one pins none. */
-export function stepNeedsItems(kind: NodeKind): boolean {
-  return kind !== "trigger" && kind !== "source";
+/**
+ * Whether testing a step has to wait for a run of the whole workflow to have
+ * shown it items: the rule the server refuses a test by. A trigger and a source
+ * make their own, and a lookup that reads nothing about an item (no `item.*`, no
+ * `nodes.*`, nothing a model writes from the item) asks the same question of
+ * every item, so it is tested on its own, once.
+ */
+export function stepNeedsItems(node: WorkflowNode): boolean {
+  return testNeedsItems(node);
 }
 
 /**

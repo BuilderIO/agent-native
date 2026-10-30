@@ -6,9 +6,8 @@ import {
   type WorkflowErrorCode,
   type WorkflowNode,
 } from "../contract.js";
-import { assertWithinStepCap } from "../items.js";
 import { LIMIT_REACHED_PORT, portsWithLimit } from "../ports.js";
-import { capView, emittedItems } from "./cap.js";
+import { assertStepWithinCap, emittedItems } from "./cap.js";
 import { ROUNDS_COUNTER } from "./constants.js";
 import type { GraphPlan } from "./graph-order.js";
 import { setItemAside } from "./item-failure.js";
@@ -429,7 +428,7 @@ export async function walkGraph(
           );
         }
       }
-      assertWithinStepCap(emittedItems(outcome.itemsByPort).map(capView));
+      assertStepWithinCap(node, emittedItems(outcome.itemsByPort));
     } catch (error) {
       // A WorkflowError is a failure of this step; anything else is a bug or a dead
       // dependency, and it stops the whole run loudly instead.

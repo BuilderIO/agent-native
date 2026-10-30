@@ -863,10 +863,13 @@ function WorkflowEditorSurface({
   const testMessages = useCallback(
     () => ({
       started: ws.run.started,
+      // A step that reads its item cannot be tested before a run has shown it one: the server refuses with this code, whichever button asked.
       failed: (failure: ActionFailure) =>
         isUnknownActionError(failure)
           ? ws.run.unavailable
-          : ws.run.failed(failure.message),
+          : failure.errorCode === "test_needs_items"
+            ? ws.run.testNeedsItems
+            : ws.run.failed(failure.message),
     }),
     [ws],
   );
@@ -1260,6 +1263,7 @@ function WorkflowEditorSurface({
           dirty={dirty}
           starting={saving || runMutation.isPending}
           onTestStep={testStep}
+          onSave={save}
           parkedCount={
             detailsNode ? (parkedCounts?.get(detailsNode.id) ?? 0) : 0
           }

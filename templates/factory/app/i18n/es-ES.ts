@@ -477,6 +477,8 @@ const messages = {
       liveStarted: "Ejecución iniciada.",
       liveFailed: "No se pudo iniciar la ejecución. {{reason}}",
       enableFailed: "No se pudo cambiar el flujo de trabajo. {{reason}}",
+      testNeedsItems:
+        "Este paso necesita elementos para probarlo. Ejecuta primero una simulación del flujo de trabajo y luego prueba el paso.",
     },
     nodePanel: {
       tabsName: "Vistas del paso",
@@ -532,6 +534,58 @@ const messages = {
       pathCopyFailed: "No se pudo copiar la ruta",
       dragHint: "Arrastra este tirador sobre un campo para asignarlo",
       mappedFirstField: "Acabas de asignar un campo.",
+    },
+    apiRequest: {
+      docs: "Documentación",
+      docsFor: "Documentación de la API de {{provider}}",
+      truncatedNotice:
+        "La respuesta se recortó para que cupiera, y un solo registro puede ser así de grande. Reduce la consulta con parámetros como per_page o usa paginación.",
+      cutList: "{{path}}: se conservaron {{kept}} de {{of}} elementos",
+      cutText: "{{path}}: se conservaron {{kept}} de {{of}} caracteres",
+      cutKeys_one: "{{path}}: se omitió {{count}} campo",
+      cutKeys_many: "{{path}}: se omitieron {{count}} de campos",
+      cutKeys_other: "{{path}}: se omitieron {{count}} campos",
+      cutsMore_one: "y {{count}} recorte más",
+      cutsMore_many: "y {{count}} de recortes más",
+      cutsMore_other: "y {{count}} recortes más",
+      tooLargeHint:
+        "Un paso puede pasar unos 64 KB y 100 elementos en total, contando las respuestas anteriores que sigan adjuntas. Reduce la consulta, usa paginación o haz menos llamadas en una misma ejecución.",
+      cutNotice:
+        "Solo se muestra el inicio de la respuesta: un paso guarda un registro breve de lo que leyó.",
+      noOutputRecorded:
+        "Esta ejecución no guardó ninguna respuesta para este paso.",
+      liveMark: "HTTP {{status}}, {{ms}} ms",
+      notStored:
+        "Solo se muestra aquí. La respuesta no se guarda, y al cerrar esta ventana se borra.",
+      errorDetails: "Detalles del error",
+      detailCode: "Código",
+      detailStatus: "Estado",
+      detailMessage: "Mensaje",
+      heading: {
+        not_connected: "El proveedor no está conectado",
+        access_denied: "El proveedor denegó el acceso de la conexión",
+        not_found: "El proveedor no encontró esa ruta",
+        rate_limited: "El proveedor está limitando las solicitudes",
+        provider_problem: "El proveedor tuvo un problema",
+        rejected: "El proveedor rechazó la solicitud",
+        too_large: "Las respuestas eran demasiado grandes para guardarlas",
+        request_failed: "La solicitud no se completó",
+        request_refused: "La solicitud se rechazó antes de enviarse",
+        unreadable: "No se pudo leer la respuesta",
+        expression_failed: "Un valor que lee este paso está vacío",
+        test_not_allowed: "No puedes probar este paso",
+        failed: "El paso falló",
+        full_url_refused: "La ruta es una URL completa",
+        unsafe_path_value: "La ruta no se puede enviar tal como se escribió",
+        invalid_query: "Los parámetros de consulta no son válidos",
+        invalid_header: "Un encabezado no es válido",
+        header_denied: "Aquí no se puede definir un encabezado",
+        invalid_pagination: "Los ajustes de paginación no son válidos",
+        invalid_timeout: "El tiempo límite no es válido",
+        incompatible_fields:
+          "No se pueden devolver el estado y los encabezados con la paginación",
+        invalid_field: "Un campo está vacío o no es válido",
+      },
     },
     diagnostics: {
       copy: "Copiar diagnósticos",
@@ -916,6 +970,11 @@ const messages = {
       searchApps: "Buscar apps...",
       searchActions: "Buscar acciones...",
       clearSearch: "Borrar búsqueda",
+      apiRequest: "Solicitud de API",
+      apiRequestLink: "paso de solicitud de API",
+      apiRequestTip:
+        "Lee cualquier ruta de la API de una app conectada con el {{link}}.",
+      anythingElseCaption: "Otros",
       hint: {
         onSchedule:
           "Se ejecuta con un temporizador, cada pocos minutos o cada día",
@@ -926,6 +985,7 @@ const messages = {
         data: "Filtrar, dividir o combinar elementos",
         flow: "Dirigir, pausar o detener un elemento",
         describe: "Pedir al agente que cree este paso",
+        apiRequest: "Lee cualquier ruta de la API de una app conectada",
         decideAi: "Responder una pregunta sobre cada elemento",
         builderStart: "Pasar un bug claro a Builder para que lo corrija",
         builderCheck: "Consultar en qué punto está una tarea de Builder",
@@ -1361,6 +1421,128 @@ const messages = {
         confirmBody_other: "Sus {{count}} conexiones también se quitarán.",
         confirm: "Quitar rama",
         cancel: "Conservar rama",
+      },
+      apiRequest: {
+        importCurl: "Importar cURL",
+        method: "Método",
+        methodReadOnly: "Este paso solo lee, así que el método es siempre GET.",
+        provider: "Proveedor",
+        path: "Ruta",
+        pathPlaceholder: "repos/acme/web/issues",
+        authentication: "Autenticación",
+        authProvider: "Conexión con el proveedor",
+        authProviderHint: "Envía la credencial de la conexión con la solicitud",
+        authNone: "Ninguna",
+        authNoneHint: "No envía credenciales, para una ruta pública",
+        sendQuery: "Enviar parámetros de consulta",
+        sendHeaders: "Enviar encabezados",
+        specifyQuery: "Indicar parámetros de consulta",
+        specifyHeaders: "Indicar encabezados",
+        modeFields: "Usando los campos de abajo",
+        modeJson: "Usando JSON",
+        name: "Nombre",
+        value: "Valor",
+        queryJson: "Parámetros de consulta en JSON",
+        headersJson: "Encabezados en JSON",
+        addParameter: "Añadir parámetro",
+        addHeader: "Añadir encabezado",
+        removeRow: "Quitar",
+        addOption: "Añadir opción",
+        optionTimeout: "Tiempo límite",
+        optionPagination: "Paginación",
+        optionStatus: "Incluir el estado y los encabezados de la respuesta",
+        optionBlockedByPagination: "No disponible con la paginación.",
+        optionBlockedByStatus:
+          "No disponible mientras se incluyan el estado y los encabezados de la respuesta.",
+        removeOption: "Quitar {{option}}",
+        timeoutSeconds: "Tiempo límite (segundos)",
+        cursorPath: "Ruta del cursor",
+        cursorParam: "Parámetro del cursor",
+        itemsPath: "Ruta de los elementos",
+        maxPages: "Máximo de páginas",
+        notice:
+          "Las solicitudes solo leen. Usan la conexión con el proveedor, y aquí no se muestran ni se guardan credenciales.",
+        cardSubtitle: "GET: {{path}}",
+        cardSubtitleEmpty: "GET:",
+        problem: {
+          pathEmpty: "Escribe la ruta de la API, como repos/acme/web/issues.",
+          fullUrl: "Escribe solo la ruta. El dominio lo aporta la conexión.",
+          useOnlyPath: "Usa solo la ruta",
+          pathQuery:
+            "Pon los parámetros de consulta en Enviar parámetros de consulta, no en la ruta.",
+          moveToParameters: "Muévelos a los parámetros de consulta",
+          pathFragment: "Quita la parte #: nunca se envía al proveedor.",
+          pathPlaceholder:
+            "Un {name} de la ruta no se ha rellenado. Escribe el valor real.",
+          pathSegment:
+            "La ruta tiene una parte vacía, con solo puntos o con un carácter de control.",
+          pathLength: "La ruta es demasiado larga.",
+          queryInvalid:
+            "Los parámetros de consulta deben ser nombres con texto, números o listas.",
+          queryName:
+            "En un nombre, usa solo letras, dígitos y los caracteres - _ . [ ].",
+          queryValue:
+            "Un valor no puede contener un salto de línea ni ser tan largo.",
+          nameMissing: "Añade un nombre o quita esta fila.",
+          headersInvalid:
+            "Los encabezados deben ser nombres con valores de texto.",
+          headerDenied:
+            "{{name}} lo envía la conexión, así que no se puede definir aquí.",
+          headerDeniedRow: "La propia conexión envía este encabezado.",
+          headerName: "Ese nombre de encabezado no es válido.",
+          headerValue:
+            "Un valor no puede contener caracteres de control ni ser tan largo.",
+          headerDuplicate: "Este encabezado ya está en la lista.",
+          timeout: "Usa un número de segundos entre 1 y 60.",
+          paginationShape: "Revisa los ajustes de paginación.",
+          paginationCursorPath:
+            "Escribe la ruta al siguiente cursor de la respuesta, como meta.next_cursor.",
+          paginationCursorParam:
+            "Escribe el parámetro de consulta que envía de vuelta el cursor.",
+          paginationItemsPath:
+            "Usa una ruta con puntos hasta la lista de cada página, como data.items.",
+          paginationMaxPages: "Usa un número entero de páginas, de 1 a 5.",
+          statusWithPaging:
+            "Desactiva el estado y los encabezados, o desactiva la paginación: solo se conoce el estado de la última página.",
+          droppedCredentials:
+            "Se omitieron {{names}}: las credenciales nunca se guardan en un paso.",
+        },
+        importDialog: {
+          title: "Importar comando cURL",
+          label: "Comando cURL",
+          placeholder: "Pega aquí el comando cURL",
+          warning: "Esto reemplazará los ajustes de este paso.",
+          import: "Importar",
+          cancel: "Cancelar",
+          done: "Listo",
+          providersFailed:
+            "No se pudo cargar la lista de proveedores, así que aún no se puede asociar ningún comando.",
+          retry: "Reintentar",
+          imported: "Importado desde cURL",
+          leftOutTitle: "Importado. Se omitieron:",
+          fail: {
+            not_curl: "No es un comando cURL. Debe empezar por curl.",
+            no_url: "El comando no tiene URL.",
+            invalid_url:
+              "No se pudo leer la URL. No puede contener una variable ni un comando.",
+            not_https: "Solo se pueden importar URL https.",
+            unknown_host: "Esta URL no pertenece a ningún proveedor conectado.",
+            unterminated_quote: "Una comilla del comando nunca se cierra.",
+            method_not_get:
+              "Este paso solo lee con GET, y el comando pide otro método.",
+          },
+          failFlag: "Este paso solo lee con GET, pero el comando usa {{flag}}.",
+          leftOut: {
+            credentials: "Credenciales, que aporta la conexión: {{names}}",
+            headers: "Encabezados que envía la propia solicitud: {{names}}",
+            bodies:
+              "El cuerpo de la solicitud, ya que este paso solo lee: {{names}}",
+            flags: "Opciones sin efecto aquí: {{names}}",
+            unreadableHeader: "Un encabezado que no se pudo leer",
+            extraUrl: "Todas las URL después de la primera",
+            urlUserinfo: "el usuario y la contraseña de la URL",
+          },
+        },
       },
     },
     rejection: {

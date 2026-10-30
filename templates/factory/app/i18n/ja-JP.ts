@@ -464,6 +464,8 @@ const messages = {
       liveStarted: "実行を開始しました。",
       liveFailed: "実行を開始できませんでした。{{reason}}",
       enableFailed: "ワークフローを変更できませんでした。{{reason}}",
+      testNeedsItems:
+        "このステップをテストするには項目が必要です。先にワークフローをドライランしてから、ステップをテストしてください。",
     },
     nodePanel: {
       tabsName: "ステップの表示",
@@ -517,6 +519,54 @@ const messages = {
       pathCopyFailed: "パスをコピーできませんでした",
       dragHint: "このハンドルをフィールドにドラッグしてマッピング",
       mappedFirstField: "フィールドをマッピングしました。",
+    },
+    apiRequest: {
+      docs: "ドキュメント",
+      docsFor: "{{provider}} API ドキュメント",
+      truncatedNotice:
+        "回答は収まるように切り詰められました。1 件のレコードでも、これくらい大きくなることがあります。per_page などのパラメータでクエリを絞るか、ページネーションを使ってください。",
+      cutList: "{{path}}：{{of}} 件中 {{kept}} 件を保持",
+      cutText: "{{path}}：{{of}} 文字中 {{kept}} 文字を保持",
+      cutKeys_other: "{{path}}：{{count}} 件のフィールドを除外しました",
+      cutsMore_other: "ほか {{count}} 件を切り詰め",
+      tooLargeHint:
+        "ステップが次に渡せるのは、合計で約 64 KB と 100 件の項目までです。項目に付いている前の回答もすべて数えます。クエリを絞るか、ページネーションを使うか、1 回の実行での呼び出しを減らしてください。",
+      cutNotice:
+        "回答の冒頭だけを表示しています。ステップは読み取った内容の短い記録を保持します。",
+      noOutputRecorded:
+        "この実行では、このステップの回答は記録されていません。",
+      liveMark: "HTTP {{status}}、{{ms}} ms",
+      notStored:
+        "ここでのみ表示しています。回答は保存されておらず、このウィンドウを閉じると消去されます。",
+      errorDetails: "エラーの詳細",
+      detailCode: "コード",
+      detailStatus: "ステータス",
+      detailMessage: "メッセージ",
+      heading: {
+        not_connected: "プロバイダーに接続されていません",
+        access_denied: "プロバイダーが接続のアクセスを拒否しました",
+        not_found: "プロバイダーでそのパスが見つかりませんでした",
+        rate_limited: "プロバイダーがリクエストを制限しています",
+        provider_problem: "プロバイダーで問題が発生しました",
+        rejected: "プロバイダーがリクエストを拒否しました",
+        too_large: "回答が大きすぎて保持できません",
+        request_failed: "リクエストを完了できませんでした",
+        request_refused: "リクエストは送信前に拒否されました",
+        unreadable: "回答を読み取れませんでした",
+        expression_failed: "このステップが読み取る値に中身がありません",
+        test_not_allowed: "このステップはテストできません",
+        failed: "ステップが失敗しました",
+        full_url_refused: "パスが完全な URL になっています",
+        unsafe_path_value: "入力どおりのパスは送信できません",
+        invalid_query: "クエリパラメータが正しくありません",
+        invalid_header: "ヘッダーが正しくありません",
+        header_denied: "ここではヘッダーを設定できません",
+        invalid_pagination: "ページネーションの設定が正しくありません",
+        invalid_timeout: "タイムアウトが正しくありません",
+        incompatible_fields:
+          "ステータスとヘッダーはページネーションと一緒に返せません",
+        invalid_field: "フィールドが空か、正しくありません",
+      },
     },
     diagnostics: {
       copy: "診断情報をコピー",
@@ -878,6 +928,11 @@ const messages = {
       searchApps: "アプリを検索...",
       searchActions: "アクションを検索...",
       clearSearch: "検索をクリア",
+      apiRequest: "API リクエスト",
+      apiRequestLink: "API リクエストステップ",
+      apiRequestTip:
+        "{{link}} で、接続済みアプリの任意のエンドポイントを読み取れます。",
+      anythingElseCaption: "その他",
       hint: {
         onSchedule: "タイマーで実行（数分ごと、または毎日）",
         newFromApp: "新しいメッセージ、チケット、リード、サブスクリプション",
@@ -887,6 +942,7 @@ const messages = {
         data: "項目の絞り込み、分割、結合",
         flow: "項目を振り分け、一時停止、または停止",
         describe: "エージェントにこのステップの作成を依頼",
+        apiRequest: "接続済みアプリの任意のエンドポイントを読み取り",
         decideAi: "各項目についての質問に答える",
         builderStart: "明確なバグを Builder に渡して修正",
         builderCheck: "Builder のタスクの進捗を確認",
@@ -1298,6 +1354,128 @@ const messages = {
         confirmBody_other: "このルートの接続 {{count}} 件も削除されます。",
         confirm: "ルートを削除",
         cancel: "ルートを残す",
+      },
+      apiRequest: {
+        importCurl: "cURL をインポート",
+        method: "メソッド",
+        methodReadOnly:
+          "このステップは読み取りのみのため、メソッドは常に GET です。",
+        provider: "プロバイダー",
+        path: "パス",
+        pathPlaceholder: "repos/acme/web/issues",
+        authentication: "認証",
+        authProvider: "プロバイダーの接続",
+        authProviderHint: "接続の認証情報をリクエストに付けて送信",
+        authNone: "なし",
+        authNoneHint: "認証情報は送らず、公開エンドポイント向け",
+        sendQuery: "クエリパラメータを送信",
+        sendHeaders: "ヘッダーを送信",
+        specifyQuery: "クエリパラメータを指定",
+        specifyHeaders: "ヘッダーを指定",
+        modeFields: "下のフィールドを使用",
+        modeJson: "JSON を使用",
+        name: "名前",
+        value: "値",
+        queryJson: "JSON 形式のクエリパラメータ",
+        headersJson: "JSON 形式のヘッダー",
+        addParameter: "パラメータを追加",
+        addHeader: "ヘッダーを追加",
+        removeRow: "削除",
+        addOption: "オプションを追加",
+        optionTimeout: "タイムアウト",
+        optionPagination: "ページネーション",
+        optionStatus: "レスポンスのステータスとヘッダーを含める",
+        optionBlockedByPagination: "ページネーションとは併用できません。",
+        optionBlockedByStatus:
+          "レスポンスのステータスとヘッダーを含めている間は使用できません。",
+        removeOption: "{{option}} を削除",
+        timeoutSeconds: "タイムアウト（秒）",
+        cursorPath: "カーソルのパス",
+        cursorParam: "カーソルのパラメータ",
+        itemsPath: "項目のパス",
+        maxPages: "最大ページ数",
+        notice:
+          "リクエストは読み取りのみです。プロバイダーの接続を使い、認証情報はここに表示も保存もされません。",
+        cardSubtitle: "GET: {{path}}",
+        cardSubtitleEmpty: "GET:",
+        problem: {
+          pathEmpty:
+            "エンドポイントのパスを入力してください。例：repos/acme/web/issues",
+          fullUrl: "パスだけを入力してください。ホストは接続から取得されます。",
+          useOnlyPath: "パスだけを使う",
+          pathQuery:
+            "クエリパラメータはパスに含めず、「クエリパラメータを送信」に入れてください。",
+          moveToParameters: "パラメータに移動",
+          pathFragment:
+            "# の部分を削除してください。プロバイダーには送信されません。",
+          pathPlaceholder:
+            "パス内の {name} が埋まっていません。実際の値を入力してください。",
+          pathSegment:
+            "パスに、空の部分、「.」だけの部分、制御文字を含む部分があります。",
+          pathLength: "パスが長すぎます。",
+          queryInvalid:
+            "クエリパラメータは、名前と、文字列・数値・リストの値で指定してください。",
+          queryName: "名前には英字、数字、- _ . [ ] だけを使ってください。",
+          queryValue: "値には改行を含められず、この長さも使えません。",
+          nameMissing: "名前を入力するか、この行を削除してください。",
+          headersInvalid: "ヘッダーは、名前と文字列の値で指定してください。",
+          headerDenied: "{{name}} は接続が送るため、ここでは設定できません。",
+          headerDeniedRow: "このヘッダーは接続が自動で送ります。",
+          headerName: "ヘッダー名が正しくありません。",
+          headerValue: "値には制御文字を含められず、この長さも使えません。",
+          headerDuplicate: "このヘッダーはすでに追加されています。",
+          timeout: "1 〜 60 秒の数値を使ってください。",
+          paginationShape: "ページネーションの設定を確認してください。",
+          paginationCursorPath:
+            "レスポンス内の次のカーソルへのパスを入力してください。例：meta.next_cursor",
+          paginationCursorParam:
+            "カーソルを返すクエリパラメータを入力してください。",
+          paginationItemsPath:
+            "各ページ内のリストへのドット区切りのパスを使ってください。例：data.items",
+          paginationMaxPages: "1 〜 5 の整数でページ数を指定してください。",
+          statusWithPaging:
+            "ステータスとヘッダーをオフにするか、ページネーションをオフにしてください。ステータスが分かるのは最後のページだけです。",
+          droppedCredentials:
+            "{{names}} を除外しました。認証情報はステップに保存されません。",
+        },
+        importDialog: {
+          title: "cURL コマンドをインポート",
+          label: "cURL コマンド",
+          placeholder: "ここに cURL コマンドを貼り付け",
+          warning: "このステップの設定が上書きされます。",
+          import: "インポート",
+          cancel: "キャンセル",
+          done: "完了",
+          providersFailed:
+            "プロバイダーの一覧を読み込めなかったため、コマンドをまだ照合できません。",
+          retry: "再試行",
+          imported: "cURL からインポートしました",
+          leftOutTitle: "インポートしました。次は除外されました：",
+          fail: {
+            not_curl:
+              "cURL コマンドではありません。curl で始まる必要があります。",
+            no_url: "コマンドに URL がありません。",
+            invalid_url:
+              "URL を読み取れませんでした。変数やコマンドは含められません。",
+            not_https: "インポートできるのは https の URL だけです。",
+            unknown_host:
+              "この URL は接続済みのプロバイダーのものではありません。",
+            unterminated_quote: "コマンド内の引用符が閉じられていません。",
+            method_not_get:
+              "このステップは GET でのみ読み取れますが、コマンドは別のメソッドを求めています。",
+          },
+          failFlag:
+            "このステップは GET でのみ読み取れますが、コマンドは {{flag}} を使っています。",
+          leftOut: {
+            credentials: "接続が提供する認証情報：{{names}}",
+            headers: "リクエストが自動で送るヘッダー：{{names}}",
+            bodies: "リクエストボディ（読み取りのみのため）：{{names}}",
+            flags: "ここでは意味のないオプション：{{names}}",
+            unreadableHeader: "読み取れなかったヘッダー",
+            extraUrl: "最初の URL 以降のすべての URL",
+            urlUserinfo: "URL 内のユーザー名とパスワード",
+          },
+        },
       },
     },
     rejection: {

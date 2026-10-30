@@ -36,6 +36,8 @@ retired scheduled agent jobs such as PR governance, never for a new request.
    call with `operationIds: [...]` for the full fields and outputs of the
    operations you use. Read a kind's full schema (`kind: "source"`) only when
    its shape is not enough. The unfiltered call is too big for one tool result.
+   The index lists the API request once, as `<provider>.apiRequest`: see
+   "An endpoint no step covers".
 4. **Save the whole graph.** `save-factory-workflow` with `factoryId`, `name`
    and `graph` (JSON text, see "Graph shape") creates it, disabled. A bad graph
    fails with `graph_invalid` and one line per problem,
@@ -179,6 +181,55 @@ requests; the GitHub poller does. Replace `commits` with
 `item.kind` `equals` `pull_request` before `digest`, with both its ports wired
 (`otherwise` to a `dismissed` End with a `reason`). Tell the user about the
 10-per-run limit.
+
+## An endpoint no step covers
+
+When no operation reads what the user wants, add a Lookup with
+`<provider>.apiRequest` rather than saying it cannot be done. It sends a
+read-only GET to any path of a connected provider: slack, github, hubspot,
+gong, pylon, stripe, posthog, bigquery, jira, notion or sentry. Read it with
+`operationIds` first: its description and field notes are the reference.
+
+- **Find the path before you write it.** `provider-api-catalog` with the
+  provider gives its base URL, example paths and docs links; `provider-api-docs`
+  with a `url` reads the endpoint's page. `path` sits below that base URL
+  (Slack `conversations.history`, Stripe `customers`), with no host. PostHog,
+  BigQuery and Sentry keep `{projectId}` or `{orgSlug}` in a path for the
+  connection to fill. Parameters go in `query`, never after a `?`.
+- **The answer is the provider's own JSON** at `nodes.<name>`. Its fields are
+  not checked at save, so read the real shape after a dry run, from the item's
+  summary in `get-workflow-node-audit`, before binding a later step to a path in
+  it. `includeStatus: true` makes it `{status, headers, body}`. With `pagination`
+  (the next cursor must be a plain field in the body; at most 5 pages) it is
+  `{pagesRead, moreAvailable, nextCursor, items}`: say when `moreAvailable`.
+- **A cut answer says so first.** Past about 33,000 characters it leads with
+  `truncated: true` and `cuts`: each list shortened (`kept` of `of`), text
+  clipped, or key left out, by path. A list becomes `{truncated, count,
+  totalAvailable, cuts, value}`, so `nodes.x[0]` stops reading and
+  `nodes.x.value[0]` starts: test `nodes.x.truncated` before relying on a count,
+  and tell the user how many came back of how many. The step carries
+  `outputsTruncated`. Fewer or narrower results (`per_page`, a filter) are the
+  fix, not a bigger read.
+- **One step hands on about 64 KB in all**, counting every item it emits and
+  every earlier answer still attached to each (`nodes.<step>`). Three big reads
+  in a row, or one read over several items, fail as `output_over_cap` naming the
+  step; the cap is not raised. Narrow the request, keep fewer fields, or split
+  the work.
+- **Never from a model.** `path` may be typed, a setting, an item field or an
+  earlier lookup, not AI-written (`model_written_target`), and the step is never
+  an AI step's tool (`unknown_tool`). Headers never carry credentials: the
+  connection signs the request.
+- **Limits to tell the user:** GET only, JSON only, no body, no POST searches,
+  no page-number or `Link` paging. A refused request fails the item as
+  `lookup_failed` with the reason in brackets, such as `unsafe_path_value`,
+  `full_url_refused`, `header_denied`; a 404 is not retried.
+- **What the app shows.** Test step on an API request shows the whole response on
+  screen for the person and keeps none of it; a run, and so anything you read back
+  with `get-workflow-node-audit`, keeps only a short summary of the answer.
+- **Test it on its own.** A Lookup that reads no `item.*` or `nodes.*` runs
+  once in a `mode: "test"` run with no `sampleItemIds`. Any other step with none
+  pinned is refused as `test_needs_items`, nothing started: pin items from a dry
+  run, or run the whole workflow first.
 
 ## Slack channels
 

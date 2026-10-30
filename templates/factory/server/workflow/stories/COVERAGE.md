@@ -100,48 +100,69 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 
 ## Catalog operations
 
-| Capability                  | 1   | 2   | 3   | 4   | 5   | 6   | 7   | 8   | 9   | 10  |
-| --------------------------- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `slack.readThread`          | ●   |     |     |     |     |     |     |     |     |     |
-| `slack.findUserByEmail`     |     |     |     | ●   |     |     |     |     |     |     |
-| `slack.postMessage`         | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   |
-| `slack.replyInThread`       | ●   | ●   |     |     |     |     |     |     |     |     |
-| `github.listCommits`        |     |     | ●   |     |     |     |     |     |     |     |
-| `github.listSecurityAlerts` |     |     |     |     |     |     |     | ●   |     |     |
-| `github.mergedPullRequests` |     |     |     |     |     |     |     |     |     | ●   |
-| `github.readPullRequest`    |     | ●   |     |     |     |     |     |     |     |     |
-| `github.mergePullRequest`   |     | ●   |     |     |     |     |     |     |     |     |
-| `github.readFile`           |     |     |     |     |     |     |     | ●   |     |     |
-| `github.searchCode`         |     |     |     |     |     |     |     | ●   |     |     |
-| `factory.listItems`         | ●   |     |     |     |     |     |     |     |     |     |
-| `factory.mergeGate`         |     | ●   |     |     |     |     |     |     |     |     |
-| `builder.start`             | ●   |     |     |     |     |     |     | ●   |     |     |
-| `builder.check`             |     | ●   |     |     |     |     |     |     |     |     |
-| `builder.followUp`          |     | ●   |     |     |     |     |     |     |     |     |
-| `hubspot.newLeads`          |     |     |     | ●   |     |     |     |     |     |     |
-| `hubspot.companyActivity`   |     |     |     | ●   |     |     |     |     |     |     |
-| `hubspot.ownerById`         |     |     |     | ●   |     |     |     |     |     |     |
-| `hubspot.createTask`        |     |     |     | ●   | ●   |     |     |     |     |     |
-| `hubspot.addToList`         |     |     |     | ●   |     |     |     |     |     |     |
-| `gong.newCalls`             |     |     |     |     | ●   |     |     |     |     |     |
-| `gong.transcript`           |     |     |     |     | ●   |     |     |     |     |     |
-| `pylon.newTickets`          |     |     |     |     |     | ●   |     |     |     |     |
-| `pylon.ticketThread`        |     |     |     |     |     | ●   |     |     |     |     |
-| `pylon.reply`               |     |     |     |     |     | ●   |     |     |     |     |
-| `pylon.addNote`             |     |     |     |     |     | ●   |     |     |     |     |
-| `stripe.newSubscriptions`   |     |     |     |     |     |     |     |     | ●   |     |
-| `stripe.customerBilling`    |     |     |     |     |     | ●   |     |     |     |     |
-| `posthog.usage`             |     |     |     |     |     |     |     |     | ●   |     |
-| `bigquery.billingQuery`     |     |     |     |     |     |     |     |     |     | ●   |
-| `jira.createIssue`          |     |     |     |     |     | ●   |     |     |     |     |
-| `notion.createPage`         |     |     |     |     |     |     | ●   |     |     |     |
-| `sentry.issueStatus`        |     |     |     |     |     |     | ●   |     |     |     |
-| `sentry.issueEvents`        |     |     |     |     |     |     | ●   |     |     |     |
-| `email.send`                |     |     |     | ●   |     | ●   | ●   | ●   | ●   | ●   |
+| Capability                                                                                             | 1   | 2   | 3   | 4   | 5   | 6   | 7   | 8   | 9   | 10  |
+| ------------------------------------------------------------------------------------------------------ | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `slack.readThread`                                                                                     | ●   |     |     |     |     |     |     |     |     |     |
+| `slack.findUserByEmail`                                                                                |     |     |     | ●   |     |     |     |     |     |     |
+| `slack.postMessage`                                                                                    | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   |
+| `slack.replyInThread`                                                                                  | ●   | ●   |     |     |     |     |     |     |     |     |
+| `github.listCommits`                                                                                   |     |     | ●   |     |     |     |     |     |     |     |
+| `github.listSecurityAlerts`                                                                            |     |     |     |     |     |     |     | ●   |     |     |
+| `github.mergedPullRequests`                                                                            |     |     |     |     |     |     |     |     |     | ●   |
+| `github.readPullRequest`                                                                               |     | ●   |     |     |     |     |     |     |     |     |
+| `github.mergePullRequest`                                                                              |     | ●   |     |     |     |     |     |     |     |     |
+| `github.readFile`                                                                                      |     |     |     |     |     |     |     | ●   |     |     |
+| `github.searchCode`                                                                                    |     |     |     |     |     |     |     | ●   |     |     |
+| `factory.listItems`                                                                                    | ●   |     |     |     |     |     |     |     |     |     |
+| `factory.mergeGate`                                                                                    |     | ●   |     |     |     |     |     |     |     |     |
+| `builder.start`                                                                                        | ●   |     |     |     |     |     |     | ●   |     |     |
+| `builder.check`                                                                                        |     | ●   |     |     |     |     |     |     |     |     |
+| `builder.followUp`                                                                                     |     | ●   |     |     |     |     |     |     |     |     |
+| `hubspot.newLeads`                                                                                     |     |     |     | ●   |     |     |     |     |     |     |
+| `hubspot.companyActivity`                                                                              |     |     |     | ●   |     |     |     |     |     |     |
+| `hubspot.ownerById`                                                                                    |     |     |     | ●   |     |     |     |     |     |     |
+| `hubspot.createTask`                                                                                   |     |     |     | ●   | ●   |     |     |     |     |     |
+| `hubspot.addToList`                                                                                    |     |     |     | ●   |     |     |     |     |     |     |
+| `gong.newCalls`                                                                                        |     |     |     |     | ●   |     |     |     |     |     |
+| `gong.transcript`                                                                                      |     |     |     |     | ●   |     |     |     |     |     |
+| `pylon.newTickets`                                                                                     |     |     |     |     |     | ●   |     |     |     |     |
+| `pylon.ticketThread`                                                                                   |     |     |     |     |     | ●   |     |     |     |     |
+| `pylon.reply`                                                                                          |     |     |     |     |     | ●   |     |     |     |     |
+| `pylon.addNote`                                                                                        |     |     |     |     |     | ●   |     |     |     |     |
+| `stripe.newSubscriptions`                                                                              |     |     |     |     |     |     |     |     | ●   |     |
+| `stripe.customerBilling`                                                                               |     |     |     |     |     | ●   |     |     |     |     |
+| `posthog.usage`                                                                                        |     |     |     |     |     |     |     |     | ●   |     |
+| `bigquery.billingQuery`                                                                                |     |     |     |     |     |     |     |     |     | ●   |
+| `jira.createIssue`                                                                                     |     |     |     |     |     | ●   |     |     |     |     |
+| `notion.createPage`                                                                                    |     |     |     |     |     |     | ●   |     |     |     |
+| `sentry.issueStatus`                                                                                   |     |     |     |     |     |     | ●   |     |     |     |
+| `sentry.issueEvents`                                                                                   |     |     |     |     |     |     | ●   |     |     |     |
+| `email.send`                                                                                           |     |     |     | ●   |     | ●   | ●   | ●   | ●   | ●   |
+| `slack.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)    |     |     |     |     |     |     |     |     |     |     |
+| `github.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)   |     |     |     |     |     |     |     |     |     |     |
+| `hubspot.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)  |     |     |     |     |     |     |     |     |     |     |
+| `gong.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)     |     |     |     |     |     |     |     |     |     |     |
+| `pylon.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)    |     |     |     |     |     |     |     |     |     |     |
+| `stripe.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)   |     |     |     |     |     |     |     |     |     |     |
+| `posthog.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)  |     |     |     |     |     |     |     |     |     |     |
+| `bigquery.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts) |     |     |     |     |     |     |     |     |     |     |
+| `jira.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)     |     |     |     |     |     |     |     |     |     |     |
+| `notion.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)   |     |     |     |     |     |     |     |     |     |     |
+| `sentry.apiRequest` (unused on purpose: generated per provider, run by api-request.scenario.spec.ts)   |     |     |     |     |     |     |     |     |     |     |
 
 ## Unused on purpose
 
-None: every catalog operation is used by a story.
+- `slack.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `github.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `hubspot.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `gong.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `pylon.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `stripe.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `posthog.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `bigquery.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `jira.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `notion.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
+- `sentry.apiRequest`: generated per provider, run by api-request.scenario.spec.ts
 
 ## Follow-ups
 

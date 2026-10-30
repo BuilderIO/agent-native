@@ -31,6 +31,15 @@ const WS_ARGS: Record<string, Args> = {
   "nodeData.count": [[1], [3]],
   "nodeData.ofTotal": [[2, 25]],
   "nodeData.moreFields": [[4]],
+  "apiRequest.docsFor": [["GitHub"]],
+  "apiRequest.cutList": [["items", 3, 40]],
+  "apiRequest.cutText": [["body.text", 300, 4000]],
+  "apiRequest.cutKeys": [
+    ["body", 1],
+    ["body", 3],
+  ],
+  "apiRequest.cutsMore": [[1], [4]],
+  "apiRequest.liveMark": [[200, 312]],
   "nodeData.runStarted": [["Oct 20, 10:00"]],
   "nodeData.runTook": [["2 s"]],
   "toolbar.problems": [[0], [1], [2], [12]],
@@ -134,6 +143,34 @@ const ITEMS_ARGS: Record<string, Args> = {
   "audit.atVersion": [[4]],
 };
 
+// Every refusal the API request form words, so each of its sentences is read.
+const API_PROBLEMS: Args = [
+  [{ field: "path", code: "invalid_field" }],
+  [{ field: "path", code: "full_url_refused" }],
+  ...["query", "fragment", "placeholder", "segment", "length"].map((reason) => [
+    { field: "path", code: "unsafe_path_value", reason },
+  ]),
+  [{ field: "query", code: "invalid_query" }],
+  [{ field: "headers", code: "invalid_header" }],
+  [{ field: "headers", code: "header_denied" }],
+  [{ field: "headers", code: "header_denied", name: "Authorization" }],
+  [{ field: "timeoutSeconds", code: "invalid_timeout" }],
+  [{ field: "includeStatus", code: "incompatible_fields" }],
+  ...["shape", "cursorPath", "cursorParam", "itemsPath", "maxPages"].map(
+    (part) => [{ field: "pagination", code: "invalid_pagination", part }],
+  ),
+];
+
+const API_ROW_PROBLEMS: Args = [
+  [{ code: "invalid_query", part: "nameMissing" }],
+  [{ code: "header_denied", part: "denied" }],
+  [{ code: "invalid_header", part: "duplicate" }],
+  [{ code: "invalid_query", part: "name" }],
+  [{ code: "invalid_query", part: "value" }],
+  [{ code: "invalid_header", part: "name" }],
+  [{ code: "invalid_header", part: "value" }],
+];
+
 const CANVAS_ARGS: Record<string, Args> = {
   "summary.everyMinutes": [[5], [30]],
   "summary.dailyAt": [["09:00"]],
@@ -166,6 +203,18 @@ const CANVAS_ARGS: Record<string, Args> = {
   "inspector.switchRoutes.confirmBody": [[0], [1], [3]],
   "menu.duplicateMany": [[2], [5]],
   "menu.deleteMany": [[2], [5]],
+  "inspector.apiRequest.removeOption": [["Timeout"]],
+  "inspector.apiRequest.cardSubtitle": [[""], ["repos/acme/web"]],
+  "inspector.apiRequest.problem.sentence": API_PROBLEMS,
+  "inspector.apiRequest.problem.row": API_ROW_PROBLEMS,
+  "inspector.apiRequest.problem.droppedCredentials": [["token"]],
+  "inspector.apiRequest.importDialog.failFlag": [["-X"]],
+  "inspector.apiRequest.importDialog.leftOut.credentials": [["-u"]],
+  "inspector.apiRequest.importDialog.leftOut.headers": [["Host"]],
+  "inspector.apiRequest.importDialog.leftOut.bodies": [["-d"]],
+  "inspector.apiRequest.importDialog.leftOut.flags": [["-L"]],
+  // The palette's tip names the step it links to.
+  "creator.apiRequestTip": [["API request step"]],
 };
 
 const ISSUE_CODES = [

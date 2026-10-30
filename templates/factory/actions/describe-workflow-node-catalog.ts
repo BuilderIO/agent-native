@@ -44,7 +44,7 @@ const PURPOSE: Record<NodeKind, string> = {
   source:
     "Starts a list of items: new messages from an inbox poller, a provider query, a time window, or items already in a status.",
   lookup:
-    "Reads one thing about each item (a thread, a ticket, a pull request) and attaches it under the node's name. Runs in a dry run.",
+    "Reads one thing about each item (a thread, a ticket, a pull request) and attaches it under the node's name. Runs in a dry run. When no lookup covers an endpoint, <provider>.apiRequest (label API request) sends a read-only GET to any path of a connected provider; read its description with operationIds before using it.",
   action:
     "Does one write to an outside tool (post a message, create a task, merge). Does not run in a dry run.",
   filter:
@@ -132,6 +132,13 @@ function sharedShapes(): Record<string, JsonSchema> {
     rule: toJsonSchema(ruleSchema),
     resultField: toJsonSchema(resultFieldSchema),
   };
+}
+
+function hasOpenEndpoint(operation: OperationDefinition): boolean {
+  return (
+    operation.implementation.type === "provider-request" &&
+    operation.implementation.freeForm !== undefined
+  );
 }
 
 // One line per field, `name:type`, `!` when required, an enum's values inline:
@@ -247,13 +254,16 @@ export default defineAction({
           for (const name of used) sharedUsed.add(name);
           return { ...base, settingsShape: shape };
         });
-        const operations = matching.map((operation) => {
+        const indexed = compact && !named;
+        const describeOperation = (operation: OperationDefinition) => {
           const outputs = operationOutputs(operation);
-          const indexed = compact && !named;
           return {
             id: operation.id,
             provider: operation.provider,
             label: operation.label,
+            ...(operation.description && named
+              ? { description: operation.description }
+              : {}),
             nodeKinds: operation.nodeKinds,
             effect: operation.effect,
             fields: indexed ? indexFields(operation) : operation.fields,
@@ -261,7 +271,25 @@ export default defineAction({
               ? { outputs: indexed ? indexOutputs(outputs) : outputs }
               : {}),
           };
-        });
+        };
+        // The API request is one definition per provider. The index an agent
+        // reads lists it once, with the providers it exists for, so it does not
+        // pay for eleven copies of the same line.
+        const openRequests =
+          indexed && forAgent ? matching.filter(hasOpenEndpoint) : [];
+        const operations = [
+          ...matching
+            .filter((operation) => !openRequests.includes(operation))
+            .map(describeOperation),
+          ...openRequests.slice(0, 1).map((operation) => {
+            const { provider: _own, ...entry } = describeOperation(operation);
+            return {
+              ...entry,
+              id: `<provider>.${operation.id.slice(operation.provider.length + 1)}`,
+              providers: openRequests.map((request) => request.provider),
+            };
+          }),
+        ];
         const providerIds = [
           ...new Set(
             matching.map((operation) => operation.credential.provider),

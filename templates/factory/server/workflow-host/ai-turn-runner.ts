@@ -41,10 +41,11 @@ import type {
 } from "../workflow/adapter.js";
 import type { ResultField, RunMode } from "../workflow/contract.js";
 import { validateAiFields } from "../workflow/engine/ai-fields.js";
-import type {
-  OperationCatalog,
-  OperationDefinition,
-  OperationField,
+import {
+  isModelToolAllowed,
+  type OperationCatalog,
+  type OperationDefinition,
+  type OperationField,
 } from "../workflow/operations.js";
 
 /** The one tool that carries the answer. Allowed tools get their own names. */
@@ -642,6 +643,11 @@ function validateInput(
     if (tool.operation.effect !== "read") {
       return {
         reason: `tool_not_read_only: "${tool.operation.id}" writes; a model may only be given reads.`,
+      };
+    }
+    if (!isModelToolAllowed(tool.operation)) {
+      return {
+        reason: `tool_endpoint_not_fixed: "${tool.operation.id}" reads a path someone types; a model may only be given reads whose endpoint is fixed.`,
       };
     }
     const name = toolNameFor(tool.operation.id);

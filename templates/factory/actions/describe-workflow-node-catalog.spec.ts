@@ -370,3 +370,100 @@ describe("describe-workflow-node-catalog: what an agent reads", () => {
     expect(forApp.nodeKinds).toHaveLength(NODE_KINDS.length);
   });
 });
+
+describe("describe-workflow-node-catalog: the API request", () => {
+  const asAgent = async (input: Record<string, unknown>) => {
+    const text = await run(input, kit.agentContext);
+    return { text: text as string, result: JSON.parse(text as string) };
+  };
+
+  it("is one line in the agent's index, naming every provider it exists for", async () => {
+    const { text, result } = await asAgent({ view: "index" });
+    const entries = (result.operations as Record<string, any>[]).filter(
+      (entry) => String(entry.id).endsWith(".apiRequest"),
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "<provider>.apiRequest",
+      label: "API request",
+      nodeKinds: ["lookup"],
+      effect: "read",
+      fields: [
+        "path:string!",
+        "query:json",
+        "headers:json",
+        "authentication:enum<provider|none>",
+        "timeoutSeconds:number",
+        "pagination:json",
+        "includeStatus:boolean",
+      ],
+    });
+    expect(entries[0]).not.toHaveProperty("provider");
+    expect([...entries[0].providers].sort()).toEqual(
+      OPERATION_CATALOG.list()
+        .filter((def) => def.id.endsWith(".apiRequest"))
+        .map((def) => def.provider)
+        .sort(),
+    );
+    expect(text).not.toContain("github.apiRequest");
+  });
+
+  it("is listed once per provider for the app, which reads every operation", async () => {
+    const forApp = await run({ view: "index" }, kit.context);
+    expect(
+      (forApp.operations as { id: string }[]).filter((entry) =>
+        entry.id.endsWith(".apiRequest"),
+      ),
+    ).toHaveLength(11);
+  });
+
+  it("points an agent at it from the lookup kind, when no lookup covers an endpoint", async () => {
+    const { result } = await asAgent({ view: "index" });
+    const lookup = (
+      result.nodeKinds as { kind: string; purpose: string }[]
+    ).find((entry) => entry.kind === "lookup");
+    expect(lookup?.purpose).toContain("apiRequest");
+    expect(lookup?.purpose).toContain("read-only GET");
+  });
+
+  it("explains itself when asked for by id, with what it is for, how to find a path and its limits", async () => {
+    const { result } = await asAgent({
+      view: "full",
+      operationIds: ["github.apiRequest"],
+    });
+    const [entry] = result.operations as Record<string, any>[];
+
+    expect(entry.id).toBe("github.apiRequest");
+    expect(entry.description).toContain("no other step covers");
+    expect(entry.description).toContain("provider-api-docs");
+    expect(entry.description).toContain("provider-api-catalog");
+    expect(entry.description).toContain("only reads");
+    expect(entry.description).toContain("truncated: true");
+    expect(entry.description).toContain("AI tool");
+    expect(entry.fields.map((field: { name: string }) => field.name)).toEqual([
+      "path",
+      "query",
+      "headers",
+      "authentication",
+      "timeoutSeconds",
+      "pagination",
+      "includeStatus",
+    ]);
+    for (const field of entry.fields as { description?: string }[]) {
+      expect(field.description?.length ?? 0).toBeGreaterThan(10);
+    }
+  });
+
+  it("reaches an agent through the provider filter too", async () => {
+    const { result } = await asAgent({ view: "index", provider: "sentry" });
+    const entry = (result.operations as Record<string, any>[]).find(
+      (candidate) => candidate.id === "sentry.apiRequest",
+    );
+    expect(entry?.description).toContain("provider-api-docs");
+    expect(
+      entry?.fields.find((field: { name: string }) => field.name === "path")
+        .description,
+    ).toContain("{orgSlug}");
+  });
+});

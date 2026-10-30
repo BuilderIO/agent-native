@@ -832,6 +832,16 @@ describe("run-workflow-operation: every operation in the catalog", () => {
     def: OperationDefinition,
     field: OperationDefinition["fields"][number],
   ): unknown {
+    // A free-form request's own fields need values it accepts, and no status beside paging, which it refuses.
+    if (
+      def.implementation.type === "provider-request" &&
+      def.implementation.freeForm
+    ) {
+      if (field.name === "pagination") {
+        return { cursorPath: "next", cursorParam: "cursor" };
+      }
+      if (field.name === "includeStatus") return false;
+    }
     switch (field.type) {
       case "number":
         return 5;

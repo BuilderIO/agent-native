@@ -13,6 +13,7 @@ import {
   buildGraph,
   type NodeSpec,
 } from "../story-graphs.fixture.js";
+import { genericOperations } from "./generic.js";
 import {
   OPERATION_CATALOG,
   OPERATION_DEFINITIONS,
@@ -29,7 +30,15 @@ const KNOWN_PROVIDERS = new Set<string>([
 ]);
 
 // An operation nobody uses must be listed here with the reason it stays.
-const UNUSED_ON_PURPOSE: { id: string; reason: string }[] = [];
+const UNUSED_ON_PURPOSE: { id: string; reason: string }[] = [
+  // The ten stories are product narratives, and none reads an endpoint no
+  // curated step covers. Every one of these is run through the engine, with a
+  // fake provider, by api-request.scenario.spec.ts.
+  ...genericOperations.map(({ id }) => ({
+    id,
+    reason: "generated per provider, run by api-request.scenario.spec.ts",
+  })),
+];
 
 // A read that is a POST must be listed here with the reason it is still a read.
 const POST_READS: Record<string, string> = {
@@ -210,12 +219,18 @@ describe("the operation catalog", () => {
       if (def.implementation.type !== "provider-request") {
         throw new Error(`${def.id} is not a provider request`);
       }
-      const { pathTemplate, query, bodyTemplate } = def.implementation;
+      const { pathTemplate, query, bodyTemplate, freeForm } =
+        def.implementation;
+      // A free-form request reads its optional parts from the fields it names.
+      const freeFormFields = Object.entries(freeForm ?? {}).flatMap(
+        ([role, name]) => (role === "placeholders" ? [] : [`{${name}}`]),
+      );
       return {
         path: placeholders([pathTemplate]),
         rest: placeholders([
           ...Object.values(query ?? {}),
           ...stringsIn(bodyTemplate),
+          ...freeFormFields,
         ]),
       };
     }
