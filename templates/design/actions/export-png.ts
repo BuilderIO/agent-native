@@ -1,4 +1,4 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { z } from "zod";
 
@@ -150,7 +150,7 @@ export default defineAction({
 
     const screenshot = result.screenshots?.[0];
     if (!screenshot) {
-      fail("The PNG renderer did not return an image.", {
+      throw new NoWriteError("The PNG renderer did not return an image.", {
         errorCode: "png_export_empty",
       });
     }
@@ -164,7 +164,7 @@ export default defineAction({
           },
         );
       }
-      fail(
+      throw new NoWriteError(
         "The PNG was rendered but could not be returned because file storage is not configured. " +
           "Use Builder.io in Settings → File uploads, or register a custom file provider.",
         {

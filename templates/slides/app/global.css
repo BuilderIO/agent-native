@@ -127,6 +127,8 @@ button[title="Open agent sidebar"] {
 :root {
   --background: 0 0% 13%;
   --foreground: 0 0% 93%;
+  /* Generation previews draft in the canvas selection blue, not the gray primary. */
+  --agent-native-generating-accent: #609ff8;
 
   --card: 0 0% 15%;
   --card-foreground: 0 0% 93%;

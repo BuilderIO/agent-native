@@ -596,7 +596,7 @@ function commonClipboardSourceParentNodeId(
 }
 
 export interface PasteSelectionArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   designId: string | undefined;
   applyFileContentUpdate: (

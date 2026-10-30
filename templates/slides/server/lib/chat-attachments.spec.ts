@@ -5,6 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const saveUploadedReferenceFileMock = vi.hoisted(() => vi.fn());
 const readBoundedResponseBytesMock = vi.hoisted(() => vi.fn());
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
+const rememberThreadUploadsMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./thread-uploads.js", () => ({
+  rememberThreadUploads: rememberThreadUploadsMock,
+}));
 
 vi.mock("../handlers/uploads.js", () => ({
   saveUploadedReferenceFile: saveUploadedReferenceFileMock,
@@ -128,6 +133,66 @@ describe("prepareSlidesChatAttachments", () => {
     saveUploadedReferenceFileMock.mockReset();
     readBoundedResponseBytesMock.mockReset();
     ssrfSafeFetchMock.mockReset();
+    rememberThreadUploadsMock.mockReset();
+  });
+
+  it("records each saved file under its thread so later turns can open it by name", async () => {
+    saveUploadedReferenceFileMock.mockResolvedValue({
+      path: "attachment:v1:example",
+      originalName: "proposal.pdf",
+      filename: "proposal.pdf",
+      type: "application/pdf",
+      size: 4,
+    });
+
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "use this proposal",
+      threadId: "thread-1",
+      attachments: [
+        {
+          type: "file",
+          name: "proposal.pdf",
+          contentType: "application/pdf",
+          data: "data:application/pdf;base64,JVBERg==",
+        },
+      ],
+    });
+
+    expect(rememberThreadUploadsMock).toHaveBeenCalledWith("thread-1", [
+      { name: "proposal.pdf", path: "attachment:v1:example" },
+    ]);
+    expect(result?.message).toContain("at path: attachment:v1:example");
+  });
+
+  it("still lists this turn's files when the thread record cannot be saved", async () => {
+    saveUploadedReferenceFileMock.mockResolvedValue({
+      path: "attachment:v1:example",
+      originalName: "proposal.pdf",
+      filename: "proposal.pdf",
+      type: "application/pdf",
+      size: 4,
+    });
+    rememberThreadUploadsMock.mockRejectedValue(new Error("db unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "use this proposal",
+      threadId: "thread-1",
+      attachments: [
+        {
+          type: "file",
+          name: "proposal.pdf",
+          contentType: "application/pdf",
+          data: "data:application/pdf;base64,JVBERg==",
+        },
+      ],
+    });
+
+    expect(result?.message).toContain("at path: attachment:v1:example");
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("keeps raw image data when storage returns an embeddable URL", async () => {
@@ -377,7 +442,11 @@ describe("prepareSlidesChatAttachments", () => {
     expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
       "slides-upload:v1:source",
     );
-    expect(result?.attachments?.[0]?.url).toBeUndefined();
+    // oracle-change: a URL-only document keeps its URL as a reference so the chat builder does not report it as unreadable.
+    expect(result?.attachments?.[0]).toMatchObject({
+      url,
+      referenceOnly: true,
+    });
   });
 
   it("bounds url-only attachment count and aggregate download bytes", async () => {

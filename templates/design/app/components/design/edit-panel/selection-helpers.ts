@@ -187,6 +187,14 @@ export function mixedElementFromSelection(
       elements.map((element) => element.positionContainingBlockTransform),
       base.positionContainingBlockTransform,
     ),
+    // One typed X would write one shape's translate onto every shape.
+    svgShapeOffset: elements.some(
+      (element) => element.svgShapeOffset !== undefined,
+    )
+      ? elements.length === 1
+        ? base.svgShapeOffset
+        : null
+      : undefined,
     parentLayout: sameValueOrUndefined(
       elements.map((element) => element.parentLayout),
       base.parentLayout,

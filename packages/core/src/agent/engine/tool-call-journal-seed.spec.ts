@@ -262,6 +262,87 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
   const seedErrors = (calls: PriorTurnToolCallSequenceEntry[]) =>
     seedRepeatedToolErrorCountsFromJournal(calls, keyForCall, (error) => error);
 
+  it("does not treat approval pauses or skipped calls as successful executions", () => {
+    const calls: PriorTurnToolCallSequenceEntry[] = [
+      {
+        event: "done",
+        name: "edit",
+        input: {},
+        result: "bad input",
+        isError: true,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "edit",
+        input: {},
+        result: "approval required",
+        isError: false,
+        approvalPause: true,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "edit",
+        input: {},
+        result: "not executed",
+        isError: false,
+        notExecuted: true,
+        matchedStart: true,
+      },
+    ];
+    expect(seedErrors(calls).failureStreaks.get("edit")).toBe(1);
+  });
+
+  it("keeps changing errors across continuation and resets only a successful tool", () => {
+    const calls: PriorTurnToolCallSequenceEntry[] = [
+      {
+        event: "done",
+        name: "edit",
+        input: { id: 1 },
+        result: "bad field",
+        isError: true,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "read",
+        input: {},
+        result: "found",
+        isError: false,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "edit",
+        input: { id: 2 },
+        result: "bad filter",
+        isError: true,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "edit",
+        input: { id: 2 },
+        result: "bad filter",
+        isError: true,
+        replayed: true,
+        matchedStart: true,
+      },
+    ];
+    expect(seedErrors(calls).failureStreaks.get("edit")).toBe(2);
+    calls.push({
+      event: "done",
+      name: "edit",
+      input: { id: 3 },
+      result: "saved",
+      isError: false,
+      completedSideEffect: true,
+      matchedStart: true,
+    });
+    expect(seedErrors(calls).failureStreaks.has("edit")).toBe(false);
+  });
+
   it("replays mutation boundaries when seeding repeated errors", () => {
     const result = seedErrors([
       {
@@ -294,7 +375,9 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
     expect(result.sameArguments).toEqual(
       new Map([[`read:{"id":1}:same error`, 1]]),
     );
-    expect(result.sameTool).toEqual(new Map([["read:same error", 1]]));
+    expect(result.sameTool).toEqual(
+      new Map([["read", new Map([["same error", 1]])]]),
+    );
   });
 
   it("keeps the successful mutating action's own error counts", () => {
@@ -327,7 +410,7 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
     ]);
 
     expect(result.sameArguments.get(`write:{"id":1}:same error`)).toBe(2);
-    expect(result.sameTool.get("write:same error")).toBe(2);
+    expect(result.sameTool.get("write")?.get("same error")).toBe(2);
   });
 
   it("counts a committed failure's error and resets the others", () => {
@@ -354,7 +437,9 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
     expect(result.sameArguments).toEqual(
       new Map([[`write:{"id":1}:do not retry`, 1]]),
     );
-    expect(result.sameTool).toEqual(new Map([["write:do not retry", 1]]));
+    expect(result.sameTool).toEqual(
+      new Map([["write", new Map([["do not retry", 1]])]]),
+    );
   });
 
   it("applies replayed write boundaries without counting replayed errors", () => {
@@ -403,8 +488,8 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
     );
     expect(result.sameTool).toEqual(
       new Map([
-        ["write:same error", 1],
-        ["read:same error", 1],
+        ["write", new Map([["same error", 1]])],
+        ["read", new Map([["same error", 1]])],
       ]),
     );
   });

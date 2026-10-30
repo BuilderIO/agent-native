@@ -136,7 +136,7 @@ const messages = {
     openChat: "Open chat",
     cloudAuthToken: "Auth token",
     cloudSetupSteps: "Setup steps",
-    cloudConnectedReloading: "Connected successfully. Reloading...",
+    cloudConnectedReloading: "Reloading...",
     cloudConnectionFailed: "Connection failed",
     cloudTestConnect: "Test & Connect",
     cloudServerlessPostgres: "Serverless Postgres",
@@ -262,10 +262,10 @@ const messages = {
     triangle: "Triangle",
     media: "Image/video…",
     mediaNeedsStorage: "Configure storage to upload images and videos.",
-    transitions: "Transitions",
-    transitionsMenu: "Transition options",
+    transitions: "Animations",
+    transitionsMenu: "Animation options",
     transitionsReadOnly: "This deck is read-only.",
-    transitionsNeedElement: "Select an element to add a transition.",
+    transitionsNeedElement: "Select an element to add an animation.",
     transitionNone: "None",
     transitionAppear: "Appear",
     transitionFade: "Fade",
@@ -323,6 +323,9 @@ const messages = {
     usingDesignSystem: "Using {{title}}",
     usingLinkedDesignSystem: "Using a linked design system",
     viewOnly: "View only",
+    requestEditAccess: "Request edit access",
+    editAccessRequested: "Requested",
+    editAccessRequestFailed: "Couldn't request edit access. Try again.",
     commenterRoleLabel: "Commenter",
     commenterRoleDescription: "Can view and add comments",
     slideSettings: "Slide settings",
@@ -405,6 +408,13 @@ const messages = {
     presentInTab: "In this tab",
     presentFullScreen: "Full Screen",
     presentPresenterView: "Presenter View",
+    presentOptions: "Present options",
+    presentFromBeginning: "From Beginning",
+    presentWithShortcut: "Present ({{shortcut}})",
+    presentUnsaved:
+      "Couldn't save your latest changes. Presenting them from this tab.",
+    presentTabBlocked: "Allow pop-ups to present in a new tab.",
+    deckTitle: "Deck title",
     presentPresenterViewDescription: "View speaker notes while presenting",
     presenterViewBlocked: "Allow pop-ups to open Presenter View.",
     export: "Export",
@@ -433,6 +443,22 @@ const messages = {
       "Couldn't resolve the conflict. Your draft is still available on this device.",
     conflictKeepMine: "Keep my text",
     conflictUseLatest: "Use saved text",
+    conflictTitleSomeone: "Someone else changed slide {{number}}",
+    conflictTitleAgent: "The agent changed slide {{number}}",
+    conflictNotesTitleSomeone:
+      "Someone else changed the speaker notes on slide {{number}}",
+    conflictNotesTitleAgent:
+      "The agent changed the speaker notes on slide {{number}}",
+    conflictYourVersion: "Your version",
+    conflictTheirVersion: "Their version",
+    conflictAgentVersion: "Agent's version",
+    conflictKeepMyVersion: "Keep my version",
+    conflictKeepTheirVersion: "Keep their version",
+    conflictKeepAgentVersion: "Keep the agent's version",
+    conflictSlideDeleted: "Slide deleted",
+    conflictNoNotes: "No notes",
+    saveErrorDeckChanged: "Someone else changed this deck",
+    saveErrorSlidesChanged: "Someone else changed slides in this deck",
     importBackup: "Import backup",
     backupDownloaded: "Backup downloaded",
     backupDownloadFailed: "Could not download backup",
@@ -472,9 +498,19 @@ const messages = {
       "A copy of this deck was created in your Google Drive.",
     googleSlidesGoTo: "Go to Google Slides",
     duplicateDeck: "Duplicate deck",
+    cancel: "Cancel",
+    saveBeforeExportFailed:
+      "Couldn't save your latest changes. Try exporting again.",
+    pptxMissingShapes_one:
+      "{{count}} shape couldn't be exported and is missing from the PPTX.",
+    pptxMissingShapes_other:
+      "{{count}} shapes couldn't be exported and are missing from the PPTX.",
   },
   share: {
     createFailed: "Failed to create share link",
+    snapshotLinks: "Snapshot links",
+    revokeLink: "Revoke",
+    revokeFailed: "Could not revoke share link",
     title: "Share Presentation",
     cloudUpgradeDescription:
       "To share presentations publicly, connect a cloud database so your slides can be accessed from anywhere.",
@@ -661,6 +697,12 @@ const messages = {
     strokeWeight: "Weight",
     typography: "Typography",
     fontFamily: "Font family",
+    fontPicker: {
+      search: "Search fonts",
+      inThisDeck: "In this deck",
+      allFonts: "All fonts",
+      catalogUnavailable: "Couldn't load the full font library.",
+    },
     fontFamilies: {
       inherit: "Inherit",
       sansSerif: "Sans Serif",
@@ -679,6 +721,8 @@ const messages = {
     align: "Align",
     decreaseSize: "Decrease font size",
     increaseSize: "Increase font size",
+    fontSizes: "Type scale",
+    deckSizes: "Deck",
     mixed: "Mixed",
     textColor: "Text color",
     primary: "Primary",
@@ -714,6 +758,9 @@ const messages = {
     insertColumnLeft: "Insert column left",
     insertColumnRight: "Insert column right",
     deleteColumn: "Delete column",
+    tableMergedCellsUnavailable: "Not available in tables with merged cells",
+    tableColumnLayoutUnavailable:
+      "Not available for this table's column widths",
   },
   animations: {
     appear: "Appear",
@@ -721,21 +768,22 @@ const messages = {
     slideUp: "Slide Up",
     zoom: "Zoom",
     elementFallback: "Element {{index}}",
-    title: "Transitions",
-    close: "Close transitions panel",
+    title: "Animations",
+    close: "Close animations panel",
     emptyTitle: "No animations yet.",
-    emptyDescription: "Select an object on the slide to add a transition.",
+    emptyDescription: "Select an object on the slide to add an animation.",
     selectObject: "Select an object to animate",
-    addTransition: "Add transition",
+    addAnimation: "Add animation",
+    alreadyAnimated: "Already animated",
     effect: "Effect",
     onClick: "On click",
     withPrevious: "With previous",
     trigger: "Start",
     byParagraph: "By paragraph",
-    expand: "Expand transition",
-    collapse: "Collapse transition",
-    reorder: "Reorder transition",
-    remove: "Remove transition",
+    expand: "Expand animation",
+    collapse: "Collapse animation",
+    reorder: "Reorder animation",
+    remove: "Remove animation",
     play: "Play",
     clearAll: "Clear all",
     elements: "Elements",
@@ -770,6 +818,13 @@ const messages = {
   },
   deckResult: { saved: "Saved" },
   history: {
+    restoreDiscardTitle: "Discard unsaved changes and restore this version?",
+    restoreDiscardConfirm: "Discard and restore",
+    cancel: "Cancel",
+    restoreNoAccess: "You need edit access to restore this version.",
+    restoreVersionMissing: "This version is no longer available.",
+    restoreDeckChanged: "The deck changed while restoring. Try again.",
+    restoreOffline: "You're offline. Reconnect and try again.",
     unknownTime: "Unknown time",
     justNow: "Just now",
     minutesAgo: "{{count}}m ago",
@@ -867,6 +922,13 @@ const messages = {
     switchAccount: "Switch account",
   },
   deckEditor: {
+    agentUpdatedSlides_one: "Agent updated {{count}} slide",
+    agentUpdatedSlides_other: "Agent updated {{count}} slides",
+    agentUndoConflictTitle: "Undo the agent's change?",
+    agentUndoConflictDescription:
+      "You edited these slides after the agent. Undoing also removes those edits.",
+    agentUndoConfirm: "Undo anyway",
+    agentUndoKeep: "Cancel",
     lookingForDeck: "Looking for this deck",
     joinTeamToOpen: "Join your team to open this deck",
     deckUnavailable: "Deck unavailable",
@@ -910,7 +972,8 @@ const messages = {
     accessRequestFailed: "Couldn't request access. Try again.",
     accessApprovalTitle: "Access granted",
     accessApprovalAlreadyTitle: "Access already granted",
-    accessApprovalMessage: "{{email}} can now open this deck.",
+    accessApprovalEditorMessage: "{{email}} can now edit this deck.",
+    accessApprovalViewerMessage: "{{email}} can now view this deck.",
     accessApprovalRequesterEmailed: "We emailed them to let them know.",
     accessApprovalRequesterEmailFailed:
       "We couldn't email {{email}}. Let them know they can open the deck now.",
@@ -922,7 +985,13 @@ const messages = {
       "Sign in as the deck owner or an admin to approve this request.",
     accessApprovalOpenDeck: "Open deck",
     accessApprovalSignIn: "Sign in",
-    accessApprovalLoading: "Granting access...",
+    accessApprovalReviewTitle: "Allow access",
+    accessApprovalRequestedEdit: "{{email}} asked to edit “{{title}}”.",
+    accessApprovalRequestedView: "{{email}} asked to view “{{title}}”.",
+    accessApprovalRoleLabel: "Role",
+    accessApprovalRoleViewer: "Viewer",
+    accessApprovalRoleEditor: "Editor",
+    accessApprovalAllow: "Allow access",
     backToDecks: "Back to Decks",
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
@@ -944,6 +1013,11 @@ const messages = {
     originalPrompt: "You asked for",
     backToHome: "Back to Home",
     checkedDeckTryAgain: "I checked the deck. Try again",
+    generationStillRunning:
+      "This deck is still generating. Check the chat for progress.",
+    questionFlowTitle: "Shape the deck first",
+    questionFlowDescription:
+      "Answer the choices that matter. Use Other for a custom direction, or let the agent decide.",
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",
@@ -952,6 +1026,11 @@ const messages = {
     layoutOverflowVertical: "Vertical overflow: {{pixels}}px",
     layoutOverflowHorizontal: "Horizontal overflow: {{pixels}}px",
     dismissLayoutWarning: "Dismiss layout warning",
+    fixLayoutWithAi: "Fix with AI",
+    askingAgentToFixLayout: "Asking…",
+    shrinkTextToFit: "Shrink text to fit",
+    shrinkTextCannotFit:
+      "The text still runs off the slide at the smallest size",
     slidesAdded_one: "{{count}} slide added",
     slidesAdded_other: "{{count}} slides added",
     unsavedChangesTitle: "Unsaved changes",
@@ -961,6 +1040,7 @@ const messages = {
     leaveWithoutSaving: "Exit without saving",
     editorMarkupNotSaved:
       "This edit wasn't saved because it would have added editor markup to the slide.",
+    slideDeletedElsewhere: "Someone else deleted a slide you were editing.",
     historyStepConflict:
       "This history step was skipped because it conflicts with the current presentation.",
     historyStepFailed:
@@ -1052,15 +1132,158 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "Create a product pitch deck",
-      roadmap: "Create a product roadmap",
-      explainer: "Explain a topic in a presentation",
+    nextStepBar: {
+      ariaLabel: "Next steps for your first presentation",
+      refineWithPrompt: "Refine with a prompt",
+      export: "Export",
+      shareLink: "Share link",
+      dismiss: "Dismiss",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "Create a product launch deck with the customer problem, key benefits, launch plan, and a confident customer-first tone.",
+        roadmap:
+          "Create a quarterly roadmap with strategic themes, milestones, dependencies, and a clear executive tone.",
+        opportunity:
+          "Create an opportunity brief with market context, customer pain points, solution, risks, and a decisive product tone.",
+        priorities:
+          "Create a feature prioritization deck with user impact, effort, evidence, tradeoffs, and a concise decision-ready tone.",
+        metrics:
+          "Create a product metrics review with adoption, activation, retention, insights, and a candid analytical tone.",
+        discovery:
+          "Create a customer discovery readout with research themes, key quotes, unmet needs, and an empathetic evidence-led tone.",
+        vision:
+          "Create a product vision deck with a future state, guiding principles, product bets, and an inspiring practical tone.",
+        release:
+          "Create a release review with goals, outcomes, customer feedback, open issues, and an accountable learning tone.",
+      },
+      design: {
+        caseStudy:
+          "Create a design case study with the brief, process, key screens, outcomes, and a warm editorial tone.",
+        system:
+          "Create a design system overview with color, type, components, usage examples, and a crisp visual tone.",
+        critique:
+          "Create a design critique deck with goals, current screens, feedback themes, next steps, and a constructive tone.",
+        research:
+          "Create a user research readout with study context, patterns, quotes, opportunities, and an empathetic tone.",
+        concepts:
+          "Create a concept exploration with three visual directions, sample screens, tradeoffs, and a playful tone.",
+        accessibility:
+          "Create an accessibility review with key barriers, annotated examples, fixes, and a clear inclusive tone.",
+        brand:
+          "Create a brand direction deck with audience, visual references, color, typography, and a distinctive tone.",
+        sprint:
+          "Create a design sprint recap with the challenge, ideas, prototype, test findings, and an optimistic tone.",
+      },
+      developer: {
+        architecture:
+          "Create a system architecture deck with components, data flow, tradeoffs, and a precise technical tone.",
+        api: "Create an API onboarding guide with setup, authentication, examples, errors, and a developer-friendly tone.",
+        release:
+          "Create an engineering release plan with scope, milestones, dependencies, rollout, and a practical tone.",
+        incident:
+          "Create an incident review with impact, timeline, root cause, actions, and a blameless tone.",
+        migration:
+          "Create a platform migration plan with current state, stages, risks, validation, and a reassuring tone.",
+        security:
+          "Create a security review with system boundaries, threats, controls, gaps, and a direct technical tone.",
+        demo: "Create a technical demo deck with the problem, architecture, live workflow, results, and a clear tone.",
+        metrics:
+          "Create an engineering metrics review with delivery, reliability, trends, lessons, and a candid tone.",
+      },
+      marketing: {
+        campaign:
+          "Create a campaign launch deck with audience, message, channels, schedule, and an energetic tone.",
+        story:
+          "Create a customer story with the challenge, solution, results, proof points, and a human tone.",
+        content:
+          "Create a content strategy deck with audience needs, themes, formats, calendar, and an editorial tone.",
+        positioning:
+          "Create a brand positioning deck with audience, category, promise, proof, and a distinctive tone.",
+        channels:
+          "Create a channel performance review with reach, engagement, conversion, lessons, and a clear tone.",
+        messaging:
+          "Create a product messaging deck with audience, benefits, proof points, examples, and a persuasive tone.",
+        event:
+          "Create an event promotion plan with audience, hook, schedule, channels, and a welcoming tone.",
+        competition:
+          "Create a competitive landscape deck with alternatives, strengths, gaps, opportunities, and a balanced tone.",
+      },
+      sales: {
+        pitch:
+          "Create a customer pitch deck with their goals, proposed solution, outcomes, proof, and a confident tone.",
+        proposal:
+          "Create a solution proposal with needs, approach, timeline, investment, and a clear customer-focused tone.",
+        quarterlyReview:
+          "Create a quarterly business review with goals, results, adoption, next steps, and a collaborative tone.",
+        discovery:
+          "Create a discovery findings deck with customer priorities, pain points, fit, and an attentive tone.",
+        objections:
+          "Create an objection handling guide with common concerns, evidence, responses, and a helpful tone.",
+        demo: "Create a product demo story with customer context, key workflows, outcomes, and a concise persuasive tone.",
+        renewal:
+          "Create a renewal presentation with value delivered, usage, opportunities, and a partnership-focused tone.",
+        enablement:
+          "Create a sales enablement deck with ideal buyers, qualification, talk tracks, and a practical tone.",
+      },
+      ops: {
+        weeklyReview:
+          "Create a weekly operations review with goals, metrics, blockers, owners, and a calm direct tone.",
+        process:
+          "Create a process improvement deck with current steps, friction points, future workflow, and a practical tone.",
+        capacity:
+          "Create a capacity plan with demand, team availability, priorities, scenarios, and a transparent tone.",
+        service:
+          "Create a service performance review with volume, response times, escalations, fixes, and an accountable tone.",
+        vendor:
+          "Create a vendor evaluation with requirements, options, costs, risks, and a balanced decision-ready tone.",
+        metrics:
+          "Create an operations dashboard story with key measures, trends, exceptions, and a concise analytical tone.",
+        onboarding:
+          "Create an onboarding workflow with stages, handoffs, resources, success measures, and a supportive tone.",
+        risk: "Create a risk register review with likelihood, impact, mitigations, owners, and a measured tone.",
+      },
+      individual: {
+        project:
+          "Create a personal project plan with the goal, milestones, resources, risks, and a motivating tone.",
+        portfolio:
+          "Create a personal portfolio deck with selected work, process, outcomes, and a confident editorial tone.",
+        learning:
+          "Create a learning roadmap with skills, resources, practice milestones, and an encouraging tone.",
+        event:
+          "Create a gathering plan with purpose, guests, schedule, details, and a warm welcoming tone.",
+        budget:
+          "Create a personal budget review with income, spending, goals, tradeoffs, and a calm practical tone.",
+        travel:
+          "Create a travel itinerary with destinations, daily highlights, logistics, and an inviting visual tone.",
+        community:
+          "Create a community workshop deck with the topic, activities, takeaways, and an inclusive tone.",
+        personalStory:
+          "Create a personal introduction with your background, interests, work, and a natural conversational tone.",
+      },
+      general: {
+        overview:
+          "Create a clear topic overview with context, key ideas, examples, and a welcoming tone.",
+        fundraiser:
+          "Create a nonprofit fundraiser deck with the mission, need, impact, and a hopeful tone.",
+        lesson:
+          "Create a short lesson with learning goals, key concepts, examples, and an engaging tone.",
+        research:
+          "Create a research report with the question, method, findings, implications, and a balanced tone.",
+        eventProposal:
+          "Create an event proposal with purpose, audience, format, budget, and an inviting tone.",
+        teamStrategy:
+          "Create a team strategy deck with priorities, measures, initiatives, and a focused tone.",
+        howTo:
+          "Create a visual how-to guide with clear steps, helpful examples, and an encouraging tone.",
+        portfolioIntro:
+          "Create a portfolio introduction with selected projects, strengths, and a polished tone.",
+      },
     },
     suggestedPrompts: "Suggested prompts",
     importMenu: {
       import: "Import",
-      options: "Import options",
       invalidPdf: "Choose a PDF file.",
       invalidPptx: "Choose a PPTX file.",
       invalidFile: "Choose a PDF or PPTX file.",
@@ -1249,9 +1472,13 @@ const messages = {
     workspaceDefaultBadge: "Workspace default",
     setWorkspaceDefault: "Set as workspace default",
     clearWorkspaceDefault: "Clear workspace default",
+    renameDeck: "Rename",
+    duplicateDeck: "Duplicate",
+    deleteDeck: "Delete",
     workspaceDefaultSet: "Set as the workspace default",
     workspaceDefaultCleared: "Workspace default cleared",
     duplicateFailed: "Couldn't duplicate that deck",
+    deleteFailed: "Couldn't delete that deck",
     workspaceDefaultFailed: "Couldn't update the workspace default",
     workspaceDefaultConfirmTitle: "Set as workspace default?",
     workspaceDefaultDeckShareBody:
@@ -1273,6 +1500,89 @@ const messages = {
     createFirstDeck: "Create your first deck",
     emptyDescription:
       "Build beautiful presentations with AI-powered generation.",
+
+    suggestionLabels: {
+      product: {
+        launch: "Product Launch Deck",
+        roadmap: "Quarterly Roadmap",
+        opportunity: "Opportunity Brief",
+        priorities: "Feature Prioritization Deck",
+        metrics: "Product Metrics Review",
+        discovery: "Customer Discovery Readout",
+        vision: "Product Vision Deck",
+        release: "Release Review",
+      },
+      design: {
+        caseStudy: "Design Case Study",
+        system: "Design System Overview",
+        critique: "Design Critique Deck",
+        research: "User Research Readout",
+        concepts: "Concept Exploration",
+        accessibility: "Accessibility Review",
+        brand: "Brand Direction Deck",
+        sprint: "Design Sprint Recap",
+      },
+      developer: {
+        architecture: "System Architecture Deck",
+        api: "API Onboarding Guide",
+        release: "Engineering Release Plan",
+        incident: "Incident Review",
+        migration: "Platform Migration Plan",
+        security: "Security Review",
+        demo: "Technical Demo Deck",
+        metrics: "Engineering Metrics Review",
+      },
+      marketing: {
+        campaign: "Campaign Launch Deck",
+        story: "Customer Story",
+        content: "Content Strategy Deck",
+        positioning: "Brand Positioning Deck",
+        channels: "Channel Performance Review",
+        messaging: "Product Messaging Deck",
+        event: "Event Promotion Plan",
+        competition: "Competitive Landscape Deck",
+      },
+      sales: {
+        pitch: "Customer Pitch Deck",
+        proposal: "Solution Proposal",
+        quarterlyReview: "Quarterly Business Review",
+        discovery: "Discovery Findings Deck",
+        objections: "Objection Handling Guide",
+        demo: "Product Demo Story",
+        renewal: "Renewal Presentation",
+        enablement: "Sales Enablement Deck",
+      },
+      ops: {
+        weeklyReview: "Weekly Operations Review",
+        process: "Process Improvement Deck",
+        capacity: "Capacity Plan",
+        service: "Service Performance Review",
+        vendor: "Vendor Evaluation",
+        metrics: "Operations Dashboard Story",
+        onboarding: "Onboarding Workflow",
+        risk: "Risk Register Review",
+      },
+      individual: {
+        project: "Personal Project Plan",
+        portfolio: "Personal Portfolio Deck",
+        learning: "Learning Roadmap",
+        event: "Gathering Plan",
+        budget: "Personal Budget Review",
+        travel: "Travel Itinerary",
+        community: "Community Workshop Deck",
+        personalStory: "Personal Introduction",
+      },
+      general: {
+        overview: "Clear Topic Overview",
+        fundraiser: "Nonprofit Fundraiser Deck",
+        lesson: "Short Lesson",
+        research: "Research Report",
+        eventProposal: "Event Proposal",
+        teamStrategy: "Team Strategy Deck",
+        howTo: "Visual How-To Guide",
+        portfolioIntro: "Portfolio Introduction",
+      },
+    },
   },
   agentChat: {
     setup: {

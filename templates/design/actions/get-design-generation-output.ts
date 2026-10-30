@@ -27,6 +27,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   agentTool: false,
+  uiOnly: true,
   run: async ({ designId, runId, turnId }) => {
     try {
       const access = await resolveAccess("design", designId);
@@ -51,14 +52,15 @@ export default defineAction({
         getCurrentTurnRunIdsForThread(runRef.threadId, runRef.turnId),
       ]);
 
+      const status = classifyDesignGenerationOutput({
+        designId,
+        runId,
+        runStatus,
+        runIds,
+        events,
+      });
       return {
-        status: classifyDesignGenerationOutput({
-          designId,
-          runId,
-          runStatus,
-          runIds,
-          events,
-        }),
+        status,
       };
     } catch {
       return { status: "unknown" as const };

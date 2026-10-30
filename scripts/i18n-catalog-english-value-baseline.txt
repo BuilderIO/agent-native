@@ -262,10 +262,8 @@ templates/clips/app/i18n/es-ES|dictateRoute.vocabularyRemoveFailed|Couldn't remo
 templates/clips/app/i18n/es-ES|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
 templates/clips/app/i18n/es-ES|editableTitle.editLabel|Edit clip title
 templates/clips/app/i18n/es-ES|editableTitle.emptyTitle|Title cannot be empty
-templates/clips/app/i18n/es-ES|editableTitle.generatingTitle|Generating title
 templates/clips/app/i18n/es-ES|editableTitle.placeholder|Clip title
 templates/clips/app/i18n/es-ES|editableTitle.renameFailed|Failed to rename clip
-templates/clips/app/i18n/es-ES|editableTitle.untitled|Untitled Clip
 templates/clips/app/i18n/es-ES|editorToolbar.clearAllEditsDescription|This removes every trim, blur, and the custom thumbnail from this recording. The original video is never modified.
 templates/clips/app/i18n/es-ES|editorToolbar.clearAllEditsTitle|Clear all edits?
 templates/clips/app/i18n/es-ES|editorToolbar.clearAllEdits|Clear all edits
@@ -431,10 +429,8 @@ templates/clips/app/i18n/pt-BR|dictateRoute.vocabularyRemoveFailed|Couldn't remo
 templates/clips/app/i18n/pt-BR|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
 templates/clips/app/i18n/pt-BR|editableTitle.editLabel|Edit clip title
 templates/clips/app/i18n/pt-BR|editableTitle.emptyTitle|Title cannot be empty
-templates/clips/app/i18n/pt-BR|editableTitle.generatingTitle|Generating title
 templates/clips/app/i18n/pt-BR|editableTitle.placeholder|Clip title
 templates/clips/app/i18n/pt-BR|editableTitle.renameFailed|Failed to rename clip
-templates/clips/app/i18n/pt-BR|editableTitle.untitled|Untitled Clip
 templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEditsDescription|This removes every trim, blur, and the custom thumbnail from this recording. The original video is never modified.
 templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEditsTitle|Clear all edits?
 templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEdits|Clear all edits

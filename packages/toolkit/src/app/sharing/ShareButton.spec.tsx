@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolkitI18nCatalog } from "../i18n.js";
-import { ShareButton } from "./ShareButton.js";
+import { ShareButton, type ShareButtonActionHandle } from "./ShareButton.js";
 
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
@@ -520,6 +520,32 @@ describe("ShareButton", () => {
     ).not.toBeNull();
   });
 
+  it("opens beside a caller-supplied anchor without a trigger", async () => {
+    popoverTestState.simulateMounting = true;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            defaultOpen
+            hideTrigger
+            anchor={<span data-testid="card-anchor" />}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="card-anchor"]'),
+    ).not.toBeNull();
+    expect(container.querySelector(".fixed.end-4.top-16")).toBeNull();
+    expect(
+      container.querySelector("[data-agent-native-share-overlay]"),
+    ).not.toBeNull();
+  });
+
   it("shows the copy action for share URLs regardless of visibility", async () => {
     await act(async () => {
       root.render(
@@ -981,6 +1007,7 @@ describe("ShareButton", () => {
   });
 
   it("renders optional share tabs and switches to custom tab content", async () => {
+    const actionRef = React.createRef<ShareButtonActionHandle>();
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -988,6 +1015,7 @@ describe("ShareButton", () => {
             resourceType="design"
             resourceId="design-1"
             shareUrl="https://design.agent-native.com/design/design-1"
+            actionRef={actionRef}
             shareTabs={{
               tabs: [
                 {
@@ -1033,7 +1061,7 @@ describe("ShareButton", () => {
         ?.getAttribute("aria-labelledby"),
     ).toBe(tabs[0].id);
 
-    pressTab(tabs[1]);
+    act(() => actionRef.current?.open("export"));
 
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
     expect(container.textContent).toContain("Export body");

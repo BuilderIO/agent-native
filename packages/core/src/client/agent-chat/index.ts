@@ -9,6 +9,10 @@ export {
   type BackgroundAgentSessionStatus,
 } from "../background-agent-session.js";
 export {
+  readAgentRunStatus,
+  type AgentRunStatusRead,
+} from "../agent-run-status.js";
+export {
   FrameworkRouteError,
   isFrameworkRouteError,
   type FrameworkRouteFailureKind,
@@ -48,6 +52,7 @@ export {
   formatAgentChatContextItemsForPrompt,
   generateTabId,
   getAgentChatContextState,
+  getAgentChatSubmitTarget,
   imageContentFromDataUrl,
   insertAgentComposerReference,
   isAgentChatSubmitCancelled,
@@ -81,6 +86,7 @@ export {
   type AgentChatOpenThreadRequest,
   type AgentChatRequestMode,
   type AgentChatSubmitResult,
+  type AgentChatSubmitRoute,
   type AgentChatSubmitTarget,
   type BufferedAgentChatOpenRequest,
   type ParsedSubmitChat,

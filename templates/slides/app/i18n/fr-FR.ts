@@ -138,7 +138,7 @@ const messages = {
     openChat: "Ouvrir le chat",
     cloudAuthToken: "Jeton d’authentification",
     cloudSetupSteps: "Étapes de configuration",
-    cloudConnectedReloading: "Connexion réussie. Rechargement...",
+    cloudConnectedReloading: "Rechargement...",
     cloudConnectionFailed: "Échec de la connexion",
     cloudTestConnect: "Tester et connecter",
     cloudServerlessPostgres: "Postgres serverless",
@@ -267,11 +267,11 @@ const messages = {
     media: "Image/vidéo…",
     mediaNeedsStorage:
       "Configurez le stockage pour importer des images et des vidéos.",
-    transitions: "Transitions",
-    transitionsMenu: "Options de transition",
+    transitions: "Animations",
+    transitionsMenu: "Options d'animation",
     transitionsReadOnly: "Ce deck est en lecture seule.",
     transitionsNeedElement:
-      "Sélectionnez un élément pour ajouter une transition.",
+      "Sélectionnez un élément pour ajouter une animation.",
     transitionNone: "Aucune",
     transitionAppear: "Apparition",
     transitionFade: "Fondu",
@@ -334,6 +334,10 @@ const messages = {
     usingDesignSystem: "Utilisation de {{title}}",
     usingLinkedDesignSystem: "Utilisation d’un système de design lié",
     viewOnly: "Lecture seule",
+    requestEditAccess: "Demander l'accès en modification",
+    editAccessRequested: "Demandé",
+    editAccessRequestFailed:
+      "Impossible de demander l'accès en modification. Réessayez.",
     commenterRoleLabel: "Commentateur",
     commenterRoleDescription: "Peut consulter et ajouter des commentaires",
     slideSettings: "Paramètres de la diapositive",
@@ -418,6 +422,14 @@ const messages = {
     presentInTab: "Dans cet onglet",
     presentFullScreen: "Plein écran",
     presentPresenterView: "Mode présentateur",
+    presentOptions: "Options de présentation",
+    presentFromBeginning: "Depuis le début",
+    presentWithShortcut: "Présenter ({{shortcut}})",
+    presentUnsaved:
+      "Impossible d’enregistrer vos dernières modifications. Elles sont présentées depuis cet onglet.",
+    presentTabBlocked:
+      "Autorisez les fenêtres contextuelles pour présenter dans un nouvel onglet.",
+    deckTitle: "Titre du deck",
     presentPresenterViewDescription:
       "Afficher les notes du présentateur pendant la présentation",
     presenterViewBlocked:
@@ -448,6 +460,24 @@ const messages = {
       "Impossible de résoudre le conflit. Votre brouillon est toujours disponible sur cet appareil.",
     conflictKeepMine: "Conserver mon texte",
     conflictUseLatest: "Utiliser le texte enregistré",
+    conflictTitleSomeone:
+      "Quelqu'un d'autre a modifié la diapositive {{number}}",
+    conflictTitleAgent: "L'agent a modifié la diapositive {{number}}",
+    conflictNotesTitleSomeone:
+      "Quelqu'un d'autre a modifié les notes de l'orateur de la diapositive {{number}}",
+    conflictNotesTitleAgent:
+      "L'agent a modifié les notes de l'orateur de la diapositive {{number}}",
+    conflictYourVersion: "Votre version",
+    conflictTheirVersion: "Leur version",
+    conflictAgentVersion: "Version de l'agent",
+    conflictKeepMyVersion: "Garder ma version",
+    conflictKeepTheirVersion: "Garder leur version",
+    conflictKeepAgentVersion: "Garder la version de l'agent",
+    conflictSlideDeleted: "Diapositive supprimée",
+    conflictNoNotes: "Aucune note",
+    saveErrorDeckChanged: "Quelqu'un d'autre a modifié cette présentation",
+    saveErrorSlidesChanged:
+      "Quelqu'un d'autre a modifié des diapositives de cette présentation",
     importBackup: "Importer la sauvegarde",
     backupDownloaded: "Sauvegarde téléchargée",
     backupDownloadFailed: "Impossible de télécharger la sauvegarde",
@@ -488,9 +518,21 @@ const messages = {
       "Une copie de cette présentation a été créée dans votre Google Drive.",
     googleSlidesGoTo: "Ouvrir dans Google Slides",
     duplicateDeck: "Dupliquer le deck",
+    cancel: "Annuler",
+    saveBeforeExportFailed:
+      "Impossible d’enregistrer vos dernières modifications. Réessayez l’export.",
+    pptxMissingShapes_one:
+      "{{count}} forme n’a pas pu être exportée et manque dans le PPTX.",
+    pptxMissingShapes_many:
+      "{{count}} formes n’ont pas pu être exportées et manquent dans le PPTX.",
+    pptxMissingShapes_other:
+      "{{count}} formes n’ont pas pu être exportées et manquent dans le PPTX.",
   },
   share: {
     createFailed: "Impossible de créer le lien de partage",
+    snapshotLinks: "Liens d'instantané",
+    revokeLink: "Révoquer",
+    revokeFailed: "Impossible de révoquer le lien de partage",
     title: "Partager la présentation",
     cloudUpgradeDescription:
       "Pour partager des présentations publiquement, connectez une base de données cloud afin que vos diapositives soient accessibles partout.",
@@ -681,6 +723,13 @@ const messages = {
     strokeWeight: "Épaisseur",
     typography: "Typographie",
     fontFamily: "Famille de polices",
+    fontPicker: {
+      search: "Rechercher des polices",
+      inThisDeck: "Dans cette présentation",
+      allFonts: "Toutes les polices",
+      catalogUnavailable:
+        "Impossible de charger la bibliothèque complète de polices.",
+    },
     fontFamilies: {
       inherit: "Hériter",
       sansSerif: "Sans serif",
@@ -699,6 +748,8 @@ const messages = {
     align: "Alignement",
     decreaseSize: "Réduire la taille du texte",
     increaseSize: "Augmenter la taille du texte",
+    fontSizes: "Échelle typographique",
+    deckSizes: "Présentation",
     mixed: "Mixte",
     textColor: "Couleur du texte",
     primary: "Primary",
@@ -734,33 +785,38 @@ const messages = {
     insertColumnLeft: "Insérer une colonne à gauche",
     insertColumnRight: "Insérer une colonne à droite",
     deleteColumn: "Supprimer la colonne",
+    tableMergedCellsUnavailable:
+      "Indisponible dans les tableaux avec des cellules fusionnées",
+    tableColumnLayoutUnavailable:
+      "Indisponible pour les largeurs de colonne de ce tableau",
   },
   animations: {
-    appear: "Aparecer",
-    fade: "Fundido",
-    slideUp: "Deslizar arriba",
+    appear: "Apparition",
+    fade: "Fondu",
+    slideUp: "Glissement vers le haut",
     zoom: "Zoom",
-    elementFallback: "Elemento {{index}}",
-    title: "Transitions",
-    close: "Fermer le panneau des transitions",
-    emptyTitle: "Aún no hay animaciones.",
+    elementFallback: "Élément {{index}}",
+    title: "Animations",
+    close: "Fermer le panneau des animations",
+    emptyTitle: "Aucune animation pour le moment.",
     emptyDescription:
-      "Sélectionnez un objet sur la diapositive pour ajouter une transition.",
+      "Sélectionnez un objet sur la diapositive pour ajouter une animation.",
     selectObject: "Sélectionner un objet à animer",
-    addTransition: "Ajouter une transition",
+    addAnimation: "Ajouter une animation",
+    alreadyAnimated: "Déjà animé",
     effect: "Effet",
     onClick: "Au clic",
     withPrevious: "Avec la précédente",
     trigger: "Début",
     byParagraph: "Par paragraphe",
-    expand: "Développer la transition",
-    collapse: "Réduire la transition",
-    reorder: "Réorganiser la transition",
-    remove: "Supprimer la transition",
+    expand: "Développer l'animation",
+    collapse: "Réduire l'animation",
+    reorder: "Réorganiser l'animation",
+    remove: "Supprimer l'animation",
     play: "Lire",
-    clearAll: "Borrar todo",
-    elements: "Elementos",
-    autoFill: "Autorrellenar",
+    clearAll: "Tout effacer",
+    elements: "Éléments",
+    autoFill: "Remplissage auto",
     issueStalePath: "Cet objet n'est plus sur la diapositive.",
     issueMissingElement: "Cet objet est introuvable sur la diapositive.",
     issueDuplicate:
@@ -769,78 +825,89 @@ const messages = {
       "Supprimez ou corrigez l'animation non résolue pour enregistrer ou lire.",
     changeNotApplied: "Cette modification n'a pas été appliquée.",
     noAnimatableElements:
-      "No se detectaron elementos animables en esta diapositiva.",
+      "Aucun élément animable détecté sur cette diapositive.",
   },
   generateSlides: {
-    title: "Generar diapositivas con AI",
+    title: "Générer des diapositives avec l'IA",
     description:
-      "Describe el tema de tu presentación y AI generará diapositivas para ti.",
-    topic: "Tema",
+      "Décrivez le sujet de votre présentation et l'IA générera des diapositives pour vous.",
+    topic: "Sujet",
     topicPlaceholder:
-      "p. ej. Introducción a React Hooks, informe de ventas Q4, roadmap de producto 2025...",
-    slides: "Diapositivas",
-    slideCount_one: "{{count}} diapositiva",
-    slideCount_other: "{{count}} diapositivas",
-    slideCount_many: "{{count}} diapositivas",
-    styleOptional: "Estilo (opcional)",
-    stylePlaceholder: "p. ej. minimalista, corporativo...",
-    generateImages: "Generar imágenes",
+      "ex. Introduction aux React Hooks, rapport des ventes T4, feuille de route produit 2025...",
+    slides: "Diapositives",
+    slideCount_one: "{{count}} diapositive",
+    slideCount_other: "{{count}} diapositives",
+    slideCount_many: "{{count}} diapositives",
+    styleOptional: "Style (facultatif)",
+    stylePlaceholder: "ex. minimaliste, professionnel...",
+    generateImages: "Générer des images",
     generateImagesDescription:
-      "AI generará imágenes para diapositivas visuales usando Gemini",
+      "L'IA générera des images pour les diapositives visuelles avec Gemini",
     referenceImages:
-      "Imágenes de referencia (opcional, para coherencia de marca)",
+      "Images de référence (facultatif, pour la cohérence de la marque)",
     referenceImagesDescription:
-      "Sube imágenes para igualar su estilo visual en las imágenes generadas",
-    generating: "Generando diapositivas...",
-    generate: "Generar diapositivas",
+      "Importez des images dont le style visuel sera repris dans les images générées",
+    generating: "Génération des diapositives...",
+    generate: "Générer les diapositives",
   },
   deckResult: { saved: "Enregistré" },
   history: {
-    unknownTime: "Hora desconocida",
-    justNow: "Ahora mismo",
-    minutesAgo: "hace {{count}} min",
-    hoursAgo: "hace {{count}} h",
-    daysAgo: "hace {{count}} d",
-    slideCount_one: "{{count}} diapositiva",
-    slideCount_other: "{{count}} diapositivas",
-    slideCount_many: "{{count}} diapositivas",
-    versionRestored: "Versión restaurada",
-    versionRestoredDescription: "El deck volvió a la instantánea seleccionada.",
-    restoreFailed: "Error al restaurar",
-    restoreFailedDescription: "No se pudo restaurar esta versión del deck.",
-    backToSavedVersions: "Volver a versiones guardadas",
-    savedVersions: "Versiones guardadas",
+    restoreDiscardTitle:
+      "Ignorer les modifications non enregistrées et restaurer cette version ?",
+    restoreDiscardConfirm: "Ignorer et restaurer",
+    cancel: "Annuler",
+    restoreNoAccess:
+      "Vous devez avoir un accès en modification pour restaurer cette version.",
+    restoreVersionMissing: "Cette version n'est plus disponible.",
+    restoreDeckChanged:
+      "La présentation a changé pendant la restauration. Réessayez.",
+    restoreOffline: "Vous êtes hors ligne. Reconnectez-vous et réessayez.",
+    unknownTime: "Heure inconnue",
+    justNow: "À l'instant",
+    minutesAgo: "il y a {{count}} min",
+    hoursAgo: "il y a {{count}} h",
+    daysAgo: "il y a {{count}} j",
+    slideCount_one: "{{count}} diapositive",
+    slideCount_other: "{{count}} diapositives",
+    slideCount_many: "{{count}} diapositives",
+    versionRestored: "Version restaurée",
+    versionRestoredDescription:
+      "Le deck a été rétabli à l'instantané sélectionné.",
+    restoreFailed: "Échec de la restauration",
+    restoreFailedDescription: "Impossible de restaurer cette version du deck.",
+    backToSavedVersions: "Retour à l'historique",
+    savedVersions: "Historique",
     description:
-      "Explora versiones guardadas del deck y restaura una instantánea anterior.",
-    untitled: "Sin título",
-    snapshotUnavailable: "Instantánea no disponible",
-    slideNumber: "Diapositiva {{number}}",
-    noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
-    restoreThisVersion: "Restaurar esta versión",
+      "Parcourez l'historique du deck et restaurez un instantané précédent.",
+    untitled: "Sans titre",
+    snapshotUnavailable: "Instantané indisponible",
+    slideNumber: "Diapositive {{number}}",
+    noSlidesInSnapshot: "Aucune diapositive dans cet instantané.",
+    restoreThisVersion: "Restaurer cette version",
     retry: "Réessayer",
-    noSavedVersions: "Aún no hay versiones guardadas",
+    noSavedVersions: "Aucun historique pour le moment",
     noSavedVersionsDescription:
-      "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+      "L'historique est enregistré automatiquement avant les prochaines modifications du deck.",
     loadFailed: "Impossible de charger les versions enregistrées.",
     snapshotLoadFailed: "Impossible de charger cette version enregistrée.",
   },
   editorSidebar: {
-    selectSlide: "Seleccionar diapositiva {{number}}",
-    duplicateSlide: "Duplicar diapositiva",
-    duplicate: "Duplicar",
-    deleteSlide: "Eliminar diapositiva",
+    selectSlide: "Sélectionner la diapositive {{number}}",
+    duplicateSlide: "Dupliquer la diapositive",
+    duplicate: "Dupliquer",
+    deleteSlide: "Supprimer la diapositive",
     slideDeleted: "Diapositive supprimée",
-    delete: "Eliminar",
-    generatingSlide: "Generando diapositiva",
-    uploadFailed: "Error al subir",
-    uploadAttachedFileFailed: "No se pudo subir el archivo adjunto.",
+    delete: "Supprimer",
+    generatingSlide: "Génération de la diapositive",
+    uploadFailed: "Échec de l'importation",
+    uploadAttachedFileFailed: "Impossible d'importer le fichier joint.",
     newSlideSaveFailed:
       "Impossible d'enregistrer la nouvelle diapositive. Veuillez réessayer.",
-    addSlides: "Añadir diapositivas",
-    addEmptySlide: "Añadir diapositiva vacía",
-    noAi: "sin AI",
-    duplicateCurrentSlide: "Duplicar diapositiva actual",
-    promptPlaceholder: "Describe las diapositivas que quieres...",
+    addSlides: "Ajouter des diapositives",
+    addEmptySlide: "Ajouter une diapositive vide",
+    noAi: "sans IA",
+    duplicateCurrentSlide: "Dupliquer la diapositive actuelle",
+    promptPlaceholder: "Décrivez les diapositives souhaitées...",
     newSlide: "Nouvelle diapositive",
     slidesHeading: "Diapositives",
     emptyTitle: "Aucune diapositive pour l'instant",
@@ -863,9 +930,9 @@ const messages = {
     upNext: "À suivre",
     endOfDeck: "Fin de la présentation",
     closePresenterView: "Fermer le mode présentateur",
-    noSlides: "No hay diapositivas para presentar",
-    previousSlide: "Diapositiva anterior",
-    nextSlide: "Siguiente diapositiva",
+    noSlides: "Aucune diapositive à présenter",
+    previousSlide: "Diapositive précédente",
+    nextSlide: "Diapositive suivante",
     voiceNavigation: "Navigation vocale",
     voiceNavigationNextCommand: "Diapositive suivante",
     voiceNavigationPreviousCommand: "Diapositive précédente",
@@ -876,9 +943,9 @@ const messages = {
       "La navigation vocale n’est pas disponible dans ce navigateur.",
     voiceNavigationError:
       "La navigation vocale s’est arrêtée. Vérifiez l’autorisation et la connexion du micro, puis réessayez.",
-    exitPresentation: "Salir de la presentación",
-    enterFullscreen: "Entrar en pantalla completa",
-    clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
+    exitPresentation: "Quitter la présentation",
+    enterFullscreen: "Passer en plein écran",
+    clickToEnterFullscreen: "Cliquez pour passer en plein écran",
   },
   deckAccessPage: {
     errorCode: "Erreur 403",
@@ -896,9 +963,17 @@ const messages = {
     switchAccount: "Changer de compte",
   },
   deckEditor: {
-    lookingForDeck: "Buscando este deck",
-    joinTeamToOpen: "Únete a tu equipo para abrir este deck",
-    deckUnavailable: "Deck no disponible",
+    agentUpdatedSlides_one: "L'agent a mis à jour {{count}} diapositive",
+    agentUpdatedSlides_other: "L'agent a mis à jour {{count}} diapositives",
+    agentUpdatedSlides_many: "L'agent a mis à jour {{count}} diapositives",
+    agentUndoConflictTitle: "Annuler la modification de l'agent ?",
+    agentUndoConflictDescription:
+      "Vous avez modifié ces diapositives après l'agent. L'annulation supprime aussi ces modifications.",
+    agentUndoConfirm: "Annuler quand même",
+    agentUndoKeep: "Annuler",
+    lookingForDeck: "Recherche de ce deck",
+    joinTeamToOpen: "Rejoignez votre équipe pour ouvrir ce deck",
+    deckUnavailable: "Deck indisponible",
     generationStalled:
       "La génération a été mise en pause après 5 minutes sans progrès",
     generationStalledDescription:
@@ -907,11 +982,11 @@ const messages = {
     continueGenerationPrompt:
       "Continue la génération des diapositives de ce deck. Vérifie d’abord les diapositives actuelles et le contexte de génération enregistré. Garde les diapositives terminées et ajoute uniquement celles qui manquent.",
     checkingSharedAccess:
-      "Comprobando si esta presentación está compartida con tu cuenta.",
+      "Vérification du partage de cette présentation avec votre compte.",
     joinTeamDescription:
-      "Este enlace apunta a una presentación de equipo. Únete al equipo indicado arriba y el deck se abrirá aquí automáticamente.",
+      "Ce lien mène à une présentation d'équipe. Rejoignez l'équipe indiquée ci-dessus et le deck s'ouvrira ici automatiquement.",
     deckUnavailableDescription:
-      "Este deck puede haberse eliminado o tu cuenta no tiene acceso.",
+      "Ce deck a peut-être été supprimé, ou votre compte n'y a pas accès.",
     privateDeckTitle: "Ce deck est privé",
     privateDeckDescription:
       "Demandez l’accès au propriétaire pour ouvrir ce deck. Il sera averti lorsque vous enverrez la demande.",
@@ -941,7 +1016,8 @@ const messages = {
     accessRequestFailed: "Impossible de demander l’accès. Réessayez.",
     accessApprovalTitle: "Accès accordé",
     accessApprovalAlreadyTitle: "Accès déjà accordé",
-    accessApprovalMessage: "{{email}} peut maintenant ouvrir ce deck.",
+    accessApprovalEditorMessage: "{{email}} peut maintenant modifier ce deck.",
+    accessApprovalViewerMessage: "{{email}} peut maintenant consulter ce deck.",
     accessApprovalRequesterEmailed: "Nous l'avons prévenu par e-mail.",
     accessApprovalRequesterEmailFailed:
       "Impossible d'envoyer un e-mail à {{email}}. Prévenez-le qu'il peut maintenant ouvrir le deck.",
@@ -953,15 +1029,22 @@ const messages = {
       "Connectez-vous en tant que propriétaire ou administrateur du deck pour approuver cette demande.",
     accessApprovalOpenDeck: "Ouvrir le deck",
     accessApprovalSignIn: "Se connecter",
-    accessApprovalLoading: "Accès en cours...",
+    accessApprovalReviewTitle: "Autoriser l'accès",
+    accessApprovalRequestedEdit: "{{email}} demande à modifier « {{title}} ».",
+    accessApprovalRequestedView: "{{email}} demande à consulter « {{title}} ».",
+    accessApprovalRoleLabel: "Rôle",
+    accessApprovalRoleViewer: "Lecteur",
+    accessApprovalRoleEditor: "Éditeur",
+    accessApprovalAllow: "Autoriser l'accès",
     backToDecks: "Retour aux decks",
     tryAgain: "Réessayer",
-    imageUploadFailed: "Error al subir imagen",
+    imageUploadFailed: "Échec de l'importation de l'image",
     imageUploadNeedsBuilder:
       "Configurez un stockage d’objets pour téléverser des images : utilisez Builder.io (gratuit) ou ajoutez vos propres clés de stockage compatibles S3 dans Paramètres → Envois de fichiers.",
-    imageAdded: "Imagen añadida",
-    imageUploadError: "Algo salió mal al subir esta imagen.",
-    exportFailed: "Error al exportar",
+    imageAdded: "Image ajoutée",
+    imageUploadError:
+      "Un problème est survenu lors de l'importation de cette image.",
+    exportFailed: "Échec de l'exportation",
     agentRunFailed:
       "L’exécution de l’agent a échoué avant la création des diapositives. Consultez les détails dans le chat, puis réessayez.",
     generationFailed:
@@ -975,17 +1058,27 @@ const messages = {
     originalPrompt: "Votre demande",
     backToHome: "Retour à l’accueil",
     checkedDeckTryAgain: "J’ai vérifié la présentation. Réessayer",
+    generationStillRunning:
+      "Ce deck est toujours en cours de génération. Consultez le chat pour suivre la progression.",
+    questionFlowTitle: "Définissez d’abord le deck",
+    questionFlowDescription:
+      "Répondez aux choix importants. Utilisez Autre pour une direction personnalisée, ou laissez l’agent décider.",
     deckHasNoSlides: "Cette présentation ne contient aucune diapositive.",
-    pdfRenderFailed: "No se pudo renderizar el PDF.",
-    buildingDeck: "Construyendo deck",
+    pdfRenderFailed: "Impossible de générer le PDF.",
+    buildingDeck: "Création du deck",
     layoutOverflowWarning: "La mise en page déborde",
     layoutOverflowDetails: "Afficher les détails du débordement",
     layoutOverflowVertical: "Débordement vertical : {{pixels}} px",
     layoutOverflowHorizontal: "Débordement horizontal : {{pixels}} px",
     dismissLayoutWarning: "Ignorer l’avertissement de mise en page",
-    slidesAdded_one: "{{count}} diapositiva añadida",
-    slidesAdded_other: "{{count}} diapositivas añadidas",
-    slidesAdded_many: "{{count}} diapositivas añadidas",
+    fixLayoutWithAi: "Corriger avec l’IA",
+    askingAgentToFixLayout: "Demande en cours…",
+    shrinkTextToFit: "Réduire le texte",
+    shrinkTextCannotFit:
+      "Le texte dépasse encore de la diapositive à la taille minimale",
+    slidesAdded_one: "{{count}} diapositive ajoutée",
+    slidesAdded_other: "{{count}} diapositives ajoutées",
+    slidesAdded_many: "{{count}} diapositives ajoutées",
     unsavedChangesTitle: "Modifications non enregistrées",
     unsavedChangesDescription:
       "Si vous quittez ou rechargez maintenant, vous risquez de perdre les modifications qui ne sont pas encore enregistrées. Voulez-vous vraiment quitter ?",
@@ -993,6 +1086,8 @@ const messages = {
     leaveWithoutSaving: "Quitter sans enregistrer",
     editorMarkupNotSaved:
       "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
+    slideDeletedElsewhere:
+      "Quelqu'un d'autre a supprimé une diapositive que vous modifiiez.",
     historyStepConflict:
       "Cette étape de l’historique a été ignorée, car elle est en conflit avec la présentation actuelle.",
     historyStepFailed:
@@ -1089,15 +1184,158 @@ const messages = {
     chooseAnotherFile: "Choisir un autre fichier",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "Créer un pitch produit",
-      roadmap: "Créer une feuille de route produit",
-      explainer: "Expliquer un sujet dans une présentation",
+    nextStepBar: {
+      ariaLabel: "Étapes suivantes pour votre première présentation",
+      refineWithPrompt: "Améliorer avec une consigne",
+      export: "Exporter",
+      shareLink: "Partager le lien",
+      dismiss: "Fermer",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "Créez une présentation de lancement avec le problème client, les avantages, le plan et un ton assuré et centré sur le client.",
+        roadmap:
+          "Créez une feuille de route trimestrielle avec les axes stratégiques, jalons, dépendances et un ton exécutif clair.",
+        opportunity:
+          "Créez un dossier d’opportunité avec le marché, les besoins clients, la solution, les risques et un ton décisif.",
+        priorities:
+          "Créez une présentation de priorisation avec impact, effort, preuves, arbitrages et un ton propice à la décision.",
+        metrics:
+          "Créez une revue produit avec adoption, activation, rétention, enseignements et un ton analytique franc.",
+        discovery:
+          "Créez un compte rendu de recherche client avec thèmes, citations, besoins et un ton empathique fondé sur les faits.",
+        vision:
+          "Créez une présentation de vision avec l’avenir souhaité, les principes, les paris produit et un ton inspirant et concret.",
+        release:
+          "Créez une revue de lancement avec objectifs, résultats, retours clients, problèmes ouverts et un ton responsable et apprenant.",
+      },
+      design: {
+        caseStudy:
+          "Créez une étude de cas de design avec le brief, le processus, les écrans clés, les résultats et un ton éditorial chaleureux.",
+        system:
+          "Créez une présentation du système de design avec couleurs, typographie, composants, exemples et un ton visuel net.",
+        critique:
+          "Créez une critique de design avec objectifs, écrans actuels, retours, prochaines étapes et un ton constructif.",
+        research:
+          "Créez un compte rendu de recherche utilisateur avec contexte, tendances, citations, pistes et un ton empathique.",
+        concepts:
+          "Créez une exploration de concepts avec trois pistes visuelles, des écrans, des compromis et un ton ludique.",
+        accessibility:
+          "Créez une revue d’accessibilité avec obstacles, exemples annotés, corrections et un ton inclusif et clair.",
+        brand:
+          "Créez une présentation d’identité de marque avec audience, références visuelles, couleurs, typographie et un ton singulier.",
+        sprint:
+          "Créez un bilan de sprint design avec défi, idées, prototype, tests et un ton optimiste.",
+      },
+      developer: {
+        architecture:
+          "Créez une présentation d’architecture avec composants, flux de données, compromis et un ton technique précis.",
+        api: "Créez un guide de démarrage API avec configuration, authentification, exemples, erreurs et un ton accessible aux développeurs.",
+        release:
+          "Créez un plan de livraison technique avec périmètre, jalons, dépendances, déploiement et un ton pragmatique.",
+        incident:
+          "Créez une analyse d’incident avec impact, chronologie, cause racine, actions et un ton sans reproche.",
+        migration:
+          "Créez un plan de migration avec état actuel, étapes, risques, validation et un ton rassurant.",
+        security:
+          "Créez une revue de sécurité avec limites du système, menaces, contrôles, lacunes et un ton technique direct.",
+        demo: "Créez une démo technique avec problème, architecture, parcours en direct, résultats et un ton clair.",
+        metrics:
+          "Créez une revue des métriques d’ingénierie avec livraison, fiabilité, tendances et un ton franc.",
+      },
+      marketing: {
+        campaign:
+          "Créez un lancement de campagne avec audience, message, canaux, calendrier et un ton énergique.",
+        story:
+          "Créez un récit client avec défi, solution, résultats, preuves et un ton humain.",
+        content:
+          "Créez une stratégie éditoriale avec besoins de l’audience, thèmes, formats, calendrier et un ton soigné.",
+        positioning:
+          "Créez un positionnement de marque avec audience, catégorie, promesse, preuves et un ton distinctif.",
+        channels:
+          "Créez une revue des canaux avec portée, engagement, conversions, enseignements et un ton clair.",
+        messaging:
+          "Créez un discours produit avec audience, avantages, preuves, exemples et un ton persuasif.",
+        event:
+          "Créez un plan de promotion d’événement avec audience, accroche, calendrier, canaux et un ton accueillant.",
+        competition:
+          "Créez un panorama concurrentiel avec alternatives, atouts, lacunes, opportunités et un ton équilibré.",
+      },
+      sales: {
+        pitch:
+          "Créez une présentation commerciale avec objectifs client, solution, résultats, preuves et un ton assuré.",
+        proposal:
+          "Créez une proposition de solution avec besoins, approche, calendrier, investissement et un ton clair centré client.",
+        quarterlyReview:
+          "Créez une revue trimestrielle avec objectifs, résultats, adoption, prochaines étapes et un ton collaboratif.",
+        discovery:
+          "Créez un compte rendu de découverte avec priorités client, difficultés, adéquation et un ton attentif.",
+        objections:
+          "Créez un guide de traitement des objections avec questions courantes, preuves, réponses et un ton utile.",
+        demo: "Créez un scénario de démo produit avec contexte client, parcours clés, résultats et un ton persuasif et concis.",
+        renewal:
+          "Créez une présentation de renouvellement avec valeur apportée, usage, pistes et un ton partenarial.",
+        enablement:
+          "Créez un support de vente avec acheteurs types, qualification, arguments et un ton pratique.",
+      },
+      ops: {
+        weeklyReview:
+          "Créez une revue opérationnelle hebdomadaire avec objectifs, indicateurs, blocages, responsables et un ton calme et direct.",
+        process:
+          "Créez une présentation d’amélioration des processus avec étapes actuelles, irritants, flux cible et un ton pratique.",
+        capacity:
+          "Créez un plan de capacité avec demande, disponibilité, priorités, scénarios et un ton transparent.",
+        service:
+          "Créez une revue de service avec volumes, délais, escalades, corrections et un ton responsable.",
+        vendor:
+          "Créez une évaluation de fournisseurs avec critères, options, coûts, risques et un ton équilibré.",
+        metrics:
+          "Créez une présentation de tableau de bord avec indicateurs, tendances, exceptions et un ton analytique concis.",
+        onboarding:
+          "Créez un parcours d’intégration avec étapes, relais, ressources, mesures de réussite et un ton bienveillant.",
+        risk: "Créez une revue des risques avec probabilité, impact, mesures, responsables et un ton mesuré.",
+      },
+      individual: {
+        project:
+          "Créez un plan de projet personnel avec objectif, jalons, ressources, risques et un ton motivant.",
+        portfolio:
+          "Créez un portfolio personnel avec projets choisis, démarche, résultats et un ton éditorial assuré.",
+        learning:
+          "Créez un parcours d’apprentissage avec compétences, ressources, exercices, jalons et un ton encourageant.",
+        event:
+          "Créez un plan de rencontre avec intention, invités, programme, détails et un ton chaleureux.",
+        budget:
+          "Créez une revue budgétaire personnelle avec revenus, dépenses, objectifs et un ton calme et pratique.",
+        travel:
+          "Créez un itinéraire avec destinations, temps forts quotidiens, logistique et un ton visuel accueillant.",
+        community:
+          "Créez une présentation d’atelier communautaire avec sujet, activités, acquis et un ton inclusif.",
+        personalStory:
+          "Créez une présentation personnelle avec parcours, intérêts, travail et un ton naturel et convivial.",
+      },
+      general: {
+        overview:
+          "Créez une présentation claire d’un sujet avec contexte, idées clés, exemples et un ton accueillant.",
+        fundraiser:
+          "Créez une présentation de collecte de fonds avec mission, besoin, impact et un ton plein d’espoir.",
+        lesson:
+          "Créez une courte leçon avec objectifs, notions clés, exemples et un ton engageant.",
+        research:
+          "Créez un rapport de recherche avec question, méthode, résultats, implications et un ton équilibré.",
+        eventProposal:
+          "Créez une proposition d’événement avec objectif, audience, format, budget et un ton accueillant.",
+        teamStrategy:
+          "Créez une stratégie d’équipe avec priorités, indicateurs, initiatives et un ton concentré.",
+        howTo:
+          "Créez un guide visuel avec étapes claires, exemples utiles et un ton encourageant.",
+        portfolioIntro:
+          "Créez une introduction de portfolio avec projets choisis, points forts et un ton soigné.",
+      },
     },
     suggestedPrompts: "Prompts suggérés",
     importMenu: {
       import: "Importer",
-      options: "Options d’importation",
       invalidPdf: "Choisissez un fichier PDF.",
       invalidPptx: "Choisissez un fichier PPTX.",
       invalidFile: "Choisissez un fichier PDF ou PPTX.",
@@ -1289,9 +1527,13 @@ const messages = {
     workspaceDefaultBadge: "Par défaut pour l'espace de travail",
     setWorkspaceDefault: "Définir par défaut pour l'espace de travail",
     clearWorkspaceDefault: "Retirer le deck par défaut de l'espace de travail",
+    renameDeck: "Renommer",
+    duplicateDeck: "Dupliquer",
+    deleteDeck: "Supprimer",
     workspaceDefaultSet: "Défini par défaut pour l'espace de travail",
     workspaceDefaultCleared: "Valeur par défaut de l'espace de travail retirée",
     duplicateFailed: "Impossible de dupliquer ce deck",
+    deleteFailed: "Impossible de supprimer ce deck",
     workspaceDefaultFailed:
       "Impossible de mettre à jour le deck par défaut de l'espace de travail",
     workspaceDefaultConfirmTitle:
@@ -1315,6 +1557,89 @@ const messages = {
     createFirstDeck: "Créez votre premier deck",
     emptyDescription:
       "Créez de belles présentations avec la génération par IA.",
+
+    suggestionLabels: {
+      product: {
+        launch: "présentation de lancement",
+        roadmap: "feuille de route trimestrielle",
+        opportunity: "dossier d’opportunité",
+        priorities: "présentation de priorisation",
+        metrics: "revue produit",
+        discovery: "compte rendu de recherche",
+        vision: "présentation de vision",
+        release: "revue de lancement",
+      },
+      design: {
+        caseStudy: "étude de cas design",
+        system: "système de design",
+        critique: "critique de design",
+        research: "compte rendu de recherche",
+        concepts: "exploration de concepts",
+        accessibility: "revue d’accessibilité",
+        brand: "présentation d’identité de marque",
+        sprint: "bilan de sprint design",
+      },
+      developer: {
+        architecture: "présentation d’architecture",
+        api: "guide de démarrage API",
+        release: "plan de livraison technique",
+        incident: "analyse d’incident",
+        migration: "plan de migration",
+        security: "revue de sécurité",
+        demo: "démo technique",
+        metrics: "revue des métriques d’ingénierie",
+      },
+      marketing: {
+        campaign: "lancement de campagne",
+        story: "récit client",
+        content: "stratégie éditoriale",
+        positioning: "positionnement de marque",
+        channels: "revue des canaux",
+        messaging: "discours produit",
+        event: "plan de promotion d’événement",
+        competition: "panorama concurrentiel",
+      },
+      sales: {
+        pitch: "présentation commerciale",
+        proposal: "proposition de solution",
+        quarterlyReview: "revue trimestrielle",
+        discovery: "compte rendu de découverte",
+        objections: "guide des objections",
+        demo: "scénario de démo produit",
+        renewal: "présentation de renouvellement",
+        enablement: "support de vente",
+      },
+      ops: {
+        weeklyReview: "revue opérationnelle hebdomadaire",
+        process: "présentation d’amélioration des processus",
+        capacity: "plan de capacité",
+        service: "revue de service",
+        vendor: "évaluation de fournisseurs",
+        metrics: "tableau de métriques",
+        onboarding: "parcours d’intégration",
+        risk: "revue des risques",
+      },
+      individual: {
+        project: "plan de projet personnel",
+        portfolio: "portfolio personnel",
+        learning: "parcours d’apprentissage",
+        event: "plan de rencontre",
+        budget: "revue budgétaire personnelle",
+        travel: "itinéraire de voyage",
+        community: "présentation d’atelier communautaire",
+        personalStory: "présentation personnelle",
+      },
+      general: {
+        overview: "présentation claire d’un sujet",
+        fundraiser: "collecte de fonds",
+        lesson: "courte leçon",
+        research: "rapport de recherche",
+        eventProposal: "proposition d’événement",
+        teamStrategy: "stratégie d’équipe",
+        howTo: "guide visuel",
+        portfolioIntro: "introduction de portfolio",
+      },
+    },
   },
   agentChat: {
     setup: {

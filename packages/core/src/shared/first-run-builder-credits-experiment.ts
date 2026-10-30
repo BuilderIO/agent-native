@@ -8,6 +8,26 @@ export const FIRST_RUN_BUILDER_CREDITS_V2_VARIANTS = [
   "credits",
 ] as const;
 
+export const FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES = new Set([
+  "onboarding_app_entered",
+  "onboarding_started",
+  "onboarding_experiment_exposed",
+  "onboarding_step_viewed",
+  "onboarding_step_completed",
+  "onboarding_step_skipped",
+  "onboarding_method_clicked",
+  "onboarding_method_started",
+  "onboarding_method_outcome",
+  "onboarding_abandoned",
+  "onboarding_correlation_unavailable",
+  "onboarding_role_save_started",
+  "onboarding_more_info_opened",
+  "onboarding_role_option_selected",
+  "onboarding_dismissed",
+  "onboarding_reopened",
+  "onboarding_completed",
+]);
+
 export type FirstRunBuilderCreditsV2Variant =
   (typeof FIRST_RUN_BUILDER_CREDITS_V2_VARIANTS)[number];
 

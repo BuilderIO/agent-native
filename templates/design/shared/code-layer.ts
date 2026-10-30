@@ -6390,8 +6390,10 @@ function resolveStyleEditTargetRoute(
     return { kind: "released-svg" };
   }
   const paintChild = vectorPaintChild(html, element, intent.property, elements);
+  const isPaintProperty =
+    intent.property.startsWith("fill") || intent.property.startsWith("stroke");
   const useTarget =
-    element.tag === "use"
+    element.tag === "use" && isPaintProperty
       ? element
       : paintChild?.tag === "use"
         ? paintChild
@@ -6405,6 +6407,7 @@ function resolveStyleEditTargetRoute(
   }
   if (
     node.dataAttributes["data-an-primitive"] === "pasted-svg" &&
+    isPaintProperty &&
     !paintChild
   ) {
     return { kind: "unsupported" };

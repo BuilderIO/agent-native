@@ -55,16 +55,19 @@ export function resolveVercelDeploymentProtectionHeaders(
   return { "x-vercel-protection-bypass": secret.trim() };
 }
 
-export function isHostedWorkspaceRuntime(): boolean {
-  const workspace = getAppConfig().workspace;
-  const hasFusionPreview = Boolean(
+export function isFusionPreviewRuntime(): boolean {
+  return Boolean(
     process.env.FUSION_ENVIRONMENT || // config-ok: Fusion injects preview markers outside app configuration.
     process.env.FUSION_ENV_ORIGIN || // config-ok: Fusion injects preview markers outside app configuration.
     process.env.VITE_FUSION_ENV_ORIGIN, // config-ok: Fusion injects preview markers outside app configuration.
   );
+}
+
+export function isHostedWorkspaceRuntime(): boolean {
+  const workspace = getAppConfig().workspace;
   return (
     workspace.isWorkspace === true ||
     Boolean(workspace.appsJson?.trim()) ||
-    hasFusionPreview
+    isFusionPreviewRuntime()
   );
 }

@@ -160,7 +160,7 @@ export interface WorkflowCanvasProps {
   onTest?: () => void;
   /** The workflow has unsaved edits, which a test saves first. */
   unsaved?: boolean;
-  /** A test is starting, so the test button is disabled. */
+  /** A test or a save is starting, so the test button is disabled. */
   testing?: boolean;
   /** Tests one step. Adds a test action to the selected step's hover toolbar. */
   onTestStep?: (nodeId: string) => void;
@@ -1298,6 +1298,7 @@ function CanvasInner({
                         : s.canvasActions.testWorkflow
                     }
                     disabled={testing}
+                    testing={testing}
                     onTest={onTest}
                   />
                 </Panel>

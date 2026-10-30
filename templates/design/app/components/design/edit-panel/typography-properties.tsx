@@ -1,7 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
-import { VisualFontFamilyPicker } from "@agent-native/toolkit/design-tweaks";
+import {
+  FontSizeField,
+  VisualFontFamilyPicker,
+} from "@agent-native/toolkit/design-tweaks";
 import {
   IconAlignCenter,
   IconAlignLeft,
@@ -54,6 +57,7 @@ import { cn } from "@/lib/utils";
 import { ScrubInput } from "../inspector";
 import { IconLayoutSettings } from "../inspector/design-icons";
 import type { ElementInfo } from "../types";
+import { DESIGN_FONT_SIZE_MIN } from "./font-size-scale";
 import { InspectorIconButton, InspectorSegment } from "./inspector-controls";
 import {
   INSPECTOR_GRID_PAIR_GUTTER_SPAN,
@@ -63,7 +67,6 @@ import {
 } from "./inspector-grid";
 import { authoredStyleValue } from "./interaction-state-helpers";
 import { PanelSection } from "./panel-primitives";
-import { roundToOneDecimal } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 import type {
   StyleChangeMeta,
@@ -598,6 +601,11 @@ export function TypographyProperties({
                 mixedLabel={MIXED_VALUE}
                 searchable
                 searchPlaceholder={t("root.commandSearch")}
+                labels={{
+                  catalogUnavailable: t(
+                    "editPanel.fontPicker.catalogUnavailable",
+                  ),
+                }}
                 contentProps={{
                   "data-design-chrome-region": "right-panel",
                 }}
@@ -692,31 +700,25 @@ export function TypographyProperties({
         </InspectorGridCell>
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
-          <ScrubInput
+          <FontSizeField
             label={t("editPanel.labels.size")}
-            ariaLabel={t("editPanel.labels.size")}
-            icon={IconTextSize}
+            openLabel={t("editPanel.labels.fontSizes")}
             value={
-              fontSizeIsMixed
-                ? 0
-                : styles.fontSize
-                  ? parseNumericValue(styles.fontSize)
-                  : 16
+              !fontSizeIsMixed && styles.fontSize
+                ? parseNumericValue(styles.fontSize)
+                : 16
             }
             mixed={fontSizeIsMixed}
+            mixedLabel={MIXED_VALUE}
             onChange={(value, meta) =>
-              onStyleChange(
-                "fontSize",
-                `${Math.max(1, roundToOneDecimal(value))}px`,
-                meta,
-              )
+              onStyleChange("fontSize", `${value}px`, meta)
             }
+            scrubIcon={IconTextSize}
+            allowRelativeExpressions
             unit="px"
-            min={1}
-            precision={1}
-            className="w-full gap-0"
-            labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
-            inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            min={DESIGN_FONT_SIZE_MIN}
+            contentProps={{ "data-design-chrome-region": "right-panel" }}
+            className="w-full border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] has-[[data-slot=input-group-control]:focus-visible]:ring-[var(--design-editor-accent-color)]"
           />
         </InspectorGridCell>
       </InspectorGrid>

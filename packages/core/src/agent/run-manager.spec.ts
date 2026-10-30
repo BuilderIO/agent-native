@@ -15,6 +15,7 @@ import {
 import { EngineError } from "./engine/types.js";
 import {
   currentExecutionFence,
+  StaleExecutionFenceError,
   withExecutionFence,
 } from "./execution-fence.js";
 import {
@@ -256,6 +257,11 @@ import { track } from "../tracking/registry.js";
 import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
 import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
+  AGENT_RUN_NO_OUTPUT_ERROR_CODE,
+  IncompleteAgentRunError,
+  RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+} from "./run-errors.js";
+import {
   abortRun,
   abortRunDurably,
   abortRunAndTurnDurably,
@@ -427,7 +433,8 @@ describe("run manager soft timeout", () => {
     vi.mocked(updateRunStatusIfRunning).mockReset();
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(true);
     vi.mocked(cleanupOldRuns).mockClear();
-    vi.mocked(bumpRunProgress).mockClear();
+    vi.mocked(bumpRunProgress).mockReset();
+    vi.mocked(bumpRunProgress).mockResolvedValue(true);
     vi.mocked(setRunError).mockClear();
     vi.mocked(setRunTerminalReason).mockClear();
     vi.mocked(setRunTerminalReasonIfStatus).mockReset();
@@ -4316,6 +4323,7 @@ describe("run manager soft timeout", () => {
     expect(abortRun("run-progress-rearms-after-failure")).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
     expect(run.status).toBe("aborted");
+    await run.finalized;
   });
 
   it("waits for the SQL run row insert before writing terminal status", async () => {
@@ -5356,6 +5364,62 @@ describe("run manager soft timeout", () => {
       });
     }
   });
+
+  // raw-sql-ok: This test passes error codes and run IDs, not SQL.
+  it.each([
+    [
+      RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      "I ran out of time before finishing this step.",
+    ],
+    [AGENT_RUN_NO_OUTPUT_ERROR_CODE, "The agent run ended without output."],
+  ])(
+    "does not capture expected incomplete-run error %s to Sentry",
+    async (code, message) => {
+      const provider = vi.fn(() => "evt_run");
+      const unregister = registerErrorCaptureProvider(
+        `run-incomplete-${code}-no-capture`,
+        provider,
+      );
+      const events: AgentChatEvent[] = [];
+
+      try {
+        // raw-sql-ok: These interpolated values are run and thread IDs.
+        const run = startRun(
+          `run-incomplete-${code}-no-capture`,
+          `thread-incomplete-${code}-no-capture`,
+          async () => {
+            throw new IncompleteAgentRunError(
+              { code, message },
+              {
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                model: "test-model",
+              },
+            );
+          },
+          undefined,
+          { softTimeoutMs: 0 },
+        );
+        run.subscribers.add((event) => events.push(event.event));
+
+        await run.finalized;
+
+        expect(run.status).toBe("errored");
+        expect(provider).not.toHaveBeenCalled();
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            error: message,
+            errorCode: code,
+          }),
+        );
+      } finally {
+        unregister();
+      }
+    },
+  );
 
   it("emits terminal events only after the completion callback resolves", async () => {
     let resolveComplete!: () => void;
@@ -9233,8 +9297,11 @@ describe("run manager soft timeout", () => {
       const completionStarted = Promise.withResolvers<void>();
       vi.mocked(renewTurnExecutionLease).mockClear();
       vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
-        Object.assign(new Error("lease transferred during completion"), {
-          code: "stale_execution_fence",
+        new StaleExecutionFenceError({
+          runId: "run-finalization-lease-loss",
+          threadId: "thread-finalization-lease-loss",
+          turnId: "turn-finalization-lease-loss",
+          generation: "1",
         }),
       );
 
@@ -9267,6 +9334,7 @@ describe("run manager soft timeout", () => {
 
     it("does not attempt a fenced abort after the heartbeat loses the execution lease", async () => {
       const runId = "run-heartbeat-lease-loss";
+      const threadId = "thread-heartbeat-lease-loss";
       let releaseTool!: () => void;
       let markStarted!: () => void;
       const started = new Promise<void>((resolve) => {
@@ -9277,15 +9345,22 @@ describe("run manager soft timeout", () => {
       });
       vi.mocked(markRunAborted).mockClear();
       vi.mocked(renewTurnExecutionLease).mockClear();
-      vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
-        Object.assign(new Error("lease taken over by a successor"), {
-          code: "stale_execution_fence",
+      vi.mocked(renewTurnExecutionLease).mockRejectedValue(
+        new StaleExecutionFenceError({
+          runId,
+          threadId,
+          turnId: "turn-heartbeat-lease-loss",
+          generation: "1",
         }),
+      );
+      const unregister = registerErrorCaptureProvider(
+        "heartbeat-lease-loss",
+        captureException,
       );
 
       const run = startRun(
         runId,
-        "thread-heartbeat-lease-loss",
+        threadId,
         async (send) => {
           await send({
             type: "tool_start",
@@ -9305,14 +9380,21 @@ describe("run manager soft timeout", () => {
       );
 
       await started;
-      await vi.advanceTimersByTimeAsync(1_500);
+      await vi.advanceTimersByTimeAsync(3 * 1_500);
 
       expect(run.abort.signal.aborted).toBe(true);
       expect(run.abortReason).toBe(EXECUTION_LEASE_LOST_ABORT_REASON);
+      expect(renewTurnExecutionLease).toHaveBeenCalledTimes(3);
+      expect(track).not.toHaveBeenCalledWith(
+        "$exception",
+        expect.anything(),
+        undefined,
+      );
 
       releaseTool();
       await run.finalized;
       expect(markRunAborted).not.toHaveBeenCalledWith(runId, expect.anything());
+      unregister();
     });
 
     it("does NOT backstop a run with an agent_call in flight (status start, no done/error yet)", async () => {

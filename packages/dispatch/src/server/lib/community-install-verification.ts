@@ -2,6 +2,7 @@ import { defineActionErrors } from "@agent-native/core/action";
 import {
   BuilderBranchFilesError,
   getRequestContext,
+  readBuilderBranchBackupStatus,
   readBuilderBranchFiles,
   readOrgMemberRole,
 } from "@agent-native/core/server";
@@ -44,9 +45,42 @@ export const communityInstallVerificationErrors = defineActionErrors(
 function verificationFail(
   message: string,
   code: Parameters<typeof communityInstallVerificationErrors.fail>[1],
-  options: { statusCode: number },
+  options: { statusCode: number; details?: Record<string, unknown> },
 ): never {
   return communityInstallVerificationErrors.fail(message, code, options);
+}
+
+const READBACK_STAGES = new Set([
+  "status_request",
+  "status_shape",
+  "status_binding",
+  "status_no_backup",
+  "status_currentness",
+  "post_read_status_request",
+  "post_read_status_shape",
+  "post_read_status_binding",
+  "post_read_status_currentness",
+  "download_url_request",
+  "download_url_shape",
+  "download_url_binding",
+  "bundle_download",
+  "bundle_read",
+  "bundle_digest",
+  "bundle_parse",
+  "target_subtree_missing",
+  "post_read_currentness",
+  "app_integrity",
+  "snapshot_ref",
+]);
+
+function readbackStage(error: unknown): string {
+  const stage =
+    error && typeof error === "object"
+      ? (error as { readbackStage?: unknown }).readbackStage
+      : undefined;
+  return typeof stage === "string" && READBACK_STAGES.has(stage)
+    ? stage
+    : "unknown";
 }
 
 function requireHumanOrgOwner(): { orgId: string; ownerEmail: string } {
@@ -180,7 +214,7 @@ function failBranchReadback(error: unknown): never {
       verificationFail(
         "Builder could not provide a complete, identity-bound branch snapshot.",
         "community_verification_readback_unverified",
-        { statusCode: 422 },
+        { statusCode: 422, details: { readbackStage: readbackStage(error) } },
       );
     }
     if (error.code === "invalid_request") {
@@ -194,8 +228,46 @@ function failBranchReadback(error: unknown): never {
   verificationFail(
     "Builder branch readback is unavailable. Try again later.",
     "community_verification_readback_unavailable",
-    { statusCode: 503 },
+    {
+      statusCode: 503,
+      details: { readbackStage: readbackStage(error) },
+    },
   );
+}
+
+export async function inspectCommunityBuilderBackup(input: {
+  branchName: string;
+}) {
+  const { orgId, ownerEmail } = requireHumanOrgOwner();
+  await requireOrganizationOwnerOrAdmin(orgId, ownerEmail);
+
+  const branchName = requireBranchName(input.branchName);
+  let settings: Awaited<ReturnType<typeof getAppCreationSettings>>;
+  try {
+    settings = await getAppCreationSettings();
+  } catch {
+    verificationFail(
+      "The organization Builder project setting could not be read. Try again shortly.",
+      "community_verification_project_unavailable",
+      { statusCode: 503 },
+    );
+  }
+  const projectId = settings.savedBuilderProjectId?.trim();
+  if (!projectId || settings.builderProjectId !== projectId) {
+    verificationFail(
+      "Configure a Builder project for this organization before inspecting a branch backup.",
+      "community_verification_project_required",
+      { statusCode: 409 },
+    );
+  }
+
+  let status: Awaited<ReturnType<typeof readBuilderBranchBackupStatus>>;
+  try {
+    status = await readBuilderBranchBackupStatus({ projectId, branchName });
+  } catch (error) {
+    failBranchReadback(error);
+  }
+  return { branchName, ...status };
 }
 
 export async function verifyCuratedCommunityApp(input: {
@@ -273,14 +345,14 @@ export async function verifyCuratedCommunityApp(input: {
         verificationFail(
           "Builder branch files do not match the reviewed community template.",
           "community_verification_integrity_failed",
-          { statusCode: 422 },
+          { statusCode: 422, details: { readbackStage: "app_integrity" } },
         );
       case "ref_mismatch":
       case "invalid_snapshot":
         verificationFail(
           "Builder could not provide a complete, identity-bound branch snapshot.",
           "community_verification_readback_unverified",
-          { statusCode: 422 },
+          { statusCode: 422, details: { readbackStage: "snapshot_ref" } },
         );
       case "invalid_source":
         verificationFail(

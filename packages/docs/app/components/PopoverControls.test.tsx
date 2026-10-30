@@ -16,6 +16,9 @@ import { TemplateLandingActions } from "./template-landing/TemplateLandingAction
 import { templates } from "./TemplateCard";
 import { Button } from "./website-redesign/ds/button";
 
+const clips = templates.find((template) => template.slug === "clips");
+if (!clips) throw new Error("Clips template is missing");
+
 beforeEach(() => {
   // Attribution storage depends on the visitor's time zone, so pin it.
   const realOptions = new Intl.DateTimeFormat().resolvedOptions();
@@ -99,7 +102,7 @@ describe("docs popover controls", () => {
   });
 
   it("keeps Customize It modes inside the shared animated popover", () => {
-    renderWithProviders(<TemplateLandingActions template={templates[0]} />);
+    renderWithProviders(<TemplateLandingActions template={clips} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
 
@@ -131,7 +134,7 @@ describe("docs popover controls", () => {
     );
     // The site root installs this for every app link.
     const uninstall = installAppLinkAttribution();
-    renderWithProviders(<TemplateLandingActions template={templates[0]} />);
+    renderWithProviders(<TemplateLandingActions template={clips} />);
 
     const demoLink = screen.getByRole("link", { name: "Try Clips free" });
     fireEvent.click(demoLink);

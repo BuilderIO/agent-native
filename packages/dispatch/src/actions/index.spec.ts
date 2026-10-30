@@ -17,6 +17,10 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("claim-workspace-app-organization");
     expect(dispatchActions).toHaveProperty("verify-curated-community-app");
     expect(dispatchActions["verify-curated-community-app"].readOnly).toBe(true);
+    expect(dispatchActions).toHaveProperty("inspect-community-builder-backup");
+    expect(dispatchActions["inspect-community-builder-backup"].readOnly).toBe(
+      true,
+    );
     expect(dispatchActions).toHaveProperty("open_app");
     expect(dispatchActions).toHaveProperty("create_embed_session");
     expect(dispatchActions.create_embed_session.mcpApp?.visibility).toEqual([

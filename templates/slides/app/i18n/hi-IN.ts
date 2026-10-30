@@ -132,69 +132,67 @@ const messages = {
     exitExcalidrawCanvas: "ड्रॉइंग कैनवास से बाहर निकलें",
     agentWorking: "एजेंट काम कर रहा है",
     openChat: "चैट खोलें",
-    cloudAuthToken: "Token de autenticação",
-    cloudSetupSteps: "Etapas de configuração",
-    cloudConnectedReloading: "Conectado com sucesso. Recarregando...",
-    cloudConnectionFailed: "Falha na conexão",
-    cloudTestConnect: "Testar e conectar",
-    cloudServerlessPostgres: "Postgres serverless",
-    cloudOpenSourceFirebaseAlternative: "Alternativa open source ao Firebase",
-    designSlidePreview: "Prévia do slide",
-    designSlideTitle: "Título do slide",
+    cloudAuthToken: "ऑथ टोकन",
+    cloudSetupSteps: "सेटअप के चरण",
+    cloudConnectedReloading: "फिर से लोड हो रहा है...",
+    cloudConnectionFailed: "कनेक्शन विफल रहा",
+    cloudTestConnect: "जाँचें और कनेक्ट करें",
+    cloudServerlessPostgres: "सर्वरलेस Postgres",
+    cloudOpenSourceFirebaseAlternative: "Firebase का ओपन सोर्स विकल्प",
+    designSlidePreview: "स्लाइड पूर्वावलोकन",
+    designSlideTitle: "स्लाइड शीर्षक",
     designSupportingText:
-      "O texto de apoio aparece aqui com o estilo da sua marca aplicado de forma consistente em todos os slides.",
-    pasteUrl: "Colar URL",
-    removeLink: "Remover link",
-    firstSlidesTitle: "Preparando os primeiros slides",
-    firstSlidesDescription:
-      "A apresentação começará a aparecer aqui assim que cada slide chegar.",
-    googleOAuthNotConfigured:
-      "Google OAuth não está configurado para esta implantação.",
+      "सहायक टेक्स्ट यहाँ दिखता है, और आपकी ब्रांड स्टाइल सभी स्लाइड पर एक जैसी लागू होती है।",
+    pasteUrl: "URL चिपकाएँ",
+    removeLink: "लिंक हटाएँ",
+    firstSlidesTitle: "पहली स्लाइड तैयार की जा रही हैं",
+    firstSlidesDescription: "हर स्लाइड के आते ही डेक यहाँ भरना शुरू हो जाएगा।",
+    googleOAuthNotConfigured: "इस डिप्लॉयमेंट के लिए Google OAuth कॉन्फ़िगर नहीं है।",
     googlePickerNeedsKeys:
       "Google Drive की फ़ाइल ब्राउज़िंग कॉन्फ़िगर नहीं है। आप लिंक चिपकाकर दस्तावेज़ इंपोर्ट कर सकते हैं।",
-    imageUploadFailed: "Falha ao enviar imagem",
+    imageUploadFailed: "इमेज अपलोड विफल रहा",
     imageUploadNeedsBuilder:
       "चित्र अपलोड करने के लिए ऑब्जेक्ट स्टोरेज कनेक्ट करें: Builder.io (मुफ़्त) कनेक्ट करें या Settings → File uploads में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
-    sentToAgent: "Enviado ao agente",
-    imageUploadGenericError: "Algo deu errado ao enviar esta imagem.",
-    uploading: "Enviando…",
-    imagePromptTitle: "O que devemos fazer com esta imagem?",
+    sentToAgent: "एजेंट को भेजा गया",
+    imageUploadGenericError: "यह इमेज अपलोड करते समय कुछ गलत हो गया।",
+    uploading: "अपलोड हो रहा है…",
+    imagePromptTitle: "इस इमेज के साथ क्या करना है?",
     imagePromptPlaceholder:
-      "ex.: Usar como hero do slide de título. Ou: substituir a foto no slide 3.",
+      "उदा. शीर्षक स्लाइड की मुख्य इमेज के रूप में इस्तेमाल करें। या: स्लाइड 3 पर हेडशॉट बदलें।",
     imageSearchTitle: "छवियां खोजें",
-    searchImagesPlaceholder: "Buscar imagens...",
-    searchForLogosImagesIcons: "Buscar logos, imagens, ícones...",
+    searchImagesPlaceholder: "इमेज खोजें...",
+    searchForLogosImagesIcons: "लोगो, इमेज, आइकन खोजें...",
     search: "खोजें",
     searchFailed: "खोज विफल",
     logoSearchTitle: "लोगो खोज",
-    searchCompanyLogo: "Busque uma empresa para encontrar seu logo",
-    searchCompanyPlaceholder: "Buscar nome da empresa (ex.: Intuit)",
-    forDarkBg: "Para fundo escuro",
-    onDark: "No escuro",
-    symbolIcon: "Símbolo / ícone",
-    symbolDark: "Símbolo escuro",
-    importFileTypes: "Importar PPTX, DOCX ou PDF",
+    searchCompanyLogo: "किसी कंपनी का लोगो ढूँढने के लिए उसे खोजें",
+    searchCompanyPlaceholder: "कंपनी का नाम खोजें (उदा. Intuit)",
+    forDarkBg: "गहरे बैकग्राउंड के लिए",
+    onDark: "गहरे पर",
+    symbolIcon: "प्रतीक / आइकन",
+    symbolDark: "गहरा प्रतीक",
+    importFileTypes: "PPTX, DOCX या PDF इम्पोर्ट करें",
     mermaidConvertPrompt:
-      "Converter este diagrama Mermaid em um desenho Excalidraw editável?",
-    uploadAttachedFailed: "Não foi possível enviar o arquivo anexado.",
-    uploadFailed: "Falha no envio",
-    doubleClickEdit: "Clique duas vezes em qualquer texto para editar",
+      "इस Mermaid डायग्राम को बदलने योग्य Excalidraw ड्रॉइंग में बदलें?",
+    uploadAttachedFailed: "अटैच की गई फ़ाइल अपलोड नहीं हो सकी।",
+    uploadFailed: "अपलोड विफल रहा",
+    doubleClickEdit: "बदलने के लिए किसी भी टेक्स्ट पर डबल-क्लिक करें",
     dragToMove: "स्थानांतरित करने के लिए खींचें",
-    aiEditing: "IA editando",
-    startTypingCommands: "Comece a digitar… ou pressione / para comandos",
-    pinDropHint: "Clique em qualquer lugar para soltar um pin de comentário",
-    editSlide: "Editar slide",
-    escExit: "Esc para sair",
-    tellAgentChange: "Diga ao agente o que mudar…",
-    drawClearAll: "Limpar tudo",
-    drawExitMode: "Sair do modo de desenho",
-    tellAgentDo: "Diga ao agente o que fazer…",
-    typeAnnotation: "Digite uma anotação…",
-    typeAnywhere: "Digite em qualquer lugar da tela",
-    undoStroke: "Desfazer traço",
-    clearSelection: "Limpar seleção",
+    aiEditing: "AI बदलाव कर रहा है",
+    startTypingCommands: "टाइप करना शुरू करें… या कमांड के लिए / दबाएँ",
+    pinDropHint: "टिप्पणी पिन लगाने के लिए कहीं भी क्लिक करें",
+    editSlide: "स्लाइड बदलें",
+    escExit: "बाहर निकलने के लिए Esc",
+    tellAgentChange: "एजेंट को बताएँ कि क्या बदलना है…",
+    drawClearAll: "सब साफ़ करें",
+    drawExitMode: "ड्रॉ मोड से बाहर निकलें",
+    tellAgentDo: "एजेंट को बताएँ कि क्या करना है…",
+    typeAnnotation: "एनोटेशन टाइप करें…",
+    typeAnywhere: "कैनवस पर कहीं भी टाइप करें",
+    undoStroke: "स्ट्रोक पहले जैसा करें",
+    clearSelection: "चयन साफ़ करें",
     sendToAgent: "एजेंट को भेजें",
-    saveReconnect: "As alterações serão salvas ao reconectar",
+    saveReconnect: "दोबारा कनेक्ट होने पर बदलाव सेव हो जाएँगे",
     saveFailedDescription:
       "आपके नवीनतम बदलाव केवल इसी डिवाइस पर हैं। जाने से पहले बैकअप डाउनलोड करें।",
     slideConflictReview: "समीक्षा करें",
@@ -208,19 +206,19 @@ const messages = {
       "संघर्ष हल नहीं हो सका। आपका ड्राफ़्ट अभी भी यहाँ है।",
     offline: "ऑफ़लाइन",
     selected: "चयनित",
-    chooseDesignSystem: "Escolha um sistema de design",
+    chooseDesignSystem: "डिज़ाइन सिस्टम चुनें",
     presentationNotFound: "प्रस्तुति नहीं मिली",
     sharedPresentationExpired:
-      "Esta apresentação compartilhada não existe ou expirou.",
-    routeNotFoundTitle: "Não encontrado - Slides",
+      "यह शेयर की गई प्रेज़ेंटेशन मौजूद नहीं है या इसकी समय-सीमा खत्म हो गई है।",
+    routeNotFoundTitle: "नहीं मिला - Slides",
     routeEditorTitle: "संपादक — Slides",
-    routeDesignSystemsTitle: "Sistemas de design - Slides",
-    routeSettingsTitle: "Configurações - Slides",
+    routeDesignSystemsTitle: "डिज़ाइन सिस्टम - Slides",
+    routeSettingsTitle: "सेटिंग - Slides",
     routeSharedTitle: "साझा प्रस्तुति",
-    routeTeamTitle: "Equipe — Slides",
-    slidePreviewTitle: "Prévia do slide",
-    slideUnavailable: "Slide indisponível",
-    couldNotLoadSlide: "Não foi possível carregar o slide.",
+    routeTeamTitle: "टीम — Slides",
+    slidePreviewTitle: "स्लाइड पूर्वावलोकन",
+    slideUnavailable: "स्लाइड उपलब्ध नहीं है",
+    couldNotLoadSlide: "स्लाइड लोड नहीं हो सकी।",
     openInApp: "ऐप में खोलें",
   },
 
@@ -260,10 +258,10 @@ const messages = {
     triangle: "त्रिभुज",
     media: "इमेज/वीडियो…",
     mediaNeedsStorage: "इमेज और वीडियो अपलोड करने के लिए स्टोरेज कॉन्फ़िगर करें।",
-    transitions: "ट्रांज़िशन",
-    transitionsMenu: "ट्रांज़िशन विकल्प",
+    transitions: "ऐनिमेशन",
+    transitionsMenu: "ऐनिमेशन विकल्प",
     transitionsReadOnly: "यह डेक केवल पढ़ने के लिए है।",
-    transitionsNeedElement: "ट्रांज़िशन जोड़ने के लिए कोई एलिमेंट चुनें।",
+    transitionsNeedElement: "ऐनिमेशन जोड़ने के लिए कोई एलिमेंट चुनें।",
     transitionNone: "कोई नहीं",
     transitionAppear: "दिखना",
     transitionFade: "फ़ेड",
@@ -320,6 +318,9 @@ const messages = {
     usingDesignSystem: "{{title}} उपयोग हो रहा है",
     usingLinkedDesignSystem: "लिंक किया गया डिज़ाइन सिस्टम उपयोग हो रहा है",
     viewOnly: "केवल देखें",
+    requestEditAccess: "संपादन एक्सेस का अनुरोध करें",
+    editAccessRequested: "अनुरोध भेजा गया",
+    editAccessRequestFailed: "संपादन एक्सेस का अनुरोध नहीं हो सका। फिर से कोशिश करें।",
     commenterRoleLabel: "टिप्पणीकार",
     commenterRoleDescription: "देख सकते हैं और टिप्पणियां जोड़ सकते हैं",
     slideSettings: "स्लाइड सेटिंग्स",
@@ -403,6 +404,13 @@ const messages = {
     presentInTab: "इसी टैब में",
     presentFullScreen: "फ़ुल स्क्रीन",
     presentPresenterView: "प्रस्तुतकर्ता दृश्य",
+    presentOptions: "प्रस्तुति विकल्प",
+    presentFromBeginning: "शुरुआत से",
+    presentWithShortcut: "प्रस्तुत करें ({{shortcut}})",
+    presentUnsaved:
+      "आपके नवीनतम बदलाव सहेजे नहीं जा सके। उन्हें इसी टैब से प्रस्तुत किया जा रहा है।",
+    presentTabBlocked: "नए टैब में प्रस्तुत करने के लिए पॉप-अप की अनुमति दें।",
+    deckTitle: "डेक का शीर्षक",
     presentPresenterViewDescription: "प्रस्तुति के दौरान स्पीकर नोट्स देखें",
     presenterViewBlocked: "प्रस्तुतकर्ता दृश्य खोलने के लिए पॉप-अप की अनुमति दें।",
     export: "निर्यात",
@@ -431,6 +439,20 @@ const messages = {
       "विरोध हल नहीं हो सका। आपका ड्राफ़्ट इस डिवाइस पर उपलब्ध है।",
     conflictKeepMine: "मेरा टेक्स्ट रखें",
     conflictUseLatest: "सहेजा हुआ टेक्स्ट इस्तेमाल करें",
+    conflictTitleSomeone: "किसी और ने स्लाइड {{number}} बदली",
+    conflictTitleAgent: "एजेंट ने स्लाइड {{number}} बदली",
+    conflictNotesTitleSomeone: "किसी और ने स्लाइड {{number}} के स्पीकर नोट्स बदले",
+    conflictNotesTitleAgent: "एजेंट ने स्लाइड {{number}} के स्पीकर नोट्स बदले",
+    conflictYourVersion: "आपका वर्शन",
+    conflictTheirVersion: "उनका वर्शन",
+    conflictAgentVersion: "एजेंट का वर्शन",
+    conflictKeepMyVersion: "मेरा वर्शन रखें",
+    conflictKeepTheirVersion: "उनका वर्शन रखें",
+    conflictKeepAgentVersion: "एजेंट का वर्शन रखें",
+    conflictSlideDeleted: "स्लाइड हटा दी गई",
+    conflictNoNotes: "कोई नोट्स नहीं",
+    saveErrorDeckChanged: "किसी और ने यह प्रस्तुति बदल दी",
+    saveErrorSlidesChanged: "किसी और ने इस प्रस्तुति की स्लाइड बदल दीं",
     importBackup: "बैकअप आयात करें",
     backupDownloaded: "बैकअप डाउनलोड हो गया",
     backupDownloadFailed: "बैकअप डाउनलोड नहीं हो सका",
@@ -469,9 +491,18 @@ const messages = {
     googleSlidesCreatedHint: "इस प्रस्तुति की एक प्रति आपके Google Drive में बनाई गई।",
     googleSlidesGoTo: "Google Slides पर जाएँ",
     duplicateDeck: "डेक डुप्लिकेट करें",
+    cancel: "रद्द करें",
+    saveBeforeExportFailed:
+      "आपके नवीनतम बदलाव सहेजे नहीं जा सके। फिर से निर्यात करके देखें।",
+    pptxMissingShapes_one: "{{count}} आकृति निर्यात नहीं हो सकी और PPTX में नहीं है।",
+    pptxMissingShapes_other:
+      "{{count}} आकृतियाँ निर्यात नहीं हो सकीं और PPTX में नहीं हैं।",
   },
   share: {
     createFailed: "साझा लिंक नहीं बन सका",
+    snapshotLinks: "स्नैपशॉट लिंक",
+    revokeLink: "रद्द करें",
+    revokeFailed: "साझा लिंक रद्द नहीं किया जा सका",
     title: "प्रस्तुति साझा करें",
     cloudUpgradeDescription:
       "प्रस्तुतियों को सार्वजनिक रूप से साझा करने के लिए, क्लाउड डेटाबेस कनेक्ट करें ताकि आपकी स्लाइड कहीं से भी एक्सेस की जा सकें।",
@@ -658,6 +689,12 @@ const messages = {
     strokeWeight: "मोटाई",
     typography: "टाइपोग्राफी",
     fontFamily: "फ़ॉन्ट परिवार",
+    fontPicker: {
+      search: "फ़ॉन्ट खोजें",
+      inThisDeck: "इस डेक में",
+      allFonts: "सभी फ़ॉन्ट",
+      catalogUnavailable: "पूरी फ़ॉन्ट लाइब्रेरी लोड नहीं हो सकी।",
+    },
     fontFamilies: {
       inherit: "इनहेरिट",
       sansSerif: "सैन्स सेरिफ़",
@@ -676,6 +713,8 @@ const messages = {
     align: "संरेखण",
     decreaseSize: "फ़ॉन्ट आकार घटाएँ",
     increaseSize: "फ़ॉन्ट आकार बढ़ाएँ",
+    fontSizes: "टाइप स्केल",
+    deckSizes: "डेक",
     mixed: "मिश्रित",
     textColor: "टेक्स्ट का रंग",
     primary: "Primary",
@@ -711,6 +750,8 @@ const messages = {
     insertColumnLeft: "बाईं ओर कॉलम जोड़ें",
     insertColumnRight: "दाईं ओर कॉलम जोड़ें",
     deleteColumn: "कॉलम हटाएं",
+    tableMergedCellsUnavailable: "मर्ज किए गए सेल वाली तालिकाओं में उपलब्ध नहीं",
+    tableColumnLayoutUnavailable: "इस तालिका की कॉलम चौड़ाई के लिए उपलब्ध नहीं",
   },
   animations: {
     appear: "दिखाएं",
@@ -718,21 +759,22 @@ const messages = {
     slideUp: "ऊपर स्लाइड",
     zoom: "ज़ूम",
     elementFallback: "तत्व {{index}}",
-    title: "ट्रांज़िशन",
-    close: "ट्रांज़िशन पैनल बंद करें",
+    title: "ऐनिमेशन",
+    close: "ऐनिमेशन पैनल बंद करें",
     emptyTitle: "अभी कोई एनिमेशन नहीं।",
-    emptyDescription: "ट्रांज़िशन जोड़ने के लिए स्लाइड पर कोई ऑब्जेक्ट चुनें।",
+    emptyDescription: "ऐनिमेशन जोड़ने के लिए स्लाइड पर कोई ऑब्जेक्ट चुनें।",
     selectObject: "ऐनिमेट करने के लिए ऑब्जेक्ट चुनें",
-    addTransition: "ट्रांज़िशन जोड़ें",
+    addAnimation: "ऐनिमेशन जोड़ें",
+    alreadyAnimated: "पहले से ऐनिमेटेड",
     effect: "प्रभाव",
     onClick: "क्लिक पर",
     withPrevious: "पिछले के साथ",
     trigger: "शुरुआत",
     byParagraph: "पैराग्राफ़ के अनुसार",
-    expand: "ट्रांज़िशन फैलाएं",
-    collapse: "ट्रांज़िशन समेटें",
-    reorder: "ट्रांज़िशन का क्रम बदलें",
-    remove: "ट्रांज़िशन हटाएं",
+    expand: "ऐनिमेशन फैलाएं",
+    collapse: "ऐनिमेशन समेटें",
+    reorder: "ऐनिमेशन का क्रम बदलें",
+    remove: "ऐनिमेशन हटाएं",
     play: "चलाएं",
     clearAll: "सब साफ़ करें",
     elements: "तत्व",
@@ -766,6 +808,13 @@ const messages = {
   },
   deckResult: { saved: "सहेजा गया" },
   history: {
+    restoreDiscardTitle: "बिना सहेजे बदलाव छोड़कर यह वर्शन रीस्टोर करें?",
+    restoreDiscardConfirm: "छोड़ें और रीस्टोर करें",
+    cancel: "रद्द करें",
+    restoreNoAccess: "यह वर्शन रीस्टोर करने के लिए आपको एडिट एक्सेस चाहिए।",
+    restoreVersionMissing: "यह वर्शन अब उपलब्ध नहीं है।",
+    restoreDeckChanged: "रीस्टोर करते समय डेक बदल गया। फिर से कोशिश करें।",
+    restoreOffline: "आप ऑफ़लाइन हैं। फिर से कनेक्ट करके कोशिश करें।",
     unknownTime: "अज्ञात समय",
     justNow: "अभी-अभी",
     minutesAgo: "{{count}} मिनट पहले",
@@ -859,6 +908,13 @@ const messages = {
     switchAccount: "खाता बदलें",
   },
   deckEditor: {
+    agentUpdatedSlides_one: "एजेंट ने {{count}} स्लाइड अपडेट की",
+    agentUpdatedSlides_other: "एजेंट ने {{count}} स्लाइड अपडेट कीं",
+    agentUndoConflictTitle: "एजेंट का बदलाव पहले जैसा करें?",
+    agentUndoConflictDescription:
+      "आपने एजेंट के बाद इन स्लाइड में बदलाव किए। पहले जैसा करने पर वे बदलाव भी हट जाएंगे।",
+    agentUndoConfirm: "फिर भी पहले जैसा करें",
+    agentUndoKeep: "रद्द करें",
     lookingForDeck: "यह डेक खोजा जा रहा है",
     joinTeamToOpen: "यह डेक खोलने के लिए अपनी टीम से जुड़ें",
     deckUnavailable: "डेक उपलब्ध नहीं",
@@ -902,7 +958,8 @@ const messages = {
     accessRequestFailed: "एक्सेस का अनुरोध नहीं किया जा सका। फिर से कोशिश करें।",
     accessApprovalTitle: "एक्सेस दे दी गई",
     accessApprovalAlreadyTitle: "एक्सेस पहले से दी गई है",
-    accessApprovalMessage: "{{email}} अब यह डेक खोल सकते हैं।",
+    accessApprovalEditorMessage: "{{email}} अब यह डेक संपादित कर सकते हैं।",
+    accessApprovalViewerMessage: "{{email}} अब यह डेक देख सकते हैं।",
     accessApprovalRequesterEmailed: "हमने उन्हें ईमेल करके बता दिया है।",
     accessApprovalRequesterEmailFailed:
       "हम {{email}} को ईमेल नहीं भेज सके। उन्हें बताएं कि वे अब डेक खोल सकते हैं।",
@@ -914,7 +971,14 @@ const messages = {
       "इस अनुरोध को मंजूर करने के लिए डेक मालिक या एडमिन के रूप में साइन इन करें।",
     accessApprovalOpenDeck: "डेक खोलें",
     accessApprovalSignIn: "साइन इन करें",
-    accessApprovalLoading: "एक्सेस दी जा रही है...",
+    accessApprovalReviewTitle: "एक्सेस दें",
+    accessApprovalRequestedEdit:
+      "{{email}} ने “{{title}}” संपादित करने का अनुरोध किया है।",
+    accessApprovalRequestedView: "{{email}} ने “{{title}}” देखने का अनुरोध किया है।",
+    accessApprovalRoleLabel: "भूमिका",
+    accessApprovalRoleViewer: "दर्शक",
+    accessApprovalRoleEditor: "संपादक",
+    accessApprovalAllow: "एक्सेस दें",
     backToDecks: "डेक पर वापस जाएं",
     tryAgain: "फिर कोशिश करें",
     imageUploadFailed: "चित्र अपलोड विफल",
@@ -935,6 +999,10 @@ const messages = {
     originalPrompt: "आपका अनुरोध",
     backToHome: "होम पर वापस जाएं",
     checkedDeckTryAgain: "मैंने डेक जाँच लिया है। फिर कोशिश करें",
+    generationStillRunning: "यह डेक अभी भी बन रहा है। प्रगति के लिए चैट देखें।",
+    questionFlowTitle: "पहले डेक की दिशा तय करें",
+    questionFlowDescription:
+      "ज़रूरी विकल्पों के जवाब दें। अपनी दिशा के लिए अन्य चुनें, या एजेंट को तय करने दें।",
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",
     buildingDeck: "डेक बनाया जा रहा है",
@@ -943,6 +1011,10 @@ const messages = {
     layoutOverflowVertical: "लंबवत ओवरफ्लो: {{pixels}} px",
     layoutOverflowHorizontal: "क्षैतिज ओवरफ्लो: {{pixels}} px",
     dismissLayoutWarning: "लेआउट चेतावनी बंद करें",
+    fixLayoutWithAi: "AI से ठीक करें",
+    askingAgentToFixLayout: "पूछा जा रहा है…",
+    shrinkTextToFit: "फ़िट करने के लिए टेक्स्ट छोटा करें",
+    shrinkTextCannotFit: "सबसे छोटे आकार पर भी टेक्स्ट स्लाइड से बाहर जा रहा है",
     slidesAdded_one: "{{count}} स्लाइड जोड़ी गई",
     slidesAdded_other: "{{count}} स्लाइड जोड़ी गईं",
     unsavedChangesTitle: "बिना सहेजे बदलाव",
@@ -952,6 +1024,8 @@ const messages = {
     leaveWithoutSaving: "बिना सहेजे बाहर निकलें",
     editorMarkupNotSaved:
       "यह संपादन सहेजा नहीं गया, क्योंकि इससे स्लाइड में एडिटर मार्कअप जुड़ जाता।",
+    slideDeletedElsewhere:
+      "आप जिस स्लाइड को संपादित कर रहे थे, उसे किसी और ने हटा दिया।",
     historyStepConflict:
       "मौजूदा प्रस्तुति से टकराव के कारण इतिहास का यह चरण छोड़ दिया गया।",
     historyStepFailed: "यह इतिहास चरण लागू नहीं हो सका, इसलिए इसे छोड़ दिया गया।",
@@ -1040,15 +1114,157 @@ const messages = {
     chooseAnotherFile: "दूसरी फ़ाइल चुनें",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "उत्पाद पिच डेक बनाएँ",
-      roadmap: "उत्पाद रोडमैप बनाएँ",
-      explainer: "प्रस्तुति में किसी विषय को समझाएँ",
+    nextStepBar: {
+      ariaLabel: "आपकी पहली प्रस्तुति के अगले कदम",
+      refineWithPrompt: "प्रॉम्प्ट से बेहतर बनाएँ",
+      export: "एक्सपोर्ट करें",
+      shareLink: "लिंक साझा करें",
+      dismiss: "बंद करें",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "ग्राहक की समस्या, मुख्य लाभ और लॉन्च योजना दिखाने वाली उत्पाद लॉन्च प्रस्तुति आत्मविश्वासी, ग्राहक-केंद्रित अंदाज़ में बनाएँ।",
+        roadmap:
+          "रणनीतिक विषयों, पड़ावों और निर्भरताओं वाली तिमाही रोडमैप प्रस्तुति स्पष्ट कार्यकारी अंदाज़ में बनाएँ।",
+        opportunity:
+          "बाज़ार संदर्भ, ग्राहक की परेशानी, समाधान और जोखिम दिखाने वाला अवसर विवरण निर्णायक उत्पाद दृष्टिकोण से बनाएँ।",
+        priorities:
+          "उपयोगकर्ता प्रभाव, मेहनत, सबूत और विकल्पों की तुलना करती संक्षिप्त, निर्णय-केंद्रित फीचर प्राथमिकता प्रस्तुति बनाएँ।",
+        metrics:
+          "अपनाने, सक्रियता, बनाए रखने और सीख पर केंद्रित उत्पाद मेट्रिक्स समीक्षा स्पष्ट विश्लेषणात्मक अंदाज़ में बनाएँ।",
+        discovery:
+          "शोध विषयों, अहम उद्धरणों और अधूरी ज़रूरतों वाली ग्राहक खोज रिपोर्ट सहानुभूतिपूर्ण, साक्ष्य-आधारित अंदाज़ में बनाएँ।",
+        vision:
+          "भविष्य की स्थिति, मार्गदर्शक सिद्धांत और उत्पाद निवेश दिखाने वाली प्रेरक, व्यावहारिक उत्पाद दृष्टि प्रस्तुति बनाएँ।",
+        release:
+          "लक्ष्य, नतीजे, ग्राहक प्रतिक्रिया और खुले मुद्दों की जवाबदेह, सीख-केंद्रित रिलीज़ समीक्षा बनाएँ।",
+      },
+      design: {
+        caseStudy:
+          "डिज़ाइन केस स्टडी में brief, प्रक्रिया, मुख्य स्क्रीन और नतीजे दिखाएँ और गर्मजोशी भरा संपादकीय अंदाज़ रखें।",
+        system:
+          "रंग, टाइपोग्राफी, घटक और उपयोग के उदाहरण दिखाने वाली साफ़, दृश्यात्मक डिज़ाइन सिस्टम प्रस्तुति बनाएँ।",
+        critique:
+          "लक्ष्य, मौजूदा स्क्रीन, प्रतिक्रिया के विषय और अगले कदम दिखाने वाली रचनात्मक डिज़ाइन समीक्षा बनाएँ।",
+        research:
+          "शोध संदर्भ, पैटर्न, उद्धरण और अवसर दिखाने वाली सहानुभूतिपूर्ण उपयोगकर्ता शोध रिपोर्ट बनाएँ।",
+        concepts:
+          "तीन दृश्य दिशाएँ, नमूना स्क्रीन और विकल्प दिखाने वाली चंचल अवधारणा खोज प्रस्तुति बनाएँ।",
+        accessibility:
+          "मुख्य बाधाएँ, टिप्पणी वाले उदाहरण और सुधार दिखाने वाली स्पष्ट, समावेशी सुलभता समीक्षा बनाएँ।",
+        brand:
+          "दर्शक, दृश्य संदर्भ, रंग और टाइपोग्राफी दिखाने वाली विशिष्ट ब्रांड दिशा प्रस्तुति बनाएँ।",
+        sprint:
+          "चुनौती, विचार, प्रोटोटाइप और परीक्षण से मिली सीख दिखाने वाला आशावादी डिज़ाइन स्प्रिंट सारांश बनाएँ।",
+      },
+      developer: {
+        architecture:
+          "घटक, डेटा प्रवाह और विकल्पों का वर्णन करने वाली सटीक तकनीकी सिस्टम आर्किटेक्चर प्रस्तुति बनाएँ।",
+        api: "सेटअप, प्रमाणीकरण, उदाहरण और त्रुटि प्रबंधन समझाने वाली डेवलपर-अनुकूल API शुरुआत गाइड बनाएँ।",
+        release:
+          "दायरा, पड़ाव, निर्भरताएँ और रोलआउट दिखाने वाली व्यावहारिक इंजीनियरिंग रिलीज़ योजना बनाएँ।",
+        incident:
+          "प्रभाव, समयरेखा, मूल कारण और कार्रवाई बताने वाली दोषारोपण-रहित घटना समीक्षा बनाएँ।",
+        migration:
+          "मौजूदा स्थिति, चरण, जोखिम और सत्यापन समझाने वाली भरोसा दिलाने वाली प्लेटफ़ॉर्म माइग्रेशन योजना बनाएँ।",
+        security:
+          "सिस्टम सीमाएँ, खतरे, नियंत्रण और कमियाँ बताने वाली सीधी तकनीकी सुरक्षा समीक्षा बनाएँ।",
+        demo: "समस्या, आर्किटेक्चर, लाइव कार्यप्रवाह और नतीजे दिखाने वाली स्पष्ट तकनीकी डेमो प्रस्तुति बनाएँ।",
+        metrics:
+          "डिलीवरी, विश्वसनीयता और रुझान दिखाने वाली ईमानदार इंजीनियरिंग मेट्रिक्स समीक्षा बनाएँ।",
+      },
+      marketing: {
+        campaign:
+          "दर्शक, संदेश, चैनल और समयरेखा दिखाने वाली ऊर्जावान अभियान लॉन्च प्रस्तुति बनाएँ।",
+        story:
+          "चुनौती, समाधान, नतीजे और प्रमाण बताने वाली मानवीय ग्राहक कहानी बनाएँ।",
+        content:
+          "दर्शकों की ज़रूरतें, विषय, फ़ॉर्मैट और कैलेंडर तय करने वाली संपादकीय सामग्री रणनीति बनाएँ।",
+        positioning:
+          "दर्शक, श्रेणी, वादा और प्रमाण दिखाने वाली अलग पहचान वाली ब्रांड पोज़िशनिंग प्रस्तुति बनाएँ।",
+        channels:
+          "पहुँच, जुड़ाव, रूपांतरण और सीख दिखाने वाली स्पष्ट चैनल प्रदर्शन समीक्षा बनाएँ।",
+        messaging:
+          "दर्शक, लाभ, प्रमाण और उदाहरण बताने वाली प्रभावशाली उत्पाद संदेश प्रस्तुति बनाएँ।",
+        event:
+          "दर्शक, आकर्षण, समयरेखा और चैनल बताने वाली स्वागतपूर्ण कार्यक्रम प्रचार योजना बनाएँ।",
+        competition:
+          "विकल्प, खूबियाँ, कमियाँ और अवसरों की तुलना करने वाली संतुलित प्रतिस्पर्धी परिदृश्य प्रस्तुति बनाएँ।",
+      },
+      sales: {
+        pitch:
+          "ग्राहक के लक्ष्य, समाधान, नतीजे और प्रमाण दिखाने वाली आत्मविश्वासी ग्राहक पिच प्रस्तुति बनाएँ।",
+        proposal:
+          "ज़रूरतें, तरीका, समयरेखा और निवेश बताने वाला स्पष्ट, ग्राहक-केंद्रित समाधान प्रस्ताव बनाएँ।",
+        quarterlyReview:
+          "लक्ष्य, नतीजे, उपयोग और अगले कदम बताने वाली सहयोगी तिमाही व्यवसाय समीक्षा बनाएँ।",
+        discovery:
+          "ग्राहक की प्राथमिकताएँ, समस्याएँ और समाधान की उपयुक्तता दिखाने वाली ध्यानपूर्वक खोज रिपोर्ट बनाएँ।",
+        objections:
+          "आम चिंताएँ, प्रमाण और जवाब बताने वाली मददगार आपत्ति-उत्तर गाइड बनाएँ।",
+        demo: "ग्राहक संदर्भ, मुख्य कार्यप्रवाह और नतीजे जोड़ने वाली संक्षिप्त, प्रभावशाली उत्पाद डेमो कहानी बनाएँ।",
+        renewal:
+          "दिया गया मूल्य, उपयोग और अवसर दिखाने वाली साझेदारी-केंद्रित नवीनीकरण प्रस्तुति बनाएँ।",
+        enablement:
+          "आदर्श खरीदार, योग्यता जाँच और बातचीत के बिंदु बताने वाली व्यावहारिक बिक्री सहायता प्रस्तुति बनाएँ।",
+      },
+      ops: {
+        weeklyReview:
+          "लक्ष्य, मेट्रिक्स, रुकावटें और ज़िम्मेदारियाँ दिखाने वाली शांत, सीधी साप्ताहिक संचालन समीक्षा बनाएँ।",
+        process:
+          "मौजूदा चरण, अड़चनें और भविष्य का कार्यप्रवाह दिखाने वाली व्यावहारिक प्रक्रिया सुधार प्रस्तुति बनाएँ।",
+        capacity:
+          "माँग, टीम उपलब्धता, प्राथमिकताएँ और परिदृश्य दिखाने वाली पारदर्शी क्षमता योजना बनाएँ।",
+        service:
+          "मात्रा, प्रतिक्रिया समय, एस्केलेशन और सुधार दिखाने वाली जवाबदेह सेवा प्रदर्शन समीक्षा बनाएँ।",
+        vendor:
+          "आवश्यकताओं, विकल्पों, लागत और जोखिमों की तुलना करने वाली संतुलित विक्रेता समीक्षा बनाएँ।",
+        metrics:
+          "मुख्य माप, रुझान और अपवाद दिखाने वाली संक्षिप्त, विश्लेषणात्मक संचालन डैशबोर्ड प्रस्तुति बनाएँ।",
+        onboarding:
+          "चरण, हस्तांतरण, संसाधन और सफलता के माप बताने वाला सहायक ऑनबोर्डिंग कार्यप्रवाह बनाएँ।",
+        risk: "संभावना, प्रभाव, बचाव और ज़िम्मेदारियाँ बताने वाली संतुलित जोखिम समीक्षा बनाएँ।",
+      },
+      individual: {
+        project:
+          "लक्ष्य, पड़ाव, संसाधन और जोखिम बताने वाली प्रेरक निजी परियोजना योजना बनाएँ।",
+        portfolio:
+          "चुने हुए काम, प्रक्रिया और नतीजे दिखाने वाली आत्मविश्वासी संपादकीय शैली की निजी पोर्टफ़ोलियो प्रस्तुति बनाएँ।",
+        learning:
+          "कौशल, संसाधन, अभ्यास और पड़ाव तय करने वाला प्रोत्साहित करने वाला सीखने का रोडमैप बनाएँ।",
+        event:
+          "उद्देश्य, मेहमान, समयरेखा और विवरण बताने वाली गर्मजोशी भरी मिलन योजना बनाएँ।",
+        budget:
+          "आय, खर्च, लक्ष्य और विकल्प बताने वाली शांत और व्यावहारिक निजी बजट समीक्षा बनाएँ।",
+        travel:
+          "मंज़िलें, हर दिन की खास बातें और व्यवस्था बताने वाली आकर्षक यात्रा योजना बनाएँ।",
+        community:
+          "विषय, गतिविधियाँ और सीख बताने वाली समावेशी सामुदायिक कार्यशाला प्रस्तुति बनाएँ।",
+        personalStory:
+          "पृष्ठभूमि, रुचियाँ और काम बताने वाली स्वाभाविक, बातचीत जैसी निजी परिचय प्रस्तुति बनाएँ।",
+      },
+      general: {
+        overview:
+          "संदर्भ, मुख्य विचार और उदाहरण बताने वाली स्वागतपूर्ण विषय परिचय प्रस्तुति बनाएँ।",
+        fundraiser:
+          "मिशन, ज़रूरत और प्रभाव बताने वाली आशावान गैर-लाभकारी धन-संग्रह प्रस्तुति बनाएँ।",
+        lesson:
+          "सीखने के लक्ष्य, मुख्य अवधारणाएँ और उदाहरण बताने वाला रोचक छोटा पाठ बनाएँ।",
+        research: "प्रश्न, तरीका, नतीजे और अर्थ बताने वाली संतुलित शोध रिपोर्ट बनाएँ।",
+        eventProposal:
+          "उद्देश्य, दर्शक, फ़ॉर्मैट और बजट बताने वाला आकर्षक कार्यक्रम प्रस्ताव बनाएँ।",
+        teamStrategy:
+          "प्राथमिकताएँ, माप और पहल बताने वाली केंद्रित टीम रणनीति प्रस्तुति बनाएँ।",
+        howTo:
+          "स्पष्ट चरण और उपयोगी उदाहरण दिखाने वाली उत्साहवर्धक दृश्य मार्गदर्शिका बनाएँ।",
+        portfolioIntro:
+          "चुने हुए प्रोजेक्ट और खूबियाँ दिखाने वाली परिष्कृत पोर्टफ़ोलियो परिचय प्रस्तुति बनाएँ।",
+      },
     },
     suggestedPrompts: "सुझाए गए प्रॉम्प्ट",
     importMenu: {
       import: "आयात करें",
-      options: "आयात के विकल्प",
       invalidPdf: "PDF फ़ाइल चुनें।",
       invalidPptx: "PPTX फ़ाइल चुनें।",
       invalidFile: "PDF या PPTX फ़ाइल चुनें।",
@@ -1234,9 +1450,13 @@ const messages = {
     workspaceDefaultBadge: "कार्यस्थान डिफ़ॉल्ट",
     setWorkspaceDefault: "कार्यस्थान डिफ़ॉल्ट के रूप में सेट करें",
     clearWorkspaceDefault: "कार्यस्थान डिफ़ॉल्ट हटाएँ",
+    renameDeck: "नाम बदलें",
+    duplicateDeck: "डुप्लिकेट करें",
+    deleteDeck: "हटाएं",
     workspaceDefaultSet: "कार्यस्थान डिफ़ॉल्ट के रूप में सेट किया गया",
     workspaceDefaultCleared: "कार्यस्थान डिफ़ॉल्ट हटा दिया गया",
     duplicateFailed: "उस डेक की प्रतिलिपि नहीं बनाई जा सकी",
+    deleteFailed: "उस डेक को हटाया नहीं जा सका",
     workspaceDefaultFailed: "कार्यस्थान डिफ़ॉल्ट अपडेट नहीं हो सका",
     workspaceDefaultConfirmTitle: "कार्यस्थान डिफ़ॉल्ट के रूप में सेट करें?",
     workspaceDefaultDeckShareBody:
@@ -1257,6 +1477,89 @@ const messages = {
     emptyTitle: "अभी कोई डेक नहीं",
     createFirstDeck: "अपना पहला डेक बनाएं",
     emptyDescription: "AI-संचालित जनरेशन के साथ सुंदर प्रेज़ेंटेशन बनाएं।",
+
+    suggestionLabels: {
+      product: {
+        launch: "ग्राहक की समस्या मुख्य",
+        roadmap: "रणनीतिक विषयों पड़ावों",
+        opportunity: "बाज़ार अवसर",
+        priorities: "उपयोगकर्ता प्रभाव मेहनत सबूत",
+        metrics: "अपनाने सक्रियता बनाए रखने",
+        discovery: "शोध विषयों अहम उद्धरणों",
+        vision: "भविष्य की स्थिति मार्गदर्शक",
+        release: "लक्ष्य नतीजे ग्राहक प्रतिक्रिया",
+      },
+      design: {
+        caseStudy: "डिज़ाइन केस स्टडी",
+        system: "रंग टाइपोग्राफी घटक",
+        critique: "लक्ष्य मौजूदा स्क्रीन प्रतिक्रिया",
+        research: "शोध संदर्भ पैटर्न उद्धरण",
+        concepts: "तीन दृश्य दिशाएँ नमूना",
+        accessibility: "मुख्य बाधाएँ टिप्पणी वाले",
+        brand: "दर्शक दृश्य संदर्भ रंग",
+        sprint: "चुनौती विचार प्रोटोटाइप",
+      },
+      developer: {
+        architecture: "घटक डेटा प्रवाह",
+        api: "सेटअप प्रमाणीकरण उदाहरण",
+        release: "दायरा पड़ाव निर्भरताएँ",
+        incident: "प्रभाव समयरेखा मूल कारण",
+        migration: "मौजूदा स्थिति चरण जोखिम",
+        security: "सिस्टम सीमाएँ खतरे नियंत्रण",
+        demo: "समस्या आर्किटेक्चर लाइव कार्यप्रवाह",
+        metrics: "डिलीवरी विश्वसनीयता",
+      },
+      marketing: {
+        campaign: "दर्शक संदेश चैनल",
+        story: "चुनौती समाधान नतीजे",
+        content: "दर्शकों की ज़रूरतें विषय",
+        positioning: "दर्शक श्रेणी वादा",
+        channels: "पहुँच जुड़ाव रूपांतरण",
+        messaging: "दर्शक लाभ प्रमाण",
+        event: "दर्शक आकर्षण समयरेखा",
+        competition: "विकल्प खूबियाँ कमियाँ",
+      },
+      sales: {
+        pitch: "ग्राहक के लक्ष्य समाधान",
+        proposal: "ज़रूरतें तरीका समयरेखा",
+        quarterlyReview: "लक्ष्य नतीजे उपयोग",
+        discovery: "ग्राहक की प्राथमिकताएँ समस्याएँ",
+        objections: "आम चिंताएँ प्रमाण",
+        demo: "ग्राहक संदर्भ मुख्य कार्यप्रवाह",
+        renewal: "दिया गया मूल्य उपयोग",
+        enablement: "आदर्श खरीदार योग्यता जाँच",
+      },
+      ops: {
+        weeklyReview: "लक्ष्य मेट्रिक्स रुकावटें",
+        process: "मौजूदा चरण अड़चनें",
+        capacity: "माँग टीम उपलब्धता प्राथमिकताएँ",
+        service: "मात्रा प्रतिक्रिया समय एस्केलेशन",
+        vendor: "आवश्यकताओं विकल्पों लागत",
+        metrics: "मुख्य माप रुझान",
+        onboarding: "चरण हस्तांतरण संसाधन",
+        risk: "संभावना प्रभाव बचाव",
+      },
+      individual: {
+        project: "लक्ष्य पड़ाव संसाधन",
+        portfolio: "चुने हुए काम प्रक्रिया",
+        learning: "कौशल संसाधन अभ्यास",
+        event: "उद्देश्य मेहमान समयरेखा",
+        budget: "आय खर्च लक्ष्य",
+        travel: "यात्रा कार्यक्रम",
+        community: "विषय गतिविधियाँ",
+        personalStory: "पृष्ठभूमि रुचियाँ",
+      },
+      general: {
+        overview: "संदर्भ मुख्य विचार",
+        fundraiser: "मिशन ज़रूरत",
+        lesson: "सीखने के लक्ष्य मुख्य",
+        research: "प्रश्न तरीका नतीजे",
+        eventProposal: "उद्देश्य दर्शक फ़ॉर्मैट",
+        teamStrategy: "प्राथमिकताएँ माप",
+        howTo: "स्पष्ट चरण",
+        portfolioIntro: "चुने हुए प्रोजेक्ट",
+      },
+    },
   },
   agentChat: {
     setup: {

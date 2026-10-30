@@ -50,9 +50,9 @@ function spokenText(node: Node): string {
 function render(content: string, mentionsJson: string | null) {
   act(() =>
     root.render(
-      <p>
+      <div>
         {renderCommentBody(content, readStoredCommentMentions(mentionsJson))}
-      </p>,
+      </div>,
     ),
   );
   return [...host.querySelectorAll<HTMLElement>("[data-comment-mention]")];
@@ -205,5 +205,98 @@ describe("sent comment mentions", () => {
 
     expect(pills).toHaveLength(1);
     expect(host.querySelector("img[src='x'], b")).toBeNull();
+  });
+});
+
+describe("comment formatting", () => {
+  const sam = JSON.stringify([
+    { kind: "person", email: "sam@example.com", name: "Sam" },
+  ]);
+
+  it("keeps paragraphs, lists, quotes and code blocks as written", () => {
+    render(
+      [
+        "First paragraph.",
+        "",
+        "Second paragraph.",
+        "",
+        "- the intro",
+        "- the title",
+        "",
+        "3. third",
+        "4. fourth",
+        "",
+        "> the sentence I mean",
+        "",
+        "```",
+        "const x = 1;",
+        "```",
+      ].join("\n"),
+      null,
+    );
+
+    expect([...host.querySelectorAll("p")].map((p) => p.textContent)).toEqual(
+      expect.arrayContaining(["First paragraph.", "Second paragraph."]),
+    );
+    expect(
+      [...host.querySelectorAll("ul > li")].map((li) => li.textContent),
+    ).toEqual(["the intro", "the title"]);
+    expect(host.querySelector("ol")?.getAttribute("start")).toBe("3");
+    expect(
+      [...host.querySelectorAll("ol > li")].map((li) => li.textContent),
+    ).toEqual(["third", "fourth"]);
+    expect(host.querySelector("blockquote")?.textContent.trim()).toBe(
+      "the sentence I mean",
+    );
+    expect(host.querySelector("pre > code")?.textContent).toBe(
+      "const x = 1;\n",
+    );
+  });
+
+  it("shows a heading as a bold line, not a heading", () => {
+    render("# Big point\n\nsmall text", null);
+
+    expect(host.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
+    expect(host.querySelector("p.font-semibold")?.textContent).toBe(
+      "Big point",
+    );
+  });
+
+  it("draws a mention inside a list item as a pill", () => {
+    const pills = render("- ask @Sam\n- then ship", sam);
+
+    expect(pills.map((pill) => spokenText(pill))).toEqual(["@Sam"]);
+    expect(
+      pills.map((pill) => {
+        const item = pill.closest("li");
+        return item ? spokenText(item) : null;
+      }),
+    ).toEqual(["ask @Sam"]);
+  });
+
+  it("flattens to one run of text for a compact preview", () => {
+    act(() =>
+      root.render(
+        <p>
+          {renderCommentBody(
+            "- ask @Sam\n- then ship\n\n> quoted",
+            readStoredCommentMentions(sam),
+            { compact: true },
+          )}
+        </p>,
+      ),
+    );
+
+    expect(host.querySelector("ul, ol, li, blockquote, div, p p")).toBeNull();
+    expect(
+      spokenText(host)
+        .trim()
+        .split(/\s*\n\s*/),
+    ).toEqual(["ask @Sam", "then ship", "quoted"]);
+    expect(
+      [...host.querySelectorAll("[data-comment-mention]")].map((pill) =>
+        spokenText(pill),
+      ),
+    ).toEqual(["@Sam"]);
   });
 });

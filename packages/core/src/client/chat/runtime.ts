@@ -28,12 +28,14 @@ import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
   appendMissingFinalResponseWarning,
+  clearAssistantDraftContent,
   findApprovalToolCallIndex,
   type ContentPart,
   type SSEEvent,
 } from "../sse-event-processor.js";
 import { runOutcomeForCode, type ServerRunState } from "./run-outcome.js";
 import {
+  acceptedPromptForMetadata,
   DEFAULT_TURN_SURFACE,
   type TurnInitiator,
   type TurnSubmittedReport,
@@ -429,6 +431,11 @@ export interface AgentChatRuntimeMessageDoneEvent extends AgentChatRuntimeEventB
   readonly message: AgentChatRuntimeMessage;
 }
 
+/** Replaces a streaming message's content without finishing it. */
+export interface AgentChatRuntimeMessageReplaceEvent extends AgentChatRuntimeEventBase<"message-replace"> {
+  readonly message: AgentChatRuntimeMessage;
+}
+
 export interface AgentChatRuntimeToolStartEvent extends AgentChatRuntimeEventBase<"tool-start"> {
   readonly toolCall: AgentChatRuntimeToolCall;
 }
@@ -739,6 +746,7 @@ export type AgentChatRuntimeKnownEvent =
   | AgentChatRuntimeMessageStartEvent
   | AgentChatRuntimeMessageDeltaEvent
   | AgentChatRuntimeMessageDoneEvent
+  | AgentChatRuntimeMessageReplaceEvent
   | AgentChatRuntimeToolStartEvent
   | AgentChatRuntimeToolDeltaEvent
   | AgentChatRuntimeToolDoneEvent
@@ -3745,6 +3753,8 @@ interface AgentNativeMessageProjectionState {
     connectionPending: boolean;
     /** Delegated calls that streamed an activity row, which reports their end. */
     activityParticipants?: Set<string>;
+    /** Ids given to tool input that streamed without one, by tool name. */
+    pendingToolInputIds?: Map<string, string>;
   };
 }
 
@@ -4092,6 +4102,16 @@ function steeredUserMessageEvent(raw: unknown):
   };
 }
 
+function pendingToolInputId(
+  message: { pendingToolInputIds?: Map<string, string> },
+  tool: string,
+): string {
+  const pending = (message.pendingToolInputIds ??= new Map<string, string>());
+  const id = pending.get(tool) ?? createRuntimeId("tool");
+  pending.set(tool, id);
+  return id;
+}
+
 function mapAgentNativeEvent(
   raw: unknown,
   input: {
@@ -4105,6 +4125,7 @@ function mapAgentNativeEvent(
       pendingApprovalToolCallId?: string | undefined;
       connectionPending: boolean;
       activityParticipants?: Set<string>;
+      pendingToolInputIds?: Map<string, string>;
     };
   },
 ): AgentChatRuntimeKnownEvent[] {
@@ -4120,6 +4141,34 @@ function mapAgentNativeEvent(
   };
   if (ev.type === "auto_continue") {
     return [{ type: "continuation", ...base }];
+  }
+  // Skipping this leaves the saved reply as a suffix of the live one, and
+  // reload renders it as a second reply.
+  if (ev.type === "clear") {
+    clearAssistantDraftContent(input.message.content);
+    if (!input.message.started) return [];
+    const content: AgentChatRuntimeKnownContentPart[] = input.message.content
+      .filter(
+        (
+          part,
+        ): part is Exclude<
+          AgentNativeMessageContentState,
+          { type: "tool-call" }
+        > => part.type === "text" || part.type === "reasoning",
+      )
+      .map((part) => ({ ...part }));
+    // Text the retry writes after a kept tool call is a new paragraph. The
+    // replacement carries no tool calls, so an empty part marks that break.
+    if (input.message.content.at(-1)?.type === "tool-call") {
+      content.push({ type: "text", text: "" });
+    }
+    return [
+      {
+        type: "message-replace",
+        ...base,
+        message: { id: input.messageId, role: "assistant", content },
+      },
+    ];
   }
   if (ev.type === "text" || ev.type === "thinking" || ev.type === "reasoning") {
     const text = ev.text ?? "";
@@ -4230,8 +4279,32 @@ function mapAgentNativeEvent(
       },
     ];
   }
+  if (ev.type === "tool_input_delta") {
+    // Arguments stream long before the tool runs; generation previews render
+    // them as they arrive, so dropping these leaves a preview with nothing.
+    if (!ev.text) return [];
+    // An engine may stream input without a call id. Give that call one id
+    // for all its deltas and the tool_start that follows, so the preview and
+    // the finished tool are the same call.
+    const toolCallId =
+      ev.id || pendingToolInputId(input.message, ev.tool ?? "");
+    return [
+      {
+        type: "tool-delta",
+        ...base,
+        toolCallId,
+        ...(ev.tool ? { toolName: ev.tool } : {}),
+        inputTextDelta: ev.text,
+      },
+    ];
+  }
   if (ev.type === "tool_start") {
-    const toolCallId = ev.id ?? createRuntimeId("tool");
+    const pendingInputIds = input.message.pendingToolInputIds;
+    const pendingInputId =
+      pendingInputIds?.get(ev.tool ?? "") ?? pendingInputIds?.get("");
+    pendingInputIds?.delete(ev.tool ?? "");
+    pendingInputIds?.delete("");
+    const toolCallId = ev.id ?? pendingInputId ?? createRuntimeId("tool");
     const toolName = ev.tool ?? "unknown";
     const structuredMeta = agentNativeStructuredMeta(ev);
     const toolCall = input.message.content.find(
@@ -5091,10 +5164,16 @@ export function createAgentNativeChatRuntime(
     onTurnAccepted: ({ session, turn, requestTurnId, runId }) => {
       const metadata = turn.metadata;
       const custom = asRecord(metadata?.custom) ?? undefined;
+      const initiator = agentNativeTurnInitiator(metadata);
       const requestMode =
         metadataString(metadata, "requestMode") ??
         metadataString(metadata, "mode") ??
         options.mode;
+      const promptForMetadata = acceptedPromptForMetadata({
+        initiator,
+        ...(turn.prompt !== undefined ? { prompt: turn.prompt } : {}),
+        ...(turn.messages ? { messages: turn.messages } : {}),
+      });
       telemetry.onTurnSubmitted?.({
         turnId: requestTurnId,
         threadId: session.threadId ?? options.threadId,
@@ -5102,13 +5181,14 @@ export function createAgentNativeChatRuntime(
         surface:
           metadataString(metadata, "agentNativeSurface") ??
           DEFAULT_TURN_SURFACE,
-        initiator: agentNativeTurnInitiator(metadata),
+        initiator,
         submitMessageId: metadataString(metadata, "submitMessageId"),
         recoveryOfRunId:
           metadataString(custom, "agentNativeRecoveryOfRunId") ??
           metadataString(metadata, CONTINUE_OF_RUN_METADATA_KEY) ??
           metadataString(metadata, AUTO_CONTINUE_OF_RUN_METADATA_KEY),
         requestMode,
+        ...(promptForMetadata ? { promptForMetadata } : {}),
       });
     },
     beforeStartTurn: async ({ session, turn, turnId }) => {

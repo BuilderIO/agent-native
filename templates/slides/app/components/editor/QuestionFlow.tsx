@@ -1,4 +1,5 @@
 import { type AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   GuidedQuestionFlow,
   type GuidedQuestion,
@@ -21,15 +22,15 @@ interface QuestionFlowProps {
   onRetryProviderStatus?: () => void;
 }
 
-const DESIGN_SYSTEM_COLOR_KEYS: Array<
-  [keyof DesignSystemData["colors"], string]
-> = [
-  ["primary", "Primary"],
-  ["secondary", "Secondary"],
-  ["accent", "Accent"],
-  ["background", "Background"],
-  ["surface", "Surface"],
-];
+const DESIGN_SYSTEM_COLOR_KEYS = [
+  "primary",
+  "secondary",
+  "accent",
+  "background",
+  "surface",
+] as const satisfies ReadonlyArray<keyof DesignSystemData["colors"]>;
+
+type DesignSystemColorKey = (typeof DESIGN_SYSTEM_COLOR_KEYS)[number];
 
 function isUsableColor(value: string | undefined): value is string {
   if (!value) return false;
@@ -44,16 +45,17 @@ function isUsableColor(value: string | undefined): value is string {
 function designSystemColorOptions(
   designSystem: DesignSystemData,
   fallback: NonNullable<QuestionFlowQuestion["options"]>,
+  colorLabels: Record<DesignSystemColorKey, string>,
 ): NonNullable<QuestionFlowQuestion["options"]> {
   const seen = new Set<string>();
-  const options = DESIGN_SYSTEM_COLOR_KEYS.flatMap(([key, label]) => {
+  const options = DESIGN_SYSTEM_COLOR_KEYS.flatMap((key) => {
     const color = designSystem.colors[key]?.trim();
     const normalized = color?.toLowerCase();
     if (!isUsableColor(color) || !normalized || seen.has(normalized)) {
       return [];
     }
     seen.add(normalized);
-    return [{ label, value: color, color }];
+    return [{ label: colorLabels[key], value: color, color }];
   });
 
   return options.length >= 2 ? options : fallback;
@@ -73,7 +75,15 @@ export function QuestionFlow({
   providerStatus,
   onRetryProviderStatus,
 }: QuestionFlowProps) {
+  const t = useT();
   const visibleQuestions = useMemo(() => {
+    const colorLabels = {
+      primary: t("styleInspector.primary"),
+      secondary: t("styleInspector.secondary"),
+      accent: t("styleInspector.accent"),
+      background: t("styleInspector.background"),
+      surface: t("styleInspector.surface"),
+    };
     const submitSingleChoiceOnSelect =
       questions.length === 1 &&
       questions[0]?.type === "text-options" &&
@@ -94,11 +104,12 @@ export function QuestionFlow({
             options: designSystemColorOptions(
               designSystem,
               resolvedQuestion.options || [],
+              colorLabels,
             ),
           }
         : resolvedQuestion;
     });
-  }, [designSystem, questions]);
+  }, [designSystem, questions, t]);
 
   return (
     <div className="slides-question-flow absolute inset-0 z-50 bg-transparent">
@@ -107,11 +118,8 @@ export function QuestionFlow({
         onSubmit={onSubmit}
         onSkip={onSkip}
         className="bg-background/65 backdrop-blur-sm"
-        title={title ?? "Shape the deck first"}
-        description={
-          description ??
-          "Answer the choices that matter. Use Other for a custom direction, or let the agent decide."
-        }
+        title={title ?? t("deckEditor.questionFlowTitle")}
+        description={description ?? t("deckEditor.questionFlowDescription")}
         skipLabel={skipLabel}
         submitLabel={submitLabel}
         isSubmitting={isSubmitting}

@@ -132,7 +132,7 @@ const messages = {
     openChat: "開啟聊天",
     cloudAuthToken: "認證權杖",
     cloudSetupSteps: "設定步驟",
-    cloudConnectedReloading: "已連線。正在重新載入...",
+    cloudConnectedReloading: "正在重新載入...",
     cloudConnectionFailed: "連線失敗",
     cloudTestConnect: "測試並連線",
     cloudServerlessPostgres: "無伺服器 Postgres",
@@ -253,10 +253,10 @@ const messages = {
     triangle: "三角形",
     media: "圖片/影片…",
     mediaNeedsStorage: "請先設定儲存空間，才能上傳圖片和影片。",
-    transitions: "轉場",
-    transitionsMenu: "轉場選項",
+    transitions: "動畫",
+    transitionsMenu: "動畫選項",
     transitionsReadOnly: "此簡報為唯讀。",
-    transitionsNeedElement: "請選取一個元素來新增轉場。",
+    transitionsNeedElement: "請選取一個元素來新增動畫。",
     transitionNone: "無",
     transitionAppear: "出現",
     transitionFade: "淡入淡出",
@@ -312,6 +312,9 @@ const messages = {
     usingDesignSystem: "正在使用 {{title}}",
     usingLinkedDesignSystem: "正在使用已關聯的設計系統",
     viewOnly: "僅檢視",
+    requestEditAccess: "申請編輯權限",
+    editAccessRequested: "已申請",
+    editAccessRequestFailed: "無法申請編輯權限，請再試一次。",
     commenterRoleLabel: "評論者",
     commenterRoleDescription: "可以檢視並新增評論",
     slideSettings: "幻燈片設定",
@@ -395,6 +398,12 @@ const messages = {
     presentInTab: "在此分頁中",
     presentFullScreen: "全螢幕",
     presentPresenterView: "簡報者檢視",
+    presentOptions: "簡報選項",
+    presentFromBeginning: "從頭開始",
+    presentWithShortcut: "播放簡報 ({{shortcut}})",
+    presentUnsaved: "無法儲存你的最新變更。將從此分頁播放這些變更。",
+    presentTabBlocked: "請允許彈出式視窗以在新分頁中播放簡報。",
+    deckTitle: "簡報標題",
     presentPresenterViewDescription: "播放簡報時檢視演講者備註",
     presenterViewBlocked: "請允許彈出式視窗以開啟簡報者檢視。",
     export: "匯出",
@@ -420,6 +429,20 @@ const messages = {
     conflictResolveFailed: "無法解決衝突。此裝置上仍保留你的草稿。",
     conflictKeepMine: "保留我的文字",
     conflictUseLatest: "使用已儲存的文字",
+    conflictTitleSomeone: "其他人變更了第 {{number}} 張幻燈片",
+    conflictTitleAgent: "代理變更了第 {{number}} 張幻燈片",
+    conflictNotesTitleSomeone: "其他人變更了第 {{number}} 張幻燈片的演講者備註",
+    conflictNotesTitleAgent: "代理變更了第 {{number}} 張幻燈片的演講者備註",
+    conflictYourVersion: "你的版本",
+    conflictTheirVersion: "對方的版本",
+    conflictAgentVersion: "代理的版本",
+    conflictKeepMyVersion: "保留我的版本",
+    conflictKeepTheirVersion: "保留對方的版本",
+    conflictKeepAgentVersion: "保留代理的版本",
+    conflictSlideDeleted: "幻燈片已刪除",
+    conflictNoNotes: "沒有備註",
+    saveErrorDeckChanged: "其他人變更了此簡報",
+    saveErrorSlidesChanged: "其他人變更了此簡報中的投影片",
     importBackup: "匯入備份",
     backupDownloaded: "備份已下載",
     backupDownloadFailed: "無法下載備份",
@@ -458,9 +481,16 @@ const messages = {
     googleSlidesCreatedHint: "已在你的 Google 雲端硬碟中建立此簡報的副本。",
     googleSlidesGoTo: "在 Google Slides 中開啟",
     duplicateDeck: "複製幻燈片",
+    cancel: "取消",
+    saveBeforeExportFailed: "無法儲存你的最新變更。請重新匯出。",
+    pptxMissingShapes_other:
+      "有 {{count}} 個形狀無法匯出，PPTX 中缺少這些形狀。",
   },
   share: {
     createFailed: "無法建立共用連結",
+    snapshotLinks: "快照連結",
+    revokeLink: "撤銷",
+    revokeFailed: "無法撤銷分享連結",
     title: "共用簡報",
     cloudUpgradeDescription:
       "要公開共用簡報，請連線雲端資料庫，讓幻燈片可從任何位置存取。",
@@ -647,6 +677,12 @@ const messages = {
     strokeWeight: "描邊粗細",
     typography: "排版",
     fontFamily: "字型家族",
+    fontPicker: {
+      search: "搜尋字型",
+      inThisDeck: "此簡報中",
+      allFonts: "所有字型",
+      catalogUnavailable: "無法載入完整字型庫。",
+    },
     fontFamilies: {
       inherit: "繼承",
       sansSerif: "無襯線",
@@ -665,6 +701,8 @@ const messages = {
     align: "對齊",
     decreaseSize: "縮小字型",
     increaseSize: "放大字型",
+    fontSizes: "字級階梯",
+    deckSizes: "簡報",
     mixed: "混合",
     textColor: "文字顏色",
     primary: "Primary",
@@ -700,6 +738,8 @@ const messages = {
     insertColumnLeft: "在左側插入欄",
     insertColumnRight: "在右側插入欄",
     deleteColumn: "刪除欄",
+    tableMergedCellsUnavailable: "含有合併儲存格的表格無法使用",
+    tableColumnLayoutUnavailable: "此表格的欄寬無法使用",
   },
   animations: {
     appear: "出現",
@@ -707,21 +747,22 @@ const messages = {
     slideUp: "向上滑入",
     zoom: "縮放",
     elementFallback: "元素 {{index}}",
-    title: "轉場",
-    close: "關閉轉場面板",
+    title: "動畫",
+    close: "關閉動畫面板",
     emptyTitle: "還沒有動畫。",
-    emptyDescription: "選取投影片上的物件以新增轉場。",
+    emptyDescription: "選取投影片上的物件以新增動畫。",
     selectObject: "選取要製作動畫的物件",
-    addTransition: "新增轉場",
+    addAnimation: "新增動畫",
+    alreadyAnimated: "已套用動畫",
     effect: "效果",
     onClick: "按一下",
     withPrevious: "與前一個同時",
     trigger: "開始",
     byParagraph: "依段落",
-    expand: "展開轉場",
-    collapse: "收合轉場",
-    reorder: "重新排序轉場",
-    remove: "移除轉場",
+    expand: "展開動畫",
+    collapse: "收合動畫",
+    reorder: "重新排序動畫",
+    remove: "移除動畫",
     play: "播放",
     clearAll: "全部清除",
     elements: "元素",
@@ -752,6 +793,13 @@ const messages = {
   },
   deckResult: { saved: "已儲存" },
   history: {
+    restoreDiscardTitle: "要捨棄未儲存的變更並還原此版本嗎？",
+    restoreDiscardConfirm: "捨棄並還原",
+    cancel: "取消",
+    restoreNoAccess: "你需要編輯權限才能還原此版本。",
+    restoreVersionMissing: "此版本已無法使用。",
+    restoreDeckChanged: "還原期間簡報已變更。請再試一次。",
+    restoreOffline: "你目前離線。請重新連線後再試一次。",
     unknownTime: "未知時間",
     justNow: "剛剛",
     minutesAgo: "{{count}} 分鐘前",
@@ -844,6 +892,13 @@ const messages = {
     switchAccount: "切換帳號",
   },
   deckEditor: {
+    agentUpdatedSlides_one: "代理更新了 {{count}} 張幻燈片",
+    agentUpdatedSlides_other: "代理更新了 {{count}} 張幻燈片",
+    agentUndoConflictTitle: "要復原代理的變更嗎？",
+    agentUndoConflictDescription:
+      "你在代理之後編輯了這些幻燈片。復原也會移除這些編輯。",
+    agentUndoConfirm: "仍要復原",
+    agentUndoKeep: "取消",
     lookingForDeck: "正在尋找此幻燈片",
     joinTeamToOpen: "加入團隊以開啟此幻燈片",
     deckUnavailable: "幻燈片不可用",
@@ -884,7 +939,8 @@ const messages = {
     accessRequestFailed: "無法請求存取權限。請再試一次。",
     accessApprovalTitle: "已授予存取權限",
     accessApprovalAlreadyTitle: "已授予存取權限",
-    accessApprovalMessage: "{{email}} 現在可以開啟此簡報。",
+    accessApprovalEditorMessage: "{{email}} 現在可以編輯此簡報。",
+    accessApprovalViewerMessage: "{{email}} 現在可以檢視此簡報。",
     accessApprovalRequesterEmailed: "我們已寄送電子郵件通知對方。",
     accessApprovalRequesterEmailFailed:
       "無法寄送電子郵件給 {{email}}。請告知對方現在可以開啟簡報了。",
@@ -895,7 +951,13 @@ const messages = {
     accessApprovalSignInMessage: "請以簡報擁有者或管理員身分登入以核准此請求。",
     accessApprovalOpenDeck: "開啟簡報",
     accessApprovalSignIn: "登入",
-    accessApprovalLoading: "正在授予存取權限...",
+    accessApprovalReviewTitle: "允許存取",
+    accessApprovalRequestedEdit: "{{email}} 申請編輯「{{title}}」。",
+    accessApprovalRequestedView: "{{email}} 申請檢視「{{title}}」。",
+    accessApprovalRoleLabel: "角色",
+    accessApprovalRoleViewer: "檢視者",
+    accessApprovalRoleEditor: "編輯者",
+    accessApprovalAllow: "允許存取",
     backToDecks: "返回幻燈片",
     tryAgain: "重試",
     imageUploadFailed: "圖片上傳失敗",
@@ -916,6 +978,10 @@ const messages = {
     originalPrompt: "你輸入的內容",
     backToHome: "返回首頁",
     checkedDeckTryAgain: "我已檢查簡報，再試一次",
+    generationStillRunning: "此簡報仍在生成中。請在聊天中查看進度。",
+    questionFlowTitle: "先確定簡報方向",
+    questionFlowDescription:
+      "回答重要的選項。選擇「其他」可自訂方向，也可以讓代理決定。",
     deckHasNoSlides: "幻燈片沒有頁面。",
     pdfRenderFailed: "無法渲染 PDF。",
     buildingDeck: "正在建置幻燈片",
@@ -924,6 +990,10 @@ const messages = {
     layoutOverflowVertical: "垂直溢出：{{pixels}}px",
     layoutOverflowHorizontal: "水平溢出：{{pixels}}px",
     dismissLayoutWarning: "關閉版面警告",
+    fixLayoutWithAi: "用 AI 修正",
+    askingAgentToFixLayout: "正在請求…",
+    shrinkTextToFit: "縮小文字以符合",
+    shrinkTextCannotFit: "文字在最小字級下仍超出投影片",
     slidesAdded_one: "已新增 {{count}} 張幻燈片",
     slidesAdded_other: "已新增 {{count}} 張幻燈片",
     unsavedChangesTitle: "未儲存的變更",
@@ -932,6 +1002,7 @@ const messages = {
     keepEditing: "繼續編輯",
     leaveWithoutSaving: "不儲存並退出",
     editorMarkupNotSaved: "此編輯未儲存，因為它會在投影片中加入編輯器標記。",
+    slideDeletedElsewhere: "你正在編輯的投影片已被其他人刪除。",
     historyStepConflict: "此歷程步驟與目前簡報衝突，因此已略過。",
     historyStepFailed: "此歷程步驟無法套用，因此已略過。",
     textEditConflictNotSaved:
@@ -1016,15 +1087,156 @@ const messages = {
     chooseAnotherFile: "選取其他檔案",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "製作產品提案簡報",
-      roadmap: "製作產品路線圖",
-      explainer: "在簡報中說明一個主題",
+    nextStepBar: {
+      ariaLabel: "第一份簡報的後續步驟",
+      refineWithPrompt: "使用提示詞潤飾",
+      export: "匯出",
+      shareLink: "分享連結",
+      dismiss: "關閉",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "製作產品上市簡報，介紹客戶問題、核心優勢、上市計畫，並採用自信且以客戶為先的語氣。",
+        roadmap:
+          "製作季度路線圖，呈現策略主題、里程碑、相依項目，並採用清楚的主管簡報風格。",
+        opportunity:
+          "製作機會分析，說明市場背景、客戶痛點、解決方案和風險，並採用果斷的產品觀點。",
+        priorities:
+          "製作功能優先順序簡報，比較使用者影響、投入、證據和取捨，並採用便於決策的精簡風格。",
+        metrics:
+          "製作產品指標回顧，呈現採用、啟用、留存和洞察，並採用坦率的分析語氣。",
+        discovery:
+          "製作客戶研究報告，呈現研究主題、關鍵引述和未滿足需求，並採用以證據為本且富有同理心的語氣。",
+        vision:
+          "製作產品願景簡報，描繪未來狀態、指導原則和產品押注，並採用鼓舞人心且務實的語氣。",
+        release:
+          "製作版本回顧，整理目標、成果、客戶回饋和待解問題，並採用負責且重視學習的語氣。",
+      },
+      design: {
+        caseStudy:
+          "製作設計案例，呈現需求、流程、關鍵畫面和成果，並採用溫暖的編輯風格。",
+        system:
+          "製作設計系統概覽，展示色彩、字體、元件和使用範例，並採用俐落鮮明的視覺風格。",
+        critique:
+          "製作設計評審簡報，呈現目標、目前畫面、回饋主題和後續步驟，並採用具建設性的語氣。",
+        research:
+          "製作使用者研究報告，說明背景、模式、引述和機會，並採用富有同理心的語氣。",
+        concepts:
+          "製作概念探索簡報，展示三種視覺方向、範例畫面和取捨，並採用活潑的語氣。",
+        accessibility:
+          "製作無障礙檢視，呈現關鍵障礙、標註範例和改善方案，並採用清楚包容的語氣。",
+        brand:
+          "製作品牌方向簡報，呈現受眾、視覺參考、色彩和字體，並採用鮮明獨特的語氣。",
+        sprint:
+          "製作設計衝刺回顧，講述挑戰、想法、原型和測試發現，並採用樂觀的語氣。",
+      },
+      developer: {
+        architecture:
+          "製作系統架構簡報，展示元件、資料流程和取捨，並採用嚴謹精確的技術語氣。",
+        api: "製作 API 入門指南，涵蓋設定、驗證、範例和錯誤處理，並採用開發者友善的語氣。",
+        release:
+          "製作工程發布計畫，列出範圍、里程碑、相依項目和上線步驟，並採用務實的語氣。",
+        incident:
+          "製作事件檢討，整理影響、時間軸、根本原因和行動項目，並採用不究責的語氣。",
+        migration:
+          "製作平台遷移計畫，說明現況、階段、風險和驗證方式，並採用令人安心的語氣。",
+        security:
+          "製作安全檢視，呈現系統邊界、威脅、控制措施和缺口，並採用直接的技術語氣。",
+        demo: "製作技術展示，介紹問題、架構、現場流程和成果，並採用清楚的語氣。",
+        metrics: "製作工程指標回顧，展示交付、可靠性和趨勢，並採用坦率的語氣。",
+      },
+      marketing: {
+        campaign:
+          "製作行銷活動發布簡報，呈現受眾、訊息、通路和時程，並採用充滿活力的語氣。",
+        story:
+          "製作客戶故事，講述挑戰、解決方案、成果和證據，並採用親切真實的語氣。",
+        content:
+          "製作內容策略，整理受眾需求、主題、形式和日曆，並採用編輯策劃風格。",
+        positioning:
+          "製作品牌定位簡報，說明受眾、品類、承諾和依據，並採用鮮明的語氣。",
+        channels:
+          "製作通路成效回顧，展示觸及、互動、轉換和經驗，並採用清楚的語氣。",
+        messaging:
+          "製作產品訊息簡報，呈現受眾、優勢、依據和範例，並採用有說服力的語氣。",
+        event:
+          "製作活動宣傳計畫，介紹受眾、亮點、時程和通路，並採用熱情友善的語氣。",
+        competition:
+          "製作競爭態勢簡報，比較替代方案、優勢、差距和機會，並採用平衡客觀的語氣。",
+      },
+      sales: {
+        pitch:
+          "製作客戶提案簡報，圍繞客戶目標、解決方案、成果和案例，並採用自信的語氣。",
+        proposal:
+          "製作解決方案提案，呈現需求、方法、時程和投入，並採用清楚且以客戶為先的語氣。",
+        quarterlyReview:
+          "製作季度業務回顧，整理目標、成果、採用情況和後續步驟，並採用協作的語氣。",
+        discovery:
+          "製作需求探索報告，呈現客戶優先事項、痛點和方案契合度，並採用專注傾聽的語氣。",
+        objections:
+          "製作異議處理指南，列出常見疑慮、證據和回應，並採用實用友善的語氣。",
+        demo: "製作產品展示故事，結合客戶背景、關鍵流程和成果，並採用精簡且有說服力的語氣。",
+        renewal:
+          "製作續約簡報，呈現已交付價值、使用情況和機會，並採用夥伴關係的語氣。",
+        enablement:
+          "製作銷售賦能簡報，介紹理想買家、資格判斷和溝通要點，並採用實用的語氣。",
+      },
+      ops: {
+        weeklyReview:
+          "製作每週營運回顧，展示目標、指標、阻礙和負責人，並採用沉穩直接的語氣。",
+        process:
+          "製作流程改善簡報，呈現目前步驟、摩擦點和目標流程，並採用務實的語氣。",
+        capacity:
+          "製作產能規劃，分析需求、團隊可用時間、優先順序和情境，並採用透明的語氣。",
+        service:
+          "製作服務成效回顧，展示數量、回應時間、升級處理和改善，並採用負責的語氣。",
+        vendor:
+          "製作供應商評估，比較要求、選項、成本和風險，並採用平衡的決策風格。",
+        metrics:
+          "製作營運儀表板故事，凸顯關鍵指標、趨勢和異常，並採用精簡的分析風格。",
+        onboarding:
+          "製作到職流程，呈現階段、交接、資源和成功指標，並採用支持性的語氣。",
+        risk: "製作風險回顧，整理可能性、影響、緩解方案和負責人，並採用審慎的語氣。",
+      },
+      individual: {
+        project:
+          "製作個人專案計畫，列出目標、里程碑、資源和風險，並採用鼓舞人心的語氣。",
+        portfolio:
+          "製作個人作品集簡報，精選作品、過程和成果，並採用自信的編輯風格。",
+        learning:
+          "製作學習路線圖，列出技能、資源、練習和里程碑，並採用鼓勵性的語氣。",
+        event:
+          "製作聚會計畫，說明目的、來賓、時程和細節，並採用溫暖友善的語氣。",
+        budget:
+          "製作個人預算回顧，整理收入、支出、目標和取捨，並採用平靜務實的語氣。",
+        travel:
+          "製作旅遊行程，安排目的地、每日亮點和交通細節，並採用引人入勝的視覺風格。",
+        community:
+          "製作社群工作坊簡報，介紹主題、活動和收穫，並採用包容友善的語氣。",
+        personalStory:
+          "製作個人介紹，講述經歷、興趣和工作，並採用自然親切的語氣。",
+      },
+      general: {
+        overview: "製作主題概覽，說明背景、核心觀點和範例，並採用友善的語氣。",
+        fundraiser:
+          "製作公益募款簡報，介紹使命、需求和影響，並採用充滿希望的語氣。",
+        lesson:
+          "製作簡短課程，呈現學習目標、核心概念和範例，並採用引人入勝的語氣。",
+        research:
+          "製作研究報告，說明問題、方法、發現和影響，並採用平衡客觀的語氣。",
+        eventProposal:
+          "製作活動提案，呈現目的、受眾、形式和預算，並採用熱情友善的語氣。",
+        teamStrategy:
+          "製作團隊策略簡報，列出優先事項、指標和舉措，並採用聚焦的語氣。",
+        howTo:
+          "製作視覺化操作指南，提供清楚步驟和實用範例，並採用鼓勵性的語氣。",
+        portfolioIntro:
+          "製作作品集介紹，精選專案並凸顯優勢，並採用精緻的語氣。",
+      },
     },
     suggestedPrompts: "建議提示",
     importMenu: {
       import: "匯入",
-      options: "匯入選項",
       invalidPdf: "請選擇 PDF 檔案。",
       invalidPptx: "請選擇 PPTX 檔案。",
       invalidFile: "請選擇 PDF 或 PPTX 檔案。",
@@ -1202,9 +1414,13 @@ const messages = {
     workspaceDefaultBadge: "工作區預設",
     setWorkspaceDefault: "設為工作區預設",
     clearWorkspaceDefault: "清除工作區預設",
+    renameDeck: "重新命名",
+    duplicateDeck: "建立副本",
+    deleteDeck: "刪除",
     workspaceDefaultSet: "已設為工作區預設",
     workspaceDefaultCleared: "已清除工作區預設",
     duplicateFailed: "無法複製該簡報",
+    deleteFailed: "無法刪除該簡報",
     workspaceDefaultFailed: "無法更新工作區預設設定",
     workspaceDefaultConfirmTitle: "設為工作區預設？",
     workspaceDefaultDeckShareBody:
@@ -1225,6 +1441,89 @@ const messages = {
     emptyTitle: "還沒有簡報",
     createFirstDeck: "建立你的第一份簡報",
     emptyDescription: "使用 AI 產生精美簡報。",
+
+    suggestionLabels: {
+      product: {
+        launch: "產品上市簡報",
+        roadmap: "季度路線圖",
+        opportunity: "機會分析",
+        priorities: "功能優先順序簡報",
+        metrics: "產品指標回顧",
+        discovery: "客戶研究報告",
+        vision: "產品願景簡報",
+        release: "版本回顧",
+      },
+      design: {
+        caseStudy: "設計案例",
+        system: "設計系統概覽",
+        critique: "設計評審簡報",
+        research: "使用者研究報告",
+        concepts: "概念探索簡報",
+        accessibility: "無障礙檢視",
+        brand: "品牌方向簡報",
+        sprint: "設計衝刺回顧",
+      },
+      developer: {
+        architecture: "系統架構簡報",
+        api: " API 入門指南",
+        release: "工程發布計畫",
+        incident: "事件檢討",
+        migration: "平台遷移計畫",
+        security: "安全檢視",
+        demo: "技術展示",
+        metrics: "工程指標回顧",
+      },
+      marketing: {
+        campaign: "行銷活動發布簡報",
+        story: "客戶故事",
+        content: "內容策略",
+        positioning: "品牌定位簡報",
+        channels: "通路成效回顧",
+        messaging: "產品訊息簡報",
+        event: "活動宣傳計畫",
+        competition: "競爭態勢簡報",
+      },
+      sales: {
+        pitch: "客戶提案簡報",
+        proposal: "解決方案提案",
+        quarterlyReview: "季度業務回顧",
+        discovery: "需求探索報告",
+        objections: "異議處理指南",
+        demo: "產品展示故事",
+        renewal: "續約簡報",
+        enablement: "銷售賦能簡報",
+      },
+      ops: {
+        weeklyReview: "每週營運回顧",
+        process: "流程改善簡報",
+        capacity: "產能規劃",
+        service: "服務成效回顧",
+        vendor: "供應商評估",
+        metrics: "營運儀表板故事",
+        onboarding: "到職流程",
+        risk: "風險回顧",
+      },
+      individual: {
+        project: "個人專案計畫",
+        portfolio: "個人作品集簡報",
+        learning: "學習路線圖",
+        event: "聚會計畫",
+        budget: "個人預算回顧",
+        travel: "旅遊行程",
+        community: "社群工作坊簡報",
+        personalStory: "個人介紹",
+      },
+      general: {
+        overview: "主題概覽",
+        fundraiser: "公益募款簡報",
+        lesson: "簡短課程",
+        research: "研究報告",
+        eventProposal: "活動提案",
+        teamStrategy: "團隊策略簡報",
+        howTo: "視覺化操作指南",
+        portfolioIntro: "作品集介紹",
+      },
+    },
   },
   agentChat: {
     setup: {

@@ -126,6 +126,8 @@ vi.mock("../server/source-workspace.js", async () => {
   };
 });
 
+import { ActionContractError } from "@agent-native/core/action";
+
 import { SourceWorkspaceEditConflictError } from "../server/source-workspace.js";
 import { LockedLayerEditError } from "../shared/locked-layers.js";
 import action from "./edit-design.js";
@@ -213,16 +215,17 @@ describe("edit-design conflict retry", () => {
         updatedAt: "2026-10-26T00:00:00.000Z",
       });
 
-    await expect(
-      action.run({
-        designId: "design_1",
-        filename: "index.html",
-        edits: [{ search: "Hello", replace: "Hi" }],
-      } as never),
-    ).rejects.toMatchObject({
-      name: "Error",
-      message: expect.stringContaining("text was not found"),
+    const searchMiss = action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Hello", replace: "Hi" }],
+    } as never);
+    await expect(searchMiss).rejects.toBeInstanceOf(ActionContractError);
+    await expect(searchMiss).rejects.toMatchObject({
+      errorCode: "design_edit_conflict",
     });
+    await expect(searchMiss).rejects.toThrow("search text was not found");
+    await expect(searchMiss).rejects.not.toHaveProperty("noWrite");
 
     expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(2);
     expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
@@ -256,16 +259,17 @@ describe("edit-design conflict retry", () => {
       new SourceWorkspaceEditConflictError(),
     );
 
-    await expect(
-      action.run({
-        designId: "design_1",
-        filename: "index.html",
-        edits: [{ search: "Hello", replace: "Hi" }],
-      } as never),
-    ).rejects.toMatchObject({
-      name: "Error",
-      message: expect.stringContaining("text was not found"),
+    const searchMiss = action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Hello", replace: "Hi" }],
+    } as never);
+    await expect(searchMiss).rejects.toBeInstanceOf(ActionContractError);
+    await expect(searchMiss).rejects.toMatchObject({
+      errorCode: "design_edit_conflict",
     });
+    await expect(searchMiss).rejects.toThrow("search text was not found");
+    await expect(searchMiss).rejects.not.toHaveProperty("noWrite");
 
     expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
     expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();

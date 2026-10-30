@@ -29,7 +29,33 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
   ],
   "content": [
     {
-      "_meta": undefined,
+      "_meta": {
+        "openai/outputTemplate": "ui://content/share-local-file-document/shell-v65",
+        "openai/toolInvocation/invoked": "Share document ready",
+        "openai/toolInvocation/invoking": "Opening Share document",
+        "openai/widgetAccessible": true,
+        "openai/widgetCSP": {
+          "connect_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+          "frame_domains": [
+            "$requestOrigin",
+          ],
+          "resource_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+        },
+        "ui": {
+          "resourceUri": "ui://content/share-local-file-document/shell-v65",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://content/share-local-file-document/shell-v65",
+      },
       "annotations": {
         "destructiveHint": true,
         "idempotentHint": false,
@@ -42,7 +68,33 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
   ],
   "design": [
     {
-      "_meta": undefined,
+      "_meta": {
+        "openai/outputTemplate": "ui://design/generate-screens/shell-v65",
+        "openai/toolInvocation/invoked": "Design generation session ready",
+        "openai/toolInvocation/invoking": "Opening Design generation session",
+        "openai/widgetAccessible": true,
+        "openai/widgetCSP": {
+          "connect_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+          "frame_domains": [
+            "$requestOrigin",
+          ],
+          "resource_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+        },
+        "ui": {
+          "resourceUri": "ui://design/generate-screens/shell-v65",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://design/generate-screens/shell-v65",
+      },
       "annotations": {
         "destructiveHint": true,
         "idempotentHint": false,
@@ -53,7 +105,33 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
       "name": "generate-screens",
     },
     {
-      "_meta": undefined,
+      "_meta": {
+        "openai/outputTemplate": "ui://design/export-coding-handoff/shell-v65",
+        "openai/toolInvocation/invoked": "Design agent handoff ready",
+        "openai/toolInvocation/invoking": "Opening Design agent handoff",
+        "openai/widgetAccessible": true,
+        "openai/widgetCSP": {
+          "connect_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+          "frame_domains": [
+            "$requestOrigin",
+          ],
+          "resource_domains": [
+            "https://esm.sh",
+            "$requestOrigin",
+          ],
+        },
+        "ui": {
+          "resourceUri": "ui://design/export-coding-handoff/shell-v65",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://design/export-coding-handoff/shell-v65",
+      },
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": false,

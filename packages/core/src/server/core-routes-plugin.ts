@@ -152,10 +152,16 @@ import {
   EMPTY_SPECULATION_RULES,
   resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
+import { normalizeCorsOrigin } from "../shared/cors-origin.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
-import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
+import { FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES } from "../shared/first-run-builder-credits-experiment.js";
+import {
+  isGoogleDefaultAvatarUrl,
+  isGoogleProfileImageUrl,
+} from "../shared/google-profile-image.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import {
+  corsAllowHeadersFor,
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
@@ -178,6 +184,7 @@ import { memoizeAgentEngineStatus } from "./agent-engine-status-cache.js";
 import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
+  readBrowserTabIdHeader,
 } from "./agent-run-context.js";
 import { isAnonymousWaitlistSessionEmail } from "./anonymous-identity.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
@@ -226,6 +233,7 @@ import {
   parseBuilderConnectStateCookie,
   provisionBuilderAccount,
   resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
   resolveBuilderConnectCallbackUrl,
   resolveBuilderConnectCallbackState,
   resolveBuilderPreviewRelayParentOrigin,
@@ -280,6 +288,7 @@ import type { EnvKeyConfig } from "./create-server.js";
 import {
   assertCredentialStoreReadable,
   CredentialStoreUnavailableError,
+  builderCreditsRefusalStatus,
   getBuilderKeyConnections,
   prefetchSecrets,
   resolveSecret,
@@ -2992,6 +3001,15 @@ function oauthPopupCompletionHtml(
   const completionMessage = completionId
     ? `{type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}`
     : '{type:"agent-native:workspace-connection-complete"}';
+  // A UI served from another origin (runtime.apiBaseUrl) may have opened this
+  // popup. postMessage to an origin other than the opener's is dropped, so
+  // naming every listed UI origin reaches only the real opener.
+  const uiOrigins = [
+    ...new Set(readCorsAllowedOrigins().map(normalizeCorsOrigin)),
+  ];
+  const notifyUiOrigins = uiOrigins.length
+    ? `for (const origin of ${JSON.stringify(uiOrigins).replace(/</g, "\\u003c")}) window.opener?.postMessage(${completionMessage}, origin);`
+    : "";
   const direction = locale === "ar-SA" ? "rtl" : "ltr";
   return `<!doctype html>
 <html lang="${locale}" dir="${direction}">
@@ -3021,6 +3039,7 @@ function oauthPopupCompletionHtml(
       ${persistCompletion}
       setTimeout(() => window.close(), 2000);
       window.opener?.postMessage(${completionMessage}, window.location.origin);
+      ${notifyUiOrigins}
     </script>
   </body>
 </html>`;
@@ -3704,7 +3723,10 @@ export function createCoreRoutesPlugin(
               setResponseHeader(
                 event,
                 "Access-Control-Allow-Headers",
-                MCP_EMBED_CORS_ALLOW_HEADERS,
+                corsAllowHeadersFor(
+                  requestedHeaders,
+                  MCP_EMBED_CORS_ALLOW_HEADERS,
+                ),
               );
             }
             setResponseStatus(event, 204);
@@ -3737,7 +3759,7 @@ export function createCoreRoutesPlugin(
           setResponseHeader(
             event,
             "Access-Control-Allow-Headers",
-            MCP_EMBED_CORS_ALLOW_HEADERS,
+            corsAllowHeadersFor(requestedHeaders, MCP_EMBED_CORS_ALLOW_HEADERS),
           );
         }),
       );
@@ -5120,10 +5142,17 @@ export function createCoreRoutesPlugin(
           // uses. Without this, per-user Builder keys stored in app_secrets are
           // invisible to the run path and the call throws "Builder keys are not
           // configured" even though the status endpoint correctly reports configured=true.
+          // The tab id lets a host's branch-project provider find the view
+          // this click came from (its navigation state is tab-scoped).
+          const browserTabId = readBrowserTabIdHeader(event);
           return runWithRequestContext(
-            { userEmail, orgId: orgId ?? undefined },
+            {
+              userEmail,
+              ...(orgId ? { orgId } : {}),
+              ...(browserTabId ? { run: { browserTabId } } : {}),
+            },
             async () => {
-              const projectId = await resolveBuilderBranchProjectId();
+              const projectId = await resolveBuilderHandoffProjectId();
               if (!projectId) {
                 setResponseStatus(event, 403);
                 return {
@@ -6219,7 +6248,11 @@ export function createCoreRoutesPlugin(
                       status: engineStatus,
                       detectFromUserSecrets: deps.detectFromUserSecrets,
                     });
-                    return { ...engineStatus, chatEligible };
+                    return {
+                      ...engineStatus,
+                      chatEligible,
+                      ...builderCreditsRefusalStatus(chatEligible),
+                    };
                   },
                 ),
             );
@@ -6296,15 +6329,51 @@ export function createCoreRoutesPlugin(
           };
           if (orgId) properties.org_id = orgId;
 
+          // The browser cannot supply experiment attribution. Restore an
+          // exposed first-run arm from server storage before tracking onboarding
+          // events so the registry can replace, rather than trust, client tags.
+          const isFirstRunOnboardingEvent =
+            FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES.has(
+              validation.name as string,
+            ) && validation.properties?.flow === "first_run";
+
           // Best-effort — server `track()` swallows provider errors. We still
           // guard here so an unexpected throw can't surface to the browser.
           try {
-            track(validation.name as string, properties, {
+            const browserSessionId = readBrowserSessionIdHeader(event);
+            const trackingSource = {
               userId: userEmail,
-              authUserId: session.authUserId,
-              sessionId: readBrowserSessionIdHeader(event),
-              telemetryOrigin: "client",
-            });
+              ...(session.authUserId ? { authUserId: session.authUserId } : {}),
+              ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+              telemetryOrigin: "client" as const,
+            };
+            const trackClientEvent = () =>
+              track(validation.name as string, properties, trackingSource);
+            if (isFirstRunOnboardingEvent) {
+              await runWithRequestContext(
+                {
+                  userEmail,
+                  ...(session.authUserId
+                    ? { authUserId: session.authUserId }
+                    : {}),
+                },
+                async () => {
+                  try {
+                    const { loadFirstRunBuilderCreditsV2Assignment } =
+                      await import("../onboarding/first-run-builder-credits-experiment.js");
+                    await loadFirstRunBuilderCreditsV2Assignment();
+                  } catch {
+                    console.error(
+                      "[tracking] first-run onboarding assignment lookup failed",
+                      { eventName: validation.name },
+                    );
+                  }
+                  trackClientEvent();
+                },
+              );
+            } else {
+              trackClientEvent();
+            }
           } catch {
             // best-effort
           }
@@ -6782,7 +6851,12 @@ export function createCoreRoutesPlugin(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
             const storedImage = (data as any)?.image;
-            if (typeof storedImage === "string" && storedImage.trim()) {
+            // A silhouette saved before it was recognized is not a photo either.
+            if (
+              typeof storedImage === "string" &&
+              storedImage.trim() &&
+              !isGoogleDefaultAvatarUrl(storedImage)
+            ) {
               return { image: storedImage };
             }
             if (getBetterAuthSync()) {

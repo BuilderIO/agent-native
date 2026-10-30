@@ -11,6 +11,7 @@ import {
   clearAgentChatContext,
   drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
+  getAgentChatSubmitTarget,
   isAgentChatSubmitCancelled,
   listAgentChatContext,
   removeAgentChatContextItem,
@@ -4411,6 +4412,10 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect((targetEvents[0] as CustomEvent).detail).toEqual({
       submitMessageId: "guided-answer-submit",
       tabId: "generation-thread",
+    });
+    expect(getAgentChatSubmitTarget("guided-answer-submit")).toEqual({
+      tabId: "generation-thread",
+      threadId: "generation-thread",
     });
     expect(threadMocks.switchThread).not.toHaveBeenCalled();
     window.removeEventListener("agentNative.chatSubmitTarget", onTarget);

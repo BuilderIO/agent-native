@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import * as runStatus from "../agent-run-status.js";
 import * as agentSidebarState from "../agent-sidebar-state.js";
 import * as availableClis from "../available-clis.js";
 import * as builderAgentsRun from "../builder-agents-run.js";
@@ -17,6 +18,10 @@ describe("client/agent-chat export surface", () => {
     expect(agentChat.isFrameworkRouteError).toBe(
       frameworkRouteRequest.isFrameworkRouteError,
     );
+  });
+
+  it("re-exports the shared agent run status client", () => {
+    expect(agentChat.readAgentRunStatus).toBe(runStatus.readAgentRunStatus);
   });
 
   it("re-exports the CLI, checkpoint, and Builder agents run clients", () => {

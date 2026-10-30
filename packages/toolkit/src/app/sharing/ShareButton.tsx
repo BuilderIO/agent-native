@@ -48,6 +48,7 @@ import {
 import {
   type ComponentPropsWithoutRef,
   useEffect,
+  useImperativeHandle,
   useId,
   useRef,
   useState,
@@ -78,6 +79,8 @@ export interface ShareButtonProps {
   panelTitle?: ReactNode;
   triggerContent?: ReactNode;
   onOpenChange?: (open: boolean) => void;
+  actionRef?: Ref<ShareButtonActionHandle>;
+  actionEvent?: string;
   onShareSuccess?: () => void;
   defaultOpen?: boolean;
   shareUrl?: string;
@@ -93,6 +96,11 @@ export interface ShareButtonProps {
   basicSharingOnly?: boolean;
   /** Open the share surface without rendering a trigger button. */
   hideTrigger?: boolean;
+  /**
+   * With `hideTrigger`, the element the popover opens beside. Without it the
+   * popover is pinned to the top end of the window.
+   */
+  anchor?: ReactNode;
   /** Override the optional temporary agent-context link label. */
   agentShareLabel?: string;
   /** Resource-specific agent actions shown in the Clips-style sharing tabs. */
@@ -157,6 +165,10 @@ export interface ShareButtonProps {
     onValueChange?: (value: string) => void;
   };
   popoverClassName?: string;
+}
+
+export interface ShareButtonActionHandle {
+  open: (tab?: string) => void;
 }
 
 type Visibility = ShareButtonVisibility;
@@ -346,6 +358,31 @@ export function ShareButton(props: ShareButtonProps) {
     allowedRoles: allowedRolesFor(props),
     hideInSearchControl: props.hideInSearchControl,
   });
+  useImperativeHandle(
+    props.actionRef,
+    () => ({
+      open: (tab) => {
+        controller.handleOpenChange(true);
+        if (tab) controller.handleShareTabChange(tab);
+      },
+    }),
+    [controller.handleOpenChange, controller.handleShareTabChange],
+  );
+  useEffect(() => {
+    const actionEvent = props.actionEvent;
+    if (!actionEvent) return;
+    const openFromAction = (event: Event) => {
+      const tab = (event as CustomEvent<{ tab?: unknown }>).detail.tab;
+      controller.handleOpenChange(true);
+      if (typeof tab === "string") controller.handleShareTabChange(tab);
+    };
+    window.addEventListener(actionEvent, openFromAction);
+    return () => window.removeEventListener(actionEvent, openFromAction);
+  }, [
+    props.actionEvent,
+    controller.handleOpenChange,
+    controller.handleShareTabChange,
+  ]);
   useEffect(() => {
     if (!controller.open || !hasShareModes) return;
     const timer = window.setTimeout(() => {
@@ -415,7 +452,9 @@ export function ShareButton(props: ShareButtonProps) {
     <Popover open={controller.open} onOpenChange={controller.handleOpenChange}>
       {props.hideTrigger ? (
         <PopoverAnchor asChild>
-          <span aria-hidden="true" className="fixed end-4 top-16 size-px" />
+          {props.anchor ?? (
+            <span aria-hidden="true" className="fixed end-4 top-16 size-px" />
+          )}
         </PopoverAnchor>
       ) : props.quickCopy ? (
         <PopoverAnchor asChild>

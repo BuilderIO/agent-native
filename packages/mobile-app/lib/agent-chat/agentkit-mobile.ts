@@ -518,6 +518,10 @@ export function mobileAgentKitEventToWireEvent(
       return { type: "text", text: event.text, partId: event.messageId };
     case "reasoning.delta":
       return { type: "reasoning", text: event.text, partId: event.messageId };
+    // The replacement is the reply cut back to its last finished tool call,
+    // which the reducer applies to a "clear".
+    case "message.replaced":
+      return event.message.role === "assistant" ? { type: "clear" } : null;
     case "activity.started":
     case "activity.updated":
       return {

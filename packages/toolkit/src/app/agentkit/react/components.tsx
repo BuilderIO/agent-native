@@ -1011,7 +1011,8 @@ function agentThreadEventIndex(
     else byRun.set(event.runId, [event]);
     if (
       event.type === "message.created" ||
-      event.type === "message.completed"
+      event.type === "message.completed" ||
+      event.type === "message.replaced"
     ) {
       messageRunIds.set(event.message.id, event.runId);
     } else if (
@@ -5544,7 +5545,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     <MessageActionButton
       label={copied ? labels.copied : labels.copy}
       icon={
-        copied ? (
+        copyAction.pending ? (
+          <IconLoader2 aria-hidden="true" className="animate-spin" />
+        ) : copied ? (
           <IconCircleCheck aria-hidden="true" />
         ) : (
           <IconCopy aria-hidden="true" />
@@ -5552,8 +5555,13 @@ export const AgentMessageActions = memo(function AgentMessageActions({
       }
       size="compact"
       className="size-6"
-      pending={copyAction.pending}
-      onPress={() => void copyAction.execute().catch(() => undefined)}
+      // Copies stay enabled while they run: disabling the pressed button drops
+      // focus to the page, where Escape can no longer close the toolbar.
+      aria-busy={copyAction.pending || undefined}
+      onPress={() => {
+        if (copyAction.pending) return;
+        void copyAction.execute().catch(() => undefined);
+      }}
     />
   );
   const branchControls =
@@ -5621,6 +5629,19 @@ export const AgentMessageActions = memo(function AgentMessageActions({
         event.preventDefault();
         event.stopPropagation();
         setMoreActions(false, "toggle");
+      }}
+      onMouseDown={(event) => {
+        // Safari does not focus a pressed button; it focuses the transcript
+        // instead, which blur below reads as leaving and collapses the set
+        // before the click lands. Keep focus on the button that was pressed.
+        const button =
+          event.target instanceof Element
+            ? event.target.closest("button")
+            : null;
+        if (!button || button.disabled) return;
+        if (!event.currentTarget.contains(button)) return;
+        event.preventDefault();
+        button.focus({ preventScroll: true });
       }}
       onBlur={(event) => {
         const next = event.relatedTarget;
@@ -5735,7 +5756,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
               <MessageActionButton
                 label={requestIdCopied ? labels.copied : labels.copyRequestId}
                 icon={
-                  requestIdCopied ? (
+                  requestIdAction.pending ? (
+                    <IconLoader2 aria-hidden="true" className="animate-spin" />
+                  ) : requestIdCopied ? (
                     <IconCircleCheck aria-hidden="true" />
                   ) : (
                     <IconId aria-hidden="true" />
@@ -5744,10 +5767,11 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                 size="compact"
                 className="size-6"
                 data-message-action="request-id"
-                pending={requestIdAction.pending}
-                onPress={() =>
-                  void requestIdAction.execute().catch(() => undefined)
-                }
+                aria-busy={requestIdAction.pending || undefined}
+                onPress={() => {
+                  if (requestIdAction.pending) return;
+                  void requestIdAction.execute().catch(() => undefined);
+                }}
               />
             ) : null}
           </div>
@@ -8364,6 +8388,19 @@ export function AgentKitChat({
     ]),
   );
   const pendingRuns = new Set(pendingRunIds);
+  // A running turn's work after its reply's latest text joins the row above
+  // that reply. As its own row below, the work before reads as finished while
+  // the run is still working, and the turn shows two rows until it ends.
+  const liveReplyRunIds = new Set(
+    pendingRunIds.filter((runId) => {
+      const reply = lastAssistantMessagesByRun.get(runId);
+      return (
+        thread.runs[runId]?.status === "running" &&
+        reply !== undefined &&
+        runSegmentEnds.get(runId)?.id === reply.id
+      );
+    }),
+  );
   const runRevision = (runId: RunId) =>
     `${runId}:${eventIndex.byRun.get(runId)?.length ?? 0}`;
   const renderRunFailure = (runId: RunId) => {
@@ -8539,7 +8576,7 @@ export function AgentKitChat({
   }
   const tailRunIds = Array.from(
     new Set([
-      ...pendingRunIds,
+      ...pendingRunIds.filter((runId) => !liveReplyRunIds.has(runId)),
       ...Array.from(failedRuns.keys()).filter(
         (runId) => !lastAssistantMessagesByRun.has(runId),
       ),
@@ -8673,11 +8710,19 @@ export function AgentKitChat({
       !hasRunWork(runId, sequence) &&
       !hasVisibleReasoning(message),
     );
+    const extendsLiveWork =
+      isAssistantBoundary &&
+      liveReplyRunIds.has(runId) &&
+      lastAssistantMessagesByRun.get(runId)?.id === message.id;
     const rendersRunWork = Boolean(
       isAssistantBoundary &&
       runId &&
       (summarizesTurn ||
-        hasRunWork(runId, previousAssistant?.sequence, sequence)),
+        hasRunWork(
+          runId,
+          previousAssistant?.sequence,
+          extendsLiveWork ? undefined : sequence,
+        )),
     );
     // A saved reply's reasoning before its answer joins the work group above
     // it, so the turn shows one disclosure; the stream did not place it there.
@@ -8692,7 +8737,7 @@ export function AgentKitChat({
           runId,
           anchor: previousAssistant?.id ?? "start",
           afterSequence: previousAssistant?.sequence,
-          throughSequence: sequence,
+          throughSequence: extendsLiveWork ? undefined : sequence,
           messageId: message.id,
           foldedReasoningMessageId: foldsReasoning ? message.id : undefined,
           summarizesTurn,

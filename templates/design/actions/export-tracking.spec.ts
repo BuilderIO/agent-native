@@ -270,7 +270,11 @@ describe("export png", () => {
 
     await expect(
       exportPng.run({ designId: "design-1", filename: "index.html" }, ctx),
-    ).rejects.toThrow(/file storage/);
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      errorCode: "file_storage_not_configured",
+      noWrite: true,
+    });
 
     expect(exportEvents()).toHaveLength(1);
     expect(exportEvents()[0]![1]).toMatchObject({
@@ -278,5 +282,32 @@ describe("export png", () => {
       status: "failed",
       error_type: "file_storage_not_configured",
     });
+  });
+
+  it("keeps an attempted upload failure as an unknown write outcome", async () => {
+    mocks.takeDesignScreenshotRun.mockResolvedValue({
+      ...screenshot,
+      screenshots: [
+        {
+          ...screenshot.screenshots[0],
+          url: "",
+          uploadError: {
+            code: "file_upload_failed",
+            message: "Configured file storage rejected the screenshot upload.",
+          },
+        },
+      ],
+    });
+
+    const attemptedExport = exportPng.run(
+      { designId: "design-1", filename: "index.html" },
+      ctx,
+    );
+    await expect(attemptedExport).rejects.toMatchObject({
+      name: "ActionContractError",
+      errorCode: "file_upload_failed",
+    });
+
+    await expect(attemptedExport).rejects.not.toHaveProperty("noWrite");
   });
 });

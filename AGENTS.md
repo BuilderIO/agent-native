@@ -34,6 +34,9 @@ Use `/sidecar <task>` for read-only investigations.
 - Scale effort: for small changes, read briefly, edit, and run existing checks;
   skip surveys, unrequested tests, and browser automation. Explore deeply only
   for ambiguous or cross-cutting work.
+- Keep routine replies concise: lead with the answer in 1–2 short sentences.
+  Include only the requested detail and any essential result, blocker, or next
+  step; omit recaps, process narration, and filler unless more detail is needed.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
@@ -45,8 +48,8 @@ Use `/sidecar <task>` for read-only investigations.
   contacting another person, a missing credential, a user-only decision, or a
   destructive data change. See `ship` and `new-branch` for covered git/PR work.
 - Never add `Co-Authored-By` or other agent attribution to commits.
-- Use the current suitable branch. PRs are ready for review unless drafts are
-  requested.
+- Branch without asking; in a shared checkout, use a new worktree. PRs are
+  ready for review unless drafts are requested.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
   sole beta publisher; Actions uploads prebuilt artifacts to independent
   `beta.*.agent-native.com` sites. Netlify Git builds are disabled; do not wait
@@ -74,8 +77,6 @@ Use `/sidecar <task>` for read-only investigations.
   metadata unless explicitly requested.
 - Keep the chat title accurate.
 - Follow `reporting-progress` for updates and mid-task stops.
-- Use sub-agents liberally for complex independent work when Agent Teams are
-  available; keep the main thread focused on orchestration.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.

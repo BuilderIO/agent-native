@@ -113,6 +113,18 @@ export function createTrackingEventScope(): TrackingEventScope {
   return { pending: new Set() };
 }
 
+export function registerTrackingWork(
+  pending: Promise<void>,
+  scope?: TrackingEventScope,
+): void {
+  const pendingEvents = scope?.pending ?? pendingTrackingEvents;
+  pendingEvents.add(pending);
+  void pending.then(
+    () => pendingEvents.delete(pending),
+    () => pendingEvents.delete(pending),
+  );
+}
+
 function numericDuration(properties: Record<string, unknown>): number | null {
   const duration = properties.duration_ms;
   return typeof duration === "number" &&
@@ -280,18 +292,21 @@ export function queueTrackingEvent(
   scope?: TrackingEventScope,
 ): void {
   const pending = recordTrackingEvent(name, properties, origin);
-  const pendingEvents = scope?.pending ?? pendingTrackingEvents;
-  pendingEvents.add(pending);
-  void pending.then(
-    () => pendingEvents.delete(pending),
-    () => pendingEvents.delete(pending),
-  );
+  registerTrackingWork(pending, scope);
 }
 
 export async function flushTrackingEvents(
   scope?: TrackingEventScope,
 ): Promise<void> {
-  await Promise.allSettled([...(scope?.pending ?? pendingTrackingEvents)]);
+  const pendingEvents = scope?.pending ?? pendingTrackingEvents;
+  if (!scope) {
+    await Promise.allSettled([...pendingEvents]);
+    return;
+  }
+
+  while (pendingEvents.size > 0) {
+    await Promise.allSettled([...pendingEvents]);
+  }
 }
 
 export async function startAgentSpan(

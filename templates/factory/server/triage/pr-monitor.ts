@@ -9,6 +9,8 @@ export type PullRequestReviewState =
 
 export interface PullRequestReviewObservation {
   author: string;
+  /** Immutable GitHub user ID for the reviewer, when the API response includes it. */
+  authorId?: number;
   state: PullRequestReviewState;
   commitSha?: string | null;
   /** GitHub's `author_association` for the reviewer (`OWNER`, `MEMBER`, `COLLABORATOR`, `NONE`, ...), as given. */

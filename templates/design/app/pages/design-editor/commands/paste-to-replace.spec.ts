@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
+import { cancelPendingPastedMediaAbsentFromContent } from "../domains/pending-pasted-media";
 import type { DesignFile } from "../types";
 import { runPasteToReplace } from "./paste-to-replace";
 
@@ -15,6 +16,8 @@ const CONTENT_WITHOUT_TARGET_ID = CONTENT_WITH_IDS.replace(
   ' data-agent-native-node-id="target"',
   ' data-agent-native-layer-name="Target"',
 );
+const CONTENT_WITH_PENDING_IMAGE =
+  '<!DOCTYPE html><html><body><div data-agent-native-node-id="parent" style="position:absolute;left:100px;top:100px;width:600px;height:400px"><img data-agent-native-node-id="pending-image" style="position:absolute;left:300px;top:40px;width:200px;height:100px"><img data-agent-native-node-id="kept-image" style="position:absolute;left:10px;top:10px;width:24px;height:24px"></div></body></html>';
 
 describe("runPasteToReplace with pasted OS content", () => {
   it.each([
@@ -67,6 +70,81 @@ describe("runPasteToReplace with pasted OS content", () => {
       );
     },
   );
+
+  it("cancels pending media removed by an accepted replacement", () => {
+    const target = buildCodeLayerProjection(CONTENT_WITH_PENDING_IMAGE, {
+      source: { kind: "design-file", fileId: "screen-1" },
+    }).nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "pending-image",
+    )!;
+    const pendingByScreen = new Map([
+      [
+        "screen-1",
+        new Map([
+          ["pending-image", false],
+          ["preview-only-image", false],
+          ["kept-image", false],
+        ]),
+      ],
+    ]);
+    const publicationOrder: string[] = [];
+    const applyLocalContentUpdate = vi.fn((content: string) => {
+      publicationOrder.push("publish");
+      return {
+        status: "accepted" as const,
+        content,
+        nodeIdMap: new Map<string, string>(),
+      };
+    });
+    const cancelPendingMedia = vi.fn((screenId: string, content: string) => {
+      publicationOrder.push("cancel");
+      cancelPendingPastedMediaAbsentFromContent(
+        pendingByScreen,
+        screenId,
+        content,
+      );
+    });
+
+    runPasteToReplace(
+      {
+        activeFile: {
+          id: "screen-1",
+          content: CONTENT_WITH_PENDING_IMAGE,
+        } as DesignFile,
+        applyLocalContentUpdate,
+        cancelPendingPastedMediaAbsentFromContent: cancelPendingMedia,
+        canEditDesign: true,
+        getCanvasClipboardEntries: () => [],
+        getFreshActiveContent: () => CONTENT_WITH_PENDING_IMAGE,
+        runtimeStructureInsertRevisionRef: { current: 0 },
+        selectInsertedLayers: vi.fn(),
+        selectedCanvasSelector: target.selectors[0]!,
+        selectedElement: {
+          tagName: "img",
+          selector: target.selectors[0]!,
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 400, y: 140, width: 200, height: 100 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+        setRuntimeStructureInsertRequest: vi.fn(),
+        t: (key) => key,
+      },
+      '<div data-agent-native-node-id="replacement" data-agent-native-layer-name="Frame" style="position:absolute;width:24px;height:24px"></div>',
+    );
+
+    expect(publicationOrder).toEqual(["publish", "cancel"]);
+    expect(cancelPendingMedia).toHaveBeenCalledOnce();
+    expect(pendingByScreen.get("screen-1")).toEqual(
+      new Map([
+        ["pending-image", true],
+        ["preview-only-image", true],
+        ["kept-image", false],
+      ]),
+    );
+  });
 
   it("uses measured clone bounds for stylesheet-sized paste replacement", () => {
     const target = buildCodeLayerProjection(CONTENT_WITH_IDS, {

@@ -36,7 +36,7 @@ export interface EnterSingleScreenArgs {
   setPinMode: Dispatch<SetStateAction<boolean>>;
   setScreenZoom: Dispatch<SetStateAction<number>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
-  setVectorEditingState: (value: null) => void;
+  setVectorEditingState: (value: null) => boolean | void;
   setViewMode: Dispatch<SetStateAction<"single" | "overview">>;
   viewModeRef: RefObject<"single" | "overview">;
 }
@@ -108,6 +108,7 @@ export function runEnterSingleScreen(
         }
       : undefined,
   );
+  if (setVectorEditingState(null) === false) return false;
   if (
     viewModeRef.current === "single" &&
     (!fileId || fileId === activeFileId)
@@ -130,7 +131,6 @@ export function runEnterSingleScreen(
   pendingOverviewLayerSelectionRef.current = null;
   clearPendingOverviewLayerSelectionTimer();
   setCreatedOverviewLayerSelection(null);
-  setVectorEditingState(null);
   const restoredZoom = resolveScreenEntryZoom(
     targetFileId,
     screenZoomByIdRef.current,

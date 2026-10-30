@@ -28,6 +28,10 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import {
+  resetAppConfigForTests,
+  setAppConfigLayer,
+} from "../app-config/store.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import * as dbClient from "../db/client.js";
 import type { TextAttachmentStorage } from "../file-upload/attachment-text.js";
@@ -48,7 +52,9 @@ import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
+import * as questionIntakeExperiment from "../observability/question-intake-experiment.js";
 import * as appRoles from "../org/app-roles.js";
+import { attachmentFailureToError } from "../private-blob/attachment-errors.js";
 import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import * as processRunFailure from "../server/agent-chat/process-run-failure.js";
@@ -99,6 +105,7 @@ import {
   serializeDurableDispatchPayload,
   callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
+  chainServerDrivenContinuation,
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
@@ -118,6 +125,8 @@ import {
   isRetryableError,
   actionsToEngineTools,
   filterActionsByAllowedNames,
+  filterActionsByExcludedNames,
+  trackExperimentExposureAtDispatch,
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
   backgroundNoProgressTerminalEvent,
@@ -4434,6 +4443,118 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("returns a typed retryable failure when an experiment assignment cannot be read", async () => {
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    const assignmentLookup = vi
+      .spyOn(
+        questionIntakeExperiment,
+        "resolveQuestionIntakeExperimentAssignment",
+      )
+      .mockRejectedValue(new Error("assignment store unavailable"));
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Build a dashboard" }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          authUserId: "better-auth-user-5",
+          run: {},
+        },
+        () => handler(event),
+      );
+
+      expect(event.res.status ?? event.node.res.statusCode).toBe(503);
+      expect(response).toMatchObject({
+        code: "question_intake_assignment_unavailable",
+        retryable: true,
+      });
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      assignmentLookup.mockRestore();
+      resetAppConfigForTests();
+    }
+  });
+
+  it("returns a non-retryable failure for an invalid stored experiment variant", async () => {
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    const assignmentLookup = vi
+      .spyOn(
+        questionIntakeExperiment,
+        "resolveQuestionIntakeExperimentAssignment",
+      )
+      .mockRejectedValue(
+        new questionIntakeExperiment.InvalidQuestionIntakeExperimentAssignmentError(
+          "design_no_questions",
+        ),
+      );
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Build a dashboard" }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          authUserId: "better-auth-user-5",
+          run: {},
+        },
+        () => handler(event),
+      );
+
+      expect(event.res.status ?? event.node.res.statusCode).toBe(500);
+      expect(response).toMatchObject({
+        code: "question_intake_assignment_invalid",
+        retryable: false,
+      });
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      assignmentLookup.mockRestore();
+      resetAppConfigForTests();
+    }
+  });
+
   it("waits for the durable queue receipt and replays it after a lost acknowledgement", async () => {
     const threadId = "thread-durable-admission";
     const messageId = "message-durable-admission";
@@ -7597,6 +7718,105 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("does not replay a consumed queue promotion claim to a background worker", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const queuedMessage: {
+      id: string;
+      text: string;
+      promotionClaim?: { id: string; expiresAt: number };
+    } = {
+      id: "queued-background-replay",
+      text: "Run the queued prompt",
+      promotionClaim: {
+        id: "claim-background-replay",
+        expiresAt: Date.now() + 60_000,
+      },
+    };
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-background-replay",
+        threadData: JSON.stringify({ queuedMessages: [queuedMessage] }),
+      } as never);
+    const onRunPrepared = vi.fn(
+      async (details: { queuedMessageClaimId?: string }) => {
+        if (details.queuedMessageClaimId === queuedMessage.promotionClaim?.id) {
+          delete queuedMessage.promotionClaim;
+        }
+      },
+    );
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValue({
+      claimed: true,
+      activeRunId: null,
+    });
+    mockInsertRun.mockClear();
+    mockFireInternalDispatch.mockClear();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run the queued prompt",
+          threadId: "thread-background-replay",
+          queuedMessageId: "queued-background-replay",
+          queuedMessageClaimId: "claim-background-replay",
+        }),
+      }),
+    );
+
+    try {
+      await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(onRunPrepared).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queuedMessageId: "queued-background-replay",
+          queuedMessageClaimId: "claim-background-replay",
+        }),
+      );
+      expect(queuedMessage).not.toHaveProperty("promotionClaim");
+      const slotOptions = (mockTryClaimRunSlot.mock.calls[0] as any)[3];
+      expect(slotOptions.dispatchMode).toBe("background");
+      const dispatchPayload = JSON.parse(slotOptions.dispatchPayload);
+      expect(dispatchPayload.queuedMessageId).toBe("queued-background-replay");
+      expect(dispatchPayload).not.toHaveProperty("queuedMessageClaimId");
+      expect(mockInsertRun).not.toHaveBeenCalled();
+      const dispatchedBody = (mockFireInternalDispatch.mock.calls[0] as any)[0]
+        .body;
+      expect(dispatchedBody[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
+        payloadRef: true,
+      });
+      expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+      expect(mockFireInternalDispatch).toHaveBeenCalledOnce();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+    }
+  });
+
   it("uses a data-free payload when the background insert falls back inline", async () => {
     const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     const previousA2ASecret = process.env.A2A_SECRET;
@@ -10191,7 +10411,55 @@ describe("filterActionsByAllowedNames", () => {
   });
 });
 
+describe("filterActionsByExcludedNames", () => {
+  it("removes treatment-only tools before they reach the model or tool search", () => {
+    const actions = {
+      "show-design-questions": actionEntry({}),
+      "create-design": actionEntry({}),
+      "tool-search": actionEntry({}),
+    };
+
+    expect(
+      Object.keys(
+        filterActionsByExcludedNames(actions, ["show-design-questions"]),
+      ),
+    ).toEqual(["create-design", "tool-search"]);
+    expect(filterActionsByExcludedNames(actions, [])).toBe(actions);
+  });
+});
+
 describe("runAgentLoop", () => {
+  it("tracks experiment exposure only after a model dispatch is admitted", async () => {
+    let interruptResult: "none" | "pending" = "pending";
+    const trackExposure = vi.fn();
+    const guards = createRunSafeBoundaryGuards({
+      signal: new AbortController().signal,
+      flushEvents: async () => {},
+      interruptRequestedAtBoundary: async () => interruptResult,
+    });
+    const beforeModelDispatch = trackExperimentExposureAtDispatch(
+      guards.beforeModelDispatch,
+      trackExposure,
+    );
+    const dispatch = vi.fn(() => "started");
+
+    await expect(beforeModelDispatch(dispatch)).resolves.toEqual({
+      started: false,
+    });
+    expect(trackExposure).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+
+    interruptResult = "none";
+    await expect(beforeModelDispatch(dispatch)).resolves.toEqual({
+      started: true,
+      value: "started",
+    });
+    await beforeModelDispatch(dispatch);
+
+    expect(trackExposure).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
   it("defers a queued interrupt when the durable abort declines", async () => {
     const abort = vi.fn(async () => false);
     const defer = vi.fn(async () => true);
@@ -11021,7 +11289,7 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual({ type: "done" });
   });
 
-  it("bounds repeated partial action-input continuations", async () => {
+  it("preserves usage when partial action-input continuations exhaust the limit", async () => {
     const events: AgentChatEvent[] = [];
     const run = vi.fn(async () => "should not execute");
     let streamCalls = 0;
@@ -11037,8 +11305,9 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        opts.onModelDispatchStarted?.();
         yield {
           type: "tool-input-start",
           id: `tool-edit-${streamCalls}`,
@@ -11049,34 +11318,55 @@ describe("runAgentLoop", () => {
           id: `tool-edit-${streamCalls}`,
           text: '{"designId":"design-1"',
         };
+        yield {
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 2,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 1,
+        };
       },
     };
 
-    await runAgentLoopWithMainChatInternalContinuations({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: {
-        "edit-design": {
-          ...actionEntry({ readOnly: false }),
-          run,
+    await expect(
+      runAgentLoopWithMainChatInternalContinuations({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": {
+            ...actionEntry({ readOnly: false }),
+            run,
+          },
         },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+        maxContinuations: 3,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "run_budget_exhausted",
+      providerRetryable: false,
+      message: expect.stringContaining("continuation limit"),
+      usage: {
+        inputTokens: 30,
+        outputTokens: 6,
+        cacheReadTokens: 9,
+        cacheWriteTokens: 3,
+        model: "test-model",
+        usageReported: true,
       },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-      maxContinuations: 3,
     });
 
     expect(streamCalls).toBe(3);
     expect(run).not.toHaveBeenCalled();
-    expect(events.at(-1)).toEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "run_budget_exhausted",
-        recoverable: false,
-      }),
+    expect(events).toContainEqual({ type: "clear" });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
     );
   });
 
@@ -14961,11 +15251,12 @@ describe("runAgentLoop", () => {
 
     it("declines another POST after one that may have written, and stops an exact repeat", async () => {
       const executeRequest = vi.fn().mockResolvedValue(rejected);
-      const create = (email: string) => ({
-        provider: "hubspot",
+      // GitHub, not HubSpot: raw HubSpot writes are refused before any retry.
+      const create = (title: string) => ({
+        provider: "github",
         method: "POST",
-        path: "/crm/v3/objects/contacts",
-        body: { properties: { email } },
+        path: "/repos/acme/app/issues",
+        body: { title },
       });
 
       const events = await runToolCallSequence(
@@ -15002,10 +15293,10 @@ describe("runAgentLoop", () => {
     it("runs the write again when the user replies continue in a new turn", async () => {
       const executeRequest = vi.fn().mockResolvedValue(accepted);
       const input = {
-        provider: "hubspot",
+        provider: "github",
         method: "POST",
-        path: "/crm/v3/objects/contacts",
-        body: { properties: { email: "a@example.com" } },
+        path: "/repos/acme/app/issues",
+        body: { title: "a@example.com" },
       };
       const messages: EngineMessage[] = [
         { role: "user", content: [{ type: "text", text: "add the contact" }] },
@@ -15998,6 +16289,88 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it.each(["…", "…."])(
+    "normalizes truncated nested argument echoes ending in %s to the same breaker key",
+    (ending) => {
+      const prefix = "Invalid action parameters — Invalid input. ";
+      const error = (key: string) =>
+        `${prefix}Received: {"patch":{"filter":{"group":null}},"idempotencyKey":"${key}","order":[${ending}`;
+      expect(normalizeToolErrorForBreaker(error("first"))).toBe(prefix.trim());
+      expect(normalizeToolErrorForBreaker(error("second"))).toBe(prefix.trim());
+    },
+  );
+
+  it("bounds unmatched validation scans without losing a large error's final diagnosis", () => {
+    const repeated = "Invalid action parameters. Received: x. ".repeat(1000);
+    const error = `${repeated}Provider status 503. Refresh the connected account.`;
+    const start = performance.now();
+    const normalized = normalizeToolErrorForBreaker(error);
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(normalized).toBe(error);
+    expect(
+      normalizeToolErrorForBreaker(
+        `${repeated}Provider status 404. Check the resource name.`,
+      ),
+    ).not.toBe(normalized);
+  }, 15_000);
+
+  it.each([
+    [
+      '{"id":"first","note":"Use . Expected: wording"}',
+      '{"id":"second","note":"Use . Expected: wording"}',
+    ],
+    ['["first"]', '["second"]'],
+  ])("normalizes complete terminal validation echoes: %s", (first, second) => {
+    const prefix = "Invalid action parameters — Invalid input. ";
+    for (const received of [first, second]) {
+      expect(
+        normalizeToolErrorForBreaker(`${prefix}Received: ${received}.`),
+      ).toBe(prefix.trim());
+    }
+  });
+
+  it.each([
+    [
+      "Request failed. Received: 404 Not Found. Check the repo name",
+      "Request failed. Received: 500 Server Error. Retry later",
+      "404 Not Found",
+      "500 Server Error",
+    ],
+    [
+      'Request failed. Received: {"status":404}. Retry later…',
+      'Request failed. Received: {"status":500}. Retry later…',
+      "404",
+      "500",
+    ],
+    [
+      'Request failed. {"status":404}. Retry later',
+      'Request failed. {"status":500}. Retry later',
+      "404",
+      "500",
+    ],
+    [
+      'Invalid action parameters — Invalid input. Received: {"id":"same"}. Provider status 404. Check the resource.',
+      'Invalid action parameters — Invalid input. Received: {"id":"same"}. Provider status 503. Retry later.',
+      "404",
+      "503",
+    ],
+    [
+      "Invalid action parameters — Invalid input. Received: {status:404}.",
+      "Invalid action parameters — Invalid input. Received: {status:503}.",
+      "404",
+      "503",
+    ],
+  ])(
+    "preserves distinct provider failures: %s",
+    (first, second, firstDetail, secondDetail) => {
+      const firstKey = normalizeToolErrorForBreaker(first);
+      const secondKey = normalizeToolErrorForBreaker(second);
+      expect(firstKey).toContain(firstDetail);
+      expect(secondKey).toContain(secondDetail);
+      expect(firstKey).not.toBe(secondKey);
+    },
+  );
+
   it("stops on the FIRST permanently-failing precondition instead of retrying it", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
@@ -16063,6 +16436,74 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).toContain(
       "needs to be fixed outside this chat",
     );
+  });
+
+  function importFileEngine(): AgentEngine {
+    let streamCalls = 0;
+    return {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: `import-${streamCalls}`,
+                name: "import-file",
+                input: { filePath: streamCalls === 1 ? "deck.pdf" : "ref" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "Imported." };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+  }
+
+  it("stops on a missing upload with its own remedy, not a setup list", async () => {
+    const run = vi.fn(async () => {
+      throw attachmentFailureToError({
+        status: "notFound",
+        reason: "blob_missing",
+        filename: "deck.pdf",
+      });
+    });
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine: importFileEngine(),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "import-file": { ...actionEntry({}), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error") as
+      | { error: string; errorCode?: string }
+      | undefined;
+    expect(stop?.errorCode).toBe("permanent_precondition");
+    expect(stop?.error).toContain("import-file can't run yet:");
+    expect(stop?.error).toContain("Attach the file again");
+    expect(stop?.error).not.toContain("a credential, a role");
   });
 
   it.each([
@@ -16414,7 +16855,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("counts per-item not-found errors as distinct failures", async () => {
+  it("bounds a not-found sweep even when errors name distinct items", async () => {
     const ITEMS = 7;
     let streamCalls = 0;
     const run = vi.fn(async (input: { id: number }) => {
@@ -16469,9 +16910,13 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(run).toHaveBeenCalledTimes(ITEMS);
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "error" }),
+    // oracle-change: distinct errors still consume the new per-tool failure budget.
+    expect(run).toHaveBeenCalledTimes(5);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_tool_failure",
+      }),
     );
   });
 
@@ -19194,7 +19639,7 @@ describe("runAgentLoop", () => {
     ]);
   });
 
-  it("recovers schema-invalid empty placeholders in optional tool fields", async () => {
+  it("refuses schema-invalid placeholders mixed with valid clears", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -19278,13 +19723,15 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(run).toHaveBeenCalledOnce();
-    expect(run).toHaveBeenCalledWith({ id: "ext-1" }, expect.any(Object));
-    expect(events).not.toContainEqual(
+    // oracle-change: refusing ambiguous input avoids inferring which valid clears were intended.
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
         tool: "update-extension",
         isError: true,
+        errorCode: "ambiguous_tool_placeholders",
+        completedSideEffect: false,
       }),
     );
   });
@@ -23556,6 +24003,71 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       startedAt: Date.now(),
     };
   }
+
+  it.each([false, true])(
+    "does not replay a consumed queued-message claim in a continuation (insert failure=%s)",
+    async (insertFails) => {
+      let dispatchPayload: string | undefined;
+      let dispatchedBody: Record<string, unknown> | undefined;
+
+      await chainServerDrivenContinuation({
+        event: {},
+        run: makeRun([{ type: "text", text: "Continuing this turn." }]),
+        effectiveThreadId: "t1",
+        effectiveTurnId: "turn1",
+        requestBody: {
+          threadId: "t1",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "already-consumed-claim",
+          message: "continue the queued request",
+        },
+        backgroundContinuationCount: 0,
+        chainViaDurableBackground: false,
+        deps: {
+          countRunsForTurn: async () => 1,
+          readTurnStartedAt: async () => null,
+          isTurnAborted: async () => false,
+          recordRunDiagnostic: async () => {},
+          insertRun: async (_runId, _threadId, _turnId, options) => {
+            if (insertFails) throw new Error("insert unavailable");
+            dispatchPayload = options.dispatchPayload;
+          },
+          markBackgroundContinuationChunkTerminal: async () => true,
+          fireInternalDispatch: async ({ body }) => {
+            dispatchedBody = body;
+          },
+          updateRunHeartbeat: async () => {},
+          readBackgroundRunClaim: async () => null,
+          updateRunStatusIfRunning: async () => false,
+          markRunAborted: async () => true,
+          isRunAborted: async () => false,
+          setRunTerminalReason: async () => {},
+          setRunError: async () => {},
+          emitRunText: async () => {},
+          generateRunId: () => "next-run",
+          sleep: async () => {},
+        },
+      });
+
+      if (insertFails) {
+        expect(dispatchPayload).toBeUndefined();
+        expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+        expect(dispatchedBody).toMatchObject({
+          queuedMessageId: "queued-1",
+          internalContinuation: true,
+        });
+      } else {
+        expect(JSON.parse(dispatchPayload!)).not.toHaveProperty(
+          "queuedMessageClaimId",
+        );
+        expect(JSON.parse(dispatchPayload!)).toMatchObject({
+          queuedMessageId: "queued-1",
+          internalContinuation: true,
+        });
+        expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+      }
+    },
+  );
 
   it("does NOT chain a foreground (non-background-worker) run", () => {
     expect(

@@ -7,6 +7,7 @@ import {
   RELIABILITY_TAG,
 } from "../lib/chat-reliability-core";
 import {
+  busyPostWithReferenceAttachment,
   multiTurnPersists,
   refreshMidRun,
   secondMessageWhileRunning,
@@ -71,6 +72,20 @@ for (const site of chatSites()) {
         secondMessageWhileRunning,
       );
     });
+
+    if (process.env.BETA_E2E_DISPOSABLE_CHAT_ORIGIN) {
+      test(`${RELIABILITY_TAG} a direct busy POST retains its reference attachment across reload`, async ({
+        browser,
+      }) => {
+        test.setTimeout(450_000);
+        await withSession(
+          browser,
+          site,
+          "busy POST with reference attachment",
+          busyPostWithReferenceAttachment,
+        );
+      });
+    }
 
     test(`${RELIABILITY_TAG} Stop returns the composer to idle and the thread still works`, async ({
       browser,

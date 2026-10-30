@@ -48,6 +48,7 @@ import {
 } from "../app-config/index.js";
 import { getOrgContext } from "../org/context.js";
 import { AppSecretDecryptionError } from "../secrets/errors.js";
+import { invalidateAgentEngineStatusCache } from "./agent-engine-status-cache.js";
 import { getSession } from "./auth.js";
 import {
   createCoreRoutesPlugin,
@@ -161,6 +162,12 @@ afterEach(() => {
   if (originalLambdaFunctionName === undefined)
     delete process.env.AWS_LAMBDA_FUNCTION_NAME;
   else process.env.AWS_LAMBDA_FUNCTION_NAME = originalLambdaFunctionName;
+  invalidateAgentEngineStatusCache();
+  delete process.env.FUSION_ENVIRONMENT;
+  delete process.env.AGENT_NATIVE_WORKSPACE;
+  delete process.env.BUILDER_GATEWAY_TOKEN;
+  delete process.env.BUILDER_GATEWAY_SPACE_ID;
+  vi.restoreAllMocks();
   secretReads.readAppSecret.mockReset().mockResolvedValue(null);
   secretReads.readAppSecrets.mockReset().mockResolvedValue(new Map());
   vi.mocked(getOrgContext).mockReset();
@@ -286,6 +293,70 @@ describe("agent-engine/status route failure handling", () => {
         scopeId: "org-1",
         keys: expect.arrayContaining(["BUILDER_PRIVATE_KEY"]),
       }),
+    );
+  });
+
+  function signInMember() {
+    const email = "member@example.test";
+    secretReads.readAppSecret.mockResolvedValue(null);
+    secretReads.readAppSecrets.mockResolvedValue(new Map());
+    vi.mocked(getSession).mockResolvedValue({
+      email,
+      token: "session-token",
+      emailVerified: true,
+    } as Awaited<ReturnType<typeof getSession>>);
+    vi.mocked(getOrgContext).mockResolvedValue({
+      email,
+      orgId: "org-1",
+      role: "owner",
+    } as Awaited<ReturnType<typeof getOrgContext>>);
+  }
+
+  it("lets a signed-in user chat on the Builder.io credits Fusion injects into the preview", async () => {
+    signInMember();
+    process.env.NODE_ENV = "production";
+    process.env.FUSION_ENVIRONMENT = "cloud-v2";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    const nitroApp = createNitroApp();
+    await createCoreRoutesPlugin()(nitroApp);
+    const response = await dispatch(
+      nitroApp,
+      "https://forms.example.test/_agent-native/agent-engine/status",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      configured: true,
+      engine: "builder",
+      chatEligible: true,
+    });
+    expect(response.body).not.toHaveProperty("builderCreditsRefused");
+  });
+
+  it("reports a deployed Builder.io credits pair the runtime refuses instead of plain not-configured", async () => {
+    signInMember();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    const nitroApp = createNitroApp();
+    await createCoreRoutesPlugin()(nitroApp);
+    const response = await dispatch(
+      nitroApp,
+      "https://forms.example.test/_agent-native/agent-engine/status",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      chatEligible: false,
+      builderCreditsRefused: true,
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("BUILDER_GATEWAY_TOKEN"),
     );
   });
 });

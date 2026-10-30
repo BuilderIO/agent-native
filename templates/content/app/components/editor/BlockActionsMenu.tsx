@@ -1,27 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { DragHandleMenuRequest } from "@agent-native/toolkit/editor";
-import {
-  IconArrowAutofitWidth,
-  IconCheck,
-  IconCode,
-  IconCopy,
-  IconH1,
-  IconH2,
-  IconH3,
-  IconList,
-  IconListNumbers,
-  IconMessageCircle,
-  IconPlus,
-  IconQuote,
-  IconSearch,
-  IconSquareCheck,
-  IconTableColumn,
-  IconTableRow,
-  IconTransform,
-  IconTrash,
-  IconTypography,
-  type Icon,
-} from "@tabler/icons-react";
+import { IconCheck, IconSearch } from "@tabler/icons-react";
 import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
@@ -65,7 +44,7 @@ import { startCommentOnRange, type BubbleToolbarProps } from "./BubbleToolbar";
 import { blockColorChoices, ColorChoices, ColorSubmenu } from "./ColorSubmenu";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { takesBlockColor } from "./extensions/NotionFidelity";
-import { instantCloseMenuClass, menuIconClass } from "./menu-classes";
+import { instantCloseMenuClass } from "./menu-classes";
 import { MenuSwitchItem } from "./MenuSwitchItem";
 import {
   getTableHeaders,
@@ -81,19 +60,18 @@ interface BlockMenuHost {
 
 const hosts = new Set<BlockMenuHost>();
 
-const TURN_INTO: Record<TurnIntoTarget, { labelKey: string; icon: Icon }> = {
-  text: { labelKey: "editor.slash.text", icon: IconTypography },
-  heading1: { labelKey: "editor.heading1", icon: IconH1 },
-  heading2: { labelKey: "editor.heading2", icon: IconH2 },
-  heading3: { labelKey: "editor.heading3", icon: IconH3 },
-  bulletedList: { labelKey: "editor.slash.bulletedList", icon: IconList },
+const TURN_INTO: Record<TurnIntoTarget, { labelKey: string }> = {
+  text: { labelKey: "editor.slash.text" },
+  heading1: { labelKey: "editor.heading1" },
+  heading2: { labelKey: "editor.heading2" },
+  heading3: { labelKey: "editor.heading3" },
+  bulletedList: { labelKey: "editor.slash.bulletedList" },
   numberedList: {
     labelKey: "editor.slash.numberedList",
-    icon: IconListNumbers,
   },
-  todoList: { labelKey: "editor.slash.todoList", icon: IconSquareCheck },
-  quote: { labelKey: "editor.slash.quote", icon: IconQuote },
-  codeBlock: { labelKey: "editor.slash.codeBlock", icon: IconCode },
+  todoList: { labelKey: "editor.slash.todoList" },
+  quote: { labelKey: "editor.slash.quote" },
+  codeBlock: { labelKey: "editor.slash.codeBlock" },
 };
 
 const LOCK_REASON_KEYS: Record<BlockLock, string> = {
@@ -406,7 +384,7 @@ export function BlockActionsMenu({
   };
 
   const turnIntoItem = (target: TurnIntoTarget) => {
-    const { labelKey, icon: TargetIcon } = TURN_INTO[target];
+    const { labelKey } = TURN_INTO[target];
     const checked = target === currentTarget;
     return (
       <DropdownMenuItem
@@ -416,7 +394,6 @@ export function BlockActionsMenu({
         onSelect={() => turnInto(target)}
         role="menuitemradio"
       >
-        <TargetIcon className={menuIconClass} />
         {t(labelKey)}
         {checked ? <IconCheck className="ms-auto size-4 shrink-0" /> : null}
       </DropdownMenuItem>
@@ -429,7 +406,6 @@ export function BlockActionsMenu({
           {
             label: t("database.headerRow"),
             checked: headers.row,
-            icon: IconTableRow,
             edit: (tr: Transaction, target: TableAt) =>
               setTableHeaders(tr, target, {
                 row: !getTableHeaders(target.node).row,
@@ -438,7 +414,6 @@ export function BlockActionsMenu({
           {
             label: t("database.headerColumn"),
             checked: headers.column,
-            icon: IconTableColumn,
             edit: (tr: Transaction, target: TableAt) =>
               setTableHeaders(tr, target, {
                 column: !getTableHeaders(target.node).column,
@@ -447,7 +422,6 @@ export function BlockActionsMenu({
           {
             label: t("database.fitToWidth"),
             checked: table.node.attrs.fitPageWidth === true,
-            icon: IconArrowAutofitWidth,
             edit: (tr: Transaction, target: TableAt) =>
               setTableFitWidth(
                 tr,
@@ -490,7 +464,6 @@ export function BlockActionsMenu({
         <MenuSwitchItem
           key={option.label}
           checked={option.checked}
-          icon={<option.icon className={menuIconClass} />}
           onToggle={() => editTable(option.edit)}
         >
           {option.label}
@@ -524,7 +497,6 @@ export function BlockActionsMenu({
         {!needle && turnTargets.length > 0 ? (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="gap-2">
-              <IconTransform className={menuIconClass} />
               {turnIntoLabel}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent
@@ -561,7 +533,6 @@ export function BlockActionsMenu({
             disabled={!canDuplicate}
             onSelect={request.duplicate}
           >
-            <IconCopy className={menuIconClass} />
             {t("editor.blockMenu.duplicate")}
             <DropdownMenuShortcut className={hintClass}>
               {hint("D")}
@@ -576,7 +547,6 @@ export function BlockActionsMenu({
             disabled={!canRemove}
             onSelect={request.remove}
           >
-            <IconTrash className="size-4 shrink-0" />
             {t("editor.blockMenu.delete")}
             <DropdownMenuShortcut className={hintClass}>
               {t("editor.blockMenu.keyDelete")}
@@ -585,7 +555,6 @@ export function BlockActionsMenu({
         ) : null}
         {showInsert ? (
           <DropdownMenuItem className="gap-2" onSelect={request.insertBelow}>
-            <IconPlus className={menuIconClass} />
             {t("editor.blockMenu.insertBelow")}
           </DropdownMenuItem>
         ) : null}
@@ -609,7 +578,6 @@ export function BlockActionsMenu({
         className="gap-2"
         onSelect={comment}
       >
-        <IconMessageCircle className={menuIconClass} />
         {t("editor.comment")}
         <DropdownMenuShortcut className={hintClass}>
           {hint("M", true)}

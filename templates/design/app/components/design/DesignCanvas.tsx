@@ -854,6 +854,7 @@ interface DesignCanvasProps {
     state: Omit<TextEditingState, "screenId">,
   ) => void;
   onElementDblClickText?: (info: ElementInfo) => void;
+  onFrameLabelRename?: (info: ElementInfo, name: string) => void;
   onIframeHotkey?: (event: IframeHotkeyPayload) => void;
   onFigmaClipboardPaste?: (event: IframeFigmaClipboardPastePayload) => void;
   onImagePaste?: (event: IframeImagePastePayload) => void;
@@ -1572,6 +1573,7 @@ export function DesignCanvas({
   onTextContentChange,
   onTextEditingStateChange,
   onElementDblClickText,
+  onFrameLabelRename,
   onIframeHotkey,
   onFigmaClipboardPaste,
   onImagePaste,
@@ -5693,6 +5695,16 @@ export function DesignCanvas({
         onTextEditingStateChange?.(textState);
         return;
       }
+      if (e.data.type === "frame-label-rename") {
+        if (
+          typeof e.data.name === "string" &&
+          e.data.payload &&
+          typeof e.data.payload === "object"
+        ) {
+          onFrameLabelRename?.(e.data.payload, e.data.name);
+        }
+        return;
+      }
       if (e.data.type === "element-dblclick-text") {
         onElementDblClickText?.(e.data.payload);
         return;
@@ -5936,6 +5948,7 @@ export function DesignCanvas({
     onTextContentChange,
     onTextEditingStateChange,
     onElementDblClickText,
+    onFrameLabelRename,
     onIframeHotkey,
     onFigmaClipboardPaste,
     onImagePaste,

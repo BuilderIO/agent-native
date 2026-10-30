@@ -1,4 +1,8 @@
-import { defineAction, NoWriteError } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  defineAction,
+  NoWriteError,
+} from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -25,10 +29,12 @@ import {
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
 import {
+  ApplyEditConflictError,
   applyOneEdit,
   type ApplyEditsResult,
   type DesignEdit,
 } from "../shared/apply-edits.js";
+import { promoteAuthoredSvgArtworkInHtml } from "../shared/authored-svg-layers.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   assertLockedLayersPreserved,
@@ -132,10 +138,26 @@ function applyOneEditWithStableIdFallback(
   try {
     return applyOneEdit(content, edit, index);
   } catch (error) {
+    if (!(error instanceof ApplyEditConflictError)) throw error;
     const span = findUniqueStableIdAgnosticSpan(content, edit.search);
-    if (!span) throw error;
-    return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+    if (span) {
+      return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+    }
+    throw new DesignEditSearchConflictError(
+      error instanceof Error ? error.message : String(error),
+    );
   }
+}
+
+class DesignEditSearchConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DesignEditSearchConflictError";
+  }
+}
+
+function designEditConflictOptions() {
+  return { errorCode: "design_edit_conflict", statusCode: 409 } as const;
 }
 
 export function applySearchReplaceEdits(
@@ -143,10 +165,25 @@ export function applySearchReplaceEdits(
   edits: DesignEdit[],
 ): ApplyEditsResult {
   let next = content;
-  edits.forEach((edit, index) => {
-    next = applyOneEditWithStableIdFallback(next, edit, index);
-  });
+  try {
+    edits.forEach((edit, index) => {
+      next = applyOneEditWithStableIdFallback(next, edit, index);
+    });
+  } catch (error) {
+    if (!(error instanceof DesignEditSearchConflictError)) throw error;
+    throw new NoWriteError(error.message, designEditConflictOptions());
+  }
   return { content: next, applied: edits.length };
+}
+
+export function preCheckpointNoWriteError(error: unknown): NoWriteError {
+  if (error instanceof NoWriteError) return error;
+  return new NoWriteError(
+    error instanceof Error ? error.message : String(error),
+    error instanceof ActionContractError
+      ? { errorCode: error.errorCode, statusCode: error.statusCode }
+      : undefined,
+  );
 }
 
 export default defineAction({
@@ -393,11 +430,22 @@ export default defineAction({
             edits ?? [],
           ));
         } catch (error) {
-          if (checkpointed) throw error;
-          throw new NoWriteError(
-            error instanceof Error ? error.message : "Design edit failed",
-          );
+          if (!checkpointed) {
+            throw preCheckpointNoWriteError(error);
+          }
+          if (error instanceof NoWriteError) {
+            throw new ActionContractError(error.message, {
+              errorCode: error.errorCode,
+              statusCode: error.statusCode,
+            });
+          }
+          throw error;
         }
+      }
+      if (file.fileType === "html") {
+        nextContent = promoteAuthoredSvgArtworkInHtml(nextContent, {
+          previousHtml: base,
+        }).content;
       }
       changed = nextContent !== base;
       creativeContext = undefined;

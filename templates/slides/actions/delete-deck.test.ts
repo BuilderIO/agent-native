@@ -13,6 +13,7 @@ const { mocks, tables } = vi.hoisted(() => ({
     },
     deckVersions: { deckId: "deckId", ownerEmail: "ownerEmail" },
     slideComments: { deckId: "deckId" },
+    deckShareLinks: { deckId: "deckId" },
     decks: { id: "id" },
   },
 }));

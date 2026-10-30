@@ -192,6 +192,8 @@ interface ProtocolRun {
    * newer run already carries the turn (the stale-run reaper starts one).
    */
   heldInterruption?: AgentError;
+  /** A local cancel is in flight: readers wait for its terminal events. */
+  cancelling?: boolean;
   outcomeReported?: boolean;
   pendingWidgets: Map<string, AgentWidget>;
   actions: Map<string, AgentActionInvocation>;
@@ -2719,6 +2721,20 @@ export function createAgentKitProtocolAdapter(
           },
           ...attachPendingWidgets(event.messageId),
         ];
+      case "message-replace":
+        run.activeMessageId = event.message.id;
+        run.activeMessageRole = event.message.role;
+        run.activeMessageCompleted = false;
+        return [
+          {
+            type: "message.replaced",
+            ...(base.occurredAt === undefined
+              ? {}
+              : { occurredAt: base.occurredAt }),
+            ...(base.metadata === undefined ? {} : { metadata: base.metadata }),
+            message: runtimeMessageToProtocolMessage(event.message, textFormat),
+          },
+        ];
       case "message-done":
         run.activeMessageId = event.message.id;
         run.activeMessageRole = event.message.role;
@@ -3901,7 +3917,7 @@ export function createAgentKitProtocolAdapter(
           }
           yield event;
         }
-        if (run.streamClosed || run.terminal) return;
+        if ((run.streamClosed || run.terminal) && !run.cancelling) return;
         await notifyWhenChanged(run, signal);
       }
     } finally {
@@ -4134,26 +4150,38 @@ export function createAgentKitProtocolAdapter(
       const cancellation = cancelCoreTurn(run, "user");
       run.streamClosed = true;
       run.terminal = true;
-      let result;
+      // Stopping the turn can end its event stream before the cancel settles,
+      // and the pump wakes readers when it does. Without this hold they would
+      // see a closed run and leave before the cancelled events below exist.
+      run.cancelling = true;
       try {
-        result = await cancellation;
-      } catch (error) {
-        run.streamClosed = streamWasClosed;
-        run.terminal = false;
-        ensurePump(run);
-        throw error;
+        let result;
+        try {
+          result = await cancellation;
+        } catch (error) {
+          run.streamClosed = streamWasClosed;
+          run.terminal = false;
+          ensurePump(run);
+          throw error;
+        }
+        if (result.status === "unsupported") {
+          run.streamClosed = streamWasClosed;
+          run.terminal = false;
+          ensurePump(run);
+          throw new Error(
+            "The Core runtime does not support run cancellation.",
+          );
+        }
+        run.waitingForContinuation = false;
+        delete run.pendingApprovalId;
+        run.terminalSource = "local";
+        run.cancelling = false;
+        append(run, { type: "run.status", status: "cancelled" });
+        append(run, { type: "run.cancelled" });
+      } finally {
+        run.cancelling = false;
+        for (const listener of run.listeners) listener();
       }
-      if (result.status === "unsupported") {
-        run.streamClosed = streamWasClosed;
-        run.terminal = false;
-        ensurePump(run);
-        throw new Error("The Core runtime does not support run cancellation.");
-      }
-      run.waitingForContinuation = false;
-      run.pendingApprovalId = undefined;
-      run.terminalSource = "local";
-      append(run, { type: "run.status", status: "cancelled" });
-      append(run, { type: "run.cancelled" });
     },
     async dispose() {
       if (disposed) return;
@@ -4165,6 +4193,7 @@ export function createAgentKitProtocolAdapter(
       for (const run of runs.values()) {
         run.streamClosed = true;
         run.terminal = true;
+        run.cancelling = false;
         run.waitingForContinuation = false;
         run.pendingApprovalId = undefined;
         for (const listener of run.listeners) listener();
