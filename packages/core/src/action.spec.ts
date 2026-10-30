@@ -1063,9 +1063,17 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
           pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
         },
       });
-      expect(actionsToEngineTools({ pair }).map(({ name }) => name)).toEqual([
-        "pair",
-      ]);
+      const engineTools = actionsToEngineTools({ pair });
+      expect(engineTools.map(({ name }) => name)).toEqual(["pair"]);
+      const inAppSchema = engineTools[0]!.inputSchema;
+      expect(
+        providerSchemaViolations({ name: "pair", inputSchema: inAppSchema }),
+      ).toEqual([]);
+      const validateInApp = new Ajv2020({ strict: false }).compile(inAppSchema);
+      expect([
+        validateInApp(witness),
+        validateInApp({ pair: ["a", 1] }),
+      ]).toEqual([true, false]);
 
       await withMcpClient({ pair }, async (client) => {
         const { tools } = await client.listTools();
