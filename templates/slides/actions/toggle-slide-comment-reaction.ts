@@ -55,6 +55,7 @@ export default defineAction({
           ),
         )
         .limit(1);
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- destructured row is undefined at runtime when no comment matches
       if (!comment)
         fail(`Comment not found: ${commentId}`, {
           errorCode: "comment_not_found",
