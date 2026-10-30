@@ -1,3 +1,4 @@
+import { normalizeApiBaseUrl } from "../shared/api-base-url.js";
 import {
   FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   matchesPathPrefix,
@@ -30,6 +31,56 @@ export function frameworkRoutePrefix(): string {
     projected,
     "window.__AGENT_NATIVE_CONFIG__.frameworkRoutePrefix",
   );
+}
+
+/**
+ * Where the browser reaches the app's server, or `undefined` when the server
+ * shares the page's origin and base path. Set at build time through
+ * `runtime.apiBaseUrl` or by a static host through
+ * `window.__AGENT_NATIVE_CONFIG__.apiBaseUrl`.
+ */
+export function apiBaseUrl(): string | undefined {
+  const configured = injectedAgentNativeConfig().runtime?.apiBaseUrl;
+  if (configured !== undefined) return normalizeApiBaseUrl(configured);
+  const projected =
+    typeof window === "undefined"
+      ? undefined
+      : (
+          window as Window & {
+            __AGENT_NATIVE_CONFIG__?: { apiBaseUrl?: unknown };
+          }
+        ).__AGENT_NATIVE_CONFIG__?.apiBaseUrl;
+  return normalizeApiBaseUrl(
+    projected,
+    "window.__AGENT_NATIVE_CONFIG__.apiBaseUrl",
+  );
+}
+
+/**
+ * Server routes that live on the app's server rather than the host serving
+ * the UI. `/assets` and `/.well-known` stay with the UI host.
+ */
+export function isBackendRoutePath(pathname: string): boolean {
+  return (
+    isFrameworkRoutePath(pathname) ||
+    matchesPathPrefix(pathname, "/api") ||
+    matchesPathPrefix(pathname, "/mcp")
+  );
+}
+
+/** True when `url` addresses the configured app server. */
+export function isApiBaseUrl(url: URL): boolean {
+  const base = apiBaseUrl();
+  if (!base) return false;
+  const baseUrl = new URL(base);
+  if (url.origin !== baseUrl.origin) return false;
+  const basePath = baseUrl.pathname.replace(/\/+$/, "");
+  return !basePath || matchesPathPrefix(url.pathname, basePath);
+}
+
+function serverPath(routerPath: string): string {
+  const base = apiBaseUrl();
+  return base ? `${base}${routerPath}` : appPath(routerPath);
 }
 
 export function isFrameworkRoutePath(pathname: string): boolean {
@@ -478,7 +529,7 @@ export function appApiPath(path: string): string {
     path === "/api" || path.startsWith("/api/")
       ? path
       : `/api/${path.replace(/^\/+/, "")}`;
-  return appPath(normalized);
+  return serverPath(normalized);
 }
 
 export function agentNativePath(path: string): string {
@@ -487,7 +538,7 @@ export function agentNativePath(path: string): string {
     queryOrFragment === -1 ? path : path.slice(0, queryOrFragment);
   if (!matchesPathPrefix(pathname, FRAMEWORK_INTERNAL_ROUTE_PREFIX))
     return path;
-  return appPath(
+  return serverPath(
     toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() }),
   );
 }

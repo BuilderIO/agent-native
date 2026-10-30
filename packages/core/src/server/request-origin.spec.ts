@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("h3", () => ({
   createError: (details: { statusCode: number; statusMessage: string }) =>
@@ -408,5 +408,29 @@ describe("hasSameOriginBrowserEvidence", () => {
     const event = fakeEvent(headers, { url: "https://app.example.com/action" });
     expect(hasSameOriginBrowserEvidence(event)).toBe(expected);
     expect(isSameOriginPost(event)).toBe(expected);
+  });
+});
+
+describe("isSameOriginPost", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("treats an operator-listed UI origin as first-party", () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.com");
+    const post = (headers: Record<string, string>) =>
+      isSameOriginPost(
+        fakeEvent(headers, { url: "https://api.example.com/action" }),
+      );
+    expect(
+      post({
+        origin: "https://app.example.com",
+        "sec-fetch-site": "same-site",
+      }),
+    ).toBe(true);
+    expect(
+      post({ origin: "https://evil.example", "sec-fetch-site": "cross-site" }),
+    ).toBe(false);
+    expect(post({ "sec-fetch-site": "same-site" })).toBe(false);
   });
 });

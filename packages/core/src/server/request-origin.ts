@@ -9,6 +9,8 @@ import {
   type H3Event,
 } from "h3";
 
+import { isExplicitCorsAllowedOrigin } from "../shared/mcp-embed-headers.js";
+
 function isLoopbackAddress(address: string | undefined): boolean {
   return Boolean(
     address === "::1" ||
@@ -146,9 +148,15 @@ export function hasSameOriginBrowserEvidence(event: H3Event): boolean {
   return !!origin && origin === getForwardedRequestOrigin(event);
 }
 
-/** A cookie-writing POST requires positive origin evidence. */
+/**
+ * A cookie-writing POST requires positive origin evidence. An origin the
+ * operator listed in `CORS_ALLOWED_ORIGINS` is the app's own UI served from
+ * elsewhere (`runtime.apiBaseUrl`), so it counts as first-party here.
+ */
 export function isSameOriginPost(event: H3Event): boolean {
-  return hasSameOriginBrowserEvidence(event);
+  if (hasSameOriginBrowserEvidence(event)) return true;
+  const origin = getRequestHeader(event, "origin");
+  return !!origin && isExplicitCorsAllowedOrigin(origin);
 }
 
 export function isSameOriginRequest(event: H3Event): boolean {

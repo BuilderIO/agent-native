@@ -102,6 +102,7 @@ configuration portion of `agent-native.json`:
 | `runtime.database.required`          | `boolean`                                                         | Declares whether production needs a persistent remote PostgreSQL database.                                                                                                                                                                                        |
 | `runtime.environment.required`       | `string[]`                                                        | Declares additional required environment variable names. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values do not belong in the config.                                                                                                                           |
 | `runtime.frameworkRoutePrefix`       | `string`                                                          | The public URL namespace the deployment serves framework routes under. Defaults to `/_agent-native`. One absolute segment of letters, digits, `_`, or `-`; `/api`, `/mcp`, and `/.well-known` are refused. See [Framework route prefix](#framework-route-prefix). |
+| `runtime.apiBaseUrl`                 | `string`                                                          | Absolute URL of the app's server when the UI is served from another origin. Framework, `/api`, and `/mcp` requests go there with credentials. See [Separate API origin](#separate-api-origin).                                                                    |
 | `deployment.environment`             | `"local"`, `"beta"`, `"production"`, or `"preview"`               | Records the release lane that produced the current client bundle.                                                                                                                                                                                                 |
 | `deployment.workspace.appsDirectory` | `string`                                                          | Relative directory containing app packages for a workspace deploy. Defaults to `apps/`; set `"."` for a workspace whose apps live at its root.                                                                                                                    |
 | `deployment.workspace.authMode`      | `"shared"` or `"isolated"`                                        | Controls whether apps mounted by a workspace deploy share auth. Defaults to `"shared"`; `"isolated"` keeps one login per app.                                                                                                                                     |
@@ -128,6 +129,7 @@ upper snake case and join segments with underscores:
 | `runtime.database.required`          | `AGENT_NATIVE_CONFIG_RUNTIME_DATABASE_REQUIRED`           |
 | `runtime.environment.required`       | `AGENT_NATIVE_CONFIG_RUNTIME_ENVIRONMENT_REQUIRED`        |
 | `runtime.frameworkRoutePrefix`       | `AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX`      |
+| `runtime.apiBaseUrl`                 | `AGENT_NATIVE_CONFIG_RUNTIME_API_BASE_URL`                |
 | `deployment.environment`             | `AGENT_NATIVE_CONFIG_DEPLOYMENT_ENVIRONMENT`              |
 | `deployment.workspace`               | `AGENT_NATIVE_CONFIG_DEPLOYMENT_WORKSPACE`                |
 | `deployment.workspace.appsDirectory` | `AGENT_NATIVE_CONFIG_DEPLOYMENT_WORKSPACE_APPS_DIRECTORY` |
@@ -441,3 +443,27 @@ A remote installation keeps its own namespace. Requests the framework makes to a
 Changing the prefix changes URLs registered elsewhere. Before deploying, update OAuth redirect registrations, webhook subscriptions, MCP connection URLs, and external monitors that point at `/_agent-native/...`; magic links and password-reset links issued before the change stop working, and a cached browser bundle must be reloaded.
 
 For a multi-app workspace deploy, set the `AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX` alias in the deploy environment so the workspace gateway and every app build read the same value.
+
+## Separate API origin
+
+By default the browser calls the server on the same origin that served the page. When the UI and the server are deployed separately — a static host for the UI and the Node server elsewhere — set `runtime.apiBaseUrl` to the server's URL:
+
+```ts
+import { defineAgentNativeConfig } from "@agent-native/core/config";
+
+export default defineAgentNativeConfig({
+  runtime: {
+    apiBaseUrl: "https://api.example.com",
+  },
+});
+```
+
+The value is an absolute `http` or `https` URL with an optional mount path and no query string, fragment, or credentials; an empty string keeps same-origin requests. It is written into the browser bundle at build time, or a static host can set it before the app loads with `window.__AGENT_NATIVE_CONFIG__ = { apiBaseUrl: "https://api.example.com" }`. The build-time value wins when both are set. An invalid value throws when the client first resolves a URL.
+
+With a base URL set, `agentNativePath()` and `appApiPath()` return absolute URLs on the server, and the client rewrites any relative `fetch` to `/_agent-native/...`, the configured framework prefix, `/api/...`, or `/mcp` to the server. `/assets` and `/.well-known` stay on the UI host. Requests to the server are sent with `credentials: "include"` unless the caller passes `credentials: "omit"`, and event streams to the server open with `withCredentials`. Include any mount path in the URL: a server mounted at `/mail` is `https://api.example.com/mail`.
+
+The server must admit the UI's origin. Add it to `CORS_ALLOWED_ORIGINS` on the server deploy; listed origins receive `Access-Control-Allow-Credentials` and are trusted by the sign-in origin check.
+
+Sessions ride the server's cookie. Over HTTPS the session cookie is `SameSite=None; Secure; Partitioned`, so a UI on a sibling subdomain of the server (`app.example.com` calling `api.example.com`) works in every browser. A UI on an unrelated site depends on the browser accepting third-party partitioned cookies, which some browsers block. Browsers treat `localhost` like a top-level domain, so `app.localhost` and `api.localhost` are different sites; for local testing put the server under the UI's host instead, such as `app.localhost` and `api.app.localhost`.
+
+Sign-in happens on the server. Sign-in links from the UI (`buildSignInReturnHref()`, `RequireSession`, sign-out, and the root `signInLandingLoader`) point at `<apiBaseUrl>/sign-in`, and the continuation resumes at `/_agent-native/auth/ui-return?to=<UI URL>` on the server. That route redirects only to an origin listed in `CORS_ALLOWED_ORIGINS` and answers `400` for any other target. Every sign-in method — password, magic link, Google, SSO — resumes through it, so the browser returns to the UI page it left. The server's `APP_BASE_PATH` must match the path in `apiBaseUrl`; a UI location too long to carry in the continuation returns to the UI root.

@@ -25,6 +25,7 @@ import {
   workspaceAppAccessUnavailableBody,
 } from "../org/workspace-app-access-outcome.js";
 import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
+import { UI_RETURN_PATH } from "../shared/api-base-url.js";
 import { CONSENT_PATH, CONSENT_REGION_PATH } from "../shared/consent.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -39,6 +40,7 @@ import {
 import { FIRST_TOUCH_SERVER_PATH } from "../shared/first-touch-persistence.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
+  corsAllowHeadersFor,
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
@@ -310,6 +312,7 @@ import {
   reportSessionResolutionUnavailable,
 } from "./session-resolution-unavailable.js";
 import { isTestIdentity } from "./test-identity.js";
+import { uiReturnHandler } from "./ui-return.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 function stripAppBasePath(pathname: string): string {
@@ -3217,20 +3220,23 @@ function applyCorsHeaders(
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    mcpEmbedCorsRequest
-      ? MCP_EMBED_CORS_ALLOW_HEADERS
-      : [
-          "Content-Type",
-          "Authorization",
-          "X-Requested-With",
-          "X-Request-Source",
-          "X-Content-Save-Origin",
-          "X-Agent-Native-CSRF",
-          "X-User-Timezone",
-          "X-Agent-Native-Desktop-Verifier",
-          "X-Agent-Native-Test-Traffic",
-          EMBED_TARGET_HEADER,
-        ].join(","),
+    corsAllowHeadersFor(
+      getHeader(event, "access-control-request-headers"),
+      mcpEmbedCorsRequest
+        ? MCP_EMBED_CORS_ALLOW_HEADERS
+        : [
+            "Content-Type",
+            "Authorization",
+            "X-Requested-With",
+            "X-Request-Source",
+            "X-Content-Save-Origin",
+            "X-Agent-Native-CSRF",
+            "X-User-Timezone",
+            "X-Agent-Native-Desktop-Verifier",
+            "X-Agent-Native-Test-Traffic",
+            EMBED_TARGET_HEADER,
+          ].join(","),
+    ),
   );
   return { hasOrigin: true, allowed: true };
 }
@@ -7348,6 +7354,7 @@ async function mountBetterAuthRoutes(
   );
 
   app.use("/_agent-native/auth/session", authSessionHandler);
+  app.use(UI_RETURN_PATH, uiReturnHandler);
 
   app.use(
     "/_agent-native/auth/reset",
@@ -7532,6 +7539,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
   );
 
   app.use("/_agent-native/auth/session", authSessionHandler);
+  app.use(UI_RETURN_PATH, uiReturnHandler);
 }
 
 export async function autoMountAuth(
@@ -7667,6 +7675,7 @@ export async function autoMountAuth(
 
   if (customGetSession) {
     app.use("/_agent-native/auth/session", authSessionHandler);
+    app.use(UI_RETURN_PATH, uiReturnHandler);
     app.use(
       "/_agent-native/auth/login",
       defineEventHandler(() => ({ ok: true })),
