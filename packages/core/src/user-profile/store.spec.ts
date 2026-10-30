@@ -196,6 +196,23 @@ describe("user profile store", () => {
     warn.mockRestore();
   });
 
+  it("reports names as incomplete when the per-email fallback cannot read a stored name", async () => {
+    adapter.listUsers.mockRejectedValue(new Error("adapter down"));
+    adapter.findUserByEmail.mockResolvedValue({
+      user: { email: "alice@example.com", name: "alice" },
+    });
+    getUserSettingMock.mockRejectedValue(new Error("settings down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await getUserProfilesWithStatus(["alice@example.com"]);
+
+    expect(result.profiles.get("alice@example.com")?.email).toBe(
+      "alice@example.com",
+    );
+    expect(result.incomplete).toBe(true);
+    warn.mockRestore();
+  });
+
   it("reports names as incomplete when a per-email lookup fails", async () => {
     adapter.listUsers.mockRejectedValue(new Error("adapter down"));
     adapter.findUserByEmail.mockRejectedValue(new Error("auth down"));

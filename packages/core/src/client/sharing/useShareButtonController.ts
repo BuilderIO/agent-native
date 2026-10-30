@@ -180,11 +180,12 @@ export function useShareButtonController(
   const shareTabDefaultValue = options.shareTabs?.defaultValue ?? "share";
   const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const resourceKey = `${options.resourceType}:${options.resourceId}`;
-  // A save that settles after the panel moves to another resource must not
-  // put its inputs back there: a retry would share the wrong resource.
-  const currentResourceKeyRef = useRef(resourceKey);
+  // Each resource the panel shows is a new visit, even returning to one seen
+  // before. A save that settles in a later visit must leave its state alone:
+  // putting inputs back would let a retry share the wrong resource.
+  const visitRef = useRef(0);
   useEffect(() => {
-    currentResourceKeyRef.current = resourceKey;
+    visitRef.current += 1;
   }, [resourceKey]);
   // Tied to the resource it was made for: a click that lands on a new resource
   // before any effect runs must not see the previous resource's value.
@@ -504,7 +505,7 @@ export function useShareButtonController(
   const handleAdd = useCallback(() => {
     const trimmed = inviteEmail.trim();
     if (!trimmed || !canManage) return;
-    const startedOnResource = resourceKey;
+    const startedOnVisit = visitRef.current;
     const principalType = selectedGroup ? "group" : "user";
     const principalId = selectedGroup?.id ?? selectedAgent?.email ?? trimmed;
     const notify = principalType === "user" && !selectedAgent && notifyPeople;
@@ -561,7 +562,7 @@ export function useShareButtonController(
             options.onShareSuccess?.();
           }
           void sharesQuery.refetch().then(() => {
-            if (currentResourceKeyRef.current !== startedOnResource) return;
+            if (visitRef.current !== startedOnVisit) return;
             setPendingAdds((previous) =>
               previous.filter((item) => item.id !== optimistic.id),
             );
@@ -569,8 +570,13 @@ export function useShareButtonController(
           });
         },
         onError: (error: unknown) => {
+          if (visitRef.current !== startedOnVisit) {
+            // A later visit owns this cache; re-read it rather than restore
+            // an older snapshot over newer changes.
+            void queryClient.invalidateQueries({ queryKey: shareQueryKey });
+            return;
+          }
           rollbackShareCache(queryClient, shareQueryKey, previous);
-          if (currentResourceKeyRef.current !== startedOnResource) return;
           setPendingAdds((previous) =>
             previous.filter((item) => item.id !== optimistic.id),
           );
@@ -614,7 +620,7 @@ export function useShareButtonController(
       }
       const key = keyOf(currentShare);
       if (inFlightRef.current.has(key)) return;
-      const startedOnResource = resourceKey;
+      const startedOnVisit = visitRef.current;
       setRoleOverrides((previous) => ({ ...previous, [key]: next }));
       addInFlight(key);
       const previous =
@@ -644,7 +650,7 @@ export function useShareButtonController(
           onSuccess: () => {
             notifyShareChanged(options.resourceType);
             void sharesQuery.refetch().then(() => {
-              if (currentResourceKeyRef.current !== startedOnResource) return;
+              if (visitRef.current !== startedOnVisit) return;
               setRoleOverrides((previous) => {
                 const { [key]: _removed, ...rest } = previous;
                 return rest;
@@ -653,8 +659,11 @@ export function useShareButtonController(
             });
           },
           onError: (error: unknown) => {
+            if (visitRef.current !== startedOnVisit) {
+              void queryClient.invalidateQueries({ queryKey: shareQueryKey });
+              return;
+            }
             rollbackShareCache(queryClient, shareQueryKey, previous);
-            if (currentResourceKeyRef.current !== startedOnResource) return;
             setRoleOverrides((previous) => {
               const { [key]: _removed, ...rest } = previous;
               return rest;
@@ -687,7 +696,7 @@ export function useShareButtonController(
       }
       const key = keyOf(currentShare);
       if (inFlightRef.current.has(key)) return;
-      const startedOnResource = resourceKey;
+      const startedOnVisit = visitRef.current;
       setPendingRemoves((previous) => new Set(previous).add(key));
       addInFlight(key);
       const previous =
@@ -713,7 +722,7 @@ export function useShareButtonController(
           onSuccess: () => {
             notifyShareChanged(options.resourceType);
             void sharesQuery.refetch().then(() => {
-              if (currentResourceKeyRef.current !== startedOnResource) return;
+              if (visitRef.current !== startedOnVisit) return;
               setPendingRemoves((previous) => {
                 const next = new Set(previous);
                 next.delete(key);
@@ -723,8 +732,11 @@ export function useShareButtonController(
             });
           },
           onError: (error: unknown) => {
+            if (visitRef.current !== startedOnVisit) {
+              void queryClient.invalidateQueries({ queryKey: shareQueryKey });
+              return;
+            }
             rollbackShareCache(queryClient, shareQueryKey, previous);
-            if (currentResourceKeyRef.current !== startedOnResource) return;
             setPendingRemoves((previous) => {
               const next = new Set(previous);
               next.delete(key);

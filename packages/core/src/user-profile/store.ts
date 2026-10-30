@@ -141,9 +141,16 @@ async function updateFallbackUserProfile(
 }
 
 export async function getUserProfile(email: string): Promise<UserProfile> {
+  return (await readUserProfile(email)).profile;
+}
+
+/** One person's profile, with whether their stored name could be read. */
+async function readUserProfile(
+  email: string,
+): Promise<{ profile: UserProfile; storedNameRead: boolean }> {
   const authUser = await getAuthUser(email);
-  if (authUser) return profileFromAuthUserWithStoredName(email, authUser.user);
-  return getStoredUserProfile(email);
+  if (authUser) return readAuthUserWithStoredName(email, authUser.user);
+  return { profile: await getStoredUserProfile(email), storedNameRead: true };
 }
 
 export async function getUserProfiles(
@@ -262,12 +269,17 @@ export async function getUserProfilesWithStatus(
   } else {
     const results = await Promise.allSettled(
       missingEmails.map(
-        async (email) => [email, await getUserProfile(email)] as const,
+        async (email) => [email, await readUserProfile(email)] as const,
       ),
     );
     for (const result of results) {
-      if (result.status === "fulfilled") profiles.set(...result.value);
-      else incomplete = true;
+      if (result.status !== "fulfilled") {
+        incomplete = true;
+        continue;
+      }
+      const [email, { profile, storedNameRead }] = result.value;
+      profiles.set(email, profile);
+      if (!storedNameRead) incomplete = true;
     }
   }
   return { profiles, incomplete };

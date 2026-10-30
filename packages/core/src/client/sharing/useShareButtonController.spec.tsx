@@ -186,6 +186,28 @@ describe("useShareButtonController agents", () => {
     expect(current().shareError).toBeNull();
   });
 
+  it("ignores a save from an earlier visit after switching away and back", async () => {
+    await render("deck-1");
+    act(() => current().selectAgent(writer));
+    act(() => current().handleAdd());
+    const staleInvite = lastShareCall();
+
+    await render("deck-2");
+    await render("deck-1");
+    act(() => current().selectAgent(reviewer));
+    act(() => current().handleAdd());
+
+    act(() => staleInvite.callbacks.onError?.(new Error("refused")));
+
+    expect(current().selectedAgent).toBeNull();
+    expect(current().inviteEmail).toBe("");
+    expect(current().shareError).toBeNull();
+    expect(current().inFlight.size).toBe(1);
+    expect(current().shares.map((share) => share.principalId)).toContain(
+      reviewer.email,
+    );
+  });
+
   it("keeps a pending invite on its own resource when the panel moves on", async () => {
     await render("deck-1");
     act(() => current().selectAgent(writer));
