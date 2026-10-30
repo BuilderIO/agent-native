@@ -222,7 +222,7 @@ describe("get-deck", () => {
       expect(new Set(readSlideIds(result)).size).toBe(2);
       expect(mockUpdate).not.toHaveBeenCalled();
       expect(mockNotifyClients).not.toHaveBeenCalled();
-      expect(currentResource?.data).toBe(originalData);
+      expect(currentResource.data).toBe(originalData);
     },
   );
 
