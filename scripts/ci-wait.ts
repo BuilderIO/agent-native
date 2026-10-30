@@ -36,7 +36,7 @@ export function judge(checks: Check[], head: string): Verdict {
   };
 }
 
-const NO_CHECKS_GRACE_MS = 10 * 60_000;
+const NO_CHECKS_GRACE_MS = 5 * 60_000;
 
 export type Options = { pr: string; intervalMs: number; maxMs: number };
 
@@ -120,6 +120,9 @@ function main(): number {
   let last: { head: string; checks: Check[] } | null = null;
   // Measured per head: a push resets it, so a new head gets its own grace.
   let emptySince = started;
+  // A workflow can register after the others finish, so a finished set only
+  // counts once two polls in a row see the same one.
+  let settled = "";
   for (;;) {
     try {
       const { state, head, checks } = readPr(pr, deadline);
@@ -131,7 +134,15 @@ function main(): number {
       if (checks.length || head !== last?.head) emptySince = Date.now();
       last = { head, checks };
       const verdict = judge(checks, head);
-      if (verdict.done) {
+      const key = verdict.done
+        ? `${head} ${checks
+            .map((c) => `${c.name}:${c.bucket}`)
+            .sort()
+            .join(",")}`
+        : "";
+      const confirmed = verdict.done && key === settled;
+      settled = key;
+      if (verdict.done && confirmed) {
         console.log(verdict.summary);
         return verdict.exit;
       }
@@ -142,11 +153,16 @@ function main(): number {
       }
     }
     if (!last?.checks.length && Date.now() - emptySince > NO_CHECKS_GRACE_MS) {
-      console.log("No checks were reported for this head within 10 minutes.");
+      console.log("No checks were reported for this head within 5 minutes.");
       return 2;
     }
     const left = deadline - Date.now();
     if (left <= 0) {
+      const final = last ? judge(last.checks, last.head) : null;
+      if (final?.done) {
+        console.log(final.summary);
+        return final.exit;
+      }
       const pending = last?.checks.filter((c) => c.bucket === "pending") ?? [];
       console.log(
         `Out of time with ${pending.length} checks still running: ${pending.map((c) => c.name).join(", ")}`,
