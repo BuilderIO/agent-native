@@ -1458,6 +1458,7 @@
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/analytics",
+        "@agent-native/core/client/api-path",
         "@agent-native/core/client/hooks",
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/mcp-connect-identity",

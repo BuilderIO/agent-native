@@ -26,7 +26,6 @@ export {
 } from "./useResourceAccessGate.js";
 export {
   useShareButtonController,
-  type ShareButtonAgent,
   type ShareButtonController,
   type ShareButtonControllerOptions,
   type ShareButtonOrgMember,

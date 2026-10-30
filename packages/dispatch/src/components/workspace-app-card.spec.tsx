@@ -51,6 +51,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useOptionalLocale: () => null,
   useFormatters: () => ({
     formatDate: (value: string) => value,
   }),

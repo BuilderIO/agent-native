@@ -489,8 +489,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(
         container.querySelector('[data-share-open="true"]'),
       ).not.toBeNull();
-      const props = mocks.shareProps.at(-1);
-      if (!props) throw new Error("Share was not rendered");
+      const props = mocks.shareProps[mocks.shareProps.length - 1];
       expect(props.resourceType).toBe("document");
       expect(props.resourceId).toBe("widget-fixture");
       expect(props.mobileSheet).toBe(true);
@@ -498,7 +497,9 @@ describe("DocumentToolbar in an MCP App widget", () => {
       // The widget's session cannot set discoverability, mint agent links,
       // or open the app's agent deep links.
       expect(props.hideInSearchControl).toBeUndefined();
-      expect(props.sendTo).toBeUndefined();
+      expect(mocks.shareProps.slice(-1)).toEqual([
+        expect.not.objectContaining({ sendTo: expect.anything() }),
+      ]);
       expect(props.shareTabs).toBeUndefined();
       // The popover's own trigger group matches the one drawn before it.
       expect(props.quickCopy.size).toBe("sm");
@@ -515,15 +516,18 @@ describe("DocumentToolbar in an MCP App widget", () => {
       await act(async () => Promise.resolve());
       await act(async () => Promise.resolve());
 
-      const props = mocks.shareProps.at(-1);
-      if (!props) throw new Error("Share was not rendered");
+      const props = mocks.shareProps[mocks.shareProps.length - 1];
       expect(props.basicSharingOnly).toBe(false);
       expect(props.hideInSearchControl).toBeDefined();
-      expect(props.sendTo).toMatchObject({
-        openInAgent: expect.any(Function),
-        copyAgentPrompt: expect.any(Function),
-        openMcpSettings: expect.any(Function),
-      });
+      expect(mocks.shareProps.slice(-1)).toEqual([
+        expect.objectContaining({
+          sendTo: expect.objectContaining({
+            openInAgent: expect.any(Function),
+            copyAgentPrompt: expect.any(Function),
+            openMcpSettings: expect.any(Function),
+          }),
+        }),
+      ]);
       expect(props.quickCopy.className).toBeUndefined();
     });
   });

@@ -270,7 +270,11 @@ test("share dialog uses editor panel chrome", async ({ app }) => {
     await page.getByRole("combobox", { name: "General access" }).click();
     const accessMenu = page
       .locator("[data-radix-popper-content-wrapper]")
-      .filter({ has: page.getByRole("option", { name: /Organization/ }) })
+      .filter({
+        has: page.getByRole("option", {
+          name: /^Anyone (?:in your organization|at .+)$/,
+        }),
+      })
       .last();
     await expect(accessMenu).toBeVisible();
     await expect(shareOptions).toBeVisible();

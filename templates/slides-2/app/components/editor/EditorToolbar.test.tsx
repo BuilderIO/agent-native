@@ -203,17 +203,8 @@ type ShareButtonProps = {
   triggerClassName?: string;
   shareUrl?: string;
   showShareLinks?: boolean;
-  secondaryShareUrl?: string;
   shareUrlLabel?: string;
   shareUrlDescription?: string;
-  secondaryShareUrlLabel?: string;
-  secondaryShareUrlDescription?: string;
-  roleCopy?: {
-    commenter?: {
-      label: string;
-      description?: string;
-    };
-  };
   shareTabs?: {
     tabs?: Array<{
       value?: string;
@@ -1144,11 +1135,7 @@ describe("<EditorToolbar>", () => {
       expect(shareButtonProps?.shareUrlDescription).toBe(
         "editorToolbar.editorLinkDescription",
       );
-      expect(shareButtonProps?.secondaryShareUrl).toBeUndefined();
-      expect(shareButtonProps?.roleCopy?.commenter).toEqual({
-        label: "editorToolbar.commenterRoleLabel",
-        description: "editorToolbar.commenterRoleDescription",
-      });
+      // oracle-change: ShareButton dropped the secondary link and the deck's commenter role override; the shared "Can comment" label now applies to every app.
       if (creativeContextEnabled) {
         expect(shareButtonProps.shareTabs?.tabs?.[0]?.value).toBe("context");
         expect(shareButtonProps.shareTabs?.tabs?.[0]?.label).toBe("Context");
