@@ -597,6 +597,20 @@ const messages = {
     makeMoreVisual: "更具視覺效果",
     generateImage: "產生圖片",
     removeBackground: "移除背景",
+    autoLayout: "自動布局",
+    addAutoLayout: "新增自動布局",
+    removeAutoLayout: "移除自動布局",
+    direction: "方向",
+    gap: "間距",
+    padding: "內距",
+    layoutSizing: {
+      fixed: "固定",
+      hug: "貼合",
+      fill: "填滿",
+    },
+    autoLayoutUnmeasurable:
+      "無法測量此群組中的某個物件。請確認它在投影片上可見，然後再試一次。",
+    autoLayoutUnavailable: "無法為此選取範圍新增自動布局。",
   },
   styleInspector: {
     title: "Style",

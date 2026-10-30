@@ -36,6 +36,8 @@ import {
   IconItalic,
   IconLanguage,
   IconLayersSubtract,
+  IconLayoutColumns,
+  IconLayoutRows,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -92,6 +94,14 @@ import type { VideoPlaybackSettings } from "@/lib/slide-video";
 import { cn, normalizeLinkHref, shortcutLabel } from "@/lib/utils";
 
 import type { SlideListKind } from "./list-editing";
+import type {
+  FrameLayout,
+  LayoutAlign,
+  LayoutAxis,
+  LayoutSizing,
+  SlideAutoLayoutFrameChange,
+  SlideLayoutSizingState,
+} from "./slide-auto-layout";
 import type {
   SlideObjectAlignment,
   SlideObjectDistribution,
@@ -281,6 +291,246 @@ function ToolbarMenu({
   );
 }
 
+export interface SlideAutoLayoutToolbarState {
+  /** The selected group's flow settings; null while it places members freely. */
+  frame: FrameLayout | null;
+  /** Hug, Fill or Fixed for a group in auto layout or a member in its flow. */
+  sizing: SlideLayoutSizingState | null;
+}
+
+type ScrubPhase = "preview" | "commit" | "cancel";
+
+const MAIN_ALIGN_VALUES = ["start", "center", "end"] as const;
+
+function AutoLayoutControls({
+  state,
+  onAdd,
+  onRemove,
+  onChange,
+  onSizingChange,
+}: {
+  state: SlideAutoLayoutToolbarState;
+  onAdd: (() => void) | undefined;
+  onRemove: (() => void) | undefined;
+  onChange:
+    | ((change: SlideAutoLayoutFrameChange, phase: ScrubPhase) => void)
+    | undefined;
+  onSizingChange:
+    | ((axis: LayoutAxis, sizing: LayoutSizing) => void)
+    | undefined;
+}) {
+  const t = useT();
+  const { frame, sizing } = state;
+  if (!frame && !sizing) {
+    if (!onAdd) return null;
+    return (
+      <ToolbarButton
+        label={t("contextToolbar.addAutoLayout")}
+        shortcut={shortcutLabel("shift+a")}
+        onClick={onAdd}
+      >
+        <IconLayoutRows className="size-4" />
+      </ToolbarButton>
+    );
+  }
+  const vertical = frame?.mode === "vertical";
+  const TriggerIcon = vertical || !frame ? IconLayoutRows : IconLayoutColumns;
+  // Main is along the direction; the row that names that axis edits it.
+  const axisAlign = (axis: LayoutAxis): LayoutAlign | null => {
+    if (!frame) return null;
+    const isMain = (axis === "vertical") === vertical;
+    if (isMain && frame.spacing === "space-between") return null;
+    const align = isMain ? frame.alignment.main : frame.alignment.cross;
+    return (MAIN_ALIGN_VALUES as readonly string[]).includes(align)
+      ? align
+      : null;
+  };
+  const setAxisAlign = (axis: LayoutAxis, align: LayoutAlign) => {
+    const isMain = (axis === "vertical") === vertical;
+    onChange?.(
+      { alignment: isMain ? { main: align } : { cross: align } },
+      "commit",
+    );
+  };
+  const paddingAxis = (axis: LayoutAxis) => {
+    if (!frame) return { value: 0, mixed: false };
+    const [start, end] =
+      axis === "horizontal"
+        ? [frame.padding.left, frame.padding.right]
+        : [frame.padding.top, frame.padding.bottom];
+    return { value: start, mixed: start !== end };
+  };
+  const horizontalPadding = paddingAxis("horizontal");
+  const verticalPadding = paddingAxis("vertical");
+  const sizingRow = (axis: LayoutAxis) =>
+    sizing && (
+      <VisualControlRow
+        key={axis}
+        label={t(
+          axis === "horizontal"
+            ? "styleInspector.width"
+            : "styleInspector.height",
+        )}
+      >
+        <VisualSegmentedControl
+          value={sizing.sizing[axis]}
+          onChange={(mode) => onSizingChange?.(axis, mode as LayoutSizing)}
+          className="slides-inspector-segment"
+          options={sizing.available[axis].map((mode) => ({
+            label: t(`contextToolbar.layoutSizing.${mode}`),
+            value: mode,
+          }))}
+        />
+      </VisualControlRow>
+    );
+
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={MENU_BUTTON_CLASS}
+              aria-label={t("contextToolbar.autoLayout")}
+            >
+              <TriggerIcon className="size-4" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("contextToolbar.autoLayout")}</TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align="start"
+        className="w-64 space-y-3 p-2"
+        {...inlineEditSurfaceProps}
+      >
+        {frame && (
+          <>
+            <VisualControlRow label={t("contextToolbar.direction")}>
+              <VisualSegmentedControl
+                value={vertical ? "vertical" : "horizontal"}
+                onChange={(direction) =>
+                  onChange?.(
+                    {
+                      direction: direction as "horizontal" | "vertical",
+                    },
+                    "commit",
+                  )
+                }
+                className="slides-inspector-segment"
+                options={[
+                  {
+                    label: t("styleInspector.horizontal"),
+                    value: "horizontal",
+                  },
+                  { label: t("styleInspector.vertical"), value: "vertical" },
+                ]}
+              />
+            </VisualControlRow>
+            <VisualScrubInput
+              label={t("contextToolbar.gap")}
+              icon={vertical ? IconSpacingVertical : IconSpacingHorizontal}
+              prefix="icon"
+              value={frame.gap ?? 0}
+              mixed={frame.gap === null}
+              mixedLabel={t("styleInspector.mixed")}
+              min={0}
+              max={200}
+              unit="px"
+              onChange={(gap, meta) => onChange?.({ gap }, meta.phase)}
+            />
+            <VisualControlRow label={t("contextToolbar.padding")}>
+              <div className="grid grid-cols-2 gap-2">
+                <VisualScrubInput
+                  label={t("styleInspector.horizontal")}
+                  icon={IconSpacingHorizontal}
+                  prefix="icon"
+                  value={horizontalPadding.value}
+                  mixed={horizontalPadding.mixed}
+                  mixedLabel={t("styleInspector.mixed")}
+                  min={0}
+                  max={200}
+                  unit="px"
+                  onChange={(padding, meta) =>
+                    onChange?.(
+                      { padding: { left: padding, right: padding } },
+                      meta.phase,
+                    )
+                  }
+                />
+                <VisualScrubInput
+                  label={t("styleInspector.vertical")}
+                  icon={IconSpacingVertical}
+                  prefix="icon"
+                  value={verticalPadding.value}
+                  mixed={verticalPadding.mixed}
+                  mixedLabel={t("styleInspector.mixed")}
+                  min={0}
+                  max={200}
+                  unit="px"
+                  onChange={(padding, meta) =>
+                    onChange?.(
+                      { padding: { top: padding, bottom: padding } },
+                      meta.phase,
+                    )
+                  }
+                />
+              </div>
+            </VisualControlRow>
+            <VisualControlRow label={t("styleInspector.horizontal")}>
+              <VisualSegmentedControl
+                value={axisAlign("horizontal")}
+                onChange={(align) =>
+                  setAxisAlign("horizontal", align as LayoutAlign)
+                }
+                className="slides-inspector-segment"
+                options={[
+                  { label: t("styleInspector.left"), value: "start" },
+                  { label: t("styleInspector.center"), value: "center" },
+                  { label: t("styleInspector.right"), value: "end" },
+                ]}
+              />
+            </VisualControlRow>
+            <VisualControlRow label={t("styleInspector.vertical")}>
+              <VisualSegmentedControl
+                value={axisAlign("vertical")}
+                onChange={(align) =>
+                  setAxisAlign("vertical", align as LayoutAlign)
+                }
+                className="slides-inspector-segment"
+                options={[
+                  { label: t("styleInspector.top"), value: "start" },
+                  { label: t("styleInspector.middle"), value: "center" },
+                  { label: t("styleInspector.bottom"), value: "end" },
+                ]}
+              />
+            </VisualControlRow>
+          </>
+        )}
+        {sizingRow("horizontal")}
+        {sizingRow("vertical")}
+        {frame && onRemove && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 w-full justify-between px-2 text-[11px] font-normal"
+            onClick={onRemove}
+          >
+            {t("contextToolbar.removeAutoLayout")}
+            <span className="text-muted-foreground">
+              {shortcutLabel("alt+shift+a")}
+            </span>
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function SlideContextToolbar({
   snapshot,
   background,
@@ -298,6 +548,11 @@ export function SlideContextToolbar({
   onArrange,
   onGroup,
   onUngroup,
+  autoLayout,
+  onAddAutoLayout,
+  onRemoveAutoLayout,
+  onAutoLayoutChange,
+  onLayoutSizingChange,
   onToggleList,
   objectSelectionCount = 0,
   canGroup = false,
@@ -335,6 +590,15 @@ export function SlideContextToolbar({
   onArrange?: (target: SlideObjectZOrderTarget) => void;
   onGroup?: () => void;
   onUngroup?: () => void;
+  /** Null when the selection is neither a group nor a member in a group's flow. */
+  autoLayout?: SlideAutoLayoutToolbarState | null;
+  onAddAutoLayout?: () => void;
+  onRemoveAutoLayout?: () => void;
+  onAutoLayoutChange?: (
+    change: SlideAutoLayoutFrameChange,
+    phase: ScrubPhase,
+  ) => void;
+  onLayoutSizingChange?: (axis: LayoutAxis, sizing: LayoutSizing) => void;
   onToggleList?: (kind: SlideListKind) => void;
   objectSelectionCount?: number;
   canGroup?: boolean;
@@ -1326,6 +1590,18 @@ export function SlideContextToolbar({
       )}
       {showGroupControls && <Divider />}
       {groupControls}
+      {autoLayout && !hasMultiObjectSelection && (
+        <>
+          <Divider />
+          <AutoLayoutControls
+            state={autoLayout}
+            onAdd={onAddAutoLayout}
+            onRemove={onRemoveAutoLayout}
+            onChange={onAutoLayoutChange}
+            onSizingChange={onLayoutSizingChange}
+          />
+        </>
+      )}
       {snapshot && !snapshot.isText && !hasMultiObjectSelection && (
         <>
           <Divider />

@@ -1,3 +1,4 @@
+import { inferFlowArrangement } from "@agent-native/toolkit/canvas-interactions/layout-model";
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
@@ -5,7 +6,6 @@ import {
   type CodeLayerProjection,
   type CodeLayerSource,
 } from "@shared/code-layer";
-import { inferFlowArrangement } from "@shared/layout-model";
 
 import type { AlignableRect } from "./layout-operations";
 

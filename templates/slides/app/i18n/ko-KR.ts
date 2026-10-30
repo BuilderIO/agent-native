@@ -612,6 +612,20 @@ const messages = {
     makeMoreVisual: "더 시각적으로",
     generateImage: "이미지 생성",
     removeBackground: "배경 제거",
+    autoLayout: "자동 레이아웃",
+    addAutoLayout: "자동 레이아웃 추가",
+    removeAutoLayout: "자동 레이아웃 제거",
+    direction: "방향",
+    gap: "간격",
+    padding: "안쪽 여백",
+    layoutSizing: {
+      fixed: "고정",
+      hug: "내용에 맞춤",
+      fill: "채우기",
+    },
+    autoLayoutUnmeasurable:
+      "이 그룹의 개체를 측정할 수 없습니다. 슬라이드에 표시되는지 확인한 후 다시 시도하세요.",
+    autoLayoutUnavailable: "이 선택 항목에 자동 레이아웃을 추가할 수 없습니다.",
   },
   styleInspector: {
     title: "Style",

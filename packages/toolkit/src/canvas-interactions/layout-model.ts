@@ -1,10 +1,9 @@
-import { roundGeometryStylePx } from "./canvas-math";
-
 /**
  * The one reading of a frame's layout and the one writer of changes to it.
  *
  * Every surface that decides auto layout, Hug, Fill, Fixed or freeform goes
- * through here: the inspector, the code layer, and the editor commands. Each
+ * through here: Design's inspector, code layer and editor commands, and Slides'
+ * auto layout groups. Each
  * used to re-derive "is this frame auto layout, is this child in flow, what is
  * its sizing, what size does it render at" on its own, and the same bug kept
  * shipping from whichever copy disagreed. Flexbox stays the CSS this writes;
@@ -14,6 +13,33 @@ import { roundGeometryStylePx } from "./canvas-math";
  * An input the caller could not read is a distinct state (`unreadable`), never
  * an empty list or a default size.
  */
+
+const GEOMETRY_PX_PROPERTY =
+  /^(?:left|top|right|bottom|inset(?:-(?:inline|block)(?:-(?:start|end))?)?|(?:min-|max-)?(?:width|height)|translate)$/;
+const PX_LENGTH_TOKEN = /^(?:-?(?:\d+\.?\d*|\.\d+)px|0)$/i;
+
+/**
+ * Lands a plain px value of a layer geometry property on whole pixels.
+ * Strokes, type, effects and non-px lengths keep their authored precision.
+ */
+export function roundGeometryStylePx(property: string, value: string): string {
+  const cssProperty = property
+    .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+    .toLowerCase();
+  if (!GEOMETRY_PX_PROPERTY.test(cssProperty)) return value;
+  const tokens = value.trim().split(/\s+/);
+  if (!tokens.every((t) => PX_LENGTH_TOKEN.test(t))) return value;
+  const fractional = (token: string) => {
+    const parsed = Number.parseFloat(token);
+    return token !== "0" && Math.round(parsed) !== parsed;
+  };
+  if (!tokens.some(fractional)) return value;
+  return tokens
+    .map((token) =>
+      token === "0" ? token : `${Math.round(Number.parseFloat(token)) || 0}px`,
+    )
+    .join(" ");
+}
 
 export type LayoutAxis = "horizontal" | "vertical";
 export type LayoutSizing = "fixed" | "hug" | "fill";
@@ -281,6 +307,14 @@ const MARGIN_PROPERTIES = [
 ];
 
 const lower = (value: string | undefined) => value?.trim().toLowerCase() ?? "";
+/** Alignment values that leave flow children where the inference put them. */
+const PACKED_AT_START = new Set([
+  "",
+  "normal",
+  "stretch",
+  "flex-start",
+  "start",
+]);
 const sizeProperty = (axis: LayoutAxis) =>
   axis === "horizontal" ? "width" : "height";
 
@@ -902,18 +936,34 @@ function writeEnable(
   frame.flexDirection =
     arrangement.direction === "horizontal" ? "row" : "column";
   frame.gap = `${arrangement.gap}px`;
+  // The inferred arrangement is the whole flow. A frame that laid out before
+  // keeps its padding, alignment and wrapping while freeform, and each would
+  // move the children it was inferred from, so each is overwritten, zero
+  // included.
+  const styles = model.node.styles;
+  const current = model.frame.padding;
+  const hadPadding = [
+    styles.padding,
+    styles.paddingTop,
+    styles.paddingRight,
+    styles.paddingBottom,
+    styles.paddingLeft,
+  ].some((value) => {
+    const declared = lower(value);
+    return declared !== "" && !/^0[a-z%]*$/.test(declared);
+  });
   if (width !== null && height !== null) {
     const { top, right, bottom, left } = arrangement.padding;
-    if (top > 0 || right > 0 || bottom > 0 || left > 0) {
+    if (top > 0 || right > 0 || bottom > 0 || left > 0 || hadPadding) {
       frame.padding = `${top}px ${right}px ${bottom}px ${left}px`;
       // A content-box size excludes padding: a Fixed axis gives the padding
       // back out of its declared size so the frame keeps its rendered box.
-      if (lower(model.node.styles.boxSizing) !== "border-box") {
-        for (const [axis, extent, inset] of [
-          ["horizontal", width, left + right],
-          ["vertical", height, top + bottom],
+      if (lower(styles.boxSizing) !== "border-box") {
+        for (const [axis, extent, inset, was] of [
+          ["horizontal", width, left + right, current.left + current.right],
+          ["vertical", height, top + bottom, current.top + current.bottom],
         ] as const) {
-          if (inset === 0) continue;
+          if (inset === was) continue;
           if (readNodeSizing(model.node, model.parent, axis) !== "fixed") {
             continue;
           }
@@ -932,7 +982,13 @@ function writeEnable(
     arrangement.alignItems === "flex-end"
   ) {
     frame.alignItems = arrangement.alignItems;
+  } else if (!PACKED_AT_START.has(lower(styles.alignItems))) {
+    frame.alignItems = "flex-start";
   }
+  if (!PACKED_AT_START.has(lower(styles.justifyContent))) {
+    frame.justifyContent = "flex-start";
+  }
+  if (lower(styles.flexWrap).startsWith("wrap")) frame.flexWrap = "nowrap";
   return { status: "ok", frame, children, order: arrangement.order };
 }
 

@@ -4583,7 +4583,8 @@ export function groupSlideObjects(
   applyGeometry: SlideObjectGeometryApplier,
 ): HTMLElement | null {
   const roots = normalizeSlideObjectRoots([...elements]);
-  if (roots.length < 2) return null;
+  // One object makes a group of one: auto layout wraps a single object too.
+  if (roots.length === 0) return null;
   const parent = roots[0]?.parentElement;
   if (
     !parent ||
@@ -4673,7 +4674,7 @@ export function ungroupSlideObject(
   );
   if (
     !parent ||
-    children.length < 2 ||
+    children.length === 0 ||
     children.some(
       (child) =>
         !child.getAttribute("data-slide-object-id") ||

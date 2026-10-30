@@ -627,6 +627,21 @@ const messages = {
     makeMoreVisual: "Hacer más visual",
     generateImage: "Generar imagen",
     removeBackground: "Quitar fondo",
+    autoLayout: "Diseño automático",
+    addAutoLayout: "Añadir diseño automático",
+    removeAutoLayout: "Quitar diseño automático",
+    direction: "Dirección",
+    gap: "Espacio",
+    padding: "Relleno",
+    layoutSizing: {
+      fixed: "Fijo",
+      hug: "Ajustar",
+      fill: "Llenar",
+    },
+    autoLayoutUnmeasurable:
+      "No se pudo medir un objeto de este grupo. Comprueba que sea visible en la diapositiva y vuelve a intentarlo.",
+    autoLayoutUnavailable:
+      "No se pudo añadir el diseño automático a esta selección.",
   },
   styleInspector: {
     title: "Style",

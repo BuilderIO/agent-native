@@ -1,5 +1,3 @@
-import { describe, expect, it } from "vitest";
-
 import {
   availableSizing,
   canHugContent,
@@ -16,7 +14,8 @@ import {
   type LayoutParentInput,
   type LayoutRect,
   type LayoutWrite,
-} from "./layout-model";
+} from "@agent-native/toolkit/canvas-interactions/layout-model";
+import { describe, expect, it } from "vitest";
 
 function node(overrides: Partial<LayoutNodeInput> = {}): LayoutNodeInput {
   return { id: "frame", tagName: "div", styles: {}, ...overrides };
@@ -548,6 +547,43 @@ describe("writeLayoutChange — freeform to auto layout", () => {
       flexDirection: "column",
       gap: "16px",
       padding: "16px 16px 16px 16px",
+    });
+  });
+
+  it("replaces padding, alignment and wrapping a frame kept from an earlier layout, zero included", () => {
+    const write = ok(
+      writeLayoutChange(
+        model(
+          {
+            styles: {
+              display: "block",
+              boxSizing: "content-box",
+              padding: "16px",
+              justifyContent: "center",
+              alignItems: "center",
+              flexWrap: "wrap",
+            },
+            declaredSize: { width: "168px", height: "104px" },
+            resolvedSize: { horizontal: 200, vertical: 136 },
+          },
+          read([
+            child("first", { x: 0, y: 0, width: 200, height: 60 }),
+            child("second", { x: 0, y: 76, width: 120, height: 60 }),
+          ]),
+        ),
+        { kind: "enable-auto-layout" },
+      ),
+    );
+    expect(write.frame).toEqual({
+      display: "flex",
+      flexDirection: "column",
+      gap: "16px",
+      padding: "0px 0px 0px 0px",
+      width: "200px",
+      height: "136px",
+      alignItems: "flex-start",
+      justifyContent: "flex-start",
+      flexWrap: "nowrap",
     });
   });
 

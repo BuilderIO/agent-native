@@ -1,4 +1,7 @@
-import type { LayoutBoxModel, LayoutRect } from "@shared/layout-model";
+import type {
+  LayoutBoxModel,
+  LayoutRect,
+} from "@agent-native/toolkit/canvas-interactions/layout-model";
 
 import { hasMeaningfulCssTransform } from "./auto-layout-suggestion";
 

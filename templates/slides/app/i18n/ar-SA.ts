@@ -618,6 +618,20 @@ const messages = {
     makeMoreVisual: "جعله أكثر بصرية",
     generateImage: "إنشاء صورة",
     removeBackground: "إزالة الخلفية",
+    autoLayout: "تخطيط تلقائي",
+    addAutoLayout: "إضافة تخطيط تلقائي",
+    removeAutoLayout: "إزالة التخطيط التلقائي",
+    direction: "الاتجاه",
+    gap: "فجوة",
+    padding: "الحشو",
+    layoutSizing: {
+      fixed: "ثابت",
+      hug: "ملائم للمحتوى",
+      fill: "يملأ",
+    },
+    autoLayoutUnmeasurable:
+      "تعذّر قياس أحد العناصر في هذه المجموعة. تأكد من ظهوره على الشريحة ثم حاول مرة أخرى.",
+    autoLayoutUnavailable: "تعذّرت إضافة التخطيط التلقائي إلى هذا التحديد.",
   },
   styleInspector: {
     title: "Style",
