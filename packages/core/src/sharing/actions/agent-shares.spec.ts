@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   tokens: [] as MintedTokenRow[],
   policies: [] as ServicePrincipalPolicy[],
   tokensError: null as Error | null,
+  profilesError: null as Error | null,
   sendEmail: vi.fn(async () => ({ status: "sent" as const })),
 }));
 
@@ -67,12 +68,14 @@ vi.mock("../../email-catalog/templates.js", async (importOriginal) => ({
 
 vi.mock("../../user-profile/store.js", () => ({
   getUserProfile: async (email: string) => ({ email, name: "Owner" }),
-  getUserProfiles: async (emails: readonly string[]) =>
-    new Map(
+  getUserProfiles: async (emails: readonly string[]) => {
+    if (state.profilesError) throw state.profilesError;
+    return new Map(
       emails
         .filter((email) => email === memberEmail)
         .map((email) => [email, { email, name: "Vee Member" }]),
-    ),
+    );
+  },
 }));
 
 interface FrameworkClient {
@@ -153,6 +156,7 @@ beforeEach(async () => {
   ];
   state.policies = [retiredPolicy("retired")];
   state.tokensError = null;
+  state.profilesError = null;
   state.sendEmail.mockClear();
 
   pglite = await createTestPglite();
@@ -359,6 +363,7 @@ describe("sharing with org agents", () => {
         displayName: "Vee Member",
       });
       expect(byPrincipal[memberEmail].agent).toBeUndefined();
+      expect(result.displayNamesUnavailable).toBeUndefined();
     });
   });
 
@@ -395,6 +400,35 @@ describe("sharing with org agents", () => {
       expect(result.role).toBe("viewer");
       expect(result.agents).toBeUndefined();
     });
+  });
+
+  it("says profile names are unavailable instead of listing people without them", async () => {
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await shareResource.run({
+        resourceType,
+        resourceId: "doc-1",
+        principalType: "user",
+        principalId: memberEmail,
+        role: "viewer",
+        notify: false,
+      });
+    });
+    state.profilesError = new Error("profile store down");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const result = (await listResourceShares.run({
+        resourceType,
+        resourceId: "doc-1",
+      })) as any;
+      expect(result.displayNamesUnavailable).toBe(true);
+      expect(result.ownerDisplayName).toBeNull();
+      expect(result.shares.map((share: any) => share.principalId)).toContain(
+        memberEmail,
+      );
+    });
+    consoleError.mockRestore();
   });
 
   it("reports agents as unavailable, not empty, when they cannot be read", async () => {

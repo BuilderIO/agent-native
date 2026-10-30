@@ -88,11 +88,14 @@ async function loadGroupDisplayNames(
   }
 }
 
-/** Profile names for people, so a row can show a name above the email. */
+/**
+ * Profile names for people, so a row can show a name above the email. A failed
+ * read reports `unavailable` instead of looking like people with no names.
+ */
 async function loadUserDisplayNames(
   emails: string[],
-): Promise<Map<string, string>> {
-  if (!emails.length) return new Map();
+): Promise<{ names: Map<string, string>; unavailable: boolean }> {
+  if (!emails.length) return { names: new Map(), unavailable: false };
   try {
     const profiles = await getUserProfiles(emails);
     const names = new Map<string, string>();
@@ -102,14 +105,13 @@ async function loadUserDisplayNames(
         names.set(email.toLowerCase(), name);
       }
     }
-    return names;
+    return { names, unavailable: false };
   } catch (error) {
-    // coercion-ok: names are decoration; each row still shows its email.
     console.error(
       "[list-resource-shares] Could not read profile names:",
       error,
     );
-    return new Map();
+    return { names: new Map(), unavailable: true };
   }
 }
 
@@ -151,7 +153,7 @@ function agentReadPrompt(reg: ReturnType<typeof requireShareableResource>) {
 
 export default defineAction({
   description:
-    "List the current visibility and share grants on a shareable resource. Ordinary reads require resource access; widget reads require admin access. `agentRead` names the MCP tool that reads the resource, when the type declares one. Owners and admins inside the resource's org also get `agents`: the org's service principals they can share with as a user principal.",
+    "List the current visibility and share grants on a shareable resource. Ordinary reads require resource access; widget reads require admin access. `displayNamesUnavailable` means profile names could not be read, so rows show emails only. `agentRead` names the MCP tool that reads the resource, when the type declares one. Owners and admins inside the resource's org also get `agents`: the org's service principals they can share with as a user principal.",
   schema: z.object({
     resourceType: z.string(),
     resourceId: z.string(),
@@ -202,18 +204,19 @@ export default defineAction({
       shares,
     );
     const ownerEmail: string = access.resource.ownerEmail;
-    const userDisplayNames = await loadUserDisplayNames(
-      [
-        ownerEmail,
-        ...shares
-          .filter(
-            (s) =>
-              s.principalType === "user" &&
-              orgAgentName(s.principalId, access.resource.orgId) === null,
-          )
-          .map((s) => s.principalId),
-      ].map((email) => email.trim().toLowerCase()),
-    );
+    const { names: userDisplayNames, unavailable: displayNamesUnavailable } =
+      await loadUserDisplayNames(
+        [
+          ownerEmail,
+          ...shares
+            .filter(
+              (s) =>
+                s.principalType === "user" &&
+                orgAgentName(s.principalId, access.resource.orgId) === null,
+            )
+            .map((s) => s.principalId),
+        ].map((email) => email.trim().toLowerCase()),
+      );
     const shareableAgents = context?.mcpDirectoryWidgetReadOnly
       ? {}
       : await loadShareableAgents(access.resource.orgId, access.role);
@@ -222,6 +225,7 @@ export default defineAction({
       ownerEmail,
       ownerDisplayName:
         userDisplayNames.get(ownerEmail.trim().toLowerCase()) ?? null,
+      ...(displayNamesUnavailable ? { displayNamesUnavailable: true } : {}),
       orgId: access.resource.orgId ?? null,
       visibility: access.resource.visibility ?? "private",
       role: access.role,

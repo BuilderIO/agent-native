@@ -55,6 +55,8 @@ export interface ShareButtonSharesResponse {
   agents?: ShareButtonAgent[];
   /** The org's agents could not be read; distinct from having none. */
   agentsUnavailable?: boolean;
+  /** Profile names could not be read, so rows show emails only. */
+  displayNamesUnavailable?: boolean;
   /** The MCP tool an outside agent calls to read this resource. */
   agentRead?: {
     actions: string[];
