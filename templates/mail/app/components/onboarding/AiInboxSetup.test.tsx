@@ -351,6 +351,35 @@ describe("AiInboxSetup", () => {
     ).toHaveProperty("disabled", false);
   });
 
+  it("requires archive text in the settings setup dialog", () => {
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupImportantHeadline",
+      }),
+      { target: { value: "Important mail" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    const archive = screen.getByRole("textbox", {
+      name: "mail.sort.aiSetupSkipInboxHeadline",
+    });
+    const sortInbox = () =>
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" });
+    expect(sortInbox()).toHaveProperty("disabled", true);
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    ).toHaveProperty("disabled", false);
+    fireEvent.change(archive, { target: { value: "  " } });
+    expect(sortInbox()).toHaveProperty("disabled", true);
+    fireEvent.change(archive, { target: { value: "Promotions" } });
+    expect(sortInbox()).toHaveProperty("disabled", false);
+  });
+
   it("lets users save tab, importance, and archive rules before Builder setup", async () => {
     const onComplete = vi.fn();
     const onStepChange = vi.fn();
@@ -1642,6 +1671,12 @@ describe("AiInboxSetup", () => {
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupSkipInboxHeadline",
+      }),
+      { target: { value: "Promotions" } },
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
