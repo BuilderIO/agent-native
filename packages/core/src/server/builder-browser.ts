@@ -2873,6 +2873,25 @@ export async function createBuilderProject(args: {
   return project;
 }
 
+/** Builder Workspace project id this deployment is linked to, if any. */
+export function getBuilderWorkspaceProjectId(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  return env.BUILDER_WORKSPACE_PROJECT_ID?.trim() || null;
+}
+
+/**
+ * Where a Builder-linked workspace is managed in Builder. Apps for a linked
+ * workspace are created there, not from Dispatch.
+ */
+export function getBuilderWorkspaceUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const projectId = getBuilderWorkspaceProjectId(env);
+  if (!projectId) return null;
+  return `${getBuilderAppHost().replace(/\/$/, "")}/app/workspaces/${encodeURIComponent(projectId)}`;
+}
+
 /** @deprecated Repository-backed Builder projects are retained for compatibility. */
 export async function ensureBuilderProject(args: {
   name: string;
