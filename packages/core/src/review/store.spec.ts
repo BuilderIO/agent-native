@@ -420,6 +420,7 @@ describe("review store", () => {
         ownerEmail: "alice@example.com",
       });
       const seen: Array<ReadonlyArray<string | null>> = [];
+      rawClient.execute.mockClear();
 
       expect(
         await deleteReviewComment(root.id, "alice@example.com", {
@@ -432,6 +433,19 @@ describe("review store", () => {
       expect(seen.map((authors) => [...authors].sort())).toEqual([
         ["carol@example.com", "dave@example.com"],
       ]);
+      // Both first comments are locked, in one order, before anything changes,
+      // so a delete of the other one at the same time waits rather than
+      // deadlocking.
+      const statements = rawClient.execute.mock.calls.map(([input]) =>
+        typeof input === "string" ? input : input.sql,
+      );
+      const lock = statements.findIndex((text) =>
+        /parent_comment_id IS NULL\s+ORDER BY id\s+FOR UPDATE/.test(text),
+      );
+      expect(lock).toBeGreaterThanOrEqual(0);
+      expect(lock).toBeLessThan(
+        statements.findIndex((text) => text.includes("status = 'deleted'")),
+      );
       expect(await liveBodies("p1")).toEqual([]);
       expect(
         await getReviewCommentById(second.id, {}, { bypassScope: true }),

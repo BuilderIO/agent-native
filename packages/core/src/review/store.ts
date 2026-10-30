@@ -1375,20 +1375,32 @@ export async function deleteReviewComment(
   const actor = deletedBy ?? null;
   const client = getDbExec();
   const deleteIn = async (tx: DbExec) => {
-    // A reply still being written holds its root `FOR SHARE`. Taking the root
-    // `FOR UPDATE` first waits that out, so everything read or updated below
-    // sees the reply and takes it along. A later reply finds the root gone and
-    // refuses.
     // raw-sql-ok: the statement is constant text; the id is bound.
     const { rows: roots } = await tx.execute({
       sql: `SELECT thread_id, resource_type, resource_id
               FROM agent_review_comments
-             WHERE id = ? AND parent_comment_id IS NULL FOR UPDATE`,
+             WHERE id = ? AND parent_comment_id IS NULL`,
       args: [id],
     });
     const root = roots[0] as
       | { thread_id: unknown; resource_type: unknown; resource_id: unknown }
       | undefined;
+    if (root) {
+      // A reply still being written holds its root `FOR SHARE`. Taking every
+      // first comment in the thread `FOR UPDATE` first waits that out, so
+      // everything read or updated below sees the reply and takes it along. A
+      // later reply finds its root gone and refuses. They're taken in id
+      // order, so two deletes of first comments in one thread wait for each
+      // other rather than each holding one and waiting for the other.
+      await tx.execute(sql`SELECT id
+           FROM agent_review_comments
+          WHERE thread_id = ${sql.value(String(root.thread_id))}
+            AND resource_type = ${sql.value(String(root.resource_type))}
+            AND resource_id = ${sql.value(String(root.resource_id))}
+            AND parent_comment_id IS NULL
+          ORDER BY id
+            FOR UPDATE`);
+    }
     // A thread's first comment is the thread. Comments left behind would have
     // no root for any list to hang them on, but would still sit in the table.
     // A thread is everything that shares its id, as listing, resolving and
