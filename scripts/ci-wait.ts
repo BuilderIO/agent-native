@@ -158,18 +158,17 @@ function main(): number {
     }
     const left = deadline - Date.now();
     if (left <= 0) {
-      const final = last && misses === 0 ? judge(last.checks, last.head) : null;
-      if (final?.done) {
-        console.log(final.summary);
-        return final.exit;
-      }
       if (misses) {
         console.log("Out of time, and the last read from gh failed.");
         return 2;
       }
       const pending = last?.checks.filter((c) => c.bucket === "pending") ?? [];
       console.log(
-        `Out of time with ${pending.length} checks still running: ${pending.map((c) => c.name).join(", ")}`,
+        !last?.checks.length
+          ? "Out of time, and no checks were reported yet."
+          : pending.length
+            ? `Out of time with ${pending.length} checks still running: ${pending.map((c) => c.name).join(", ")}`
+            : "Out of time before the finished checks were confirmed on a second read; run it again.",
       );
       return 2;
     }

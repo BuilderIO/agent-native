@@ -351,8 +351,9 @@ under your tool's call limit.
 Without a repo command for it, run
 `gh pr checks <number> --watch --interval 60 > /dev/null` in one call bounded
 by your tool's limit, then read `gh pr checks <number>` twice, a minute
-apart: CI is done only when nothing is pending and both reads list the same
-checks, since a workflow can register late. Otherwise wait again the same way;
+apart: CI is done only when at least one check is listed, nothing is
+pending, and both reads list the same checks, since a workflow can register
+late. Otherwise wait again the same way;
 rerun any cancelled check.
 
 Fix each review round's findings in one batch. If a second round still finds
