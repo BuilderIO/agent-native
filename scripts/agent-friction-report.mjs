@@ -4140,6 +4140,13 @@ const PATTERNS = [
     re: FEEDBACK_NO_LOCAL_REPRO_RE,
   },
   {
+    key: "feedback-reports-missed",
+    label: "Had to point out reports the feedback sweep never picked up",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (helpers return every unmarked root, 2026-10-30)",
+    re: /\b(?:tons|lots|many|bunch)\b[^\n]{0,40}\b(?:slack|reports?|chats?|messages?|posts?)\b[^\n]{0,40}\bmissed\b|\b(?:sweep|feedback run)\b[^\n]{0,60}\b(?:missed|never (?:saw|claimed|picked up))\b/i,
+  },
+  {
     key: "false-done",
     label: "Reported done while still broken",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
