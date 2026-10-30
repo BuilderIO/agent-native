@@ -137,6 +137,7 @@ describe("TrashRow responsive expander contract", () => {
       trashedByName: "Display name",
     });
 
+    // oracle-change: a person with no profile name now shows as their email, not "Known user".
     expect(html).toContain("creator@example.test");
     expect(html).toContain("trash.unresolvedActor");
     expect(html).toContain("Display name");
