@@ -255,16 +255,16 @@ export function addMcpConnectionCompleteListener(listener: () => void) {
       listener();
     }
   };
-  const server = apiBaseUrl();
   // The completion page is served by the app's server, which may be on
   // another origin than this UI.
-  const completionOrigins = new Set([
-    window.location.origin,
-    ...(server ? [new URL(server).origin] : []),
-  ]);
+  const isCompletionOrigin = (origin: string) => {
+    if (origin === window.location.origin) return true;
+    const server = apiBaseUrl();
+    return !!server && new URL(server).origin === origin;
+  };
   const onMessage = (event: MessageEvent<unknown>) => {
     if (
-      !completionOrigins.has(event.origin) ||
+      !isCompletionOrigin(event.origin) ||
       typeof event.data !== "object" ||
       event.data === null ||
       !("type" in event.data) ||
