@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React, { act } from "react";
+import React, { act, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -180,6 +180,36 @@ describe("useShareButtonController agents", () => {
 
     await render("deck-2");
     act(() => failed.callbacks.onError?.(new Error("refused")));
+
+    expect(current().selectedAgent).toBeNull();
+    expect(current().inviteEmail).toBe("");
+    expect(current().shareError).toBeNull();
+  });
+
+  it("leaves a failed invite behind when it settles right after the switch commits", async () => {
+    await render("deck-1");
+    act(() => current().selectAgent(writer));
+    act(() => current().handleAdd());
+    const failed = lastShareCall();
+
+    // Runs after the controller's layout effects and before passive ones.
+    function SettleOnSwitch({ resourceId }: { resourceId: string }) {
+      useLayoutEffect(() => {
+        if (resourceId === "deck-2") {
+          failed.callbacks.onError?.(new Error("refused"));
+        }
+      }, [resourceId]);
+      return null;
+    }
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness resourceId="deck-2" />
+          <SettleOnSwitch resourceId="deck-2" />
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
 
     expect(current().selectedAgent).toBeNull();
     expect(current().inviteEmail).toBe("");

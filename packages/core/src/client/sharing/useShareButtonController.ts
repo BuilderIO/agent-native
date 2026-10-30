@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { useActionQuery } from "../use-action.js";
 import {
@@ -182,9 +188,11 @@ export function useShareButtonController(
   const resourceKey = `${options.resourceType}:${options.resourceId}`;
   // Each resource the panel shows is a new visit, even returning to one seen
   // before. A save that settles in a later visit must leave its state alone:
-  // putting inputs back would let a retry share the wrong resource.
+  // putting inputs back would let a retry share the wrong resource. A layout
+  // effect, so a save that settles between the commit and passive effects
+  // already sees the new visit.
   const visitRef = useRef(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     visitRef.current += 1;
   }, [resourceKey]);
   // Tied to the resource it was made for: a click that lands on a new resource
@@ -355,7 +363,7 @@ export function useShareButtonController(
   const inFlightRef = useRef<Set<string>>(new Set());
   // Optimistic rows, removals and role picks belong to one resource; a panel
   // reused for another must not show or be blocked by them.
-  useEffect(() => {
+  useLayoutEffect(() => {
     setPendingAdds([]);
     setPendingRemoves(new Set());
     setRoleOverrides({});
