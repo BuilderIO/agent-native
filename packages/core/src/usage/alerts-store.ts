@@ -20,8 +20,11 @@ import { builderCreditsFromCostCents } from "./store.js";
 
 const DAY_MS = 86_400_000;
 const DEFAULT_MONTHLY_USD = 20;
-// The earlier default: default rows still exactly at it move to the new one.
+// The earlier default: rows last saved before this cutoff and still exactly at
+// it move to the new one. The cutoff makes that one-time, so anyone who chooses
+// $100 a day afterward keeps it.
 const PREVIOUS_DEFAULT_DAILY_USD = 100;
+const PREVIOUS_DEFAULT_CUTOFF_MS = Date.UTC(2026, 9, 30, 21);
 
 export const USAGE_ALERT_DEFAULT_MONTHLY_USD = DEFAULT_MONTHLY_USD;
 /** @deprecated The default is monthly now. Use USAGE_ALERT_DEFAULT_MONTHLY_USD. */
@@ -411,7 +414,8 @@ async function ensureDefaultRule(partition: ResolvedScope): Promise<void> {
       WHERE usage_alert_rules.is_default = 1
         AND usage_alert_rules.unit = 'usd'
         AND usage_alert_rules.limit_value = ?
-        AND usage_alert_rules.period = 'day'`,
+        AND usage_alert_rules.period = 'day'
+        AND usage_alert_rules.updated_at < ?`,
     args: [
       defaultRuleId(partition),
       partition.scope,
@@ -422,6 +426,7 @@ async function ensureDefaultRule(partition: ResolvedScope): Promise<void> {
       now,
       now,
       PREVIOUS_DEFAULT_DAILY_USD * USAGE_ALERT_UNIT_SCALE.usd,
+      PREVIOUS_DEFAULT_CUTOFF_MS,
     ],
   });
 }

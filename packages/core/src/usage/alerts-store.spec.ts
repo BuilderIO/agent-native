@@ -115,11 +115,10 @@ afterEach(async () => {
 
 describe("usage alerts", () => {
   it("moves a dismissed default and clears its dismissal", async () => {
-    const [rule] = await listUsageAlerts({ scope: "user" }, access);
+    await listUsageAlerts({ scope: "user" }, access);
     await pglite.exec(
-      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day'",
+      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', dismissed_window_start = 1, updated_at = 1",
     );
-    await dismissUsageAlert(rule!.id, "user", access);
 
     expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
       {
@@ -134,6 +133,22 @@ describe("usage alerts", () => {
         )
       ).get(),
     ).toMatchObject({ dismissed_window_start: null });
+  });
+
+  it("keeps a $100 daily default chosen after the move", async () => {
+    const [rule] = await listUsageAlerts({ scope: "user" }, access);
+
+    await saveUsageAlert(
+      { scope: "user", ruleId: rule!.id, limit: 100, period: "day" },
+      access,
+    );
+
+    expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
+      {
+        limit: 100,
+        period: "day",
+      },
+    );
   });
 
   it("keeps the deprecated daily export at its old value", () => {
@@ -161,14 +176,14 @@ describe("usage alerts", () => {
   it("moves a $100 daily default to $20 a month and leaves other limits alone", async () => {
     await listUsageAlerts({ scope: "user" }, access);
     await pglite.exec(
-      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', updated_at = created_at",
+      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', updated_at = 1",
     );
     expect((await listUsageAlerts({ scope: "user" }, access))[0]?.limit).toBe(
       20,
     );
 
     await pglite.exec(
-      "UPDATE usage_alert_rules SET limit_value = 5000, period = 'day'",
+      "UPDATE usage_alert_rules SET limit_value = 5000, period = 'day', updated_at = 1",
     );
     expect((await listUsageAlerts({ scope: "user" }, access))[0]?.limit).toBe(
       50,
