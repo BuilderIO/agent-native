@@ -441,11 +441,14 @@ describe("background agent sessions through the agent-chat plugin", () => {
       });
 
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({ error: "message is required" });
+      expect(await response.json()).toEqual({
+        error: "message is required",
+        code: "message_required",
+      });
       expect(finalizeFailure).toHaveBeenCalledWith(
         runId,
         expect.objectContaining({
-          message: expect.stringContaining("HTTP 400"),
+          message: expect.stringContaining("HTTP 400 code=message_required"),
         }),
       );
       const heartbeatCount = updateRunHeartbeat.mock.calls.length;

@@ -5609,6 +5609,7 @@ describe("createProductionAgentHandler", () => {
         ),
       ).resolves.toEqual({
         error: "submissionPayload does not match this message",
+        code: "submission_payload_attachments_mismatch",
       });
       expect(event.res.status).toBe(400);
       expect(append).not.toHaveBeenCalled();
@@ -8426,6 +8427,7 @@ describe("createProductionAgentHandler", () => {
 
     await expect(handler(event)).resolves.toEqual({
       error: "engine must be a string",
+      code: "invalid_engine",
     });
     expect(event.res.status).toBe(400);
     expect(systemPrompt).not.toHaveBeenCalled();
@@ -9370,6 +9372,7 @@ describe("createProductionAgentHandler", () => {
 
     expect(response).toEqual({
       error: "actionScope must be at most 8192 bytes",
+      code: "invalid_action_scope",
     });
     expect(resolver).not.toHaveBeenCalled();
   });
@@ -9400,6 +9403,7 @@ describe("createProductionAgentHandler", () => {
 
     expect(response).toEqual({
       error: "actionScope requires resolveActionSurface",
+      code: "action_scope_unsupported",
     });
   });
 
