@@ -58,7 +58,7 @@ export default defineAction({
       .limit(1);
     if (!row)
       throw slideSourceFailure("Deck not found.", 404, "deck_not_found");
-    const snapshot = readStoredSlideSource(row.data, slideId);
+    const snapshot = readStoredSlideSource(deckId, row.data, slideId);
     assertSlides2DeckData(snapshot.data);
     if (
       (expectedRevision !== undefined &&
