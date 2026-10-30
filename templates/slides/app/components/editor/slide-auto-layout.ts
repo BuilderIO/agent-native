@@ -657,18 +657,31 @@ export function setSlideLayoutSizing(
 /**
  * Pins the axes a resize changed on a member in flow: a resized member is
  * Fixed at its new size. Its insets are left alone, since a relatively
- * positioned member was authored with them.
+ * positioned member was authored with them. `borderBox` gives an axis's new
+ * outer size, as a resize measures it; an axis without one keeps the size it
+ * renders at.
  */
 export function fixSlideLayoutSizing(
   element: HTMLElement,
   axes: readonly LayoutAxis[],
   measure: SlideLayoutMeasure = measureSlideLayoutBox,
+  borderBox: Partial<Record<LayoutAxis, number>> = {},
 ): SlideAutoLayoutResult {
   if (!slideAutoLayoutGroupOf(element)) return refused("not-in-layout");
   const model = readModel(element, measure, "sizing-box");
   const sizing: Partial<Record<LayoutAxis, LayoutSizing>> = {};
   for (const axis of axes) sizing[axis] = "fixed";
-  const write = writeLayoutChange(model, { kind: "sizing", sizing });
+  // A content-box size excludes padding and border, which the outer size
+  // a resize measures includes.
+  const box = boxModelOf(element);
+  const px: Partial<Record<LayoutAxis, number>> = {};
+  for (const axis of axes) {
+    const outer = borderBox[axis];
+    if (outer === undefined) continue;
+    const edges = axis === "horizontal" ? box.edges.width : box.edges.height;
+    px[axis] = Math.max(0, box.sizing === "border-box" ? outer : outer - edges);
+  }
+  const write = writeLayoutChange(model, { kind: "sizing", sizing, px });
   if (write.status !== "ok") return refused(write.reason, write.nodeIds);
   applyWrite(element, write, new Map());
   return { status: "applied" };

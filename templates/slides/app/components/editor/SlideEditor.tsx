@@ -6806,15 +6806,16 @@ export default function SlideEditor({
         return false;
       }
       if (result.status !== "applied") return false;
+      // No slide content means the slide unmounted under the edit: nothing
+      // was saved, so callers must not go on as if it was.
+      const html = readCurrentSlideContentHtml();
+      if (html === null) return false;
       refreshLayerNodes();
       invalidateSelectionOverlayMeasurement();
-      const html = readCurrentSlideContentHtml();
-      if (html !== null) {
-        onUpdateSlideRef.current({ content: html }, undefined, {
-          separateUndo,
-          persistence: "immediate",
-        });
-      }
+      onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo,
+        persistence: "immediate",
+      });
       setAutoLayoutRevision((revision) => revision + 1);
       return true;
     },
@@ -7636,6 +7637,14 @@ export default function SlideEditor({
       let groupResizeOriginalStyles = new Map<HTMLElement, string | null>();
       let fitResize = false;
       let fitFloorHeight: number | undefined;
+      // The size the last preview planned for a member in flow, before any
+      // text inside it rewrapped.
+      let flowResize: {
+        width: number;
+        height?: number;
+        minHeight?: number;
+      } | null = null;
+      const originalMinHeight = element.style.getPropertyValue("min-height");
       // The group places a member in flow, so the left and top a resize
       // writes would offset it from its slot; a relatively positioned one
       // keeps the offsets it was authored with.
@@ -7795,6 +7804,12 @@ export default function SlideEditor({
           if (next.minHeight !== undefined) {
             element.style.minHeight = `${next.minHeight}px`;
           }
+          flowResize = {
+            width: next.width,
+            ...(next.minHeight !== undefined
+              ? { minHeight: next.minHeight }
+              : {}),
+          };
           const currentSelector = getBuilderSelector(element);
           if (currentSelector) {
             selectElementForStyling(element, currentSelector, "resizing");
@@ -7837,21 +7852,25 @@ export default function SlideEditor({
           return { handled: false, reason: "unhandled" };
         }
         ensureSlideObjectId(element);
-        applyObjectGeometry(
-          element,
-          planSlideObjectGeometry(element, nextRect),
-          {
-            overrideSizeCaps: true,
-            startHeight: resizeOrigin.height,
-            autoHeight:
-              isAutoHeightTextResize(
-                element,
-                gesture.handle,
-                scaling || Boolean(gesture.pointer.shiftKey),
-              ) && resizeTransform.transform === "none",
-          },
-        );
+        const plan = planSlideObjectGeometry(element, nextRect);
+        const autoHeight =
+          isAutoHeightTextResize(
+            element,
+            gesture.handle,
+            scaling || Boolean(gesture.pointer.shiftKey),
+          ) && resizeTransform.transform === "none";
+        applyObjectGeometry(element, plan, {
+          overrideSizeCaps: true,
+          startHeight: resizeOrigin.height,
+          autoHeight,
+        });
         restoreFlowInsets();
+        flowResize = {
+          width: plan.width,
+          ...(plan.height !== undefined && !autoHeight
+            ? { height: plan.height }
+            : {}),
+        };
         if (memberPlans) {
           for (const member of groupResizeMembers) {
             const plan = memberPlans.get(member.element);
@@ -7895,22 +7914,47 @@ export default function SlideEditor({
             selectElementForStyling(element, currentSelector);
           if (promotedToFreeform) preserveSlideObjectLayoutSpacer(element);
           if (inFlowLayout) {
-            const resized = getObjectGeometry(element);
-            const widthChanged = resized.width !== resizeOrigin.width;
-            // A text box's height follows its text as the width rewraps it;
-            // that is not a resize of the height.
-            const heightChanged =
-              resized.height !== resizeOrigin.height && !sizesToText;
-            // Dragged and brought back: the member keeps the sizing it had,
-            // not the Fixed the gesture started with.
-            if (!widthChanged && !heightChanged) {
-              restoreSlideObjectStyle(element, originalStyle);
+            // The preview pinned every axis the handle drags so it could
+            // show; what lands is the original style plus what the user
+            // actually changed. Measured sizes would also count a text box
+            // rewrapping as a height the user set.
+            const width =
+              flowResize && flowResize.width !== resizeOrigin.width
+                ? flowResize.width
+                : undefined;
+            const height =
+              flowResize?.height !== undefined &&
+              flowResize.height !== resizeOrigin.height
+                ? flowResize.height
+                : undefined;
+            const minHeight =
+              flowResize?.minHeight !== undefined &&
+              `${flowResize.minHeight}px` !== originalMinHeight
+                ? flowResize.minHeight
+                : undefined;
+            restoreSlideObjectStyle(element, originalStyle);
+            if (
+              width === undefined &&
+              height === undefined &&
+              minHeight === undefined
+            ) {
               return { handled: true };
             }
-            const pinned = fixSlideLayoutSizing(element, [
-              ...(widthChanged ? (["horizontal"] as const) : []),
-              ...(heightChanged ? (["vertical"] as const) : []),
-            ]);
+            if (minHeight !== undefined) {
+              element.style.minHeight = `${minHeight}px`;
+            }
+            const pinned = fixSlideLayoutSizing(
+              element,
+              [
+                ...(width !== undefined ? (["horizontal"] as const) : []),
+                ...(height !== undefined ? (["vertical"] as const) : []),
+              ],
+              undefined,
+              {
+                ...(width !== undefined ? { horizontal: width } : {}),
+                ...(height !== undefined ? { vertical: height } : {}),
+              },
+            );
             if (pinned.status === "refused") {
               restoreSlideObjectStyle(element, originalStyle);
               toast.error(t("contextToolbar.autoLayoutUnmeasurable"));
