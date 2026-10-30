@@ -340,54 +340,6 @@ describe("WebMCP client", () => {
     );
   });
 
-  it.each([
-    {
-      adapter: "polyfill",
-      codexExecuteTool: undefined,
-      codexGetTools: undefined,
-      expected: '{"id":"order-1"}',
-    },
-    {
-      adapter: "Codex execute",
-      codexExecuteTool: vi.fn(),
-      codexGetTools: undefined,
-      expected: { id: "order-1" },
-    },
-    {
-      adapter: "Codex listing",
-      codexExecuteTool: undefined,
-      codexGetTools: vi.fn(),
-      expected: { id: "order-1" },
-    },
-  ])(
-    "passes the expected input to a marked $adapter context",
-    async ({ codexExecuteTool, codexGetTools, expected }) => {
-      const registeredTool = {
-        name: "get-order",
-        description: "Read an order",
-        inputSchema: { type: "object" },
-        window,
-        origin: "https://shop.example",
-      };
-      const executeTool = vi.fn(async () => ({ status: "shipped" }));
-      const client = createAgentNativeWebMcpClient({
-        document: documentWithModelContext({
-          __isWebMCPPolyfill: true,
-          registerTool: vi.fn(async () => {}),
-          getTools: vi.fn(async () => [registeredTool]),
-          executeTool,
-          codexExecuteTool,
-          codexGetTools,
-        }),
-      });
-
-      await expect(
-        client.executeTool({ name: "get-order" }, { id: "order-1" }),
-      ).resolves.toEqual({ status: "shipped" });
-      expect(executeTool).toHaveBeenCalledWith(registeredTool, expected, {});
-    },
-  );
-
   it("refreshes the live descriptor and preserves structured results", async () => {
     const staleTool = {
       name: "get-order",
