@@ -5842,4 +5842,29 @@ describe("run() — a patch to a deleted slide is a typed 404 with no write", ()
     });
     expect(lastUpdatedDeckData).toBeUndefined();
   });
+
+  it("accepts a patch to a slide added earlier in the same batch", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              afterSlideId: "slide-1",
+              fields: { content: "<div>Two</div>" },
+            },
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { notes: "Typed right after adding" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ ok: true });
+  });
 });

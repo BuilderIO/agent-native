@@ -508,7 +508,7 @@ function setupFetch(options?: {
       const missingSlideId = operations.find(
         (operation) =>
           operation.op === "patch-slide" &&
-          !accessibleDeck.slides.some(
+          !(accessibleDeck?.slides ?? []).some(
             (slide) => slide.id === operation.slideId,
           ),
       )?.slideId;
@@ -516,7 +516,7 @@ function setupFetch(options?: {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              error: `Cannot patch missing slide(s): ${missingSlideId}. The slide was deleted; no slides were changed.`,
+              error: `Cannot patch missing slide(s): ${missingSlideId}. These slides are not in this deck; no slides were changed.`,
               errorCode: "slide_not_found",
               details: { slideIds: [missingSlideId] },
             }),
@@ -2122,13 +2122,13 @@ describe("DeckContext deck creation persistence", () => {
       id: "slide-1",
       content: "One",
       notes: "",
-      layout: "title",
+      layout: "title" as const,
     };
     const deletedSlide = {
       id: "slide-2",
       content: "Two",
       notes: "",
-      layout: "content",
+      layout: "content" as const,
     };
     const deck = {
       id: deckId,

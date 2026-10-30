@@ -2483,23 +2483,22 @@ function drainPendingDeckOps(
         }
       }
 
-      if (
+      const notFoundSlideIds =
         err &&
         typeof err === "object" &&
         "errorCode" in err &&
-        err.errorCode === "slide_not_found"
-      ) {
-        const details =
-          "details" in err && err.details && typeof err.details === "object"
-            ? (err.details as Record<string, unknown>)
-            : undefined;
-        const missingSlideIds = new Set(
-          Array.isArray(details?.slideIds)
-            ? details.slideIds.filter(
-                (id): id is string => typeof id === "string",
-              )
-            : [],
-        );
+        err.errorCode === "slide_not_found" &&
+        "details" in err &&
+        err.details &&
+        typeof err.details === "object" &&
+        "slideIds" in err.details &&
+        Array.isArray(err.details.slideIds)
+          ? (err.details.slideIds as unknown[]).filter(
+              (id): id is string => typeof id === "string",
+            )
+          : undefined;
+      if (notFoundSlideIds) {
+        const missingSlideIds = new Set(notFoundSlideIds);
         const retainedOps = [...ops, ...pending].filter(
           (op) => op.op !== "patch-slide" || !missingSlideIds.has(op.slideId),
         );

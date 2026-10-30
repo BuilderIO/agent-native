@@ -780,7 +780,11 @@ async function resolvePatchSlideEdits(
     if (!slide) {
       throw new NoWriteError(
         `patch-slide edits target slide "${operation.slideId}", which does not exist in the current deck. Check the slideId; if this slide is added by add-slide in the same call, edits cannot target it until a later call. No slides were changed.`,
-        { errorCode: "slide_not_found", statusCode: 404 },
+        {
+          errorCode: "slide_not_found",
+          statusCode: 404,
+          details: { slideIds: [operation.slideId] },
+        },
       );
     }
     const originalContent = String(slide.content ?? "");
@@ -1549,17 +1553,25 @@ export default defineAction({
             [slide.id, hashSlideContent(String(slide.content ?? ""))] as const,
         ),
       );
+      // Ops apply in order, so a slide added earlier in this batch is a valid target.
       const existingSlideIds = new Set(
         currentSlides.map((slide: { id?: unknown }) => slide.id),
       );
-      const missingSlideIds = operations
-        .filter((operation) => operation.op === "patch-slide")
-        .map((operation) => operation.slideId)
-        .filter((slideId) => !existingSlideIds.has(slideId));
+      const missingSlideIds: string[] = [];
+      for (const operation of operations) {
+        if (operation.op === "add-slide") {
+          existingSlideIds.add(operation.slideId);
+        } else if (
+          operation.op === "patch-slide" &&
+          !existingSlideIds.has(operation.slideId)
+        ) {
+          missingSlideIds.push(operation.slideId);
+        }
+      }
       if (missingSlideIds.length > 0) {
         const slideIds = [...new Set(missingSlideIds)];
         throw new NoWriteError(
-          `Cannot patch missing slide(s): ${slideIds.join(", ")}. The slide was deleted; no slides were changed.`,
+          `Cannot patch missing slide(s): ${slideIds.join(", ")}. These slides are not in this deck; no slides were changed.`,
           {
             errorCode: "slide_not_found",
             statusCode: 404,
