@@ -1384,7 +1384,8 @@ describe("DeckContext fallback polling", () => {
     expect(hasFailedDeckSave(deckId)).toBe(true);
 
     api.failDeckReads(null);
-    const fetch = api.fetchMock.getMockImplementation()!;
+    const fetch = api.fetchMock.getMockImplementation();
+    if (!fetch) throw new Error("Expected the deck fetch mock to be installed");
     api.fetchMock.mockImplementation((url) =>
       requestString(url).includes("/_agent-native/actions/patch-deck")
         ? Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
