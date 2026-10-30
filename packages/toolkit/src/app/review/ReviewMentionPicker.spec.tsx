@@ -156,15 +156,24 @@ describe("ReviewMentionPicker", () => {
     expect(first?.textContent).toBe("AAlicealice@example.com");
   });
 
-  it("draws initials in the foreground token on the muted avatar fallback", async () => {
+  it("draws initials in white on the person's own avatar color", async () => {
     await renderPicker();
     const [first] = options();
     const fallback = first?.querySelector(
       '[aria-hidden="true"]',
     )?.firstElementChild;
     expect(fallback?.textContent).toBe("A");
-    expect(fallback?.classList.contains("bg-muted")).toBe(true);
-    expect(fallback?.classList.contains("text-foreground")).toBe(true);
+    expect(
+      Array.from(fallback?.classList ?? []).some((name) =>
+        name.startsWith("bg-[hsl(var(--review-avatar-"),
+      ),
+    ).toBe(true);
+    expect(
+      fallback?.classList.contains(
+        "text-[hsl(var(--review-avatar-foreground,0_0%_100%))]",
+      ),
+    ).toBe(true);
+    expect(fallback?.classList.contains("bg-muted")).toBe(false);
     expect(fallback?.classList.contains("text-muted-foreground")).toBe(false);
   });
 

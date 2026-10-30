@@ -42,6 +42,7 @@ import {
   IconTextSize,
   IconBolt,
   IconStack2,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -77,10 +78,8 @@ import {
   getDeckSaveError,
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
-  useDeckContentConflicts,
   useDecks,
   useSaveState,
-  type DeckContentConflictChoice,
   type Deck,
   type Slide,
 } from "@/context/DeckContext";
@@ -89,10 +88,6 @@ import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status
 import { isDeckAccessLostStatus } from "@/lib/deck-access-lost";
 import { DeckBackupError } from "@/lib/deck-backup";
 import type { PresentRequest } from "@/lib/deck-present-url";
-import {
-  getDeckShareLinkOrder,
-  type DeckShareLinkKind,
-} from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import {
@@ -109,6 +104,7 @@ import {
   parseUploadResponse,
   promptImportResponseError,
 } from "@/lib/upload-response";
+import { isMacPlatform } from "@/lib/utils";
 
 import {
   normalizeSlideTransition,
@@ -117,6 +113,7 @@ import {
 } from "../../../shared/slide-transitions";
 import { AppMenu } from "./AppMenu";
 import { DeckPrivacyBadge } from "./DeckPrivacyBadge";
+import { useDeckShareProps } from "./DeckShareButton";
 import {
   registerEditorCommands,
   type EditorCommand,
@@ -141,7 +138,7 @@ import {
   SlideTransitionControl,
   type SlideTransitionPatch,
 } from "./SlideTransitionControl";
-import { useDeckShareSendTo } from "./use-deck-share-send-to";
+import { ViewOnlyBadge } from "./ViewOnlyBadge";
 
 export type { PresentRequest };
 
@@ -183,8 +180,8 @@ interface EditorToolbarProps {
   onApplySlideTransitionToAll?: (patch: SlideTransitionPatch) => void;
   onPlaySlideTransition?: () => void;
   onDuplicateDeck?: () => void;
-  onExportPdf?: () => Promise<void> | void;
-  onExportPptx?: () => Promise<void> | void;
+  onExportPdf?: (signal: AbortSignal) => Promise<void> | void;
+  onExportPptx?: (signal: AbortSignal) => Promise<void> | void;
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   onPresent?: (request?: PresentRequest) => boolean | void;
   onDownloadBackup?: () => void;
@@ -214,6 +211,30 @@ const SLIDE_TRANSITIONS: {
   value,
   labelKey: SLIDE_TRANSITION_LABEL_KEYS[value],
 }));
+
+function isPresentShortcut(event: KeyboardEvent): boolean {
+  return (
+    event.key === "Enter" &&
+    !event.defaultPrevented &&
+    !event.repeat &&
+    !event.isComposing &&
+    !event.altKey &&
+    !event.shiftKey &&
+    (isMacPlatform()
+      ? event.metaKey && !event.ctrlKey
+      : event.ctrlKey && !event.metaKey)
+  );
+}
+
+function isPresentShortcutBlocked(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.closest(
+      "input, textarea, select, [contenteditable='true'], [role='textbox'], [role='dialog'], [role='menu'], [role='listbox']",
+    ) !== null
+  );
+}
 
 export default function EditorToolbar({
   deck,
@@ -281,43 +302,17 @@ export default function EditorToolbar({
   // A read-only widget session refuses every save, so an offline or failed-save
   // pill would only restate that it is read-only.
   const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
-  const { resolveDeckContentConflict, retryDeckSave } = useDecks();
+  const { retryDeckSave } = useDecks();
   const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
   const editorUrl =
     typeof window === "undefined"
       ? `/deck/${deckId}`
       : `${window.location.origin}${appPath(`/deck/${deckId}`)}`;
-  const presentationUrl =
-    typeof window === "undefined"
-      ? `/p/${deckId}`
-      : `${window.location.origin}${appPath(`/p/${deckId}`)}`;
-  const shareLinks = {
-    editor: {
-      url: editorUrl,
-      label: t("editorToolbar.editorLink"),
-      copyLabel: t("editorToolbar.copyEditorLink"),
-    },
-    presentation: {
-      url: presentationUrl,
-      label: t("editorToolbar.presentationLink"),
-      copyLabel: t("editorToolbar.copyPresentationLink"),
-    },
-  };
   const visibility = useDeckVisibility(deckId, deck.visibility);
-  const shareLinkOrder = getDeckShareLinkOrder(visibility);
-  // The presentation link has nothing to open until the deck has a slide.
-  const visibleShareLink = (kind: DeckShareLinkKind) =>
-    kind === "editor" || hasSlides ? shareLinks[kind] : undefined;
-  // Copy link always has a link: the editor link stands in for a hidden one.
-  const preferredShareLink = visibleShareLink(shareLinkOrder.primary);
-  const otherShareLink = visibleShareLink(shareLinkOrder.secondary);
-  const primaryShareLink = preferredShareLink ?? otherShareLink;
-  const secondaryShareLink = preferredShareLink ? otherShareLink : undefined;
-  const shareSendTo = useDeckShareSendTo(secondaryShareLink);
+  const deckShareProps = useDeckShareProps(deckId, visibility, hasSlides);
 
   const { saving } = useSaveState();
-  const conflict = useDeckContentConflicts(deckId)[0];
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
   const saveFailed = hasFailedDeckSave(deckId);
   const saveError = getDeckSaveError(deckId);
@@ -337,18 +332,6 @@ export default function EditorToolbar({
       });
     }
   }, [accessLost, saving, queryClient]);
-  const resolveConflict = useCallback(
-    async (choice: DeckContentConflictChoice) => {
-      if (!conflict) return;
-      const result = await resolveDeckContentConflict(
-        deckId,
-        conflict.slideId,
-        choice,
-      );
-      if (result.status !== "resolved") throw new Error(result.reason);
-    },
-    [conflict, deckId, resolveDeckContentConflict],
-  );
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false,
   );
@@ -362,6 +345,25 @@ export default function EditorToolbar({
       window.removeEventListener("offline", goOffline);
     };
   }, []);
+
+  // ⌘↵ (Ctrl+Enter elsewhere) presents, unless the press belongs to a field,
+  // the text being edited, or an open dialog or menu.
+  useEffect(() => {
+    if (!onPresent || !hasSlides) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (!isPresentShortcut(event)) return;
+      if (
+        isPresentShortcutBlocked(event.target) ||
+        isPresentShortcutBlocked(document.activeElement)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      onPresent({ mode: "fullscreen" });
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [hasSlides, onPresent]);
 
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
   const showSlideTools =
@@ -677,33 +679,35 @@ export default function EditorToolbar({
       });
     }
 
+    if (hasSlides && onPresent) {
+      commands.push({
+        id: "present",
+        group: "deck",
+        label: t("editorToolbar.present"),
+        keywords: ["present", "play", "slideshow", "fullscreen"],
+        icon: IconPlayerPlay,
+        run: () => void onPresent({ mode: "fullscreen" }),
+      });
+    }
     if (hasSlides) {
-      commands.push(
-        {
-          id: "download-html",
-          group: "deck",
-          label: t("editorExport.downloadHtml"),
-          keywords: ["export", "html", "download"],
-          icon: IconCode,
-          run: () => void exportMenuRef.current?.exportHtml(),
-        },
-        {
+      if (onExportPdf) {
+        commands.push({
           id: "export-pdf",
           group: "deck",
           label: t("editorExport.exportPdf"),
           keywords: ["export", "pdf", "download"],
           icon: IconFileTypePdf,
           run: () => void exportMenuRef.current?.exportPdf(),
-        },
-        {
-          id: "export-pptx",
-          group: "deck",
-          label: t("editorExport.exportPptx"),
-          keywords: ["export", "powerpoint", "pptx", "download"],
-          icon: IconDownload,
-          run: () => void exportMenuRef.current?.exportPptx(),
-        },
-      );
+        });
+      }
+      commands.push({
+        id: "export-pptx",
+        group: "deck",
+        label: t("editorExport.exportPptx"),
+        keywords: ["export", "powerpoint", "pptx", "download"],
+        icon: IconDownload,
+        run: () => void exportMenuRef.current?.exportPptx(),
+      });
       if (onExportGoogleSlides) {
         commands.push({
           id: "export-to-google-slides",
@@ -714,6 +718,14 @@ export default function EditorToolbar({
           run: () => void exportMenuRef.current?.exportGoogleSlides(),
         });
       }
+      commands.push({
+        id: "download-html",
+        group: "deck",
+        label: t("editorExport.downloadHtml"),
+        keywords: ["export", "html", "download"],
+        icon: IconCode,
+        run: () => void exportMenuRef.current?.exportHtml(),
+      });
     }
     if (onDuplicateDeck) {
       commands.push({
@@ -774,6 +786,7 @@ export default function EditorToolbar({
     onExportGoogleSlides,
     onExportPdf,
     onGenerateImage,
+    onPresent,
     onOpenAssetLibrary,
     onShowHistory,
     onSelectShape,
@@ -819,6 +832,7 @@ export default function EditorToolbar({
           <ExportSubmenu
             exportMenuRef={exportMenuRef}
             hasSlides={hasSlides}
+            showPdf={Boolean(onExportPdf)}
             showGoogleSlides={Boolean(onExportGoogleSlides)}
           />
         }
@@ -874,13 +888,16 @@ export default function EditorToolbar({
       >
         {deckTitle || " "}
       </span>
+      {/* The title gives way first, so Share, Export, and Present stay
+          on screen beside the agent panel. */}
       <input
         type="text"
         value={deckTitle}
         readOnly={!canEdit}
         onChange={(e) => onTitleChange(e.target.value)}
+        aria-label={t("editorToolbar.deckTitle")}
         style={{ width: `${titleInputWidth}px` }}
-        className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
+        className="min-w-16 max-w-[500px] shrink truncate bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
         spellCheck={false}
       />
       <DeckPrivacyBadge visibility={visibility} />
@@ -895,11 +912,11 @@ export default function EditorToolbar({
         className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--wide"
       />
 
-      {/* "View only" badge — mirrors Google Slides' viewer chrome */}
       {!canEdit && (
-        <span className="flex-shrink-0 inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground">
-          {t("editorToolbar.viewOnly")}
-        </span>
+        <ViewOnlyBadge
+          deckId={deckId}
+          canRequestEdit={!readOnlyWidget && !widgetEmbed}
+        />
       )}
 
       {/* Save status — subtle "Saving…" / "Saved" / offline pill. Renders
@@ -911,20 +928,7 @@ export default function EditorToolbar({
           saveFailed={saveFailed}
           saveError={saveError}
           offline={offline}
-          conflict={
-            conflict
-              ? {
-                  slideNumber: Math.max(
-                    1,
-                    deck.slides.findIndex(
-                      (slide) => slide.id === conflict.slideId,
-                    ) + 1,
-                  ),
-                  canResolve: conflict.canResolve,
-                }
-              : undefined
-          }
-          onResolveConflict={resolveConflict}
+          deckId={deckId}
           onRetrySave={() => retryDeckSave(deckId)}
           onReload={() => {
             if (saveError?.serverBuildId && saveError.requiredCompatibility) {
@@ -1089,13 +1093,14 @@ export default function EditorToolbar({
           deckId={deckId}
           deckTitle={deckTitle}
           onDuplicate={onDuplicateDeck ?? (() => {})}
-          onExportPdf={onExportPdf ?? (() => {})}
+          onExportPdf={onExportPdf}
           onExportPptx={onExportPptx ?? (() => {})}
           onExportGoogleSlides={onExportGoogleSlides}
         />
         <ExportStatusDialog
           status={exportStatus}
           onStatusChange={setExportStatus}
+          onCancel={() => exportMenuRef.current?.cancelExport()}
         />
       </div>
 
@@ -1107,10 +1112,10 @@ export default function EditorToolbar({
           resourceId={deckId}
           resourceTitle={deckTitle}
           panelTitle={t("share.title")}
-          shareUrl={primaryShareLink?.url}
-          shareUrlLabel={primaryShareLink?.label}
+          shareUrl={deckShareProps.shareUrl}
+          shareUrlLabel={deckShareProps.shareUrlLabel}
           peopleAccessLabel={t("share.whoHasAccess")}
-          sendTo={widgetEmbed ? undefined : shareSendTo}
+          sendTo={widgetEmbed ? undefined : deckShareProps.sendTo}
           basicSharingOnly={widgetEmbed}
           shareTabs={
             creativeContextEnabled && !widgetEmbed
@@ -1146,6 +1151,7 @@ export default function EditorToolbar({
           exportMenuRef={exportMenuRef}
           actionRef={exportActionRef}
           hasSlides={hasSlides}
+          showPdf={Boolean(onExportPdf)}
           showGoogleSlides={Boolean(onExportGoogleSlides)}
         />
       )}

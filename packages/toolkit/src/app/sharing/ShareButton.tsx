@@ -109,6 +109,11 @@ export interface ShareButtonProps {
   basicSharingOnly?: boolean;
   /** Open the share surface without rendering a trigger button. */
   hideTrigger?: boolean;
+  /**
+   * With `hideTrigger`, the element the popover opens beside. Without it the
+   * popover is pinned to the top end of the window.
+   */
+  anchor?: ReactNode;
   /** Override the label of the Send to menu's agent-link item. */
   agentShareLabel?: string;
   /** Destinations in the Send to menu beside Copy link. */
@@ -455,7 +460,9 @@ export function ShareButton(props: ShareButtonProps) {
     <Popover open={controller.open} onOpenChange={controller.handleOpenChange}>
       {props.hideTrigger ? (
         <PopoverAnchor asChild>
-          <span aria-hidden="true" className="fixed end-4 top-16 size-px" />
+          {props.anchor ?? (
+            <span aria-hidden="true" className="fixed end-4 top-16 size-px" />
+          )}
         </PopoverAnchor>
       ) : props.quickCopy ? (
         <PopoverAnchor asChild>

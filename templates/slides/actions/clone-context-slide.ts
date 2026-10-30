@@ -29,6 +29,7 @@ import { z } from "zod";
 import { validateNativeSlideHtml } from "../app/lib/validate-native-slide-html.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
@@ -269,7 +270,7 @@ export default defineAction({
         );
         const updateResult = await tx
           .update(schema.decks)
-          .set({ data: JSON.stringify(deck), updatedAt: now })
+          .set({ ...deckDataColumns(deck), updatedAt: now })
           .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
         assertDeckWriteApplied(
           updateResult,

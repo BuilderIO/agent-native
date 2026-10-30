@@ -82,6 +82,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.exportGoogleSlidesError":
           "Could not export Google Slides.",
         "editorExport.exportHtmlError": "Could not export HTML.",
+        "editorExport.cancel": "Cancel",
+        "editorExport.saveBeforeExportFailed":
+          "Couldn't save your latest changes. Try exporting again.",
         "comments.close": "Close",
       }) as Record<string, string>
     )[key] ?? key,
@@ -370,6 +373,7 @@ describe("<ExportMenu>", () => {
             <ExportSubmenu
               exportMenuRef={ref}
               hasSlides
+              showPdf
               showGoogleSlides={false}
             />
           </DropdownMenuContent>
@@ -403,7 +407,12 @@ describe("<ExportMenu>", () => {
           onExportPdf={vi.fn()}
           onExportPptx={onExportPptx}
         />
-        <ExportDropdown exportMenuRef={ref} hasSlides showGoogleSlides />
+        <ExportDropdown
+          exportMenuRef={ref}
+          hasSlides
+          showPdf
+          showGoogleSlides
+        />
       </QueryClientProvider>,
     );
 
@@ -411,13 +420,17 @@ describe("<ExportMenu>", () => {
       button: 0,
       ctrlKey: false,
     });
-    for (const name of [
-      "Download as HTML",
+    await screen.findByRole("menuitem", { name: "Download as PDF" });
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual([
       "Download as PDF",
       "Download as PPTX",
       "Export to Google Slides",
-    ]) {
-      expect(await screen.findByRole("menuitem", { name })).toBeTruthy();
+      "Download as HTML",
+    ]);
+    for (const item of screen.getAllByRole("menuitem")) {
+      expect(item.querySelector("svg")).toBeNull();
     }
     fireEvent.click(screen.getByRole("menuitem", { name: "Download as PPTX" }));
 
@@ -429,6 +442,7 @@ describe("<ExportMenu>", () => {
       <ExportDropdown
         exportMenuRef={{ current: null }}
         hasSlides={false}
+        showPdf
         showGoogleSlides={false}
       />,
     );
@@ -637,5 +651,71 @@ describe("<ExportMenu>", () => {
       "/_agent-native/actions/export-html",
     );
     expect(URL.createObjectURL).toHaveBeenCalled();
+  });
+  it("leaves PDF out of the menu when there is no PDF handler", async () => {
+    renderMenu({ onExportPdf: undefined });
+
+    openExportMenu();
+    await screen.findByText("Export as PPTX");
+    expect(screen.queryByText("Export PDF")).toBeNull();
+  });
+
+  it("shows one line while exporting and cancels a long PDF export", async () => {
+    let exportSignal: AbortSignal | undefined;
+    const onExportPdf = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          exportSignal = signal;
+          signal.addEventListener("abort", () => {
+            const error = new Error("Export cancelled");
+            error.name = "AbortError";
+            reject(error);
+          });
+        }),
+    );
+    renderMenu({ onExportPdf });
+
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Export PDF"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent.match(/Exporting\.\.\./g)).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(exportSignal?.aborted).toBe(true);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByText("Export failed")).toBeNull();
+  });
+
+  it("saves pending edits before the HTML export reads the deck", async () => {
+    const order: string[] = [];
+    flushDeckSaveMock.mockImplementation(async () => {
+      order.push("flush");
+    });
+    globalThis.fetch = vi.fn(async () => {
+      order.push("fetch");
+      return new Response(new Blob(["<html></html>"]), { status: 200 });
+    }) as typeof fetch;
+
+    renderMenu();
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Download as HTML"));
+
+    await waitFor(() => expect(order).toEqual(["flush", "fetch"]));
+  });
+
+  it("reports a failed save instead of exporting stale HTML", async () => {
+    flushDeckSaveMock.mockRejectedValue(new Error("network down"));
+
+    renderMenu();
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Download as HTML"));
+
+    await waitFor(() =>
+      expect(screen.getByRole("dialog").textContent).toContain(
+        "Couldn't save your latest changes. Try exporting again.",
+      ),
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

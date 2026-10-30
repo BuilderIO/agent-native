@@ -24,6 +24,8 @@ describe("SlideEditor layout overflow warning", () => {
         overflowDetails="Vertical overflow: 59px"
         overflowDetailsLabel="Show overflow details"
         isAskingAgentToFix={false}
+        fixLabel="Fix with AI"
+        askingLabel="Asking…"
         dismissLabel="Dismiss layout warning"
         onFix={() => {}}
         onDismiss={() => {}}
@@ -77,6 +79,8 @@ describe("SlideEditor layout overflow warning", () => {
           overflowDetails="Vertical overflow: 59px"
           overflowDetailsLabel="Show overflow details"
           isAskingAgentToFix={false}
+          fixLabel="Fix with AI"
+          askingLabel="Asking…"
           dismissLabel="Dismiss layout warning"
           onFix={() => {}}
           onDismiss={onDismiss}
@@ -93,5 +97,32 @@ describe("SlideEditor layout overflow warning", () => {
     expect(onDismiss).toHaveBeenCalledOnce();
     expect(onCanvasPointerDown).not.toHaveBeenCalled();
     expect(onCanvasClick).not.toHaveBeenCalled();
+  });
+
+  it("offers to shrink the text beside the AI fix, in the caller's words", () => {
+    const onShrink = vi.fn();
+    render(
+      <SlideOverflowWarning
+        verticalOverflow={59}
+        warningLabel="Layout overflows"
+        overflowDetails="Vertical overflow: 59px"
+        overflowDetailsLabel="Show overflow details"
+        isAskingAgentToFix
+        fixLabel="Corriger avec l’IA"
+        askingLabel="Demande en cours…"
+        dismissLabel="Dismiss layout warning"
+        shrinkLabel="Réduire le texte"
+        onShrink={onShrink}
+        onFix={() => {}}
+        onDismiss={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Demande en cours…" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Fix with AI")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Réduire le texte" }));
+    expect(onShrink).toHaveBeenCalledOnce();
   });
 });
