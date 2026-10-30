@@ -154,6 +154,9 @@ const listed = (id: string, status: string) => ({
   updatedAt: "2026-10-28T10:05:00.000Z",
 });
 
+const PENDING_TOAST = "Removed from Clips; storage removal not yet confirmed";
+const UNCONFIRMED_TOAST =
+  "Removed from Clips; storage removal could not be confirmed";
 const RETAINED_TOAST =
   "Recording deleted. Media files other recordings still use were kept.";
 const RETAINED_ROW =
@@ -207,16 +210,8 @@ describe("TrashRoute permanent delete", () => {
   it.each([
     ["complete", "success", "Permanently deleted"],
     ["retained_shared", "info", RETAINED_TOAST],
-    [
-      "pending",
-      "info",
-      "Recording deleted. Media removal is still in progress.",
-    ],
-    [
-      "blocked",
-      "warning",
-      "Recording deleted, but its media files couldn't be removed.",
-    ],
+    ["pending", "info", PENDING_TOAST],
+    ["blocked", "info", UNCONFIRMED_TOAST],
   ] as const)(
     "reports a %s media cleanup without overclaiming",
     async (status, variant, message) => {
@@ -252,22 +247,24 @@ describe("TrashRoute permanent delete", () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
 
-  it("separates confirmed, kept, unfinished, and failed deletes in a bulk delete", async () => {
+  it("separates confirmed, kept, unfinished, unconfirmed, and failed deletes in a bulk delete", async () => {
     mocks.recordings = [
       { id: "rec-1" },
       { id: "rec-2" },
       { id: "rec-3" },
       { id: "rec-4" },
+      { id: "rec-5" },
     ];
     mocks.purge.mockImplementation(async ({ id }: { id: string }) => {
       if (id === "rec-1") return deleted(id, "complete");
       if (id === "rec-2") return deleted(id, "pending");
       if (id === "rec-4") return deleted(id, "retained_shared");
+      if (id === "rec-5") return deleted(id, "blocked");
       throw new Error("Network error");
     });
     render();
 
-    for (const id of ["rec-1", "rec-2", "rec-3", "rec-4"]) {
+    for (const id of ["rec-1", "rec-2", "rec-3", "rec-4", "rec-5"]) {
       await click(container.querySelector(`[data-select="${id}"]`));
     }
     const headerDelete = Array.from(container.querySelectorAll("button")).find(
@@ -279,11 +276,16 @@ describe("TrashRoute permanent delete", () => {
     expect(toast.success).toHaveBeenCalledTimes(1);
     expect(toast.success).toHaveBeenCalledWith("1 clips permanently deleted");
     expect(toast.info).toHaveBeenCalledWith(
-      "Recordings deleted: 1. Media removal is still in progress.",
+      "Recordings removed from Clips: 1; storage removal not yet confirmed",
     );
     expect(toast.info).toHaveBeenCalledWith(
       "Recordings deleted: 1. Media files other recordings still use were kept.",
     );
+    expect(toast.info).toHaveBeenCalledWith(
+      "Recordings removed from Clips: 1; storage removal could not be confirmed",
+    );
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledTimes(1);
     expect(toast.error).toHaveBeenCalledWith("1 clips could not be deleted");
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ["action", "list-recordings"],
@@ -299,13 +301,13 @@ describe("TrashRoute permanent delete", () => {
     expect(container.textContent).not.toContain("selected");
   });
 
-  it("shows unfinished media cleanup read from the server in an empty Trash", () => {
+  it("shows unconfirmed media cleanup read from the server in an empty Trash", () => {
     mocks.cleanups = { cleanups: [listed("rec-9", "blocked")] };
     render();
 
     expect(container.querySelector('[data-testid="empty-trash"]')).toBeTruthy();
     expect(container.textContent).toContain(
-      "Media files from deleted recordings couldn't be removed",
+      "Storage removal could not be confirmed",
     );
   });
 

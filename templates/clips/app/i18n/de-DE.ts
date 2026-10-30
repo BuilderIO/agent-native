@@ -324,28 +324,29 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} Clips endgültig gelöscht",
     clipsDeleteFailed: "{{count}} Clips konnten nicht gelöscht werden",
     deletedMediaPending:
-      "Aufnahme gelöscht. Die Mediendateien werden noch entfernt.",
+      "Aus Clips entfernt; Entfernung aus dem Speicher noch nicht bestätigt",
     deletedMediaBlocked:
-      "Aufnahme gelöscht, aber die Mediendateien konnten nicht entfernt werden.",
+      "Aus Clips entfernt; Entfernung aus dem Speicher konnte nicht bestätigt werden",
     deletedMediaRetained:
       "Aufnahme gelöscht. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
     clipsDeletedMediaPending:
-      "Gelöschte Aufnahmen: {{count}}. Die Mediendateien werden noch entfernt.",
+      "Aus Clips entfernte Aufnahmen: {{count}}; Entfernung aus dem Speicher noch nicht bestätigt",
     clipsDeletedMediaBlocked:
-      "Gelöschte Aufnahmen: {{count}}. Die Mediendateien konnten nicht entfernt werden.",
+      "Aus Clips entfernte Aufnahmen: {{count}}; Entfernung aus dem Speicher konnte nicht bestätigt werden",
     clipsDeletedMediaRetained:
       "Gelöschte Aufnahmen: {{count}}. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
     mediaCleanupListLabel: "Entfernen von Mediendateien",
-    mediaCleanupPending: "Mediendateien gelöschter Aufnahmen werden entfernt",
+    mediaCleanupPending:
+      "Aus Clips entfernt; Entfernung aus dem Speicher noch nicht bestätigt",
     mediaCleanupBlocked:
-      "Mediendateien gelöschter Aufnahmen konnten nicht entfernt werden",
+      "Entfernung aus dem Speicher konnte nicht bestätigt werden",
     mediaCleanupReconnect:
       "Verbinde den Speicher erneut, um Mediendateien gelöschter Aufnahmen zu entfernen",
     mediaCleanupRetained:
       "Geteilte Mediendateien gelöschter Aufnahmen bleiben erhalten, solange andere Aufnahmen sie verwenden",
     mediaCleanupRemoved: "Mediendateien entfernt",
     mediaCleanupStillBlocked:
-      "Mediendateien konnten weiterhin nicht entfernt werden",
+      "Entfernung aus dem Speicher konnte weiterhin nicht bestätigt werden",
     mediaCleanupRetryFailed:
       "Mediendateien konnten nicht erneut entfernt werden",
     mediaCleanupLoadFailed:

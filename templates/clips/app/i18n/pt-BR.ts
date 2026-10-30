@@ -319,28 +319,29 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clipes excluídos permanentemente",
     clipsDeleteFailed: "{{count}} clipes não puderam ser excluídos",
     deletedMediaPending:
-      "Gravação excluída. Os arquivos de mídia ainda estão sendo removidos.",
+      "Removido de Clips; a remoção do armazenamento ainda não foi confirmada",
     deletedMediaBlocked:
-      "Gravação excluída, mas não foi possível remover os arquivos de mídia.",
+      "Removido de Clips; não foi possível confirmar a remoção do armazenamento",
     deletedMediaRetained:
       "Gravação excluída. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
     clipsDeletedMediaPending:
-      "Gravações excluídas: {{count}}. Os arquivos de mídia ainda estão sendo removidos.",
+      "Gravações removidas de Clips: {{count}}; a remoção do armazenamento ainda não foi confirmada",
     clipsDeletedMediaBlocked:
-      "Gravações excluídas: {{count}}. Não foi possível remover os arquivos de mídia.",
+      "Gravações removidas de Clips: {{count}}; não foi possível confirmar a remoção do armazenamento",
     clipsDeletedMediaRetained:
       "Gravações excluídas: {{count}}. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
     mediaCleanupListLabel: "Remoção de mídia",
-    mediaCleanupPending: "Removendo arquivos de mídia de gravações excluídas",
+    mediaCleanupPending:
+      "Removido de Clips; a remoção do armazenamento ainda não foi confirmada",
     mediaCleanupBlocked:
-      "Não foi possível remover os arquivos de mídia de gravações excluídas",
+      "Não foi possível confirmar a remoção do armazenamento",
     mediaCleanupReconnect:
       "Reconecte o armazenamento para remover os arquivos de mídia de gravações excluídas",
     mediaCleanupRetained:
       "Os arquivos de mídia compartilhados de gravações excluídas são mantidos enquanto outras gravações os usarem",
     mediaCleanupRemoved: "Arquivos de mídia removidos",
     mediaCleanupStillBlocked:
-      "Ainda não foi possível remover os arquivos de mídia",
+      "Ainda não foi possível confirmar a remoção do armazenamento",
     mediaCleanupRetryFailed:
       "Não foi possível tentar remover a mídia novamente",
     mediaCleanupLoadFailed:

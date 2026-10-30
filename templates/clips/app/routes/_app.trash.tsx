@@ -310,7 +310,7 @@ export default function TrashRoute() {
         } else if (outcome === "pending") {
           toast.info(t("trashRoute.deletedMediaPending"));
         } else if (outcome === "blocked") {
-          toast.warning(t("trashRoute.deletedMediaBlocked"));
+          toast.info(t("trashRoute.deletedMediaBlocked"));
         } else if (outcome === "retained_shared") {
           toast.info(t("trashRoute.deletedMediaRetained"));
         } else {
@@ -334,7 +334,7 @@ export default function TrashRoute() {
         );
       }
       if (blocked > 0) {
-        toast.warning(
+        toast.info(
           t("trashRoute.clipsDeletedMediaBlocked", { count: blocked }),
         );
       }

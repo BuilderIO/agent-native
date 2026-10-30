@@ -321,29 +321,28 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clips supprimés définitivement",
     clipsDeleteFailed: "{{count}} clips n’ont pas pu être supprimés",
     deletedMediaPending:
-      "Enregistrement supprimé. Ses fichiers multimédias sont encore en cours de suppression.",
+      "Retiré de Clips ; suppression du stockage pas encore confirmée",
     deletedMediaBlocked:
-      "Enregistrement supprimé, mais ses fichiers multimédias n’ont pas pu être supprimés.",
+      "Retiré de Clips ; la suppression du stockage n’a pas pu être confirmée",
     deletedMediaRetained:
       "Enregistrement supprimé. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
     clipsDeletedMediaPending:
-      "Enregistrements supprimés : {{count}}. Les fichiers multimédias sont encore en cours de suppression.",
+      "Enregistrements retirés de Clips : {{count}} ; suppression du stockage pas encore confirmée",
     clipsDeletedMediaBlocked:
-      "Enregistrements supprimés : {{count}}. Les fichiers multimédias n’ont pas pu être supprimés.",
+      "Enregistrements retirés de Clips : {{count}} ; la suppression du stockage n’a pas pu être confirmée",
     clipsDeletedMediaRetained:
       "Enregistrements supprimés : {{count}}. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
     mediaCleanupListLabel: "Suppression des fichiers multimédias",
     mediaCleanupPending:
-      "Suppression des fichiers multimédias des enregistrements supprimés",
-    mediaCleanupBlocked:
-      "Les fichiers multimédias des enregistrements supprimés n’ont pas pu être supprimés",
+      "Retiré de Clips ; suppression du stockage pas encore confirmée",
+    mediaCleanupBlocked: "La suppression du stockage n’a pas pu être confirmée",
     mediaCleanupReconnect:
       "Reconnectez le stockage pour supprimer les fichiers multimédias des enregistrements supprimés",
     mediaCleanupRetained:
       "Les fichiers multimédias partagés des enregistrements supprimés sont conservés tant que d’autres enregistrements les utilisent",
     mediaCleanupRemoved: "Fichiers multimédias supprimés",
     mediaCleanupStillBlocked:
-      "Les fichiers multimédias n’ont toujours pas pu être supprimés",
+      "La suppression du stockage n’a toujours pas pu être confirmée",
     mediaCleanupRetryFailed:
       "Impossible de relancer la suppression des fichiers multimédias",
     mediaCleanupLoadFailed:

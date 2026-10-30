@@ -303,26 +303,27 @@ const messages = {
     clipsRestoreFailed: "تعذرت استعادة {{count}} مقاطع",
     clipsPermanentlyDeleted: "تم حذف {{count}} مقاطع نهائيا",
     clipsDeleteFailed: "تعذر حذف {{count}} مقاطع",
-    deletedMediaPending: "تم حذف التسجيل. لا تزال إزالة ملفات الوسائط جارية.",
-    deletedMediaBlocked:
-      "تم حذف التسجيل، لكن تعذرت إزالة ملفات الوسائط الخاصة به.",
+    deletedMediaPending:
+      "تمت الإزالة من Clips؛ لم يتم تأكيد الإزالة من التخزين بعد",
+    deletedMediaBlocked: "تمت الإزالة من Clips؛ تعذر تأكيد الإزالة من التخزين",
     deletedMediaRetained:
       "تم حذف التسجيل. تم الاحتفاظ بملفات الوسائط التي لا تزال تسجيلات أخرى تستخدمها.",
     clipsDeletedMediaPending:
-      "التسجيلات المحذوفة: {{count}}. لا تزال إزالة ملفات الوسائط جارية.",
+      "التسجيلات التي أُزيلت من Clips: {{count}}؛ لم يتم تأكيد الإزالة من التخزين بعد",
     clipsDeletedMediaBlocked:
-      "التسجيلات المحذوفة: {{count}}. تعذرت إزالة ملفات الوسائط.",
+      "التسجيلات التي أُزيلت من Clips: {{count}}؛ تعذر تأكيد الإزالة من التخزين",
     clipsDeletedMediaRetained:
       "التسجيلات المحذوفة: {{count}}. تم الاحتفاظ بملفات الوسائط التي لا تزال تسجيلات أخرى تستخدمها.",
     mediaCleanupListLabel: "إزالة الوسائط",
-    mediaCleanupPending: "جارٍ إزالة ملفات الوسائط من التسجيلات المحذوفة",
-    mediaCleanupBlocked: "تعذرت إزالة ملفات الوسائط من التسجيلات المحذوفة",
+    mediaCleanupPending:
+      "تمت الإزالة من Clips؛ لم يتم تأكيد الإزالة من التخزين بعد",
+    mediaCleanupBlocked: "تعذر تأكيد الإزالة من التخزين",
     mediaCleanupReconnect:
       "أعد ربط التخزين لإزالة ملفات الوسائط من التسجيلات المحذوفة",
     mediaCleanupRetained:
       "يتم الاحتفاظ بملفات الوسائط المشتركة من التسجيلات المحذوفة ما دامت تسجيلات أخرى تستخدمها",
     mediaCleanupRemoved: "تمت إزالة ملفات الوسائط",
-    mediaCleanupStillBlocked: "لا تزال إزالة ملفات الوسائط متعذرة",
+    mediaCleanupStillBlocked: "لا يزال تأكيد الإزالة من التخزين متعذرًا",
     mediaCleanupRetryFailed: "تعذرت إعادة محاولة إزالة الوسائط",
     mediaCleanupLoadFailed: "تعذر تحميل حالة إزالة الوسائط",
   },

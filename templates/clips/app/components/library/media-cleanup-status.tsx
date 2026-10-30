@@ -4,7 +4,11 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { MediaCleanupSummary } from "@shared/media-cleanup";
-import { IconAlertTriangle, IconFiles } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconCloudQuestion,
+  IconFiles,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -40,6 +44,21 @@ const RECONNECT_REASONS = new Set([
   "credential_unavailable",
   "credential_space_mismatch",
 ]);
+
+/**
+ * Only missing storage credentials are a failure the user can fix. Every
+ * other blocked reason, exhausted retries included, means Clips could not
+ * confirm what storage still holds, so the copy must not claim the files
+ * remain.
+ */
+function needsReconnect(cleanups: MediaCleanupSummary[]): boolean {
+  return cleanups.some(
+    (cleanup) =>
+      cleanup.status === "blocked" &&
+      cleanup.reason !== null &&
+      RECONNECT_REASONS.has(cleanup.reason),
+  );
+}
 
 /**
  * What a resolved permanent delete removed. `null` means the server did not
@@ -80,10 +99,10 @@ function mediaCleanupRefetchInterval(
 }
 
 /**
- * Media still in storage from recordings that were deleted forever: being
- * removed, blocked, or kept because another recording uses it. It is read
- * from the server so it survives a reload, and shows even when Trash has no
- * recordings left.
+ * Recordings deleted forever whose storage removal is not confirmed: still
+ * being checked, unconfirmed, or kept because another recording uses the
+ * media. It is read from the server so it survives a reload, and shows even
+ * when Trash has no recordings left.
  */
 export function MediaCleanupStatus() {
   const t = useT();
@@ -131,10 +150,7 @@ export function MediaCleanupStatus() {
   if (pending.length === 0 && blocked.length === 0 && retained.length === 0) {
     return null;
   }
-  const needsReconnect = blocked.some(
-    (cleanup) =>
-      cleanup.reason !== null && RECONNECT_REASONS.has(cleanup.reason),
-  );
+  const reconnect = needsReconnect(blocked);
 
   const retryBlocked = async () => {
     setIsRetrying(true);
@@ -152,8 +168,10 @@ export function MediaCleanupStatus() {
       }
       if (failed > 0) {
         toast.error(t("trashRoute.mediaCleanupRetryFailed"));
+      } else if (needsReconnect(summaries)) {
+        toast.warning(t("trashRoute.mediaCleanupReconnect"));
       } else if (summaries.some((summary) => summary.status === "blocked")) {
-        toast.warning(t("trashRoute.mediaCleanupStillBlocked"));
+        toast.info(t("trashRoute.mediaCleanupStillBlocked"));
       } else if (summaries.every((summary) => summary.status === "complete")) {
         toast.success(t("trashRoute.mediaCleanupRemoved"));
       }
@@ -184,11 +202,15 @@ export function MediaCleanupStatus() {
       {blocked.length > 0 && !isRetrying ? (
         <Item variant="outline" size="sm" role="listitem">
           <ItemMedia>
-            <IconAlertTriangle className="size-4 text-destructive" />
+            {reconnect ? (
+              <IconAlertTriangle className="size-4 text-destructive" />
+            ) : (
+              <IconCloudQuestion className="size-4 text-muted-foreground" />
+            )}
           </ItemMedia>
           <ItemContent className="min-w-0">
             <ItemTitle>
-              {needsReconnect
+              {reconnect
                 ? t("trashRoute.mediaCleanupReconnect")
                 : t("trashRoute.mediaCleanupBlocked")}
             </ItemTitle>
