@@ -372,6 +372,27 @@ function membersById(group: HTMLElement): Map<string, HTMLElement> | null {
 }
 
 /**
+ * Where a write's patches land: each child with an object id. A patch for
+ * an id none of them carries would be skipped, and the write reported as
+ * done when it only partly was, so its ids are returned instead.
+ */
+function patchTargetsOf(
+  element: HTMLElement,
+  write: Extract<LayoutWrite, { status: "ok" }>,
+): { members: Map<string, HTMLElement> } | { missing: string[] } {
+  const members = new Map<string, HTMLElement>();
+  for (const child of elementChildren(element)) {
+    const id = child.getAttribute(OBJECT_ID);
+    if (id) members.set(id, child);
+  }
+  const selfId = element.getAttribute(OBJECT_ID) ?? "";
+  const missing = Array.from(layoutPatchesById(write, selfId).keys()).filter(
+    (id) => id !== selfId && !members.has(id),
+  );
+  return missing.length > 0 ? { missing } : { members };
+}
+
+/**
  * Turns a freeform group into auto layout: members are ordered by where they
  * render, and the gap, padding and alignment are inferred from them. Evenly
  * spaced members stay put; uneven gaps settle on the median one and
@@ -615,18 +636,31 @@ export function updateSlideAutoLayoutFrame(
       px,
     }),
   }));
-  const failed = memberWrites.find(({ write }) => write.status !== "ok");
-  if (failed && failed.write.status !== "ok") {
+  const restoreGroup = () => {
     if (groupStyle === null) group.removeAttribute("style");
     else group.setAttribute("style", groupStyle);
-    return refused(failed.write.reason, failed.write.nodeIds);
-  }
+  };
+  // A nested group that hugs freezes its own Fill members; those patches
+  // are addressed to them, so each write must reach all of its targets.
+  const applied: {
+    member: HTMLElement;
+    write: Extract<LayoutWrite, { status: "ok" }>;
+    members: Map<string, HTMLElement>;
+  }[] = [];
   for (const { member, write } of memberWrites) {
-    // A nested group that hugs freezes its own Fill members; those patches
-    // are addressed to them.
-    if (write.status === "ok") {
-      applyWrite(member, write, membersById(member) ?? new Map());
+    if (write.status !== "ok") {
+      restoreGroup();
+      return refused(write.reason, write.nodeIds);
     }
+    const targets = patchTargetsOf(member, write);
+    if ("missing" in targets) {
+      restoreGroup();
+      return refused("unidentified-children", targets.missing);
+    }
+    applied.push({ member, write, members: targets.members });
+  }
+  for (const { member, write, members } of applied) {
+    applyWrite(member, write, members);
   }
   return { status: "applied" };
 }
@@ -679,7 +713,11 @@ export function setSlideLayoutSizing(
     sizing: { [axis]: sizing },
   });
   if (write.status !== "ok") return refused(write.reason, write.nodeIds);
-  applyWrite(element, write, membersById(element) ?? new Map());
+  const targets = patchTargetsOf(element, write);
+  if ("missing" in targets) {
+    return refused("unidentified-children", targets.missing);
+  }
+  applyWrite(element, write, targets.members);
   return { status: "applied" };
 }
 

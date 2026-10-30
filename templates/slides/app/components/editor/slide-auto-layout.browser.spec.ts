@@ -775,6 +775,27 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("freezes a Fill member when its group hugs, even beside a child with no id", async () => {
+    const page = await openPage();
+    const outcome = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      api.enableSlideGroupAutoLayout(group);
+      const first = group.querySelector<HTMLElement>(
+        '[data-slide-object-id="first"]',
+      )!;
+      api.setSlideLayoutSizing(first, "horizontal", "fill");
+      const loose = document.createElement("div");
+      loose.style.width = "10px";
+      loose.style.height = "10px";
+      group.append(loose);
+      const result = api.setSlideLayoutSizing(group, "horizontal", "hug");
+      return { result, grow: first.style.flexGrow };
+    });
+    expect(outcome).toEqual({ result: { status: "applied" }, grow: "0" });
+    await page.close();
+  });
+
   it("refuses a member that is not rendered and leaves the group as it was", async () => {
     const page = await openPage();
     const outcome = await page.evaluate(() => {
