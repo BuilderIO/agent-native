@@ -5409,17 +5409,13 @@ export default function DeckEditor() {
   const editorDrop = (e: React.DragEvent) => {
     const files = Array.from(e.dataTransfer?.files ?? []);
     const video = files.find(videoFileLooksLikeVideo);
-    if (video) {
-      e.preventDefault();
-      e.stopPropagation();
-      void uploadAndApplyVideo(video);
-      return;
-    }
-    const file = files.find(imageFileLooksSupported);
-    if (!file) return;
+    const file = video ? undefined : files.find(imageFileLooksSupported);
+    if (!video && !file) return;
     e.preventDefault();
     e.stopPropagation();
-    void uploadAndApplyImage(null, file);
+    if (!canEdit) return;
+    if (video) void uploadAndApplyVideo(video);
+    else if (file) void uploadAndApplyImage(null, file);
   };
 
   const handleAddEmptySlide = () => insertSlideAfterActive("blank");
@@ -5452,6 +5448,7 @@ export default function DeckEditor() {
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         onGenerateImage={() => setImageGenOpen(!imageGenOpen)}
         onOpenAssetLibrary={() => {
+          if (!canEdit) return;
           if (!assetLibraryOpen) {
             trackEvent("slide_panel_opened", {
               app_name: "slides",
@@ -6190,6 +6187,7 @@ export default function DeckEditor() {
             }}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
+              if (!canEdit) return;
               if (!assetLibraryOpen) {
                 trackEvent("slide_panel_opened", {
                   app_name: "slides",
@@ -6201,6 +6199,7 @@ export default function DeckEditor() {
               setAssetLibraryOpen(true);
             }}
             onUploadImage={(src) => {
+              if (!canEdit) return;
               setReplaceImageSrc(src);
               if (fileStorageConfigured) {
                 uploadInputRef.current?.click();
