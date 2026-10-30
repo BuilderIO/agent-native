@@ -171,10 +171,9 @@ Other older threads are left as they are, except reports listed under
 `Reports` in a sweep PR opened or merged in that window: those always get
 their close-out.
 
-Reading a source is a good job for a helper: give each source below its own
-helper on the cheapest model (Luna in Codex, Haiku in Claude Code), and close
-it as soon as it reports. A helper gathers; you triage. The Slack helper
-returns every root a person posted in the window with no ✅, 🎫, or `:mag:`,
+Give each source below its own helper on the cheapest model (Luna in Codex,
+Haiku in Claude Code), and close it as soon as it reports. A helper gathers;
+you triage. The Slack helper returns every root a person posted in the window with no ✅, 🎫, or `:mag:`,
 one line each (link, author, first line). It never filters, ranks, or drops
 one: a new report has no reaction and no thread yet.
 
@@ -256,7 +255,7 @@ ranked with the Slack reports by people affected. They have no thread to react o
 so they appear only in the recap.
 
 Take the Fix reports in order of how many people they hurt, and claim all
-of them. Any Fix, Build, or Needs-a-person root you leave
+of them. If time runs out, close what's left with 🎫 and a reply. Any Fix, Build, or Needs-a-person root you leave
 unclaimed gets no reaction, only one line in the recap saying why, so
 nothing is dropped silently. That covers every candidate your source helpers
 return: each one ends the run either claimed or on a recap line with its
