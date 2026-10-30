@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../server/lib/recording-media-lifecycle.js", () => ({
+  withRecordingPrivateBlobProduction: async (
+    _input: unknown,
+    produce: () => Promise<unknown>,
+  ) => produce(),
+}));
+
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   putPrivateBlob: vi.fn(),
