@@ -330,6 +330,10 @@ const messages = {
       "Grabaciones eliminadas de Clips: {{count}}; no se pudo confirmar la eliminación del almacenamiento",
     clipsDeletedMediaRetained:
       "Grabaciones eliminadas: {{count}}. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
+    deletedMediaFinalizing: "Eliminado de Clips; finalizando la limpieza",
+    clipsDeletedMediaFinalizing:
+      "Grabaciones eliminadas de Clips: {{count}}; finalizando la limpieza",
+    mediaCleanupFinalizing: "Finalizando la limpieza de la grabación eliminada",
     mediaCleanupListLabel: "Eliminación de archivos multimedia",
     mediaCleanupPending:
       "Eliminado de Clips; aún no se ha confirmado la eliminación del almacenamiento",

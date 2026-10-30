@@ -318,6 +318,10 @@ const messages = {
       "Clips से हटाई गई रिकॉर्डिंग: {{count}}; स्टोरेज से हटाए जाने की पुष्टि नहीं हो सकी",
     clipsDeletedMediaRetained:
       "हटाई गई रिकॉर्डिंग: {{count}}। जिन मीडिया फ़ाइलों का अन्य रिकॉर्डिंग अब भी उपयोग करती हैं, उन्हें रखा गया।",
+    deletedMediaFinalizing: "Clips से हटाया गया; सफ़ाई पूरी की जा रही है",
+    clipsDeletedMediaFinalizing:
+      "Clips से हटाई गई रिकॉर्डिंग: {{count}}; सफ़ाई पूरी की जा रही है",
+    mediaCleanupFinalizing: "हटाई गई रिकॉर्डिंग की सफ़ाई पूरी की जा रही है",
     mediaCleanupListLabel: "मीडिया हटाना",
     mediaCleanupPending:
       "Clips से हटा दिया गया; स्टोरेज से हटाए जाने की पुष्टि अभी नहीं हुई है",

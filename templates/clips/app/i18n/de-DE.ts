@@ -335,6 +335,12 @@ const messages = {
       "Aus Clips entfernte Aufnahmen: {{count}}; Entfernung aus dem Speicher konnte nicht bestätigt werden",
     clipsDeletedMediaRetained:
       "Gelöschte Aufnahmen: {{count}}. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
+    deletedMediaFinalizing:
+      "Aus Clips entfernt; Bereinigung wird abgeschlossen",
+    clipsDeletedMediaFinalizing:
+      "Aus Clips entfernte Aufnahmen: {{count}}; Bereinigung wird abgeschlossen",
+    mediaCleanupFinalizing:
+      "Bereinigung der entfernten Aufnahme wird abgeschlossen",
     mediaCleanupListLabel: "Entfernen von Mediendateien",
     mediaCleanupPending:
       "Aus Clips entfernt; Entfernung aus dem Speicher noch nicht bestätigt",

@@ -153,6 +153,27 @@ describe("MediaCleanupStatus", () => {
     expect(toast.info).not.toHaveBeenCalled();
   });
 
+  it("keeps confirmed storage distinct while allowance finalization needs a retry", async () => {
+    const finalizing = {
+      ...record("blocked", "accounting_unavailable"),
+      blocked: 0,
+      deleted: 2,
+    };
+    mocks.query.data = { cleanups: [finalizing] };
+    mocks.retry.mockResolvedValue(finalizing);
+    render();
+
+    expect(container.textContent).toBe(
+      "Finalizing cleanup for the removed recordingRetry",
+    );
+    expect(container.querySelector(".text-destructive")).toBeNull();
+    await act(async () => retryButton(container)?.click());
+    expect(toast.info).toHaveBeenCalledWith(
+      "Finalizing cleanup for the removed recording",
+    );
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
   it("retries blocked cleanups one at a time and acknowledges the click at once", async () => {
     mocks.query.data = {
       cleanups: [
@@ -205,6 +226,7 @@ describe("MediaCleanupStatus", () => {
     ["credential_space_mismatch", RECONNECT, true],
     ["retry_exhausted", UNCONFIRMED_TITLE, false],
     ["delete_unconfirmed", UNCONFIRMED_TITLE, false],
+    ["accounting_unavailable", UNCONFIRMED_TITLE, false],
     [null, UNCONFIRMED_TITLE, false],
   ])(
     "flags only missing credentials as a failure (%s)",
@@ -253,6 +275,15 @@ describe("MediaCleanupStatus", () => {
 
     expect(interval([record("pending"), record("blocked")])).toBe(10_000);
     expect(interval([record("blocked")])).toBe(60_000);
+    expect(
+      interval([
+        {
+          ...record("blocked", "accounting_unavailable"),
+          blocked: 0,
+          deleted: 2,
+        },
+      ]),
+    ).toBe(60_000);
     expect(interval([record("retained_shared")])).toBe(60_000);
     expect(interval([record("complete")])).toBe(false);
   });

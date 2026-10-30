@@ -262,6 +262,10 @@ const messages = {
       "Recordings removed from Clips: {{count}}; storage removal could not be confirmed",
     clipsDeletedMediaRetained:
       "Recordings deleted: {{count}}. Media files other recordings still use were kept.",
+    deletedMediaFinalizing: "Removed from Clips; finalizing cleanup",
+    clipsDeletedMediaFinalizing:
+      "Recordings removed from Clips: {{count}}; finalizing cleanup",
+    mediaCleanupFinalizing: "Finalizing cleanup for the removed recording",
     mediaCleanupListLabel: "Media removal",
     mediaCleanupPending:
       "Removed from Clips; storage removal not yet confirmed",

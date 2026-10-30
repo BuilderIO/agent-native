@@ -322,6 +322,10 @@ const messages = {
       "Clips에서 제거된 녹화: {{count}}개. 스토리지 제거를 확인할 수 없습니다",
     clipsDeletedMediaRetained:
       "삭제된 녹화: {{count}}개. 다른 녹화에서 아직 사용하는 미디어 파일은 유지되었습니다.",
+    deletedMediaFinalizing: "Clips에서 제거됨; 정리 마무리 중",
+    clipsDeletedMediaFinalizing:
+      "Clips에서 제거한 녹화: {{count}}개; 정리 마무리 중",
+    mediaCleanupFinalizing: "제거한 녹화의 정리를 마무리하는 중",
     mediaCleanupListLabel: "미디어 제거",
     mediaCleanupPending:
       "Clips에서 제거되었습니다. 스토리지 제거는 아직 확인되지 않았습니다",

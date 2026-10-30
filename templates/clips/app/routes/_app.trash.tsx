@@ -281,6 +281,7 @@ export default function TrashRoute() {
       const complete = tally("complete");
       const pending = tally("pending");
       const blocked = tally("blocked");
+      const finalizing = tally("finalizing");
       const retained = tally("retained_shared");
       const failed = tally(null);
 
@@ -311,6 +312,8 @@ export default function TrashRoute() {
           toast.info(t("trashRoute.deletedMediaPending"));
         } else if (outcome === "blocked") {
           toast.info(t("trashRoute.deletedMediaBlocked"));
+        } else if (outcome === "finalizing") {
+          toast.info(t("trashRoute.deletedMediaFinalizing"));
         } else if (outcome === "retained_shared") {
           toast.info(t("trashRoute.deletedMediaRetained"));
         } else {
@@ -341,6 +344,11 @@ export default function TrashRoute() {
       if (retained > 0) {
         toast.info(
           t("trashRoute.clipsDeletedMediaRetained", { count: retained }),
+        );
+      }
+      if (finalizing > 0) {
+        toast.info(
+          t("trashRoute.clipsDeletedMediaFinalizing", { count: finalizing }),
         );
       }
       if (failed > 0) {

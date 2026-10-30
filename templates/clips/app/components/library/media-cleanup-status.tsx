@@ -60,6 +60,16 @@ function needsReconnect(cleanups: MediaCleanupSummary[]): boolean {
   );
 }
 
+function isFinalizing(cleanup: MediaCleanupSummary): boolean {
+  return (
+    cleanup.status === "blocked" &&
+    cleanup.reason === "accounting_unavailable" &&
+    cleanup.pending === 0 &&
+    cleanup.blocked === 0 &&
+    cleanup.retained === 0
+  );
+}
+
 /**
  * What a resolved permanent delete removed. `null` means the server did not
  * confirm the recording is gone. Media counts as removed only when cleanup
@@ -68,11 +78,14 @@ function needsReconnect(cleanups: MediaCleanupSummary[]): boolean {
  */
 export function permanentDeleteOutcome(
   result: PermanentDeleteResult | undefined,
-): MediaCleanupStatusValue | null {
+): MediaCleanupStatusValue | "finalizing" | null {
   if (result?.recordingRemoved !== true) return null;
   const status = result.mediaCleanup?.status;
   if (status === "complete") {
     return result.success === true ? status : "pending";
+  }
+  if (result.mediaCleanup && isFinalizing(result.mediaCleanup)) {
+    return "finalizing";
   }
   return status === "blocked" || status === "retained_shared"
     ? status
@@ -85,7 +98,8 @@ function groupCleanups(data: ListMediaCleanupsResult | undefined) {
     cleanups.filter((cleanup) => cleanup.status === status);
   return {
     pending: withStatus("pending"),
-    blocked: withStatus("blocked"),
+    blocked: withStatus("blocked").filter((cleanup) => !isFinalizing(cleanup)),
+    finalizing: cleanups.filter(isFinalizing),
     retained: withStatus("retained_shared"),
   };
 }
@@ -93,9 +107,11 @@ function groupCleanups(data: ListMediaCleanupsResult | undefined) {
 function mediaCleanupRefetchInterval(
   data: ListMediaCleanupsResult | undefined,
 ): number | false {
-  const { pending, blocked, retained } = groupCleanups(data);
+  const { pending, blocked, retained, finalizing } = groupCleanups(data);
   if (pending.length > 0) return PENDING_POLL_MS;
-  return blocked.length > 0 || retained.length > 0 ? WAITING_POLL_MS : false;
+  return blocked.length > 0 || retained.length > 0 || finalizing.length > 0
+    ? WAITING_POLL_MS
+    : false;
 }
 
 /**
@@ -146,8 +162,13 @@ export function MediaCleanupStatus() {
     );
   }
 
-  const { pending, blocked, retained } = groupCleanups(data);
-  if (pending.length === 0 && blocked.length === 0 && retained.length === 0) {
+  const { pending, blocked, retained, finalizing } = groupCleanups(data);
+  if (
+    pending.length === 0 &&
+    blocked.length === 0 &&
+    retained.length === 0 &&
+    finalizing.length === 0
+  ) {
     return null;
   }
   const reconnect = needsReconnect(blocked);
@@ -159,7 +180,7 @@ export function MediaCleanupStatus() {
       let failed = 0;
       // One at a time: the list holds up to 100 cleanups, and retrying them
       // all at once would burst that many mutations at the same storage.
-      for (const cleanup of blocked) {
+      for (const cleanup of [...blocked, ...finalizing]) {
         try {
           summaries.push(await retry.mutateAsync({ id: cleanup.id }));
         } catch {
@@ -170,8 +191,14 @@ export function MediaCleanupStatus() {
         toast.error(t("trashRoute.mediaCleanupRetryFailed"));
       } else if (needsReconnect(summaries)) {
         toast.warning(t("trashRoute.mediaCleanupReconnect"));
-      } else if (summaries.some((summary) => summary.status === "blocked")) {
+      } else if (
+        summaries.some(
+          (summary) => summary.status === "blocked" && !isFinalizing(summary),
+        )
+      ) {
         toast.info(t("trashRoute.mediaCleanupStillBlocked"));
+      } else if (summaries.some(isFinalizing)) {
+        toast.info(t("trashRoute.mediaCleanupFinalizing"));
       } else if (summaries.every((summary) => summary.status === "complete")) {
         toast.success(t("trashRoute.mediaCleanupRemoved"));
       }
@@ -195,7 +222,13 @@ export function MediaCleanupStatus() {
             <Spinner />
           </ItemMedia>
           <ItemContent>
-            <ItemTitle>{t("trashRoute.mediaCleanupPending")}</ItemTitle>
+            <ItemTitle>
+              {t(
+                pending.length === 0 && blocked.length === 0 && isRetrying
+                  ? "trashRoute.mediaCleanupFinalizing"
+                  : "trashRoute.mediaCleanupPending",
+              )}
+            </ItemTitle>
           </ItemContent>
         </Item>
       ) : null}
@@ -214,6 +247,25 @@ export function MediaCleanupStatus() {
                 ? t("trashRoute.mediaCleanupReconnect")
                 : t("trashRoute.mediaCleanupBlocked")}
             </ItemTitle>
+          </ItemContent>
+          <ItemActions>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void retryBlocked()}
+            >
+              {t("libraryGrid.retry")}
+            </Button>
+          </ItemActions>
+        </Item>
+      ) : null}
+      {finalizing.length > 0 && !isRetrying ? (
+        <Item variant="outline" size="sm" role="listitem">
+          <ItemMedia>
+            <IconCloudQuestion className="size-4 text-muted-foreground" />
+          </ItemMedia>
+          <ItemContent className="min-w-0">
+            <ItemTitle>{t("trashRoute.mediaCleanupFinalizing")}</ItemTitle>
           </ItemContent>
           <ItemActions>
             <Button

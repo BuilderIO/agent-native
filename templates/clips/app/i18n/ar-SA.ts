@@ -314,6 +314,10 @@ const messages = {
       "التسجيلات التي أُزيلت من Clips: {{count}}؛ تعذر تأكيد الإزالة من التخزين",
     clipsDeletedMediaRetained:
       "التسجيلات المحذوفة: {{count}}. تم الاحتفاظ بملفات الوسائط التي لا تزال تسجيلات أخرى تستخدمها.",
+    deletedMediaFinalizing: "أُزيل من Clips؛ جارٍ استكمال التنظيف",
+    clipsDeletedMediaFinalizing:
+      "التسجيلات المُزالة من Clips: {{count}}؛ جارٍ استكمال التنظيف",
+    mediaCleanupFinalizing: "جارٍ استكمال تنظيف التسجيل المُزال",
     mediaCleanupListLabel: "إزالة الوسائط",
     mediaCleanupPending:
       "تمت الإزالة من Clips؛ لم يتم تأكيد الإزالة من التخزين بعد",

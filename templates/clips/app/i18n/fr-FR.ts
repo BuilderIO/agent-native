@@ -332,6 +332,11 @@ const messages = {
       "Enregistrements retirés de Clips : {{count}} ; la suppression du stockage n’a pas pu être confirmée",
     clipsDeletedMediaRetained:
       "Enregistrements supprimés : {{count}}. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
+    deletedMediaFinalizing: "Retiré de Clips ; finalisation du nettoyage",
+    clipsDeletedMediaFinalizing:
+      "Enregistrements retirés de Clips : {{count}} ; finalisation du nettoyage",
+    mediaCleanupFinalizing:
+      "Finalisation du nettoyage de l’enregistrement retiré",
     mediaCleanupListLabel: "Suppression des fichiers multimédias",
     mediaCleanupPending:
       "Retiré de Clips ; suppression du stockage pas encore confirmée",

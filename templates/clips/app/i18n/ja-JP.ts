@@ -327,6 +327,11 @@ const messages = {
       "Clips から削除した録画：{{count}} 件。ストレージからの削除を確認できませんでした",
     clipsDeletedMediaRetained:
       "削除した録画：{{count}} 件。他の録画で使用中のメディアファイルは残しました。",
+    deletedMediaFinalizing:
+      "Clips から削除済み。クリーンアップを完了しています",
+    clipsDeletedMediaFinalizing:
+      "Clips から削除した録画: {{count}}。クリーンアップを完了しています",
+    mediaCleanupFinalizing: "削除した録画のクリーンアップを完了しています",
     mediaCleanupListLabel: "メディアの削除",
     mediaCleanupPending:
       "Clips から削除しました。ストレージからの削除はまだ確認されていません",

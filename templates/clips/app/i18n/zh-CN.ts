@@ -304,6 +304,10 @@ const messages = {
       "已从 Clips 移除的录制：{{count}}；无法确认是否已从存储中移除",
     clipsDeletedMediaRetained:
       "已删除的录制：{{count}}。其他录制仍在使用的媒体文件已保留。",
+    deletedMediaFinalizing: "已从 Clips 移除；正在完成清理",
+    clipsDeletedMediaFinalizing:
+      "已从 Clips 移除的录制：{{count}}；正在完成清理",
+    mediaCleanupFinalizing: "正在完成已移除录制的清理",
     mediaCleanupListLabel: "媒体移除",
     mediaCleanupPending: "已从 Clips 移除；尚未确认已从存储中移除",
     mediaCleanupBlocked: "无法确认是否已从存储中移除",
