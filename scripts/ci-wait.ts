@@ -171,7 +171,12 @@ function main(): number {
       );
       return 2;
     }
-    execFileSync("sleep", [String(Math.min(intervalMs, left) / 1000)]);
+    Atomics.wait(
+      new Int32Array(new SharedArrayBuffer(4)),
+      0,
+      0,
+      Math.min(intervalMs, left),
+    );
   }
 }
 
