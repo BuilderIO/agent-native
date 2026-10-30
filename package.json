@@ -51,6 +51,7 @@
     "test:fix-proof": "node --experimental-strip-types --test scripts/fix-proof.test.ts",
     "test:guard-test-title-production": "node --experimental-strip-types --test scripts/guard-test-title-production.test.ts",
     "ci:red-report": "node --experimental-strip-types scripts/ci-red-report.ts",
+    "ci:wait": "node --experimental-strip-types --no-warnings scripts/ci-wait.ts",
     "community-prs": "node --experimental-strip-types scripts/community-prs.ts",
     "test:community-prs": "node --experimental-strip-types --test scripts/community-prs.test.ts",
     "test:netlify-migration-url": "tsx --test scripts/netlify-migration-url.test.ts",

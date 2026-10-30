@@ -167,17 +167,13 @@ the invocation gives), for new reports and open items alike. An older thread
 is in the window too when we have already replied in it and a person has
 replied since the window began: a channel read only shows roots, so search for
 recent thread replies (`in:<#channel> is:thread after:<date>`) to find them.
-On 10/29 a teammate's vote and question sat unanswered under a 3-week-old
-root. Other older threads are left as they are, except reports listed under
+Other older threads are left as they are, except reports listed under
 `Reports` in a sweep PR opened or merged in that window: those always get
 their close-out.
 
 Reading a source is a good job for a helper: give each source below its own
 helper on the cheapest model (Luna in Codex, Haiku in Claude Code), ask for a
-short list of candidates with links, and close it as soon as it reports. On
-10/29 the three source reads cost $0.44 together; reusing those same helpers
-for fixes afterwards cost $6.36, because each new job paid for its whole
-growing history.
+short list of candidates with links, and close it as soon as it reports.
 
 - **Read the channels.** Use `slack_read_channel` with
   `response_format: detailed` (paginate) back 5 days. Its output shows
@@ -260,7 +256,9 @@ so they appear only in the recap.
 Take the Fix reports in order of how many people they hurt, and claim as
 many as the run can finish. Any Fix, Build, or Needs-a-person root you leave
 unclaimed gets no reaction, only one line in the recap saying why, so
-nothing is dropped silently.
+nothing is dropped silently. That covers every candidate your source helpers
+return: each one ends the run either claimed or on a recap line with its
+reason.
 
 Then add 👀 to every root you claimed (Fix, Build, or Needs a person) in one
 pass, before you investigate. In an automation run, immediately list those roots (channel and
@@ -278,7 +276,10 @@ apart from Steve's own 👀.
   that fails, the action returning the wrong thing, a stack trace, or the
   flow broken in a signed-in local app. Reading code is not an attempt:
   write the report's steps as a failing test, or walk them in the signed-in
-  app. Only after a real attempt fails does a report become 🎫, and its
+  app. A broken setup isn't an attempt either: when a test can't load or an
+  install fails, fix the setup (install what's missing, or free space by
+  removing only this run's own build output) or
+  walk the steps in the signed-in app instead. Only after a real attempt fails does a report become 🎫, and its
   recap line says what you ran. No reproduction means no code change;
   guessing at a fix is how one Clips popover got "fixed" four times.
 - **Check the history.** `git log --since=30.days --oneline -- <files>`: if
@@ -311,9 +312,7 @@ apart from Steve's own 👀.
 - **Second opinion before the PR, every time.** Give a fresh subagent on
   your own model only the report text, the diff, and the proof, and ask: does
   the check exercise what the reporter saw, is this the cause or a symptom,
-  and what edge case breaks it? Fix what it finds before you open the PR. The
-  10/29 run skipped this, and PR review found the edge cases one round at a
-  time instead.
+  and what edge case breaks it? Fix what it finds before you open the PR.
 - **Keep fixes small.** Each report's fix goes in its own commit so a bad
   one can be reverted alone. A fix that grows past about 300 lines, or into
   a new subsystem (timeouts, cancellation, retries) the reporter didn't ask
@@ -330,10 +329,25 @@ PR per item. End the PR body with a
 Slack thread, or the Sentry, Analytics, or GitHub issue. That list is the
 only set of threads a later `/ship` may close out as fixed.
 
-Wait for CI with one blocking command, such as
-`gh pr checks <number> --watch --required --interval 60`, and don't post a
-status line while it runs: every turn re-sends your whole context, and on
-10/28 polling CI was half the main thread's cost.
+Wait for CI with one command that blocks until every check finishes, and
+wait on it with the longest call your tool allows, not a short call you
+repeat: every call re-sends your whole context, and on 10/28 polling CI
+every minute was half the main thread's cost.
+<!-- framework-repo-only:start -->
+Here that command is `pnpm ci:wait <number>`: it prints nothing until CI is
+done, then one summary. Exit 1 means a check failed. Exit 2 means it couldn't
+tell, and its last line says why: rerun a cancelled check, run the command
+again when time ran out with checks still going, and otherwise look at the PR
+yourself. To need fewer calls, pass `--max-minutes` about a minute
+under your tool's call limit.
+<!-- framework-repo-only:end -->
+Without a repo command for it, run
+`gh pr checks <number> --watch --interval 60 > /dev/null` in one call bounded
+by your tool's limit, then read `gh pr checks <number>` twice, a minute
+apart: CI is done only when at least one check is listed, nothing is
+pending, and both reads list the same checks, since a workflow can register
+late. Otherwise wait again the same way and rerun any cancelled check; after
+about two hours, stop and look at the PR yourself.
 
 Fix each review round's findings in one batch. If a second round still finds
 a problem in the same fix, take that fix out of the PR, remove its whole entry
