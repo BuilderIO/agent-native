@@ -209,7 +209,7 @@ test.describe("hairline selection", () => {
 });
 
 test.describe("clicking into a selected screen", () => {
-  test("plain clicks select content inside a selected screen; Cmd-click selects the child", async ({
+  test("plain clicks select screen content; Cmd-click deep-selects from a selected parent", async ({
     app,
   }) => {
     await openFixture(app);
@@ -237,6 +237,8 @@ test.describe("clicking into a selected screen", () => {
         "a plain click on another child selects that content layer",
       )
       .toEqual(["Box B"]);
+    await selectLayerRow(app, "Wrapper");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Wrapper"]);
     await clickDesign(app, 225, 160, [MOD]);
     await expect
       .poll(() => app.selectedLayers(), "Cmd-click selects the child directly")

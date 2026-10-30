@@ -657,6 +657,8 @@ test.describe("selection", () => {
 
     await clickNode(app, "intro-title");
     await expect.poll(() => app.selectedLayers()).toEqual(["Title"]);
+    await layerButton(app, "Intro").click();
+    await expect.poll(() => app.selectedLayers()).toEqual(["Intro"]);
     const title = await app.designRect("intro-title");
     const titleCenter = await app.pagePoint(
       title.x + title.width / 2,

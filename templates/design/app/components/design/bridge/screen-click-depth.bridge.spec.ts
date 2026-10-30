@@ -5,6 +5,11 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
 
 // A single screen's iframe: the body is the screen frame.
 type Surface = { boardSurface?: boolean; readOnly?: boolean };
+type SelectionPacket = {
+  type: string;
+  payload?: { sourceId?: string } | { sourceId?: string }[];
+  intent?: { additive?: boolean; shiftKey?: boolean };
+};
 
 function hydratedScreenBridge({
   boardSurface = false,
@@ -49,8 +54,18 @@ async function openFixture(page: Page, html = FIXTURE, surface: Surface = {}) {
   await page.setContent(html);
   await page.evaluate(() => {
     (window as any).__selected = [];
+    const packets: SelectionPacket[] = [];
+    Reflect.set(window, "__selectionPackets", packets);
     window.addEventListener("message", (event: MessageEvent) => {
       if (event.source !== window) return;
+      if (
+        [
+          "element-select",
+          "agent-native:layer-marquee-selection",
+          "clear-selection",
+        ].includes(event.data?.type)
+      )
+        packets.push(event.data);
       if (event.data?.type === "element-select") {
         (window as any).__selected.push(event.data.payload?.sourceId ?? "");
       }
@@ -333,3 +348,160 @@ describe("right-click inside a screen", () => {
     );
   });
 });
+
+const shiftClickRoutes = [
+  {
+    name: "pointer",
+    click: async (
+      page: Page,
+      point: { x: number; y: number },
+      shift = false,
+    ) => {
+      if (shift) await page.keyboard.down("Shift");
+      await page.mouse.click(point.x, point.y);
+      if (shift) await page.keyboard.up("Shift");
+    },
+  },
+  {
+    name: "click-only shield",
+    click: async (
+      page: Page,
+      point: { x: number; y: number },
+      shift = false,
+    ) => {
+      await page
+        .locator('[data-agent-native-edit-overlay="shield"]')
+        .dispatchEvent("click", {
+          clientX: point.x,
+          clientY: point.y,
+          shiftKey: shift,
+          detail: 1,
+        });
+    },
+  },
+];
+
+async function selectionPacketAfter(page: Page, gesture: () => Promise<void>) {
+  const before = await page.evaluate(
+    () =>
+      (Reflect.get(window, "__selectionPackets") as SelectionPacket[]).length,
+  );
+  await gesture();
+  await page.waitForFunction(
+    (count) =>
+      (Reflect.get(window, "__selectionPackets") as SelectionPacket[]).length >
+      count,
+    before,
+    { timeout: 2_000 },
+  );
+  const packet = await page.evaluate(() => {
+    const packets = Reflect.get(
+      window,
+      "__selectionPackets",
+    ) as SelectionPacket[];
+    return packets[packets.length - 1];
+  });
+  if (!packet) throw new Error("Selection packet missing");
+  return packet;
+}
+
+function expectSurvivors(packet: SelectionPacket, sourceIds: string[]) {
+  expect(packet.type).toBe("agent-native:layer-marquee-selection");
+  expect(
+    Array.isArray(packet.payload)
+      ? packet.payload.map((entry) => entry.sourceId)
+      : undefined,
+  ).toEqual(sourceIds);
+  expect(packet.intent).toMatchObject({ additive: false, shiftKey: false });
+}
+
+const passiveSelections = (page: Page) =>
+  page.locator(
+    '[data-agent-native-edit-overlay="multi-selection"]:not([data-agent-native-multi-selection-bounds])',
+  );
+
+describe.each(shiftClickRoutes)(
+  "Shift selection through $name",
+  ({ click }) => {
+    it("adds the same screen hit across siblings and containers, and toggles each exact hit", async () => {
+      await withPage(async (page) => {
+        expect(
+          await selectionPacketAfter(page, () => click(page, PRIMARY_LABEL)),
+        ).toMatchObject({
+          type: "element-select",
+          payload: { sourceId: "primary-label" },
+          intent: { additive: false },
+        });
+        expect(
+          await selectionPacketAfter(page, () => click(page, SECONDARY, true)),
+        ).toMatchObject({
+          type: "element-select",
+          payload: { sourceId: "secondary" },
+          intent: { additive: true, shiftKey: true },
+        });
+        expect(await passiveSelections(page).count()).toBe(1);
+        expect(await passiveSelections(page).first().boundingBox()).toEqual(
+          await page
+            .locator('[data-agent-native-node-id="primary-label"]')
+            .boundingBox(),
+        );
+        expectSurvivors(
+          await selectionPacketAfter(page, () => click(page, SECONDARY, true)),
+          ["primary-label"],
+        );
+        expect(await passiveSelections(page).count()).toBe(0);
+        expect(
+          await selectionPacketAfter(page, () => click(page, HERO_COPY, true)),
+        ).toMatchObject({
+          type: "element-select",
+          payload: { sourceId: "hero-copy" },
+          intent: { additive: true },
+        });
+        expectSurvivors(
+          await selectionPacketAfter(page, () =>
+            click(page, PRIMARY_LABEL, true),
+          ),
+          ["hero-copy"],
+        );
+        expect(
+          await selectionPacketAfter(page, () => click(page, HERO_COPY, true)),
+        ).toMatchObject({ type: "clear-selection" });
+      });
+    });
+
+    it("keeps a selected screen parent when its added nested hit is toggled off", async () => {
+      await withPage(async (page) => {
+        expect(
+          await selectionPacketAfter(page, () =>
+            click(page, { x: 200, y: 220 }),
+          ),
+        ).toMatchObject({
+          type: "element-select",
+          payload: { sourceId: "card" },
+        });
+        expect(
+          await selectionPacketAfter(page, () =>
+            click(page, PRIMARY_LABEL, true),
+          ),
+        ).toMatchObject({
+          type: "element-select",
+          payload: { sourceId: "primary-label" },
+          intent: { additive: true },
+        });
+        expect(await passiveSelections(page).count()).toBe(1);
+        expect(await passiveSelections(page).first().boundingBox()).toEqual(
+          await page
+            .locator('[data-agent-native-node-id="card"]')
+            .boundingBox(),
+        );
+        expectSurvivors(
+          await selectionPacketAfter(page, () =>
+            click(page, PRIMARY_LABEL, true),
+          ),
+          ["card"],
+        );
+        expect(await passiveSelections(page).count()).toBe(0);
+      });
+    });
+  },
+);
