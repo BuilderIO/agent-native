@@ -105,7 +105,7 @@ Screenshots are saved in the app's `.tmp/ui-review/out/`, and the final report l
 
 ## Run and deploy {#run-deploy}
 
-For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. After that, the first browser to open the app is signed in automatically as the local dev account. Later fresh browsers show a "Continue as local dev" card.
+For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. After the build, the skill starts the app once more and opens it in your default browser, which signs you in automatically as the local dev account. Later fresh browsers show a "Continue as local dev" card.
 
 To run the app yourself:
 
@@ -119,7 +119,7 @@ To use your own model provider locally, put a key such as `ANTHROPIC_API_KEY` in
 
 The skill deploys only when you ask or the provider is already configured. A healthy local build still prints a "production configuration errors" block with exit code 0. That is the deploy checklist: a stable `BETTER_AUTH_SECRET` and a persistent `DATABASE_URL`, plus `A2A_SECRET` for an app inside a workspace. The skill reports these as the pending step and does not create placeholder values. See [Deploy an app](/docs/deploy-an-app) and [Deploy a workspace](/docs/workspace-deployment).
 
-The final report labels evidence separately: locally running, locally verified, build-ready, deployed, and live-verified are different states, and the report never lets one stand in for another.
+The final report starts with your app: "Your app is open at …" for a local build, or the Builder link Dispatch returned for a hosted one. Next it says how to change the app, what each control does, and what the app comes with, such as integrations, automations, and an MCP server. Details follow under their own heading, with evidence labelled separately: locally running, locally verified, build-ready, deployed, and live-verified are different states, and the report never lets one stand in for another.
 
 ## Known limits {#limits}
 

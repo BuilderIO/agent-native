@@ -105,7 +105,7 @@ Les captures sont enregistrées dans `.tmp/ui-review/out/` de l'app, et le rappo
 
 ## Exécution et déploiement {#run-deploy}
 
-Pour la revue locale, la skill définit `AUTH_DISABLED=1` dans le `.env` ignoré de l'app, car un navigateur de capture neuf n'est pas connecté. Cela ne sert qu'au développement en loopback. Cette variable est retirée avant le `pnpm build` final et ne doit jamais être commitée ni déployée. Ensuite, le premier navigateur qui ouvre l'app est connecté automatiquement en tant que compte de développement local. Les navigateurs neufs ouverts par la suite affichent une carte « Continue as local dev ».
+Pour la revue locale, la skill définit `AUTH_DISABLED=1` dans le `.env` ignoré de l'app, car un navigateur de capture neuf n'est pas connecté. Cela ne sert qu'au développement en loopback. Cette variable est retirée avant le `pnpm build` final et ne doit jamais être commitée ni déployée. Après le build, la skill relance l'app et l'ouvre dans votre navigateur par défaut, qui vous connecte automatiquement en tant que compte de développement local. Les navigateurs neufs ouverts par la suite affichent une carte « Continue as local dev ».
 
 Pour exécuter l'app vous-même :
 
@@ -119,7 +119,7 @@ Pour utiliser votre propre fournisseur de modèle en local, placez une clé tell
 
 La skill ne déploie que si vous le demandez ou si le fournisseur est déjà configuré. Un build local sain affiche tout de même un bloc « production configuration errors » avec le code de sortie 0. C'est la checklist de déploiement : un `BETTER_AUTH_SECRET` stable et une `DATABASE_URL` persistante, plus `A2A_SECRET` pour une app dans un workspace. La skill signale ces éléments comme l'étape en attente et ne crée pas de valeurs factices. Voir [Déployer une app](/docs/deploy-an-app) et [Déployer un workspace](/docs/workspace-deployment).
 
-Le rapport final étiquette séparément les preuves : en cours d'exécution en local, vérifié en local, prêt pour le build, déployé et vérifié en production sont des états différents, et le rapport ne laisse jamais l'un se substituer à l'autre.
+Le rapport final commence par votre app : « Your app is open at … » pour un build local, ou le lien Builder renvoyé par Dispatch pour une app hébergée. Il indique ensuite comment modifier l'app, ce que fait chaque contrôle et ce que l'app inclut d'office, comme des intégrations, des automatisations et un serveur MCP. Les détails suivent sous leur propre titre, avec des preuves étiquetées séparément : en cours d'exécution en local, vérifié en local, prêt pour le build, déployé et vérifié en production sont des états différents, et le rapport ne laisse jamais l'un se substituer à l'autre.
 
 ## Limites connues {#limits}
 

@@ -9,10 +9,11 @@
 - Reading a Claude or ChatGPT Project
 - Reading a spreadsheet
 
-One brief for every source type. Draft it in step 1, add App design in step
-2, then post it once before the first scaffold command and keep going without
-waiting; save that version in the app as `docs/brief.md`. A few lines per
-heading; write `n/a` where a heading does not apply.
+One brief for every source type. Draft it in step 1 and add App design in
+step 2. It is your working record, not your message: show the person the
+plain-words plan from SKILL.md step 2, and save the brief in the app as
+`docs/brief.md` (on the Builder route it goes in the Dispatch prompt). A few
+lines per heading; write `n/a` where a heading does not apply.
 
 ## Template
 

@@ -139,7 +139,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderCredits": "Builder.io के मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderIncludedFreeWithAccount": "Builder.io खाते के साथ मुफ़्त शामिल",
-  "onboarding.builderMonthlyCredits": "हर महीने 60 Agent Credits",
+  "onboarding.builderMonthlyCredits": "हर दिन 15 मुफ़्त क्रेडिट, महीने में 60 तक",
   "onboarding.builderIncludedFree": "मुफ़्त में शामिल",
   "onboarding.builderMoreServices": "+ {{count}} और सेवाएँ",
   "onboarding.builderLlmCredits": "LLM क्रेडिट",
@@ -170,9 +170,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
-  "onboarding.creditsTitle": "हर महीने 60 मुफ़्त Agent Credits के साथ आज़माएँ",
+  "onboarding.creditsTitle": "हर दिन 15 मुफ़्त क्रेडिट के साथ आज़माएँ, महीने में 60 तक",
   "onboarding.creditsTitleClips":
-    "मुफ़्त वीडियो स्टोरेज और हर महीने 60 Agent Credits के साथ आज़माएँ",
+    "मुफ़्त वीडियो स्टोरेज और हर दिन 15 क्रेडिट के साथ आज़माएँ, महीने में 60 तक",
   "onboarding.creditsActivate": "मुफ़्त क्रेडिट सक्रिय करें",
   "onboarding.creditsFinePrint":
     "यह एक मुफ़्त Builder.io खाता बनाएगा। जारी रखने से आप हमारे",

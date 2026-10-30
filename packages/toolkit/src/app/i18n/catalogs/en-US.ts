@@ -140,7 +140,7 @@ const messages = {
   "onboarding.builderCredits": "Included with Builder.io free credits",
   "onboarding.builderIncludedFreeWithAccount":
     "Included free with a Builder.io account",
-  "onboarding.builderMonthlyCredits": "60 monthly Agent Credits",
+  "onboarding.builderMonthlyCredits": "15 free credits a day, up to 60 a month",
   "onboarding.builderIncludedFree": "Included free",
   "onboarding.builderMoreServices": "+ {{count}} more services",
   "onboarding.builderLlmCredits": "LLM credits",
@@ -174,9 +174,10 @@ const messages = {
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
   "onboarding.builderExistingAccount": "I have a Builder.io account",
-  "onboarding.creditsTitle": "Try it with 60 free Agent Credits a month",
+  "onboarding.creditsTitle":
+    "Try it with 15 free credits a day, up to 60 a month",
   "onboarding.creditsTitleClips":
-    "Try it with free video storage and 60 Agent Credits a month",
+    "Try it with free video storage and 15 credits a day, up to 60 a month",
   "onboarding.creditsActivate": "Activate free credits",
   "onboarding.creditsFinePrint":
     "This will create a free Builder.io account. By continuing, you agree to our",

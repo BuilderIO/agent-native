@@ -140,7 +140,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
   "onboarding.builderCredits": "Builder.io 무료 크레딧에 포함",
   "onboarding.builderIncludedFreeWithAccount": "Builder.io 계정에 무료로 포함",
-  "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
+  "onboarding.builderMonthlyCredits": "매일 무료 크레딧 15개, 매달 최대 60개",
   "onboarding.builderIncludedFree": "무료 포함",
   "onboarding.builderMoreServices": "+ 서비스 {{count}}개 더",
   "onboarding.builderLlmCredits": "LLM 크레딧",
@@ -172,9 +172,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있어요",
-  "onboarding.creditsTitle": "매달 무료 Agent Credits 60개로 사용해 보세요",
+  "onboarding.creditsTitle":
+    "매일 무료 크레딧 15개(매달 최대 60개)로 사용해 보세요",
   "onboarding.creditsTitleClips":
-    "무료 비디오 저장소와 매달 Agent Credits 60개로 사용해 보세요",
+    "무료 비디오 저장소와 매일 크레딧 15개(매달 최대 60개)로 사용해 보세요",
   "onboarding.creditsActivate": "무료 크레딧 활성화",
   "onboarding.creditsFinePrint":
     "이렇게 하면 무료 Builder.io 계정이 생성됩니다. 계속하면 당사의",
