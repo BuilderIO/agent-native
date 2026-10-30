@@ -104,13 +104,13 @@ function readPr(
   return { state: before.state, head: before.headRefOid, checks };
 }
 
-function main(): void {
+function main(): number {
   const options = parseArgs(process.argv.slice(2));
   if (!options) {
     console.error(
       "usage: pnpm ci:wait <pr> [--interval <seconds>] [--max-minutes <minutes>]",
     );
-    process.exit(2);
+    return 2;
   }
   const { pr, intervalMs } = options;
   const started = Date.now();
@@ -126,34 +126,38 @@ function main(): void {
       misses = 0;
       if (state !== "OPEN") {
         console.log(`PR #${pr} is ${state}; nothing to wait for.`);
-        process.exit(2);
+        return 2;
       }
       if (checks.length || head !== last?.head) emptySince = Date.now();
       last = { head, checks };
       const verdict = judge(checks, head);
       if (verdict.done) {
         console.log(verdict.summary);
-        process.exit(verdict.exit);
+        return verdict.exit;
       }
     } catch (error) {
       if (++misses >= 3) {
         console.error(`gh failed 3 times in a row: ${String(error)}`);
-        process.exit(2);
+        return 2;
       }
     }
     if (!last?.checks.length && Date.now() - emptySince > NO_CHECKS_GRACE_MS) {
       console.log("No checks were reported for this head within 10 minutes.");
-      process.exit(2);
+      return 2;
     }
-    if (Date.now() + intervalMs > deadline) {
+    const left = deadline - Date.now();
+    if (left <= 0) {
       const pending = last?.checks.filter((c) => c.bucket === "pending") ?? [];
       console.log(
         `Out of time with ${pending.length} checks still running: ${pending.map((c) => c.name).join(", ")}`,
       );
-      process.exit(2);
+      return 2;
     }
-    execFileSync("sleep", [String(intervalMs / 1000)]);
+    execFileSync("sleep", [String(Math.min(intervalMs, left) / 1000)]);
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) main();
+// Exit by setting exitCode, not by calling exit: the summary goes to a pipe,
+// and an immediate exit can cut it off before it drains.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href)
+  process.exitCode = main();

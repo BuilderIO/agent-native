@@ -344,11 +344,13 @@ every minute was half the main thread's cost.
 Here that command is `pnpm ci:wait <number>`: it prints nothing until CI is
 done, then one summary. Exit 1 means a check failed; exit 2 means a check was
 cancelled (rerun it) or it ran out of its 9 minutes with checks still going
-(run it again). Pass `--max-minutes` up to your tool's call limit to need
-fewer calls.
+(run it again). To need fewer calls, pass `--max-minutes` about a minute
+under your tool's call limit.
 <!-- framework-repo-only:end -->
-Without a repo command for it, use `gh pr checks <number> --watch --interval 60 > /dev/null`, then
-read `gh pr checks <number>` once.
+Without a repo command for it, run
+`gh pr checks <number> --watch --interval 60 > /dev/null` in one call bounded
+by your tool's limit, then read `gh pr checks <number>` once. If checks are
+still pending, wait again the same way; rerun any cancelled check.
 
 Fix each review round's findings in one batch. If a second round still finds
 a problem in the same fix, take that fix out of the PR, remove its whole entry
