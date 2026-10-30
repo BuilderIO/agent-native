@@ -898,3 +898,11 @@ describe("runLoomImportJob", () => {
     );
   });
 });
+vi.mock("../../server/lib/recording-media-lifecycle.js", () => ({
+  beginMediaProduction: vi.fn(async () => "fake-producer"),
+  finishMediaProduction: vi.fn(async () => undefined),
+  withRecordingMediaProduction: async (
+    _input: unknown,
+    produce: () => Promise<unknown>,
+  ) => produce(),
+}));
