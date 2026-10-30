@@ -653,6 +653,7 @@ export function OrgSwitcher({
     shouldOfferWorkspace(window.location.href, org.workspaceUrl)
       ? org.workspaceUrl
       : null;
+  const canCreateOrg = org.access?.orgCreation !== "closed";
   const links = utilityLinks ?? [];
   const menuError = (switchOrg.error ||
     acceptInvitation.error ||
@@ -882,32 +883,36 @@ export function OrgSwitcher({
         </DropdownMenuGroup>
       )}
 
-      <DropdownMenuGroup>
-        {workspaceUrl && (
-          <DropdownMenuItem asChild className={ITEM_CLASS}>
-            <a href={workspaceUrl}>
+      {(workspaceUrl || canCreateOrg) && (
+        <DropdownMenuGroup>
+          {workspaceUrl && (
+            <DropdownMenuItem asChild className={ITEM_CLASS}>
+              <a href={workspaceUrl}>
+                <span className="flex-1">
+                  {t("agentChat.accountMenu.yourWorkspace")}
+                </span>
+              </a>
+            </DropdownMenuItem>
+          )}
+          {canCreateOrg && (
+            <DropdownMenuItem
+              className={ITEM_CLASS}
+              onSelect={() => {
+                // The menu restores focus to its trigger as it closes, which
+                // would pull focus out of the dialog opening in its place.
+                openingDialogRef.current = true;
+                createOrg.reset();
+                setNewName("");
+                setCreateOpen(true);
+              }}
+            >
               <span className="flex-1">
-                {t("agentChat.accountMenu.yourWorkspace")}
+                {t("agentChat.accountMenu.createOrganization")}
               </span>
-            </a>
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem
-          className={ITEM_CLASS}
-          onSelect={() => {
-            // The menu restores focus to its trigger as it closes, which
-            // would pull focus out of the dialog opening in its place.
-            openingDialogRef.current = true;
-            createOrg.reset();
-            setNewName("");
-            setCreateOpen(true);
-          }}
-        >
-          <span className="flex-1">
-            {t("agentChat.accountMenu.createOrganization")}
-          </span>
-        </DropdownMenuItem>
-      </DropdownMenuGroup>
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuGroup>
+      )}
 
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
