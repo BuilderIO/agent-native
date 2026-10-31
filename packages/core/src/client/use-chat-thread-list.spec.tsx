@@ -162,6 +162,33 @@ describe("useChatThreadList", () => {
     ]);
   });
 
+  it("refetches a refused hide that kept its row, so revoked access drops it", async () => {
+    let revoked = false;
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        revoked = true;
+        return jsonResponse({}, 404);
+      }
+      return jsonResponse({
+        threads: [
+          row("newer", { accessBasis: "direct" }),
+          ...(revoked
+            ? []
+            : [row("shared", { accessBasis: "direct", hiddenAt: null })]),
+        ],
+        hasMore: false,
+      });
+    });
+    await mount({ ownership: "shared", apiUrl: "/chat", includeHidden: true });
+    await act(async () => {
+      await expect(latest.hideThread("shared", true)).rejects.toMatchObject({
+        status: 404,
+      });
+    });
+    await flush();
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["newer"]);
+  });
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fetchMock = vi.fn();

@@ -3069,6 +3069,35 @@ describe("ownership history adapter", () => {
       expect(onMutationFailed).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ["the view changes", () => render({ query: "beta" })],
+      ["the list closes", () => act(async () => root.render(null))],
+    ])("says hiding failed when it fails after %s", async (_, leave) => {
+      shared = [row("kept", { accessBasis: "direct" })];
+      const pages = fetchMock.getMockImplementation()!;
+      let refuse!: () => void;
+      fetchMock.mockImplementation(async (urlValue, init) => {
+        if (!String(urlValue).endsWith("/hide")) return pages(urlValue, init);
+        await new Promise<void>((resolve) => {
+          refuse = resolve;
+        });
+        return new Response("refused", { status: 500 });
+      });
+      await render({ query: "alpha" });
+
+      let result!: Promise<boolean>;
+      act(() => {
+        result = latest.listProps.onHide!("kept");
+      });
+      await leave();
+      await act(async () => {
+        refuse();
+        expect(await result).toBe(false);
+      });
+      expect(toasts.toast.dismiss).toHaveBeenCalledWith("notice");
+      expect(toasts.toast.error).toHaveBeenCalledWith("Couldn't hide the chat");
+    });
+
     it("never hides the viewer's own chats", async () => {
       mine = [row("owned")];
       await render();
