@@ -112,7 +112,7 @@ interface DictationHistoryContext {
 }
 
 interface VoiceSession extends DictationHistoryContext {
-  kind: "server" | "browser" | "native" | "whisper";
+  kind: "server" | "browser" | "native" | "whisper" | "parakeet";
   stream: MediaStream | null;
   recorder: MediaRecorder | null;
   chunks: Blob[];
@@ -142,6 +142,14 @@ interface VoiceSession extends DictationHistoryContext {
 }
 
 type DictationTimingPhase = "release" | "finalization" | "cleanup" | "paste";
+
+/** What `audio_transcription_stop` returns for a Parakeet dictation. */
+interface OnDeviceDictationTranscript {
+  text: string;
+  pass: "live" | "fallback";
+  releaseToTextMs: number;
+  audioMs: number;
+}
 type DictationTimingEvent = "start" | "complete" | "skipped";
 
 const monotonicNow = (): number =>
@@ -753,9 +761,10 @@ export function installDesktopVoiceDictation(
     void invoke("audio_transcription_stop", {
       owner: "dictation",
       runId,
+      discard: true,
     }).catch((err) => {
       console.warn(
-        "[voice-dictation] pending Whisper start cancel failed:",
+        "[voice-dictation] pending on-device start cancel failed:",
         err,
       );
     });
@@ -822,7 +831,20 @@ export function installDesktopVoiceDictation(
           await startNative(runId, resolved.cleanupProvider, triggerSource);
           break;
         case "whisper":
-          await startWhisper(runId, resolved.cleanupProvider, triggerSource);
+          await startOnDevice(
+            "whisper",
+            runId,
+            resolved.cleanupProvider,
+            triggerSource,
+          );
+          break;
+        case "parakeet":
+          await startOnDevice(
+            "parakeet",
+            runId,
+            resolved.cleanupProvider,
+            triggerSource,
+          );
           break;
         default: {
           const unrouted: never = resolved;
@@ -1362,7 +1384,7 @@ export function installDesktopVoiceDictation(
         console.warn(
           "[voice-dictation] native Speech is unavailable in tauri dev; falling back to local Whisper",
         );
-        await startWhisper(runId, cleanupProvider, triggerSource);
+        await startOnDevice("whisper", runId, cleanupProvider, triggerSource);
         return;
       }
       if (lifecycle.isActive(runId)) {
@@ -1371,37 +1393,60 @@ export function installDesktopVoiceDictation(
     }
   };
 
-  const startWhisper = async (
+  const startOnDevice = async (
+    engine: "whisper" | "parakeet",
     runId: number,
     cleanupProvider?: ServerVoiceProvider,
     triggerSource?: VoiceShortcutSource,
   ) => {
     console.log(
-      "[voice-dictation] startWhisper: invoke audio_transcription_start",
+      `[voice-dictation] start ${engine}: invoke audio_transcription_start`,
     );
     try {
-      await invoke("audio_transcription_start", {
-        meetingId: null,
-        locale: navigator.language || "en-US",
-        micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
-        micDeviceLabel: micDeviceLabel || null,
-        captureSystem: false,
-        voiceProcessing: true,
-        owner: "dictation",
-        runId,
-      });
+      try {
+        await invoke("audio_transcription_start", {
+          meetingId: null,
+          locale: navigator.language || "en-US",
+          micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
+          micDeviceLabel: micDeviceLabel || null,
+          captureSystem: false,
+          voiceProcessing: true,
+          owner: "dictation",
+          runId,
+          engine,
+        });
+      } catch (err) {
+        // Parakeet is still downloading or loading; Apple Speech covers
+        // dictation until it is ready.
+        if (
+          engine === "parakeet" &&
+          String(err).includes("parakeet-model-not-ready") &&
+          !disposed &&
+          !stopRequestedBeforeReady &&
+          lifecycle.isActive(runId)
+        ) {
+          console.info(
+            "[voice-dictation] Parakeet is not ready yet; dictating with Apple Speech",
+          );
+          await startNative(runId, cleanupProvider, triggerSource);
+          return;
+        }
+        throw err;
+      }
       console.log("[voice-dictation] audio_transcription_start ok");
       if (disposed || stopRequestedBeforeReady || !lifecycle.isActive(runId)) {
-        invoke("audio_transcription_stop", { owner: "dictation", runId }).catch(
-          () => {},
-        );
+        invoke("audio_transcription_stop", {
+          owner: "dictation",
+          runId,
+          discard: true,
+        }).catch(() => {});
         abortPendingStart(runId);
         return;
       }
       emit("voice:partial-transcript", { text: "", runId }).catch(() => {});
       const next: VoiceSession = {
         runId,
-        kind: "whisper",
+        kind: engine,
         stream: null,
         recorder: null,
         chunks: [],
@@ -1425,9 +1470,11 @@ export function installDesktopVoiceDictation(
       session = next;
       releaseStart(runId);
       if (!enterRecordingState(runId)) {
-        invoke("audio_transcription_stop", { owner: "dictation", runId }).catch(
-          () => {},
-        );
+        invoke("audio_transcription_stop", {
+          owner: "dictation",
+          runId,
+          discard: true,
+        }).catch(() => {});
         cleanup(next);
         return;
       }
@@ -1436,7 +1483,7 @@ export function installDesktopVoiceDictation(
         stop();
       }
     } catch (err) {
-      console.error("[voice-dictation] startWhisper failed", err);
+      console.error(`[voice-dictation] start ${engine} failed`, err);
       releaseStart(runId);
       if (session?.runId === runId) session = null;
       if (!lifecycle.isActive(runId)) return;
@@ -1746,10 +1793,11 @@ export function installDesktopVoiceDictation(
         }).catch((err) => {
           console.warn("[voice-dictation] native_speech_cancel failed:", err);
         });
-      } else if (current.kind === "whisper") {
+      } else if (current.kind === "whisper" || current.kind === "parakeet") {
         invoke("audio_transcription_stop", {
           owner: "dictation",
           runId: current.runId,
+          discard: true,
         }).catch((err) => {
           console.warn(
             "[voice-dictation] audio_transcription_stop (cancel) failed:",
@@ -1763,6 +1811,71 @@ export function installDesktopVoiceDictation(
       () => {},
     );
     return true;
+  };
+
+  // Parakeet transcribes while the key is held, so the stop call itself
+  // returns the finished text; there is no final-transcript event to wait for.
+  const finishParakeet = async (target: VoiceSession) => {
+    target.nativeFinalizationStarted = true;
+    try {
+      let transcript: OnDeviceDictationTranscript | null;
+      try {
+        transcript = await invoke<OnDeviceDictationTranscript | null>(
+          "audio_transcription_stop",
+          { owner: "dictation", runId: target.runId },
+        );
+      } catch (err) {
+        console.warn("[voice-dictation] Parakeet stop failed:", err);
+        if (lifecycle.isActive(target.runId)) failRun(target.runId, "provider");
+        cleanup(target);
+        return;
+      }
+      if (!transcript) {
+        console.error(
+          "[voice-dictation] Parakeet stop returned no transcript for a dictation",
+        );
+        if (lifecycle.isActive(target.runId)) failRun(target.runId, "provider");
+        cleanup(target);
+        return;
+      }
+      const text = transcript.text.trim();
+      logDictationTiming(
+        target,
+        "finalization",
+        "complete",
+        monotonicNow(),
+        undefined,
+        {
+          pass: transcript.pass,
+          releaseToTextMs: transcript.releaseToTextMs,
+          audioMs: transcript.audioMs,
+          textLength: text.length,
+        },
+      );
+      if (!isRunActive(target)) {
+        cleanup(target);
+        return;
+      }
+      await completeText(text, target).catch((err) => {
+        console.error("[voice-dictation] Parakeet finalization failed:", err);
+        if (lifecycle.isActive(target.runId)) {
+          failRun(
+            target.runId,
+            "provider",
+            text
+              ? { recoverable: true, transcript: text }
+              : { recoverable: false },
+          );
+        }
+      });
+    } finally {
+      if (lingeringSession === target) lingeringSession = null;
+      if (session === target) session = null;
+      emit("voice:partial-transcript", {
+        text: "",
+        runId: target.runId,
+      }).catch(() => {});
+    }
   };
 
   const stop = () => {
@@ -1800,10 +1913,11 @@ export function installDesktopVoiceDictation(
           owner: "dictation",
           runId: current.runId,
         }).catch(() => {});
-      } else if (current.kind === "whisper") {
+      } else if (current.kind === "whisper" || current.kind === "parakeet") {
         invoke("audio_transcription_stop", {
           owner: "dictation",
           runId: current.runId,
+          discard: true,
         }).catch(() => {});
       }
       cleanup(current);
@@ -1826,6 +1940,15 @@ export function installDesktopVoiceDictation(
           return;
         }
         current.recorder?.stop();
+      } else if (current.kind === "parakeet") {
+        transitionRun(current.runId, "finalizing", "processing", "finalizing");
+        const lingering = current;
+        lingeringSession = current;
+        if (session === current) session = null;
+        releaseStart(current.runId);
+        stopMeter(current);
+        stopTracks(current);
+        void finishParakeet(lingering);
       } else if (current.kind === "native" || current.kind === "whisper") {
         const stopCmd =
           current.kind === "whisper"
@@ -2029,7 +2152,11 @@ export function installDesktopVoiceDictation(
     onAudioLevel(({ source, synthetic, runId }) => {
       if (source !== "mic" || synthetic) return;
       const current = session;
-      if (current?.kind === "native" || current?.kind === "whisper") {
+      if (
+        current?.kind === "native" ||
+        current?.kind === "whisper" ||
+        current?.kind === "parakeet"
+      ) {
         if (!isCurrentDictationRun(lifecycle, current.runId, runId)) return;
         current.meterHasRealSignal = true;
       }
@@ -2039,7 +2166,12 @@ export function installDesktopVoiceDictation(
     onPartialTranscript(({ text, runId, source }) => {
       if (source !== "mic") return;
       const current = session;
-      if (!current || (current.kind !== "native" && current.kind !== "whisper"))
+      if (
+        !current ||
+        (current.kind !== "native" &&
+          current.kind !== "whisper" &&
+          current.kind !== "parakeet")
+      )
         return;
       if (
         current.cancelled ||
@@ -2338,10 +2470,11 @@ export function installDesktopVoiceDictation(
           err,
         );
       });
-    } else if (target.kind === "whisper") {
+    } else if (target.kind === "whisper" || target.kind === "parakeet") {
       invoke("audio_transcription_stop", {
         owner: "dictation",
         runId: target.runId,
+        discard: true,
       }).catch((err) => {
         console.warn(
           "[voice-dictation] audio_transcription_stop (dispose) failed:",

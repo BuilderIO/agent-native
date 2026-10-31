@@ -11,9 +11,13 @@ mod eventkit;
 mod logfile;
 mod meetings_watcher;
 mod mic_attribution;
+mod model_download;
 mod native_screen;
 mod native_speech;
 mod notifications;
+#[cfg(target_os = "macos")]
+mod parakeet_live;
+mod parakeet_model;
 mod permission_status;
 mod recording_indicator;
 mod remote_flags;
@@ -52,8 +56,8 @@ use state::{
     VoiceWakePopover,
 };
 use util::{
-    configure_overlay_behavior, is_recording_active, present_interactive_window,
-    restart_after_update, set_capture_excluded,
+    configure_overlay_behavior, is_recording_active, open_third_party_notices,
+    present_interactive_window, restart_after_update, set_capture_excluded,
 };
 
 pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
@@ -379,10 +383,14 @@ pub fn run() {
             whisper_model::whisper_model_download,
             whisper_model::whisper_downloaded_models,
             whisper_model::whisper_model_delete,
+            parakeet_model::parakeet_model_status,
+            parakeet_model::parakeet_model_prepare,
+            parakeet_model::parakeet_model_release,
             permission_status::check_permission_statuses,
             logfile::frontend_log,
             logfile::open_logs,
             restart_after_update,
+            open_third_party_notices,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())

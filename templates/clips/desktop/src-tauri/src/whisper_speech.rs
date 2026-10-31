@@ -1,4 +1,56 @@
+use serde::Serialize;
 use tauri::AppHandle;
+
+/// Which on-device model a transcription runs on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LocalEngine {
+    Whisper,
+    Parakeet,
+}
+
+/// Dictation asks for Parakeet only after it has loaded, so a request that
+/// finds it unready fails and the caller uses Apple Speech. Meetings fall back
+/// to Whisper instead, as they did before Parakeet existed.
+pub(crate) fn resolve_local_engine(
+    requested: Option<&str>,
+    dictation: bool,
+    parakeet_ready: bool,
+) -> Result<LocalEngine, &'static str> {
+    match requested {
+        Some("parakeet") if parakeet_ready => Ok(LocalEngine::Parakeet),
+        Some("parakeet") if dictation => Err("parakeet-model-not-ready"),
+        Some("parakeet") | Some("whisper") | None => Ok(LocalEngine::Whisper),
+        Some(_) => Err("unknown-transcription-engine"),
+    }
+}
+
+/// How a Parakeet dictation got its text: transcribed while the key was held,
+/// or from the whole recording after release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DictationPass {
+    Live,
+    Fallback,
+}
+
+impl DictationPass {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            DictationPass::Live => "live",
+            DictationPass::Fallback => "fallback",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictationTranscript {
+    pub text: String,
+    pub pass: DictationPass,
+    pub release_to_text_ms: u64,
+    pub audio_ms: u64,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OfflineTranscriptSegment {
@@ -34,8 +86,17 @@ pub async fn whisper_transcription_start(
     emit_partials: bool,
     owner: Option<String>,
     run_id: Option<u64>,
+    engine: Option<String>,
 ) -> Result<(), String> {
-    if !crate::config::feature_config(&app).whisper_model_enabled {
+    let dictation = owner.as_deref() != Some("meeting");
+    let engine = resolve_local_engine(
+        engine.as_deref(),
+        dictation,
+        crate::parakeet_model::is_ready(),
+    )
+    .map_err(str::to_owned)?;
+    if engine == LocalEngine::Whisper && !crate::config::feature_config(&app).whisper_model_enabled
+    {
         return Err("whisper-model-disabled".into());
     }
     #[cfg(target_os = "macos")]
@@ -50,6 +111,7 @@ pub async fn whisper_transcription_start(
             emit_partials,
             macos::SessionOwner::from_param(owner),
             run_id,
+            engine,
         )
         .await
     }
@@ -65,6 +127,7 @@ pub async fn whisper_transcription_start(
             emit_partials,
             owner,
             run_id,
+            engine,
         );
         Err("Whisper transcription is only supported on macOS.".into())
     }
@@ -80,32 +143,41 @@ pub fn prewarm_context(_app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Stops a transcription. A Parakeet dictation returns its text here, unless
+/// `discard` is set because the user cancelled it.
 #[tauri::command]
 pub async fn whisper_transcription_stop(
     app: AppHandle,
     owner: Option<String>,
     run_id: Option<u64>,
-) -> Result<(), String> {
+    discard: bool,
+) -> Result<Option<DictationTranscript>, String> {
     #[cfg(target_os = "macos")]
     {
-        macos::stop(
-            &app,
-            owner.map(|owner| macos::SessionOwner::from_param(Some(owner))),
-            run_id,
-            false,
-        );
-        Ok(())
+        tauri::async_runtime::spawn_blocking(move || {
+            macos::stop(
+                &app,
+                owner.map(|owner| macos::SessionOwner::from_param(Some(owner))),
+                run_id,
+                false,
+                discard,
+            )
+        })
+        .await
+        .map_err(|e| format!("transcription stop task failed: {e}"))?
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, owner, run_id);
-        Ok(())
+        let _ = (app, owner, run_id, discard);
+        Ok(None)
     }
 }
 
 pub fn shutdown(app: &AppHandle) {
     #[cfg(target_os = "macos")]
-    macos::stop(app, None, None, false);
+    if let Err(error) = macos::stop(app, None, None, false, true) {
+        eprintln!("[whisper] shutdown stop failed: {error}");
+    }
 }
 
 #[tauri::command]
@@ -138,6 +210,7 @@ mod macos {
     use tauri::{AppHandle, Emitter};
     use transcribe_cpp::Model;
 
+    use super::{DictationTranscript, LocalEngine};
     use crate::capture_audio_bus::{
         try_subscribe, AudioSources, AudioSubscription, SubscriptionAttempt,
     };
@@ -145,6 +218,7 @@ mod macos {
     use crate::native_speech::macos::{
         start_raw_mic_capture, MicVoiceProcessingMode, RawMicCapture,
     };
+    use crate::parakeet_live::{AudioTap, LiveDictation};
     use crate::speech_capture_ownership::{
         claim as claim_speech_capture, SpeechCaptureEngine, SpeechCaptureLease, SpeechCaptureOwner,
     };
@@ -152,7 +226,9 @@ mod macos {
         start_raw_meeting_capture, start_raw_system_capture, supports_sck_microphone_capture,
         RawSckAudioCapture,
     };
-    use crate::transcribe_engine::{open_session, transcribe_whisper, ModelSlot};
+    use crate::transcribe_engine::{
+        open_session, transcribe_parakeet, transcribe_whisper, LOCAL_MODEL,
+    };
     use crate::whisper_model::{ensure_model, model_file, remove_superseded_legacy_model};
 
     const MEETING_AUDIO_OWNER: &str = "meeting-whisper";
@@ -207,9 +283,8 @@ mod macos {
     }
 
     fn cached_model(app: &AppHandle) -> Result<Model, String> {
-        static MODEL: ModelSlot = ModelSlot::new();
         let path = model_file(app)?;
-        let (model, loaded) = MODEL
+        let (model, loaded) = LOCAL_MODEL
             .get_or_load(&path)
             .map_err(|e| format!("whisper {e}"))?;
         if loaded {
@@ -218,8 +293,18 @@ mod macos {
         Ok(model)
     }
 
+    /// Loads Whisper at launch unless another model got there first, so a
+    /// Parakeet user is not left holding both.
     pub fn prewarm(app: &AppHandle) -> Result<(), String> {
-        open_session(&cached_model(app)?).map_err(|e| format!("whisper {e}"))?;
+        let path = model_file(app)?;
+        let Some(model) = LOCAL_MODEL
+            .load_if_empty(&path)
+            .map_err(|e| format!("whisper {e}"))?
+        else {
+            return Ok(());
+        };
+        remove_superseded_legacy_model(app, &path);
+        open_session(&model).map_err(|e| format!("whisper {e}"))?;
         Ok(())
     }
 
@@ -234,13 +319,15 @@ mod macos {
         let mut segments = Vec::new();
         for (chunk_index, chunk) in samples.chunks(CHUNK_SAMPLES).enumerate() {
             let chunk_offset_ms = chunk_index as i64 * 25_000;
-            segments.extend(infer(&mut session, chunk, language)?.into_iter().map(
-                |(start_ms, end_ms, text)| super::OfflineTranscriptSegment {
-                    start_ms: chunk_offset_ms.saturating_add(start_ms),
-                    end_ms: chunk_offset_ms.saturating_add(end_ms),
-                    text,
-                },
-            ));
+            segments.extend(
+                infer(&mut session, LocalEngine::Whisper, chunk, language)?
+                    .into_iter()
+                    .map(|(start_ms, end_ms, text)| super::OfflineTranscriptSegment {
+                        start_ms: chunk_offset_ms.saturating_add(start_ms),
+                        end_ms: chunk_offset_ms.saturating_add(end_ms),
+                        text,
+                    }),
+            );
         }
         Ok(segments)
     }
@@ -326,6 +413,9 @@ mod macos {
 
     pub(crate) struct WhisperStream {
         source: &'static str,
+        engine: LocalEngine,
+        /// Set for a Parakeet dictation, which transcribes as audio arrives.
+        live: Option<Arc<LiveDictation>>,
         run_id: Option<u64>,
         src_rate: AtomicU32,
         language: Option<String>,
@@ -346,6 +436,8 @@ mod macos {
             src_rate: f64,
             language: Option<String>,
             model: Model,
+            engine: LocalEngine,
+            live: Option<Arc<LiveDictation>>,
             stream_start: Instant,
             emit_partials: bool,
             echo_guard: Option<Arc<EchoGuard>>,
@@ -354,6 +446,8 @@ mod macos {
             let done = Arc::new(AtomicBool::new(false));
             let stream = Arc::new(WhisperStream {
                 source,
+                engine,
+                live,
                 run_id,
                 src_rate: AtomicU32::new(src_rate as u32),
                 language,
@@ -371,10 +465,21 @@ mod macos {
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
-                worker(worker_stream, model);
+                match worker_stream.live.clone() {
+                    Some(live) => live_worker(&worker_stream, &live),
+                    None => worker(worker_stream, model),
+                }
                 done.store(true, Ordering::SeqCst);
             });
             stream
+        }
+
+        fn audio_tap(&self) -> AudioTap<'_> {
+            AudioTap {
+                buf: &self.buf,
+                src_rate: &self.src_rate,
+                running: &self.running,
+            }
         }
 
         fn set_src_rate(&self, rate: f64) {
@@ -483,7 +588,7 @@ mod macos {
                 .filter(|t| !t.is_empty())
                 .collect::<Vec<_>>()
                 .join(" ");
-            let Some(clean) = clean_transcript(&joined) else {
+            let Some(clean) = clean_transcript(&joined, self.engine) else {
                 return;
             };
             let segments = raw_segs
@@ -553,12 +658,30 @@ mod macos {
 
     fn infer(
         session: &mut transcribe_cpp::Session,
+        engine: LocalEngine,
         samples: &[f32],
         language: Option<&str>,
     ) -> Result<Vec<(i64, i64, String)>, String> {
-        let mut segments = transcribe_whisper(session, samples, language)?;
+        let mut segments = match engine {
+            LocalEngine::Whisper => transcribe_whisper(session, samples, language)?,
+            LocalEngine::Parakeet => transcribe_parakeet(session, samples)?,
+        };
         segments.retain(|(_, _, text)| is_speech(text));
         Ok(segments)
+    }
+
+    fn live_worker(stream: &WhisperStream, live: &LiveDictation) {
+        live.run(&stream.audio_tap(), |text| {
+            let _ = stream.app.emit(
+                "voice:partial-transcript",
+                serde_json::json!({
+                    "text": text,
+                    "source": stream.source,
+                    "runId": stream.run_id,
+                }),
+            );
+        });
+        eprintln!("[parakeet-{}] worker stopped", stream.source);
     }
 
     fn is_speech(text: &str) -> bool {
@@ -714,7 +837,7 @@ mod macos {
                     } else {
                         stream.emit_inference(
                             "voice:final-transcript",
-                            infer(&mut session, resample_state.samples(), lang),
+                            infer(&mut session, stream.engine, resample_state.samples(), lang),
                         );
                     }
                 }
@@ -754,7 +877,7 @@ mod macos {
                 } else {
                     stream.emit_inference(
                         "voice:partial-transcript",
-                        infer(&mut session, resample_state.samples(), lang),
+                        infer(&mut session, stream.engine, resample_state.samples(), lang),
                     );
                     true
                 };
@@ -771,16 +894,21 @@ mod macos {
         {
             stream.emit_inference(
                 "voice:final-transcript",
-                infer(&mut session, &samples, lang),
+                infer(&mut session, stream.engine, &samples, lang),
             );
         }
         eprintln!("[whisper-{}] worker stopped", stream.source);
     }
 
-    fn clean_transcript(text: &str) -> Option<String> {
+    fn clean_transcript(text: &str, engine: LocalEngine) -> Option<String> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return None;
+        }
+        // Whisper invents these phrases over silence; Parakeet does not, so
+        // from Parakeet they are real speech.
+        if engine == LocalEngine::Parakeet {
+            return Some(trimmed.to_string());
         }
         let normalized = trimmed
             .trim_matches(|c: char| !c.is_alphanumeric())
@@ -1013,6 +1141,7 @@ mod macos {
         emit_partials: bool,
         owner: SessionOwner,
         run_id: Option<u64>,
+        engine: LocalEngine,
     ) -> Result<(), String> {
         let capture_lease = claim_speech_capture(
             match owner {
@@ -1032,16 +1161,24 @@ mod macos {
         }
         begin_run(owner, run_id).map_err(str::to_owned)?;
 
-        stop(&app, Some(owner), run_id, true);
+        if let Err(error) = stop(&app, Some(owner), run_id, true, true) {
+            eprintln!("[whisper] stopping the previous transcription failed: {error}");
+        }
 
-        ensure_model(&app).await.map_err(|e| {
-            let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
-            e
-        })?;
+        if engine == LocalEngine::Whisper {
+            ensure_model(&app).await.map_err(|e| {
+                let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
+                e
+            })?;
+        }
         if !run_is_current_now(owner, run_id) {
             return Err(START_SUPERSEDED.into());
         }
-        let model = cached_model(&app).map_err(|e| {
+        let (model, needs_warm_up) = match engine {
+            LocalEngine::Whisper => cached_model(&app).map(|model| (model, false)),
+            LocalEngine::Parakeet => crate::parakeet_model::resident_model(&app),
+        }
+        .map_err(|e| {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
             e
         })?;
@@ -1057,6 +1194,16 @@ mod macos {
         let _ = language;
         let lang: Option<String> = None;
 
+        let live = if engine == LocalEngine::Parakeet && owner == SessionOwner::Dictation {
+            Some(Arc::new(LiveDictation::new(
+                model.clone(),
+                crate::parakeet_model::model_path(&app)?,
+                needs_warm_up,
+            )))
+        } else {
+            None
+        };
+
         let session_start = Instant::now();
         let echo_guard = capture_system.then(|| Arc::new(EchoGuard::new()));
         let mic_stream = WhisperStream::new(
@@ -1065,6 +1212,8 @@ mod macos {
             48000.0,
             lang.clone(),
             model.clone(),
+            engine,
+            live,
             session_start,
             emit_partials,
             echo_guard.clone(),
@@ -1077,6 +1226,8 @@ mod macos {
                 48000.0,
                 lang.clone(),
                 model.clone(),
+                engine,
+                None,
                 session_start,
                 emit_partials,
                 echo_guard.clone(),
@@ -1352,7 +1503,7 @@ mod macos {
             _capture_lease: capture_lease,
         });
         eprintln!(
-            "[whisper] transcription started (mic{})",
+            "[whisper] transcription started on {engine:?} (mic{})",
             if capture_system { " + system" } else { "" }
         );
         Ok(())
@@ -1403,7 +1554,9 @@ mod macos {
         owner: Option<SessionOwner>,
         run_id: Option<u64>,
         replace_older: bool,
-    ) {
+        discard: bool,
+    ) -> Result<Option<DictationTranscript>, String> {
+        let released = Instant::now();
         let mut latest = match latest_run_id_slot().lock() {
             Ok(latest) => latest,
             Err(poisoned) => poisoned.into_inner(),
@@ -1416,20 +1569,20 @@ mod macos {
                 if latest.latest_run_id != Some(run_id)
                     || owner.is_some_and(|owner| latest.latest_owner != Some(owner))
                 {
-                    return;
+                    return Ok(None);
                 }
             } else {
                 let Some(owner) = owner.or(latest.latest_owner) else {
-                    return;
+                    return Ok(None);
                 };
                 if slot
                     .as_ref()
                     .is_some_and(|current| current.owner != owner || current.run_id != Some(run_id))
                 {
-                    return;
+                    return Ok(None);
                 }
                 if !cancel_run_authority(&mut latest, owner, run_id) {
-                    return;
+                    return Ok(None);
                 }
             }
         }
@@ -1450,7 +1603,7 @@ mod macos {
         drop(slot);
         drop(latest);
         let Some(mut session) = session else {
-            return;
+            return Ok(None);
         };
         session.mic.stop();
         if let Some(sys) = &session.sys {
@@ -1464,6 +1617,15 @@ mod macos {
         }
         drop(session._shared_audio.take());
         release_temporary_audio(app, session.temporary_audio.take());
+        if let Some(live) = session.mic.live.clone() {
+            if discard {
+                live.discard();
+                return Ok(None);
+            }
+            return live
+                .finish(&session.mic.audio_tap(), released, &session.mic.done)
+                .map(Some);
+        }
         let deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
             let sys_done = session
@@ -1476,6 +1638,7 @@ mod macos {
             std::thread::sleep(Duration::from_millis(50));
         }
         eprintln!("[whisper] meeting transcription stopped");
+        Ok(None)
     }
 
     #[cfg(test)]
@@ -1487,8 +1650,8 @@ mod macos {
             clean_transcript, partial_inference_due, partial_inference_timestamp, resample_to_16k,
             run_is_current, session_start_error, should_use_combined_sck_capture,
             split_mic_capture_options, start_native_capture_without_authority_lock,
-            timeline_start_for_offset, utterance_finalize_due, IncrementalResample, RunAuthority,
-            SessionOwner, START_SUPERSEDED,
+            timeline_start_for_offset, utterance_finalize_due, IncrementalResample, LocalEngine,
+            RunAuthority, SessionOwner, START_SUPERSEDED,
         };
         use crate::native_speech::macos::MicVoiceProcessingMode;
 
@@ -1828,11 +1991,64 @@ mod macos {
 
         #[test]
         fn filters_multilingual_caption_hallucinations() {
-            assert_eq!(clean_transcript("ご視聴ありがとうございました"), None);
             assert_eq!(
-                clean_transcript("Thanks for the update"),
+                clean_transcript("ご視聴ありがとうございました", LocalEngine::Whisper),
+                None
+            );
+            assert_eq!(
+                clean_transcript("Thanks for the update", LocalEngine::Whisper),
                 Some("Thanks for the update".to_string())
             );
         }
+
+        #[test]
+        fn keeps_phrases_from_parakeet_that_whisper_invents_over_silence() {
+            assert_eq!(clean_transcript("Thank you.", LocalEngine::Whisper), None);
+            assert_eq!(
+                clean_transcript("Thank you.", LocalEngine::Parakeet),
+                Some("Thank you.".to_string())
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_local_engine, LocalEngine};
+
+    #[test]
+    fn dictation_uses_parakeet_only_once_it_is_ready() {
+        assert_eq!(
+            resolve_local_engine(Some("parakeet"), true, true),
+            Ok(LocalEngine::Parakeet)
+        );
+        assert_eq!(
+            resolve_local_engine(Some("parakeet"), true, false),
+            Err("parakeet-model-not-ready")
+        );
+    }
+
+    #[test]
+    fn meetings_fall_back_to_whisper_until_parakeet_is_ready() {
+        assert_eq!(
+            resolve_local_engine(Some("parakeet"), false, true),
+            Ok(LocalEngine::Parakeet)
+        );
+        assert_eq!(
+            resolve_local_engine(Some("parakeet"), false, false),
+            Ok(LocalEngine::Whisper)
+        );
+        assert_eq!(
+            resolve_local_engine(None, false, true),
+            Ok(LocalEngine::Whisper)
+        );
+    }
+
+    #[test]
+    fn an_unknown_engine_is_an_error_not_whisper() {
+        assert_eq!(
+            resolve_local_engine(Some("parakeat"), true, true),
+            Err("unknown-transcription-engine")
+        );
     }
 }

@@ -35,7 +35,7 @@ and visual contract.
   `source` (desktop shortcuts, `manual`, or `mobile`), `createdAt`,
   `ownableColumns()`.
 
-`fullText` is the raw transcript captured on-device (Apple Speech, Local Whisper, or Web Speech). `cleanedText` is the optional AI-polished version produced by the shared `cleanup-transcript` pipeline. UI shows `cleanedText ?? fullText`.
+`fullText` is the raw transcript captured on-device (Apple Speech, Local Whisper, Parakeet, or Web Speech). `cleanedText` is the optional AI-polished version produced by the shared `cleanup-transcript` pipeline. UI shows `cleanedText ?? fullText`.
 
 ## Audio source
 
@@ -95,12 +95,32 @@ The app exposes `view` and `dictationId`:
 The press-and-hold flow is **owned by the desktop app** (`src-tauri/`). On Hold-Fn or Cmd+Shift+Space:
 
 1. Desktop tray captures mic audio while the key is held.
-2. The chosen engine (Apple Speech or Local Whisper) transcribes locally.
+2. The chosen engine (Apple Speech, Local Whisper, or Parakeet) transcribes
+   locally. Parakeet transcribes while the key is held, so the text is ready
+   about as soon as the key comes up; if that live pass fails or stalls, it
+   transcribes the whole recording after release instead.
 3. With AI polish off, the text pastes as soon as it is final. With polish on,
    the flow bar shows a cleanup step and the polished text pastes; if polish
    fails or takes longer than 2.5 s, the raw text pastes instead. Local
    "scratch that" and spoken punctuation run either way.
 4. The dictation row is created via the framework HTTP layer after paste — the agent does not start/stop dictations. `cleanup-dictation` polishes a saved dictation later, on request.
+
+### Parakeet
+
+Parakeet is an English-only on-device model (731 MB) that only the Mac app
+offers. A new Mac install whose dictation language is English starts on it;
+existing installs keep their engine. The model downloads when Parakeet is the
+chosen engine and dictation is on, with progress under Settings > Dictation >
+Transcription engine, and Apple Speech handles dictation until it has loaded.
+Meetings use Parakeet too when it is the chosen engine and loaded, and Whisper
+otherwise. Only one of the two models stays loaded at a time.
+
+`CLIPS_PARAKEET_LIVE_DEBUG=fail` or `=stall` in the app's environment breaks
+the live pass on purpose, to test the whole-recording fallback. Each Parakeet
+dictation logs `[parakeet] dictation transcribed:` with the pass, audio length
+and release-to-text time, never the text. `node scripts/dictation-wer.ts
+<clip-dir>` in `desktop/` measures word error rate per engine on recordings
+that each have a `.txt` reference beside them.
 
 Agents must **never** wire dictation start/stop server-side. Desktop key
 listeners and the mobile capture UI own those user gestures.

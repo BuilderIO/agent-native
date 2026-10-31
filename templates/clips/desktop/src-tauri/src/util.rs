@@ -591,6 +591,44 @@ pub fn restart_after_update(app: AppHandle) {
     app.request_restart();
 }
 
+/// Opens the bundled third-party notices, which carry the licenses for
+/// transcribe.cpp and the models Clips downloads, in the default text editor.
+#[tauri::command]
+pub fn open_third_party_notices(app: AppHandle) -> Result<(), String> {
+    const FILE: &str = "THIRD_PARTY_NOTICES.md";
+    let bundled = app
+        .path()
+        .resource_dir()
+        .map(|dir| dir.join(FILE))
+        .ok()
+        .filter(|path| path.exists());
+    // `tauri dev` runs unbundled, so there the file is only in the source tree.
+    let path = bundled
+        .or_else(|| {
+            let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(FILE);
+            (cfg!(debug_assertions) && source.exists()).then_some(source)
+        })
+        .ok_or_else(|| format!("{FILE} is missing from this build"))?;
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .arg("-t")
+            .arg(&path)
+            .status()
+            .map_err(|e| format!("failed to open {FILE}: {e}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("open exited with {status}"))
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        Err(format!("{FILE} is only bundled with the macOS app"))
+    }
+}
+
 pub fn set_dictation_active(app: &AppHandle, active: bool) {
     if let Some(state) = app.try_state::<DictationActive>() {
         if let Ok(mut g) = state.0.lock() {

@@ -105,6 +105,12 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { stopAllMicMeters } from "./hooks/useMicMeter";
+import {
+  prepareParakeetModel,
+  useParakeetModel,
+  useParakeetPreparation,
+  type ParakeetModelStatus,
+} from "./hooks/useParakeetModel";
 import { useSystemAccessRows } from "./hooks/useSystemAccessRows";
 import { useWhisperSettings } from "./hooks/useWhisperSettings";
 import {
@@ -284,7 +290,9 @@ import {
 import {
   isByokPolishProvider,
   loadVoiceSettings,
+  newInstallVoiceEngine,
   VOICE_ENGINE_KEY,
+  VOICE_MODE_KEY,
   voiceEngineOptions,
   VOICE_POLISH_KEY,
   voicePolishMode,
@@ -541,7 +549,6 @@ const POPOVER_CUSTOM_SHORTCUT_KEY = "clips:popover-custom-shortcut";
 const RECORD_CUSTOM_SHORTCUT_KEY = "clips:record-custom-shortcut";
 const RECORD_CANCEL_SHORTCUT_KEY = "clips:record-cancel-shortcut";
 const RECORD_PAUSE_SHORTCUT_KEY = "clips:record-pause-shortcut";
-const VOICE_MODE_KEY = "clips:voice-mode";
 const VOICE_INSTRUCTIONS_KEY = "clips:voice-instructions";
 const SOURCE_KEY = "clips:last-source";
 const CAM_ON_KEY = "clips:camera-on";
@@ -791,6 +798,20 @@ function readStoredVoiceSetting(key: string): string | null {
     // coercion-ok: storage that cannot be read is treated as a fresh install,
     // which loadVoiceSettings maps to the platform's built-in speech.
     console.warn(`[voice-settings] could not read ${key}:`, err);
+    return null;
+  }
+}
+
+function readNewInstallVoiceEngine(): VoiceEngine | null {
+  try {
+    return newInstallVoiceEngine((key) => localStorage.getItem(key), {
+      isMac: isMacPlatform(),
+      language: navigator.language,
+    });
+  } catch (err) {
+    // coercion-ok: storage that cannot be read may hold a choice, so this is
+    // not treated as a new install and the existing engine stays.
+    console.warn("[voice-settings] could not check for a new install:", err);
     return null;
   }
 }
@@ -1124,9 +1145,11 @@ export function App({
     const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
     return saved === "toggle" ? "toggle" : "push-to-talk";
   });
-  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>(() =>
-    loadVoiceSettings(readStoredVoiceSetting),
-  );
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>(() => {
+    const newInstallEngine = readNewInstallVoiceEngine();
+    if (newInstallEngine) saveString(VOICE_ENGINE_KEY, newInstallEngine);
+    return loadVoiceSettings(readStoredVoiceSetting);
+  });
   const voiceEngine = voiceSettings.engine;
   const voicePolish = voiceSettings.polish;
   // Saved only on an explicit change: if a stored value could not be read,
@@ -1363,6 +1386,9 @@ export function App({
   const fnShortcutEnabled =
     voiceDictationEnabled &&
     (voiceShortcut === "fn" || voiceShortcut === "both");
+  useParakeetPreparation(
+    isMacPlatform() && voiceDictationEnabled && voiceEngine === "parakeet",
+  );
 
   useEffect(() => {
     if (!meetingsLabEnabled && popoverView === "meetings") {
@@ -2803,6 +2829,7 @@ export function App({
     selectedMicId,
     selectedMicLabel,
     enabled: meetingsLabEnabled,
+    localModel: voiceEngine === "parakeet" ? "parakeet" : null,
   });
 
   type DesktopAuthKind = "google" | "magic-link";
@@ -6932,6 +6959,12 @@ function Setup({
     voiceEngine,
     onVoiceEngineChange,
   );
+  const parakeet = useParakeetModel();
+  const showParakeetStatus =
+    voiceEngine === "parakeet" &&
+    isMacPlatform() &&
+    parakeetStatusShows(parakeet.status, parakeet.statusError);
+  const [noticesError, setNoticesError] = useState<string | null>(null);
   const {
     catalog: whisperModels,
     status: whisperStatus,
@@ -7583,6 +7616,14 @@ function Setup({
     .replace(/^https?:\/\//, "")
     .replace(/\/+$/, "");
 
+  function openThirdPartyNotices() {
+    setNoticesError(null);
+    invoke("open_third_party_notices").catch((err) => {
+      console.error("[settings] could not open acknowledgements:", err);
+      setNoticesError(String(err));
+    });
+  }
+
   function selectEngine(engine: VoiceEngine) {
     onVoiceEngineChange(engine);
     if (engine === "whisper" && !whisperModelEnabled) whisper.setEnabled(true);
@@ -7961,6 +8002,20 @@ function Setup({
               />
             }
           />
+          {isMacPlatform() ? (
+            <SettingsRow
+              label="Acknowledgements"
+              control={
+                <SettingsActionButton onClick={openThirdPartyNotices}>
+                  View
+                </SettingsActionButton>
+              }
+            >
+              {noticesError ? (
+                <p className="text-xs text-destructive">{noticesError}</p>
+              ) : null}
+            </SettingsRow>
+          ) : null}
         </SettingsGroup>
 
         <SettingsGroup label="System access">
@@ -8593,7 +8648,14 @@ function Setup({
                 options={voiceEngineOptions(isMacPlatform())}
               />
             }
-          />
+          >
+            {showParakeetStatus ? (
+              <ParakeetModelStatusRow
+                status={parakeet.status}
+                statusError={parakeet.statusError}
+              />
+            ) : null}
+          </SettingsRow>
 
           <SettingsRow
             label="AI polish"
@@ -9248,46 +9310,147 @@ function WhisperModelStatusRow({
   if (status.state === "ready") return null;
 
   if (status.state === "downloading") {
-    const pct =
-      status.totalMb > 0
-        ? Math.round((status.downloadedMb / status.totalMb) * 100)
-        : 0;
     return (
-      <div className="grid gap-1.5">
-        <span>
-          Downloading… {status.downloadedMb} / {status.totalMb} MB ({pct}%)
-        </span>
-        <div
-          className="h-1 overflow-hidden rounded-full bg-muted"
-          role="progressbar"
-          aria-valuenow={pct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={`Whisper model download ${pct}% complete`}
-        >
-          <div
-            className="h-full rounded-full bg-foreground transition-[width] duration-200"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      </div>
+      <ModelDownloadProgress
+        downloadedMb={status.downloadedMb}
+        totalMb={status.totalMb}
+        progressLabel={(pct) => `Whisper model download ${pct}% complete`}
+      />
     );
   }
 
   return (
+    <ModelNotice
+      text="Not downloaded yet"
+      action={
+        <SettingsActionButton onClick={onDownload}>
+          Download now
+        </SettingsActionButton>
+      }
+    />
+  );
+}
+
+function ModelDownloadProgress({
+  downloadedMb,
+  totalMb,
+  progressLabel,
+}: {
+  downloadedMb: number;
+  totalMb: number;
+  progressLabel: (pct: number) => string;
+}) {
+  const pct = totalMb > 0 ? Math.round((downloadedMb / totalMb) * 100) : 0;
+  return (
+    <div className="grid gap-1.5">
+      <span>
+        Downloading… {downloadedMb} / {totalMb} MB ({pct}%)
+      </span>
+      <div
+        className="h-1 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={progressLabel(pct)}
+      >
+        <div
+          className="h-full rounded-full bg-foreground transition-[width] duration-200"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ModelNotice({
+  text,
+  title,
+  action,
+}: {
+  text: string;
+  title?: string;
+  action?: ReactNode;
+}) {
+  return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-1.5" title={title}>
         <IconAlertTriangle
           className="size-3.5 shrink-0 text-muted-foreground"
           stroke={1.9}
           aria-hidden="true"
         />
-        Not downloaded yet
+        {text}
       </span>
-      <SettingsActionButton onClick={onDownload}>
-        Download now
-      </SettingsActionButton>
+      {action}
     </div>
+  );
+}
+
+// `ready`, and a file on disk that loads when dictation is on, need no line;
+// rendering an empty child would leave phantom space under the engine picker.
+function parakeetStatusShows(
+  status: ParakeetModelStatus | null,
+  statusError: string | null,
+): boolean {
+  if (statusError) return true;
+  if (!status) return false;
+  if (status.error) return true;
+  return (
+    status.state === "missing" ||
+    status.state === "downloading" ||
+    status.state === "loading"
+  );
+}
+
+function ParakeetModelStatusRow({
+  status,
+  statusError,
+}: {
+  status: ParakeetModelStatus | null;
+  statusError: string | null;
+}) {
+  if (statusError) {
+    return (
+      <p className="text-xs text-destructive">
+        Couldn't check the Parakeet model: {statusError}
+      </p>
+    );
+  }
+  if (!status) return null;
+  if (status.state === "downloading") {
+    return (
+      <ModelDownloadProgress
+        downloadedMb={status.downloadedMb}
+        totalMb={status.totalMb}
+        progressLabel={(pct) => `Parakeet model download ${pct}% complete`}
+      />
+    );
+  }
+  if (status.state === "loading") return <span>Loading…</span>;
+  if (status.error) {
+    return (
+      <ModelNotice
+        text="Couldn't get Parakeet ready"
+        title={status.error}
+        action={
+          <SettingsActionButton onClick={prepareParakeetModel}>
+            Retry
+          </SettingsActionButton>
+        }
+      />
+    );
+  }
+  if (status.state !== "missing") return null;
+  return (
+    <ModelNotice
+      text="Not downloaded yet"
+      action={
+        <SettingsActionButton onClick={prepareParakeetModel}>
+          Download now
+        </SettingsActionButton>
+      }
+    />
   );
 }
 

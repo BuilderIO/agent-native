@@ -14,6 +14,9 @@ text available quickly in the focused app.
   polish on, show a cleanup step and insert the polished text; if polish fails
   or takes longer than 2.5 s, insert the raw transcript. Never wait for history
   persistence before delivering text.
+- An engine that transcribes while the key is held (Parakeet) should have the
+  text ready within 0.5 s of release. If its live pass fails, transcribe the
+  whole recording instead of dropping it; a slower paste beats a lost one.
 - Make cancellation explicit. A canceled or empty recording must not look like
   a successful insertion.
 

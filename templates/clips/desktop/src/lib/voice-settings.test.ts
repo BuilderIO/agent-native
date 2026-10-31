@@ -4,8 +4,10 @@ import {
   LEGACY_VOICE_PROVIDER_KEY,
   loadVoiceSettings,
   migrateLegacyVoiceProvider,
+  newInstallVoiceEngine,
   resolveDictationRoute,
   VOICE_ENGINE_KEY,
+  VOICE_MODE_KEY,
   voiceEngineOptions,
   VOICE_POLISH_KEY,
   voicePolishMode,
@@ -85,6 +87,44 @@ describe("loadVoiceSettings", () => {
   });
 });
 
+describe("newInstallVoiceEngine", () => {
+  const englishMac = { isMac: true, language: "en-US" };
+
+  it("starts a new English install on a Mac with Parakeet", () => {
+    expect(newInstallVoiceEngine(storage({}), englishMac)).toBe("parakeet");
+    expect(
+      newInstallVoiceEngine(storage({}), { isMac: true, language: "en" }),
+    ).toBe("parakeet");
+  });
+
+  it.each([
+    [VOICE_MODE_KEY, "push-to-talk"],
+    [VOICE_ENGINE_KEY, "native"],
+    [LEGACY_VOICE_PROVIDER_KEY, "macos-native"],
+  ])("keeps an existing install that saved %s", (key, value) => {
+    expect(
+      newInstallVoiceEngine(storage({ [key]: value }), englishMac),
+    ).toBeNull();
+  });
+
+  it.each([
+    { isMac: true, language: "de-DE" },
+    { isMac: true, language: "eng" },
+    { isMac: false, language: "en-US" },
+  ])("leaves %o on the built-in engine", (env) => {
+    expect(newInstallVoiceEngine(storage({}), env)).toBeNull();
+  });
+
+  it("lets unreadable storage throw instead of treating it as new", () => {
+    const unreadable = () => {
+      throw new Error("storage is unavailable");
+    };
+    expect(() => newInstallVoiceEngine(unreadable, englishMac)).toThrow(
+      "storage is unavailable",
+    );
+  });
+});
+
 describe("resolveDictationRoute", () => {
   const mac = { isMac: true, hasBrowserSpeech: false };
   const offMacWithSpeech = { isMac: false, hasBrowserSpeech: true };
@@ -119,6 +159,21 @@ describe("resolveDictationRoute", () => {
     ).toEqual(expected);
   });
 
+  it("routes Parakeet on a Mac and built-in speech elsewhere", () => {
+    expect(
+      resolveDictationRoute({ engine: "parakeet", polish: "off" }, mac),
+    ).toEqual({ kind: "parakeet" });
+    expect(
+      resolveDictationRoute(
+        { engine: "parakeet", polish: "off" },
+        offMacWithSpeech,
+      ),
+    ).toEqual({ kind: "browser" });
+    expect(
+      resolveDictationRoute({ engine: "parakeet", polish: "gemini" }, mac),
+    ).toEqual({ kind: "parakeet", cleanupProvider: "gemini" });
+  });
+
   it.each([
     [{ engine: "whisper", polish: "builder-gemini" }, mac],
     [{ engine: "whisper", polish: "groq" }, offMacWithoutSpeech],
@@ -138,11 +193,12 @@ describe("settings options", () => {
     expect(voiceEngineOptions(true)).toEqual([
       { value: "native", label: "Apple Speech" },
       { value: "whisper", label: "Local Whisper" },
+      { value: "parakeet", label: "Parakeet (on-device, English, 731 MB)" },
     ]);
-    expect(voiceEngineOptions(false)[0]).toEqual({
-      value: "native",
-      label: "Browser built-in",
-    });
+    expect(voiceEngineOptions(false)).toEqual([
+      { value: "native", label: "Browser built-in" },
+      { value: "whisper", label: "Local Whisper" },
+    ]);
   });
 
   it.each([

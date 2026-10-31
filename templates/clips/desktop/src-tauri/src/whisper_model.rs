@@ -1,9 +1,12 @@
-
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
+
+use crate::model_download::{
+    download_verified, downloaded_mb, partial_download_path, VerifiedDownload,
+};
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,7 +79,6 @@ const SUPPORTED_MODELS: &[WhisperModel] =
 static DOWNLOADING: AtomicBool = AtomicBool::new(false);
 static DOWNLOADED_BYTES: AtomicU64 = AtomicU64::new(0);
 
-
 pub(crate) fn custom_model_override() -> bool {
     std::env::var("CLIPS_WHISPER_MODEL")
         .map(|v| !v.trim().is_empty())
@@ -94,7 +96,7 @@ fn find_model(id: &str) -> Result<&'static WhisperModel, String> {
         .ok_or_else(|| format!("unsupported Whisper model: {id}"))
 }
 
-fn models_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn models_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_data_dir()
@@ -113,11 +115,6 @@ fn is_complete_on_disk(path: &Path, model: &WhisperModel) -> bool {
         .map(|m| m.len() == model.size_bytes)
         .unwrap_or(false)
 }
-
-fn downloaded_mb(bytes: u64, model: &WhisperModel) -> u64 {
-    bytes.saturating_mul(model.size_mb) / model.size_bytes
-}
-
 
 pub fn model_file(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(path) = std::env::var("CLIPS_WHISPER_MODEL") {
@@ -165,13 +162,6 @@ fn remove_legacy_files(dir: &Path, model: &WhisperModel) {
     }
 }
 
-fn partial_download_path(path: &Path) -> PathBuf {
-    let mut partial = path.as_os_str().to_owned();
-    partial.push(".tmp");
-    PathBuf::from(partial)
-}
-
-
 #[tauri::command]
 pub async fn whisper_models() -> Vec<WhisperModel> {
     SUPPORTED_MODELS.to_vec()
@@ -217,7 +207,11 @@ pub async fn whisper_model_status(app: AppHandle) -> Result<ModelStatus, String>
         return Ok(ModelStatus {
             state: "downloading".into(),
             path: path_str,
-            downloaded_mb: downloaded_mb(DOWNLOADED_BYTES.load(Ordering::Relaxed), model),
+            downloaded_mb: downloaded_mb(
+                DOWNLOADED_BYTES.load(Ordering::Relaxed),
+                model.size_bytes,
+                model.size_mb,
+            ),
             total_mb: model.size_mb,
         });
     }
@@ -290,7 +284,6 @@ pub async fn whisper_model_delete(app: AppHandle, model_id: String) -> Result<()
     Ok(())
 }
 
-
 pub(crate) async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
     let path = model_file(app)?;
     let custom = custom_model_override();
@@ -348,76 +341,21 @@ async fn do_download(
     path: &Path,
     model: &WhisperModel,
 ) -> Result<PathBuf, String> {
-    eprintln!(
-        "[whisper] downloading {} (~{} MB)",
-        model.url, model.size_mb
-    );
-    let mut response = reqwest::get(model.url)
-        .await
-        .map_err(|e| format!("model download failed: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("model download HTTP {}", response.status()));
-    }
-
-    use sha2::{Digest, Sha256};
-    use std::io::Write as _;
-
-    let tmp = partial_download_path(path);
-    let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
-    let mut hasher = Sha256::new();
-    let mut total = 0_u64;
-    let mut last_progress = 0_u64;
-
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| format!("download body: {e}"))?
-    {
-        hasher.update(&chunk);
-        total += chunk.len() as u64;
-        DOWNLOADED_BYTES.store(total, Ordering::Relaxed);
-
-        if let Err(e) = file.write_all(&chunk) {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(format!("write tmp: {e}"));
-        }
-
-        if total - last_progress >= 16 * 1024 * 1024 {
-            last_progress = total;
-            let mb = downloaded_mb(total, model);
-            eprintln!("[whisper] {mb} / {} MB", model.size_mb);
-            let _ = app.emit(
-                "whisper:model-progress",
-                serde_json::json!({ "downloadedMb": mb, "totalMb": model.size_mb }),
-            );
-        }
-    }
-    file.flush().map_err(|e| format!("flush tmp: {e}"))?;
-    drop(file);
-
-    if total != model.size_bytes {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(format!(
-            "size mismatch: got {total} bytes, expected {}",
-            model.size_bytes
-        ));
-    }
-    let digest: String = hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    if digest != model.sha256 {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(format!(
-            "checksum mismatch: got {digest}, expected {}",
-            model.sha256
-        ));
-    }
-
-    std::fs::rename(&tmp, path).map_err(|e| format!("rename model: {e}"))?;
-    eprintln!("[whisper] saved → {}", path.display());
-    Ok(path.to_path_buf())
+    download_verified(
+        app,
+        path,
+        &VerifiedDownload {
+            url: model.url,
+            sha256: model.sha256,
+            size_bytes: model.size_bytes,
+            size_mb: model.size_mb,
+            progress_event: "whisper:model-progress",
+            downloaded_bytes: &DOWNLOADED_BYTES,
+            cancel: None,
+            log_tag: "whisper",
+        },
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -481,17 +419,5 @@ mod tests {
             std::fs::remove_file(path).unwrap();
         }
         std::fs::remove_dir(&dir).unwrap();
-    }
-
-    #[test]
-    fn partial_downloads_sit_beside_the_finished_file() {
-        assert_eq!(
-            partial_download_path(Path::new("/models/whisper-base-Q8_0.gguf")),
-            Path::new("/models/whisper-base-Q8_0.gguf.tmp")
-        );
-        assert_eq!(
-            partial_download_path(Path::new("/models/ggml-base.bin")),
-            Path::new("/models/ggml-base.bin.tmp")
-        );
     }
 }

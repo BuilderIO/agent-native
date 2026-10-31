@@ -8,11 +8,24 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Once};
 
 use transcribe_cpp::{
-    Backend, Error, Model, ModelOptions, RunExtension, RunOptions, Session, SessionOptions,
-    TimestampKind, WhisperRunOptions,
+    Backend, CommitPolicy, Error, Model, ModelOptions, ParakeetBufferedStreamOptions, RunExtension,
+    RunOptions, Session, SessionOptions, StreamExtension, StreamOptions, TimestampKind,
+    WhisperRunOptions,
 };
 
 const SESSION_THREADS: i32 = 2;
+
+/// Parakeet's live window, in ms of audio: 5.6 s of left context, 0.56 s
+/// chunks and 0.56 s of lookahead. Every value must be one of the model's
+/// trained `(L, C, R)` frame tuples (here `(70, 7, 7)` at 80 ms a frame);
+/// anything else fails at stream start.
+const PARAKEET_STREAM_LEFT_MS: i32 = 5_600;
+const PARAKEET_STREAM_CHUNK_MS: i32 = 560;
+const PARAKEET_STREAM_RIGHT_MS: i32 = 560;
+
+/// The one resident local model. Whisper and Parakeet share it, so the app
+/// never holds both in memory; asking for the other one swaps it.
+pub(crate) static LOCAL_MODEL: ModelSlot = ModelSlot::new();
 
 /// One loaded model file. Asking for a different path replaces it, so
 /// switching models frees the previous one.
@@ -32,9 +45,46 @@ impl ModelSlot {
                 return Ok((model.clone(), false));
             }
         }
+        // Free the old model before loading the new one, so a swap never
+        // briefly holds both.
+        *slot = None;
         let model = load_model(path)?;
         *slot = Some((path.to_path_buf(), model.clone()));
         Ok((model, true))
+    }
+
+    pub(crate) fn holds(&self, path: &Path) -> bool {
+        self.0.lock().is_ok_and(|slot| {
+            slot.as_ref()
+                .is_some_and(|(loaded_path, _)| loaded_path == path)
+        })
+    }
+
+    /// Unloads the model at `path` if it is the resident one. Sessions that
+    /// still hold it keep it alive until they finish.
+    pub(crate) fn release(&self, path: &Path) -> Result<bool, String> {
+        let mut slot = self.0.lock().map_err(|e| e.to_string())?;
+        if slot
+            .as_ref()
+            .is_some_and(|(loaded_path, _)| loaded_path == path)
+        {
+            *slot = None;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Loads `path` only when no model is resident, so a background prewarm
+    /// never evicts a model someone asked for. `None` means it left the slot
+    /// alone.
+    pub(crate) fn load_if_empty(&self, path: &Path) -> Result<Option<Model>, String> {
+        let mut slot = self.0.lock().map_err(|e| e.to_string())?;
+        if slot.is_some() {
+            return Ok(None);
+        }
+        let model = load_model(path)?;
+        *slot = Some((path.to_path_buf(), model.clone()));
+        Ok(Some(model))
     }
 }
 
@@ -107,8 +157,88 @@ pub(crate) fn transcribe_whisper(
         .collect())
 }
 
+fn parakeet_run_options(timestamps: TimestampKind) -> RunOptions {
+    RunOptions {
+        timestamps,
+        language: Some("en".to_owned()),
+        ..RunOptions::default()
+    }
+}
+
+/// English Parakeet decoding of 16 kHz mono PCM in one pass. Returns
+/// `(start_ms, end_ms, text)` segments relative to the start of `samples`.
+pub(crate) fn transcribe_parakeet(
+    session: &mut Session,
+    samples: &[f32],
+) -> Result<Vec<(i64, i64, String)>, String> {
+    let transcript = session
+        .run(samples, &parakeet_run_options(TimestampKind::Segment))
+        .map_err(|e| format!("parakeet inference failed: {e}"))?;
+    Ok(transcript
+        .segments
+        .into_iter()
+        .map(|segment| (segment.t0_ms, segment.t1_ms, segment.text))
+        .collect())
+}
+
+/// Transcribes Parakeet audio as it arrives. `next_audio` returns the next
+/// 16 kHz mono samples, waiting for them if needed, and `None` once the
+/// recording has ended; the stream is then finalized and its text returned.
+/// The session's model refuses offline runs until this returns, so a caller
+/// that gives up on it must cancel the session first.
+pub(crate) fn transcribe_parakeet_live(
+    session: &mut Session,
+    mut next_audio: impl FnMut() -> Result<Option<Vec<f32>>, String>,
+    mut on_partial: impl FnMut(&str),
+) -> Result<String, String> {
+    let stream_options = StreamOptions {
+        commit_policy: CommitPolicy::Auto,
+        family: Some(StreamExtension::ParakeetBuffered(
+            ParakeetBufferedStreamOptions {
+                left_ms: Some(PARAKEET_STREAM_LEFT_MS),
+                chunk_ms: Some(PARAKEET_STREAM_CHUNK_MS),
+                right_ms: Some(PARAKEET_STREAM_RIGHT_MS),
+            },
+        )),
+        ..StreamOptions::default()
+    };
+    let mut stream = session
+        .stream(&parakeet_run_options(TimestampKind::None), &stream_options)
+        .map_err(|e| format!("parakeet stream start failed: {e}"))?;
+    while let Some(samples) = next_audio()? {
+        if samples.is_empty() {
+            continue;
+        }
+        let update = stream
+            .feed(&samples)
+            .map_err(|e| format!("parakeet stream feed failed: {e}"))?;
+        if update.result_changed {
+            on_partial(stream.text().display().trim());
+        }
+    }
+    stream
+        .finalize()
+        .map_err(|e| format!("parakeet stream finalize failed: {e}"))?;
+    Ok(stream.text().full.trim().to_owned())
+}
+
+/// Runs a second of silence through a live stream and an offline pass, so the
+/// backend's first-use setup happens now rather than in the first dictation.
+pub(crate) fn warm_up_parakeet(model: &Model) -> Result<(), String> {
+    let silence = vec![0.0; 16_000];
+    let mut session = open_session(model)?;
+    let mut fed = false;
+    transcribe_parakeet_live(
+        &mut session,
+        || Ok((!std::mem::replace(&mut fed, true)).then(|| silence.clone())),
+        |_| {},
+    )?;
+    transcribe_parakeet(&mut session, &silence)?;
+    Ok(())
+}
+
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// Transcribes a real recording with a downloaded model. Run with
@@ -151,7 +281,142 @@ mod tests {
         }
     }
 
-    fn read_pcm16_wav(path: &Path) -> Vec<f32> {
+    /// Transcribes a real recording with the downloaded Parakeet model, once in
+    /// one pass and once live, fed as fast as it was spoken. Run with
+    /// `CLIPS_TEST_PARAKEET_MODEL=<model .gguf> CLIPS_TEST_PARAKEET_WAV=<16 kHz
+    /// mono 16-bit .wav> cargo test --lib transcribe_engine -- --ignored
+    /// --nocapture`; add `CLIPS_TEST_PARAKEET_PACE=fast` to feed it at once.
+    #[test]
+    #[ignore = "needs the downloaded Parakeet model and a WAV file"]
+    fn transcribes_a_wav_file_with_parakeet_offline_and_live() {
+        use std::time::{Duration, Instant};
+
+        let model_path = std::env::var("CLIPS_TEST_PARAKEET_MODEL")
+            .expect("set CLIPS_TEST_PARAKEET_MODEL to the Parakeet model file");
+        let wav_path = std::env::var("CLIPS_TEST_PARAKEET_WAV")
+            .expect("set CLIPS_TEST_PARAKEET_WAV to a 16 kHz mono 16-bit WAV");
+        let realtime = std::env::var("CLIPS_TEST_PARAKEET_PACE").as_deref() != Ok("fast");
+        let samples = read_pcm16_wav(Path::new(&wav_path));
+        let audio = Duration::from_secs_f64(samples.len() as f64 / 16_000.0);
+
+        let started = Instant::now();
+        let model = load_model(Path::new(&model_path)).unwrap();
+        assert_eq!(model.arch(), "parakeet");
+        let loaded = started.elapsed();
+        warm_up_parakeet(&model).unwrap();
+        eprintln!(
+            "[{}] loaded in {} ms, warmed up in {} ms",
+            model.backend(),
+            loaded.as_millis(),
+            (started.elapsed() - loaded).as_millis()
+        );
+
+        let mut session = open_session(&model).unwrap();
+        let started = Instant::now();
+        let segments = transcribe_parakeet(&mut session, &samples).unwrap();
+        let offline_text = segments
+            .iter()
+            .map(|(_, _, text)| text.trim())
+            .collect::<Vec<_>>()
+            .join(" ");
+        eprintln!(
+            "offline: {:.1}s of audio in {} ms: {offline_text}",
+            audio.as_secs_f64(),
+            started.elapsed().as_millis()
+        );
+
+        let started = Instant::now();
+        let mut fed = 0;
+        let mut partials = 0;
+        let live_text = transcribe_parakeet_live(
+            &mut session,
+            || {
+                if fed == samples.len() {
+                    return Ok(None);
+                }
+                loop {
+                    let spoken = if realtime {
+                        ((started.elapsed().as_secs_f64() * 16_000.0) as usize).min(samples.len())
+                    } else {
+                        samples.len()
+                    };
+                    if spoken >= fed + 1_600 || spoken == samples.len() {
+                        let block = samples[fed..spoken].to_vec();
+                        fed = spoken;
+                        return Ok(Some(block));
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            },
+            |_| partials += 1,
+        )
+        .unwrap();
+        let after_audio =
+            started
+                .elapsed()
+                .saturating_sub(if realtime { audio } else { Duration::ZERO });
+        eprintln!(
+            "live ({}): final text {} ms after the audio ended, {partials} partials: {live_text}",
+            if realtime { "real-time" } else { "fast" },
+            after_audio.as_millis()
+        );
+
+        assert!(!offline_text.is_empty());
+        assert!(!live_text.is_empty());
+        let audio_ms = audio.as_millis() as i64;
+        for (start_ms, end_ms, _) in &segments {
+            assert!(0 <= *start_ms && start_ms <= end_ms && *end_ms <= audio_ms + 1000);
+        }
+    }
+
+    /// The Rust half of `scripts/dictation-wer.ts`, which sets these
+    /// variables and reads the JSON it writes. Transcribes each 16 kHz WAV
+    /// listed in `CLIPS_WER_MANIFEST` the way dictation does: Parakeet through
+    /// its live stream, Whisper in 25 s windows.
+    #[test]
+    #[ignore = "run by scripts/dictation-wer.ts"]
+    fn transcribes_clips_for_the_wer_harness() {
+        let var = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("set {name}"));
+        let engine = var("CLIPS_WER_ENGINE");
+        let model = load_model(Path::new(&var("CLIPS_WER_MODEL"))).unwrap();
+        let manifest = std::fs::read_to_string(var("CLIPS_WER_MANIFEST")).unwrap();
+        if engine == "parakeet" {
+            warm_up_parakeet(&model).unwrap();
+        }
+        let mut results = Vec::new();
+        for wav in manifest.lines().filter(|line| !line.trim().is_empty()) {
+            let samples = read_pcm16_wav(Path::new(wav));
+            let mut session = open_session(&model).unwrap();
+            let started = std::time::Instant::now();
+            let text = match engine.as_str() {
+                "parakeet" => {
+                    let mut blocks = samples.chunks(8_960).map(<[f32]>::to_vec);
+                    transcribe_parakeet_live(&mut session, || Ok(blocks.next()), |_| {}).unwrap()
+                }
+                "whisper" => samples
+                    .chunks(25 * 16_000)
+                    .flat_map(|window| transcribe_whisper(&mut session, window, None).unwrap())
+                    .map(|(_, _, text)| text.trim().to_owned())
+                    .filter(|text| !text.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                other => panic!("unknown CLIPS_WER_ENGINE {other}"),
+            };
+            results.push(serde_json::json!({
+                "wav": wav,
+                "text": text,
+                "ms": started.elapsed().as_millis() as u64,
+            }));
+        }
+        std::fs::write(
+            var("CLIPS_WER_OUTPUT"),
+            serde_json::to_vec(&serde_json::json!({ "engine": engine, "results": results }))
+                .unwrap(),
+        )
+        .unwrap();
+    }
+
+    pub(crate) fn read_pcm16_wav(path: &Path) -> Vec<f32> {
         let bytes = std::fs::read(path).unwrap();
         assert_eq!(&bytes[0..4], b"RIFF");
         assert_eq!(&bytes[8..12], b"WAVE");
