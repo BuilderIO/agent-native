@@ -35,7 +35,7 @@ and visual contract.
   `source` (desktop shortcuts, `manual`, or `mobile`), `createdAt`,
   `ownableColumns()`.
 
-`fullText` is the raw native transcript captured on-device (macOS Speech / Web Speech). `cleanedText` is the optional AI-polished version produced by the shared `cleanup-transcript` pipeline. UI shows `cleanedText ?? fullText`.
+`fullText` is the raw transcript captured on-device (Apple Speech, Local Whisper, or Web Speech). `cleanedText` is the optional AI-polished version produced by the shared `cleanup-transcript` pipeline. UI shows `cleanedText ?? fullText`.
 
 ## Audio source
 
@@ -59,7 +59,12 @@ The `cleanup-transcript` action resolves credentials in this order — **always 
 1. **Builder.io Connect (primary)** — managed Gemini 3.1 Flash-Lite. Easiest path; no key required. Recommend this first whenever the user asks how to enable cleanup.
 2. **BYOK Gemini (secondary)** — user's own `GEMINI_API_KEY` (direct to Google's `generativelanguage` API). Mention only as a fallback when the user can't or won't connect Builder. The `cleanup-transcript` action does **not** route to Groq or OpenAI — those keys are used by `transcribe-voice` (transcription), not cleanup.
 
-The "Cleanup transcripts with AI" toggle in Settings → Voice & Transcription gates whether cleanup runs automatically (default ON when Builder is connected).
+Desktop dictation polish is separate from that action. Its **AI polish** setting
+(Off, Builder.io, or Your own key) is independent of the transcription engine,
+so any engine can be polished. It sends the transcript text to the framework
+`/_agent-native/transcribe-voice` route, which also accepts a Groq key for
+polish. Polish is off by default, and existing installs keep what they had:
+Builder.io or a key on a Mac was already Apple Speech plus polish.
 
 Pass bounded `voiceContext` (active app context, learned vocabulary, user notes,
 AGENTS.md preferences) into the shared cleanup path — see the `ai-video-tools`
@@ -90,9 +95,12 @@ The app exposes `view` and `dictationId`:
 The press-and-hold flow is **owned by the desktop app** (`src-tauri/`). On Hold-Fn or Cmd+Shift+Space:
 
 1. Desktop tray captures mic audio while the key is held.
-2. macOS Speech transcribes locally; finalized text is pasted on release.
-3. The dictation row is created via the framework HTTP layer — the agent does not start/stop dictations.
-4. AI cleanup is a background pass via `cleanup-dictation`, not in the hot path — never block paste-on-release on a network round-trip.
+2. The chosen engine (Apple Speech or Local Whisper) transcribes locally.
+3. With AI polish off, the text pastes as soon as it is final. With polish on,
+   the flow bar shows a cleanup step and the polished text pastes; if polish
+   fails or takes longer than 2.5 s, the raw text pastes instead. Local
+   "scratch that" and spoken punctuation run either way.
+4. The dictation row is created via the framework HTTP layer after paste — the agent does not start/stop dictations. `cleanup-dictation` polishes a saved dictation later, on request.
 
 Agents must **never** wire dictation start/stop server-side. Desktop key
 listeners and the mobile capture UI own those user gestures.
