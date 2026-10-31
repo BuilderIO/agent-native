@@ -51,7 +51,11 @@ import {
 } from "./_document-search-typo.js";
 import { loadPageSubtree } from "./_page-subtree.js";
 
-/** Most distinct title and description words read for the typo pass. */
+/**
+ * Most distinct title and description words read for the typo pass. A
+ * library with more keeps its most-used words, so every request of a search
+ * reads the same ones.
+ */
 const TYPO_VOCABULARY_LIMIT = 50_000;
 
 function escapeLike(s: string): string {
@@ -465,12 +469,23 @@ export default defineAction({
         args.searchFields === "title"
           ? sql`coalesce(${schema.documents.title}, '')`
           : sql`coalesce(${schema.documents.title}, '') || ' ' || coalesce(${schema.documents.description}, '')`;
-      const rows = await db
-        .selectDistinct({
-          word: sql<string>`regexp_split_to_table(lower(${text}), ${"\\s+"})`,
+      // Split on whitespace and punctuation here, so "roadmap," and
+      // "roadmap" count as one word; searchVocabulary splits the rest.
+      const words = db
+        .select({
+          word: sql<string>`regexp_split_to_table(lower(${text}), ${"[[:space:][:punct:]]+"})`.as(
+            "word",
+          ),
         })
         .from(schema.documents)
         .where(baseWhere)
+        .as("visible_words");
+      const rows = await db
+        .select({ word: words.word })
+        .from(words)
+        .where(sql`${words.word} <> ''`)
+        .groupBy(words.word)
+        .orderBy(desc(sql`count(*)`), asc(words.word))
         .limit(TYPO_VOCABULARY_LIMIT);
       return searchVocabulary(rows.map((row) => row.word));
     };

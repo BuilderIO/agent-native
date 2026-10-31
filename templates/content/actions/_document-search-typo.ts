@@ -20,41 +20,52 @@ import type {
  */
 
 export interface SpellingCorrection {
-  /** The query word as typed. */
+  /** The mistyped word, lowercased. */
   term: string;
   /** Words from visible titles and descriptions it was also matched as. */
   replacements: string[];
 }
 
-/** Closest words kept per mistyped word. */
+/** Each normalized word, with the other spellings it has in stored text. */
+export type SearchVocabulary = ReadonlyMap<string, readonly string[]>;
+
+/** Closest words kept per mistyped word, and alternatives kept per term. */
 const MAX_REPLACEMENTS = 5;
 
-/** Splits titles and descriptions into distinct normalized words. */
-export function searchVocabulary(texts: Iterable<string>): string[] {
-  const words = new Set<string>();
-  for (const text of texts) {
-    for (const word of normalizeSearchTitle(text).split(WORD_SEPARATOR)) {
-      if (word) words.add(word);
+const EDGE_SEPARATORS = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
+const SEPARATORS_KEPT = /([^\p{L}\p{N}]+)/u;
+
+/**
+ * Splits stored title and description words into distinct normalized words.
+ * The fallback scan matches stored text as written, so each word also keeps
+ * the stored spellings that normalize to it: a correction to "billing" taken
+ * from "Ｂｉｌｌｉｎｇ" searches for both.
+ */
+export function searchVocabulary(
+  storedWords: Iterable<string>,
+): SearchVocabulary {
+  const spellings = new Map<string, Set<string>>();
+  for (const stored of storedWords) {
+    for (const word of normalizeSearchTitle(stored).split(WORD_SEPARATOR)) {
+      if (word && !spellings.has(word)) spellings.set(word, new Set());
+    }
+    for (const piece of stored.split(WORD_SEPARATOR)) {
+      const word = normalizeSearchTitle(piece);
+      if (piece !== word) spellings.get(word)?.add(piece);
     }
   }
-  return [...words];
-}
-
-function correctableNeedle(term: SearchQueryTerm): string[] | null {
-  if (term.phrase || term.negated) return null;
-  const needle = normalizeSearchTitle(term.text);
-  if (!needle || needle.split(WORD_SEPARATOR).length !== 1) return null;
-  const chars = Array.from(needle);
-  return chars.length >= FUZZY_MIN_QUERY_LENGTH ? chars : null;
+  return new Map(
+    [...spellings].map(([word, forms]) => [word, [...forms]] as const),
+  );
 }
 
 function closestWords(
-  vocabulary: readonly string[],
+  vocabulary: SearchVocabulary,
   needleChars: readonly string[],
 ): string[] {
   const needle = needleChars.join("");
   const scored: { word: string; score: number }[] = [];
-  for (const word of vocabulary) {
+  for (const word of vocabulary.keys()) {
     // The word is already there as typed, so it isn't the misspelling.
     if (word.includes(needle)) return [];
     const score = typoWordScore(Array.from(word), needleChars);
@@ -72,34 +83,74 @@ function closestWords(
 }
 
 /**
+ * The words of a term with the punctuation between them, at even and odd
+ * indexes. Punctuation at either end ("roadmpa,") is dropped: alternatives
+ * match as substrings, and "roadmap," would miss a page titled "Roadmap".
+ */
+function termPieces(term: SearchQueryTerm): string[] | null {
+  if (term.phrase || term.negated) return null;
+  const needle = normalizeSearchTitle(term.text).replace(EDGE_SEPARATORS, "");
+  return needle ? needle.split(SEPARATORS_KEPT) : null;
+}
+
+/**
  * The query with each correctable word widened to "the word or its closest
  * visible words", or null when no word has a correction.
  */
 export function correctSearchQueryTypos(
   parsed: ParsedSearchQuery,
-  vocabulary: readonly string[],
+  vocabulary: SearchVocabulary,
 ): { query: ParsedSearchQuery; corrections: SpellingCorrection[] } | null {
-  const corrections: SpellingCorrection[] = [];
+  const corrections = new Map<string, string[]>();
+  const alternatives = (term: SearchQueryTerm): string[] => {
+    const pieces = termPieces(term);
+    if (!pieces) return [];
+    const corrected = new Map<number, string[]>();
+    for (let index = 0; index < pieces.length; index += 2) {
+      const needleChars = Array.from(pieces[index]!);
+      if (needleChars.length < FUZZY_MIN_QUERY_LENGTH) continue;
+      const words = closestWords(vocabulary, needleChars);
+      if (!words.length) continue;
+      corrected.set(index, words);
+      corrections.set(pieces[index]!, words);
+    }
+    if (!corrected.size) return [];
+    if (pieces.length === 1) {
+      return corrected
+        .get(0)!
+        .flatMap((word) => [word, ...(vocabulary.get(word) ?? [])]);
+    }
+    // A word inside punctuation ("q3-roadmpa") is replaced in place.
+    let combinations = [pieces];
+    for (const [index, words] of corrected) {
+      combinations = combinations
+        .flatMap((combination) =>
+          words.map((word) =>
+            combination.map((piece, at) => (at === index ? word : piece)),
+          ),
+        )
+        .slice(0, MAX_REPLACEMENTS);
+    }
+    return combinations.map((combination) => combination.join(""));
+  };
   const groups = parsed.groups.map((group) => ({
-    terms: group.terms.flatMap((term) => {
-      const needleChars = correctableNeedle(term);
-      const replacements = needleChars
-        ? closestWords(vocabulary, needleChars)
-        : [];
-      if (!replacements.length) return [term];
-      corrections.push({ term: term.text, replacements });
-      return [
-        term,
-        ...replacements.map((text) => ({
-          text,
-          phrase: false,
-          negated: false,
-          titleOnly: term.titleOnly,
-        })),
-      ];
-    }),
+    terms: group.terms.flatMap((term) => [
+      term,
+      ...[...new Set(alternatives(term))].map((text) => ({
+        text,
+        phrase: false,
+        negated: false,
+        titleOnly: term.titleOnly,
+      })),
+    ]),
   }));
-  return corrections.length
-    ? { query: { ...parsed, groups }, corrections }
+  return corrections.size
+    ? {
+        query: { ...parsed, groups },
+        corrections: [...corrections].map(([term, replacements]) => ({
+          term,
+          replacements,
+        })),
+      }
     : null;
 }

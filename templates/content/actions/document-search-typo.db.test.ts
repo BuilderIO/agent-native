@@ -4,25 +4,33 @@ import { join } from "node:path";
 
 import { closeDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // The typo pass in search-documents: when nothing matches, a mistyped word
 // is also matched as the closest words in titles and descriptions the caller
 // can see. Every case runs on the index and on the fallback scan.
 
-const mode = vi.hoisted(() => ({ fallback: false }));
+const mode = vi.hoisted(() => ({
+  fallback: false,
+  indexReady: undefined as boolean | undefined,
+}));
 
 vi.mock("@agent-native/core/search", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/search")>();
   return {
     ...actual,
-    prepareSearchIndex: (
+    prepareSearchIndex: async (
       ...args: Parameters<typeof actual.prepareSearchIndex>
-    ) =>
-      mode.fallback
-        ? Promise.resolve({ ready: false as const, reason: "backlog" as const })
-        : actual.prepareSearchIndex(...args),
+    ) => {
+      if (mode.fallback) {
+        return { ready: false as const, reason: "backlog" as const };
+      }
+      const state = await actual.prepareSearchIndex(...args);
+      mode.indexReady = state.ready;
+      return state;
+    },
   };
 });
 
@@ -32,6 +40,8 @@ const TEST_DB_PATH = join(
 );
 const OWNER = "search-typo-owner@example.com";
 const OTHER = "search-typo-other@example.com";
+// Owns a library of more distinct words than the typo pass reads.
+const LARGE = "search-typo-large@example.com";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -83,6 +93,16 @@ const FIXTURES = [
   },
   // A word that exists as typed is never treated as a typo.
   { id: "literal-typo", title: "Scratch", content: "a note about roadmpa" },
+  { id: "pre-launch", title: "Pre-launch checklist", content: "" },
+  // Full-width letters, which the index normalizes and the fallback scan
+  // matches as stored.
+  { id: "fullwidth-gazebo", title: "Ｇａｚｅｂｏ plan", content: "" },
+  {
+    id: "billing-archive",
+    parentId: "billing",
+    title: "Archive index",
+    content: "",
+  },
   ...Array.from({ length: 5 }, (_, index) => ({
     id: `quarterly-${index + 1}`,
     title: `Quarterly report ${index + 1}`,
@@ -96,20 +116,28 @@ async function search(
     fallback?: boolean;
     as?: string;
     searchFields?: "title" | "all";
+    parentId?: string;
     limit?: number;
     offset?: number;
   } = {},
 ) {
   mode.fallback = options.fallback ?? false;
+  mode.indexReady = undefined;
   try {
-    return await runWithRequestContext({ userEmail: options.as ?? OWNER }, () =>
-      searchDocuments.run({
-        query,
-        searchFields: options.searchFields,
-        limit: options.limit ?? 50,
-        offset: options.offset ?? 0,
-      }),
+    const result = await runWithRequestContext(
+      { userEmail: options.as ?? OWNER },
+      () =>
+        searchDocuments.run({
+          query,
+          searchFields: options.searchFields,
+          parentId: options.parentId,
+          limit: options.limit ?? 50,
+          offset: options.offset ?? 0,
+        }),
     );
+    // The index lane must really have answered from the index.
+    if (!mode.fallback) expect(mode.indexReady, query).toBe(true);
+    return result;
   } finally {
     mode.fallback = false;
   }
@@ -140,7 +168,33 @@ beforeAll(async () => {
         updatedAt: new Date(start + index * 60_000).toISOString(),
       })),
     );
-}, 60_000);
+  // 60,000 distinct filler words, each used once, and "roadmap" used twice.
+  await getDb()
+    .insert(schema.documents)
+    .values([
+      ...Array.from({ length: 60 }, (_, page) => ({
+        id: `large-filler-${page}`,
+        ownerEmail: LARGE,
+        title: "Filler",
+        description: Array.from(
+          { length: 1000 },
+          (_, word) => `aq${String(page * 1000 + word).padStart(5, "0")}`,
+        ).join(" "),
+        content: "",
+        visibility: "private" as const,
+        updatedAt: new Date(start).toISOString(),
+      })),
+      ...["Roadmap plan", "Roadmap notes"].map((title, index) => ({
+        id: `large-roadmap-${index + 1}`,
+        ownerEmail: LARGE,
+        title,
+        description: "",
+        content: "",
+        visibility: "private" as const,
+        updatedAt: new Date(start + (index + 1) * 60_000).toISOString(),
+      })),
+    ]);
+}, 120_000);
 
 afterAll(async () => {
   await closeDbExec();
@@ -201,6 +255,62 @@ describe.each([
     const exact = await search("roadmap", { fallback });
     expect(ids(exact)).toEqual(["roadmap"]);
     expect(exact.spellingCorrections).toBeUndefined();
+  });
+
+  it("corrects a word next to punctuation", async () => {
+    const trailing = await search("billng,", { fallback });
+    expect(ids(trailing)).toEqual(["billing"]);
+    expect(trailing.spellingCorrections).toEqual([
+      { term: "billng", replacements: ["billing"] },
+    ]);
+
+    const inner = await search("pre-lauch", { fallback });
+    expect(ids(inner)).toEqual(["pre-launch"]);
+    expect(inner.spellingCorrections).toEqual([
+      { term: "lauch", replacements: ["launch"] },
+    ]);
+  });
+
+  it("finds a correction taken from text stored in another form", async () => {
+    const result = await search("gazbeo", { fallback });
+
+    expect(ids(result)).toEqual(["fullwidth-gazebo"]);
+    expect(result.spellingCorrections).toEqual([
+      { term: "gazbeo", replacements: ["gazebo"] },
+    ]);
+  });
+
+  it("corrects only to words of pages the filters allow", async () => {
+    expect(
+      ids(await search("archve", { fallback, parentId: "billing" })),
+    ).toEqual(["billing-archive"]);
+
+    const outside = await search("hnagar", { fallback, parentId: "billing" });
+    expect(ids(outside)).toEqual([]);
+    expect(outside.spellingCorrections).toBeUndefined();
+  });
+
+  it("keeps the most-used words when a library has more than it reads", async () => {
+    // Sorting instead of hashing reads words alphabetically, so a cap that
+    // kept whichever words came first would keep only filler.
+    await getDb().execute(sql`set enable_hashagg = off`);
+    try {
+      const result = await search("roadmpa", { fallback, as: LARGE });
+      expect(ids(result)).toEqual(["large-roadmap-2", "large-roadmap-1"]);
+      expect(result.spellingCorrections).toEqual([
+        { term: "roadmpa", replacements: ["roadmap"] },
+      ]);
+    } finally {
+      await getDb().execute(sql`reset enable_hashagg`);
+    }
+  });
+
+  it("doesn't correct an empty later page of a query that matched", async () => {
+    const page = await search("roadmap", { fallback, offset: 10 });
+
+    expect(ids(page)).toEqual([]);
+    expect(page.pagination.totalItems).toBe(1);
+    expect(page.spellingCorrections).toBeUndefined();
   });
 
   it("doesn't correct phrases or words shorter than four characters", async () => {

@@ -446,10 +446,17 @@ vocabulary table: when an authorized search finds nothing, it reads the
 distinct words of the titles and descriptions that same search could return,
 and widens each query word that isn't among them to the closest words that
 are, using the browser lane's typo rule (one edit, two for words of eight or
-more characters, including the start of a longer word). Phrases, excluded
-words, and words under four characters are never corrected. The response's
-`spellingCorrections` lists what each word was matched as. Correcting body
-words needs `search_vocabulary`, whose rows will carry audience tokens.
+more characters, including the start of a longer word). A word inside
+punctuation is replaced in place, so "q3-roadmpa" also searches for
+"q3-roadmap". Each correction also searches for the word as stored, because
+the fallback scan compares stored text as written. Phrases, excluded words,
+and words under four characters are never corrected. The response's
+`spellingCorrections` lists what each word was matched as. The pass reads at
+most 50,000 distinct words; a library with more keeps its most-used ones, in
+a fixed order, so every page of a search sees the same corrections. That read
+scans the visible titles and descriptions on every search that finds nothing.
+Correcting body words needs `search_vocabulary`, whose rows will carry
+audience tokens.
 
 ## Library and actions
 
