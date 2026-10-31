@@ -150,6 +150,7 @@ function sharedDeckServer(
 async function openClient() {
   vi.resetModules();
   const mod = (await import("./DeckContext")) as DeckContextModule;
+  openedModules.push(mod);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
   });
@@ -181,15 +182,18 @@ function requireDeck(deck: Deck | undefined): Deck {
 // A fixed wait ends before a save that is slow under CI load reaches the
 // server, and the late save then lands inside the next test. Keep waiting
 // while saves are still pending, bounded so tests that end in a conflict
-// do not stall.
+// do not stall. Each client has its own module copy, so every one is polled.
+const openedModules: DeckContextModule[] = [];
+
 async function settle(ms = 900) {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, ms));
   });
-  const { hasUnsavedDeckChanges } = await import("./DeckContext");
+  const hasUnsaved = () =>
+    openedModules.some((mod) => mod.hasUnsavedDeckChanges(initialDeck.id));
   for (
     let waited = 0;
-    waited < 4_000 && hasUnsavedDeckChanges(initialDeck.id);
+    waited < 4_000 && hasUnsaved();
     waited += 25
   ) {
     await act(async () => {
@@ -212,6 +216,7 @@ const initialDeck: Deck = {
 
 describe("two people editing one deck", () => {
   beforeEach(() => {
+    openedModules.length = 0;
     vi.stubGlobal("EventSource", MockEventSource);
     vi.stubGlobal("BroadcastChannel", undefined);
     vi.spyOn(console, "error").mockImplementation(() => {});
