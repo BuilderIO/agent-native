@@ -1102,6 +1102,9 @@ interface CommentsSidebarOptions {
   suggestions?: ResourceSuggestion[];
   /** Suggestions an agent's request names that the Page has not loaded yet. */
   awaitedSuggestionIds?: ReadonlySet<string>;
+  /** Awaited suggestions whose last read failed. */
+  unreadableSuggestionIds?: ReadonlySet<string>;
+  onRetrySuggestionRead?: () => void;
   draftSuggestions?: DraftSuggestion[];
   onMaterializeDraft?: (
     suggestion: DraftSuggestion,
@@ -1197,6 +1200,8 @@ export function CommentsSidebar({
   forceVisible = false,
   suggestions = NO_SUGGESTIONS,
   awaitedSuggestionIds = NO_SUGGESTION_IDS,
+  unreadableSuggestionIds = NO_SUGGESTION_IDS,
+  onRetrySuggestionRead,
   draftSuggestions = NO_DRAFT_SUGGESTIONS,
   onMaterializeDraft,
   onDecideDraftSuggestion,
@@ -2912,18 +2917,20 @@ export function CommentsSidebar({
   };
 
   // Accept and resolve resolves only once its accepts land: a thread resolved
-  // first would send its still-pending edits out to cards of their own.
-  const [resolveOnAccept, setResolveOnAccept] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  // first would send its still-pending edits out to cards of their own. While
+  // a decision is in flight its edits already show the status it asked for,
+  // so only a finished decision tells whether the accept landed.
+  const [resolveOnAccept, setResolveOnAccept] = useState<
+    ReadonlyMap<string, readonly string[]>
+  >(() => new Map());
   const settledResolveOnAccept = [...resolveOnAccept]
-    .filter(
-      (threadId) =>
-        !(threadSuggestions.get(threadId) ?? []).some(
-          (suggestion) =>
-            suggestion.status === "pending" && suggestionBusy(suggestion),
-        ),
+    .filter(([, requested]) =>
+      suggestions.every(
+        (suggestion) =>
+          !requested.includes(suggestion.id) || !suggestionBusy(suggestion),
+      ),
     )
+    .map(([threadId]) => threadId)
     .join(" ");
   const resolveAcceptedRef = useRef(handleResolve);
   resolveAcceptedRef.current = handleResolve;
@@ -2931,18 +2938,24 @@ export function CommentsSidebar({
     if (!settledResolveOnAccept) return;
     const settled = settledResolveOnAccept.split(" ");
     setResolveOnAccept((current) => {
-      const next = new Set(current);
+      const next = new Map(current);
       for (const threadId of settled) next.delete(threadId);
       return next;
     });
     for (const threadId of settled) {
       const thread = threads.find((item) => item.threadId === threadId);
-      const members = threadSuggestions.get(threadId) ?? [];
-      // A failed or refused accept leaves an edit pending; the thread stays open.
+      const requested = resolveOnAccept.get(threadId) ?? [];
+      // A failed or refused accept leaves an edit pending, and an edit can
+      // also end rejected or withdrawn; the thread then stays open.
       if (
         thread &&
         !thread.resolved &&
-        !members.some((suggestion) => suggestion.status === "pending")
+        requested.every((id) =>
+          suggestions.some(
+            (suggestion) =>
+              suggestion.id === id && suggestion.status === "accepted",
+          ),
+        )
       )
         resolveAcceptedRef.current(thread);
     }
@@ -3045,21 +3058,24 @@ export function CommentsSidebar({
         onAcceptAndResolve:
           !thread.resolved && threadCanResolve(thread)
             ? () => {
+                const requested =
+                  proposalId && onDecideSuggestionProposal
+                    ? suggestions.filter(
+                        (suggestion) =>
+                          suggestion.proposalId === proposalId &&
+                          suggestion.status === "pending",
+                      )
+                    : pendingMembers;
                 setResolveOnAccept((current) =>
-                  new Set(current).add(thread.threadId),
+                  new Map(current).set(
+                    thread.threadId,
+                    requested.map(({ id }) => id),
+                  ),
                 );
                 if (proposalId && onDecideSuggestionProposal)
-                  onDecideSuggestionProposal(
-                    proposalId,
-                    "accepted",
-                    suggestions.filter(
-                      (suggestion) =>
-                        suggestion.proposalId === proposalId &&
-                        suggestion.status === "pending",
-                    ),
-                  );
+                  onDecideSuggestionProposal(proposalId, "accepted", requested);
                 else
-                  for (const member of pendingMembers)
+                  for (const member of requested)
                     onDecideSuggestion?.(member, "accepted");
               }
             : undefined,
@@ -3297,7 +3313,15 @@ export function CommentsSidebar({
               {aiRequest?.status === "suggested" &&
               !showsRequestSuggestion &&
               awaitedSuggestionIds.has(aiRequest.result?.suggestionId ?? "") ? (
-                <ThreadSuggestionPlaceholder />
+                <ThreadSuggestionPlaceholder
+                  onRetry={
+                    unreadableSuggestionIds.has(
+                      aiRequest.result?.suggestionId ?? "",
+                    )
+                      ? onRetrySuggestionRead
+                      : undefined
+                  }
+                />
               ) : null}
               {!aiRequest ||
               !commentAi ||

@@ -1889,6 +1889,7 @@ const enUS = {
     rejectAll: "Reject all",
     acceptAllAndResolve: "Accept all and resolve",
     acceptAndResolve: "Accept and resolve",
+    suggestionLoadFailed: "Couldn't load this suggestion",
     suggestionReviewReadOnly:
       "Only people who can edit this page can accept or reject its suggestions.",
     resolve: "Resolve",

@@ -10,6 +10,7 @@ import {
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -272,7 +273,28 @@ export function ThreadSuggestionBody({
  * Holds a thread suggestion's place, under the reply that announced it, until
  * the suggestion itself loads.
  */
-export function ThreadSuggestionPlaceholder() {
+/** Holds a suggestion's place while it loads, or offers a retry once its read fails. */
+export function ThreadSuggestionPlaceholder({
+  onRetry,
+}: {
+  onRetry?: (() => void) | undefined;
+}) {
+  const t = useT();
+  if (onRetry)
+    return (
+      <div
+        className="flex items-center gap-2.5"
+        data-thread-suggestion-placeholder="failed"
+      >
+        <div className="w-7 shrink-0" />
+        <span role="alert" className="text-xs text-destructive">
+          {t("comments.suggestionLoadFailed")}
+        </span>
+        <Button type="button" variant="ghost" size="sm" onClick={onRetry}>
+          {t("comments.retry")}
+        </Button>
+      </div>
+    );
   return (
     <div className="flex gap-2.5" data-thread-suggestion-placeholder>
       <div className="w-7 shrink-0" />

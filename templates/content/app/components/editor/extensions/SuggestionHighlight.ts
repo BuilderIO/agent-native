@@ -29,6 +29,7 @@ import { buildDocText } from "../comment-anchors";
 import {
   commentHighlightEmphasis,
   commentHighlightKey,
+  type CommentHighlightState,
 } from "./CommentHighlight";
 
 export type SuggestionHighlightKind =
@@ -185,27 +186,64 @@ function insertionClass(spec: SuggestionHighlightSpec) {
   } suggestion-proposed-text`;
 }
 
+interface SettlingCommentHighlight {
+  threadId: string;
+  className: string;
+}
+
 // An accepted edit's original text is hidden while it settles, and with it
 // any comment highlight on that text; its new text carries the highlight until
-// the saved Page highlights it again.
+// the saved Page highlights it again. Like overlapping highlights on text, one
+// highlight stands for every thread there, naming the one its card is open for.
 function settlingCommentHighlight(
-  view: EditorView,
+  comments: CommentHighlightState | undefined,
   spec: SuggestionHighlightSpec,
-): HTMLElement | null {
-  const comments = commentHighlightKey.getState(view.state);
-  const thread = comments?.specs.find(
-    (comment) =>
-      !comment.blockId && comment.to > spec.from && spec.to > comment.from,
-  );
-  if (!comments || !thread) return null;
-  const highlight = document.createElement("span");
-  highlight.className = `comment-highlight${commentHighlightEmphasis(
-    [thread.threadId],
-    comments.activeId,
-    comments.hoveredId,
-  )}`;
-  highlight.setAttribute("data-comment-thread", thread.threadId);
-  return highlight;
+): SettlingCommentHighlight | null {
+  if (!comments) return null;
+  const threadIds = comments.specs
+    .filter(
+      (comment) =>
+        !comment.blockId && comment.to > spec.from && spec.to > comment.from,
+    )
+    .map((comment) => comment.threadId);
+  const threadId =
+    threadIds.find(
+      (id) => id === comments.activeId || id === comments.hoveredId,
+    ) ?? threadIds.find(Boolean);
+  if (!threadId) return null;
+  return {
+    threadId,
+    className: `comment-highlight${commentHighlightEmphasis(
+      threadIds,
+      comments.activeId,
+      comments.hoveredId,
+    )}`,
+  };
+}
+
+function settlingWidget(
+  spec: SuggestionHighlightSpec,
+  comment: SettlingCommentHighlight | null,
+) {
+  return () => {
+    const widget = document.createElement("span");
+    widget.className = "suggestion-settling-text suggestion-inline-widget";
+    widget.setAttribute("data-suggestion-widget", "true");
+    let parent = widget;
+    if (comment) {
+      parent = document.createElement("span");
+      parent.className = comment.className;
+      parent.setAttribute("data-comment-thread", comment.threadId);
+      widget.append(parent);
+    }
+    appendSuggestionText(
+      parent,
+      spec.insertedText ?? "",
+      spec.insertedPresentation,
+      () => false,
+    );
+    return widget;
+  };
 }
 
 function insertionWidget(
@@ -216,19 +254,6 @@ function insertionWidget(
 ) {
   return (view: EditorView) => {
     const widget = document.createElement("span");
-    if (spec.settling) {
-      widget.className = "suggestion-settling-text suggestion-inline-widget";
-      widget.setAttribute("data-suggestion-widget", "true");
-      const highlight = settlingCommentHighlight(view, spec);
-      if (highlight) widget.append(highlight);
-      appendSuggestionText(
-        highlight ?? widget,
-        spec.insertedText ?? "",
-        spec.insertedPresentation,
-        () => false,
-      );
-      return widget;
-    }
     widget.className = classes(
       `${insertionClass(spec)} suggestion-inline-widget`,
       active,
@@ -707,6 +732,7 @@ function buildDecorations(
   doc: ProseMirrorNode,
   specs: SuggestionHighlightSpec[],
   activeId: string | null,
+  comments?: CommentHighlightState,
 ): DecorationSet {
   const decorations: Decoration[] = [];
   const size = doc.content.size;
@@ -759,10 +785,11 @@ function buildDecorations(
         );
       }
       if (spec.kind !== "delete") {
+        const comment = settlingCommentHighlight(comments, spec);
         decorations.push(
           Decoration.widget(
             clampPosition(range ? range.to : spec.from, size),
-            insertionWidget(spec, false),
+            settlingWidget(spec, comment),
             {
               key: JSON.stringify([
                 spec.suggestionId,
@@ -772,6 +799,8 @@ function buildDecorations(
                 spec.insertedText,
                 spec.insertedPresentation?.from,
                 spec.insertedPresentation?.to,
+                comment?.threadId,
+                comment?.className,
               ]),
               marks: [],
               side: 1,
@@ -1098,6 +1127,13 @@ function typedDraftSpecs(
 }
 
 export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightState> {
+  // A settling edit's new text carries the comment highlight, so its widgets
+  // follow the comment state, which changes without a transaction of ours.
+  let settlingDecorations: {
+    value: SuggestionHighlightState;
+    comments: CommentHighlightState | undefined;
+    decorations: DecorationSet;
+  } | null = null;
   return new Plugin<SuggestionHighlightState>({
     key: suggestionHighlightKey,
     state: {
@@ -1169,7 +1205,25 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
       ),
     props: {
       decorations(state) {
-        return suggestionHighlightKey.getState(state)?.decorations ?? null;
+        const value = suggestionHighlightKey.getState(state);
+        if (!value?.specs.some((spec) => spec.settling))
+          return value?.decorations ?? null;
+        const comments = commentHighlightKey.getState(state);
+        if (
+          settlingDecorations?.value !== value ||
+          settlingDecorations.comments !== comments
+        )
+          settlingDecorations = {
+            value,
+            comments,
+            decorations: buildDecorations(
+              state.doc,
+              value.specs,
+              value.activeId,
+              comments,
+            ),
+          };
+        return settlingDecorations.decorations;
       },
     },
   });

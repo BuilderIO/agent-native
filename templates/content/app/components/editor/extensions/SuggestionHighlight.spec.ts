@@ -1982,6 +1982,48 @@ describe("settling suggestions", () => {
         "comment-highlight comment-highlight--active",
       );
       expect(highlight?.getAttribute("data-comment-thread")).toBe("thread");
+
+      setCommentHighlights(view, { activeId: null, hoveredId: "thread" });
+      expect(
+        view.dom.querySelector(".suggestion-settling-text .comment-highlight")
+          ?.className,
+      ).toBe("comment-highlight comment-highlight--hovered");
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it("draws the open card's thread when several highlight the words it replaces", () => {
+    const view = new EditorView(document.createElement("div"), {
+      state: EditorState.create({
+        doc: doc("Before after"),
+        plugins: [
+          createCommentHighlightPlugin(),
+          createSuggestionHighlightPlugin(),
+        ],
+      }),
+    });
+    try {
+      setCommentHighlights(view, {
+        specs: [
+          { threadId: "first", from: 1, to: 7 },
+          { threadId: "second", from: 1, to: 7 },
+        ],
+        activeId: "second",
+      });
+      view.dispatch(
+        view.state.tr.setMeta(suggestionHighlightKey, {
+          specs: [settling],
+          activeId: null,
+        }),
+      );
+      const highlight = view.dom.querySelector(
+        ".suggestion-settling-text .comment-highlight",
+      );
+      expect(highlight?.getAttribute("data-comment-thread")).toBe("second");
+      expect(highlight?.className).toBe(
+        "comment-highlight comment-highlight--active",
+      );
     } finally {
       view.destroy();
     }

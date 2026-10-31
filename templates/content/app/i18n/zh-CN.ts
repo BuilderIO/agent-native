@@ -1820,6 +1820,7 @@ const overrides = {
     identityEffort: "推理强度",
     acceptAllAndResolve: "全部接受并解决",
     acceptAndResolve: "接受并解决",
+    suggestionLoadFailed: "无法加载此建议",
     identityRan: "运行时间",
     identityNotRecorded: "未记录",
     identityOpenRun: "打开运行",

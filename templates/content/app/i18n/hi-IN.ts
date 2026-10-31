@@ -1746,6 +1746,7 @@ const overrides = {
     identityEffort: "तर्क स्तर",
     acceptAllAndResolve: "सभी स्वीकार करें और हल करें",
     acceptAndResolve: "स्वीकार करें और हल करें",
+    suggestionLoadFailed: "यह सुझाव लोड नहीं हो सका",
     identityRan: "चलाया गया",
     identityNotRecorded: "दर्ज नहीं",
     identityOpenRun: "रन खोलें",

@@ -1769,6 +1769,7 @@ const overrides = {
     identityEffort: "추론 강도",
     acceptAllAndResolve: "모두 수락하고 해결",
     acceptAndResolve: "수락하고 해결",
+    suggestionLoadFailed: "이 제안을 불러오지 못했습니다",
     identityRan: "실행 시각",
     identityNotRecorded: "기록 없음",
     identityOpenRun: "실행 열기",

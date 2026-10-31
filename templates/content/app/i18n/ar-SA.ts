@@ -1778,6 +1778,7 @@ const overrides = {
     identityEffort: "مستوى الاستدلال",
     acceptAllAndResolve: "قبول الكل والحل",
     acceptAndResolve: "قبول وحل",
+    suggestionLoadFailed: "تعذّر تحميل هذا الاقتراح",
     identityRan: "وقت التشغيل",
     identityNotRecorded: "غير مسجل",
     identityOpenRun: "فتح التشغيل",

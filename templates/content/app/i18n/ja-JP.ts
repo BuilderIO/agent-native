@@ -1786,6 +1786,7 @@ const overrides = {
     identityEffort: "推論の強度",
     acceptAllAndResolve: "すべて承認して解決",
     acceptAndResolve: "承認して解決",
+    suggestionLoadFailed: "この提案を読み込めませんでした",
     identityRan: "実行日時",
     identityNotRecorded: "記録なし",
     identityOpenRun: "実行を開く",

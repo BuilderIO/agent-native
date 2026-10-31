@@ -8211,32 +8211,61 @@ function PageEditorSessionBody({
       .sort()
       .join(" ");
   }, [commentAi.requests, suggestionsQuery.data?.suggestions]);
-  const [readSuggestionIds, setReadSuggestionIds] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
+  // A read that failed says nothing about whether the suggestion exists, so
+  // its thread offers a retry instead of dropping the placeholder.
+  const [suggestionReads, setSuggestionReads] = useState<
+    ReadonlyMap<string, "read" | "failed">
+  >(() => new Map());
+  const [suggestionReadAttempt, setSuggestionReadAttempt] = useState(0);
   const refetchSuggestions = suggestionsQuery.refetch;
   useEffect(() => {
     if (!missingRequestSuggestionIds) return;
     let current = true;
-    void refetchSuggestions().finally(() => {
+    const settle = (outcome: "read" | "failed") => {
       if (!current) return;
-      setReadSuggestionIds(
-        (read) => new Set([...read, ...missingRequestSuggestionIds.split(" ")]),
+      setSuggestionReads(
+        (reads) =>
+          new Map([
+            ...reads,
+            ...missingRequestSuggestionIds
+              .split(" ")
+              .map((id) => [id, outcome] as const),
+          ]),
       );
-    });
+    };
+    refetchSuggestions().then(
+      (result) => settle(result.isError ? "failed" : "read"),
+      () => settle("failed"),
+    );
     return () => {
       current = false;
     };
-  }, [missingRequestSuggestionIds, refetchSuggestions]);
+  }, [missingRequestSuggestionIds, refetchSuggestions, suggestionReadAttempt]);
   const awaitedSuggestionIds = useMemo(
     () =>
       new Set(
         missingRequestSuggestionIds
           .split(" ")
-          .filter((id) => id && !readSuggestionIds.has(id)),
+          .filter((id) => id && suggestionReads.get(id) !== "read"),
       ),
-    [missingRequestSuggestionIds, readSuggestionIds],
+    [missingRequestSuggestionIds, suggestionReads],
   );
+  const unreadableSuggestionIds = useMemo(
+    () =>
+      new Set(
+        [...awaitedSuggestionIds].filter(
+          (id) => suggestionReads.get(id) === "failed",
+        ),
+      ),
+    [awaitedSuggestionIds, suggestionReads],
+  );
+  const retrySuggestionRead = useCallback(() => {
+    setSuggestionReads(
+      (reads) =>
+        new Map([...reads].filter(([, outcome]) => outcome !== "failed")),
+    );
+    setSuggestionReadAttempt((attempt) => attempt + 1);
+  }, []);
   // Accepting moves the source thread's quote, which a revision still in
   // flight would read as changed feedback and abandon.
   const commentAiWorkingOnSource = (suggestion: ResourceSuggestion) => {
@@ -9794,6 +9823,8 @@ function PageEditorSessionBody({
           : NO_SUGGESTIONS
       }
       awaitedSuggestionIds={awaitedSuggestionIds}
+      unreadableSuggestionIds={unreadableSuggestionIds}
+      onRetrySuggestionRead={retrySuggestionRead}
       draftSuggestions={
         presentation === "history" || blockFieldComments.railShowsSuggestions
           ? draftSuggestions

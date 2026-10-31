@@ -1822,6 +1822,7 @@ const overrides = {
     identityEffort: "Esforço",
     acceptAllAndResolve: "Aceitar tudo e resolver",
     acceptAndResolve: "Aceitar e resolver",
+    suggestionLoadFailed: "Não foi possível carregar esta sugestão",
     identityRan: "Executado",
     identityNotRecorded: "Não registrado",
     identityOpenRun: "Abrir execução",

@@ -1830,6 +1830,7 @@ const overrides = {
     identityEffort: "Denkaufwand",
     acceptAllAndResolve: "Alle annehmen und erledigen",
     acceptAndResolve: "Annehmen und erledigen",
+    suggestionLoadFailed: "Dieser Vorschlag konnte nicht geladen werden",
     identityRan: "Ausgeführt",
     identityNotRecorded: "Nicht erfasst",
     identityOpenRun: "Lauf öffnen",

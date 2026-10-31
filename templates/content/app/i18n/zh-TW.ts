@@ -1186,6 +1186,7 @@ const overrides = {
     rejectAll: "全部拒絕",
     acceptAllAndResolve: "全部接受並解決",
     acceptAndResolve: "接受並解決",
+    suggestionLoadFailed: "無法載入此建議",
     suggestionReviewReadOnly:
       "只有可以編輯此頁面的人才能接受或拒絕其中的建議。",
     moreActions: "更多操作",

@@ -183,6 +183,8 @@ function SidebarOwner({
     onActivateThread?: (threadId: string) => void;
     suggestions?: ResourceSuggestion[];
     awaitedSuggestionIds?: ReadonlySet<string>;
+    unreadableSuggestionIds?: ReadonlySet<string>;
+    onRetrySuggestionRead?: () => void;
     decidingSuggestion?: (suggestionId: string) => boolean;
     activeSuggestionId?: string;
     unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
@@ -216,6 +218,8 @@ function SidebarOwner({
       threads={threads}
       suggestions={options.suggestions}
       awaitedSuggestionIds={options.awaitedSuggestionIds}
+      unreadableSuggestionIds={options.unreadableSuggestionIds}
+      onRetrySuggestionRead={options.onRetrySuggestionRead}
       activeSuggestionId={options.activeSuggestionId}
       unplaceableSuggestionRevisions={options.unplaceableSuggestionRevisions}
       selectedThreadId={selected}
@@ -280,6 +284,8 @@ describe("comment review interactions", () => {
       onActivateThread?: (threadId: string) => void;
       suggestions?: ResourceSuggestion[];
       awaitedSuggestionIds?: ReadonlySet<string>;
+      unreadableSuggestionIds?: ReadonlySet<string>;
+      onRetrySuggestionRead?: () => void;
       decidingSuggestion?: (suggestionId: string) => boolean;
       activeSuggestionId?: string;
       unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
@@ -621,6 +627,9 @@ describe("comment review interactions", () => {
       );
       // Resolving now would send the pending edits out to their own cards.
       expect(actions.resolve).not.toHaveBeenCalled();
+      // The edits show accepted before the server answers.
+      show("accepted");
+      expect(actions.resolve).not.toHaveBeenCalled();
 
       deciding = false;
       show("accepted");
@@ -636,9 +645,26 @@ describe("comment review interactions", () => {
       );
       if (!button) throw new Error("The proposal has no Accept and resolve");
       act(() => button.click());
+      show("accepted");
       deciding = false;
       show("pending");
       show("accepted");
+      expect(actions.resolve).not.toHaveBeenCalled();
+    });
+
+    it("leaves the thread open when an edit it asked for ends rejected", () => {
+      show("pending");
+      const button = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-accept-resolve]",
+      );
+      if (!button) throw new Error("The proposal has no Accept and resolve");
+      act(() => button.click());
+      deciding = false;
+      render("one", [thread("one")], "inline", {
+        suggestions: [asked("first", "accepted"), asked("second", "rejected")],
+        onDecideSuggestionProposal: decide,
+        decidingSuggestion: () => deciding,
+      });
       expect(actions.resolve).not.toHaveBeenCalled();
     });
   });
@@ -690,6 +716,21 @@ describe("comment review interactions", () => {
       container.querySelector("[data-thread-suggestion-placeholder]"),
     ).not.toBeNull();
     expect(container.querySelector("[data-comment-ai-status]")).toBeNull();
+
+    // A failed read can't say the suggestion is gone; it offers a retry.
+    const retryRead = vi.fn();
+    render("one", [thread("one")], "inline", {
+      commentAi,
+      awaitedSuggestionIds: new Set(["suggestion-one"]),
+      unreadableSuggestionIds: new Set(["suggestion-one"]),
+      onRetrySuggestionRead: retryRead,
+    });
+    const failed = container.querySelector(
+      '[data-thread-suggestion-placeholder="failed"]',
+    );
+    expect(failed?.textContent).toContain("comments.suggestionLoadFailed");
+    act(() => failed?.querySelector("button")?.click());
+    expect(retryRead).toHaveBeenCalled();
 
     // Read and still absent: nothing to wait for, and nothing to review.
     render("one", [thread("one")], "inline", { commentAi });
