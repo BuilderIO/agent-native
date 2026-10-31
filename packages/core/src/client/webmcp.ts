@@ -644,12 +644,9 @@ export function createAgentNativeWebMcpClient(
     }
     jsonLength(input, `WebMCP tool "${tool.name}" input`, limits.maxInputChars);
     const { context, tool: nativeTool } = binding;
-    const usesCodexPageAdapter =
-      typeof context.codexExecuteTool === "function" ||
-      typeof context.codexGetTools === "function";
     const result = await context.executeTool(
       nativeTool,
-      usesCodexPageAdapter ? input : JSON.stringify(input),
+      input,
       executionOptions,
     );
     return normalizeToolResult(

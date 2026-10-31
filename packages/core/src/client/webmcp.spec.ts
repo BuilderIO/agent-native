@@ -278,7 +278,7 @@ describe("WebMCP client", () => {
     });
     expect(executeTool).toHaveBeenCalledWith(
       registeredTool,
-      '{"id":"order-1"}',
+      { id: "order-1" },
       {},
     );
   });
@@ -343,7 +343,7 @@ describe("WebMCP client", () => {
     await expect(client.executeTool(tool)).resolves.toEqual({
       title: "Fresh order",
     });
-    expect(executeTool).toHaveBeenCalledWith(freshTool, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(freshTool, {}, {});
   });
 
   it("executes the approved descriptor after a concurrent listing", async () => {
@@ -376,7 +376,7 @@ describe("WebMCP client", () => {
     await client.listTools();
 
     await expect(client.executeListedTool(approvedTool)).resolves.toBe("first");
-    expect(executeTool).toHaveBeenCalledWith(firstTool, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(firstTool, {}, {});
   });
 
   it("rejects duplicate tool names from the same origin", async () => {
@@ -1019,7 +1019,7 @@ describe("WebMCP page helper", () => {
     });
     expect(executeTool).toHaveBeenCalledWith(
       registeredTool,
-      '{"id":"order-1"}',
+      { id: "order-1" },
       {},
     );
   });
@@ -1773,7 +1773,7 @@ describe("WebMCP page helper", () => {
       { origin: "https://b.example" },
     );
     expect(scoped).toMatchObject({ ok: true, result: "shipped" });
-    expect(executeTool).toHaveBeenCalledWith(toolB, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(toolB, {}, {});
   });
   it("does not replay an action failure worded like a stale descriptor", async () => {
     readyStatus(1);
@@ -1848,7 +1848,7 @@ describe("WebMCP page helper", () => {
     expect(getTools).toHaveBeenLastCalledWith({
       fromOrigins: ["https://b.example"],
     });
-    expect(executeTool).toHaveBeenCalledWith(toolB, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(toolB, {}, {});
   });
 
   it("shares one in-flight listing across concurrent tools() and describe() calls", async () => {
