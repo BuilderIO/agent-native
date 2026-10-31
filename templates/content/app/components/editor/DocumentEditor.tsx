@@ -8194,6 +8194,49 @@ function PageEditorSessionBody({
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
+  // A request turns suggested on its own poll, often before the suggestion it
+  // names is in this Page's list. Read the list again then; until that read
+  // lands, its thread holds a placeholder rather than an empty status.
+  const missingRequestSuggestionIds = useMemo(() => {
+    const loaded = new Set(
+      (suggestionsQuery.data?.suggestions ?? []).map((item) => item.id),
+    );
+    return commentAi.requests
+      .flatMap((request) =>
+        request.status === "suggested" && request.result?.suggestionId
+          ? [request.result.suggestionId]
+          : [],
+      )
+      .filter((id) => !loaded.has(id))
+      .sort()
+      .join(" ");
+  }, [commentAi.requests, suggestionsQuery.data?.suggestions]);
+  const [readSuggestionIds, setReadSuggestionIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const refetchSuggestions = suggestionsQuery.refetch;
+  useEffect(() => {
+    if (!missingRequestSuggestionIds) return;
+    let current = true;
+    void refetchSuggestions().finally(() => {
+      if (!current) return;
+      setReadSuggestionIds(
+        (read) => new Set([...read, ...missingRequestSuggestionIds.split(" ")]),
+      );
+    });
+    return () => {
+      current = false;
+    };
+  }, [missingRequestSuggestionIds, refetchSuggestions]);
+  const awaitedSuggestionIds = useMemo(
+    () =>
+      new Set(
+        missingRequestSuggestionIds
+          .split(" ")
+          .filter((id) => id && !readSuggestionIds.has(id)),
+      ),
+    [missingRequestSuggestionIds, readSuggestionIds],
+  );
   // Accepting moves the source thread's quote, which a revision still in
   // flight would read as changed feedback and abandon.
   const commentAiWorkingOnSource = (suggestion: ResourceSuggestion) => {
@@ -9750,6 +9793,7 @@ function PageEditorSessionBody({
           ? sidebarSuggestions
           : NO_SUGGESTIONS
       }
+      awaitedSuggestionIds={awaitedSuggestionIds}
       draftSuggestions={
         presentation === "history" || blockFieldComments.railShowsSuggestions
           ? draftSuggestions
@@ -10360,7 +10404,9 @@ function PageEditorSessionBody({
             >
               <div
                 className={cn(
-                  "min-w-0",
+                  // The page slides over as the review margin opens, rather
+                  // than jumping sideways under the reader's eye.
+                  "min-w-0 transition-[padding] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transition-none",
                   showDesktopInfoPanel ? "flex-1" : "w-full",
                   reserveInlineReviewSpace && "pr-80",
                   !isDatabasePage &&

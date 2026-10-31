@@ -182,6 +182,8 @@ function SidebarOwner({
     commentAi?: CommentAiController;
     onActivateThread?: (threadId: string) => void;
     suggestions?: ResourceSuggestion[];
+    awaitedSuggestionIds?: ReadonlySet<string>;
+    decidingSuggestion?: (suggestionId: string) => boolean;
     activeSuggestionId?: string;
     unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
     alignToAnchors?: boolean;
@@ -213,6 +215,7 @@ function SidebarOwner({
       documentId="fixture"
       threads={threads}
       suggestions={options.suggestions}
+      awaitedSuggestionIds={options.awaitedSuggestionIds}
       activeSuggestionId={options.activeSuggestionId}
       unplaceableSuggestionRevisions={options.unplaceableSuggestionRevisions}
       selectedThreadId={selected}
@@ -227,6 +230,7 @@ function SidebarOwner({
           : undefined
       }
       onDecideSuggestionProposal={options.onDecideSuggestionProposal}
+      decidingSuggestion={options.decidingSuggestion}
       forceVisible
       presentation={presentation}
       commentAi={options.commentAi}
@@ -275,6 +279,8 @@ describe("comment review interactions", () => {
       commentAi?: CommentAiController;
       onActivateThread?: (threadId: string) => void;
       suggestions?: ResourceSuggestion[];
+      awaitedSuggestionIds?: ReadonlySet<string>;
+      decidingSuggestion?: (suggestionId: string) => boolean;
       activeSuggestionId?: string;
       unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
       alignToAnchors?: boolean;
@@ -576,6 +582,121 @@ describe("comment review interactions", () => {
         .click(),
     );
     expect(dismissResolution).toHaveBeenCalledWith("one");
+  });
+
+  describe("Accept and resolve", () => {
+    const asked = (id: string, status: ResourceSuggestion["status"]) => ({
+      ...proposalSuggestion(id, status),
+      metadata: { sourceThreadId: "one", commentAiRequestId: "request-one" },
+    });
+    let deciding = false;
+    const decide = vi.fn(() => {
+      deciding = true;
+    });
+    const show = (status: ResourceSuggestion["status"]) =>
+      render("one", [thread("one")], "inline", {
+        suggestions: [asked("first", status), asked("second", status)],
+        onDecideSuggestionProposal: decide,
+        decidingSuggestion: () => deciding,
+      });
+    beforeEach(() => {
+      deciding = false;
+    });
+
+    it("resolves the thread once every edit it asked for is accepted", () => {
+      show("pending");
+      const button = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-accept-resolve]",
+      );
+      if (!button) throw new Error("The proposal has no Accept and resolve");
+      expect(button.textContent).toBe("comments.acceptAllAndResolve");
+      act(() => button.click());
+      expect(decide).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        expect.arrayContaining([
+          expect.objectContaining({ id: "first" }),
+          expect.objectContaining({ id: "second" }),
+        ]),
+      );
+      // Resolving now would send the pending edits out to their own cards.
+      expect(actions.resolve).not.toHaveBeenCalled();
+
+      deciding = false;
+      show("accepted");
+      expect(actions.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "one-root", resolved: true }),
+      );
+    });
+
+    it("leaves the thread open when the accept does not land", () => {
+      show("pending");
+      const button = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-accept-resolve]",
+      );
+      if (!button) throw new Error("The proposal has no Accept and resolve");
+      act(() => button.click());
+      deciding = false;
+      show("pending");
+      show("accepted");
+      expect(actions.resolve).not.toHaveBeenCalled();
+    });
+  });
+
+  it("holds a suggested request's place until its suggestion loads", () => {
+    const suggested: CommentAiRequest = {
+      operationId: "request-one",
+      requestId: "request-one",
+      documentId: "fixture",
+      threadId: "one",
+      rootCommentId: "one-root",
+      intent: "suggest",
+      status: "suggested",
+      attemptId: null,
+      attemptCount: 1,
+      runId: null,
+      agentThreadId: null,
+      agentTurnId: null,
+      model: "claude-haiku-5-5",
+      engine: "anthropic",
+      result: { suggestionId: "suggestion-one" },
+      errorCode: null,
+      error: null,
+      createdAt: "2026-10-20T12:00:00Z",
+      updatedAt: "2026-10-20T12:01:00Z",
+    };
+    const commentAi = {
+      requests: [suggested],
+      startingThreadIds: new Set<string>(),
+      stoppingRequestIds: new Set<string>(),
+      continuations: new Map(),
+      transcriptRevision: 0,
+      start: vi.fn(),
+      continue: vi.fn(),
+      retry: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+      open: vi.fn(),
+      undo: vi.fn(),
+      freshResolutions: new Map(),
+      dismissResolution: vi.fn(),
+    } satisfies CommentAiController;
+
+    render("one", [thread("one")], "inline", {
+      commentAi,
+      awaitedSuggestionIds: new Set(["suggestion-one"]),
+    });
+    expect(
+      container.querySelector("[data-thread-suggestion-placeholder]"),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-comment-ai-status]")).toBeNull();
+
+    // Read and still absent: nothing to wait for, and nothing to review.
+    render("one", [thread("one")], "inline", { commentAi });
+    expect(
+      container.querySelector("[data-thread-suggestion-placeholder]"),
+    ).toBeNull();
+    expect(container.querySelector("[data-comment-ai-status]")).toBeNull();
   });
 
   const commentAiWith = (start: CommentAiController["start"]) =>

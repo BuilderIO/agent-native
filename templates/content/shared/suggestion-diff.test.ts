@@ -263,6 +263,80 @@ describe("suggestion decomposition", () => {
     }
   });
 
+  describe("an agent's rewrite of most of a paragraph", () => {
+    const sentences = [
+      {
+        find: "Well, they're not the only ones.",
+        replace: "They're not the only ones.",
+      },
+      {
+        find: "Since September 30, a studio called [ArtCraft](https://github.com/storytold) has put up 13 open-source clones of Photoshop, Premiere, Word, Excel, Pro Tools, AutoCAD, Figma and more, and they've collected about 172,000 GitHub stars between them.",
+        replace:
+          "Since September 30, [ArtCraft](https://github.com/storytold) has released 13 open-source clones of apps like Photoshop, Premiere, Word and Figma, with about 172,000 GitHub stars between them.",
+      },
+      {
+        find: "Meanwhile, thousands of people are playing Switch and PS5 games natively on PC, because agents rebuilt them from the games' compiled code.",
+        replace:
+          "Agents have also rebuilt Switch and PS5 games from their compiled code, and thousands now play them on PC.",
+      },
+    ];
+    const paragraph = sentences.map(({ find }) => find).join(" ");
+    const shorter = sentences.map(({ replace }) => replace).join(" ");
+    const before = `Sound audacious?\n${paragraph}\nBack in May, I wrote about it.`;
+    const start = before.indexOf(paragraph);
+
+    it("is one edit, not a struck word every few words", () => {
+      const operations = markdownSuggestionOperationsForFindReplace({
+        before,
+        find: paragraph,
+        replace: shorter,
+        start,
+      });
+
+      expect(operations).toHaveLength(1);
+      expect(proposedFrom(before, operations)).toBe(
+        before.replace(paragraph, shorter),
+      );
+    });
+
+    it("is one edit when the agent sends it as several finds", () => {
+      let offset = start;
+      const edits = sentences.map((sentence) => {
+        const edit = { ...sentence, start: offset };
+        offset += sentence.find.length + 1;
+        return edit;
+      });
+
+      const operations = markdownSuggestionOperationsForFindReplaceEdits({
+        before,
+        edits,
+      });
+
+      expect(operations).toHaveLength(1);
+      expect(proposedFrom(before, operations)).toBe(
+        before.replace(paragraph, shorter),
+      );
+    });
+
+    it("leaves a light edit throughout a paragraph one edit per occurrence", () => {
+      const text =
+        "We built Acme Notes for teams. Acme Notes apps share one action surface, so Acme Notes stays honest about parity.";
+      const page = `Intro\n${text}\nEnd`;
+      const edits = [...text.matchAll(/Acme Notes/gu)].map((match) => ({
+        find: "Acme Notes",
+        replace: "AcmeNotes",
+        start: page.indexOf(text) + match.index,
+      }));
+
+      const operations = markdownSuggestionOperationsForFindReplaceEdits({
+        before: page,
+        edits,
+      });
+
+      expect(operations).toHaveLength(3);
+    });
+  });
+
   it("keeps selected sentence replacements granular", () => {
     const before = "We shipped quickly, and the results were good.";
     const after = "We shipped quickly and the results were excellent.";

@@ -470,23 +470,14 @@ export const CommentComposer = forwardRef<
             candidate.engine === models.selectedEngine,
         )
       : undefined;
+    const selectedKey = selected ? commentAiSelectionKey(selected) : null;
+    // "@ai" finds the selected model under its own name, so it is listed once.
     return [
-      ...(selected
-        ? [
-            {
-              ...aiItems.find(
-                (item) => item.refId === commentAiSelectionKey(selected),
-              )!,
-              id: "ai",
-              label: "AI",
-              referenceLabel: modelDisplayName(selected.model),
-              aliases: ["AI"],
-              description: modelDisplayName(selected.model),
-            },
-          ]
-        : []),
-      ...aiItems,
       ...memberItems,
+      ...aiItems
+        .filter((item) => item.refId === selectedKey)
+        .map((item) => ({ ...item, aliases: [...item.aliases, "AI"] })),
+      ...aiItems.filter((item) => item.refId !== selectedKey),
     ];
   }, [
     aiEnabled,

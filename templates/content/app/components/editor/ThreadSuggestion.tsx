@@ -10,9 +10,10 @@ import {
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-import { AgentAvatar, agentDisplayName } from "./agent-identity";
+import { AgentAvatar, modelDisplayName } from "./agent-identity";
 import { trimDiffContext, wordDiff } from "./comment-ai-diff";
 import { CommentRow } from "./CommentRow";
 import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
@@ -31,6 +32,8 @@ type ThreadSuggestionProps = {
   ) => void;
   /** Decides every edit of the proposal still pending. */
   onDecideRemaining?: (decision: SuggestionDecision) => void;
+  /** Accepts every edit still pending, then resolves the thread. */
+  onAcceptAndResolve?: () => void;
   /**
    * Opens a proposal's edits at first. A thread keeps them closed, since the
    * Page beside it already shows them; a view without the Page opens them.
@@ -186,8 +189,10 @@ export function ThreadSuggestionBody({
   conflict,
   onDecide,
   onDecideRemaining,
+  onAcceptAndResolve,
   defaultExpanded = false,
 }: ThreadSuggestionProps) {
+  const t = useT();
   const statusLabel = useStatusLabel();
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [first] = suggestions;
@@ -231,6 +236,7 @@ export function ThreadSuggestionBody({
           acceptDisabled={pending.some(conflict)}
           canDecide={canDecide && !!onDecideRemaining}
           onDecide={(decision) => onDecideRemaining?.(decision)}
+          onAcceptAndResolve={onAcceptAndResolve}
         >
           {edits}
         </ProposalGroup>
@@ -240,11 +246,44 @@ export function ThreadSuggestionBody({
             {summary}
           </p>
           <div>{edits}</div>
+          {onAcceptAndResolve && canDecide && pending.length ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={pending.some(busy) || pending.some(conflict)}
+                onClick={onAcceptAndResolve}
+                className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
+                data-suggestion-accept-resolve
+              >
+                {t("comments.acceptAndResolve")}
+              </button>
+            </div>
+          ) : null}
         </>
       )}
       {sharedStatus ? (
         <SuggestionStatus status={statusLabel(sharedStatus)} />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Holds a thread suggestion's place, under the reply that announced it, until
+ * the suggestion itself loads.
+ */
+export function ThreadSuggestionPlaceholder() {
+  return (
+    <div className="flex gap-2.5" data-thread-suggestion-placeholder>
+      <div className="w-7 shrink-0" />
+      <div className="grid min-w-0 flex-1 gap-2">
+        <Skeleton className="h-4 w-4/5" />
+        <Skeleton className="h-4 w-full" />
+        <div className="flex gap-1.5">
+          <Skeleton className="h-7 w-20" />
+          <Skeleton className="h-7 w-20" />
+        </div>
+      </div>
     </div>
   );
 }
@@ -258,7 +297,7 @@ export function ThreadSuggestionRow(props: ThreadSuggestionProps) {
   return (
     <CommentRow
       avatar={<AgentAvatar model={model} />}
-      name={agentDisplayName(model)}
+      name={modelDisplayName(model)}
       identity={{
         kind: "agent",
         model,

@@ -26,6 +26,10 @@ import { ReplaceStep } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 import { buildDocText } from "../comment-anchors";
+import {
+  commentHighlightEmphasis,
+  commentHighlightKey,
+} from "./CommentHighlight";
 
 export type SuggestionHighlightKind =
   | "delete"
@@ -43,6 +47,11 @@ export interface SuggestionHighlightSpec {
   deletedText?: string;
   insertedPresentation?: SuggestionPresentationContext;
   deletedPresentation?: SuggestionPresentationContext;
+  /**
+   * Where the links in a replacement's original text point. The reader sees
+   * those links on the Page, so the suggested text does not spell them out.
+   */
+  replacedLinks?: readonly string[];
   editableBoundary?: boolean;
   editableText?: boolean;
   settling?: boolean;
@@ -95,7 +104,7 @@ function classes(base: string, active: boolean): string {
 function appendPresentationNode(
   parent: HTMLElement,
   node: SuggestionPresentationNode,
-  showLinkDestination: boolean,
+  showLinkDestination: (url: string) => boolean,
 ): void {
   if (node.type === "lineBreak") {
     parent.append(document.createElement("br"));
@@ -128,7 +137,7 @@ function appendPresentationNode(
     appendPresentationNode(element, child, showLinkDestination);
   parent.append(element);
 
-  if (node.type === "link" && showLinkDestination) {
+  if (node.type === "link" && showLinkDestination(node.url)) {
     parent.append(document.createTextNode(` (${node.url})`));
   }
 }
@@ -137,7 +146,7 @@ function appendSuggestionText(
   parent: HTMLElement,
   content: string,
   context?: SuggestionPresentationContext,
-  showLinkDestination = true,
+  showLinkDestination: (url: string) => boolean = () => true,
 ): void {
   const nodes = context
     ? suggestionTextPresentationForSource(content, context)
@@ -176,22 +185,47 @@ function insertionClass(spec: SuggestionHighlightSpec) {
   } suggestion-proposed-text`;
 }
 
+// An accepted edit's original text is hidden while it settles, and with it
+// any comment highlight on that text; its new text carries the highlight until
+// the saved Page highlights it again.
+function settlingCommentHighlight(
+  view: EditorView,
+  spec: SuggestionHighlightSpec,
+): HTMLElement | null {
+  const comments = commentHighlightKey.getState(view.state);
+  const thread = comments?.specs.find(
+    (comment) =>
+      !comment.blockId && comment.to > spec.from && spec.to > comment.from,
+  );
+  if (!comments || !thread) return null;
+  const highlight = document.createElement("span");
+  highlight.className = `comment-highlight${commentHighlightEmphasis(
+    [thread.threadId],
+    comments.activeId,
+    comments.hoveredId,
+  )}`;
+  highlight.setAttribute("data-comment-thread", thread.threadId);
+  return highlight;
+}
+
 function insertionWidget(
   spec: SuggestionHighlightSpec,
   active: boolean,
   part?: { text: string; context?: SuggestionPresentationContext },
   position?: number,
 ) {
-  return () => {
+  return (view: EditorView) => {
     const widget = document.createElement("span");
     if (spec.settling) {
       widget.className = "suggestion-settling-text suggestion-inline-widget";
       widget.setAttribute("data-suggestion-widget", "true");
+      const highlight = settlingCommentHighlight(view, spec);
+      if (highlight) widget.append(highlight);
       appendSuggestionText(
-        widget,
+        highlight ?? widget,
         spec.insertedText ?? "",
         spec.insertedPresentation,
-        false,
+        () => false,
       );
       return widget;
     }
@@ -204,6 +238,7 @@ function insertionWidget(
       widget,
       part ? part.text : (spec.insertedText ?? ""),
       part ? part.context : spec.insertedPresentation,
+      (url) => !spec.replacedLinks?.includes(url),
     );
     return widget;
   };
@@ -397,7 +432,11 @@ function lineWidget(
         node.type !== "indent" &&
         (node.type !== "block" || node.value === "¶")
       )
-        appendPresentationNode(block, node, true);
+        appendPresentationNode(
+          block,
+          node,
+          (url) => !spec.replacedLinks?.includes(url),
+        );
     let content: HTMLElement = block;
     if (quote) {
       content = document.createElement("blockquote");

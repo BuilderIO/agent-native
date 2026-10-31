@@ -38,6 +38,8 @@ import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
 import type { SuggestionPlacement } from "@shared/suggestion-placement";
 import {
   suggestionAnchorText,
+  suggestionLinkDestinations,
+  suggestionTextPresentation,
   suggestionTextPresentationForSource,
   type SuggestionPresentationContext,
 } from "@shared/suggestion-text";
@@ -1679,6 +1681,14 @@ export function suggestionHighlightSpec(
     deletedPresentation: structuralDeletion
       ? suggestion.beforePresentation
       : undefined,
+    ...(suggestion.kind === "replace_text"
+      ? {
+          replacedLinks: suggestionLinkDestinations(
+            beforePresentation ??
+              suggestionTextPresentation(suggestion.beforeText),
+          ),
+        }
+      : {}),
     ...(suggestion.frozen ? { frozen: true } : {}),
   };
 }

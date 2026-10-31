@@ -21,11 +21,7 @@ import {
   type Comment,
 } from "@/hooks/use-comments";
 
-import {
-  AgentAvatar,
-  agentDisplayName,
-  modelDisplayName,
-} from "./agent-identity";
+import { AgentAvatar, modelDisplayName } from "./agent-identity";
 import { draftMention, useCommentDraft } from "./comment-drafts";
 import { CommentComposer } from "./CommentComposer";
 import type { CommentIdentity } from "./CommentIdentity";
@@ -142,7 +138,7 @@ export function CommentEntry({
     comment.mutation?.kind !== "resolve" || !comment.parent_id;
   const aiAuthored = comment.actorKind === "agent" && !!comment.author_model;
   const visibleAuthor = aiAuthored
-    ? agentDisplayName(comment.author_model)
+    ? modelDisplayName(comment.author_model)
     : (comment.author_name ?? comment.author_email.split("@")[0]);
   const identity: CommentIdentity = aiAuthored
     ? {

@@ -224,7 +224,7 @@ describe("suggestion matching on a page written through its live copy", () => {
       const operations = agentOperations(
         agentBody,
         "$60 today and $70",
-        "$75 now and $80",
+        "$65 today and $75",
       );
       expect(operations.length).toBeGreaterThan(1);
       const created = await createProposal.run(
@@ -272,7 +272,7 @@ describe("suggestion matching on a page written through its live copy", () => {
       }
       expect(content).toBe(
         canonicalizeNfm(
-          agentBody.replace("$60 today and $70", "$75 now and $80"),
+          agentBody.replace("$60 today and $70", "$65 today and $75"),
         ),
       );
     },
