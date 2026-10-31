@@ -373,6 +373,12 @@ function emitTrackedEvent(
 }
 
 function requestFirstRunExperiment(authUserId: string) {
+  const onboarding = getAppConfig().onboarding;
+  if (
+    (onboarding.firstRunCreditsExperimentOverride ??
+      onboarding.firstRunCreditsExperiment) !== "v2"
+  )
+    return null;
   const assignment = getRequestContext()?.firstRunBuilderCreditsV2Assignment;
   if (assignment?.authUserId !== authUserId) return null;
   const expected = assignFirstRunBuilderCreditsV2(authUserId);

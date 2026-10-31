@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
 import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
@@ -595,7 +595,9 @@ async function createAndUpload(
       "Clips did not return an upload target.",
     );
   }
-  const abortUrl = `${appBasePath()}${target.abortUrl ?? `/api/uploads/${serverId}/abort`}`;
+  const abortUrl = appApiPath(
+    target.abortUrl ?? `/api/uploads/${serverId}/abort`,
+  );
   const withAbortUrl = (error: unknown) =>
     Object.assign(error as object, { abortUrl });
 
@@ -616,7 +618,7 @@ async function createAndUpload(
     // coercion-ok: the thumbnail sweeper fills in a missing poster later.
   });
 
-  const base = `${appBasePath()}${target.uploadChunkUrl}`;
+  const base = appApiPath(target.uploadChunkUrl);
   const total = Math.max(1, Math.ceil(blob.size / UPLOAD_SLICE_BYTES));
   let finalBody: Record<string, unknown> | null = null;
   try {

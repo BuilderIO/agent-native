@@ -463,7 +463,12 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       {
         providerId: "test-provider",
         sessionId: "session-1",
-        meta: { provider: "test", stableUrl: true, recordAsset: false },
+        meta: {
+          provider: "test",
+          stableUrl: true,
+          recordAsset: false,
+          clipsHiddenUpload: true,
+        },
         bytesUploaded: 0,
         lastCommittedIndex: -1,
       },

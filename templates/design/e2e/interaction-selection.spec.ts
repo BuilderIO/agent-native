@@ -322,13 +322,14 @@ async function clickScreenNode(
   );
 }
 
-test("screen plain click selects the containing frame; Cmd-click selects the child", async ({
+// oracle-change: screen clicks now pick the pointed child; board clicks retain container-first selection.
+test("screen plain click selects the child and keeps frame backgrounds selectable", async ({
   app,
 }) => {
   const { id, before } = await openScreenFixture(app);
 
   await clickScreenNode(app, "kid-a");
-  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
   await app.page.keyboard.press("Escape");
   await expect.poll(() => app.selectedLayers()).toEqual([]);
 
@@ -341,8 +342,10 @@ test("screen plain click selects the containing frame; Cmd-click selects the chi
   await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
 
   await clickScreenNode(app, "kid-a");
-  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
 
+  await app.page.mouse.click(emptyCardPoint.x, emptyCardPoint.y);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
   await clickScreenNode(app, "kid-a", ["Meta"]);
   await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
 

@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import { assertHumanReadableDeckTitle } from "../shared/deck-title.js";
 import {
   ensureUniqueSlideIds,
@@ -86,7 +87,7 @@ export default defineAction({
       .values({
         id,
         title: deckTitle(deck),
-        data: JSON.stringify(deck),
+        ...deckDataColumns(deck),
         designSystemId,
         ownerEmail,
         orgId: getRequestOrgId() ?? null,

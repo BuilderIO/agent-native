@@ -1283,7 +1283,13 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "i18next" },
     { specifier: "input-otp" },
     { specifier: "lowlight" },
+    // Core's comment plain text (`review/plain-text`, which the toolkit's
+    // CommentBody imports) parses with these. Served unbundled, micromark's
+    // development build hands the browser CommonJS `debug`.
+    { specifier: "mdast-util-from-markdown" },
+    { specifier: "mdast-util-gfm" },
     { specifier: "mermaid" },
+    { specifier: "micromark-extension-gfm" },
     { specifier: "next-themes" },
     { specifier: "react-hook-form" },
     { specifier: "react-day-picker" },

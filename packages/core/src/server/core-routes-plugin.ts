@@ -152,11 +152,16 @@ import {
   EMPTY_SPECULATION_RULES,
   resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
+import { normalizeCorsOrigin } from "../shared/cors-origin.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import { FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES } from "../shared/first-run-builder-credits-experiment.js";
-import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
+import {
+  isGoogleDefaultAvatarUrl,
+  isGoogleProfileImageUrl,
+} from "../shared/google-profile-image.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import {
+  corsAllowHeadersFor,
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
@@ -186,7 +191,6 @@ import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { readAnalyticsSessionId } from "./attribution.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
-import { registerBackgroundJobStop } from "./background-jobs.js";
 import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
@@ -283,6 +287,7 @@ import type { EnvKeyConfig } from "./create-server.js";
 import {
   assertCredentialStoreReadable,
   CredentialStoreUnavailableError,
+  builderCreditsRefusalStatus,
   getBuilderKeyConnections,
   prefetchSecrets,
   resolveSecret,
@@ -358,6 +363,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import { startSandboxExecutionSweep } from "./sandbox-execution-sweep.js";
 import {
   findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
@@ -2995,6 +3001,15 @@ function oauthPopupCompletionHtml(
   const completionMessage = completionId
     ? `{type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}`
     : '{type:"agent-native:workspace-connection-complete"}';
+  // A UI served from another origin (runtime.apiBaseUrl) may have opened this
+  // popup. postMessage to an origin other than the opener's is dropped, so
+  // naming every listed UI origin reaches only the real opener.
+  const uiOrigins = [
+    ...new Set(readCorsAllowedOrigins().map(normalizeCorsOrigin)),
+  ];
+  const notifyUiOrigins = uiOrigins.length
+    ? `for (const origin of ${JSON.stringify(uiOrigins).replace(/</g, "\\u003c")}) window.opener?.postMessage(${completionMessage}, origin);`
+    : "";
   const direction = locale === "ar-SA" ? "rtl" : "ltr";
   return `<!doctype html>
 <html lang="${locale}" dir="${direction}">
@@ -3024,6 +3039,7 @@ function oauthPopupCompletionHtml(
       ${persistCompletion}
       setTimeout(() => window.close(), 2000);
       window.opener?.postMessage(${completionMessage}, window.location.origin);
+      ${notifyUiOrigins}
     </script>
   </body>
 </html>`;
@@ -3707,7 +3723,10 @@ export function createCoreRoutesPlugin(
               setResponseHeader(
                 event,
                 "Access-Control-Allow-Headers",
-                MCP_EMBED_CORS_ALLOW_HEADERS,
+                corsAllowHeadersFor(
+                  requestedHeaders,
+                  MCP_EMBED_CORS_ALLOW_HEADERS,
+                ),
               );
             }
             setResponseStatus(event, 204);
@@ -3740,7 +3759,7 @@ export function createCoreRoutesPlugin(
           setResponseHeader(
             event,
             "Access-Control-Allow-Headers",
-            MCP_EMBED_CORS_ALLOW_HEADERS,
+            corsAllowHeadersFor(requestedHeaders, MCP_EMBED_CORS_ALLOW_HEADERS),
           );
         }),
       );
@@ -4218,46 +4237,10 @@ export function createCoreRoutesPlugin(
       // a missing table short-circuits to a no-op) and best-effort — the
       // poll-time drain in run-code covers deployments where warm-instance
       // timers rarely fire.
-      (() => {
-        if (shouldDisableInProcessSweeps()) return;
-        let lastSweep = 0;
-        const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
-        let startupTimer: ReturnType<typeof setTimeout> | null = null;
-        let sweepTimer: ReturnType<typeof setInterval> | null = null;
-
-        const stopSandboxExecutionSweep = () => {
-          if (startupTimer) {
-            clearTimeout(startupTimer);
-            startupTimer = null;
-          }
-          if (sweepTimer) {
-            clearInterval(sweepTimer);
-            sweepTimer = null;
-          }
-        };
-
-        startupTimer = setTimeout(() => {
-          startupTimer = null;
-          sweepTimer = setInterval(() => {
-            const now = Date.now();
-            if (now - lastSweep < SWEEP_INTERVAL_MS) return;
-            lastSweep = now;
-
-            (async () => {
-              const { drainDueSandboxExecutions } =
-                await import("../coding-tools/sandbox/background.js");
-              await drainDueSandboxExecutions({ limit: 5 });
-            })().catch(() => {
-              // best-effort — never break the server
-            });
-          }, 30_000); // Check every 30s but only sweep once per 2min
-          sweepTimer.unref?.();
-        }, 25_000); // Start 25s after init (after the agent sweeps)
-        startupTimer.unref?.();
-
-        registerBackgroundJobStop(stopSandboxExecutionSweep);
+      if (!shouldDisableInProcessSweeps()) {
+        const stopSandboxExecutionSweep = startSandboxExecutionSweep();
         nitroApp.hooks?.hook?.("close", stopSandboxExecutionSweep);
-      })();
+      }
 
       getH3App(nitroApp).use(
         `${P}/debug/runtime`,
@@ -6229,7 +6212,11 @@ export function createCoreRoutesPlugin(
                       status: engineStatus,
                       detectFromUserSecrets: deps.detectFromUserSecrets,
                     });
-                    return { ...engineStatus, chatEligible };
+                    return {
+                      ...engineStatus,
+                      chatEligible,
+                      ...builderCreditsRefusalStatus(chatEligible),
+                    };
                   },
                 ),
             );
@@ -6828,7 +6815,12 @@ export function createCoreRoutesPlugin(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
             const storedImage = (data as any)?.image;
-            if (typeof storedImage === "string" && storedImage.trim()) {
+            // A silhouette saved before it was recognized is not a photo either.
+            if (
+              typeof storedImage === "string" &&
+              storedImage.trim() &&
+              !isGoogleDefaultAvatarUrl(storedImage)
+            ) {
               return { image: storedImage };
             }
             if (getBetterAuthSync()) {

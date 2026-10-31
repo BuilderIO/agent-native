@@ -1,10 +1,11 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import { resolveReviewableResourceAccess } from "../registry.js";
 import { deleteReviewComment, getReviewCommentById } from "../store.js";
+import { canDeleteReviewThread } from "../thread-delete.js";
 import type { ReviewResourceContext } from "../types.js";
 
 const schema = z.object({
@@ -14,7 +15,8 @@ const schema = z.object({
 });
 
 export default defineAction({
-  description: "Soft-delete a review comment.",
+  description:
+    "Delete a review comment, clearing its text, mentions, anchor, image attachments and any resolution note. Deleting a thread's first comment deletes the whole thread, replies included, so it is allowed only to an editor or to the author of a thread that holds no one else's reply; deleting a reply removes only that reply.",
   schema,
   mcpAnnotations: {
     readOnlyHint: false,
@@ -40,7 +42,10 @@ export default defineAction({
       comment.resourceType !== args.resourceType ||
       comment.resourceId !== args.resourceId
     ) {
-      throw new Error("Review comment not found");
+      fail("Review comment not found", {
+        statusCode: 404,
+        errorCode: "not_found",
+      });
     }
     const isAuthor =
       Boolean(actionCtx?.userEmail) &&
@@ -49,15 +54,44 @@ export default defineAction({
     if (!access || !roleSatisfies(access.role, "commenter")) {
       throw new ForbiddenError("Not allowed to delete this review comment");
     }
-    if (!isAuthor && !roleSatisfies(access.role, "editor")) {
+    const isEditor = roleSatisfies(access.role, "editor");
+    if (!isAuthor && !isEditor) {
       throw new ForbiddenError("Not allowed to delete this review comment");
     }
+    // raw-sql-ok: the helper's statements are constant text; the ids are bound.
     const updatedCount = await deleteReviewComment(
       comment.id,
       actionCtx?.userEmail ?? null,
+      {
+        assertThreadDeletable: (replyAuthorEmails) => {
+          if (
+            !canDeleteReviewThread({
+              isEditor,
+              actorEmail: actionCtx?.userEmail,
+              rootAuthorEmail: comment.authorEmail,
+              replyAuthorEmails,
+            })
+          ) {
+            throw new ForbiddenError(
+              "Not allowed to delete a thread that has replies from other people",
+            );
+          }
+        },
+      },
     );
     if (updatedCount < 1) {
-      throw new Error("Review comment not found");
+      // A comment already deleted, as a repeated request finds it, stays as
+      // its first delete left it, and the request still succeeds.
+      // raw-sql-ok: the helper's statement is constant text; the id is bound.
+      const current = await getReviewCommentById(comment.id, scope, {
+        bypassScope: true,
+      });
+      if (current?.status !== "deleted") {
+        fail("Review comment not found", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
+      }
     }
     return { commentId: comment.id, deleted: true as const, updatedCount };
   },

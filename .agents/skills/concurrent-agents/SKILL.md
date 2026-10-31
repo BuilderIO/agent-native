@@ -63,13 +63,11 @@ A switch carries the whole index and worktree, so proceed only when every dirty
 path belongs to this task. If any path is unrelated or incomplete, keep the
 checkout in place and report the exact paths without asking again.
 
-In a shared checkout, keep its branch unchanged. For an explicit `/ship` or
-PR-publishing request that cannot safely use the current checkout, follow
-`new-branch` to create a managed task-owned worktree from the correct base,
-carry only the requested task's changes, and create its task branch without
-asking. For other work, use the current branch unless the user gave an exact
-branch operation. Keep platform-assigned Builder.io and Fusion branches in
-place.
+In a shared checkout, don't switch its branch under other sessions. When the
+task needs a branch, follow `new-branch` to create a task-owned worktree from
+the correct base, carry only this task's changes, and create its branch without
+asking; branching never needs permission. Keep platform-assigned Builder.io and
+Fusion branches in place.
 
 ## Timing the next branch
 

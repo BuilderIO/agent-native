@@ -22,6 +22,7 @@ export type BuilderBranchReadbackStage =
   | "status_request"
   | "status_shape"
   | "status_binding"
+  | "status_no_backup"
   | "status_currentness"
   | "post_read_status_request"
   | "post_read_status_shape"
@@ -90,6 +91,82 @@ const statusSchema = z.object({
   }),
 });
 
+const inspectedBackupSchema = z.object({
+  projectId: z.string().min(1).max(200),
+  ownerId: z.string().min(1).max(256),
+  branchName: z.string().min(1).max(256),
+  at: z.number().finite().positive(),
+  lastCommitHash: z.string().min(1).max(8192),
+  partial: z.unknown().optional(),
+  status: z.enum(["initiated", "completed"]),
+});
+
+const invalidBackupOutcomes = z.enum([
+  "no-backup",
+  "error",
+  "not-completed",
+  "no-session-id",
+  "no-last-commit-hash",
+  "no-backup-file",
+  "empty-full-backup",
+  "no-vcpCodeGenEvent",
+  "commits-not-in-repo",
+  "no-after-commit",
+  "no-signed-url",
+  "no-git-branch-name",
+  "repo-url-mismatch",
+  "branch-uninitialized",
+  "unexpected-partial-backup",
+  "unexpected-full-backup",
+  "no-backup-keys",
+]);
+
+const backupCheckSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("valid"),
+    outcome: z.literal("valid"),
+    backup: inspectedBackupSchema,
+  }),
+  z.object({
+    state: z.literal("forced-backup"),
+    outcome: z.literal("forced-offline-full-backup"),
+    backup: inspectedBackupSchema,
+  }),
+  z.object({
+    state: z.literal("stale"),
+    outcome: z.literal("hash-mismatch"),
+    backup: inspectedBackupSchema,
+  }),
+  z.object({
+    state: z.literal("submodule-changes"),
+    outcome: z.literal("submodule-changes"),
+    backup: inspectedBackupSchema,
+  }),
+  z.object({
+    state: z.literal("invalid"),
+    outcome: invalidBackupOutcomes,
+    backup: inspectedBackupSchema.optional(),
+  }),
+]);
+
+const backupInspectionSchema = z.object({
+  status: z.literal("ok"),
+  branch: z.object({
+    projectId: z.string().min(1).max(200),
+    name: z.string().min(1).max(256),
+    ownerId: z.string().min(1).max(256),
+    state: z.enum(["active", "archived", "deleted"]).optional(),
+    deleted: z.boolean().optional(),
+    agentState: z.enum(["running", "waiting", "idle"]),
+    hasUnpushedChanges: z.boolean(),
+    lastCommitHash: z.string().min(1).max(8192),
+    lastActivityAt: z.number().finite().nonnegative(),
+  }),
+  backupStatuses: z.object({
+    code: backupCheckSchema,
+  }),
+});
+
 const downloadSchema = z.object({
   signedUrl: z.string().url(),
   filePath: z.string().min(1).max(4096),
@@ -139,6 +216,173 @@ function unverified(stage: BuilderBranchReadbackStage): never {
     "Builder has no complete, current, identity-bound branch backup to verify.",
     stage,
   );
+}
+
+async function authorizeBranchRead(): Promise<{
+  authorization: string;
+}> {
+  let authorization: Awaited<
+    ReturnType<typeof resolveBuilderRequestAuthorization>
+  >;
+  try {
+    authorization = await resolveBuilderRequestAuthorization({
+      requiredScope: "builder:projects:read",
+      legacyCredentialKeys: [],
+    });
+  } catch (error) {
+    const requiresReauthorization = isBuilderReauthorizationRequired(error);
+    throw new BuilderBranchFilesError(
+      requiresReauthorization ? "not_connected" : "unavailable",
+      requiresReauthorization
+        ? "Connect Builder with project read access."
+        : "Builder read access could not be checked.",
+    );
+  }
+  if (!authorization || authorization.source !== "oauth") {
+    throw new BuilderBranchFilesError(
+      "not_connected",
+      "Connect Builder with project read access.",
+    );
+  }
+  return { authorization: authorization.authorization };
+}
+
+async function requestBranchStatus(
+  input: BranchRef,
+  authorization: string,
+): Promise<unknown> {
+  const url = new URL("/projects/branch/status", getBuilderApiHost());
+  url.searchParams.set("projectId", input.projectId);
+  url.searchParams.set("branchName", input.branchName);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      redirect: "error",
+      headers: { Authorization: authorization },
+      signal: AbortSignal.timeout(API_TIMEOUT_MS),
+    });
+  } catch {
+    throw new BuilderBranchFilesError(
+      "unavailable",
+      "Builder branch readback could not be reached.",
+    );
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    throw new BuilderBranchFilesError(
+      response.status === 401 || response.status === 403
+        ? "forbidden"
+        : "unavailable",
+      "Builder branch readback was rejected.",
+    );
+  }
+  const bytes = await readBytes(response, 512 * 1024);
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new BuilderBranchFilesError(
+      "unavailable",
+      "Builder returned an invalid readback response.",
+    );
+  }
+}
+
+function validateBranchRef(input: BranchRef): void {
+  if (
+    !/^[A-Za-z0-9_-]{1,200}$/.test(input.projectId) ||
+    input.branchName.length > 256 ||
+    input.branchName
+      .split("/")
+      .some(
+        (part) =>
+          !/^[A-Za-z0-9_.-]+$/.test(part) || part === "." || part === "..",
+      )
+  ) {
+    throw new BuilderBranchFilesError(
+      "invalid_request",
+      "A canonical project and branch are required.",
+    );
+  }
+}
+
+export async function readBuilderBranchBackupStatus(input: BranchRef) {
+  validateBranchRef(input);
+  const auth = await authorizeBranchRead();
+  let rawStatus: unknown;
+  try {
+    rawStatus = await requestBranchStatus(input, auth.authorization);
+  } catch (error) {
+    if (error instanceof BuilderBranchFilesError) {
+      throw new BuilderBranchFilesError(
+        error.code,
+        error.message,
+        "status_request",
+      );
+    }
+    throw error;
+  }
+  const result = backupInspectionSchema.safeParse(rawStatus);
+  if (!result.success) return unverified("status_shape");
+  const { branch, backupStatuses } = result.data;
+  const backup = backupStatuses.code.backup;
+  if (
+    branch.projectId !== input.projectId ||
+    branch.name !== input.branchName
+  ) {
+    return unverified("status_binding");
+  }
+  if (
+    branch.deleted !== undefined &&
+    branch.state !== undefined &&
+    branch.deleted !== (branch.state === "deleted")
+  ) {
+    return unverified("status_binding");
+  }
+  if (!backup) {
+    if (
+      backupStatuses.code.state === "invalid" &&
+      backupStatuses.code.outcome === "no-backup"
+    ) {
+      return unverified("status_no_backup");
+    }
+    return unverified("status_shape");
+  }
+  if (
+    backup.projectId !== input.projectId ||
+    backup.branchName !== input.branchName ||
+    branch.ownerId !== backup.ownerId
+  ) {
+    return unverified("status_binding");
+  }
+  const branchCommit = primaryCommit(
+    branch.lastCommitHash,
+    "status_currentness",
+  );
+  const backupCommit = primaryCommit(
+    backup.lastCommitHash,
+    "status_currentness",
+  );
+  if (!branchCommit || !backupCommit) return unverified("status_currentness");
+  const branchState: "active" | "archived" | "deleted" | "unknown" =
+    branch.state ?? (branch.deleted === true ? "deleted" : "unknown");
+  const backupPartial: boolean | "missing" | "invalid" =
+    typeof backup.partial === "boolean"
+      ? backup.partial
+      : backup.partial === undefined
+        ? "missing"
+        : "invalid";
+  return {
+    branchState,
+    backupPartial,
+    backupValid: backupStatuses.code.state === "valid",
+    backupComplete: backup.status === "completed",
+    backupCurrent:
+      backup.at >= branch.lastActivityAt && branchCommit === backupCommit,
+    agentIdle: branch.agentState === "idle",
+    hasUnpushedChanges: branch.hasUnpushedChanges,
+    verificationPerformed: false as const,
+  };
 }
 
 function primaryCommit(
@@ -230,30 +474,7 @@ export async function readBuilderBranchFiles(
       "A canonical project, branch and app path are required.",
     );
   }
-  let authorization: Awaited<
-    ReturnType<typeof resolveBuilderRequestAuthorization>
-  >;
-  try {
-    authorization = await resolveBuilderRequestAuthorization({
-      requiredScope: "builder:projects:read",
-      legacyCredentialKeys: [],
-    });
-  } catch (error) {
-    const requiresReauthorization = isBuilderReauthorizationRequired(error);
-    throw new BuilderBranchFilesError(
-      requiresReauthorization ? "not_connected" : "unavailable",
-      requiresReauthorization
-        ? "Connect Builder with project read access."
-        : "Builder read access could not be checked.",
-    );
-  }
-  if (!authorization || authorization.source !== "oauth") {
-    throw new BuilderBranchFilesError(
-      "not_connected",
-      "Connect Builder with project read access.",
-    );
-  }
-  const auth = authorization;
+  const auth = await authorizeBranchRead();
   async function request(pathname: string, body?: BranchRef): Promise<unknown> {
     const url = new URL(pathname, getBuilderApiHost());
     if (!body) {
@@ -303,7 +524,7 @@ export async function readBuilderBranchFiles(
   async function readStatus(phase: StatusReadPhase) {
     let rawStatus: unknown;
     try {
-      rawStatus = await request("/projects/branch/status");
+      rawStatus = await requestBranchStatus(input, auth.authorization);
     } catch (error) {
       if (error instanceof BuilderBranchFilesError) {
         throw new BuilderBranchFilesError(

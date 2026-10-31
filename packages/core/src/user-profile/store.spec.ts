@@ -15,7 +15,8 @@ vi.mock("../settings/user-settings.js", () => ({
   putUserSetting: vi.fn(),
 }));
 
-const { getUserProfile, getUserProfiles } = await import("./store.js");
+const { getUserProfile, getUserProfiles, getUserProfilesWithStatus } =
+  await import("./store.js");
 
 describe("user profile store", () => {
   const adapter = {
@@ -153,6 +154,31 @@ describe("user profile store", () => {
     warn.mockRestore();
   });
 
+  it("reports names as complete when the per-person retry recovers them", async () => {
+    getUserSettingsMock.mockRejectedValue(new Error("settings down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await getUserProfilesWithStatus(["alice@example.com"]);
+
+    expect(result.profiles.get("alice@example.com")?.name).toBe("Saved Name");
+    expect(result.incomplete).toBe(false);
+    warn.mockRestore();
+  });
+
+  it("reports names as incomplete when a stored name cannot be read at all", async () => {
+    getUserSettingsMock.mockRejectedValue(new Error("settings down"));
+    getUserSettingMock.mockRejectedValue(new Error("settings down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await getUserProfilesWithStatus(["alice@example.com"]);
+
+    expect(result.profiles.get("alice@example.com")?.email).toBe(
+      "alice@example.com",
+    );
+    expect(result.incomplete).toBe(true);
+    warn.mockRestore();
+  });
+
   it("falls back to per-email lookups and warns once when listUsers fails", async () => {
     adapter.listUsers.mockRejectedValue(new Error("adapter down"));
     adapter.findUserByEmail.mockResolvedValue(null);
@@ -167,6 +193,56 @@ describe("user profile store", () => {
       onboardingRole: null,
     });
     expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("reports names as incomplete when the per-email fallback cannot read a stored name", async () => {
+    adapter.listUsers.mockRejectedValue(new Error("adapter down"));
+    adapter.findUserByEmail.mockResolvedValue({
+      user: { email: "alice@example.com", name: "alice" },
+    });
+    getUserSettingMock.mockRejectedValue(new Error("settings down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await getUserProfilesWithStatus(["alice@example.com"]);
+
+    expect(result.profiles.get("alice@example.com")?.email).toBe(
+      "alice@example.com",
+    );
+    expect(result.incomplete).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("reports names as incomplete when the auth adapter cannot start", async () => {
+    getBetterAuthInternalAdapterMock.mockRejectedValue(new Error("auth down"));
+    getUserSettingMock.mockResolvedValue(null);
+
+    const result = await getUserProfilesWithStatus(["alice@example.com"]);
+
+    expect(result.profiles.get("alice@example.com")?.email).toBe(
+      "alice@example.com",
+    );
+    expect(result.incomplete).toBe(true);
+  });
+
+  it("reports names as complete when auth is not configured", async () => {
+    getBetterAuthSyncMock.mockReturnValue(false);
+
+    const result = await getUserProfilesWithStatus(["alice@example.com"]);
+
+    expect(result.profiles.get("alice@example.com")?.name).toBe("Saved Name");
+    expect(result.incomplete).toBe(false);
+  });
+
+  it("reports names as incomplete when a per-email lookup fails", async () => {
+    adapter.listUsers.mockRejectedValue(new Error("adapter down"));
+    adapter.findUserByEmail.mockRejectedValue(new Error("auth down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await getUserProfilesWithStatus(["alice@example.com"]);
+
+    expect(result.profiles.has("alice@example.com")).toBe(false);
+    expect(result.incomplete).toBe(true);
     warn.mockRestore();
   });
 });

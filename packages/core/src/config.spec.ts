@@ -463,6 +463,39 @@ describe("agent-native app config", () => {
 });
 
 describe("agent-native config environment aliases", () => {
+  it("reads and validates the API base URL from its deployment alias", () => {
+    expect(agentNativeConfigEnvName(["runtime", "apiBaseUrl"])).toBe(
+      "AGENT_NATIVE_CONFIG_RUNTIME_API_BASE_URL",
+    );
+    expect(
+      resolveAgentNativeConfig(
+        readAgentNativeConfigEnv({
+          AGENT_NATIVE_CONFIG_RUNTIME_API_BASE_URL:
+            " https://api.example.com/mail/ ",
+        }),
+        devContext,
+      ).runtime?.apiBaseUrl,
+    ).toBe("https://api.example.com/mail");
+    expect(
+      resolveAgentNativeConfig({ runtime: { apiBaseUrl: "" } }, devContext)
+        .runtime?.apiBaseUrl,
+    ).toBeUndefined();
+    for (const invalid of [
+      "/api",
+      "ftp://api.example.com",
+      "https://user:pass@api.example.com",
+      "https://api.example.com/?x=1",
+      "https://api.example.com/#x",
+    ]) {
+      expect(() =>
+        resolveAgentNativeConfig(
+          { runtime: { apiBaseUrl: invalid } },
+          devContext,
+        ),
+      ).toThrow(/runtime\.apiBaseUrl must/);
+    }
+  });
+
   it("reads the framework route prefix from its deployment alias", () => {
     expect(agentNativeConfigEnvName(["runtime", "frameworkRoutePrefix"])).toBe(
       "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",

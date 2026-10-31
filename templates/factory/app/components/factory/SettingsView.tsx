@@ -43,9 +43,15 @@ export function SettingsView({
   onDeleted: () => void;
 }) {
   const t = useT();
-  const query = useActionQuery<FactoryConfig>("get-triage-config", {
-    factoryId,
-  });
+  // The app's query client turns focus refetches off, so this opts in while email is not ready.
+  const query = useActionQuery<FactoryConfig>(
+    "get-triage-config",
+    { factoryId },
+    {
+      refetchOnWindowFocus: (current) =>
+        current.state.data?.emailReadiness?.status !== "ready",
+    },
+  );
   const mutation = useActionMutation("save-triage-config");
   const [form, dispatch] = useReducer(
     settingsFormReducer,

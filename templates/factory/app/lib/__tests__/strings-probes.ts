@@ -43,6 +43,8 @@ const WS_ARGS: Record<string, Args> = {
   "versions.restoreInvalid": [[0], [1], [3]],
   "save.invalid": [[0], [1], [2]],
   "save.failed": [["Boom."]],
+  "draft.saveFailed": [["Boom."]],
+  "draft.discardFailed": [["Boom."]],
   "save.serverIssue": [
     ["nodes.a", "bad"],
     ["", "bad"],

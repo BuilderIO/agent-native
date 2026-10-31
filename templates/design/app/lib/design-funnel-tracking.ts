@@ -364,6 +364,11 @@ export function useDesignReadyViewTracking({
               retryReceipt(turnKey);
               return;
             }
+            window.dispatchEvent(
+              new CustomEvent("design:verified-generation-ready", {
+                detail: { designId, runId: terminalRunId, turnId },
+              }),
+            );
             trackDesignRelay("design_ready_viewed", {
               output_id: designId,
               output_type: "design",

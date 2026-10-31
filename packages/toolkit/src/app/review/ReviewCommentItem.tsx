@@ -7,7 +7,7 @@ import { cn } from "@agent-native/toolkit/utils";
 import { IconCircleCheck } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
-import { InlineMarkdown } from "./InlineMarkdown.js";
+import { CommentBody } from "./CommentBody.js";
 import { resolveReviewAgent } from "./review-agent.js";
 import { ReviewAuthorAvatar } from "./ReviewAuthorAvatar.js";
 import {
@@ -42,6 +42,8 @@ export interface ReviewCommentItemProps {
   onReact?:
     | ((comment: ReviewComment, reaction: string, active: boolean) => void)
     | undefined;
+  /** Trailing control of the header, usually a `ReviewCommentMenu`. */
+  menu?: ReactNode;
   /** Replaces the whole comment while it is being edited. */
   editor?: ReactNode;
   className?: string | undefined;
@@ -63,6 +65,7 @@ export function ReviewCommentItem({
   addReactionLabel,
   reactionLabel,
   onReact,
+  menu,
   editor,
   className,
 }: ReviewCommentItemProps) {
@@ -80,14 +83,12 @@ export function ReviewCommentItem({
   const showAgentBadge =
     agent !== null &&
     author.trim().toLowerCase() !== agentBadgeLabel.trim().toLowerCase();
-  const isReply = variant === "reply";
   const resolutionNote =
     comment.status === "resolved" ? getReviewResolutionNote(comment) : null;
   const bodyIsResolutionNote =
     resolutionNote !== null &&
     resolutionNote === comment.body.trim() &&
     isResolutionNoteMetadata(comment.metadata);
-  const createdAt = new Date(comment.createdAt);
   const handleReact = (reaction: string, active: boolean) =>
     onReact?.(comment, reaction, active);
 
@@ -114,12 +115,7 @@ export function ReviewCommentItem({
         />
         <div className="flex min-w-0 flex-1 items-baseline gap-2">
           <span className="flex min-w-0 items-center gap-0.5">
-            <span
-              className={cn(
-                "truncate text-foreground",
-                isReply ? "text-sm font-medium" : "text-xs font-semibold",
-              )}
-            >
+            <span className="truncate text-sm font-semibold text-foreground">
               {author}
             </span>
             {showAgentBadge ? (
@@ -129,7 +125,7 @@ export function ReviewCommentItem({
             ) : null}
           </span>
           <time
-            className="shrink-0 text-xs text-muted-foreground"
+            className="shrink-0 text-sm text-muted-foreground"
             dateTime={comment.createdAt}
           >
             {formatReviewCommentRelativeTime(comment.createdAt, formatters)}
@@ -149,24 +145,14 @@ export function ReviewCommentItem({
             </span>
           ) : null}
         </div>
-        {isReply && !Number.isNaN(createdAt.getTime()) ? (
-          <time
-            className="shrink-0 font-mono text-xs text-muted-foreground"
-            dateTime={comment.createdAt}
-            data-review-comment-clock
-          >
-            {formatters.formatDate(createdAt, {
-              hour: "numeric",
-              minute: "2-digit",
-            })}
-          </time>
-        ) : null}
+        {menu}
       </div>
       <div className="min-w-0 ps-8">
         {!bodyIsResolutionNote ? (
-          <InlineMarkdown
-            content={displayReviewCommentBody(comment.body)}
-            className="text-sm leading-5 text-foreground"
+          <CommentBody
+            body={comment.body}
+            mentions={comment.mentions}
+            className="text-sm leading-6 text-foreground"
           />
         ) : null}
         {resolutionNote ? (
@@ -175,8 +161,8 @@ export function ReviewCommentItem({
             aria-label={resolvedLabel}
           >
             <IconCircleCheck className="mt-0.5 size-3.5 shrink-0" />
-            <InlineMarkdown
-              content={displayReviewCommentBody(resolutionNote)}
+            <CommentBody
+              body={resolutionNote}
               className="min-w-0 text-xs leading-4"
             />
           </div>
@@ -314,10 +300,6 @@ export function isTrustedReviewAttachmentUrl(value: string): boolean {
   if (typeof window !== "undefined" && parsed.origin === window.location.origin)
     return true;
   return parsed.protocol === "https:" && parsed.hostname === "cdn.builder.io";
-}
-
-function displayReviewCommentBody(body: string): string {
-  return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
 }
 
 function getReviewResolutionNote(comment: ReviewComment): string | null {

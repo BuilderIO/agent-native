@@ -16,6 +16,7 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
@@ -34,6 +35,7 @@ import {
   createLayoutFitRevision,
   hashSlideContent,
 } from "../shared/slide-fit.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
@@ -230,15 +232,15 @@ export default defineAction({
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId));
 
-      if (!rows.length) {
+      const row = rows.at(0);
+      if (!row) {
         fail(`Deck ${deckId} not found`, {
           errorCode: "deck_not_found",
           statusCode: 404,
         });
       }
 
-      const row = rows[0];
-      const deck = JSON.parse(row.data);
+      const deck = withUniqueSlideIds(deckId, JSON.parse(row.data));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
       const generationContext =
@@ -564,7 +566,7 @@ export default defineAction({
           .update(schema.decks)
           .set({
             ...(repairedTitle ? { title: repairedTitle } : {}),
-            data: JSON.stringify(deck),
+            ...deckDataColumns(deck),
             updatedAt: now,
           })
           .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));

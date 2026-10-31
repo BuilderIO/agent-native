@@ -61,6 +61,40 @@ describe("markdown mirror recursion guard", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("fetches the public docs origin when no app URL is configured", async () => {
+    for (const key of [
+      "APP_URL",
+      "WORKSPACE_OAUTH_ORIGIN",
+      "VITE_WORKSPACE_OAUTH_ORIGIN",
+      "BETTER_AUTH_URL",
+      "VITE_BETTER_AUTH_URL",
+      "URL",
+      "DEPLOY_URL",
+      "WORKSPACE_GATEWAY_URL",
+      "VITE_WORKSPACE_GATEWAY_URL",
+    ]) {
+      vi.stubEnv(key, "");
+    }
+    vi.stubEnv("NODE_ENV", "production");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("# Actions", {
+        status: 200,
+        headers: { "content-type": "text/markdown" },
+      }),
+    );
+    const event = eventWithHeaders(
+      { "x-forwarded-host": "attacker.example.test" },
+      "https://attacker.example.test/docs/actions.md",
+    );
+
+    await expect(
+      fetchMarkdownMirror("docs/actions.md", event),
+    ).resolves.toEqual({ kind: "found", content: "# Actions" });
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+      "https://www.agent-native.com/docs/actions.md",
+    );
+  });
+
   it("reports a missing mirror as absent, not as a failure", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("nope", { status: 404 }),

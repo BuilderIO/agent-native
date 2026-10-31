@@ -9,6 +9,7 @@ export { schema };
 for (const type of ["asset-library", "image-library"] as const) {
   registerShareableResource({
     type,
+    agentRead: { actions: ["get-library"] },
     resourceTable: schema.assetLibraries,
     sharesTable: schema.assetLibraryShares,
     displayName: "Asset Library",

@@ -87,8 +87,8 @@ function defaultDraft(): AlertDraft {
   return {
     appId: "",
     unit: "usd",
-    period: "day",
-    limit: "100",
+    period: "month",
+    limit: "20",
     inApp: true,
     email: true,
   };

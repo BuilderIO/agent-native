@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { renderRawSlideHtml } from "@/components/deck/SlideRenderer";
 import { stripCopiedIdentity } from "@/components/editor/bullet-editing";
+import { stripSizeLocks } from "@/components/editor/in-place-text-session";
 
 import {
   mergeRenderedEdits,
@@ -153,6 +154,30 @@ describe("mergeRenderedEdits", () => {
     paragraph.setAttribute("role", "combobox");
 
     expect(save()).toEqual({ html: source, changed: false });
+  });
+
+  it("drops a size lock the stored slide already holds once its paragraph is edited", () => {
+    const source =
+      '<div class="fmd-slide"><p style="contain: size; contain-intrinsic-width: 960px; contain-intrinsic-height: 24px">Alpha</p></div>';
+    const { root, save } = mount(source);
+    q(root, "p").textContent = "Alpha wraps onto a second line";
+    stripSizeLocks(root);
+
+    const result = save();
+    expect(result.changed).toBe(true);
+    expect(result.html).not.toContain("contain");
+  });
+
+  it("keeps authored containment styles that carry no size lock", () => {
+    const source =
+      '<div class="fmd-slide"><p style="contain: layout; contain-intrinsic-size: 100px 20px">Alpha</p></div>';
+    const { root, save } = mount(source);
+    q(root, "p").textContent = "Alpha edited";
+    stripSizeLocks(root);
+
+    const result = save();
+    expect(result.html).toContain("contain: layout");
+    expect(result.html).toContain("contain-intrinsic-size: 100px 20px");
   });
 
   it("preserves authored accessibility attributes when a block is retagged", () => {

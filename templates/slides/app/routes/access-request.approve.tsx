@@ -1,5 +1,9 @@
 import { appPath } from "@agent-native/core/client/api-path";
-import { callAction, useSession } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useActionQuery,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { IconAlertTriangle, IconCheck, IconLock } from "@tabler/icons-react";
@@ -8,13 +12,32 @@ import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 
 import {
+  DECK_ACCESS_REQUEST_ROLES,
   deckAccessApprovalContinuationPath,
   deckAccessApprovalSessionKey,
+  type DeckAccessRequestRole,
 } from "../../shared/deck-access";
+
+interface AccessRequestReview {
+  deckId: string;
+  deckTitle: string;
+  requesterEmail: string;
+  requesterName: string | null;
+  note: string | null;
+  requestedRole: DeckAccessRequestRole;
+  granted: boolean;
+}
 
 interface ApprovalResult {
   ok: true;
@@ -23,6 +46,7 @@ interface ApprovalResult {
   deckId: string;
   deckTitle: string;
   shareId: string;
+  role: string;
   /** `null` when no email provider is configured; absent on repeat approvals. */
   requesterNotified?: boolean | null;
   message: string;
@@ -31,6 +55,8 @@ interface ApprovalResult {
 type ApprovalState =
   | { kind: "loading" }
   | { kind: "sign-in" }
+  | { kind: "review"; review: AccessRequestReview }
+  | { kind: "granted"; review: AccessRequestReview }
   | { kind: "success"; result: ApprovalResult }
   | { kind: "error"; message: string };
 
@@ -59,8 +85,6 @@ export default function ApproveDeckAccessRequestRoute() {
       // coercion-ok: the absent case is visible to the user, not swallowed.
     } catch {}
   }, [approvalTokenFromUrl, deckId, approvalTokenStorageKey]);
-  const [state, setState] = useState<ApprovalState>({ kind: "loading" });
-
   useEffect(() => {
     if (!deckId) {
       setApprovalToken("");
@@ -92,68 +116,64 @@ export default function ApproveDeckAccessRequestRoute() {
     );
   }, [approvalTokenFromUrl, approvalTokenStorageKey, deckId]);
 
+  const signedIn = Boolean(session?.email);
+  const reviewQuery = useActionQuery<AccessRequestReview>(
+    "get-deck-access-request",
+    { deckId, approvalToken },
+    { enabled: signedIn && Boolean(deckId && approvalToken), retry: false },
+  );
+  const approve = useActionMutation<
+    ApprovalResult,
+    { deckId: string; approvalToken: string; role: DeckAccessRequestRole }
+  >("approve-deck-access-request");
+  const [pickedRole, setPickedRole] = useState<DeckAccessRequestRole | null>(
+    null,
+  );
+  const review = reviewQuery.data;
+  const role = pickedRole ?? review?.requestedRole ?? "viewer";
+
+  const state: ApprovalState = sessionLoading
+    ? { kind: "loading" }
+    : !signedIn
+      ? { kind: "sign-in" }
+      : !deckId || !approvalToken
+        ? { kind: "error", message: t("deckEditor.accessApprovalInvalid") }
+        : approve.data
+          ? { kind: "success", result: approve.data }
+          : approve.error || reviewQuery.error
+            ? {
+                kind: "error",
+                message:
+                  (approve.error ?? reviewQuery.error)?.message ||
+                  t("deckEditor.accessApprovalInvalid"),
+              }
+            : review?.granted
+              ? { kind: "granted", review }
+              : review
+                ? { kind: "review", review }
+                : { kind: "loading" };
+
+  const allowAccess = () => {
+    if (!review) return;
+    approve.mutate(
+      { deckId, approvalToken, role },
+      {
+        onSuccess: () => {
+          try {
+            sessionStorage.removeItem(approvalTokenStorageKey);
+          } catch {
+            // coercion-ok: cleanup failure cannot authorize or expose the token.
+            // Session storage may be unavailable in hardened browser contexts.
+          }
+        },
+      },
+    );
+  };
+
   const signInReturnTo = useMemo(
     () => deckAccessApprovalContinuationPath(deckId),
     [deckId],
   );
-
-  useEffect(() => {
-    if (sessionLoading) return;
-
-    let cancelled = false;
-    if (!session?.email) {
-      setState({ kind: "sign-in" });
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!deckId || !approvalToken) {
-      setState({
-        kind: "error",
-        message: t("deckEditor.accessApprovalInvalid"),
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setState({ kind: "loading" });
-    void callAction<ApprovalResult>("approve-deck-access-request", {
-      deckId,
-      approvalToken,
-    })
-      .then((result) => {
-        try {
-          sessionStorage.removeItem(approvalTokenStorageKey);
-        } catch {
-          // coercion-ok: cleanup failure cannot authorize or expose the token.
-          // Session storage may be unavailable in hardened browser contexts.
-        }
-        if (!cancelled) setState({ kind: "success", result });
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setState({
-          kind: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : t("deckEditor.accessApprovalInvalid"),
-        });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    approvalToken,
-    approvalTokenStorageKey,
-    deckId,
-    session?.email,
-    sessionLoading,
-    t,
-  ]);
-
   const signInHref = buildSignInReturnHref({
     returnTo: appPath(signInReturnTo),
   });
@@ -171,11 +191,13 @@ export default function ApproveDeckAccessRequestRoute() {
               ? state.result.alreadyAllowed
                 ? t("deckEditor.accessApprovalAlreadyTitle")
                 : t("deckEditor.accessApprovalTitle")
-              : state.kind === "error"
-                ? t("deckEditor.accessApprovalErrorTitle")
-                : state.kind === "sign-in"
-                  ? t("deckEditor.accessApprovalSignInTitle")
-                  : t("deckEditor.accessApprovalLoading")}
+              : state.kind === "granted"
+                ? t("deckEditor.accessApprovalAlreadyTitle")
+                : state.kind === "error"
+                  ? t("deckEditor.accessApprovalErrorTitle")
+                  : state.kind === "sign-in"
+                    ? t("deckEditor.accessApprovalSignInTitle")
+                    : t("deckEditor.accessApprovalReviewTitle")}
           </CardTitle>
         </CardHeader>
         <CardContent aria-live="polite">
@@ -209,6 +231,68 @@ export default function ApproveDeckAccessRequestRoute() {
                 </a>
               </Button>
             </div>
+          ) : state.kind === "review" ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  state.review.requestedRole === "editor"
+                    ? "deckEditor.accessApprovalRequestedEdit"
+                    : "deckEditor.accessApprovalRequestedView",
+                  {
+                    email: state.review.requesterEmail,
+                    title: state.review.deckTitle,
+                  },
+                )}
+              </p>
+              {state.review.note ? (
+                <blockquote className="whitespace-pre-wrap break-words border-s-2 border-border ps-3 text-sm text-foreground">
+                  {state.review.note}
+                </blockquote>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={role}
+                  onValueChange={(value) => {
+                    const next = DECK_ACCESS_REQUEST_ROLES.find(
+                      (candidate) => candidate === value,
+                    );
+                    if (next) setPickedRole(next);
+                  }}
+                  disabled={approve.isPending}
+                >
+                  <SelectTrigger
+                    className="w-auto"
+                    aria-label={t("deckEditor.accessApprovalRoleLabel")}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="viewer">
+                      {t("deckEditor.accessApprovalRoleViewer")}
+                    </SelectItem>
+                    <SelectItem value="editor">
+                      {t("deckEditor.accessApprovalRoleEditor")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button onClick={allowAccess} disabled={approve.isPending}>
+                  {t("deckEditor.accessApprovalAllow")}
+                </Button>
+              </div>
+            </div>
+          ) : state.kind === "granted" ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {t("deckEditor.accessApprovalAlreadyMessage", {
+                  email: state.review.requesterEmail,
+                })}
+              </p>
+              <Button asChild variant="outline">
+                <Link to={`/deck/${encodeURIComponent(state.review.deckId)}`}>
+                  {t("deckEditor.accessApprovalOpenDeck")}
+                </Link>
+              </Button>
+            </div>
           ) : state.kind === "error" ? (
             <div className="space-y-4">
               <ErrorNotice>{state.message}</ErrorNotice>
@@ -232,9 +316,12 @@ export default function ApproveDeckAccessRequestRoute() {
                     ? t("deckEditor.accessApprovalAlreadyMessage", {
                         email: state.result.requesterEmail,
                       })
-                    : t("deckEditor.accessApprovalMessage", {
-                        email: state.result.requesterEmail,
-                      })}
+                    : t(
+                        state.result.role === "editor"
+                          ? "deckEditor.accessApprovalEditorMessage"
+                          : "deckEditor.accessApprovalViewerMessage",
+                        { email: state.result.requesterEmail },
+                      )}
                   {state.result.requesterNotified === true
                     ? ` ${t("deckEditor.accessApprovalRequesterEmailed")}`
                     : null}

@@ -17,6 +17,7 @@ import {
   serializeSlideCommentAnchor,
   slideCommentAnchorSchema,
 } from "../shared/slide-comment-anchor.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
 
 function displayNameFromEmail(email: string): string {
@@ -127,7 +128,10 @@ export default defineAction({
           statusCode: 404,
         });
       }
-      const deckData: unknown = JSON.parse(deck.data);
+      const deckData: unknown = withUniqueSlideIds(
+        deckId,
+        JSON.parse(deck.data),
+      );
       assertSlides2DeckData(deckData);
       const slides = (deckData as { slides?: unknown } | null)?.slides;
       if (!Array.isArray(slides)) {

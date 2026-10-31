@@ -4,7 +4,11 @@ import {
   useReconciledState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
+import {
+  CommentBody,
+  isComposingKey,
+  isCommentSendKey,
+} from "@agent-native/toolkit/app/review";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconX,
@@ -222,13 +226,8 @@ export function CommentItem({
                 if (error) setError(null);
               }}
               onKeyDown={(event) => {
-                if (
-                  event.nativeEvent.isComposing ||
-                  event.nativeEvent.keyCode === 229
-                ) {
-                  return;
-                }
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                if (isComposingKey(event)) return;
+                if (isCommentSendKey(event)) {
                   event.preventDefault();
                   void save();
                 }
@@ -259,8 +258,8 @@ export function CommentItem({
             </div>
           </div>
         ) : (
-          <InlineMarkdown
-            content={comment.content}
+          <CommentBody
+            body={comment.content}
             className="mt-0.5 text-[12px] leading-relaxed text-foreground/90"
           />
         )}
@@ -355,6 +354,8 @@ function PendingCommentInput({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Enter repeats while held, so send each comment once until it settles.
+  const submittingRef = useRef(false);
   const createComment = useCreateSlideComment();
 
   useEffect(() => {
@@ -363,7 +364,8 @@ function PendingCommentInput({
 
   const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || submittingRef.current) return;
+    submittingRef.current = true;
     setError(null);
     try {
       await onBeforeSubmit?.();
@@ -378,6 +380,8 @@ function PendingCommentInput({
       onDone();
     } catch (err) {
       setError(actionErrorMessage(err) ?? t("comments.saveCommentFailed"));
+    } finally {
+      submittingRef.current = false;
     }
   };
 
@@ -396,9 +400,11 @@ function PendingCommentInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-            return;
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
+          if (isComposingKey(e)) return;
+          if (isCommentSendKey(e)) {
+            e.preventDefault();
+            void submit();
+          }
           if (e.key === "Escape") onCancel();
         }}
         placeholder={t("comments.addCommentPlaceholder")}
@@ -450,6 +456,8 @@ export function ReplyInput({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Enter repeats while held, so send each reply once until it settles.
+  const submittingRef = useRef(false);
   const createComment = useCreateSlideComment();
 
   useEffect(() => {
@@ -458,7 +466,8 @@ export function ReplyInput({
 
   const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || submittingRef.current) return;
+    submittingRef.current = true;
     setError(null);
     try {
       await onBeforeSubmit?.();
@@ -473,6 +482,8 @@ export function ReplyInput({
       onDone();
     } catch (err) {
       setError(actionErrorMessage(err) ?? t("comments.saveReplyFailed"));
+    } finally {
+      submittingRef.current = false;
     }
   };
 
@@ -486,9 +497,11 @@ export function ReplyInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-            return;
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
+          if (isComposingKey(e)) return;
+          if (isCommentSendKey(e)) {
+            e.preventDefault();
+            void submit();
+          }
           if (e.key === "Escape") onDone();
         }}
         placeholder={t("comments.replyPlaceholder")}

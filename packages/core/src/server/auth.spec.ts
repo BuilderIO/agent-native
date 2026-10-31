@@ -6316,6 +6316,48 @@ describe("server/auth", () => {
       );
     });
 
+    it("lets an operator-listed UI origin send credentials to public CORS paths", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://app.example.com");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        publicPaths: ["/api/public-ingest"],
+        publicCorsPaths: ["/api/public-ingest"],
+      });
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+
+      const preflight = (origin: string) => {
+        const event = createMockEvent({
+          path: "/api/public-ingest",
+          headers: {
+            origin,
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type",
+          },
+        });
+        event.req.method = "OPTIONS";
+        event.node.req.method = "OPTIONS";
+        return event;
+      };
+
+      const listed = preflight("https://app.example.com");
+      await guard(listed);
+      expect(listed.res.headers.get("access-control-allow-credentials")).toBe(
+        "true",
+      );
+
+      const other = preflight("https://clips.agent-native.com");
+      await guard(other);
+      expect(other.res.headers.get("access-control-allow-credentials")).toBe(
+        null,
+      );
+    });
+
     it.each([
       "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
       "https://shakira-professor-conscious-frederick-trycloudflare-com.web-sandbox.oaiusercontent.com",
