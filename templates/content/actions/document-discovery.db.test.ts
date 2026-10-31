@@ -313,6 +313,28 @@ describe("bounded document discovery", () => {
     }
   });
 
+  it("keeps a match inside a long HTML comment out of its snippet", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "search-comment-window",
+        ownerEmail: OWNER,
+        title: "Comment window",
+        content: `Opening line. <!-- ${"internal ".repeat(80)}hidden-okapi-roadmap ${"internal ".repeat(20)}--> Public closing words.`,
+      });
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({
+        query: "hidden-okapi-roadmap",
+        limit: 10,
+        offset: 0,
+      }),
+    );
+    expect(result.documents.map((doc) => doc.id)).toEqual([
+      "search-comment-window",
+    ]);
+    expect(result.documents[0]?.snippet).toBe("...Public closing words.");
+  });
+
   it("prefers snippet context containing more positive terms", async () => {
     await getDb()
       .insert(schema.documents)

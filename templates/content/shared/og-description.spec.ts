@@ -65,6 +65,15 @@ Quarterly Launch Plan
     ).toBe("Public text.");
   });
 
+  it("keeps a comment marker written as code", () => {
+    const text = stripMarkdownForPreview(
+      "Write `<!--` to open a comment.\n\n```html\n<!-- a note -->\n```\n\nThen close it.",
+    );
+    expect(text).toContain("Write <!-- to open a comment.");
+    expect(text).toContain("a note");
+    expect(text).toContain("Then close it.");
+  });
+
   it("removes a link address with parentheses in it", () => {
     expect(
       stripMarkdownForPreview(

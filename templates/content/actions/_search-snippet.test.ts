@@ -130,6 +130,25 @@ describe("searchSnippet", () => {
     expect(snippet).not.toContain("early0 ");
   });
 
+  it("drops the rest of a comment the window starts inside", () => {
+    const window = "internal secret-plan draft --> Public launch notes here.";
+    const snippet = searchSnippet(window, "secret-plan", {
+      clippedStart: true,
+      startsInComment: true,
+      matchOffset: window.indexOf("secret-plan"),
+    });
+
+    expect(snippet).toBe("...Public launch notes here.");
+    expect(
+      searchSnippet("internal secret-plan draft", "secret-plan", {
+        clippedStart: true,
+        clippedEnd: true,
+        startsInComment: true,
+        matchOffset: 9,
+      }),
+    ).toBe("");
+  });
+
   it("leaves a whole short page as it is", () => {
     expect(searchSnippet("Notes come first.", "notes")).toBe(
       "Notes come first.",

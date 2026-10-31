@@ -62,6 +62,7 @@ function previewSnippet(
         snippetNeedle: string | null;
         matchPosition: number | null;
         contentLength: number | null;
+        startsInComment: boolean | null;
       }
     | undefined,
 ): string {
@@ -73,6 +74,7 @@ function previewSnippet(
     clippedEnd:
       windowStart - 1 + Array.from(window).length <
       (Number(preview?.contentLength) || 0),
+    startsInComment: Boolean(preview?.startsInComment),
     matchOffset: position > 0 ? position - windowStart : undefined,
   });
 }
@@ -351,6 +353,14 @@ export default defineAction({
     const matchWindow = selectedBodyPosition
       ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - ${context}), least(5000, 2 * ${context} + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
       : sql<string>`substr(${normalizedContent}, 1, 5000)`;
+    // Whether the window starts inside an HTML comment: the page before it,
+    // read backwards, reaches a `<!--` before any `-->`.
+    const beforeWindow = selectedBodyPosition
+      ? sql<string>`reverse(substr(${normalizedContent}, 1, greatest(0, ${selectedBodyPosition} - ${context} - 1)))`
+      : undefined;
+    const startsInComment = beforeWindow
+      ? sql<boolean>`coalesce(strpos(${beforeWindow}, '--!<') > 0 and (strpos(${beforeWindow}, '>--') = 0 or strpos(${beforeWindow}, '--!<') < strpos(${beforeWindow}, '>--')), false)`
+      : sql<boolean>`false`;
     const ranking =
       !indexedSearch && parsedQuery?.groups.length
         ? documentSearchRanking(
@@ -424,6 +434,7 @@ export default defineAction({
               ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
               : sql<string>`''`,
             contentLength: sql<number>`length(${normalizedContent})`,
+            startsInComment,
           })
           .from(schema.documents)
           .where(

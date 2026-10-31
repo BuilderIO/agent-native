@@ -36,6 +36,22 @@ const TRAILING_LINK = new RegExp(
   String.raw`\[([^\]\n]*)\]${LINK_DESTINATION}(?:\([^()\n]*)?$`,
 );
 
+/**
+ * The rest of an HTML comment the window starts inside, through its `-->`, or
+ * the whole window when the comment doesn't close in it.
+ */
+const LEADING_COMMENT_REST = /^[\s\S]*?(?:-->|$)/;
+
+/** Drops what the window starts inside: the rest of a comment, or of a tag. */
+function withoutLeadingRest(
+  source: string,
+  clippedStart: boolean,
+  startsInComment: boolean,
+): string {
+  if (startsInComment) return source.replace(LEADING_COMMENT_REST, "");
+  return clippedStart ? source.replace(LEADING_TAG_REST, "") : source;
+}
+
 /** Where `needle` occurs in `text` nearest to `near`, or -1. */
 function nearestIndex(text: string, needle: string, near: number): number {
   let best = -1;
@@ -59,9 +75,13 @@ function textOffset(
   window: string,
   matchOffset: number,
   clippedStart: boolean,
+  startsInComment: boolean,
 ): number {
-  let before = Array.from(window).slice(0, matchOffset).join("");
-  if (clippedStart) before = before.replace(LEADING_TAG_REST, "");
+  let before = withoutLeadingRest(
+    Array.from(window).slice(0, matchOffset).join(""),
+    clippedStart,
+    startsInComment,
+  );
   before = before.replace(TRAILING_TAG_START, "").replace(TRAILING_LINK, "$1");
   const text = stripMarkdownForPreview(before);
   return text ? text.length + 1 : 0;
@@ -71,7 +91,8 @@ function textOffset(
  * A search result's snippet: the page's text around the match, without markup,
  * cut at word breaks. `window` is a slice of the stored page; `clippedStart`
  * and `clippedEnd` say whether the page goes on before or after it, so a word
- * or tag it cuts through can be dropped. `matchOffset`, counted in characters
+ * or tag it cuts through can be dropped, and `startsInComment` says that it
+ * starts inside an HTML comment, whose text the page doesn't show. `matchOffset`, counted in characters
  * as `Array.from` counts them, is where the database found the match in
  * `window`; the snippet centres on the query nearest to it, or on it when the
  * query isn't in the text, such as a match in a link's address.
@@ -82,15 +103,16 @@ export function searchSnippet(
   {
     clippedStart = false,
     clippedEnd = false,
+    startsInComment = false,
     matchOffset,
   }: {
     clippedStart?: boolean;
     clippedEnd?: boolean;
+    startsInComment?: boolean;
     matchOffset?: number | undefined;
   } = {},
 ): string {
-  let source = window;
-  if (clippedStart) source = source.replace(LEADING_TAG_REST, "");
+  let source = withoutLeadingRest(window, clippedStart, startsInComment);
   // A tag the window ends inside.
   if (clippedEnd) source = source.replace(TRAILING_TAG_START, "");
   const text = stripMarkdownForPreview(source);
@@ -101,7 +123,10 @@ export function searchSnippet(
   const found =
     matchOffset === undefined
       ? null
-      : Math.min(text.length, textOffset(window, matchOffset, clippedStart));
+      : Math.min(
+          text.length,
+          textOffset(window, matchOffset, clippedStart, startsInComment),
+        );
   // The query where it appears closest to that, which may not be first.
   const index = needle
     ? nearestIndex(text.toLowerCase(), needle, found ?? 0)
