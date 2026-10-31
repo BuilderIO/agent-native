@@ -4969,6 +4969,7 @@ async function runAuthoringCorpusQa(
             const anchor = (rect: { y: number; height: number }) =>
               rect.y + rect.height * 1.5;
             if (
+              wrapperAfter.rect.height <= wrapper.rect.height + 1 ||
               Math.abs(anchor(wrapper.rect) - anchor(wrapperAfter.rect)) > 2
             ) {
               return result;
@@ -5018,13 +5019,13 @@ async function runAuthoringCorpusQa(
               name: "edit entry",
               before: viewBefore,
               after: before,
-              ...outsideChangesAllowingAnchoredWrapper(viewBefore, before),
+              ...outsideChangesFor(viewBefore, before),
             },
             {
               name: "in-place authoring",
               before,
               after: editingAfter,
-              ...outsideChangesAllowingAnchoredWrapper(before, editingAfter),
+              ...outsideChangesFor(before, editingAfter),
             },
             {
               name: "edit exit",
