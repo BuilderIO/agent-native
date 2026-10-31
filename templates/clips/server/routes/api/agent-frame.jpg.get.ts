@@ -17,6 +17,7 @@ import {
   type H3Event,
 } from "h3";
 
+import { buildAgentEditedTimeline } from "../../lib/agent-edited-timeline.js";
 import {
   describeFrameFailure,
   frameFailureStatus,
@@ -234,13 +235,21 @@ export default defineEventHandler(async (event: H3Event) => {
       return sendFrameJson(event, status, describeFrameFailure(err, status));
     }
   }
-  const durationMs =
-    typeof recording.durationMs === "number" ? recording.durationMs : 0;
-  const requestedMs = parseTimestampMs(
-    queryString(query.atMs),
-    queryString(query.tSeconds),
+  // atMs is on the edited timeline the context reports; the media and the
+  // stored frames are in the original recording.
+  const timeline = buildAgentEditedTimeline(
+    recording.editsJson,
+    typeof recording.durationMs === "number" ? recording.durationMs : 0,
   );
-  const atMs = clampAgentFrameAtMs(requestedMs, durationMs);
+  const requestedMs = timeline.toSourceMs(
+    parseTimestampMs(queryString(query.atMs), queryString(query.tSeconds)),
+  );
+  const atMs = timeline.toSourceMs(
+    clampAgentFrameAtMs(
+      parseTimestampMs(queryString(query.atMs), queryString(query.tSeconds)),
+      timeline.durationMs,
+    ),
+  );
   const key = cacheKey({
     recordingId: recording.id,
     updatedAt: recording.updatedAt,
@@ -294,7 +303,11 @@ export default defineEventHandler(async (event: H3Event) => {
       );
 
       if (resolved.atMs !== atMs) {
-        return redirectToResolvedFrame(event, access, resolved.atMs);
+        return redirectToResolvedFrame(
+          event,
+          access,
+          timeline.fromSourceMs(resolved.atMs),
+        );
       }
 
       await claim?.fill(

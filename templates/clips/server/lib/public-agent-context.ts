@@ -50,6 +50,7 @@ import {
 } from "../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
+import { buildAgentEditedTimeline } from "./agent-edited-timeline.js";
 import { recordAgentView } from "./agent-views.js";
 import { isSupportedImageMimeType } from "./image-signature.js";
 import { isRecordingExpiredForViewer } from "./recording-page-access.js";
@@ -804,8 +805,8 @@ export function buildPublicAgentContext({
   event,
   access,
   transcript,
-  agentSegments,
-  chapters,
+  agentSegments: sourceSegments,
+  chapters: sourceChapters,
   comments,
   reactions,
   commentCount = comments.length,
@@ -834,6 +835,16 @@ export function buildPublicAgentContext({
   appActivityEventsReadable?: boolean;
 }) {
   const recording = access.recording;
+  const timeline = buildAgentEditedTimeline(
+    recording.editsJson,
+    recording.durationMs,
+  );
+  const agentSegments = timeline.mapSegments(sourceSegments);
+  const chapters = timeline.mapChapters(sourceChapters);
+  const fullText =
+    timeline.hasCuts && agentSegments.length > 0
+      ? agentSegments.map((segment) => segment.text).join(" ")
+      : (transcript?.fullText ?? "");
   const requestUrl = getForwardedRequestURL(event);
   const api = buildAgentApiUrls(recording.id, {
     origin: requestUrl.origin,
@@ -872,7 +883,7 @@ export function buildPublicAgentContext({
         ]
       : frameMode === "video"
         ? buildRecommendedFrames({
-            durationMs: recording.durationMs,
+            durationMs: timeline.durationMs,
             chapters,
             segments: agentSegments,
           }).map((frame) => ({
@@ -960,9 +971,9 @@ export function buildPublicAgentContext({
             ? null
             : recording.thumbnailUrl,
       animatedThumbnailUrl: recording.animatedThumbnailUrl,
-      durationMs: recording.durationMs,
-      duration: recording.durationMs
-        ? `${Math.round(recording.durationMs / 1000)}s`
+      durationMs: timeline.durationMs,
+      duration: timeline.durationMs
+        ? `${Math.round(timeline.durationMs / 1000)}s`
         : null,
       width: recording.width,
       height: recording.height,
@@ -1016,7 +1027,7 @@ export function buildPublicAgentContext({
       language: transcript?.language ?? null,
       failureReason: transcript?.failureReason ?? null,
       retryAfterSeconds: transcript?.status === "pending" ? 15 : null,
-      fullText: transcript?.fullText ?? "",
+      fullText,
       segments: agentSegments,
       segmentCount: agentSegments.length,
     },
@@ -1027,7 +1038,7 @@ export function buildPublicAgentContext({
       parentId: comment.parentId,
       authorName: comment.authorName,
       content: comment.content,
-      videoTimestampMs: comment.videoTimestampMs,
+      videoTimestampMs: timeline.fromSourceMs(comment.videoTimestampMs),
       resolved: comment.resolved,
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
@@ -1037,7 +1048,7 @@ export function buildPublicAgentContext({
     reactions: reactions.map((reaction) => ({
       id: reaction.id,
       emoji: reaction.emoji,
-      videoTimestampMs: reaction.videoTimestampMs,
+      videoTimestampMs: timeline.fromSourceMs(reaction.videoTimestampMs),
       viewerName: reaction.viewerName,
       createdAt: reaction.createdAt,
     })),

@@ -14,6 +14,7 @@ import {
   nextAgentTranscriptStartMs,
 } from "../../../shared/agent-context.js";
 import { isEmbedBackedRecording } from "../../../shared/embed-provider.js";
+import { buildAgentEditedTimeline } from "../../lib/agent-edited-timeline.js";
 import {
   applyAgentJsonHeaders,
   CLIPS_AGENT_ACCESS_PARAM,
@@ -150,10 +151,17 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const recording = accessResult.access.recording;
-  const { transcript, agentSegments } = await loadAgentTranscript(
-    recording.id,
+  const { transcript, agentSegments: sourceSegments } =
+    await loadAgentTranscript(recording.id, recording.durationMs);
+  const timeline = buildAgentEditedTimeline(
+    recording.editsJson,
     recording.durationMs,
   );
+  const agentSegments = timeline.mapSegments(sourceSegments);
+  const fullText =
+    timeline.hasCuts && agentSegments.length > 0
+      ? agentSegments.map((segment) => segment.text).join(" ")
+      : (transcript?.fullText ?? "");
   const api = buildAgentApiUrls(recording.id, {
     origin: getForwardedRequestOrigin(event),
     basePath: getServerAppBasePath(),
@@ -172,7 +180,7 @@ export default defineEventHandler(async (event: H3Event) => {
     recording: {
       id: recording.id,
       title: recording.title,
-      durationMs: recording.durationMs,
+      durationMs: timeline.durationMs,
       status: recording.status,
       agentReadiness,
     },
@@ -207,7 +215,7 @@ export default defineEventHandler(async (event: H3Event) => {
               : {}),
           }
         : {
-            fullText: transcript?.fullText ?? "",
+            fullText,
             segments: agentSegments,
             segmentCount: agentSegments.length,
           }),
