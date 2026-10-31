@@ -197,8 +197,8 @@ test("an editor can read and edit one shared Personal page without gaining its p
     await owner.getByRole("button", { name: "Share", exact: true }).click();
     await owner.getByPlaceholder(/Add people/).fill(recipientEmail);
     await owner.getByRole("combobox", { name: "Role" }).click();
-    await owner.getByRole("option", { name: "Editor", exact: true }).click();
-    await owner.getByRole("button", { name: "Add", exact: true }).click();
+    await owner.getByRole("option", { name: "Can edit", exact: true }).click();
+    await owner.getByRole("button", { name: "Invite", exact: true }).click();
     await expect(
       owner.getByText(recipientEmail, { exact: true }),
     ).toBeVisible();

@@ -57,6 +57,27 @@ describe("<SpeakerNotesPanel>", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("resizes from the keyboard through the separator", () => {
+    try {
+      localStorage.removeItem("speaker-notes-height");
+    } catch {}
+    const { getByRole } = renderPanel({});
+    const separator = getByRole("separator", {
+      name: "speakerNotesPanel.resize",
+    });
+
+    expect(separator.tabIndex).toBe(0);
+    expect(separator.getAttribute("aria-valuenow")).toBe("231");
+
+    const arrowUp = fireEvent.keyDown(separator, { key: "ArrowUp" });
+    expect(arrowUp).toBe(false);
+    expect(separator.getAttribute("aria-valuenow")).toBe("255");
+
+    fireEvent.keyDown(separator, { key: "ArrowDown" });
+    fireEvent.keyDown(separator, { key: "ArrowDown" });
+    expect(separator.getAttribute("aria-valuenow")).toBe("207");
+  });
+
   it("hides Generate for read-only viewers", () => {
     const { queryByRole } = renderPanel({ readOnly: true });
 

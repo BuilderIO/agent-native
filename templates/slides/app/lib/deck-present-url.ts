@@ -9,6 +9,8 @@ export type PresentMode = "fullscreen" | "window" | "presenter";
 export type PresentRequest = {
   preserveNativeNavigation?: true;
   mode?: PresentMode;
+  /** Start on the first slide instead of the one being edited. */
+  fromBeginning?: true;
 };
 
 export const PRESENTER_WINDOW_FEATURES = "width=1200,height=760";

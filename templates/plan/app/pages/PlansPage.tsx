@@ -27,7 +27,10 @@ import {
   useSetOrgDomain,
 } from "@agent-native/core/client/org";
 import { fetchOrgMemberPage } from "@agent-native/core/client/sharing";
-import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import {
+  buildSignInReturnHref,
+  serverAuthReturnPath,
+} from "@agent-native/core/client/sign-in-return";
 import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
 import { docsUrl } from "@agent-native/core/shared";
@@ -39,6 +42,8 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import {
   InlineMarkdown,
+  isComposingKey,
+  isCommentSendKey,
   type InlineMarkdownProtectedSpan,
 } from "@agent-native/toolkit/app/review";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
@@ -360,9 +365,8 @@ export type { CommentDraft } from "@/lib/plan-comment-editor-helpers";
 export function buildPlanEmailVerificationCallbackURL(
   location: Pick<Location, "pathname" | "search" | "hash">,
 ): string {
-  return buildSignInReturnHref({
-    returnTo: appPath(planReturnPathFromLocation(location)),
-  });
+  const returnTo = appPath(planReturnPathFromLocation(location));
+  return serverAuthReturnPath(returnTo, buildSignInReturnHref({ returnTo }));
 }
 
 function isPlanEmailVerificationPendingMessage(message: string): boolean {
@@ -2352,7 +2356,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const returnPath = planReturnPathFromLocation(window.location);
     try {
       const res = await fetch(
-        `${agentNativePath("/_agent-native/google/auth-url")}?return=${encodeURIComponent(returnPath)}`,
+        `${agentNativePath("/_agent-native/google/auth-url")}?return=${encodeURIComponent(serverAuthReturnPath(appPath(returnPath), returnPath))}`,
         { cache: "no-store" },
       );
       const data = (await res.json().catch(() => null)) as {
@@ -5959,15 +5963,12 @@ const buildShareVisibilityCopy = (
   noun: string,
 ) => ({
   private: {
-    label: t("plansPage.share.visibility.private.label"),
     description: t("plansPage.share.visibility.private.description", { noun }),
   },
   org: {
-    label: t("plansPage.share.visibility.org.label"),
     description: t("plansPage.share.visibility.org.description"),
   },
   public: {
-    label: t("plansPage.share.visibility.public.label"),
     description: t("plansPage.share.visibility.public.description"),
   },
 });
@@ -6270,12 +6271,6 @@ function PlanShareControl({
         shareUrlPlacement="top"
         peopleAccessLabel={t("plansPage.share.peopleAccess", { noun })}
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
-        roleCopy={{
-          commenter: {
-            label: t("plansPage.share.commenterRoleLabel"),
-            description: t("plansPage.share.commenterRoleDescription"),
-          },
-        }}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
         triggerClassName="pointer-events-auto h-8 px-2"
@@ -7098,7 +7093,8 @@ export function PlanLoadError({
       ? t("plansPage.loadError.orgTitle", { orgName })
       : null;
 
-  const returnPath = () => appPath(planReturnPathFromLocation(window.location));
+  const returnPath = () =>
+    serverAuthReturnPath(appPath(planReturnPathFromLocation(window.location)));
 
   const readAuthError = async (res: Response, fallback: string) => {
     const data = (await res.json().catch(() => null)) as {
@@ -9081,6 +9077,9 @@ function CommentMentionEditor({
         onKeyUp={emitChange}
         onMouseUp={emitChange}
         onKeyDown={(event) => {
+          // While an input method is composing, its keys (arrows to pick a
+          // candidate, Enter to confirm, Escape to cancel) belong to it.
+          if (isComposingKey(event)) return;
           if (suggestionsOpen && event.key === "ArrowDown") {
             event.preventDefault();
             setSelectedIndex((index) =>
@@ -9107,12 +9106,7 @@ function CommentMentionEditor({
             setQuery(null);
             return;
           }
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            onSubmitShortcut?.();
-            return;
-          }
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          if (isCommentSendKey(event)) {
             event.preventDefault();
             onSubmitShortcut?.();
           }

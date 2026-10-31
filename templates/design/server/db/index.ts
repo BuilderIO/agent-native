@@ -29,6 +29,7 @@ registerIdentityColumns([
 
 registerShareableResource({
   type: "design",
+  agentRead: { actions: ["get-design"] },
   resourceTable: schema.designs,
   sharesTable: schema.designShares,
   displayName: "Design",
@@ -45,6 +46,7 @@ registerShareableResource({
 
 registerShareableResource({
   type: "design-template",
+  agentRead: { actions: ["get-design-template"], idParam: "templateId" },
   resourceTable: schema.designTemplates,
   sharesTable: schema.designTemplateShares,
   displayName: "Design template",
@@ -55,6 +57,7 @@ registerShareableResource({
 
 registerShareableResource({
   type: "design-system",
+  agentRead: { actions: ["get-design-system"] },
   resourceTable: schema.designSystems,
   sharesTable: schema.designSystemShares,
   displayName: "Design System",

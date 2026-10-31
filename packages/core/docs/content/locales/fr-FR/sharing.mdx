@@ -118,11 +118,10 @@ Quelques zones sont intentionnellement en dehors du système de partage :
 
 Chaque ressource partageable reçoit un bouton de partage dans son en-tête. Cliquer dessus ouvre un popover ancré au bouton (pas un modal) avec :
 
-- Sélecteur de visibilité (`Private` / `Organization` / `Public link`).
-- Saisie automatique « Ajouter des personnes ou des équipes » : recherchez des utilisateurs dans l'organisation ou collez un e-mail.
-- Une case à cocher `Notifier les personnes` pour les autorisations individuelles par e-mail.
-- Une liste des subventions actuelles avec des sélecteurs de rôles et un contrôle de suppression.
-- Un bouton copier-lien qui respecte la visibilité actuelle.
+- Un champ d'invitation pour les personnes, les groupes de l'organisation et les agents de l'organisation, avec un sélecteur de rôle et Inviter. Une adresse saisie affiche aussi la case `Notify people`.
+- Personnes ayant accès : le propriétaire, les personnes, les groupes et les agents dans une seule liste. Les rôles sont Peut afficher, Peut commenter, Peut modifier et Peut gérer l'accès. Retirer l'accès est le dernier élément du menu de rôle de chaque ligne.
+- Accès général : Seules les personnes invitées / Toute personne de l'organisation / Toute personne disposant du lien.
+- Copier le lien, et un menu Envoyer vers : Ouvrir dans Claude, Claude Code ou Codex, Copier le prompt de l'agent, Copier le lien pour agents, Paramètres du serveur MCP et les destinations ajoutées par l'app.
 
 Passer une ressource de `Private` à `Organization` demande d'abord une confirmation. Rien ne change tant que la personne n'a pas confirmé. Annuler ou Échap conserve l'accès actuel. Si l'enregistrement échoue, la boîte de dialogue affiche l'erreur et la personne peut réessayer. Les autres changements de visibilité sont enregistrés immédiatement. La confirmation existe uniquement dans l'UI de partage. `set-resource-visibility` ne change pas : l'agent et tout autre appelant modifient donc toujours la visibilité directement, et la politique de partage de la ressource décide toujours de ce qui est autorisé.
 
@@ -136,6 +135,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+Les agents apparaissent dans le champ d'invitation quand l'organisation a des agents de service (identités `svc-<name>@service.<orgId>` issues des jetons de service de l'organisation). Ils sont partagés comme des utilisateurs ordinaires et ne reçoivent jamais d'e-mail. Les agents qui se connectent par MCP ou OAuth agissent au nom de la personne qui les a connectés, ils n'ont donc pas de ligne. Transmettez-leur la ressource depuis Envoyer vers.
 
 Pour les listes, déposez un `<VisibilityBadge visibility={row.visibility} />` à côté de chaque ligne afin que les utilisateurs puissent voir en un coup d'œil ce qui est privé ou partagé.
 
@@ -193,7 +194,7 @@ Dites à l'agent "Partagez cette conception avec l'équipe marketing en tant qu'
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
 
-Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Declare `agentRead: { actions: ["get-<thing>"] }` (and `idParam` when the tool's id argument is not `id`) so the share panel's Send to menu offers Open in Claude, Claude Code, and Codex with a prompt that calls that MCP tool with the person's own permissions.
 
 ## L'intégrer dans un nouveau modèle {#building}
 

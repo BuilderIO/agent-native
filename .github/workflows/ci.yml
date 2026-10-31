@@ -17,7 +17,7 @@ jobs:
   change-scope:
     name: Determine change scope
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
       full: ${{ steps.scope.outputs.full }}
@@ -164,9 +164,11 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      - uses: ./.github/actions/setup-pnpm
+      - id: setup
+        uses: ./.github/actions/setup-pnpm
         with:
-          install: no-scripts
+          install: ${{ needs.change-scope.outputs.has_reports == 'true' && 'full' || 'no-scripts' }}
+          restore-dist-cache: ${{ needs.change-scope.outputs.has_reports == 'true' && 'true' || 'false' }}
 
       - name: Check the full tree
         if: needs.change-scope.outputs.full == 'true'
@@ -209,13 +211,13 @@ jobs:
           fi
 
       - name: Require changeset for publishable package changes
-        if: ${{ !cancelled() && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
+        if: ${{ !cancelled() && needs.change-scope.result == 'success' && steps.setup.outcome == 'success' && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
         run: node scripts/check-changeset.mjs
 
       - name: Enforce package bump policy
-        if: ${{ !cancelled() && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
+        if: ${{ !cancelled() && needs.change-scope.result == 'success' && steps.setup.outcome == 'success' && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
         run: node scripts/guard-no-major-changeset.mjs
 
       - name: Re-run feedback fix proofs
@@ -1868,7 +1870,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d neon_budget"
+          --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5

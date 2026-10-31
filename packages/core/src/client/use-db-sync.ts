@@ -18,7 +18,7 @@ import {
   isSurfaceHidden,
 } from "../shared/surface-visibility.js";
 import { actionQueryAffectedByResources } from "./action-query-scope.js";
-import { agentNativePath } from "./api-path.js";
+import { agentNativePath, apiBaseUrl, isApiBaseUrl } from "./api-path.js";
 import { getBrowserTabId, resolveBrowserTabIdAlias } from "./browser-tab-id.js";
 import { isTerminalAuthFailure } from "./create-query-client.js";
 import {
@@ -1033,7 +1033,11 @@ class SyncTransport {
     const url = this.activeSseUrl;
     if (!url) return;
 
-    const source = new EventSource(url);
+    const source = new EventSource(url, {
+      withCredentials:
+        apiBaseUrl() !== undefined &&
+        isApiBaseUrl(new URL(url, window.location.href)),
+    });
     this.eventSource = source;
     source.onopen = () => {
       if (this.mode === "local") {

@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 
 export interface DeckExportFile {
   blob: Blob;
@@ -27,7 +27,7 @@ async function fetchDeckExportFile(
   fallbackFilename: string,
   exportPurpose?: "google_slides",
 ): Promise<DeckExportFile> {
-  const response = await fetch(`${appBasePath()}/api/exports/${format}`, {
+  const response = await fetch(appApiPath(`/api/exports/${format}`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

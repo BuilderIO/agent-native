@@ -438,52 +438,59 @@ describe("canvas deep selection modifiers", () => {
     }
   });
 
-  it("does not treat a new hit target at the same point as a repeated click", async () => {
-    const browser = await chromium.launch({ headless: true });
-    try {
-      const page = await browser.newPage();
-      await page.setContent(`<!doctype html><html><body style="margin:0">
+  // oracle-change: screens select newly hit content directly; board repeat-click handling stays container-first.
+  it.each([
+    { boardSurface: false, selectedAfterInsert: "kid" },
+    { boardSurface: true, selectedAfterInsert: "card" },
+  ])(
+    "selects $selectedAfterInsert after the hit target changes (board=$boardSurface)",
+    async ({ boardSurface, selectedAfterInsert }) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html><body style="margin:0">
         <div data-agent-native-node-id="card" data-agent-native-layer-name="Card"
              style="position:absolute;left:40px;top:40px;width:160px;height:120px;background:#1f2937"></div>
       </body></html>`);
-      await page.evaluate(() => {
-        (window as any).__bridgeMessages = [];
-        window.addEventListener("message", (event: MessageEvent) => {
-          if (event.source === window)
-            (window as any).__bridgeMessages.push(event.data);
+        await page.evaluate(() => {
+          (window as any).__bridgeMessages = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.source === window)
+              (window as any).__bridgeMessages.push(event.data);
+          });
         });
-      });
-      await page.addScriptTag({ content: hydratedBridge() });
-      await page.waitForFunction(() =>
-        ((window as any).__bridgeMessages ?? []).some(
-          (message: BridgeMessage) =>
-            message.type === "agent-native:editor-chrome-ready",
-        ),
-      );
+        await page.addScriptTag({ content: hydratedBridge(boardSurface) });
+        await page.waitForFunction(() =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: BridgeMessage) =>
+              message.type === "agent-native:editor-chrome-ready",
+          ),
+        );
 
-      let elementSelectCount = await messageCount(page, "element-select");
-      await page.mouse.click(100, 80);
-      await waitForMessageAfter(page, "element-select", elementSelectCount);
-      expect(await lastSelectedSourceId(page)).toBe("card");
-      elementSelectCount = await messageCount(page, "element-select");
+        let elementSelectCount = await messageCount(page, "element-select");
+        await page.mouse.click(100, 80);
+        await waitForMessageAfter(page, "element-select", elementSelectCount);
+        expect(await lastSelectedSourceId(page)).toBe("card");
+        elementSelectCount = await messageCount(page, "element-select");
 
-      await page.evaluate(() => {
-        const child = document.createElement("div");
-        child.setAttribute("data-agent-native-node-id", "kid");
-        child.setAttribute("data-agent-native-layer-name", "Kid");
-        child.style.cssText = "position:absolute;inset:0;background:#3b82f6";
-        document
-          .querySelector('[data-agent-native-node-id="card"]')!
-          .append(child);
-      });
-      await page.mouse.click(100, 80);
-      await waitForMessageAfter(page, "element-select", elementSelectCount);
+        await page.evaluate(() => {
+          const child = document.createElement("div");
+          child.setAttribute("data-agent-native-node-id", "kid");
+          child.setAttribute("data-agent-native-layer-name", "Kid");
+          child.style.cssText = "position:absolute;inset:0;background:#3b82f6";
+          document
+            .querySelector('[data-agent-native-node-id="card"]')!
+            .append(child);
+        });
+        await page.mouse.click(100, 80);
+        await waitForMessageAfter(page, "element-select", elementSelectCount);
 
-      expect(await lastSelectedSourceId(page)).toBe("card");
-    } finally {
-      await browser.close();
-    }
-  });
+        expect(await lastSelectedSourceId(page)).toBe(selectedAfterInsert);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 
   it.each(["Meta", "Control"] as const)(
     "%s-click cycles from a selected child to its containing layer",

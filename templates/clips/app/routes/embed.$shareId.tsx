@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import { isImageRecording } from "@shared/recording-kind";
@@ -167,7 +167,7 @@ export default function EmbedRoute() {
     queryKey: ["public-recording", shareId, password],
     queryFn: async () => {
       const url = new URL(
-        `${appBasePath()}/api/public-recording`,
+        appApiPath("/api/public-recording"),
         window.location.origin,
       );
       url.searchParams.set("id", shareId ?? "");

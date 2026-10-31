@@ -1,25 +1,38 @@
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import {
+  GOOGLE_FONTS_CSS_ORIGIN,
+  GOOGLE_FONTS_FILE_ORIGIN,
+  GoogleFontError,
+  type GoogleFontCatalogFamily,
+  type GoogleFontsRuntime,
+  assertGoogleFontsUrl,
+  filterGoogleFontCatalog,
+  isGoogleFontFamilyName,
+  parseGoogleFontVariant,
+  readBoundedGoogleFontsBody,
+  readGoogleFontCatalog,
+} from "@agent-native/core/server";
 
-const CATALOG_URL = "https://fonts.google.com/metadata/fonts";
-const CSS_ORIGIN = "https://fonts.googleapis.com";
-const FONT_ORIGIN = "https://fonts.gstatic.com";
-const CATALOG_TTL_MS = 60 * 60 * 1000;
-const MAX_CATALOG_BYTES = 8 * 1024 * 1024;
+export { GoogleFontError, type GoogleFontsRuntime };
+
+const CSS_ORIGIN = GOOGLE_FONTS_CSS_ORIGIN;
+const FONT_ORIGIN = GOOGLE_FONTS_FILE_ORIGIN;
 const MAX_CSS_BYTES = 256 * 1024;
 export const MAX_GOOGLE_FONT_BYTES = 8 * 1024 * 1024;
 export const MAX_GOOGLE_FONT_RESULTS = 24;
-const MAX_CATALOG_FAMILIES = 20_000;
 const FONT_TIMEOUT_MS = 10_000;
 const LEGACY_UA = "Mozilla/5.0";
 
 const FONT_EXTENSIONS = ["ttf", "otf", "woff", "woff2"] as const;
 export type GoogleFontExtension = (typeof FONT_EXTENSIONS)[number];
 
+type GoogleFontWeight = 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
+
 export type GoogleFontVariant =
   | "regular"
   | "italic"
-  | `${100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900}`
-  | `${100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900}italic`;
+  | `${GoogleFontWeight}`
+  | `${GoogleFontWeight}italic`;
 
 export type GoogleFont = {
   family: string;
@@ -35,241 +48,40 @@ export type DownloadedGoogleFont = {
   variant: GoogleFontVariant;
 };
 
-export class GoogleFontError extends Error {
-  constructor(
-    message: string,
-    readonly errorCode: string,
-    readonly statusCode: number,
-  ) {
-    super(message);
-    this.name = "GoogleFontError";
-  }
-}
-
 type SsrfFetchOptions = Parameters<typeof ssrfSafeFetch>[2];
-
-export type GoogleFontsRuntime = {
-  fetch: typeof ssrfSafeFetch;
-};
 
 const defaultRuntime: GoogleFontsRuntime = { fetch: ssrfSafeFetch };
 
-type CatalogRecord = GoogleFont & { popularity: number };
-let catalogCache: { at: number; entries: CatalogRecord[] } | null = null;
-let catalogInflight: Promise<CatalogRecord[]> | null = null;
+const assertGoogleOrigin = assertGoogleFontsUrl;
+const readBoundedBody = readBoundedGoogleFontsBody;
 
-function assertGoogleOrigin(value: string, origin: string): URL {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new GoogleFontError(
-      "Google Fonts returned an invalid URL.",
-      "google_font_url_invalid",
-      502,
-    );
-  }
-  if (
-    url.origin !== origin ||
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.port
-  ) {
-    throw new GoogleFontError(
-      "Google Fonts returned an unsupported URL.",
-      "google_font_url_invalid",
-      502,
-    );
-  }
-  return url;
+function isLegacyWeight(weight: number): weight is GoogleFontWeight {
+  return weight >= 100 && weight <= 900 && weight % 100 === 0;
 }
 
-async function readBoundedBody(
-  response: Response,
-  maxBytes: number,
-): Promise<Buffer> {
-  const contentLength = response.headers.get("content-length");
-  if (contentLength !== null) {
-    const declaredSize = Number(contentLength);
-    if (Number.isFinite(declaredSize) && declaredSize > maxBytes) {
-      throw new GoogleFontError(
-        "Google Fonts returned a file that is too large.",
-        "google_font_response_too_large",
-        413,
-      );
-    }
-  }
+function variantName(
+  weight: GoogleFontWeight,
+  italic: boolean,
+): GoogleFontVariant {
+  if (weight === 400) return italic ? "italic" : "regular";
+  return italic ? `${weight}italic` : `${weight}`;
+}
 
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new GoogleFontError(
-      "Google Fonts returned an empty response.",
-      "google_font_response_invalid",
-      502,
-    );
+function legacyVariants(entry: GoogleFontCatalogFamily): GoogleFontVariant[] {
+  const variants: GoogleFontVariant[] = [];
+  for (const weight of entry.weights) {
+    if (isLegacyWeight(weight)) variants.push(variantName(weight, false));
   }
-
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > maxBytes) {
-        await reader.cancel();
-        throw new GoogleFontError(
-          "Google Fonts returned a file that is too large.",
-          "google_font_response_too_large",
-          413,
-        );
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
+  for (const weight of entry.italicWeights) {
+    if (isLegacyWeight(weight)) variants.push(variantName(weight, true));
   }
-
-  const body = Buffer.allocUnsafe(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
+  return variants;
 }
 
 function parseVariant(value: string): GoogleFontVariant | null {
-  if (value === "regular" || value === "italic") return value;
-  if (/^(?:100|200|300|400|500|600|700|800|900)(?:italic)?$/.test(value)) {
-    return value as GoogleFontVariant;
-  }
-  return null;
-}
-
-function isGoogleFontFamily(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value === value.trim() &&
-    /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,79}$/.test(value)
-  );
-}
-
-function parseCatalogEntry(value: unknown): CatalogRecord | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const entry = value as Record<string, unknown>;
-  if (!isGoogleFontFamily(entry.family)) return null;
-  const fonts = entry.fonts;
-  if (!fonts || typeof fonts !== "object" || Array.isArray(fonts)) return null;
-  const variants = Object.keys(fonts)
-    .map(parseVariant)
-    .filter((variant): variant is GoogleFontVariant => variant !== null);
-  if (variants.length === 0) return null;
-  const category =
-    typeof entry.category === "string"
-      ? entry.category.trim().slice(0, 40)
-      : "";
-  const popularity =
-    typeof entry.popularity === "number" && Number.isFinite(entry.popularity)
-      ? entry.popularity
-      : Number.MAX_SAFE_INTEGER;
-  return {
-    family: entry.family,
-    category,
-    variants: [...new Set(variants)].slice(0, 64),
-    popularity,
-  };
-}
-
-async function loadCatalog(
-  runtime: GoogleFontsRuntime,
-): Promise<CatalogRecord[]> {
-  if (catalogCache && Date.now() - catalogCache.at < CATALOG_TTL_MS) {
-    return catalogCache.entries;
-  }
-  if (catalogInflight) return catalogInflight;
-
-  catalogInflight = (async () => {
-    let response: Response;
-    try {
-      response = await runtime.fetch(
-        CATALOG_URL,
-        {
-          headers: { Accept: "application/json" },
-          signal: AbortSignal.timeout(FONT_TIMEOUT_MS),
-        },
-        {
-          httpsOnly: true,
-          maxRedirects: 0,
-          assertUrlAllowed: (candidate) => {
-            assertGoogleOrigin(candidate, new URL(CATALOG_URL).origin);
-          },
-        } satisfies SsrfFetchOptions,
-      );
-    } catch (error) {
-      if (error instanceof GoogleFontError) throw error;
-      throw new GoogleFontError(
-        "Google Fonts search is temporarily unavailable.",
-        "google_font_search_unavailable",
-        503,
-      );
-    }
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new GoogleFontError(
-        "Google Fonts search is temporarily unavailable.",
-        "google_font_search_unavailable",
-        503,
-      );
-    }
-
-    let parsed: unknown;
-    try {
-      const text = new TextDecoder("utf-8", { fatal: true }).decode(
-        await readBoundedBody(response, MAX_CATALOG_BYTES),
-      );
-      const start = text.indexOf("{");
-      parsed = JSON.parse(start > 0 ? text.slice(start) : text) as unknown;
-    } catch (error) {
-      if (error instanceof GoogleFontError) throw error;
-      throw new GoogleFontError(
-        "Google Fonts returned an invalid catalog.",
-        "google_font_catalog_invalid",
-        502,
-      );
-    }
-
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new GoogleFontError(
-        "Google Fonts returned an invalid catalog.",
-        "google_font_catalog_invalid",
-        502,
-      );
-    }
-    const rawEntries = (parsed as Record<string, unknown>).familyMetadataList;
-    if (
-      !Array.isArray(rawEntries) ||
-      rawEntries.length > MAX_CATALOG_FAMILIES
-    ) {
-      throw new GoogleFontError(
-        "Google Fonts returned an invalid catalog.",
-        "google_font_catalog_invalid",
-        502,
-      );
-    }
-    const entries = rawEntries
-      .map(parseCatalogEntry)
-      .filter((entry): entry is CatalogRecord => entry !== null);
-    catalogCache = { at: Date.now(), entries };
-    return entries;
-  })();
-
-  try {
-    return await catalogInflight;
-  } finally {
-    catalogInflight = null;
-  }
+  const parsed = parseGoogleFontVariant(value);
+  if (!parsed || !isLegacyWeight(parsed.weight)) return null;
+  return variantName(parsed.weight, parsed.italic);
 }
 
 function normalizeQuery(query: string): string {
@@ -281,7 +93,7 @@ function normalizeQuery(query: string): string {
       400,
     );
   }
-  return normalized.toLocaleLowerCase();
+  return normalized;
 }
 
 export async function searchGoogleFonts(
@@ -289,12 +101,15 @@ export async function searchGoogleFonts(
   runtime: GoogleFontsRuntime = defaultRuntime,
 ): Promise<GoogleFont[]> {
   const normalized = normalizeQuery(query);
-  const entries = await loadCatalog(runtime);
-  return entries
-    .filter((entry) => entry.family.toLocaleLowerCase().includes(normalized))
-    .sort((left, right) => left.popularity - right.popularity)
-    .slice(0, MAX_GOOGLE_FONT_RESULTS)
-    .map(({ family, category, variants }) => ({ family, category, variants }));
+  const families = await readGoogleFontCatalog(runtime);
+  return filterGoogleFontCatalog(families, normalized)
+    .map((entry) => ({
+      family: entry.family,
+      category: entry.category,
+      variants: legacyVariants(entry),
+    }))
+    .filter((entry) => entry.variants.length > 0)
+    .slice(0, MAX_GOOGLE_FONT_RESULTS);
 }
 
 function variantCssStyle(variant: GoogleFontVariant): string {
@@ -388,7 +203,7 @@ export async function downloadGoogleFont(
   variant: string,
   runtime: GoogleFontsRuntime = defaultRuntime,
 ): Promise<DownloadedGoogleFont> {
-  if (!isGoogleFontFamily(family)) {
+  if (!isGoogleFontFamilyName(family)) {
     throw new GoogleFontError(
       "The selected font family is invalid.",
       "google_font_family_invalid",
@@ -403,9 +218,9 @@ export async function downloadGoogleFont(
       400,
     );
   }
-  const entries = await loadCatalog(runtime);
+  const entries = await readGoogleFontCatalog(runtime);
   const entry = entries.find((candidate) => candidate.family === family);
-  if (!entry || !entry.variants.includes(normalizedVariant)) {
+  if (!entry || !legacyVariants(entry).includes(normalizedVariant)) {
     throw new GoogleFontError(
       "The selected font variant is not in the Google Fonts catalog.",
       "google_font_variant_unavailable",
