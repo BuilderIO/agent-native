@@ -10,7 +10,7 @@ import {
   CONTENT_CLIP_UPLOAD_MIME_TYPES,
 } from "../shared/clips-peer-contract.js";
 import { clipEmbedArgsSchema } from "./_clip-embed-access.js";
-import { startClipUpload } from "./_clip-upload.js";
+import { clipStorageSchema, startClipUpload } from "./_clip-upload.js";
 
 /**
  * The id the page's Clip block has for one file. Clips binds the Clip to it
@@ -24,6 +24,43 @@ function blockIdFor(uploadKey: string): string {
 function clipEmbedTag(blockId: string, recordingId: string): string {
   return clipEmbedBlockRaw(blockId, { recordingId, origin: "upload" });
 }
+
+const next = z.string();
+
+const outputSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("started"),
+    recordingId: z.string(),
+    uploadKey: z.string(),
+    clipEmbedTag: z.string(),
+    method: z.literal("POST"),
+    chunkUrl: z.string(),
+    cancelUrl: z.string(),
+    chunkSizeBytes: z.number().int().positive(),
+    totalChunks: z.number().int().positive(),
+    expiresAt: z.string(),
+    next,
+  }),
+  z.object({
+    status: z.literal("already_finished"),
+    recordingId: z.string(),
+    uploadKey: z.string(),
+    clipEmbedTag: z.string(),
+    next,
+  }),
+  z.object({ status: z.literal("starting"), uploadKey: z.string(), next }),
+  z.object({ status: z.literal("key_used"), next }),
+  z.object({
+    status: z.literal("storage_required"),
+    storage: clipStorageSchema,
+    next,
+  }),
+  z.object({
+    status: z.literal("too_large"),
+    maxBytes: z.number().int().positive(),
+    next,
+  }),
+]);
 
 const PLACE_TAG =
   "Put clipEmbedTag in the page where the video belongs with edit-document, as its own line, and leave the tag as it is.";
@@ -59,6 +96,7 @@ export default defineAction({
         "Omit on the first start. To start the same file again, as after a failed call or an answer of starting, send the uploadKey the first start returned: Clips then answers with that upload instead of making a second Clip.",
       ),
   }),
+  outputSchema,
   agentTool: false,
   // An outside agent holding a file has no other way to put it in a page as
   // a Clip. The app's own agent has no local files to send.
