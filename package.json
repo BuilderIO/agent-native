@@ -174,6 +174,8 @@
     "guard:single-search-clear": "node scripts/guard-single-search-clear.mjs",
     "guard:no-boot-data-work": "node scripts/guard-no-boot-data-work.mjs",
     "guard:realtime-opt-in": "node scripts/guard-realtime-opt-in.mjs",
+    "guard:blocker-safe-module-names": "node scripts/guard-blocker-safe-module-names.mjs",
+    "test:blocker-safe-module-names": "node --test scripts/guard-blocker-safe-module-names.test.mjs",
     "test:realtime-opt-in-guard": "node --test scripts/guard-realtime-opt-in.test.mjs",
     "guard:tracking-event-names": "node scripts/guard-tracking-event-names.mjs",
     "guard:no-untracked-imports": "node scripts/guard-no-untracked-imports.mjs",
