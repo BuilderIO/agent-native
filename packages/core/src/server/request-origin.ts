@@ -173,14 +173,14 @@ function isDesktopAppOrigin(origin: string | undefined): boolean {
 export function isSameOriginRequest(event: H3Event): boolean {
   if (isListedUiOrigin(event)) return true;
   const origin = getRequestHeader(event, "origin");
+  const host = getRequestHeader(event, "host");
   // WebKit marks every request from the desktop app's tauri:// page
   // Sec-Fetch-Site: cross-site, so this origin is admitted before fetch
   // metadata decides. No web page can send it: browsers set Origin themselves.
-  if (isDesktopAppOrigin(origin)) return true;
+  if (host && isDesktopAppOrigin(origin)) return true;
   const fetchSite = getRequestHeader(event, "sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
 
-  const host = getRequestHeader(event, "host");
   if (origin) {
     if (!host) return false;
     try {

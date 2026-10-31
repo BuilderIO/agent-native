@@ -389,6 +389,16 @@ describe("isSameOriginRequest", () => {
       expected: true,
     },
     {
+      name: "Tauri production origin without a request host",
+      headers: { origin: "tauri://localhost" },
+      expected: false,
+    },
+    {
+      name: "Tauri production origin with cross-site fetch metadata and no request host",
+      headers: { origin: "tauri://localhost", "sec-fetch-site": "cross-site" },
+      expected: false,
+    },
+    {
       name: "Tauri web origin against remote app host",
       headers: { host: "app.example.com", origin: "https://tauri.localhost" },
       expected: false,
