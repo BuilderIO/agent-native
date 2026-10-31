@@ -312,7 +312,7 @@ describe("SearchPage: instant lane + server convergence", () => {
       ),
     );
 
-    await waitFor(() => container.textContent!.includes("Billing v2 spec"));
+    await waitFor(() => container.textContent.includes("Billing v2 spec"));
     expect(
       [...container.querySelectorAll("mark")].map((mark) => mark.textContent),
     ).toEqual(["Billing"]);

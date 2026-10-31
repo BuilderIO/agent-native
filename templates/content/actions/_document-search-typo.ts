@@ -1,13 +1,13 @@
+import type {
+  ParsedSearchQuery,
+  SearchQueryTerm,
+} from "../shared/search-query.js";
 import {
   FUZZY_MIN_QUERY_LENGTH,
   normalizeSearchTitle,
   typoWordScore,
   WORD_SEPARATOR,
 } from "../shared/search-title-ranking.js";
-import type {
-  ParsedSearchQuery,
-  SearchQueryTerm,
-} from "../shared/search-query.js";
 
 /**
  * The server's typo pass for `search-documents`. When a query finds nothing,
@@ -141,13 +141,15 @@ export function correctSearchQueryTypos(
     const pieces = termPieces(term);
     if (!pieces) return [];
     const corrected = new Map<number, string[]>();
-    for (let index = 0; index < pieces.length; index += 2) {
-      const needleChars = Array.from(pieces[index]!);
+    for (const [index, piece] of pieces.entries()) {
+      // Odd indexes are the punctuation between words.
+      if (index % 2) continue;
+      const needleChars = Array.from(piece);
       if (needleChars.length < FUZZY_MIN_QUERY_LENGTH) continue;
       const words = closestWords(vocabulary, needleChars);
       if (!words.length) continue;
       corrected.set(index, words);
-      corrections.set(pieces[index]!, words);
+      corrections.set(piece, words);
     }
     if (!corrected.size) return [];
     // A word inside punctuation ("q3-roadmpa") is replaced in place, by each

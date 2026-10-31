@@ -44,7 +44,7 @@ const OTHER = "search-typo-other@example.com";
 const LARGE = "search-typo-large@example.com";
 
 type Schema = typeof import("../server/db/schema.js");
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: Schema;
 let searchDocuments: typeof import("./search-documents.js").default;
 
@@ -157,7 +157,7 @@ beforeAll(async () => {
   schema = dbModule.schema;
   searchDocuments = (await import("./search-documents.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin(undefined as never);
 
   const start = Date.UTC(2026, 0, 1);
   await getDb()
@@ -290,7 +290,7 @@ describe.each([
       ["kisok", "circled-kiosk", "kisok", "kiosk"],
       ["cafétreia", "decomposed-cafeteria", "cafétreia", "caféteria"],
     ]) {
-      const result = await search(query!, { fallback });
+      const result = await search(query, { fallback });
       expect(ids(result), query).toEqual([id]);
       expect(result.spellingCorrections, query).toEqual([
         { term, replacements: [word] },

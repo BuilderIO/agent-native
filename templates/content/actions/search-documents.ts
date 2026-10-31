@@ -242,7 +242,10 @@ export default defineAction({
           matchPredicates.push(sql`false`);
         } else {
           for (const group of query.groups) {
-            matchPredicates.push(or(...group.terms.map(queryTermPredicate))!);
+            // A group with no terms would match nothing.
+            matchPredicates.push(
+              or(...group.terms.map(queryTermPredicate)) ?? sql`false`,
+            );
           }
           for (const negative of query.negatives) {
             matchPredicates.push(sql`NOT ${queryTermPredicate(negative)}`);
@@ -299,7 +302,7 @@ export default defineAction({
         : undefined;
       const fallbackBodyPosition =
         bodyNeedles.length === 1
-          ? sql<number>`nullif(position(lower(${bodyNeedles[0]!}) in lower(${normalizedContent})), 0)`
+          ? sql<number>`nullif(position(lower(${bodyNeedles[0]}) in lower(${normalizedContent})), 0)`
           : bodyNeedleArray
             ? sql<number>`(
             with recursive body_occurrence(needle, query_order, match_position, occurrence_number) as (
@@ -452,13 +455,11 @@ export default defineAction({
       }
       let totalItems: number;
       if (docs.length) {
-        totalItems = Number(docs[0]!.totalItems);
+        totalItems = Number(docs[0].totalItems);
       } else {
-        const [counted] = await countQuery;
-        // guard:allow-bare-error — invariant: count(*) without GROUP BY always returns one row.
-        if (!counted)
-          throw new Error("Counting search results returned no row.");
-        totalItems = Number(counted.count);
+        // count(*) without GROUP BY always returns one row.
+        const counted: ({ count: number } | undefined)[] = await countQuery;
+        totalItems = Number(counted[0]?.count ?? 0);
       }
       return { docs, previewById, totalItems };
     };

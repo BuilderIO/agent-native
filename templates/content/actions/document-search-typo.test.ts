@@ -10,7 +10,7 @@ import {
 const widen = (word: string, positions: number[]) =>
   Array.from(word, (letter, index) =>
     positions.includes(index)
-      ? String.fromCodePoint(letter.codePointAt(0)! + 0xfee0)
+      ? String.fromCodePoint((letter.codePointAt(0) ?? 0) + 0xfee0)
       : letter,
   ).join("");
 
