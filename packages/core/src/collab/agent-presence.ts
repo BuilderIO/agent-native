@@ -7,7 +7,8 @@ import {
   rememberAwarenessClear,
   type AwarenessEntry,
 } from "./awareness.js";
-import { appendRecentEdit, type RecentEdit } from "./recent-edits.js";
+import { appendRecentEdit } from "./recent-edit-ring.js";
+import type { RecentEdit } from "./types.js";
 import { searchAndReplace } from "./ydoc-manager.js";
 
 const HEARTBEAT_INTERVAL = 10_000;
