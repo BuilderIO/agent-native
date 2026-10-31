@@ -191,7 +191,6 @@ import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { readAnalyticsSessionId } from "./attribution.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
-import { registerBackgroundJobStop } from "./background-jobs.js";
 import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
@@ -364,6 +363,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import { startSandboxExecutionSweep } from "./sandbox-execution-sweep.js";
 import {
   findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
@@ -4237,61 +4237,10 @@ export function createCoreRoutesPlugin(
       // a missing table short-circuits to a no-op) and best-effort — the
       // poll-time drain in run-code covers deployments where warm-instance
       // timers rarely fire.
-      (() => {
-        if (shouldDisableInProcessSweeps()) return;
-        let lastSweep = 0;
-        const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
-        let startupTimer: ReturnType<typeof setTimeout> | null = null;
-        let sweepTimer: ReturnType<typeof setInterval> | null = null;
-        let sweep: Promise<void> | undefined;
-
-        const stopSandboxExecutionSweep = () => {
-          if (startupTimer) {
-            clearTimeout(startupTimer);
-            startupTimer = null;
-          }
-          if (sweepTimer) {
-            clearInterval(sweepTimer);
-            sweepTimer = null;
-          }
-        };
-
-        startupTimer = setTimeout(() => {
-          startupTimer = null;
-          sweepTimer = setInterval(() => {
-            const now = Date.now();
-            // One sweep at a time, so stopping has only one to wait for.
-            if (sweep || now - lastSweep < SWEEP_INTERVAL_MS) return;
-            lastSweep = now;
-
-            sweep = (async () => {
-              const { drainDueSandboxExecutions } =
-                await import("../coding-tools/sandbox/background.js");
-              await drainDueSandboxExecutions({ limit: 5 });
-            })()
-              .catch(() => {
-                // best-effort — never break the server
-              })
-              .finally(() => {
-                sweep = undefined;
-              });
-          }, 30_000); // Check every 30s but only sweep once per 2min
-          sweepTimer.unref?.();
-        }, 25_000); // Start 25s after init (after the agent sweeps)
-        startupTimer.unref?.();
-
-        // A sweep under way may still be starting executions; let it, then
-        // wait for them like any other run this process started.
-        registerBackgroundJobStop(async function stopSandboxExecutions() {
-          stopSandboxExecutionSweep();
-          if (!sweep) return;
-          await sweep;
-          const { waitForInProcessSandboxExecutions } =
-            await import("../coding-tools/sandbox/background.js");
-          await waitForInProcessSandboxExecutions();
-        });
+      if (!shouldDisableInProcessSweeps()) {
+        const stopSandboxExecutionSweep = startSandboxExecutionSweep();
         nitroApp.hooks?.hook?.("close", stopSandboxExecutionSweep);
-      })();
+      }
 
       getH3App(nitroApp).use(
         `${P}/debug/runtime`,
