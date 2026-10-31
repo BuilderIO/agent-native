@@ -955,6 +955,43 @@ export default defineAction({
       }
     }
 
+    // plan_comments.section_id references plan_sections, so an unknown id
+    // would fail the UPDATE below as a bare 500. Reject it the way new
+    // comments are rejected.
+    const movedToSectionIds = onlyUpdatesCommentStatuses
+      ? []
+      : [
+          ...new Set(
+            existingCommentUpdates.flatMap((comment) =>
+              comment.sectionId &&
+              comment.sectionId !== comment.existing.sectionId
+                ? [comment.sectionId]
+                : [],
+            ),
+          ),
+        ];
+    if (movedToSectionIds.length > 0) {
+      const foundSections = await db
+        .select({ id: schema.planSections.id })
+        .from(schema.planSections)
+        .where(
+          and(
+            eq(schema.planSections.planId, args.planId),
+            inArray(schema.planSections.id, movedToSectionIds),
+          ),
+        );
+      const foundSectionIds = new Set(foundSections.map((s) => s.id));
+      const missingSectionId = movedToSectionIds.find(
+        (id) => !foundSectionIds.has(id),
+      );
+      if (missingSectionId) {
+        fail(
+          `Section ${missingSectionId} was not found on plan ${args.planId}.`,
+          { errorCode: "plan_section_not_found", statusCode: 422 },
+        );
+      }
+    }
+
     const bundleForCommentInserts =
       pendingCommentInserts.length > 0
         ? await loadPlanBundle(args.planId)

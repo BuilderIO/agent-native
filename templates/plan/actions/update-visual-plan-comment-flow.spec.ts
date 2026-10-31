@@ -163,6 +163,7 @@ function buildTransactionDb(
   capturedRows: CapturedRow[],
   capturedUpdates: CapturedCommentUpdate[] = [],
   existingComments: ExistingCommentRow[] = [],
+  sections: Array<{ id: string }> = [],
 ) {
   const txInsert = vi.fn((table: unknown) => ({
     values: vi.fn(async (row: CapturedRow) => {
@@ -197,7 +198,11 @@ function buildTransactionDb(
     insert: txInsert,
     update: txUpdate,
     select: vi.fn(() => ({
-      from: vi.fn(() => ({ where: vi.fn(async () => existingComments) })),
+      from: vi.fn((table: { id?: string }) => ({
+        where: vi.fn(async () =>
+          table?.id === "planSections.id" ? sections : existingComments,
+        ),
+      })),
     })),
   };
 }
@@ -423,6 +428,76 @@ describe("update-visual-plan comment path (integration)", () => {
     expect(assertPlanEditorMock).toHaveBeenCalledWith("plan_1");
     expect(capturedRows).toHaveLength(0);
     expect(capturedUpdates).toHaveLength(0);
+  });
+
+  // A pin's anchor records the nearest element id (often a block id such as
+  // "section-2"), and plan_comments.section_id references plan_sections, so
+  // saving that id failed the UPDATE with a bare 500.
+  const pinnedComment: ExistingCommentRow = {
+    id: "existing_pin",
+    sectionId: null,
+    kind: "annotation",
+    anchor: JSON.stringify({ x: 27, y: 40, sectionId: "section-2" }),
+    message: "Original feedback",
+    createdBy: "human",
+    authorEmail: "owner@example.com",
+    resolutionTarget: "agent",
+    mentionsJson: null,
+  };
+  const pinnedEdit = (sectionId: string) => ({
+    planId: "plan_1",
+    contentPatches: [],
+    sections: [],
+    consumedCommentIds: [],
+    comments: [
+      {
+        id: "existing_pin",
+        message: "Edited feedback",
+        kind: "annotation",
+        status: "open",
+        sectionId,
+        anchor: pinnedComment.anchor,
+        createdBy: "human",
+      },
+    ],
+  });
+
+  it("rejects an edit that names a section the plan does not have", async () => {
+    request.email = "owner@example.com";
+    const capturedRows: CapturedRow[] = [];
+    const capturedUpdates: CapturedCommentUpdate[] = [];
+    getDbMock.mockReturnValue(
+      buildTransactionDb(capturedRows, capturedUpdates, [pinnedComment], []),
+    );
+    loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+    await expect(run(pinnedEdit("section-2"))).rejects.toThrow(
+      "Section section-2 was not found on plan plan_1.",
+    );
+    expect(capturedUpdates).toHaveLength(0);
+  });
+
+  it("saves an edit that moves a comment into one of the plan's sections", async () => {
+    request.email = "owner@example.com";
+    const capturedRows: CapturedRow[] = [];
+    const capturedUpdates: CapturedCommentUpdate[] = [];
+    getDbMock.mockReturnValue(
+      buildTransactionDb(
+        capturedRows,
+        capturedUpdates,
+        [pinnedComment],
+        [{ id: "sec_2" }],
+      ),
+    );
+    loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+    await run(pinnedEdit("sec_2"));
+
+    expect(capturedUpdates).toHaveLength(1);
+    expect(capturedUpdates[0]).toMatchObject({
+      sectionId: "sec_2",
+      message: "Edited feedback",
+    });
   });
 
   it("notifies recipients with the inserted ids and prior comments after a comment insert", async () => {

@@ -1,5 +1,8 @@
-import { createHash } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
+// Namespace imports, read only when called: the browser loads this module for
+// parsePlanMdxFolder (app/lib/plan-local-bridge.ts), and the Vite dev server
+// throws as soon as a named export of a Node module is read in client code.
+import * as nodeCrypto from "node:crypto";
+import * as nodeUtil from "node:util";
 
 import {
   BlockRegistry,
@@ -1577,7 +1580,7 @@ function samePlanBlockSource(current: PlanBlock, previous: PlanBlock): boolean {
     unknown
   >;
   stripBlockIdsForSourceComparison(currentCopy, previousCopy);
-  return isDeepStrictEqual(currentCopy, previousCopy);
+  return nodeUtil.isDeepStrictEqual(currentCopy, previousCopy);
 }
 
 function canonicalSourceJson(value: unknown): string {
@@ -1674,7 +1677,8 @@ function planBlockSourceFingerprint(
   if (normalizeLegacyDefaults) {
     stripEmptyRequiredFieldsForSourceKey(currentCopy);
   }
-  return createHash("sha256")
+  return nodeCrypto
+    .createHash("sha256")
     .update(canonicalSourceJson(currentCopy))
     .digest("hex");
 }
@@ -1863,7 +1867,10 @@ function nestedParentShellFingerprint(block: PlanBlock): string | null {
     delete record.id;
     delete record.blocks;
   }
-  return createHash("sha256").update(canonicalSourceJson(copy)).digest("hex");
+  return nodeCrypto
+    .createHash("sha256")
+    .update(canonicalSourceJson(copy))
+    .digest("hex");
 }
 
 function preserveIdlessBlockIds(
@@ -2435,7 +2442,7 @@ function samePlanColumnSource(
       }
     }
   }
-  return isDeepStrictEqual(currentCopy, previousCopy);
+  return nodeUtil.isDeepStrictEqual(currentCopy, previousCopy);
 }
 
 function samePlanNestedGroupSource(
@@ -2471,7 +2478,7 @@ function samePlanNestedGroupSource(
     delete currentCopy.blocks;
     delete previousCopy.blocks;
   }
-  return isDeepStrictEqual(currentCopy, previousCopy);
+  return nodeUtil.isDeepStrictEqual(currentCopy, previousCopy);
 }
 
 function reuseMatchingNestedBlockIds(
@@ -3233,7 +3240,7 @@ function createStableWireframeNodeId(
 }
 
 function createStablePlanSourceId(context: string): string {
-  return `source-${createHash("sha256").update(context).digest("hex").slice(0, 24)}`;
+  return `source-${nodeCrypto.createHash("sha256").update(context).digest("hex").slice(0, 24)}`;
 }
 
 function parseWireframeNode(
