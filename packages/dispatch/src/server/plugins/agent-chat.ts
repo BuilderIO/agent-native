@@ -1,5 +1,8 @@
 import { getOrgContext } from "@agent-native/core/org";
-import { createAgentChatPlugin } from "@agent-native/core/server";
+import {
+  createAgentChatPlugin,
+  getBuilderWorkspaceUrl,
+} from "@agent-native/core/server";
 
 import { dispatchActions } from "../../actions/index.js";
 import {
@@ -98,5 +101,17 @@ Use the standard workspace primitives:
 When a user asks for something like a digest, reminder, routing rule, or saved behavior:
 - First decide whether it should be a resource, a recurring job, a destination, or a delegated task.
 - Keep responses concise and operational.
-- Avoid inventing integrations or destinations that are not configured yet.`,
+- Avoid inventing integrations or destinations that are not configured yet.${builderManagedAppsNote()}`,
 });
+
+/**
+ * A Builder-linked workspace builds its apps in Builder; app-creation actions
+ * return a link there, and the agent should offer it rather than retry.
+ */
+function builderManagedAppsNote(): string {
+  const url = getBuilderWorkspaceUrl();
+  if (!url) return "";
+  return `
+
+This workspace is managed in Builder. Never create, scaffold, remix, or install workspace apps from here. When someone asks for a new app, point them to ${url} and tell them to use New app there.`;
+}

@@ -48,6 +48,7 @@ registerIdentityColumns([
 
 registerShareableResource({
   type: "deck",
+  agentRead: { actions: ["get-deck"] },
   resourceTable: schema.decks,
   sharesTable: schema.deckShares,
   displayName: "Deck",
@@ -63,6 +64,7 @@ registerShareableResource({
 
 registerShareableResource({
   type: "design-system",
+  agentRead: { actions: ["get-design-system"] },
   resourceTable: schema.designSystems,
   sharesTable: schema.designSystemShares,
   displayName: "Design System",

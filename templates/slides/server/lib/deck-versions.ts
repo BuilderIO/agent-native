@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { ActionRunContext } from "@agent-native/core/action";
 import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -8,6 +10,11 @@ import { getDb, schema } from "../db/index.js";
 export { deckContentSignature as deckVersionContentSignature } from "../../shared/deck-content.js";
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
+
+/** Stored on each version so a save never re-reads an old body to compare. */
+export function deckVersionContentHash(data: unknown): string {
+  return createHash("sha256").update(deckContentSignature(data)).digest("hex");
+}
 
 export interface DeckVersionChatContext {
   threadId?: string;
@@ -112,6 +119,21 @@ function normalizedChatContext(
   }
 }
 
+/** Versions saved before `content_hash` existed fall back to their body. */
+async function legacyVersionContentHash(
+  db: ReturnType<typeof getDb>,
+  versionId: string,
+): Promise<string | null> {
+  const row = (
+    await db
+      .select({ data: schema.deckVersions.data })
+      .from(schema.deckVersions)
+      .where(eq(schema.deckVersions.id, versionId))
+      .limit(1)
+  ).at(0);
+  return row ? deckVersionContentHash(row.data) : null;
+}
+
 export async function createDeckVersionSnapshot(
   source: DeckSnapshotSource,
   options: {
@@ -126,29 +148,45 @@ export async function createDeckVersionSnapshot(
   }
 
   const db = options.db ?? getDb();
-  const [latestVersion] = await db
-    .select({
-      title: schema.deckVersions.title,
-      data: schema.deckVersions.data,
-      createdAt: schema.deckVersions.createdAt,
-      chatContext: schema.deckVersions.chatContext,
-    })
-    .from(schema.deckVersions)
-    .where(
-      and(
-        eq(schema.deckVersions.deckId, source.id),
-        eq(schema.deckVersions.ownerEmail, source.ownerEmail),
-      ),
-    )
-    .orderBy(desc(schema.deckVersions.createdAt))
-    .limit(1);
+  const latestVersion = (
+    await db
+      .select({
+        id: schema.deckVersions.id,
+        title: schema.deckVersions.title,
+        contentHash: schema.deckVersions.contentHash,
+        createdAt: schema.deckVersions.createdAt,
+        chatContext: schema.deckVersions.chatContext,
+      })
+      .from(schema.deckVersions)
+      .where(
+        and(
+          eq(schema.deckVersions.deckId, source.id),
+          eq(schema.deckVersions.ownerEmail, source.ownerEmail),
+        ),
+      )
+      .orderBy(desc(schema.deckVersions.createdAt))
+      .limit(1)
+  ).at(0);
 
+  // Most editor saves land inside the interval; they must not pay for
+  // fingerprinting either deck inside the write transaction.
+  if (!options.force && latestVersion?.createdAt) {
+    const latestAt = new Date(latestVersion.createdAt).getTime();
+    if (
+      Number.isFinite(latestAt) &&
+      Date.now() - latestAt < SNAPSHOT_INTERVAL_MS
+    ) {
+      return { created: false, reason: "interval" };
+    }
+  }
+
+  const contentHash = deckVersionContentHash(source.data);
   if (
     options.chatContext?.phase !== "start" &&
     latestVersion &&
     latestVersion.title === source.title &&
-    deckContentSignature(latestVersion.data) ===
-      deckContentSignature(source.data)
+    (latestVersion.contentHash ??
+      (await legacyVersionContentHash(db, latestVersion.id))) === contentHash
   ) {
     return { created: false, reason: "duplicate" };
   }
@@ -169,16 +207,6 @@ export async function createDeckVersionSnapshot(
     return { created: false, reason: "same-agent-turn" };
   }
 
-  if (!options.force && latestVersion?.createdAt) {
-    const latestAt = new Date(latestVersion.createdAt).getTime();
-    if (
-      Number.isFinite(latestAt) &&
-      Date.now() - latestAt < SNAPSHOT_INTERVAL_MS
-    ) {
-      return { created: false, reason: "interval" };
-    }
-  }
-
   const id = nanoid();
   const values = {
     id,
@@ -186,6 +214,7 @@ export async function createDeckVersionSnapshot(
     deckId: source.id,
     title: source.title,
     data: source.data,
+    contentHash,
     changeLabel: options.label,
     ...(options.chatContext
       ? { chatContext: JSON.stringify(options.chatContext) }

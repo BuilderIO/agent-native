@@ -1518,6 +1518,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
   });
 
   it("binds a domain-only first-party token to the receiver's local organization", async () => {
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
       orgId: "recipient-org-by-domain",
       orgDomain: "builder.io",

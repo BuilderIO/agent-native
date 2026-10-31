@@ -1,5 +1,5 @@
 import { insertAgentComposerReference } from "@agent-native/core/client/agent-chat";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -953,7 +953,7 @@ export default function TemplateEditorRoute() {
     body.append("files", file);
     setReferenceUploadPending(entry.id);
     try {
-      const response = await fetch(`${appBasePath()}/api/assets/upload`, {
+      const response = await fetch(appApiPath("/api/assets/upload"), {
         method: "POST",
         body,
       });
@@ -1034,7 +1034,7 @@ export default function TemplateEditorRoute() {
       setSkeletonUploadPending(true);
     }
     try {
-      const response = await fetch(`${appBasePath()}/api/assets/upload`, {
+      const response = await fetch(appApiPath("/api/assets/upload"), {
         method: "POST",
         body,
       });

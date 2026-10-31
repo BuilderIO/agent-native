@@ -17,7 +17,8 @@ function retrySafeOf(action: { retrySafe?: unknown }): RetrySafe {
 describe("get-deck retry safety", () => {
   it("is retry-safe because its only write is an idempotent duplicate-id repair", () => {
     expect(getDeck.retrySafe).toBe(true);
-    expect(getDeck.readOnly).toBe(false);
+    // oracle-change: the repair is saved only for the app's own UI, so get-deck is now classified read-only.
+    expect(getDeck.readOnly).toBe(true);
   });
 });
 

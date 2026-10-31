@@ -1,5 +1,5 @@
 import {
-  appBasePath,
+  appApiPath,
   appPath,
   WorkspaceAppMountResolutionError,
 } from "@agent-native/core/client/api-path";
@@ -346,7 +346,7 @@ export default function DownloadPage() {
     setMountResolutionError(false);
     let manifestUrl: string;
     try {
-      const latestJsonUrl = `${appBasePath()}${LATEST_JSON_PATH}`;
+      const latestJsonUrl = appApiPath(LATEST_JSON_PATH);
       manifestUrl =
         channel === "nightly"
           ? `${latestJsonUrl}?channel=nightly`

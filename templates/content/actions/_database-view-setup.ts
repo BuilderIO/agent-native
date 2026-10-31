@@ -56,7 +56,12 @@ const filterSchema = z
   .object({
     key: z.string().trim().min(1).max(200),
     label: z.string().max(500),
-    operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
+    operator: z
+      .enum(CONTENT_DATABASE_FILTER_OPERATORS)
+      .describe(
+        `Operators depend on the property's type. For multi_select use ${contentDatabaseFilterOperatorsForType("multi_select").join(", ")}. ` +
+          'To exclude several options, use one does_not_equal condition per option and explicitly set filterMode to "and" (patch.filterMode alongside patch.filters for update). does_not_contain applies to text.',
+      ),
     value: z.string(),
     filterGroupId: z.string().max(200).optional(),
     parentFilterGroupId: z.string().max(200).optional(),
@@ -68,7 +73,12 @@ const filterSchema = z
 const tablePatchFields = {
   sorts: z.array(sortSchema).max(100).optional(),
   filters: z.array(filterSchema).max(100).optional(),
-  filterMode: z.enum(["and", "or"]).optional(),
+  filterMode: z
+    .enum(["and", "or"])
+    .optional()
+    .describe(
+      'How to combine filters. A sparse update preserves the saved mode when omitted; explicitly set "and" when replacing filters with multiple exclusions.',
+    ),
   columnWidths: z
     .record(
       z.string().trim().min(1).max(200),
@@ -228,6 +238,35 @@ export const updateContentDatabaseViewAgentSchema = z.discriminatedUnion(
         patch: updateViewPatchSchema,
       })
       .strict(),
+    setupGuardSchema
+      .extend({
+        expectedConfigurationRevision: z.string().min(1),
+        operation: z.literal("copy-settings"),
+        sourceViewId: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("Saved table view whose settings to copy"),
+        viewId: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("Target table view; its name and icon stay unchanged"),
+        filters: z
+          .array(filterSchema)
+          .max(100)
+          .describe(
+            "Complete replacement filters, including any source filters to retain",
+          ),
+        filterMode: z
+          .enum(["and", "or"])
+          .describe(
+            "How to combine the replacement filters. Use and for multiple exclusions. To retain source or filters while adding constraints, give those filters the same filterGroupId and filterGroupMode: or, then combine that group with the new filters using filterMode: and.",
+          ),
+      })
+      .strict(),
   ],
 );
 
@@ -317,12 +356,11 @@ function validateTablePatch(
   }
   for (const filter of patch.filters ?? []) {
     const type = filter.key === "name" ? "text" : typeById.get(filter.key)!;
-    if (
-      !contentDatabaseFilterOperatorsForType(type).includes(filter.operator)
-    ) {
+    const allowedOperators = contentDatabaseFilterOperatorsForType(type);
+    if (!allowedOperators.includes(filter.operator)) {
       setupError(
         "INVALID_VIEW_REFERENCE",
-        `Filter operator \"${filter.operator}\" is not valid for property \"${filter.key}\".`,
+        `Filter operator \"${filter.operator}\" is not valid for property \"${filter.key}\" (${type}). Allowed operators: ${allowedOperators.join(", ")}.`,
         400,
       );
     }
@@ -638,11 +676,19 @@ export async function runUpdateContentDatabaseView(
     payload:
       input.operation === "create"
         ? { operation: input.operation, view: input.view }
-        : {
-            operation: input.operation,
-            viewId: input.viewId,
-            patch: input.patch,
-          },
+        : input.operation === "copy-settings"
+          ? {
+              operation: input.operation,
+              sourceViewId: input.sourceViewId,
+              viewId: input.viewId,
+              filters: input.filters,
+              filterMode: input.filterMode,
+            }
+          : {
+              operation: input.operation,
+              viewId: input.viewId,
+              patch: input.patch,
+            },
     apply: async (tx, context) => {
       const rawConfig = parseRawConfig(context.database.viewConfigJson);
       const normalized = parseDatabaseViewConfig(
@@ -682,8 +728,36 @@ export async function runUpdateContentDatabaseView(
             404,
           );
         }
-        const patchKeys = Object.keys(input.patch);
-        let patch: Record<string, unknown> = input.patch;
+        let inputPatch: z.infer<typeof updateViewPatchSchema>;
+        if (input.operation === "copy-settings") {
+          const source = normalized.views.find(
+            (view) => view.id === input.sourceViewId,
+          );
+          if (source?.type !== "table" || existing.type !== "table") {
+            setupError(
+              "INVALID_VIEW_REFERENCE",
+              "Copy settings requires an available source and target table view.",
+              400,
+            );
+          }
+          const {
+            id: _id,
+            name: _name,
+            icon: _icon,
+            type: _type,
+            itemLayout: _itemLayout,
+            ...settings
+          } = source;
+          inputPatch = {
+            ...settings,
+            filters: input.filters,
+            filterMode: input.filterMode,
+          };
+        } else {
+          inputPatch = input.patch;
+        }
+        const patchKeys = Object.keys(inputPatch);
+        let patch: Record<string, unknown> = inputPatch;
         if (existing.type === "list") {
           const unsupported = patchKeys.find(
             (key) => !LIST_VIEW_PATCH_KEYS.has(key),
@@ -695,9 +769,9 @@ export async function runUpdateContentDatabaseView(
               400,
             );
           }
-          const { itemLayoutPreset: _preset, ...rest } = input.patch;
+          const { itemLayoutPreset: _preset, ...rest } = inputPatch;
           const itemLayout = nextListItemLayout(
-            input.patch,
+            inputPatch,
             existing,
             context.definitions,
           );
@@ -711,11 +785,7 @@ export async function runUpdateContentDatabaseView(
               400,
             );
           }
-          validateTablePatch(
-            input.patch,
-            context.definitions,
-            existing.filters,
-          );
+          validateTablePatch(inputPatch, context.definitions, existing.filters);
         } else {
           setupError(
             "UNSUPPORTED_SCHEMA_CHANGE",
