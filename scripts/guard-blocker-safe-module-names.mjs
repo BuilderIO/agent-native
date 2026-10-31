@@ -74,8 +74,13 @@ const BROWSER_ROOTS = [
       `/@fs/node_modules/@agent-native/${pkg}/dist/${rel.replace(SCRIPT, ".js")}`,
   },
   {
-    pathspec: ["templates/*/app/**", "templates/*/shared/**"],
-    pattern: /^templates\/[^/]+\/((?:app|shared)\/.+)$/,
+    pathspec: [
+      "templates/*/app/**",
+      "templates/*/shared/**",
+      "community-templates/*/app/**",
+      "community-templates/*/shared/**",
+    ],
+    pattern: /^(?:community-)?templates\/[^/]+\/((?:app|shared)\/.+)$/,
     url: ([, rel]) => `/${rel}`,
   },
   {
@@ -84,8 +89,13 @@ const BROWSER_ROOTS = [
     url: ([, rel]) => `/${rel}`,
   },
   {
-    pathspec: ["templates/*/public/**", "packages/docs/public/**"],
-    pattern: /^(?:templates\/[^/]+|packages\/docs)\/public\/(.+)$/,
+    pathspec: [
+      "templates/*/public/**",
+      "community-templates/*/public/**",
+      "packages/docs/public/**",
+    ],
+    pattern:
+      /^(?:(?:community-)?templates\/[^/]+|packages\/docs)\/public\/(.+)$/,
     url: ([, rel]) => `/${rel}`,
   },
 ];

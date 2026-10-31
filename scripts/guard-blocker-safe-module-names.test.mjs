@@ -19,6 +19,8 @@ test("maps every browser root to the URL it is served at", () => {
     ["templates/chat/app/routes/_index.tsx", "/app/routes/_index.tsx"],
     ["templates/chat/app/locales/en-US.json", "/app/locales/en-US.json"],
     ["templates/mail/shared/types.ts", "/shared/types.ts"],
+    ["community-templates/account-expert/app/root.tsx", "/app/root.tsx"],
+    ["community-templates/account-expert/public/sw.js", "/sw.js"],
     ["templates/clips/public/sw.js", "/sw.js"],
     ["packages/docs/app/root.tsx", "/app/root.tsx"],
     ["packages/docs/public/search.js", "/search.js"],
