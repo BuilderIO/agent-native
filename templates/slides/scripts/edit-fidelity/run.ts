@@ -4940,25 +4940,100 @@ async function runAuthoringCorpusQa(
           const after = await snapshot(page, slideId, {
             ...authoredTarget,
           });
-          const beforeToAfter = outsideChangesFor(before, after);
+          // An anchored wrapper whose content grows legitimately re-centres
+          // (top, transform, height, y); only a drifting bottom anchor or a
+          // rewritten authored style is a regression.
+          const outsideChangesAllowingAnchoredWrapper = (
+            from: Awaited<ReturnType<typeof snapshot>>,
+            to: Awaited<ReturnType<typeof snapshot>>,
+          ) => {
+            const result = outsideChangesFor(from, to);
+            if (source.kind !== "fractional-absolute-wrapper") return result;
+            const wrapper = from.records.find(
+              (record) =>
+                record.kind === "box" &&
+                /bottom:\s*3\.3125px/u.test(record.inlineStyle ?? ""),
+            );
+            const wrapperAfter = to.records.find(
+              (record) => record.key === wrapper?.key,
+            );
+            if (
+              !wrapper ||
+              !wrapperAfter ||
+              wrapper.inlineStyle !== wrapperAfter.inlineStyle
+            ) {
+              return result;
+            }
+            // Anchored at the bottom and translated by -50% of its own height,
+            // so y + 1.5 * height stays put however the content grows.
+            const anchor = (rect: { y: number; height: number }) =>
+              rect.y + rect.height * 1.5;
+            if (
+              Math.abs(anchor(wrapper.rect) - anchor(wrapperAfter.rect)) > 2
+            ) {
+              return result;
+            }
+            const wrapperShift = wrapperAfter.rect.y - wrapper.rect.y;
+            const wrapperProps = new Set([
+              "top",
+              "transform",
+              "transform-origin",
+              "y",
+              "height",
+            ]);
+            const inWrapper = (rect: { x: number; y: number }) =>
+              rect.x >= wrapper.rect.x - 1 &&
+              rect.x <= wrapper.rect.x + wrapper.rect.width &&
+              rect.y >= wrapper.rect.y - 1 &&
+              rect.y <= wrapper.rect.y + wrapper.rect.height;
+            return {
+              ...result,
+              changes: result.changes.filter((change) => {
+                if (!("prop" in change && "a" in change && "b" in change))
+                  return true;
+                if (change.key === wrapper.key) {
+                  return !wrapperProps.has(String(change.prop));
+                }
+                // An out-of-flow child pinned inside the wrapper rides along.
+                const previous = from.records.find(
+                  (record) => record.key === change.key,
+                );
+                return !(
+                  change.prop === "y" &&
+                  previous &&
+                  inWrapper(previous.rect) &&
+                  Math.abs(
+                    Number(change.b) - Number(change.a) - wrapperShift,
+                  ) <= 2
+                );
+              }),
+            };
+          };
+          const beforeToAfter = outsideChangesAllowingAnchoredWrapper(
+            before,
+            after,
+          );
           const phases = [
             {
               name: "edit entry",
               before: viewBefore,
               after: before,
-              ...outsideChangesFor(viewBefore, before),
+              ...outsideChangesAllowingAnchoredWrapper(viewBefore, before),
             },
             {
               name: "in-place authoring",
               before,
               after: editingAfter,
-              ...outsideChangesFor(before, editingAfter),
+              ...outsideChangesAllowingAnchoredWrapper(before, editingAfter),
             },
             {
               name: "edit exit",
               before: viewBefore,
               after: viewAfterExit,
-              ...outsideChangesFor(viewBefore, viewAfterExit),
+              ...outsideChangesAllowingAnchoredWrapper(
+                viewBefore,
+                viewAfterExit,
+              ),
             },
           ];
           const valueProps = new Set([
