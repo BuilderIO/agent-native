@@ -9,8 +9,18 @@ vi.mock("@agent-native/core/server", () => ({
 
 type RequestHook = (event: unknown) => Promise<void>;
 
-function request(method: string, headers: Record<string, string>) {
-  return { req: { method, headers: new Headers(headers) } };
+function request(
+  method: string,
+  path: string,
+  headers: Record<string, string>,
+) {
+  return {
+    req: {
+      method,
+      url: `https://slides.agent-native.com${path}`,
+      headers: new Headers(headers),
+    },
+  };
 }
 
 async function installPlugin() {
@@ -43,27 +53,63 @@ describe("Toolkit auth plugin's lazy sign-in renderer", () => {
     expect(html).not.toContain('id="login-form"');
   });
 
-  it("does not load the renderers for API calls", async () => {
+  it("does not load the renderers for API calls or other posts", async () => {
     const { onRequest, signInHtml } = await installPlugin();
 
-    await onRequest(request("GET", { accept: "*/*" }));
-    await onRequest(request("GET", { accept: "application/json" }));
-    await onRequest(request("POST", { accept: "*/*" }));
+    await onRequest(
+      request("GET", "/_agent-native/actions/list-documents", {
+        accept: "*/*",
+      }),
+    );
+    await onRequest(
+      request("GET", "/docs/_agent-native/org/me", {
+        accept: "application/json",
+      }),
+    );
+    await onRequest(
+      request("POST", "/_agent-native/actions/update-document", {
+        accept: "*/*",
+      }),
+    );
+    await onRequest(request("POST", "/api/webhooks/github", { accept: "*/*" }));
 
     expect(signInHtml()).toContain('data-agent-native-auth-fallback="true"');
   });
 
   it.each([
-    ["a document", "GET", { "sec-fetch-dest": "document" }],
-    ["an iframe", "GET", { "sec-fetch-dest": "iframe" }],
-    ["an HTML", "GET", { accept: "text/html,application/xhtml+xml" }],
-    ["a form post", "POST", { "sec-fetch-dest": "document" }],
+    [
+      "a document navigation",
+      "GET",
+      "/_agent-native/sign-in",
+      { "sec-fetch-dest": "document" },
+    ],
+    [
+      "an iframe navigation",
+      "GET",
+      "/_agent-native/sign-in",
+      { "sec-fetch-dest": "iframe" },
+    ],
+    [
+      "an HTML request",
+      "GET",
+      "/_agent-native/sign-in",
+      { accept: "text/html,application/xhtml+xml" },
+    ],
+    ["a form post", "POST", "/login", { "sec-fetch-dest": "document" }],
+    ["another client's page read", "GET", "/", { accept: "*/*" }],
+    [
+      "another client's read of the old sign-in path",
+      "GET",
+      "/docs/_agent-native/sign-in",
+      { accept: "*/*" },
+    ],
+    ["a HEAD request for a page", "HEAD", "/login", {}],
   ])(
-    "server-renders the sign-in page once %s request has been handled",
-    async (_kind, method, headers) => {
+    "server-renders the sign-in page once %s has been handled",
+    async (_kind, method, path, headers) => {
       const { onRequest, signInHtml } = await installPlugin();
 
-      await onRequest(request(method, headers));
+      await onRequest(request(method, path, headers));
 
       const html = signInHtml();
       expect(html).toContain('id="login-form"');

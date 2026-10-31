@@ -3,13 +3,14 @@ import type {
   AuthPageProps,
   ResetPasswordPageProps,
 } from "@agent-native/core/shared/auth-page-types";
+import { SIGN_IN_LEGACY_ENTRY_PATH } from "@agent-native/core/shared/sign-in-journey";
 
 type AuthPageRenderers = typeof import("./render-pages.js");
 
 // The renderers bring React DOM's server renderer and the auth pages with
 // their icon set, about 3 MB a fresh server would otherwise compile before
-// answering anything. The plugin loads them before the first page navigation
-// is handled, and a sign-in page served before then starts the load.
+// answering anything. The plugin loads them before the first page request is
+// handled, and a sign-in page served before then starts the load.
 let renderers: AuthPageRenderers | undefined;
 let loading: Promise<AuthPageRenderers | undefined> | undefined;
 
@@ -53,7 +54,11 @@ export function renderAuthResetPasswordPage(
 }
 
 type RequestHookEvent = {
-  req: { method: string; headers: { get(name: string): string | null } };
+  req: {
+    method: string;
+    url: string;
+    headers: { get(name: string): string | null };
+  };
 };
 
 type RequestHooks = {
@@ -63,16 +68,22 @@ type RequestHooks = {
   ): unknown;
 };
 
-// A browser navigation, including a form post, names a document or iframe
-// destination or accepts HTML. `fetch()` calls send `*/*` and never load the
-// renderers; a sign-in page served to such a request gets core's fallback
-// markup, kept out of shared caches.
-function isPageNavigation(event: RequestHookEvent): boolean {
-  const fetchDest = event.req.headers.get("sec-fetch-dest")?.toLowerCase();
+// The app's own API calls go to `/_agent-native/` and never load the
+// renderers. Any read of a page outside it, or of the old sign-in path, loads
+// them first, whatever the client (a browser, a link preview, the deploy's
+// cache check), because the sign-in page it may get is cached for every
+// visitor. So does a browser navigation, a form post included, which names a
+// document or iframe destination or accepts HTML.
+function needsRenderers(event: RequestHookEvent): boolean {
+  const { method, url, headers } = event.req;
+  const fetchDest = headers.get("sec-fetch-dest")?.toLowerCase();
   if (fetchDest === "document" || fetchDest === "iframe") return true;
+  if (headers.get("accept")?.toLowerCase().includes("text/html")) return true;
+  if (method !== "GET" && method !== "HEAD") return false;
+  const { pathname } = new URL(url, "http://localhost");
   return (
-    event.req.headers.get("accept")?.toLowerCase().includes("text/html") ??
-    false
+    pathname.endsWith(SIGN_IN_LEGACY_ENTRY_PATH) ||
+    !pathname.includes("/_agent-native/")
   );
 }
 
@@ -89,7 +100,7 @@ export function createToolkitAuthPlugin(options: AuthOptions = {}) {
   return (nitroApp: unknown) => {
     const hooks = (nitroApp as { hooks?: Partial<RequestHooks> } | null)?.hooks;
     hooks?.hook?.("request", async (event) => {
-      if (!renderers && isPageNavigation(event)) await loadAuthPageRenderers();
+      if (!renderers && needsRenderers(event)) await loadAuthPageRenderers();
     });
     return plugin(nitroApp);
   };

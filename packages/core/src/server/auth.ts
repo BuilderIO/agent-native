@@ -289,7 +289,6 @@ import {
 } from "./mcp-signup-attribution.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
-  AUTH_FALLBACK_ATTRIBUTE,
   getDeploySettingsRequiredHtml,
   getOnboardingHtml,
   getResetPasswordHtml,
@@ -2400,11 +2399,6 @@ let trustCustomEmailVerification = false;
 interface AuthGuardConfig {
   getLoginHtml: (event: H3Event, rawPath: string) => string;
   /**
-   * An app renderer server-renders the sign-in page. While it can't render
-   * yet, `getLoginHtml` returns core's fallback markup.
-   */
-  rendersSignInPage: boolean;
-  /**
    * The page served instead of sign-in, or null when sign-in can work. Set
    * only where the framework's own accounts sign people in; a custom
    * `getSession` has its own requirements.
@@ -2605,17 +2599,12 @@ function getOnboardingLoginHtmlConfig(
   authMode?: OnboardingHtmlOptions["authMode"],
 ): Pick<
   AuthGuardConfig,
-  | "getLoginHtml"
-  | "rendersSignInPage"
-  | "getSetupRequiredHtml"
-  | "authMode"
-  | "rootAuth"
+  "getLoginHtml" | "getSetupRequiredHtml" | "authMode" | "rootAuth"
 > {
   const { loginHtml } = options;
   if (loginHtml) {
     return {
       getLoginHtml: () => loginHtml,
-      rendersSignInPage: false,
       getSetupRequiredHtml: getDeploySettingsRequiredPage,
       authMode,
       rootAuth: options.rootAuth ?? true,
@@ -2628,7 +2617,6 @@ function getOnboardingLoginHtmlConfig(
     rootAuth: options.rootAuth ?? options.marketing !== undefined,
     getLoginHtml: (event, rawPath) =>
       getAuthOnboardingHtml(options, event, rawPath, authMode),
-    rendersSignInPage: Boolean(options.renderSignInPage),
     getSetupRequiredHtml: getDeploySettingsRequiredPage,
   };
 }
@@ -3929,12 +3917,6 @@ function loginHtmlResponse(
   const { search } = getRequestPathAndSearch(event);
   const appOriginConfigScript = getAppOriginClientConfigScript();
   let html = config.getLoginHtml(event, requestPath);
-  // A renderer that can't render yet (the toolkit loads its renderers on first
-  // use) leaves core's fallback markup. Keep that copy out of shared caches,
-  // so the CDN doesn't go on serving it once the renderer has loaded.
-  const shareable = !(
-    config.rendersSignInPage && html.includes(AUTH_FALLBACK_ATTRIBUTE)
-  );
   if (
     appOriginConfigScript &&
     !html.includes("data-agent-native-app-origin-config")
@@ -3965,7 +3947,7 @@ function loginHtmlResponse(
       // The login markup reflects deployment-wide auth configuration; the
       // analytics script is public build configuration, not user/session
       // state. Never vary this per request by cookie or session.
-      ...(shareable ? resolveSsrCacheHeaders() : DISABLED_SSR_CACHE_HEADERS),
+      ...resolveSsrCacheHeaders(),
       ...(!options.requestIndependent && search
         ? { [SSR_QUERY_CACHE_KEY_HEADER]: "query" }
         : {}),
@@ -7603,7 +7585,6 @@ export async function autoMountAuth(
           _authGuardConfig.authMode,
         );
         _authGuardConfig.getLoginHtml = loginHtmlConfig.getLoginHtml;
-        _authGuardConfig.rendersSignInPage = loginHtmlConfig.rendersSignInPage;
       }
       if (options.rootAuth !== undefined) {
         _authGuardConfig.rootAuth = options.rootAuth;
@@ -7721,7 +7702,6 @@ export async function autoMountAuth(
       getLoginHtml: loginHtml
         ? () => loginHtml
         : () => getCustomAuthRequiredHtml(),
-      rendersSignInPage: false,
       rootAuth: options.rootAuth ?? Boolean(options.loginHtml),
       publicPaths,
       publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],

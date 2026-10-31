@@ -1111,12 +1111,6 @@ function isAgentNativeHostedHost(host: string | undefined): boolean {
   );
 }
 
-/**
- * The attribute the sign-in and reset-password pages below put on core's
- * fallback markup, which the auth client script replaces in the browser.
- */
-export const AUTH_FALLBACK_ATTRIBUTE = 'data-agent-native-auth-fallback="true"';
-
 export interface OnboardingHtmlOptions {
   googleOnly?: boolean;
   googleScopes?: string[];
