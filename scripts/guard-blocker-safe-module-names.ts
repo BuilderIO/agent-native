@@ -83,34 +83,56 @@ const SKIPPED = /(?:\.spec\.|\.test\.|\/__tests__\/|\.d\.ts$)/;
 // on imports, and a rename is cheap: template client code imports from
 // `server/`, `actions/` and `.generated/`, not just `app/` and `shared/`.
 // Roots are tried in order, so `public/` comes before the rest of a template.
+const packageDistUrl = ([, pkg, rel = ""]: RegExpExecArray): string =>
+  `/@fs/node_modules/@agent-native/${pkg}/dist/${rel.replace(SCRIPT, ".js")}`;
+const servedAt = ([, rel]: RegExpExecArray): string => `/${rel}`;
+
 const BROWSER_ROOTS: BrowserRoot[] = [
   {
     pathspec: "packages/*/src/**",
     pattern: /^packages\/([^/]+)\/src\/(.+)$/,
-    url: ([, pkg, rel = ""]) =>
-      `/@fs/node_modules/@agent-native/${pkg}/dist/${rel.replace(SCRIPT, ".js")}`,
+    url: packageDistUrl,
+  },
+  // shared-app-config keeps its sources at the package root.
+  {
+    pathspec: "packages/shared-app-config/*.ts",
+    pattern: /^packages\/(shared-app-config)\/([^/]+\.ts)$/,
+    url: packageDistUrl,
   },
   {
-    pathspec: [
-      "templates/*/public/**",
-      "community-templates/*/public/**",
-      "packages/docs/public/**",
-    ],
-    pattern:
-      /^(?:(?:community-)?templates\/[^/]+|packages\/docs)\/public\/(.+)$/,
-    url: ([, rel]) => `/${rel}`,
+    pathspec: ["templates/*/public/**", "community-templates/*/public/**"],
+    pattern: /^(?:community-)?templates\/[^/]+\/public\/(.+)$/,
+    url: servedAt,
   },
   {
     pathspec: ["templates/*/**", "community-templates/*/**"],
     pattern: /^(?:community-)?templates\/[^/]+\/(.+)$/,
-    url: ([, rel]) => `/${rel}`,
+    url: servedAt,
   },
   {
-    pathspec: ["packages/docs/app/**", "packages/frame/client/**"],
-    pattern: /^packages\/(?:docs|frame)\/((?:app|client)\/.+)$/,
-    url: ([, rel]) => `/${rel}`,
+    pathspec: "packages/docs/public/**",
+    pattern: /^packages\/docs\/public\/(.+)$/,
+    url: servedAt,
+  },
+  {
+    pathspec: "packages/docs/app/**",
+    pattern: /^packages\/docs\/(app\/.+)$/,
+    url: servedAt,
+  },
+  {
+    pathspec: "packages/frame/client/**",
+    pattern: /^packages\/frame\/(client\/.+)$/,
+    url: servedAt,
   },
 ];
+
+// Packages with no browser modules. Every other package and template must
+// have some, so one that moves out of a wildcard root above is noticed even
+// while the others keep that root busy.
+const NO_BROWSER_MODULES = new Set([
+  "packages/core-corpus", // no source files
+  "packages/mobile-app", // React Native, which no browser loads
+]);
 
 /**
  * The URL path a repo file is served at in dev, or null when the file never
@@ -134,6 +156,28 @@ export function emptyBrowserRoots(files: string[]): string[] {
     (root) =>
       !files.some((file) => root.pattern.test(file) && devModuleUrl(file)),
   ).map(({ pathspec }) => [pathspec].flat().join(", "));
+}
+
+/**
+ * Packages and templates with no modules among `files`, other than those in
+ * NO_BROWSER_MODULES.
+ */
+export function uncheckedUnits(files: string[]): string[] {
+  const checked = new Map<string, boolean>();
+  for (const file of files) {
+    const unit = /^(?:packages|(?:community-)?templates)\/[^/]+(?=\/)/.exec(
+      file,
+    )?.[0];
+    if (!unit || NO_BROWSER_MODULES.has(unit)) continue;
+    checked.set(
+      unit,
+      checked.get(unit) === true || devModuleUrl(file) !== null,
+    );
+  }
+  return [...checked]
+    .filter(([, hasModules]) => !hasModules)
+    .map(([unit]) => unit)
+    .sort();
 }
 
 export function findBlockedModuleNames(files: string[]): BlockedModuleName[] {
@@ -163,7 +207,11 @@ function main(): void {
         "--others",
         "--exclude-standard",
         "--",
-        ...BROWSER_ROOTS.flatMap(({ pathspec }) => pathspec),
+        // All of every package and template, so one whose modules moved out
+        // of BROWSER_ROOTS still shows up in uncheckedUnits.
+        "packages",
+        "templates",
+        "community-templates",
       ],
       { cwd: REPO_ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
     )
@@ -177,14 +225,15 @@ function main(): void {
   }
 
   // A pass that inspected nothing is not a pass.
-  const empty = emptyBrowserRoots(files);
+  const empty = [...emptyBrowserRoots(files), ...uncheckedUnits(files)];
   if (empty.length > 0) {
     console.error(
       "guard-blocker-safe-module-names: could not run: no browser modules found under:",
     );
-    for (const pathspecs of empty) console.error(`  ${pathspecs}`);
+    for (const where of empty) console.error(`  ${where}`);
     console.error(
-      "\nMoved a folder? Update BROWSER_ROOTS in this file in the same change.",
+      "\nMoved a folder? Update BROWSER_ROOTS in this file in the same change. " +
+        "A package with no browser code goes in NO_BROWSER_MODULES.",
     );
     process.exit(2);
   }

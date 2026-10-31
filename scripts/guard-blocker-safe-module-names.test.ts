@@ -5,6 +5,7 @@ import {
   devModuleUrl,
   emptyBrowserRoots,
   findBlockedModuleNames,
+  uncheckedUnits,
 } from "./guard-blocker-safe-module-names";
 
 test("maps every browser root to the URL it is served at", () => {
@@ -16,6 +17,10 @@ test("maps every browser root to the URL it is served at", () => {
     [
       "packages/toolkit/src/styles.css",
       "/@fs/node_modules/@agent-native/toolkit/dist/styles.css",
+    ],
+    [
+      "packages/shared-app-config/templates.ts",
+      "/@fs/node_modules/@agent-native/shared-app-config/dist/templates.js",
     ],
     ["templates/chat/app/routes/_index.tsx", "/app/routes/_index.tsx"],
     ["templates/chat/app/locales/en-US.json", "/app/locales/en-US.json"],
@@ -57,24 +62,44 @@ test("ignores tests, type declarations and files outside the browser", () => {
 });
 
 test("reports every browser root that has no modules to check", () => {
-  assert.equal(emptyBrowserRoots([]).length, 4);
+  assert.equal(emptyBrowserRoots([]).length, 7);
   assert.deepEqual(
     emptyBrowserRoots([
       "packages/core/src/index.ts",
+      "packages/shared-app-config/index.ts",
       "templates/chat/app/root.tsx",
       "packages/docs/README.md",
       "templates/clips/public/sw.js",
+      "packages/docs/public/search.js",
     ]),
-    ["packages/docs/app/**, packages/frame/client/**"],
+    ["packages/docs/app/**", "packages/frame/client/**"],
   );
   assert.deepEqual(
     emptyBrowserRoots([
       "packages/core/src/index.ts",
+      "packages/shared-app-config/index.ts",
+      "community-templates/account-expert/public/sw.js",
       "community-templates/account-expert/shared/types.ts",
-      "packages/frame/client/main.ts",
       "packages/docs/public/search.js",
+      "packages/docs/app/root.tsx",
+      "packages/frame/client/main.ts",
     ]),
     [],
+  );
+});
+
+test("reports a package or template whose modules moved out of every root", () => {
+  assert.deepEqual(
+    uncheckedUnits([
+      "packages/core/lib/index.ts",
+      "packages/toolkit/src/index.ts",
+      "packages/core-corpus/README.md",
+      "packages/mobile-app/app/index.tsx",
+      "packages/README.md",
+      "templates/chat/app/root.tsx",
+      "templates/mail/README.md",
+    ]),
+    ["packages/core", "templates/mail"],
   );
 });
 
