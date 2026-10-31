@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { withoutHtmlComments } from "@agent-native/core/review/plain-text";
+import { Children, type ReactNode } from "react";
 import ReactMarkdown, {
   defaultUrlTransform,
   type Components,
@@ -35,16 +36,24 @@ const BLOCK_MARKDOWN_ELEMENTS = [
 
 export interface InlineMarkdownProps {
   content: string;
-  className?: string;
-  linkClassName?: string;
-  codeClassName?: string;
+  className?: string | undefined;
+  linkClassName?: string | undefined;
+  codeClassName?: string | undefined;
   inline?: boolean;
   renderLists?: boolean;
-  renderLink?: (
-    href: string,
-    children: ReactNode,
-    className: string,
-  ) => ReactNode;
+  /**
+   * Shows raw HTML as the text it was written as, rather than skip it, so a
+   * note like `use <Button> here` keeps its tag. HTML comments stay hidden.
+   */
+  showRawHtml?: boolean;
+  /**
+   * Draws a hard line break as a space, for text that must stay one line,
+   * like a preview in a row of fixed height.
+   */
+  breaksAsSpaces?: boolean;
+  renderLink?:
+    | ((href: string, children: ReactNode, className: string) => ReactNode)
+    | undefined;
   protectedSpans?: readonly InlineMarkdownProtectedSpan[];
   renderProtectedSpan?: (
     span: InlineMarkdownProtectedSpan,
@@ -68,6 +77,8 @@ export function InlineMarkdown({
   codeClassName,
   inline = false,
   renderLists = false,
+  showRawHtml = false,
+  breaksAsSpaces = false,
   renderLink,
   protectedSpans = [],
   renderProtectedSpan,
@@ -120,7 +131,11 @@ export function InlineMarkdown({
           codeClassName,
         )}
       >
-        {children}
+        {Children.map(children, (child) =>
+          typeof child === "string"
+            ? restoreProtectedSpanSource(child, protectedSpans)
+            : child,
+        )}
       </code>
     ),
     p: ({ children }) =>
@@ -142,6 +157,8 @@ export function InlineMarkdown({
         {children}
       </pre>
     ),
+    // The newline the parser leaves after each break reads as the space.
+    ...(breaksAsSpaces ? { br: () => null } : {}),
     h1: Heading,
     h2: Heading,
     h3: Heading,
@@ -166,7 +183,9 @@ export function InlineMarkdown({
           blocks ? BLOCK_MARKDOWN_ELEMENTS : INLINE_MARKDOWN_ELEMENTS
         }
         components={components}
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={
+          showRawHtml ? [remarkGfm, rawHtmlAsText(protectedSpans)] : [remarkGfm]
+        }
         rehypePlugins={blocks ? [dropNewlinesBetweenBlocks] : []}
         skipHtml
         unwrapDisallowed
@@ -226,11 +245,52 @@ function dropNewlinesBetweenBlocks() {
   return (tree: HastNode) => visit(tree);
 }
 
+interface MdastNode {
+  type: string;
+  value?: string;
+  children?: MdastNode[];
+}
+
+// Nodes whose children are blocks, where text needs a paragraph to sit in.
+const FLOW_PARENTS = new Set([
+  "blockquote",
+  "footnoteDefinition",
+  "listItem",
+  "root",
+]);
+
+// Turns raw HTML into text, without its comments, before `skipHtml` drops
+// it. HTML that was only comments is left for `skipHtml` to drop.
+function rawHtmlAsText(spans: readonly InlineMarkdownProtectedSpan[]) {
+  return () => {
+    const visit = (node: MdastNode) => {
+      if (!node.children) return;
+      node.children = node.children.map((child) => {
+        if (child.type !== "html" || child.value === undefined) {
+          visit(child);
+          return child;
+        }
+        const flow = FLOW_PARENTS.has(node.type);
+        const html = withoutHtmlComments(child.value);
+        if (!html.trim()) return child;
+        // A span protected inside the HTML shows its original text.
+        const text = {
+          type: "text",
+          value: restoreProtectedSpanSource(flow ? html.trim() : html, spans),
+        };
+        return flow ? { type: "paragraph", children: [text] } : text;
+      });
+    };
+    return (tree: MdastNode) => visit(tree);
+  };
+}
+
 const PROTECTED_SPAN_PREFIX = "https://inline-markdown-protected.invalid/span/";
 
 // One pass over the original text: replacing span by span would match a
 // shorter source again inside the link label a longer one just produced.
-function protectInlineMarkdownSpans(
+// This is the text the parser reads.
+export function protectInlineMarkdownSpans(
   content: string,
   spans: readonly InlineMarkdownProtectedSpan[],
 ): string {
@@ -259,6 +319,23 @@ function protectInlineMarkdownSpans(
     cursor = end;
   }
   return markdown + content.slice(cursor);
+}
+
+// The link `protectInlineMarkdownSpans` writes for a span: its escaped label,
+// then PROTECTED_SPAN_PREFIX and the span's index.
+const PROTECTED_SPAN_LINK =
+  /\[(?:\\[\\[\]]|[^\\[\]])*\]\(https:\/\/inline-markdown-protected\.invalid\/span\/(\d+)\)/g;
+
+// Markdown leaves link syntax inside code as text, so a span protected there
+// would show its placeholder link; code shows the span's original text.
+function restoreProtectedSpanSource(
+  text: string,
+  spans: readonly InlineMarkdownProtectedSpan[],
+): string {
+  return text.replace(
+    PROTECTED_SPAN_LINK,
+    (link, index: string) => spans[Number(index)]?.source ?? link,
+  );
 }
 
 function escapeProtectedSpanLabel(label: string): string {

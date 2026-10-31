@@ -956,16 +956,75 @@ describe("SlideCommentsPanel", () => {
 
     const input = screen.getByPlaceholderText("Add a comment...");
     fireEvent.change(input, { target: { value: "candidate" } });
-    fireEvent.keyDown(input, {
-      key: "Enter",
-      ctrlKey: true,
-      isComposing: true,
-    });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
     fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
 
     expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();
     expect(onPendingDone).not.toHaveBeenCalled();
     expect(createComment).not.toHaveBeenCalled();
+  });
+
+  it("sends a reply on Enter and keeps Shift+Enter for a new line", async () => {
+    const onDone = vi.fn();
+    createComment.mockReset().mockResolvedValue({ id: "comment-2" });
+
+    render(
+      <ReplyInput
+        deckId="deck-1"
+        slideId="slide-1"
+        threadId="thread-1"
+        parentId="comment-1"
+        onDone={onDone}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText("Write a reply...");
+    fireEvent.change(input, { target: { value: "Agreed" } });
+    const shiftEnter = fireEvent.keyDown(input, {
+      key: "Enter",
+      shiftKey: true,
+    });
+    expect(shiftEnter).toBe(true);
+    expect(createComment).not.toHaveBeenCalled();
+
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+    await waitFor(() =>
+      expect(createComment).toHaveBeenCalledWith(
+        expect.objectContaining({ content: "Agreed", threadId: "thread-1" }),
+      ),
+    );
+  });
+
+  it("sends a reply once while the first send is still pending", async () => {
+    const onDone = vi.fn();
+    const send: { finish?: (value: { id: string }) => void } = {};
+    createComment.mockReset().mockReturnValue(
+      new Promise((resolve) => {
+        send.finish = resolve;
+      }),
+    );
+
+    render(
+      <ReplyInput
+        deckId="deck-1"
+        slideId="slide-1"
+        threadId="thread-1"
+        parentId="comment-1"
+        onDone={onDone}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText("Write a reply...");
+    fireEvent.change(input, { target: { value: "Agreed" } });
+    // A held Enter repeats.
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", repeat: true });
+    fireEvent.keyDown(input, { key: "Enter", repeat: true });
+    await waitFor(() => expect(createComment).toHaveBeenCalledTimes(1));
+
+    send.finish?.({ id: "comment-2" });
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(createComment).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a reply open while IME keys are composing", () => {
@@ -984,11 +1043,7 @@ describe("SlideCommentsPanel", () => {
 
     const input = screen.getByPlaceholderText("Write a reply...");
     fireEvent.change(input, { target: { value: "candidate" } });
-    fireEvent.keyDown(input, {
-      key: "Enter",
-      ctrlKey: true,
-      isComposing: true,
-    });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
     fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
 
     expect(screen.getByPlaceholderText("Write a reply...")).toBeTruthy();
@@ -1034,11 +1089,7 @@ describe("SlideCommentsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit comment" }));
     const input = screen.getByRole("textbox", { name: "Edit comment" });
-    fireEvent.keyDown(input, {
-      key: "Enter",
-      ctrlKey: true,
-      isComposing: true,
-    });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
     fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
 
     expect(screen.getByRole("textbox", { name: "Edit comment" })).toBeTruthy();

@@ -1564,15 +1564,16 @@ test.describe("public visual edit", () => {
     await expect(allScreensButton).toHaveAttribute("aria-current", "page");
 
     await page.getByRole("button", { name: /^share$/i }).click();
-    await expect(
-      page.getByText("Live canvas link", { exact: true }),
-    ).toBeVisible();
+    const copyLiveCanvasLink = page
+      .getByRole("button", { name: "Copy link", exact: true })
+      .and(page.getByTitle("Live canvas link", { exact: true }));
+    await expect(copyLiveCanvasLink).toBeVisible();
     await page
       .context()
       .grantPermissions(["clipboard-read", "clipboard-write"], {
         origin: new URL(page.url()).origin,
       });
-    await page.getByRole("button", { name: "Copy", exact: true }).click();
+    await copyLiveCanvasLink.click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toContain(`/visual-edit/${collaborationDesignId}?share=1`);

@@ -1,5 +1,7 @@
 import { nanoid } from "nanoid";
 
+import { hashSlideContent } from "./slide-fit.js";
+
 export function ensureUniqueSlideIds<T extends { id?: unknown }>(
   slides: readonly T[],
   createId: (index: number, attempt: number) => string = () =>
@@ -148,4 +150,38 @@ export function repairDeckSlideReferences<T extends { id?: unknown }>(
   }
   repairedData.sourceImport = repairedSourceImport;
   return repairedData;
+}
+
+/**
+ * A replacement ID derived from the deck and the slide's position, so every
+ * reader and writer of a deck whose repair is not saved yet agrees on it, and
+ * the saved repair keeps the IDs an agent read before it.
+ */
+export function repairedSlideId(
+  deckId: string,
+  index: number,
+  attempt: number,
+): string {
+  return `slide-${hashSlideContent(`${deckId}:${index}:${attempt}`).slice(0, 8)}`;
+}
+
+/**
+ * The stored deck with duplicate or missing slide IDs replaced the way
+ * get-deck reports them. Actions that find a slide by ID read the deck through
+ * this, so an ID from a read that could not save the repair still names its
+ * slide, and a write saves the repair along with its edit.
+ */
+export function withUniqueSlideIds<T>(deckId: string, deck: T): T {
+  const slides = (deck as { slides?: unknown } | null)?.slides;
+  if (!Array.isArray(slides)) return deck;
+  const normalized = ensureUniqueSlideIds(
+    slides as Array<{ id?: unknown }>,
+    (index, attempt) => repairedSlideId(deckId, index, attempt),
+  );
+  if (!normalized.changed) return deck;
+  return repairDeckSlideReferences(
+    deck,
+    normalized.slides,
+    normalized.originalIds,
+  ) as T;
 }

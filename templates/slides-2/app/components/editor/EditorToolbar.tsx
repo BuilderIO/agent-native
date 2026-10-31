@@ -1163,12 +1163,6 @@ export default function EditorToolbar({
           resourceId={deckId}
           resourceTitle={deckTitle}
           panelTitle={t("share.title")}
-          roleCopy={{
-            commenter: {
-              label: t("editorToolbar.commenterRoleLabel"),
-              description: t("editorToolbar.commenterRoleDescription"),
-            },
-          }}
           shareUrl={showShareLink ? primaryShareLink.url : undefined}
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
