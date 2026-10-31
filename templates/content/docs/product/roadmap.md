@@ -564,11 +564,11 @@ Create a one-off artifact, then promote it into a governed reusable Custom Block
 
 Build Forms over the same schema, validation, and submission Actions as the Collection they populate.
 
-**Status:** In validation
+**Status:** Partially implemented
 
 **Example workflow:** A research team publishes an intake Form that validates required fields, lets an external participant submit without reading the Collection, creates exactly one record, and triggers the Collection's enrichment Rule.
 
-**What works today:** Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Collection record.
+**What works today:** Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Collection record. Only people who can edit the Collection can submit.
 
 **What remains:** Content and Agent-Native Forms need one shared engine, with polished public submission, richer validation, conditional behavior, permissions, spam protection, receipts, and dependable downstream Rule handoff.
 
