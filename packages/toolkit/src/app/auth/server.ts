@@ -53,6 +53,13 @@ type RequestHookEvent = {
   req: { method: string; headers: { get(name: string): string | null } };
 };
 
+type RequestHooks = {
+  hook(
+    name: "request",
+    hook: (event: RequestHookEvent) => Promise<void>,
+  ): unknown;
+};
+
 // A browser navigation names a document or iframe destination, or accepts
 // HTML. `fetch()` calls send `*/*` and never load the renderers; a sign-in page
 // served to such a request gets core's fallback markup instead.
@@ -77,8 +84,9 @@ export function createToolkitAuthPlugin(options: AuthOptions = {}) {
   if (options.renderSignInPage && options.renderResetPasswordPage) {
     return plugin;
   }
-  return (nitroApp: any) => {
-    nitroApp.hooks?.hook?.("request", async (event: RequestHookEvent) => {
+  return (nitroApp: unknown) => {
+    const hooks = (nitroApp as { hooks?: Partial<RequestHooks> } | null)?.hooks;
+    hooks?.hook?.("request", async (event) => {
       if (!renderers && isPageNavigation(event)) await loadAuthPageRenderers();
     });
     return plugin(nitroApp);

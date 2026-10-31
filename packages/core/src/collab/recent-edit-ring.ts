@@ -51,10 +51,11 @@ export function appendRecentEdit(
   edit: RecentEdit,
 ): RecentEdit[] {
   const ring = Array.isArray(existing) ? existing.slice() : [];
+  const { label, ...rest } = edit;
   ring.push({
-    ...edit,
+    ...rest,
     descriptor: truncateDescriptor(edit.descriptor),
-    label: edit.label ? truncateString(edit.label) : edit.label,
+    ...(label === undefined ? {} : { label: truncateString(label) }),
   });
   if (ring.length > RECENT_EDITS_MAX) {
     ring.splice(0, ring.length - RECENT_EDITS_MAX);
