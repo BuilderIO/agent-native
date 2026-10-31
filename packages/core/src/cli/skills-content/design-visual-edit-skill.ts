@@ -115,9 +115,7 @@ is canonical; \`navigator.modelContext\` is deprecated:
 const ctx = document.modelContext;
 const tool = (await ctx.getTools()).find((candidate) => candidate.name === NAME);
 if (!tool) throw new Error(\`WebMCP tool not found: \${NAME}\`);
-const codex = typeof ctx.codexExecuteTool === "function" ||
-  typeof ctx.codexGetTools === "function";
-const result = await ctx.executeTool(tool, codex ? ARGS : JSON.stringify(ARGS));
+const result = await ctx.executeTool(tool, ARGS);
 \`\`\`
 
 The helper handles live discovery, partial registries, and pending calls. If a

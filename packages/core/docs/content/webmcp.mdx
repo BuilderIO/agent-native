@@ -113,13 +113,7 @@ const tools = await document.modelContext.getTools();
 const tool = tools.find(({ name }) => name === "create-deck");
 if (!tool) throw new Error("create-deck is unavailable in this tab");
 const input = { title: "Customer onboarding", slides: [] };
-const usesCodexPageAdapter =
-  typeof document.modelContext.codexExecuteTool === "function" ||
-  typeof document.modelContext.codexGetTools === "function";
-const result = await document.modelContext.executeTool(
-  tool,
-  usesCodexPageAdapter ? input : JSON.stringify(input),
-);
+const result = await document.modelContext.executeTool(tool, input);
 return typeof result === "string" ? JSON.parse(result) : result;
 ```
 
@@ -128,9 +122,10 @@ actions, that callback uses the shared action dispatcher with the current
 browser session. Agents should list tools immediately before each mutation and
 pass the descriptor returned by that listing. They should not call an internal
 action `run()` function, hand-build an authenticated HTTP request, or use the
-visible developer console as the transport. Native WebMCP and the polyfill
-accept JSON-stringified input, while the Codex page adapter (identified by
-`codexExecuteTool`/`codexGetTools`) accepts the schema-shaped object directly.
+visible developer console as the transport. Pass the schema-shaped object
+directly: Chrome 155+ rejects JSON-stringified input.
+
+<!-- i18n-copy-ignore: localized WebMCP pages are short summaries without this raw-call detail. -->
 
 For agents that use the MCP-B local relay, the page also needs the relay's
 browser embed script and the local MCP server must be configured in the agent
