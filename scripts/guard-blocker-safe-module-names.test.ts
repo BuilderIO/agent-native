@@ -91,6 +91,10 @@ test("catches every spelling of a blocked word pair", () => {
       "packages/core/src/consentbanner-fragment/app.ts",
       "templates/clips/public/gdpr_popup.min.js",
       "templates/plan/app/lib/tracking-analytics-events.ts",
+      "templates/mail/app/CookieLawBar.tsx",
+      "templates/clips/public/cookie.notice.min.js",
+      "packages/core/src/client/cookies-message.ts",
+      "packages/core/src/client/eu-cookie.ts",
     ]).map(({ words }) => words),
     [
       "cookie-banner",
@@ -99,6 +103,10 @@ test("catches every spelling of a blocked word pair", () => {
       "consentbanner-",
       "gdpr_popup",
       "tracking-analytics-events",
+      "cookielaw",
+      "cookie.notice",
+      "cookies-message",
+      "eu-cookie",
     ],
   );
 });
@@ -132,6 +140,7 @@ test("allows the names the blocker lists let through", () => {
       "packages/core/src/shared/builder-link-tracking.ts",
       "packages/core/src/mcp-client/oauth-flow-cookie.ts",
       "packages/core/src/server/cookie-namespace.ts",
+      "packages/core/src/onboarding/shared-cookie.ts",
       "packages/core/src/localization/privacy-choice-messages.ts",
       "packages/toolkit/src/app/shared/ConsentBanner.tsx",
       "templates/clips/app/hooks/use-view-tracking.ts",

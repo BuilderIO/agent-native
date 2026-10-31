@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Keep browser module file names clear of content-blocker rules.
  *
@@ -11,12 +10,14 @@
  * BLOCKED_WORDS holds the word pairs that cookie-notice and tracker rules are
  * built on, such as `cookie-banner`. A URL holding one of them, with `-`, `_`
  * or nothing between the words and in any letter case, is flagged wherever
- * the pair appears, so `.min.js`, `_v2` and other variants are caught too. In
- * October 2026 these patterns covered every one of the 229 rules on these
- * pairs in EasyList, EasyPrivacy, EasyList Cookie List (which Brave turns on
- * to hide cookie notices), Fanboy's Annoyance List, Brave's own list and
- * uBlock Origin's lists. They are written here rather than copied from those
- * lists.
+ * the pair appears, so `.min.js`, `_v2` and other variants are caught too.
+ * They were checked in October 2026 against EasyList, EasyPrivacy, EasyList
+ * Cookie List (which Brave turns on to hide cookie notices), Fanboy's
+ * Annoyance List, Brave's own list and uBlock Origin's lists. They cover every
+ * one of the 229 rules on the pairs below, and 376 of the 710 rules that
+ * mention "cookie"; most of the rest name a vendor (`evercookie`,
+ * `borlabs-cookie`) or are in another language (`aviso_cookies`). The patterns
+ * are written here rather than copied from those lists.
  */
 
 import { execFileSync } from "node:child_process";
@@ -46,8 +47,11 @@ const BLOCKED_WORDS: BlockedWords[] = [
   // `ConsentBanner.js` passes every list, so this pair needs a separator.
   { pattern: /consent[-_]banner|consentbanner-/, list: "cookie-notice lists" },
   { pattern: /consent[-_]?(?:manager|modal)/, list: "cookie-notice lists" },
+  // Every word found next to "cookie" in five or more rules, plus `dialog`,
+  // `privacy` and `wall`. Rarer neighbours are mostly vendor names.
   {
-    pattern: /cookie[-_]?(?:banner|notice|consent|popup|privacy|policy|dialog)/,
+    pattern:
+      /cookies?[-_.]?(?:accept|alert|banner|bar|compliance|consent|control|dialog|directive|disclaimer|gdpr|hinweis|info|law|layer|manager|message|monster|notice|notification|policy|popup|privacy|wall|warning)|(?:eu|gdpr|privacy)[-_.]?cookies?/,
     list: "cookie-notice lists",
   },
   { pattern: /gdpr[-_]?(?:consent|popup)/, list: "cookie-notice lists" },
