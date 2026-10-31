@@ -26,7 +26,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/toolkit/app/review", () => ({
-  InlineMarkdown: ({ content }: { content: string }) => <>{content}</>,
+  CommentBody: ({ body }: { body: string }) => <>{body}</>,
 }));
 
 (

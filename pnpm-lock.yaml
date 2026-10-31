@@ -2715,6 +2715,15 @@ importers:
       magic-string:
         specifier: ^1.4.3
         version: 1.4.3
+      mdast-util-from-markdown:
+        specifier: ^2.0.0
+        version: 2.1.0
+      mdast-util-gfm:
+        specifier: ^3.0.0
+        version: 3.1.0
+      micromark-extension-gfm:
+        specifier: ^3.0.0
+        version: 3.0.0
       minimatch:
         specifier: '>=9.0.7'
         version: 10.2.5
@@ -2851,6 +2860,9 @@ importers:
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
+      '@types/mdast':
+        specifier: ^4.0.4
+        version: 4.0.4
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
