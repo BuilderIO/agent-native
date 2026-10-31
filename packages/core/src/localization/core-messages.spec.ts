@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { AUTOMATION_OUTCOME_MESSAGES } from "./automation-outcome-messages.js";
-import { CONSENT_BANNER_MESSAGES } from "./privacy-choice-messages.js";
 import {
   coreMessagesForLocale,
   loadCoreMessagesForLocale,
@@ -9,6 +8,7 @@ import {
 import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
 import { iconPickerMessagesForLocale } from "./icon-picker-messages.js";
 import { MCP_SETTINGS_MESSAGES } from "./mcp-settings-messages.js";
+import { CONSENT_BANNER_MESSAGES } from "./privacy-choice-messages.js";
 import { PRIVACY_SETTINGS_MESSAGES } from "./privacy-settings-messages.js";
 import { SUPPORTED_LOCALES } from "./shared.js";
 
