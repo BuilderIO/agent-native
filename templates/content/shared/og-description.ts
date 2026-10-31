@@ -68,6 +68,8 @@ function isDividerBlock(block: string): boolean {
 export function stripMarkdownForPreview(markdown: string): string {
   return (
     decodeCommonEntities(markdown)
+      // A comment hides its text, and an unclosed one hides the rest.
+      .replace(/<!--[\s\S]*?(?:-->|$)/g, " ")
       // A tag starts with a name, so `3 < 4 and 5 > 2` stays.
       .replace(/<[A-Za-z][^<>\n]*\/>/g, " ")
       .replace(/<\/?[A-Za-z][^<>\n]*>/g, " ")

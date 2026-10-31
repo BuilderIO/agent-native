@@ -54,6 +54,17 @@ Quarterly Launch Plan
     ).toBe("If 3 < 4 and 5 > 2, the check passes.");
   });
 
+  it("removes HTML comments, even multi-line or unclosed ones", () => {
+    expect(
+      stripMarkdownForPreview(
+        "Launch plan <!-- TODO: internal note -->for Q3.\n\n<!--\nprivate\n-->Ships in May.",
+      ),
+    ).toBe("Launch plan for Q3. Ships in May.");
+    expect(
+      stripMarkdownForPreview("Public text. <!-- draft: never shown"),
+    ).toBe("Public text.");
+  });
+
   it("removes a link address with parentheses in it", () => {
     expect(
       stripMarkdownForPreview(
