@@ -189,6 +189,66 @@ describe("useChatThreadList", () => {
     expect(latest.threads.map((thread) => thread.id)).toEqual(["newer"]);
   });
 
+  it("rolls a refused hide back at once, before its refetch returns", async () => {
+    let held: Promise<void> | undefined;
+    let release!: () => void;
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return jsonResponse({}, 403);
+      await held;
+      return jsonResponse({
+        threads: [row("shared", { accessBasis: "direct", hiddenAt: null })],
+        hasMore: false,
+      });
+    });
+    await mount({ ownership: "shared", apiUrl: "/chat", includeHidden: true });
+    held = new Promise((resolve) => {
+      release = resolve;
+    });
+    await act(async () => {
+      await expect(latest.hideThread("shared", true)).rejects.toMatchObject({
+        status: 403,
+      });
+    });
+    expect(latest.threads[0].hiddenAt).toBeNull();
+    release();
+    await flush();
+    expect(latest.threads[0].hiddenAt).toBeNull();
+  });
+
+  it("leaves a row that arrived during a refused hide as the server lists it", async () => {
+    let listed = false;
+    let refuse!: () => void;
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        await new Promise<void>((resolve) => {
+          refuse = resolve;
+        });
+        return jsonResponse({}, 403);
+      }
+      return jsonResponse({
+        threads: listed
+          ? [row("late", { accessBasis: "direct", hiddenAt: 7 })]
+          : [],
+        hasMore: false,
+      });
+    });
+    await mount({ ownership: "shared", apiUrl: "/chat", includeHidden: true });
+    let hide!: Promise<boolean>;
+    act(() => {
+      hide = latest.hideThread("late", false);
+    });
+    listed = true;
+    await act(async () => {
+      await latest.refresh();
+    });
+    await act(async () => {
+      refuse();
+      await expect(hide).rejects.toMatchObject({ status: 403 });
+    });
+    await flush();
+    expect(latest.threads).toMatchObject([{ id: "late", hiddenAt: 7 }]);
+  });
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fetchMock = vi.fn();
