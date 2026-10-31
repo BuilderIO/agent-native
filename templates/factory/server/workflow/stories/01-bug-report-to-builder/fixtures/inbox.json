@@ -1,6 +1,7 @@
 {
   "feedback": {
     "nothing": { "items": [] },
+    "ownNotice": { "items": [], "skippedOwn": 1 },
     "primed": { "primed": "1760000000.000050" },
     "m1": {
       "items": [

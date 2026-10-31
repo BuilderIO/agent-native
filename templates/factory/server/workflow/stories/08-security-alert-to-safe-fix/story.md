@@ -26,7 +26,7 @@
    - **Safe fix:** a patch or minor upgrade, severity not critical, confidence high, a clear bug, low risk, no product or design question, and no sensitive category. Goes to `builder`.
    - **Not reachable:** reachable is false, severity is low or medium, and confidence is high. Goes to `dismissed` with the model's reason.
    - **Otherwise:** to the security owner.
-4. **`builder` (Agent, `builder.start`):** project from the `builderProjectId` setting (the one story 2 follows), branch `factory-alert-<alert number>`, a model-written prompt, and the gate fields bound from the assessment (`alreadyClaimed` is fixed false: a dependency alert is not a chat message). The prompt names the package, the fixed version if the alert names one, and the manifest, asks for that upgrade and nothing else, and asks Builder to run the tests that cover code using the package and list under a `### Verified` heading in the pull request description which tests or commands ran and whether they passed (an upgrade has no screenshots, and no regression test is asked for). Then `handed` (End, done, status `automation_started`).
+4. **`builder` (Agent, `builder.start`):** project from the `builderProjectId` setting (the one story 2 follows), asking for the branch `factory-alert-<alert number>` (Builder keeps a name of its own, and `handed` records the one it returned, which is what story 2 follows; nothing here compares the two), a model-written prompt, and the gate fields bound from the assessment (`alreadyClaimed` is fixed false: a dependency alert is not a chat message). The prompt names the package, the fixed version if the alert names one, and the manifest, asks for that upgrade and nothing else, and asks Builder to run the tests that cover code using the package and list under a `### Verified` heading in the pull request description which tests or commands ran and whether they passed (an upgrade has no screenshots, and no regression test is asked for). Then `handed` (End, done, status `automation_started`).
 5. **`notify` (Slack) and `notifyEmail` (email)** to the security owner, then `manual` (End, needs_manual).
 
 ```mermaid
@@ -48,7 +48,7 @@ flowchart LR
 
 ## Not in this version
 
-- The hand-off to story 2 has only run in memory. The `handed` End writes `builderTaskId`, `projectId`, `branchName` and `repository` onto the alert's row (`expect.json` asserts them under `recorded`, and `server/workflow/stories/handoff.spec.ts` runs story 2 on them). Nothing has run that hand-off on Beta.
+- The hand-off to story 2 has only run in memory. The `handed` End writes `builderTaskId`, `projectId`, `branchName` and `repository` onto the alert's row (`expect.json` asserts them under `recorded`, and `server/workflow/stories/handoff.spec.ts` runs story 2 on them, also when Builder returns another branch name than the one asked for). Nothing has run that hand-off on Beta.
 - An alert handed to Builder is listed by GitHub again until its fix merges, and `automation_started` does not count as handled, so it is assessed again every hour (a model call each time; its Builder start is found already done). A model that then changed its mind could move it to `needs_manual`.
 - Code scanning alerts: only Dependabot alerts are read.
 - A refusal by the gate is not announced: the alert goes to a person without a message.

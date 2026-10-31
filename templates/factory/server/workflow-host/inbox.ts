@@ -31,6 +31,7 @@ import { SECRET_UNREADABLE_CODE } from "../lib/unreadable-secret.js";
 import { connectionAdvice } from "../lib/workflow-action-errors.js";
 import { triageItemStatusSchema } from "../triage/contracts.js";
 import { parseTriageMetadata } from "../triage/metadata.js";
+import { SLACK_IDENTITY_UNRESOLVED_CODE } from "../triage/slack-own-posts.js";
 import type { TripwireSink } from "../tripwire/types.js";
 import type {
   InboxReader,
@@ -93,6 +94,7 @@ type InboxFailureReason =
   | "filter_invalid"
   | "position_unreadable"
   | "position_missing"
+  | "identity_unresolved"
   | "aborted";
 
 type InboxFailure = Extract<InboxResult, { ok: false }> & {
@@ -250,6 +252,19 @@ function pollerFailure(
       false,
     );
   }
+  // The app could not say which posts are its own, so the read took none: a
+  // workflow that cannot tell its notices from reports must not take any.
+  if (
+    result.errorCode === SLACK_IDENTITY_UNRESOLVED_CODE ||
+    result.output.includes(`(errorCode: ${SLACK_IDENTITY_UNRESOLVED_CODE})`)
+  ) {
+    return fail(
+      "identity_unresolved",
+      "provider_error",
+      `${action} took nothing: ${text}`,
+      true,
+    );
+  }
   return fail(
     "poller_failed",
     "provider_error",
@@ -259,6 +274,11 @@ function pollerFailure(
 }
 
 type Checked<T> = { ok: true; value: T } | InboxFailure;
+
+/** The own-post count a poll reported, as the part of an inbox answer that carries it. */
+function skippedOwnOf(read: PollRead): { skippedOwn?: number } {
+  return read.skippedOwn === undefined ? {} : { skippedOwn: read.skippedOwn };
+}
 
 function pollerArgs(
   factoryId: string,
@@ -273,14 +293,27 @@ function pollerArgs(
       false,
     );
   }
+  const includeOwnPosts = settings.filter?.includeOwnPosts === true;
+  if (includeOwnPosts && settings.poller !== "slack") {
+    return fail(
+      "filter_invalid",
+      "graph_invalid",
+      `Only a Slack source has the app's own posts to include; a ${settings.poller} source has none.`,
+      false,
+    );
+  }
+  if (settings.poller !== "slack") return { ok: true, value: { factoryId } };
   // The job file holds the real channel; naming it here makes the poller
   // refuse a job whose file drifted from the graph instead of polling another.
   return {
     ok: true,
-    value:
-      settings.poller === "slack" && scopes.length === 1
-        ? { factoryId, channelId: scopes[0] }
-        : { factoryId },
+    value: {
+      factoryId,
+      ...(scopes.length === 1 ? { channelId: scopes[0] } : {}),
+      // The app's notices and replies land in the channel it reads: they are
+      // its output, so a source never takes them unless it says it should.
+      ...(includeOwnPosts ? {} : { skipOwnPosts: true }),
+    },
   };
 }
 
@@ -290,6 +323,8 @@ interface PollRead {
   /** Where the read left off (or, for a first read, the newest position). */
   position?: string;
   primed: boolean;
+  /** How many of the app's own posts the read left out; said by a Slack poll that was asked to leave them out. */
+  skippedOwn?: number;
   /** The rows a preview would have stored, and how many there were before the answer was cut. */
   previewRows?: unknown;
   previewTotal?: number;
@@ -299,6 +334,7 @@ function readPollResult(
   settings: InboxPollSettings,
   action: string,
   output: string,
+  skippedOwnAsked: boolean,
   observe: (details: Record<string, unknown>) => void,
 ): Checked<PollRead> {
   let parsed: unknown;
@@ -355,10 +391,28 @@ function readPollResult(
       true,
     );
   }
+  const skippedOwn =
+    typeof result.skippedOwn === "number" &&
+    Number.isInteger(result.skippedOwn) &&
+    result.skippedOwn >= 0
+      ? result.skippedOwn
+      : undefined;
+  // An answer that does not say how many own posts it left out may have taken
+  // them (a poller that ignored the argument), so it is not read as none.
+  if (skippedOwnAsked && skippedOwn === undefined) {
+    observe({ reason: "poll_skipped_own_missing", body: result });
+    return fail(
+      "poller_failed",
+      "provider_error",
+      `${action} did not say how many of the app's own posts it left out, so it cannot be known that it did.`,
+      true,
+    );
+  }
   return {
     ok: true,
     value: {
       observed,
+      ...(skippedOwnAsked && skippedOwn !== undefined ? { skippedOwn } : {}),
       ...(typeof result.position === "string"
         ? { position: result.position }
         : {}),
@@ -867,7 +921,13 @@ export function createInboxHost(options: InboxHostOptions): InboxHost {
           severity: "warn",
           details: { provider: poller, action, ...details },
         });
-      const summary = readPollResult(settings, action, polled.output, observe);
+      const summary = readPollResult(
+        settings,
+        action,
+        polled.output,
+        args.value.skipOwnPosts === true,
+        observe,
+      );
       if (!summary.ok) return summary;
       const read = summary.value;
 
@@ -913,6 +973,7 @@ export function createInboxHost(options: InboxHostOptions): InboxHost {
               (queued.totalAvailable ?? queued.items.length),
           ),
           sample: true,
+          ...skippedOwnOf(read),
         };
       }
 
@@ -935,6 +996,7 @@ export function createInboxHost(options: InboxHostOptions): InboxHost {
             position: read.position,
             since: nowIso,
           }),
+          ...skippedOwnOf(read),
         };
       }
       if (start.kind === "from" && read.position === undefined) {
@@ -974,11 +1036,11 @@ export function createInboxHost(options: InboxHostOptions): InboxHost {
       }
 
       const taken = await readQueue(db, sourceQueue(), settings.takeLimit);
-      if (!taken.ok || start.kind !== "from" || read.position === undefined) {
-        return taken;
-      }
+      if (!taken.ok) return taken;
+      const counted = { ...taken, ...skippedOwnOf(read) };
+      if (start.kind !== "from" || read.position === undefined) return counted;
       return {
-        ...taken,
+        ...counted,
         position: encodeStart({ ...start.stored, position: read.position }),
       };
     },

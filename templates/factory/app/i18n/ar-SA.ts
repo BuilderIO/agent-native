@@ -1369,6 +1369,7 @@ const messages = {
       combine: {
         mode: "التجميع في",
         key: "التقسيم حسب",
+        firstMemberIdentity: "تسمية كل مجموعة باسم أول عنصر فيها",
         field: "جمع هذا الحقل",
         group: "التقسيم حسب",
         value: "القيمة للجمع",

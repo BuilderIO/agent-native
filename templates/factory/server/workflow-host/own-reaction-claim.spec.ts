@@ -228,7 +228,11 @@ describe("a Source that skips messages a person claimed with a reaction", () => 
       getDatabase: () => db,
       callAction: async () => ({
         status: "completed",
-        output: JSON.stringify({ ok: true, observed: polled.envelopes.length }),
+        output: JSON.stringify({
+          ok: true,
+          observed: polled.envelopes.length,
+          skippedOwn: 0,
+        }),
       }),
       clock: () => new Date(NOW),
     });

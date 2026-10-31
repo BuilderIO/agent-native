@@ -1258,6 +1258,7 @@ const messages = {
       combine: {
         mode: "취합 방식",
         key: "그룹 기준",
+        firstMemberIdentity: "각 그룹 이름을 첫 번째 항목으로 정하기",
         field: "수집할 필드",
         group: "그룹 기준",
         value: "합산 대상",

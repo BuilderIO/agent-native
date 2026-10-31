@@ -9,7 +9,6 @@ import {
 import {
   aiPerItem,
   aiRouter,
-  aiWholeList,
   ok,
   type AiResponder,
   type ScriptedOperation,
@@ -102,16 +101,11 @@ function groupModel(
     },
     {
       when: "Group related bugs",
-      respond: (request) =>
-        aiWholeList({
-          groups: request.items.map((item) => ({
-            id: item.id,
-            groupId: `g-${item.id}`,
-            thread: item.item.thread,
-            author: item.item.author,
-            ...group(item.nodes.assess as Record<string, unknown>),
-          })),
-        })(request),
+      respond: aiPerItem((item) => ({
+        groupName: `g-${item.id}`,
+        reason: "Only report about the Pay button.",
+        ...group(item.nodes.assess as Record<string, unknown>),
+      })),
     },
     {
       when: "Write the task for Builder",
@@ -191,7 +185,7 @@ describe("story 1 with the real builder.start", () => {
     expect(builder.startAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: "project-1",
-        branchName: "factory-g-m1",
+        branchName: "factory-m1",
         userEmail: "reporter@example.test",
       }),
     );
@@ -271,7 +265,7 @@ describe("story 1 with the real builder.start", () => {
     expect(result.statuses).toEqual({ m1: "needs_manual" });
   });
 
-  it("refuses a group that leaves a gate input out, instead of reading it as clean", async () => {
+  it("refuses a group answer that leaves a gate input out at the grouping step, instead of reading it as clean", async () => {
     const builder = fakeBuilder();
 
     const result = await run(builder.deps, () => ({
@@ -283,10 +277,12 @@ describe("story 1 with the real builder.start", () => {
       // no `categories`
     }));
 
+    // The declared fields are checked where the model answers, so the start is never reached with a gate input missing.
     expect(builder.startAgent).not.toHaveBeenCalled();
-    const start = stepOf(result, "startBuilder");
-    expect(start.status).toBe("failed");
-    expect(start.error).toMatchObject({ code: "expression_failed" });
-    expect(start.error?.message).toContain("categories");
+    const group = stepOf(result, "group");
+    expect(group.status).toBe("failed");
+    expect(group.error).toMatchObject({ code: "ai_invalid_output" });
+    expect(group.error?.message).toContain('"categories" is missing');
+    expect(stepOf(result, "startBuilder").fields).toMatchObject({ in: 0 });
   });
 });

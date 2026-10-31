@@ -101,6 +101,43 @@ type ItemAnswer =
   | { ok: true; fields: Record<string, unknown> }
   | { ok: false; failure: ItemFailure };
 
+/**
+ * Whether a per-item answer is about the items it was asked for: one entry
+ * each, and none for an item the batch does not hold. An answer that is not
+ * cannot be trusted to say which item it means, so none of it is used. The
+ * runner rejects these itself; this is the engine's check of what it was handed.
+ */
+export function answerNotAboutThese(
+  result: Extract<AiTurnResult, { ok: true; mode: "perItem" }>,
+  itemIds: readonly string[],
+): ItemFailure | null {
+  const known = new Set(itemIds);
+  const seen = new Set<string>();
+  const unknown = new Set<string>();
+  const repeated = new Set<string>();
+  for (const { itemId } of result.results) {
+    if (!known.has(itemId)) unknown.add(itemId);
+    else if (seen.has(itemId)) repeated.add(itemId);
+    seen.add(itemId);
+  }
+  if (unknown.size === 0 && repeated.size === 0) return null;
+  const named = (ids: ReadonlySet<string>) =>
+    [...ids].map((id) => JSON.stringify(id)).join(", ");
+  const problems = [
+    ...(unknown.size > 0
+      ? [`it names ${named(unknown)}, which was not given`]
+      : []),
+    ...(repeated.size > 0
+      ? [`it answers ${named(repeated)} more than once`]
+      : []),
+  ];
+  return {
+    code: "ai_invalid_output",
+    retryable: true,
+    message: `The AI answer is not about the items it was given, so none of it was used: ${problems.join("; ")}.`,
+  };
+}
+
 /** What the model said about one item, checked; a missing or malformed answer fails that item. */
 export function answerFor(
   result: Extract<AiTurnResult, { ok: true; mode: "perItem" }>,
@@ -191,6 +228,8 @@ export async function fillAiFields(
       },
     };
   }
+  const misfit = answerNotAboutThese(result, [item.id]);
+  if (misfit) return { kind: "failed", failure: misfit };
   const answer = answerFor(result, item.id, schema);
   return answer.ok
     ? { kind: "filled", values: answer.fields }

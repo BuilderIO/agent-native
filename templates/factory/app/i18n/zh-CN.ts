@@ -1221,6 +1221,7 @@ const messages = {
       combine: {
         mode: "合并为",
         key: "分组依据",
+        firstMemberIdentity: "用每组的第一项为该组命名",
         field: "汇集此字段",
         group: "分组依据",
         value: "累加",

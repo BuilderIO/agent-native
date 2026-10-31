@@ -82,10 +82,23 @@ export default defineAction({
     factoryId: factoryIdSchema,
     channelId: z.string().trim().min(1).max(128).optional(),
     ...pollStartFields,
+    skipOwnPosts: z
+      .boolean()
+      .optional()
+      .describe(
+        "Workflow engine only. Leave this app's own Slack posts out of what is read: its notices and replies are its output, not new reports. They still move the position and are counted in skippedOwn. Fails with slack_identity_unresolved, taking nothing, when the app cannot say who it is.",
+      ),
   }),
   http: false,
   run: async (
-    { factoryId, channelId: requestedChannelId, after, prime, preview },
+    {
+      factoryId,
+      channelId: requestedChannelId,
+      after,
+      prime,
+      preview,
+      skipOwnPosts,
+    },
     context,
   ) => {
     assertPollStart({ after, prime });
@@ -157,6 +170,8 @@ export default defineAction({
         position: newestTs ?? "0",
         hasMore: false,
         coverage: "complete",
+        // Nothing is read for a post to be left out of.
+        ...(skipOwnPosts === true ? { skippedOwn: 0 } : {}),
       };
     }
 
@@ -190,6 +205,7 @@ export default defineAction({
       ownerEmail: userEmail,
       orgId,
       ...(prime === true ? { newest: inboxLimit } : {}),
+      ...(skipOwnPosts === true ? { skipOwn: true } : {}),
     });
     const now = new Date().toISOString();
     const configRowId = config
@@ -327,6 +343,16 @@ export default defineAction({
           });
       }
 
+      // The app's own posts after the last message ingested are behind the
+      // position too: the next read does not meet them, or count them, again.
+      if (
+        result.trailingOwnTs !== undefined &&
+        ingested.length === accepted.length &&
+        !result.hasMore
+      ) {
+        nextLastSlackTs = result.trailingOwnTs;
+      }
+
       if (preview !== true && !ownsPosition) {
         await writeFactoryPollCursor(tx, {
           orgId,
@@ -391,6 +417,9 @@ export default defineAction({
         preview: true,
         previewRows: sample.rows,
         previewTotal: sample.total,
+        ...(result.skippedOwn === undefined
+          ? {}
+          : { skippedOwn: result.skippedOwn }),
       };
     }
     await recordFactoryAudit(
@@ -410,6 +439,9 @@ export default defineAction({
           added,
           updated,
           authorFiltered,
+          ...(result.skippedOwn === undefined
+            ? {}
+            : { skippedOwn: result.skippedOwn }),
           newerThanCursor: result.envelopes.length,
           truncated,
           coverage: truncated ? "partial" : "complete",
@@ -457,6 +489,9 @@ export default defineAction({
           : "complete",
       // The position a workflow source saves: where this read left off.
       ...(ownsPosition ? { position: nextLastSlackTs } : {}),
+      ...(result.skippedOwn === undefined
+        ? {}
+        : { skippedOwn: result.skippedOwn }),
     };
   },
 });

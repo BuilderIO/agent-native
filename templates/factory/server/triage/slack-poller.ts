@@ -7,6 +7,7 @@ import {
 } from "../lib/source-reaction";
 import type { IngestionEnvelope } from "./contracts";
 import { createSlackReader } from "./slack-client";
+import { ownPostMatcher, resolveOwnSlackIdentity } from "./slack-own-posts";
 import {
   collectSlackUserIds,
   resolveSlackUserLabels,
@@ -32,6 +33,13 @@ export interface SlackPollInput {
    * threads, not the oldest ones after the position. Never moves a cursor.
    */
   newest?: number;
+  /**
+   * Leave out what this app posted itself: its notices and replies are its own
+   * output, not new reports. They still count toward `nextLastSlackTs`, and are
+   * counted in `skippedOwn`. Fails with `slack_identity_unresolved` before
+   * reading when the app cannot say who it is.
+   */
+  skipOwn?: boolean;
 }
 
 export interface SlackPollResult {
@@ -39,6 +47,18 @@ export interface SlackPollResult {
   nextLastSlackTs: string;
   nextHistoryCursor: string | null;
   hasMore: boolean;
+  /** How many of the app's own posts newer than the position were left out. Present only when `skipOwn` was set. */
+  skippedOwn?: number;
+  /**
+   * The time of the newest own post when it is newer than every message that
+   * was kept: the position can move past it in the same read. Present only when
+   * there is one.
+   */
+  trailingOwnTs?: string;
+}
+
+function lastOf<T>(list: readonly T[]): T | undefined {
+  return list.length === 0 ? undefined : list[list.length - 1];
 }
 
 function numericTs(ts: string): number {
@@ -265,8 +285,11 @@ export async function pollSlackChannel({
   ownerEmail,
   orgId,
   newest,
+  skipOwn,
 }: SlackPollInput): Promise<SlackPollResult> {
   const slack = createSlackReader({ ownerEmail, orgId });
+  const own =
+    skipOwn === true ? await resolveOwnSlackIdentity(slack, workspace) : null;
   const priorTs = numericTs(priorLastSlackTs);
   const messages: SlackMessage[] = [];
   let cursor = historyCursor ?? undefined;
@@ -320,8 +343,17 @@ export async function pollSlackChannel({
     .map((message) => ({ message, ts: numericTs(message.ts) }))
     .filter(({ ts }) => ts > priorTs)
     .sort((a, b) => a.ts - b.ts);
+  const isOwn = own ? ownPostMatcher(messages, own) : null;
+  const keptMessages = isOwn
+    ? newMessages.filter(({ message }) => !isOwn(message))
+    : newMessages;
+  const ownMessages = isOwn
+    ? newMessages.filter(({ message }) => isOwn(message))
+    : [];
+  const newestOwn = lastOf(ownMessages);
+  const newestKept = lastOf(keptMessages);
   const seenThreads = new Set<string>();
-  const distinctThreads = newMessages.filter(({ message }) => {
+  const distinctThreads = keptMessages.filter(({ message }) => {
     const threadTs = message.thread_ts ?? message.ts;
     if (seenThreads.has(threadTs)) return false;
     seenThreads.add(threadTs);
@@ -361,5 +393,9 @@ export async function pollSlackChannel({
     nextLastSlackTs: maxSeen.raw,
     nextHistoryCursor,
     hasMore,
+    ...(isOwn ? { skippedOwn: newMessages.length - keptMessages.length } : {}),
+    ...(newestOwn && (!newestKept || newestOwn.ts > newestKept.ts)
+      ? { trailingOwnTs: newestOwn.message.ts }
+      : {}),
   };
 }

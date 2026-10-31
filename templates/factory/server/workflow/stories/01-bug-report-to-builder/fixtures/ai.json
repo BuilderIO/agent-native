@@ -76,10 +76,30 @@
           "reason": "Reproducible from the report: Pay does nothing when clicked."
         }
       }
+    },
+    "risky": {
+      "perItem": {
+        "*": {
+          "clearBug": true,
+          "enoughContext": true,
+          "risk": "high",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "Touches the payment flow; a person should look first."
+        }
+      }
     }
   },
   "ask": {
-    "q1": { "perItem": { "*": { "text": "Which browser are you using?" } } },
+    "q1": {
+      "perItem": {
+        "*": {
+          "text": "Which browser are you using?"
+        }
+      }
+    },
     "q2": {
       "perItem": {
         "*": {
@@ -90,83 +110,88 @@
   },
   "group": {
     "solo": {
-      "wholeList": {
-        "groups": [
-          {
-            "id": "m1",
-            "groupId": "m1",
-            "title": "Checkout button does nothing",
-            "thread": {
-              "channelId": "C0FEEDBACK",
-              "threadTs": "1760000000.000100"
-            },
-            "author": "reporter-1@example.test",
-            "clearBug": true,
-            "risk": "low",
-            "confidence": "high",
-            "productUxImplications": false,
-            "alreadyClaimed": false,
-            "categories": [],
-            "reason": "Only report about the Pay button."
-          }
-        ]
+      "perItem": {
+        "*": {
+          "groupName": "pay-button",
+          "clearBug": true,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "Only report about the Pay button."
+        }
       }
     },
     "related": {
-      "wholeList": {
-        "groups": [
-          {
-            "id": "m1",
-            "groupId": "m1",
-            "title": "Checkout button does nothing",
-            "thread": {
-              "channelId": "C0FEEDBACK",
-              "threadTs": "1760000000.000100"
-            },
-            "author": "reporter-1@example.test",
-            "clearBug": true,
-            "risk": "low",
-            "confidence": "high",
-            "productUxImplications": false,
-            "alreadyClaimed": false,
-            "categories": [],
-            "reason": "Same Pay button defect as m2."
-          },
-          {
-            "id": "m2",
-            "groupId": "m1",
-            "title": "Pay button dead on checkout",
-            "thread": {
-              "channelId": "C0FEEDBACK",
-              "threadTs": "1760000000.000200"
-            },
-            "author": "reporter-2@example.test",
-            "clearBug": true,
-            "risk": "low",
-            "confidence": "high",
-            "productUxImplications": false,
-            "alreadyClaimed": false,
-            "categories": [],
-            "reason": "Same Pay button defect as m1."
-          },
-          {
-            "id": "m3",
-            "groupId": "m3",
-            "title": "Export to CSV downloads an empty file",
-            "thread": {
-              "channelId": "C0FEEDBACK",
-              "threadTs": "1760000000.000300"
-            },
-            "author": "reporter-3@example.test",
-            "clearBug": true,
-            "risk": "low",
-            "confidence": "high",
-            "productUxImplications": false,
-            "alreadyClaimed": false,
-            "categories": [],
-            "reason": "A different defect: the CSV export, in another screen."
+      "perItem": {
+        "m1": {
+          "groupName": "pay-button",
+          "clearBug": true,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "Same Pay button defect as m2."
+        },
+        "m2": {
+          "groupName": "pay-button",
+          "clearBug": true,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "Same Pay button defect as m1."
+        },
+        "m3": {
+          "groupName": "csv-export",
+          "clearBug": true,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "A different defect: the CSV export, in another screen."
+        }
+      }
+    },
+    "mangled": {
+      "perItem": {
+        "*": {
+          "groupName": "pay-button",
+          "clearBug": true,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "Only report about the Pay button.",
+          "thread": "C0FEEDBACK:1760000000.000100",
+          "title": "A title the model made up",
+          "author": "somebody-else@example.test",
+          "builderGate": {
+            "clearBug": false,
+            "risk": "high"
           }
-        ]
+        }
+      }
+    },
+    "nestedGate": {
+      "perItem": {
+        "*": {
+          "groupName": "pay-button",
+          "builderGate": {
+            "clearBug": true,
+            "risk": "low",
+            "confidence": "high",
+            "productUxImplications": false,
+            "alreadyClaimed": false,
+            "categories": []
+          },
+          "reason": "Only report about the Pay button."
+        }
       }
     }
   },

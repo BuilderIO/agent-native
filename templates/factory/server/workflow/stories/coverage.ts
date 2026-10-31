@@ -49,6 +49,18 @@ export const UNUSED_ON_PURPOSE: Readonly<Record<string, string>> =
   ]);
 
 /**
+ * AI node uses no story needs, each with the reason and the spec that runs it.
+ * Story 1 grouped its reports with one answer for the whole list; it now asks
+ * the model per report (so each answer is joined to its report by id in code)
+ * and no story judges a list as one. The mode is still part of the engine, and
+ * the spec fails when a story starts using it, so this entry cannot go stale.
+ */
+export const AI_USES_UNUSED_ON_PURPOSE: Readonly<Record<string, string>> = {
+  wholeList:
+    "no story judges a list as one since story 1 groups per report, run by engine/nodes/ai.spec.ts",
+};
+
+/**
  * What no story can prove yet because the engine lacks the feature, each with
  * the check it needs. A follow-up, not a decision: delete the entry when the
  * feature lands.
@@ -276,6 +288,7 @@ export function uncovered(
     for (const [name, stories] of Object.entries(entries)) {
       if (stories.length > 0) continue;
       if (family === "operations" && name in UNUSED_ON_PURPOSE) continue;
+      if (family === "aiUses" && name in AI_USES_UNUSED_ON_PURPOSE) continue;
       missing.push({ family: family as keyof CoverageSpec, name });
     }
   }
@@ -342,7 +355,11 @@ export function renderCoverage(table: CoverageTable): string {
       ["Capability", ...STORY_KEYS.map((_, index) => String(index + 1))],
       ...Object.entries(table[family]).map(([name, stories]) => {
         const unused =
-          family === "operations" ? UNUSED_ON_PURPOSE[name] : undefined;
+          family === "operations"
+            ? UNUSED_ON_PURPOSE[name]
+            : family === "aiUses"
+              ? AI_USES_UNUSED_ON_PURPOSE[name]
+              : undefined;
         return [
           `\`${name}\`${unused === undefined ? "" : ` (unused on purpose: ${unused})`}`,
           ...STORY_KEYS.map((key) => (stories.includes(key) ? "●" : "")),
@@ -351,12 +368,15 @@ export function renderCoverage(table: CoverageTable): string {
     ];
     lines.push(`## ${TITLES[family]}`, "", ...renderTable(rows), "");
   }
-  const reasons = Object.entries(UNUSED_ON_PURPOSE);
+  const reasons = [
+    ...Object.entries(UNUSED_ON_PURPOSE),
+    ...Object.entries(AI_USES_UNUSED_ON_PURPOSE),
+  ];
   lines.push(
     "## Unused on purpose",
     "",
     reasons.length === 0
-      ? "None: every catalog operation is used by a story."
+      ? "None: every catalog operation and AI use is used by a story."
       : reasons.map(([name, why]) => `- \`${name}\`: ${why}`).join("\n"),
     "",
     "## Follow-ups",

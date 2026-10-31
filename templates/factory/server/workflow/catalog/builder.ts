@@ -34,12 +34,16 @@ const dispatchGate: OperationDefinitionInput["fields"] = [
     type: "boolean",
     required: true,
     label: "Clear bug",
+    description:
+      "True only when the report describes wrong behavior and the correct behavior is evident; false for a feature request, a question or an opinion.",
   },
   {
     name: "productUxImplications",
     type: "boolean",
     required: true,
     label: "Product or design question",
+    description:
+      "True only when the fix needs a product or design decision; false when the expected behavior is already clear and the fix restores it, even for a UI or copy bug.",
   },
   {
     name: "risk",
@@ -47,6 +51,8 @@ const dispatchGate: OperationDefinitionInput["fields"] = [
     enum: ["unknown", "negligible", "low", "medium", "high", "critical"],
     required: true,
     label: "Risk",
+    description:
+      "Low means a contained change with no data, auth, money or migration; only low is started.",
   },
   {
     name: "confidence",
@@ -54,12 +60,16 @@ const dispatchGate: OperationDefinitionInput["fields"] = [
     enum: ["unknown", "low", "medium", "high"],
     required: true,
     label: "Confidence",
+    description:
+      "High only when the report names the cause or the expected behavior and the repository would confirm it; only high is started.",
   },
   {
     name: "alreadyClaimed",
     type: "boolean",
     required: true,
     label: "Already claimed by a person",
+    description:
+      "True when a person already reacted to the report, so it is theirs and is not started.",
   },
   // A list of guard codes, such as ["auth"], or [] when the change touches none.
   {
@@ -67,6 +77,8 @@ const dispatchGate: OperationDefinitionInput["fields"] = [
     type: "json",
     required: true,
     label: "Sensitive areas touched",
+    description:
+      'Guard codes the fix would touch, such as ["auth"], or [] when it touches none.',
   },
 ];
 
@@ -86,7 +98,7 @@ export const builderOperations: OperationDefinitionInput[] = [
         target: true,
         label: "Branch",
         description:
-          "The branch name to ask for, and the only duplicate guard: a start finds an earlier task only by this exact name, and Builder renames branches, so a start whose receipt was lost can start a second task. Use a name unique to the task. Read the name Builder kept from nodes.<this step>.externalRef.",
+          "The branch to ask for. Builder keeps its own name, so a lookup by it never finds a renamed task. The guard that holds is the receipt (the same item at this step does not call Builder again); a lost one can mean a second task. Use a unique name. Read the kept name from nodes.<this step>.externalRef.",
       },
       { name: "prompt", type: "text", required: true, label: "Task" },
       {
@@ -99,13 +111,18 @@ export const builderOperations: OperationDefinitionInput[] = [
     ],
     implementation: { type: "builder", op: "start" },
     outputs: [
-      { name: "accepted", type: "boolean" },
+      {
+        name: "accepted",
+        type: "boolean",
+        description:
+          "True on every answer this step returns: a start Builder did not accept fails the step. A start found already done does not carry it, because a receipt keeps only the fields that name a thing, so test externalRef instead.",
+      },
       { name: "projectId", type: "string" },
       {
         name: "branchName",
         type: "string",
         description:
-          "The branch Builder returned, which may differ from the one asked for. The same value is externalRef.",
+          "The branch Builder returned, which may differ from the one asked for. The same value is externalRef, which is also there on a start found already done; branchName is not.",
       },
       {
         name: "status",

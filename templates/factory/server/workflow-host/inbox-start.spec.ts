@@ -100,7 +100,16 @@ function poller(
     call: GuardedActionCall,
   ): Promise<GuardedActionResult> => {
     calls.push(call);
-    return { status: "completed", output: JSON.stringify(respond(call)) };
+    const answer = respond(call);
+    // The real poll action says how many own posts it left out whenever it was asked to.
+    return {
+      status: "completed",
+      output: JSON.stringify(
+        call.input.skipOwnPosts === true && !("skippedOwn" in answer)
+          ? { ...answer, skippedOwn: 0 }
+          : answer,
+      ),
+    };
   }) as GuardedActionCaller & { calls: GuardedActionCall[] };
   caller.calls = calls;
   return caller;
@@ -171,6 +180,7 @@ describe("a source's first live read", () => {
     expect(nth(caller.calls, 0).input).toEqual({
       factoryId: "factory-1",
       channelId: "C1",
+      skipOwnPosts: true,
       prime: true,
     });
     if (!taken.ok) throw new Error(taken.message);
@@ -243,6 +253,7 @@ describe("a source that has a position", () => {
     expect(nth(caller.calls, 0).input).toEqual({
       factoryId: "factory-1",
       channelId: "C1",
+      skipOwnPosts: true,
       after: "1760000000.000100",
     });
     if (!taken.ok) throw new Error(taken.message);
@@ -295,6 +306,7 @@ describe("a source that keeps no position", () => {
     expect(nth(caller.calls, 0).input).toEqual({
       factoryId: "factory-1",
       channelId: "C1",
+      skipOwnPosts: true,
     });
     if (!taken.ok) throw new Error(taken.message);
     expect(taken.items.map((item) => item.id)).toEqual(["old-1"]);
@@ -327,6 +339,7 @@ describe("a dry or test read", () => {
     expect(nth(caller.calls, 0).input).toEqual({
       factoryId: "factory-1",
       channelId: "C1",
+      skipOwnPosts: true,
       after: "1760000000.000100",
       preview: true,
     });
@@ -359,6 +372,7 @@ describe("a dry or test read", () => {
     expect(nth(caller.calls, 0).input).toEqual({
       factoryId: "factory-1",
       channelId: "C1",
+      skipOwnPosts: true,
       prime: true,
       preview: true,
     });
@@ -382,6 +396,7 @@ describe("a dry or test read", () => {
     expect(nth(caller.calls, 0).input).toEqual({
       factoryId: "factory-1",
       channelId: "C1",
+      skipOwnPosts: true,
       preview: true,
     });
     if (!taken.ok) throw new Error(taken.message);

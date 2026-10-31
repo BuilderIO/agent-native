@@ -1350,6 +1350,7 @@ const messages = {
       combine: {
         mode: "Combiner en",
         key: "Regrouper par",
+        firstMemberIdentity: "Nommer chaque groupe d’après son premier élément",
         field: "Rassembler ce champ",
         group: "Regrouper par",
         value: "Additionner",

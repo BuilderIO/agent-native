@@ -1222,6 +1222,7 @@ const messages = {
       combine: {
         mode: "彙整為",
         key: "分組依據",
+        firstMemberIdentity: "用每組的第一項為該組命名",
         field: "收集此欄位",
         group: "分組依據",
         value: "加總",

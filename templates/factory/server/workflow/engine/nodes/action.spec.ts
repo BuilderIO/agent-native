@@ -586,6 +586,29 @@ describe("a write with a field the model writes", () => {
     expect(test.operations.callsTo("test.write")).toHaveLength(0);
   });
 
+  it("fails the item, without a write, when the model's answer is about another item", async () => {
+    const test = makeHost();
+    const { id } = await seedWorkflow(test, aiPost());
+    test.operations.script("test.items", sourceResult([normalizedItem("a")]));
+    test.ai.respond(() => ({
+      ok: true,
+      mode: "perItem",
+      usage: { modelCalls: 1 },
+      results: [
+        { itemId: "a", ok: true, fields: { text: "Hi there" } },
+        { itemId: "b", ok: true, fields: { text: "Hi someone else" } },
+      ],
+    }));
+
+    const result = await ran(test, id);
+
+    expect(stepOf(result, "post").error).toMatchObject({
+      code: "ai_invalid_output",
+      message: expect.stringContaining('it names "b", which was not given'),
+    });
+    expect(test.operations.callsTo("test.write")).toHaveLength(0);
+  });
+
   it("says whose credential the model lacked on the step, so the write's own provider is not blamed", async () => {
     const test = makeHost();
     const { id } = await seedWorkflow(test, aiPost());

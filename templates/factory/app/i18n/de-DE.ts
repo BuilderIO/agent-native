@@ -1322,6 +1322,7 @@ const messages = {
       combine: {
         mode: "Bündeln zu",
         key: "Gruppieren nach",
+        firstMemberIdentity: "Jede Gruppe nach ihrem ersten Eintrag benennen",
         field: "Dieses Feld sammeln",
         group: "Gruppieren nach",
         value: "Addieren",

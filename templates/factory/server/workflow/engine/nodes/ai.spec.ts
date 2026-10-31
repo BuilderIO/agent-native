@@ -8,7 +8,13 @@ import {
   sourceResult,
   stepOf,
 } from "../../testing/engine-fixtures.js";
-import { aiFailed, aiPerItem, aiWholeList, ok } from "../../testing/fakes.js";
+import {
+  aiFailed,
+  aiPerItem,
+  aiWholeList,
+  ok,
+  type AiResponder,
+} from "../../testing/fakes.js";
 import { makeHost, seedWorkflow } from "../../testing/make-host.js";
 
 const assess = (extra: Record<string, unknown> = {}) =>
@@ -245,6 +251,159 @@ describe("an AI node per item", () => {
     const result = await ran(test, id);
 
     expect(stepOf(result, "assess").error?.code).toBe("ai_invalid_output");
+  });
+});
+
+describe("an AI node per item, and what the model may say about which item", () => {
+  const answered =
+    (...entries: [string, Record<string, unknown>][]): AiResponder =>
+    () => ({
+      ok: true,
+      mode: "perItem",
+      usage: { modelCalls: 1 },
+      results: entries.map(([itemId, fields]) => ({
+        itemId,
+        ok: true as const,
+        fields,
+      })),
+    });
+
+  const say = [
+    "say",
+    "action",
+    {
+      operation: "test.write",
+      args: {
+        text: {
+          mode: "fixed",
+          value:
+            "{{ item.title }}|{{ item.extras.n }}|{{ nodes.assess.reason }}",
+        },
+      },
+    },
+  ] as const;
+
+  it("copies only the declared fields onto the item and leaves what the item already says as it was", async () => {
+    const { test, id } = await setup(assess(), { tail: [[...say]] });
+    test.operations.script("test.items", items(2));
+    test.operations.always("test.write", ok(null, { externalRef: "r" }));
+    // The model repeats the item's own fields, wrongly, and nests what it should say flat.
+    test.ai.respond(
+      answered(
+        [
+          "m0",
+          {
+            ...answer,
+            title: "Changed by the model",
+            thread: "C1:123",
+            nested: { clear: false },
+          },
+        ],
+        ["m1", { ...answer, extras: { n: 99 } }],
+      ),
+    );
+
+    const result = await ran(test, id);
+
+    expect(result.run.counts.itemFailures ?? 0).toBe(0);
+    expect(
+      test.operations.callsTo("test.write").map((call) => call.fields.text),
+    ).toEqual(["Item m0|0|reproducible", "Item m1|1|reproducible"]);
+  });
+
+  it("fails every item of the batch, and uses none of the answer, when it names an item the batch does not hold", async () => {
+    const { test, id } = await setup(assess({ batchSize: 3 }), {
+      tail: [[...say]],
+    });
+    test.operations.script("test.items", items(2));
+    test.operations.always("test.write", ok(null, { externalRef: "r" }));
+    test.ai.always(
+      answered(
+        ["m0", answer],
+        ["m1", answer],
+        ["m9", { ...answer, reason: "an invented report" }],
+      ),
+    );
+
+    const result = await ran(test, id);
+
+    expect(stepOf(result, "assess").ports).toMatchObject({ out: { count: 0 } });
+    expect(result.run.counts.itemFailures).toBe(2);
+    expect(test.operations.callsTo("test.write")).toHaveLength(0);
+    for (const item of ["m0", "m1"]) {
+      const error = (await eventsOf(test, id, item)).find(
+        (entry) => entry.kind === "error",
+      );
+      expect(error?.summary).toBe(
+        'ai_invalid_output: The AI answer is not about the items it was given, so none of it was used: it names "m9", which was not given.',
+      );
+    }
+  });
+
+  it("fails every item of the batch, and chooses none of two answers, when it answers an item twice", async () => {
+    const { test, id } = await setup(assess({ batchSize: 3 }), {
+      tail: [[...say]],
+    });
+    test.operations.script("test.items", items(2));
+    test.operations.always("test.write", ok(null, { externalRef: "r" }));
+    test.ai.always(
+      answered(
+        ["m0", answer],
+        ["m1", { ...answer, reason: "first answer" }],
+        ["m1", { ...answer, reason: "second answer" }],
+      ),
+    );
+
+    const result = await ran(test, id);
+
+    expect(stepOf(result, "assess").ports).toMatchObject({ out: { count: 0 } });
+    expect(result.run.counts.itemFailures).toBe(2);
+    expect(test.operations.callsTo("test.write")).toHaveLength(0);
+    const error = (await eventsOf(test, id, "m0")).find(
+      (entry) => entry.kind === "error",
+    );
+    expect(error?.summary).toContain('it answers "m1" more than once');
+  });
+
+  it("fails the item whose answer is missing and lets the others go on", async () => {
+    const { test, id } = await setup(assess({ batchSize: 3 }), {
+      tail: [[...say]],
+    });
+    test.operations.script("test.items", items(3));
+    test.operations.always("test.write", ok(null, { externalRef: "r" }));
+    test.ai.always(answered(["m0", answer], ["m2", answer]));
+
+    const result = await ran(test, id);
+
+    expect(stepOf(result, "assess").ports).toMatchObject({
+      out: { itemIds: ["m0", "m2"] },
+    });
+    const error = (await eventsOf(test, id, "m1")).find(
+      (entry) => entry.kind === "error",
+    );
+    expect(error?.summary).toBe(
+      "ai_invalid_output: The AI turn returned nothing for this item.",
+    );
+  });
+
+  it("fails an item whose gate is nested instead of flat, naming the field it lacks", async () => {
+    const { test, id } = await setup(assess({ batchSize: 3 }), {
+      tail: [[...say]],
+    });
+    test.operations.script("test.items", items(1));
+    test.operations.always("test.write", ok(null, { externalRef: "r" }));
+    test.ai.always(
+      answered(["m0", { gate: { clear: true }, reason: "nested, not flat" }]),
+    );
+
+    const result = await ran(test, id);
+
+    expect(stepOf(result, "assess").ports).toMatchObject({ out: { count: 0 } });
+    const error = (await eventsOf(test, id, "m0")).find(
+      (entry) => entry.kind === "error",
+    );
+    expect(error?.summary).toContain('"clear" is missing');
+    expect(test.operations.callsTo("test.write")).toHaveLength(0);
   });
 });
 

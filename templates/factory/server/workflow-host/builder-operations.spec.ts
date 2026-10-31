@@ -981,6 +981,11 @@ describe("builder tripwires", () => {
       sink,
     );
 
+    // Expected on every start, so it is recorded as information and does not read as a warning.
+    expect(events[1]).toMatchObject({
+      code: "builder_branch_name_changed",
+      severity: "info",
+    });
     const stored = sanitizeDetails(events[1].details);
     expect(stored.fields).toEqual({
       requestedBranch: "factory-group-7",

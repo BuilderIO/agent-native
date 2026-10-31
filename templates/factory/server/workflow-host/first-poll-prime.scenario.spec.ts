@@ -503,6 +503,7 @@ describe("a Slack source over a busy channel", () => {
     expect(nth(flow.calls, 0).input).toEqual({
       factoryId: SCOPE.factoryId,
       channelId: CHANNEL,
+      skipOwnPosts: true,
     });
     expect(stepOf(live, "src").fields).not.toHaveProperty("primed");
     // The legacy read: the oldest messages first, up to the inbox limit.

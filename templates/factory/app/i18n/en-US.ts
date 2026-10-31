@@ -1282,6 +1282,7 @@ const messages = {
       combine: {
         mode: "Combine into",
         key: "Group by",
+        firstMemberIdentity: "Name each group after its first item",
         field: "Collect this field",
         group: "Group by",
         value: "Add up",

@@ -68,12 +68,12 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 
 ## AI node uses
 
-| Capability       | 1   | 2   | 3   | 4   | 5   | 6   | 7   | 8   | 9   | 10  |
-| ---------------- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `perItem`        | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   |
-| `wholeList`      | ●   |     |     |     |     |     |     |     |     |     |
-| `aiWrittenField` | ●   | ●   | ●   | ●   | ●   | ●   |     | ●   | ●   |     |
-| `readOnlyTools`  |     |     |     |     |     |     |     | ●   |     |     |
+| Capability                                                                                                                     | 1   | 2   | 3   | 4   | 5   | 6   | 7   | 8   | 9   | 10  |
+| ------------------------------------------------------------------------------------------------------------------------------ | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `perItem`                                                                                                                      | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   |
+| `wholeList` (unused on purpose: no story judges a list as one since story 1 groups per report, run by engine/nodes/ai.spec.ts) |     |     |     |     |     |     |     |     |     |     |
+| `aiWrittenField`                                                                                                               | ●   | ●   | ●   | ●   | ●   | ●   |     | ●   | ●   |     |
+| `readOnlyTools`                                                                                                                |     |     |     |     |     |     |     | ●   |     |     |
 
 ## Builder operations
 
@@ -93,7 +93,7 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 | `itemFailed`      | ●   | ●   |     | ●   | ●   | ●   | ●   | ●   | ●   |     |
 | `needsCheck`      | ●   | ●   |     |     | ●   |     |     | ●   | ●   |     |
 | `lookupFailed`    |     |     |     |     | ●   | ●   |     |     |     |     |
-| `aiInvalidOutput` |     | ●   |     |     |     | ●   | ●   |     |     |     |
+| `aiInvalidOutput` | ●   | ●   |     |     |     | ●   | ●   |     |     |     |
 | `crashRecovery`   | ●   |     |     |     | ●   |     |     |     | ●   |     |
 | `restart`         | ●   |     |     |     | ●   |     |     |     |     |     |
 | `parkedThenWoken` | ●   |     |     | ●   |     |     | ●   |     | ●   | ●   |
@@ -179,6 +179,7 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 - `github.addLabels`: no story wires it yet, run by issue-writes.scenario.spec.ts
 - `github.removeLabel`: no story wires it yet, run by issue-writes.scenario.spec.ts
 - `slack.addReaction`: no story wires it yet, run by issue-writes.scenario.spec.ts
+- `wholeList`: no story judges a list as one since story 1 groups per report, run by engine/nodes/ai.spec.ts
 
 ## Follow-ups
 

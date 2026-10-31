@@ -112,6 +112,7 @@ quotes escaped. A parse failure names the position: fix it and send again.
   newest items and stores nothing, and a workflow turned off and on goes on from
   where it was. Tell the user that what is in the channel today will not be
   answered.
+- **A Slack source ignores the app's own posts.** Its notices and replies, which land in the channel it reads, are never taken as new reports; the step counts them as `skippedOwn`, a source that cannot learn who the app is fails with `identity_unresolved` instead of guessing, and `filter.includeOwnPosts: true` reads them anyway.
 
 ## Binding values and `{{ }}` paths
 
@@ -150,6 +151,19 @@ What flows between nodes: `id`, `kind` (`message`, `issue`, `pull_request`,
 `threadTs`, `repo`, `number`, `ticketId`), `extras` (provider fields, such as
 `extras.sha`) and `payload`. A pull request has `item.thread.repo` and
 `item.thread.number`.
+
+Never have a model write back what an item already carries. To group, rank or
+label items, use an AI step in `perItem` mode with a `batchSize` big enough to
+hold them together: the model sees the whole batch, answers once for each item
+by its id with only the fields you declare, and the engine attaches those
+fields to the item it came from, so `item.title`, `item.thread` and
+`item.author` stay the real ones. An answer that leaves out a declared field,
+gives it the wrong kind, names an item that was not given, or answers one twice
+fails the item (or the batch) as `ai_invalid_output`; it never invents items.
+Have the model say who goes together with a label (`groupName`), Combine on
+`nodes.<ai>.groupName` with `identity: "firstMember"`, and read the group's
+name and id from `item.key` and `item.id`: they come from its first member, not
+from the label.
 
 `combine` turns many items into one. Mode `list` gives `{ items, count,
 truncated, totalAvailable }`, and with nothing to combine it still gives one item
@@ -362,8 +376,14 @@ changes nothing.
 ## Builder: start, then check
 
 Builder ignores the branch name a start asks for and keeps its own. `builder.start`
-returns it as `externalRef` (also `branchName`), and a start whose receipt was
-reused still supplies it.
+returns it as `externalRef` (also `branchName`). A start found already done
+supplies `externalRef`, `url`, `status` and `projectId` and not `accepted` or
+`branchName`, because a receipt keeps only the fields that name a thing: read
+`externalRef`.
+
+- **Never compare the name you asked for with the one Builder returned.** A
+  check that `externalRef` equals the asked name turns away every real start.
+  To test that a start gave a task, test that `externalRef` is not empty.
 
 - **Bind every later Builder step to the start's receipt.** `builder.check` and
   `builder.followUp` take `branchName` as
@@ -384,10 +404,16 @@ reused still supplies it.
 - **Put `reason` in any message that says what Builder is**, such as
   `Builder is {{ nodes.check.state }} ({{ nodes.check.reason }})`, so a person
   can tell `branch_not_found` from `branch_archived`.
-- **A start is deduplicated only by the branch name it asked for.** Builder
-  renames branches, so a start whose receipt was lost can start a second task.
-  Ask for a name unique to the task. `builder.followUp` succeeding means Builder
-  queued the message, not that it acted on it.
+- **A start is deduplicated by its receipt, not by the branch name.** The same
+  item at the same step finds its done receipt and does not call Builder again,
+  through a requeue, a new run and a workflow saved again. For a grouped start
+  the item is the group, and its id comes from the group's first report (a
+  Combine `groupBy` with `identity: "firstMember"`), never from a label a model
+  wrote, so a requeued report is the same group however the model names it. A
+  report that comes back in a different group has a different member list and so
+  a different receipt. Builder renames branches, so the lookup by the asked name
+  never finds one. Ask for a name unique to the task. `builder.followUp`
+  succeeding means Builder queued the message, not that it acted on it.
 
 ## Merging a pull request
 

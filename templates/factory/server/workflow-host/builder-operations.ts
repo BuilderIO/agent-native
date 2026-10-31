@@ -133,8 +133,9 @@ function createObserve(
     });
   return {
     semantics: (details) => builder("builder_queue_semantics", "info", details),
+    // Builder keeps a name of its own on every start, which the catalog documents, so this is a record of what it did and not a fault.
     branchNameChanged: (requested, returned) =>
-      builder("builder_branch_name_changed", "warn", {
+      builder("builder_branch_name_changed", "info", {
         requestedBranch: requested,
         returnedBranch: returned,
       }),

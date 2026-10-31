@@ -170,6 +170,8 @@ const inboxRecordingSchema = z.union([
   z.strictObject({
     items: itemListSchema,
     totalAvailable: z.number().int().min(0).optional(),
+    /** How many of the app's own posts the poller left out of this read. */
+    skippedOwn: z.number().int().min(0).optional(),
   }),
   z.strictObject({
     failed: z.strictObject({
@@ -620,6 +622,9 @@ function compile(
                   ...(recording.totalAvailable === undefined
                     ? {}
                     : { totalAvailable: recording.totalAvailable }),
+                  ...(recording.skippedOwn === undefined
+                    ? {}
+                    : { skippedOwn: recording.skippedOwn }),
                 };
         const source = sourceKind(graph, step.source);
         steps.push(
@@ -943,3 +948,31 @@ export async function runScenario(
 
 /** The script data compiled into harness steps, for a replay that runs them on a real store. */
 export { compile as compileScenario };
+
+/** What a compiled script's first step answers every model turn with, when it is that step. */
+const routeOf = (step: StoryStep | undefined): AiResponder | undefined =>
+  step?.kind === "ai" ? step.thenAlways : undefined;
+
+/**
+ * The compiled steps with one node's model answered by `answer` instead of its
+ * recording, for a spec that needs an answer no recording can hold (a repeated
+ * item, a changing label). Every other node still gets its recording.
+ */
+export function withModelAnswer(
+  steps: readonly StoryStep[],
+  instruction: string,
+  answer: AiResponder,
+): StoryStep[] {
+  const route = routeOf(steps[0]);
+  if (route === undefined) {
+    throw new Error("The compiled steps no longer start by routing the model.");
+  }
+  return [
+    {
+      kind: "ai",
+      thenAlways: (request) =>
+        request.instruction === instruction ? answer(request) : route(request),
+    },
+    ...steps.slice(1),
+  ];
+}

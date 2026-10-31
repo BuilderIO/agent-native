@@ -1270,6 +1270,7 @@ const messages = {
       combine: {
         mode: "まとめ方",
         key: "グループ化の基準",
+        firstMemberIdentity: "各グループ名は最初の項目から付ける",
         field: "収集するフィールド",
         group: "グループ化の基準",
         value: "合計する値",

@@ -4,10 +4,23 @@ export type Workspace = "primary" | "secondary";
 
 export type SlackTokenResolver = (workspace: Workspace) => Promise<string>;
 
+/** Who posted a message when a bot did: Slack puts the same facts at the top level and here. */
+export interface SlackBotProfile {
+  id?: string;
+  app_id?: string;
+  user_id?: string;
+}
+
 export interface SlackMessage {
   type: string;
+  subtype?: string;
   user?: string;
   bot_id?: string;
+  app_id?: string;
+  bot_profile?: SlackBotProfile;
+  /** An edit or a delete event holds the message it is about here, and the author is on that one. */
+  message?: SlackMessage;
+  previous_message?: SlackMessage;
   username?: string;
   text: string;
   ts: string;

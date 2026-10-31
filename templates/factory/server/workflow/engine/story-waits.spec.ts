@@ -12,7 +12,6 @@ import {
 import {
   aiPerItem,
   aiRouter,
-  aiWholeList,
   ok,
   type AiResponder,
   type ScriptedOperation,
@@ -185,25 +184,20 @@ function bugModel(assess: (call: number) => Record<string, unknown>) {
     },
     {
       when: "Group related bugs",
-      respond: (request) =>
-        aiWholeList({
-          groups: request.items.map((item) => {
-            const assessed = item.nodes.assess as Record<string, unknown>;
-            return {
-              id: item.id,
-              groupId: `g-${item.id}`,
-              thread: item.item.thread,
-              author: item.item.author,
-              // A one-report group: its strictest values are the report's own.
-              clearBug: assessed.clearBug,
-              risk: assessed.risk,
-              confidence: assessed.confidence,
-              productUxImplications: assessed.productUxImplications,
-              alreadyClaimed: assessed.alreadyClaimed,
-              categories: assessed.categories,
-            };
-          }),
-        })(request),
+      respond: aiPerItem((item) => {
+        const assessed = item.nodes.assess as Record<string, unknown>;
+        return {
+          groupName: `g-${item.id}`,
+          reason: "Only report about the Pay button.",
+          // A one-report group: its strictest values are the report's own.
+          clearBug: assessed.clearBug,
+          risk: assessed.risk,
+          confidence: assessed.confidence,
+          productUxImplications: assessed.productUxImplications,
+          alreadyClaimed: assessed.alreadyClaimed,
+          categories: assessed.categories,
+        };
+      }),
     },
     {
       when: "Write the task for Builder",
@@ -223,13 +217,13 @@ const bugProviders = (): StoryStep[] => [
     ok(
       {
         accepted: true,
-        branchName: "factory-g-m1",
+        branchName: "factory-m1",
         projectId: "project-1",
-        url: "https://builder.test/branches/factory-g-m1",
+        url: "https://builder.test/branches/factory-m1",
       },
       {
-        externalRef: "factory-g-m1",
-        url: "https://builder.test/branches/factory-g-m1",
+        externalRef: "factory-m1",
+        url: "https://builder.test/branches/factory-m1",
       },
     ),
   ),
@@ -274,7 +268,7 @@ describe("story 1: a bug report that waits for an answer and goes round", () => 
     expect(sentTo(run, "builder.start")).toHaveLength(1);
     expect(sentTo(run, "builder.start")[0].fields).toMatchObject({
       projectId: "project-1",
-      branchName: "factory-g-m1",
+      branchName: "factory-m1",
       userEmail: "reporter@example.test",
       prompt: "Fix the checkout button.",
       // The gate's six inputs reach the start, from the group the model made.

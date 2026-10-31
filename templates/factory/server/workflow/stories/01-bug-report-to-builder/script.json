@@ -1,7 +1,7 @@
 {
   "scenarios": {
     "a-clear-bug-goes-to-builder-and-the-reporter-is-told": {
-      "description": "A clear, low-risk, high-confidence report is grouped, handed to Builder on a branch named for its group, and its thread is told once Builder accepted.",
+      "description": "A clear, low-risk, high-confidence report is grouped, handed to Builder on a branch named after the report that leads its group, and its thread is told once Builder accepted.",
       "steps": [
         {
           "kind": "serve",
@@ -656,8 +656,139 @@
         }
       ]
     },
-    "a-start-confirmed-on-another-branch-is-never-announced": {
-      "description": "When Builder answers with a branch other than the one asked for, the reporter is not told it started: a person is warned and the report waits for them.",
+    "a-group-answer-that-misstates-the-report-changes-nothing": {
+      "description": "The grouping answer carries the thread as text, a rewritten title and author, and a gate nested under another key beside the declared fields. Nothing of it reaches the report: the start is asked for the branch named after the report, for its author, and the reporter is told in their real thread.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "mangled"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives"
+        }
+      ]
+    },
+    "a-group-answer-with-the-gate-nested-fails-the-report-and-starts-nothing": {
+      "description": "The grouping answer nests the gate under another key and gives none of the declared gate fields. The report fails at the grouping step by name, is set aside for a retry twice, and then goes to a person. Builder is never called and nobody is told.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "nestedGate"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "retried once",
+          "at": "+6m"
+        },
+        {
+          "kind": "tick",
+          "label": "retried again",
+          "at": "+17m"
+        }
+      ]
+    },
+    "a-start-on-a-branch-builder-renamed-is-announced-and-tracked-under-the-returned-name": {
+      "description": "Builder keeps its own branch name instead of the one asked for, as it does on every real start: the start is accepted, the reporter is told once, the report becomes automation_started with the branch Builder returned recorded on it, and offering the report again finds the start's receipt done and starts nothing more.",
       "steps": [
         {
           "kind": "serve",
@@ -697,7 +828,73 @@
         {
           "kind": "serve",
           "operation": "builder.start",
-          "recording": "otherBranch"
+          "recording": "renamed"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 2
+        },
+        {
+          "kind": "tick",
+          "label": "Builder keeps its own branch name",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "offered again, the start is found done",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-start-builder-did-not-accept-is-not-announced": {
+      "description": "Builder's answer to a start says it did not accept and carries no branch name: nothing is announced, nothing is recorded, the start is not made again, and the report goes to a person at once with the reason.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "notAccepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
         },
         {
           "kind": "ai",
@@ -717,8 +914,13 @@
         },
         {
           "kind": "tick",
-          "label": "Builder answers with another branch",
+          "label": "Builder does not accept",
           "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "the report is with a person, nothing starts again",
+          "at": "+5m"
         }
       ]
     },
@@ -1304,6 +1506,77 @@
         {
           "kind": "tick",
           "label": "a bug posted afterwards is picked up",
+          "at": "+5m"
+        }
+      ]
+    },
+    "the-loops-own-notice-is-not-a-second-report": {
+      "description": "A report the loop will not start goes to the triage owner as a Slack message. When that message lands in the channel the Source reads (an owner target that is the feedback channel itself), the next run finds it newer than its position and leaves it out: nothing is assessed, asked or started for it, and the step says how many of its own posts it left out.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "risky"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "ownNotice",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "a risky report: the owner is told in the channel"
+        },
+        {
+          "kind": "tick",
+          "label": "the notice the loop posted is left out, not read as a report",
           "at": "+5m"
         }
       ]

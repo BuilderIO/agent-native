@@ -100,17 +100,25 @@
       "externalRef": "{fields.branchName}",
       "url": "https://builder.example.test/branches/{fields.branchName}"
     },
-    "otherBranch": {
+    "renamed": {
       "ok": true,
       "output": {
         "accepted": true,
         "projectId": "project-1",
-        "branchName": "factory-renamed-by-builder",
+        "branchName": "calm-harbor-x7k2q9",
         "status": "processing",
-        "url": "https://builder.example.test/branches/factory-renamed-by-builder"
+        "url": "https://builder.example.test/branches/calm-harbor-x7k2q9"
       },
-      "externalRef": "factory-renamed-by-builder",
-      "url": "https://builder.example.test/branches/factory-renamed-by-builder"
+      "externalRef": "calm-harbor-x7k2q9",
+      "url": "https://builder.example.test/branches/calm-harbor-x7k2q9"
+    },
+    "notAccepted": {
+      "ok": true,
+      "output": {
+        "accepted": false,
+        "projectId": "project-1",
+        "status": "rejected"
+      }
     },
     "refused": {
       "ok": false,

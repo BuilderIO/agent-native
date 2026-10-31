@@ -19,7 +19,6 @@
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": { "in": 1, "ports": { "out": 1 } },
           "tell": { "in": 1, "ports": { "out": 1 } },
           "thread": { "in": 1, "ports": { "out": 1 } }
@@ -72,7 +71,7 @@
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -181,7 +180,6 @@
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": { "in": 1, "ports": { "out": 1 } },
           "tell": { "in": 1, "ports": { "out": 1 } },
           "thread": { "in": 1, "ports": { "out": 1 } },
@@ -235,7 +233,7 @@
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -611,7 +609,6 @@
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": { "in": 1, "ports": { "out": 1 } },
           "tell": { "in": 1, "ports": { "out": 1 } },
           "thread": { "in": 1, "ports": { "out": 1 } },
@@ -665,7 +662,7 @@
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -892,12 +889,11 @@
           "assess": { "in": 3, "ports": { "out": 3 } },
           "byGroup": { "in": 3, "ports": { "out": 2 } },
           "feedback": { "in": 0, "ports": { "out": 3 } },
-          "group": { "in": 3, "ports": { "out": 1 } },
+          "group": { "in": 3, "ports": { "out": 3 } },
           "handed": { "in": 3, "ports": {} },
           "openTasks": { "in": 3, "ports": { "out": 3 } },
           "reports": { "in": 2, "ports": { "out": 3 } },
           "route": { "in": 3, "ports": { "route:clear": 3 } },
-          "split": { "in": 1, "ports": { "out": 3 } },
           "startBuilder": { "in": 2, "ports": { "out": 2 } },
           "tell": { "in": 3, "ports": { "out": 3 } },
           "thread": { "in": 3, "ports": { "out": 3 } }
@@ -1002,7 +998,7 @@
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1", "m2", "m3"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1", "m2", "m3"] },
+          { "node": "group", "mode": "perItem", "items": ["m1", "m2", "m3"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -1057,36 +1053,35 @@
       "m3": ["decision@route:route:clear", "effect@tell", "ended@handed:done"]
     }
   },
-  "a-start-confirmed-on-another-branch-is-never-announced": {
+  "a-group-answer-that-misstates-the-report-changes-nothing": {
     "ticks": [
       {
-        "label": "Builder answers with another branch",
+        "label": "the report arrives",
         "at": "2026-10-19T12:00:00.000Z",
         "outcome": "ran",
         "run": {
           "status": "succeeded",
-          "counts": { "taken": 1, "needsManual": 1, "modelCalls": 3 }
+          "counts": { "taken": 1, "done": 1, "modelCalls": 3 }
         },
         "nodes": {
-          "accepted": { "in": 1, "ports": { "otherwise": 1 } },
+          "accepted": { "in": 1, "ports": { "match": 1 } },
           "assess": { "in": 1, "ports": { "out": 1 } },
           "byGroup": { "in": 1, "ports": { "out": 1 } },
           "feedback": { "in": 0, "ports": { "out": 1 } },
           "group": { "in": 1, "ports": { "out": 1 } },
-          "manual": { "in": 1, "ports": {} },
+          "handed": { "in": 1, "ports": {} },
           "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": { "in": 1, "ports": { "out": 1 } },
-          "thread": { "in": 1, "ports": { "out": 1 } },
-          "unconfirmed": { "in": 1, "ports": { "out": 1 } },
-          "warnOwner": { "in": 1, "ports": { "out": 1 } }
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
         },
         "calls": {
           "slack.readThread": 1,
           "factory.listItems": 1,
           "builder.start": 1,
-          "slack.postMessage": 1
+          "slack.replyInThread": 1
         },
         "windows": {},
         "effects": [
@@ -1108,28 +1103,29 @@
             },
             "receipt": {
               "status": "done",
-              "externalRef": "factory-renamed-by-builder",
-              "url": "https://builder.example.test/branches/factory-renamed-by-builder"
+              "externalRef": "factory-m1",
+              "url": "https://builder.example.test/branches/factory-m1"
             }
           },
           {
-            "node": "warnOwner",
+            "node": "tell",
             "item": "m1",
-            "operation": "slack.postMessage",
+            "operation": "slack.replyInThread",
             "fields": {
-              "to": "triage-owner@example.test",
-              "text": "Builder answered with the branch factory-renamed-by-builder, which is not the one Factory asked for, so Checkout button does nothing was not announced. Check Builder before anything is started again."
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
-              "externalRef": "1760002000.000001",
-              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
             }
           }
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -1139,17 +1135,362 @@
       }
     ],
     "parked": [],
-    "statuses": { "m1": "needs_manual" },
+    "statuses": { "m1": "automation_started" },
+    "recorded": {
+      "m1": {
+        "builderTaskId": "project-1:factory-m1",
+        "projectId": "project-1",
+        "branchName": "factory-m1",
+        "repository": "example-org/example-repo"
+      }
+    },
     "cursors": {},
     "journeys": {
       "group:byGroup:99c7d8bd1db30": [
         "effect@startBuilder",
-        "decision@accepted:otherwise"
+        "decision@accepted:match"
+      ],
+      "m1": ["decision@route:route:clear", "effect@tell", "ended@handed:done"]
+    }
+  },
+  "a-group-answer-with-the-gate-nested-fails-the-report-and-starts-nothing": {
+    "ticks": [
+      {
+        "label": "the report arrives",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "itemFailures": 1,
+            "modelCalls": 2,
+            "retryParked": 1
+          }
+        },
+        "nodes": {
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "factory.listItems": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] }
+        ]
+      },
+      {
+        "label": "retried once",
+        "at": "2026-10-19T12:06:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retryParked": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "group": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [{ "node": "group", "mode": "perItem", "items": ["m1"] }]
+      },
+      {
+        "label": "retried again",
+        "at": "2026-10-19T12:17:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "needsManual": 1,
+            "itemFailures": 1,
+            "modelCalls": 1,
+            "retried": 1
+          }
+        },
+        "nodes": {
+          "group": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "ai_invalid_output"
+          }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": [{ "node": "group", "mode": "perItem", "items": ["m1"] }]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "m1": [
+        "decision@route:route:clear",
+        "error@group:ai_invalid_output",
+        "parked@group",
+        "woke@group:?",
+        "error@group:ai_invalid_output",
+        "parked@group",
+        "woke@group:?",
+        "error@group:ai_invalid_output",
+        "ended@group:needsManual"
+      ]
+    }
+  },
+  "a-start-on-a-branch-builder-renamed-is-announced-and-tracked-under-the-returned-name": {
+    "ticks": [
+      {
+        "label": "Builder keeps its own branch name",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 3 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1,
+          "slack.replyInThread": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "calm-harbor-x7k2q9",
+              "url": "https://builder.example.test/branches/calm-harbor-x7k2q9"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      },
+      {
+        "label": "offered again, the start is found done",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 3 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "factory.listItems": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "automation_started" },
+    "recorded": {
+      "m1": {
+        "builderTaskId": "project-1:calm-harbor-x7k2q9",
+        "projectId": "project-1",
+        "branchName": "calm-harbor-x7k2q9",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "decision@accepted:match",
+        "effect@startBuilder",
+        "decision@accepted:match"
       ],
       "m1": [
         "decision@route:route:clear",
-        "effect@warnOwner",
-        "ended@manual:needsManual"
+        "effect@tell",
+        "ended@handed:done",
+        "decision@route:route:clear",
+        "effect@tell",
+        "ended@handed:done"
+      ]
+    }
+  },
+  "a-start-builder-did-not-accept-is-not-announced": {
+    "ticks": [
+      {
+        "label": "Builder does not accept",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "needsManual": 1,
+            "itemFailures": 1,
+            "modelCalls": 3
+          }
+        },
+        "nodes": {
+          "accepted": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "expression_failed"
+          },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": { "status": "done" }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      },
+      {
+        "label": "the report is with a person, nothing starts again",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "m1": ["decision@route:route:clear", "ended@accepted:needsManual"],
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "error@accepted:expression_failed",
+        "ended@accepted:needsManual"
       ]
     }
   },
@@ -1177,7 +1518,6 @@
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": { "in": 1, "ports": { "out": 1 } },
           "tell": {
             "in": 1,
@@ -1253,7 +1593,7 @@
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -1340,7 +1680,6 @@
           "group": { "in": 1, "ports": { "out": 1 } },
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": {
             "in": 1,
             "ports": {},
@@ -1377,7 +1716,7 @@
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -1441,7 +1780,6 @@
           "group": { "in": 1, "ports": { "out": 1 } },
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": {
             "in": 1,
             "ports": {},
@@ -1478,7 +1816,7 @@
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -1506,7 +1844,6 @@
           "group": { "in": 1, "ports": { "out": 1 } },
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": {
             "in": 1,
             "ports": {},
@@ -1520,7 +1857,7 @@
         "effects": [],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -1685,7 +2022,6 @@
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": { "in": 1, "ports": { "out": 1 } },
           "tell": { "in": 1, "ports": { "out": 1 } },
           "thread": { "in": 1, "ports": { "out": 1 } },
@@ -1739,7 +2075,7 @@
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -1796,7 +2132,6 @@
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": { "in": 1, "ports": { "out": 1 } },
           "tell": { "in": 1, "ports": { "out": 1 } },
           "thread": { "in": 1, "ports": { "out": 1 } }
@@ -1849,7 +2184,7 @@
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -1875,7 +2210,6 @@
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": { "in": 1, "ports": { "out": 1 } },
           "tell": { "in": 1, "ports": { "out": 1 } },
           "thread": { "in": 1, "ports": { "out": 1 } }
@@ -1885,7 +2219,7 @@
         "effects": [],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -1988,7 +2322,6 @@
           "openTasks": { "in": 1, "ports": { "out": 1 } },
           "reports": { "in": 1, "ports": { "out": 1 } },
           "route": { "in": 1, "ports": { "route:clear": 1 } },
-          "split": { "in": 1, "ports": { "out": 1 } },
           "startBuilder": { "in": 1, "ports": { "out": 1 } },
           "tell": { "in": 1, "ports": { "out": 1 } },
           "thread": { "in": 1, "ports": { "out": 1 } }
@@ -2041,7 +2374,7 @@
         ],
         "ai": [
           { "node": "assess", "mode": "perItem", "items": ["m1"] },
-          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          { "node": "group", "mode": "perItem", "items": ["m1"] },
           {
             "node": "startBuilder",
             "mode": "perItem",
@@ -2067,6 +2400,67 @@
         "decision@accepted:match"
       ],
       "m1": ["decision@route:route:clear", "effect@tell", "ended@handed:done"]
+    }
+  },
+  "the-loops-own-notice-is-not-a-second-report": {
+    "ticks": [
+      {
+        "label": "a risky report: the owner is told in the channel",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "needsManual": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "manual": { "in": 1, "ports": {} },
+          "notifyOwner": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "otherwise": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notifyOwner",
+            "item": "m1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Needs a person: Checkout button does nothing (Touches the payment flow; a person should look first.)"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": [{ "node": "assess", "mode": "perItem", "items": ["m1"] }]
+      },
+      {
+        "label": "the notice the loop posted is left out, not read as a report",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "m1": [
+        "decision@route:otherwise",
+        "effect@notifyOwner",
+        "ended@manual:needsManual"
+      ]
     }
   }
 }

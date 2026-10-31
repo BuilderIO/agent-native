@@ -296,6 +296,12 @@ const inboxFilterSchema = z.strictObject({
   authors: z.array(z.string().min(1).max(120)).max(50).optional(),
   excludeAuthors: z.array(z.string().min(1).max(120)).max(50).optional(),
   claimReaction: z.string().min(1).max(60).optional(),
+  includeOwnPosts: z
+    .boolean()
+    .optional()
+    .describe(
+      "Slack only. A Slack source leaves out the app's own posts (its notices and replies) unless this is true.",
+    ),
 });
 
 const sourceSettingsSchema = z.discriminatedUnion("source", [
@@ -380,6 +386,12 @@ const combineSettingsSchema = z
     key: pathStringSchema.optional(),
     field: pathStringSchema.optional(),
     summarize: summarizeSchema.optional(),
+    identity: z
+      .literal("firstMember")
+      .optional()
+      .describe(
+        "groupBy only. \"firstMember\" names each group after its first item, in the order the items arrived: the group's id and its `key` come from that item's id, so the grouping value (a label a model wrote, say) decides who goes together and never what the group is. Without it the group is named by the grouping value itself.",
+      ),
   })
   .superRefine((combine, ctx) => {
     const expect = (present: boolean, mode: string, name: string) => {
@@ -406,6 +418,13 @@ const combineSettingsSchema = z
         code: "custom",
         message: 'field only applies to "list"',
         path: ["field"],
+      });
+    }
+    if (combine.identity !== undefined && combine.mode !== "groupBy") {
+      ctx.addIssue({
+        code: "custom",
+        message: 'identity only applies to "groupBy"',
+        path: ["identity"],
       });
     }
   });

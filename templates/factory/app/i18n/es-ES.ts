@@ -1336,6 +1336,7 @@ const messages = {
       combine: {
         mode: "Combinar en",
         key: "Agrupar por",
+        firstMemberIdentity: "Nombrar cada grupo según su primer elemento",
         field: "Reunir este campo",
         group: "Agrupar por",
         value: "Sumar",

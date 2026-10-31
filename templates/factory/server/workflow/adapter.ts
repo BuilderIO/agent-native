@@ -760,6 +760,12 @@ export type InboxResult =
       /** The read took the newest position and no item: a live source's first read. */
       primed?: boolean;
       /**
+       * An inbox-poll source only: how many of the app's own posts the read
+       * left out (its notices and replies are its output, not new reports).
+       * They still move the position. Absent when the poll does not look.
+       */
+      skippedOwn?: number;
+      /**
        * The items are a read-only sample: nothing was stored and no position
        * moved, so a later live run neither sees them as rows nor skips them.
        */

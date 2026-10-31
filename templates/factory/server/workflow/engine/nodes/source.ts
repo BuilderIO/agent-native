@@ -30,6 +30,8 @@ interface Fetched {
   position?: string;
   /** An inbox poll's first live read: the newest position and no items. */
   primed?: boolean;
+  /** An inbox poll left out this many of the app's own posts: output of the workflow, not new work. */
+  skippedOwn?: number;
   /** An inbox poll read nothing into the inbox: its items are a sample. */
   sample?: boolean;
   /** A sample of a source that has no position yet, which a live run would start from now. */
@@ -121,6 +123,9 @@ async function fetchFromInbox(
       : { totalAvailable: result.totalAvailable }),
     ...(result.position === undefined ? {} : { position: result.position }),
     ...(result.primed ? { primed: true } : {}),
+    ...(result.skippedOwn === undefined
+      ? {}
+      : { skippedOwn: result.skippedOwn }),
     ...(result.sample ? { sample: true } : {}),
     ...(result.sample && start?.kind === "prime" ? { wouldPrime: true } : {}),
   };
@@ -429,6 +434,11 @@ export const executeSource: NodeExecutorFor<"source"> = async (call) => {
     if (fetched.sample) {
       step.field("sample", true);
       if (fetched.wouldPrime) step.field("wouldPrime", true);
+    }
+    // The count of what was left out is kept on the step, so a source that took
+    // nothing because the channel held only the workflow's own posts says so.
+    if (fetched.skippedOwn !== undefined) {
+      step.field("skippedOwn", fetched.skippedOwn);
     }
   }
   step.field("taken", won.length);

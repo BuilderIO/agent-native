@@ -388,6 +388,9 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
       combine: {
         mode: t("workflowCanvas.inspector.combine.mode"),
         key: t("workflowCanvas.inspector.combine.key"),
+        firstMemberIdentity: t(
+          "workflowCanvas.inspector.combine.firstMemberIdentity",
+        ),
         field: t("workflowCanvas.inspector.combine.field"),
         group: t("workflowCanvas.inspector.combine.group"),
         value: t("workflowCanvas.inspector.combine.value"),

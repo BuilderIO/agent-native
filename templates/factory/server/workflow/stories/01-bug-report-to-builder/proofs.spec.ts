@@ -213,17 +213,121 @@ describe("story 1 proofs: a bug report to Builder", () => {
     });
   });
 
-  it("never says Builder started when the branch it names is not the one asked for", async () => {
+  it("takes the branch, the author and the thread from the report, whatever the grouping answer adds beside its declared fields", async () => {
     const { summary } = await scenario(
-      "a-start-confirmed-on-another-branch-is-never-announced",
+      "a-group-answer-that-misstates-the-report-changes-nothing",
+    );
+
+    // The answer wrote the thread as text, a new title and author, and a gate nested under another key.
+    expect(effectsOf(summary, "builder.start")).toEqual([
+      expect.objectContaining({
+        fields: expect.objectContaining({
+          branchName: "factory-m1",
+          userEmail: "reporter-1@example.test",
+          clearBug: true,
+          risk: "low",
+        }),
+      }),
+    ]);
+    expect(effectsOf(summary, "slack.replyInThread")).toEqual([
+      expect.objectContaining({
+        node: "tell",
+        item: "m1",
+        fields: {
+          channel: "C0FEEDBACK",
+          threadTs: M1_THREAD.threadTs,
+          text: STARTED("m1"),
+        },
+      }),
+    ]);
+    expect(summary.statuses).toEqual({ m1: "automation_started" });
+  });
+
+  it("fails a report whose grouping answer has no declared gate, by name, and neither starts Builder nor tells anyone", async () => {
+    const { summary, run } = await scenario(
+      "a-group-answer-with-the-gate-nested-fails-the-report-and-starts-nothing",
+    );
+
+    expect(tickAt(summary, 0).nodes.group).toMatchObject({
+      status: "failed",
+      error: "ai_invalid_output",
+    });
+    const messages = (run.events.m1 ?? [])
+      .filter((event) => event.kind === "error")
+      .map((event) => event.summary);
+    expect(messages).toHaveLength(3);
+    expect(messages[0]).toContain('"clearBug" is missing');
+    // Set aside twice, then handed to a person: the answer never gets better.
+    expect(tickAt(summary, 2).run?.counts).toMatchObject({ needsManual: 1 });
+    expect(callsTo(summary, "builder.start")).toBe(0);
+    expect(callsTo(summary, "slack.replyInThread")).toBe(0);
+    expect(summary.recorded).toBeUndefined();
+    expect(summary.statuses).toEqual({ m1: "needs_manual" });
+  });
+
+  it("announces a start Builder put on a branch of its own, and tracks the task under the name Builder returned", async () => {
+    const { summary } = await scenario(
+      "a-start-on-a-branch-builder-renamed-is-announced-and-tracked-under-the-returned-name",
+    );
+    const renamed = "calm-harbor-x7k2q9";
+
+    // Builder keeps its own name for every real start; the name asked for is only a request.
+    expect(effectsOf(summary, "builder.start")).toEqual([
+      expect.objectContaining({
+        fields: expect.objectContaining({ branchName: "factory-m1" }),
+        receipt: expect.objectContaining({
+          status: "done",
+          externalRef: renamed,
+        }),
+      }),
+    ]);
+    expect(effectsOf(summary, "slack.replyInThread")).toEqual([
+      expect.objectContaining({
+        node: "tell",
+        item: "m1",
+        fields: {
+          channel: "C0FEEDBACK",
+          threadTs: M1_THREAD.threadTs,
+          text: STARTED("m1"),
+        },
+      }),
+    ]);
+    expect(summary.statuses).toEqual({ m1: "automation_started" });
+    // Story 2 follows what is recorded here, so it has to be the returned name, never the asked one.
+    expect(summary.recorded).toEqual({
+      m1: {
+        builderTaskId: `project-1:${renamed}`,
+        projectId: "project-1",
+        branchName: renamed,
+        repository: "example-org/example-repo",
+      },
+    });
+    // Offered again, the start's receipt is found done: Builder is not started a second time and the thread is not told twice.
+    expect(callsTo(summary, "builder.start")).toBe(1);
+    expect(callsTo(summary, "slack.replyInThread")).toBe(1);
+    expect(tickAt(summary, 1).effects).toEqual([]);
+    expect(tickAt(summary, 1).nodes.accepted).toMatchObject({
+      ports: { match: 1 },
+    });
+  });
+
+  it("does not announce or record a start Builder did not accept, and does not start it again", async () => {
+    const { summary } = await scenario(
+      "a-start-builder-did-not-accept-is-not-announced",
     );
 
     // The 202 half (a start is only answered once Builder accepted) is the executor's: server/workflow-host/builder-operations.spec.ts.
+    // Here the graph's own guard: an answer with no branch name stops at `accepted`, loudly, before anyone is told or anything is recorded.
+    expect(tickAt(summary, 0).nodes.accepted).toMatchObject({
+      status: "failed",
+      error: "expression_failed",
+    });
     expect(effectsOf(summary, "slack.replyInThread")).toEqual([]);
-    expect(effectsOf(summary, "slack.postMessage")).toHaveLength(1);
-    expect(effectsOf(summary, "slack.postMessage")[0].fields.text).toContain(
-      "factory-renamed-by-builder",
-    );
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([]);
+    expect(summary.recorded).toBeUndefined();
+    expect(tickAt(summary, 0).run?.counts.needsManual).toBe(1);
+    expect(callsTo(summary, "builder.start")).toBe(1);
+    expect(tickAt(summary, 1).calls).toEqual({});
     expect(summary.statuses).toEqual({ m1: "needs_manual" });
   });
 
@@ -370,5 +474,32 @@ describe("story 1 proofs: a bug report to Builder", () => {
     expect(callsTo(summary, "builder.start")).toBe(1);
     expect(callsTo(summary, "slack.replyInThread")).toBe(1);
     expect(summary.statuses).toEqual({ m1: "automation_started" });
+  });
+
+  it("leaves out the notice the loop itself posted, so it is never assessed, asked about or started as a second report", async () => {
+    const { summary, run } = await scenario(
+      "the-loops-own-notice-is-not-a-second-report",
+    );
+
+    // The first run tells the owner about the risky report, once.
+    expect(effectsOf(summary, "slack.postMessage")).toHaveLength(1);
+    expect(tickAt(summary, 0).run?.counts).toMatchObject({ taken: 1 });
+    // The next run's source read the notice, left it out and said so.
+    const [first, second] = run.ticks.map((tick) =>
+      tick.steps.find((step) => step.nodeId === "feedback"),
+    );
+    expect(first?.fields).not.toHaveProperty("skippedOwn");
+    expect(second?.fields).toMatchObject({ taken: 0, skippedOwn: 1 });
+    expect(tickAt(summary, 1)).toMatchObject({
+      run: { counts: {} },
+      calls: {},
+      ai: [],
+      effects: [],
+    });
+    expect(tickAt(summary, 1).run?.counts).not.toHaveProperty("taken");
+    // Nothing reached Builder, and the one report stays with a person.
+    expect(callsTo(summary, "builder.start")).toBe(0);
+    expect(callsTo(summary, "slack.replyInThread")).toBe(0);
+    expect(summary.statuses).toEqual({ m1: "needs_manual" });
   });
 });
