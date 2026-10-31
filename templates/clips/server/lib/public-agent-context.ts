@@ -907,6 +907,11 @@ export function buildPublicAgentContext({
         ]
       : []),
     ...transcriptStatusInstructions(transcript),
+    ...(timeline.hasCuts && (browserDiagnostics || appActivity)
+      ? [
+          "The owner trimmed this clip. Transcript, chapter, comment and frame times are on the trimmed video, but browserDiagnostics and appActivity times are on the original recording, before the cuts, so do not join them with frame times.",
+        ]
+      : []),
     ...(bugReport
       ? [
           "Use bugReport for the submitted product context: source URL, page title, app version, environment, severity, and redacted host metadata.",
