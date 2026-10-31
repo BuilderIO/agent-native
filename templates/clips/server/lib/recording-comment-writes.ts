@@ -18,6 +18,7 @@ import {
 } from "./activity-notifications.js";
 import { assertCommentAccess } from "./comment-access.js";
 import { resolveCommentMentions } from "./comment-mentions.js";
+import { firstRow } from "./first-row.js";
 import { nanoid } from "./recordings.js";
 
 /** The `idempotencyKey` argument of the actions that add a comment. */
@@ -34,12 +35,12 @@ export interface RecordingCommentInput {
   content: string;
   videoTimestampMs: number;
   /** With `parentId`, for a reply; both absent for a new thread. */
-  threadId?: string;
-  parentId?: string;
-  authorName?: string;
-  mentions?: string | { email: string; name: string }[];
+  threadId?: string | undefined;
+  parentId?: string | undefined;
+  authorName?: string | undefined;
+  mentions?: string | { email: string; name: string }[] | undefined;
   /** One per comment its author means to post, the same on every try. */
-  idempotencyKey?: string;
+  idempotencyKey?: string | undefined;
 }
 
 /**
@@ -77,25 +78,26 @@ async function savedWithKey(
   target: CommentTarget,
 ): Promise<SavedRecordingComment | null> {
   const comments = schema.recordingComments;
-  const rows = await getDb()
-    .select({
-      id: comments.id,
-      recordingId: comments.recordingId,
-      threadId: comments.threadId,
-      parentId: comments.parentId,
-      videoTimestampMs: comments.videoTimestampMs,
-      content: comments.content,
-    })
-    .from(comments)
-    .where(
-      and(
-        eq(comments.authorEmail, authorEmail),
-        eq(comments.idempotencyKey, idempotencyKey),
-      ),
-    )
-    .limit(1);
-  if (rows.length === 0) return null;
-  const saved = rows[0];
+  const saved = firstRow(
+    await getDb()
+      .select({
+        id: comments.id,
+        recordingId: comments.recordingId,
+        threadId: comments.threadId,
+        parentId: comments.parentId,
+        videoTimestampMs: comments.videoTimestampMs,
+        content: comments.content,
+      })
+      .from(comments)
+      .where(
+        and(
+          eq(comments.authorEmail, authorEmail),
+          eq(comments.idempotencyKey, idempotencyKey),
+        ),
+      )
+      .limit(1),
+  );
+  if (!saved) return null;
   if (
     saved.recordingId !== target.recordingId ||
     saved.parentId !== target.parentId ||
@@ -157,15 +159,16 @@ export async function saveRecordingComment(
   }
   const now = new Date().toISOString();
 
-  const recordings = await db
-    .select({ organizationId: schema.recordings.organizationId })
-    .from(schema.recordings)
-    .where(eq(schema.recordings.id, args.recordingId))
-    .limit(1);
-  if (recordings.length === 0) {
+  const rec = firstRow(
+    await db
+      .select({ organizationId: schema.recordings.organizationId })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .limit(1),
+  );
+  if (!rec) {
     throw new Error(`Recording not found: ${args.recordingId}`);
   }
-  const rec = recordings[0];
 
   if (parentId) {
     const parents = await db
@@ -252,7 +255,7 @@ export async function saveRecordingComment(
         recordingId: args.recordingId,
         threadId,
         authorEmail,
-        authorName: authorName ?? undefined,
+        ...(authorName === null ? {} : { authorName }),
         content: args.content,
         mentions,
         videoTimestampMs: args.videoTimestampMs,
@@ -268,19 +271,20 @@ export async function saveRecordingComment(
 export async function saveRecordingReply(args: {
   commentId: string;
   content: string;
-  authorName?: string;
+  authorName?: string | undefined;
   mentions?: RecordingCommentInput["mentions"];
-  idempotencyKey?: string;
+  idempotencyKey?: string | undefined;
 }): Promise<SavedRecordingComment> {
-  const parents = await getDb()
-    .select()
-    .from(schema.recordingComments)
-    .where(eq(schema.recordingComments.id, args.commentId))
-    .limit(1);
-  if (parents.length === 0) {
+  const parent = firstRow(
+    await getDb()
+      .select()
+      .from(schema.recordingComments)
+      .where(eq(schema.recordingComments.id, args.commentId))
+      .limit(1),
+  );
+  if (!parent) {
     throw new Error(`Comment not found: ${args.commentId}`);
   }
-  const parent = parents[0];
 
   return saveRecordingComment({
     recordingId: parent.recordingId,

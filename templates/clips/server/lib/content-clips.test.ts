@@ -360,7 +360,7 @@ function peerEvent(
     bearer?: string | undefined;
     method?: string;
     body?: unknown;
-    headers?: Record<string, string>;
+    headers?: Record<string, string> | undefined;
   } = {},
 ) {
   const event = mockEvent(`${CLIPS_URL}${path}`, {
@@ -1664,7 +1664,12 @@ describe("video comments through a doc", () => {
 
       const result = await respond(writeCommentsRoute, event);
       expect(result.status).toBe(200);
-      expect(kept).toEqual([state.notification]);
+      expect(state.notified).toHaveLength(1);
+      expect(kept).toHaveLength(1);
+      const stillSending = Symbol("still sending");
+      await expect(Promise.race([kept[0], stillSending])).resolves.toBe(
+        stillSending,
+      );
       expect(await storedComments()).toHaveLength(1);
     });
 
