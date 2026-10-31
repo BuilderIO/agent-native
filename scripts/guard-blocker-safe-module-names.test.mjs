@@ -75,9 +75,30 @@ test("finds the module name that kept apps from loading in Brave", () => {
     [
       {
         file: "packages/core/src/localization/consent-banner-messages.ts",
-        rule: "/consent-banner-",
-        list: "EasyList Cookie List",
+        words: "consent-banner",
+        list: "cookie-notice lists",
       },
+    ],
+  );
+});
+
+test("catches every spelling of a blocked word pair", () => {
+  assert.deepEqual(
+    findBlockedModuleNames([
+      "packages/core/src/client/cookie-banner.min.ts",
+      "templates/mail/public/cookie_banner_v2.js",
+      "templates/mail/app/CookieBanner.tsx",
+      "packages/core/src/consentbanner-fragment/app.ts",
+      "templates/clips/public/gdpr_popup.min.js",
+      "templates/plan/app/lib/tracking-analytics-events.ts",
+    ]).map(({ words }) => words),
+    [
+      "cookie-banner",
+      "cookie_banner",
+      "cookiebanner",
+      "consentbanner-",
+      "gdpr_popup",
+      "tracking-analytics-events",
     ],
   );
 });
@@ -91,13 +112,13 @@ test("matches rules in any letter case, in every browser root", () => {
     "packages/toolkit/src/app/analytics-events-client.ts",
   ];
   assert.deepEqual(
-    findBlockedModuleNames(files).map(({ rule }) => rule),
+    findBlockedModuleNames(files).map(({ words }) => words),
     [
-      "/cookie-notice-",
-      "/gdpr-consent-",
-      "-cookie-banner.",
-      "/click-tracking.js",
-      "/analytics-events-",
+      "cookie-notice",
+      "gdpr-consent",
+      "cookie-banner",
+      "click-tracking",
+      "analytics-events-",
     ],
   );
 });
@@ -109,7 +130,11 @@ test("allows the names the blocker lists let through", () => {
       "packages/core/src/client/analytics.ts",
       "packages/core/src/shared/analytics-events.ts",
       "packages/core/src/shared/builder-link-tracking.ts",
+      "packages/core/src/mcp-client/oauth-flow-cookie.ts",
+      "packages/core/src/server/cookie-namespace.ts",
+      "packages/core/src/localization/privacy-choice-messages.ts",
       "packages/toolkit/src/app/shared/ConsentBanner.tsx",
+      "templates/clips/app/hooks/use-view-tracking.ts",
     ]),
     [],
   );

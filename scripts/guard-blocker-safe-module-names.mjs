@@ -8,9 +8,15 @@
  * the app stays on its loading skeleton with nothing in the console. This is
  * how `consent-banner-messages.js` broke every app in Brave (issue 8350).
  *
- * RULES are copied verbatim from EasyList Cookie List (which Brave turns on to
- * hide cookie notices) and EasyPrivacy. They are plain substring rules, so a
- * URL that contains one, in any letter case, is blocked.
+ * BLOCKED_WORDS holds the word pairs that cookie-notice and tracker rules are
+ * built on, such as `cookie-banner`. A URL holding one of them, with `-`, `_`
+ * or nothing between the words and in any letter case, is flagged wherever
+ * the pair appears, so `.min.js`, `_v2` and other variants are caught too. In
+ * October 2026 these patterns covered every one of the 229 rules on these
+ * pairs in EasyList, EasyPrivacy, EasyList Cookie List (which Brave turns on
+ * to hide cookie notices), Fanboy's Annoyance List, Brave's own list and
+ * uBlock Origin's lists. They are written here rather than copied from those
+ * lists.
  */
 
 import { execFileSync } from "node:child_process";
@@ -22,37 +28,28 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 
-const RULES = [
-  { rule: "/consent-banner-", list: "EasyList Cookie List" },
-  { rule: "-consent-banner-", list: "EasyList Cookie List" },
-  { rule: "-consent-banner.", list: "EasyList Cookie List" },
-  { rule: "/consent_banner.js", list: "EasyList Cookie List" },
-  { rule: "/consent-manager.js", list: "EasyList Cookie List" },
-  { rule: "/consent-modal.js", list: "EasyList Cookie List" },
-  { rule: "/cookie-banner.js", list: "EasyList Cookie List" },
-  { rule: "-cookie-banner.", list: "EasyList Cookie List" },
-  { rule: "/cookie_banner-", list: "EasyList Cookie List" },
-  { rule: "/cookiebanner.js", list: "EasyList Cookie List" },
-  { rule: "/cookie-notice-", list: "EasyList Cookie List" },
-  { rule: "-cookie-notice-", list: "EasyList Cookie List" },
-  { rule: "/cookie-consent.js", list: "EasyList Cookie List" },
-  { rule: "/cookieconsent.js", list: "EasyList Cookie List" },
-  { rule: "/cookie-popup-", list: "EasyList Cookie List" },
-  { rule: "/cookie-privacy-", list: "EasyList Cookie List" },
-  { rule: "-cookie-policy.", list: "EasyList Cookie List" },
-  { rule: "-cookie-dialog.", list: "EasyList Cookie List" },
-  { rule: "/gdpr-consent-", list: "EasyList Cookie List" },
-  { rule: "/gdpr-popup-", list: "EasyList Cookie List" },
-  { rule: "/privacy-banner.js", list: "EasyList Cookie List" },
-  { rule: "/analytics-events-", list: "EasyPrivacy" },
-  { rule: "/analytics-event.js", list: "EasyPrivacy" },
-  { rule: "/analytics-tracking.js", list: "EasyPrivacy" },
-  { rule: "/analytics-helper.js", list: "EasyPrivacy" },
-  { rule: "/analytics-sdk.", list: "EasyPrivacy" },
-  { rule: "/event-tracking.js", list: "EasyPrivacy" },
-  { rule: "/click-tracking.js", list: "EasyPrivacy" },
-  { rule: "/pixel-tracking.", list: "EasyPrivacy" },
-  { rule: "-tracking-pixel.", list: "EasyPrivacy" },
+const BLOCKED_WORDS = [
+  // `ConsentBanner.js` passes every list, so this pair needs a separator.
+  { pattern: /consent[-_]banner|consentbanner-/, list: "cookie-notice lists" },
+  { pattern: /consent[-_]?(?:manager|modal)/, list: "cookie-notice lists" },
+  {
+    pattern: /cookie[-_]?(?:banner|notice|consent|popup|privacy|policy|dialog)/,
+    list: "cookie-notice lists",
+  },
+  { pattern: /gdpr[-_]?(?:consent|popup)/, list: "cookie-notice lists" },
+  { pattern: /privacy[-_]?banner/, list: "cookie-notice lists" },
+  { pattern: /analytics[-_]?(?:tracking|helper|sdk)/, list: "tracker lists" },
+  {
+    pattern: /(?:event|click|pixel)[-_]?tracking|tracking[-_]?pixel/,
+    list: "tracker lists",
+  },
+  // `analytics-events.js` passes every list, so this pair keeps the exact
+  // forms the lists block.
+  {
+    pattern:
+      /analytics-events?-|analytics-event\.js|analytics_events?\.js|analyticsevents?\.js|tracking-analytics-events|loganalyticsevent/,
+    list: "tracker lists",
+  },
 ];
 
 // Vite serves imported CSS and JSON as modules too, so a blocked one breaks
@@ -129,8 +126,13 @@ export function findBlockedModuleNames(files) {
   for (const file of files) {
     const url = devModuleUrl(file)?.toLowerCase();
     if (!url) continue;
-    const match = RULES.find(({ rule }) => url.includes(rule));
-    if (match) violations.push({ file, ...match });
+    for (const { pattern, list } of BLOCKED_WORDS) {
+      const match = pattern.exec(url);
+      if (match) {
+        violations.push({ file, words: match[0], list });
+        break;
+      }
+    }
   }
   return violations;
 }
@@ -184,8 +186,8 @@ function main() {
   console.error(
     `guard-blocker-safe-module-names: ${violations.length} module name(s) are blocked by default content blockers:`,
   );
-  for (const { file, rule, list } of violations) {
-    console.error(`  ${file}  matches "${rule}" (${list})`);
+  for (const { file, words, list } of violations) {
+    console.error(`  ${file}  contains "${words}" (${list})`);
   }
   console.error(
     "\nBrave Shields, uBlock Origin and AdGuard refuse these URLs, and when a browser " +
