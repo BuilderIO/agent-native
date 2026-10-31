@@ -12,7 +12,12 @@ test("maps every browser root to the URL it is served at", () => {
       "packages/core/src/localization/core-messages.ts",
       "/@fs/node_modules/@agent-native/core/dist/localization/core-messages.js",
     ],
+    [
+      "packages/toolkit/src/styles.css",
+      "/@fs/node_modules/@agent-native/toolkit/dist/styles.css",
+    ],
     ["templates/chat/app/routes/_index.tsx", "/app/routes/_index.tsx"],
+    ["templates/chat/app/locales/en-US.json", "/app/locales/en-US.json"],
     ["templates/mail/shared/types.ts", "/shared/types.ts"],
     ["templates/clips/public/sw.js", "/sw.js"],
     ["packages/docs/app/root.tsx", "/app/root.tsx"],
@@ -56,6 +61,7 @@ test("matches rules in any letter case, in every browser root", () => {
   const files = [
     "templates/mail/app/components/Cookie-Notice-Panel.tsx",
     "templates/mail/shared/gdpr-consent-copy.ts",
+    "templates/mail/app/styles/site-cookie-banner.css",
     "packages/docs/public/click-tracking.js",
     "packages/toolkit/src/app/analytics-events-client.ts",
   ];
@@ -64,6 +70,7 @@ test("matches rules in any letter case, in every browser root", () => {
     [
       "/cookie-notice-",
       "/gdpr-consent-",
+      "-cookie-banner.",
       "/click-tracking.js",
       "/analytics-events-",
     ],

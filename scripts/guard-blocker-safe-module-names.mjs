@@ -55,18 +55,23 @@ const RULES = [
   { rule: "-tracking-pixel.", list: "EasyPrivacy" },
 ];
 
-const MODULE = /\.(?:[cm]?[jt]sx?)$/;
+// Vite serves imported CSS and JSON as modules too, so a blocked one breaks
+// startup the same way.
+const MODULE = /\.(?:[cm]?[jt]sx?|css|json)$/;
+const SCRIPT = /\.(?:[cm]?[jt]sx?)$/;
 const SKIPPED = /(?:\.spec\.|\.test\.|\/__tests__\/|\.d\.ts$)/;
 
 // Every place a browser loads modules from, with the URL each file gets in dev.
 // Package sources reach apps as their published `dist/*.js` files. App roots
 // are served at their own path, and `public/` files from the site root.
+// Package `src` also holds server-only code; it is checked too, because which
+// files reach a browser depends on imports, and a rename is cheap.
 const BROWSER_ROOTS = [
   {
     pathspec: "packages/*/src/**",
     pattern: /^packages\/([^/]+)\/src\/(.+)$/,
     url: ([, pkg, rel]) =>
-      `/@fs/node_modules/@agent-native/${pkg}/dist/${rel.replace(MODULE, ".js")}`,
+      `/@fs/node_modules/@agent-native/${pkg}/dist/${rel.replace(SCRIPT, ".js")}`,
   },
   {
     pathspec: ["templates/*/app/**", "templates/*/shared/**"],
@@ -141,8 +146,9 @@ function main() {
     console.error(`  ${file}  matches "${rule}" (${list})`);
   }
   console.error(
-    "\nBrowsers with Brave Shields, uBlock Origin or AdGuard never load these modules, " +
-      "so the app never starts. Rename the file to something neutral.",
+    "\nBrave Shields, uBlock Origin and AdGuard refuse these URLs, and when a browser " +
+      "module is refused the app never starts. Rename the file to something neutral, " +
+      "even if it only runs on the server today.",
   );
   process.exit(1);
 }
