@@ -614,7 +614,12 @@ export function useOwnershipChatHistory(
       "hidden",
       hidden,
       () => hideChatThread(id, hidden, target),
-      failed,
+      (...cause) => {
+        failed(...cause);
+        // A refusal can mean access was revoked mid-request, so rolling back
+        // alone could bring back a row the server no longer lists.
+        void refreshWithResults();
+      },
     );
   // Undo goes to the scope that hid the chat, and its toast outlives this
   // view, so a closed view sends the request itself.

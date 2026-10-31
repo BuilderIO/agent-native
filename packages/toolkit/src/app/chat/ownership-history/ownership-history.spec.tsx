@@ -3069,6 +3069,27 @@ describe("ownership history adapter", () => {
       expect(onMutationFailed).not.toHaveBeenCalled();
     });
 
+    it("drops a chat whose hide was refused because access was revoked", async () => {
+      shared = [
+        row("first", { accessBasis: "direct" }),
+        row("revoked", { accessBasis: "direct" }),
+      ];
+      const pages = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation(async (urlValue, init) => {
+        if (!String(urlValue).endsWith("/hide")) return pages(urlValue, init);
+        shared = shared.filter((row) => row.id !== "revoked");
+        return new Response("not found", { status: 404 });
+      });
+      await render();
+
+      await act(async () => {
+        expect(await latest.listProps.onHide!("revoked")).toBe(false);
+      });
+      await settle();
+      expect(ids("shared")).toEqual(["first"]);
+      expect(toasts.toast.error).toHaveBeenCalledWith("Couldn't hide the chat");
+    });
+
     it.each([
       ["the view changes", () => render({ query: "beta" })],
       ["the list closes", () => act(async () => root.render(null))],
