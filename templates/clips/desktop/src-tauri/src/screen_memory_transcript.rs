@@ -40,9 +40,6 @@ pub struct ScreenMemoryTranscriptStatus {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub error: Option<String>,
-    /// Decoding stopped early in part of the audio, so some speech has no row.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub incomplete: bool,
 }
 
 impl ScreenMemoryTranscriptStatus {
@@ -59,7 +56,6 @@ impl ScreenMemoryTranscriptStatus {
 
     pub fn ready(
         row_count: usize,
-        incomplete: bool,
         started_at: impl Into<String>,
         finished_at: impl Into<String>,
     ) -> Self {
@@ -69,7 +65,6 @@ impl ScreenMemoryTranscriptStatus {
             started_at: Some(started_at.into()),
             finished_at: Some(finished_at.into()),
             error: None,
-            incomplete,
         }
     }
 
@@ -84,7 +79,6 @@ impl ScreenMemoryTranscriptStatus {
             started_at: Some(started_at.into()),
             finished_at: Some(finished_at.into()),
             error: Some(bounded_text(error.as_ref(), MAX_ROW_TEXT_BYTES)),
-            incomplete: false,
         }
     }
 
@@ -102,7 +96,6 @@ impl ScreenMemoryTranscriptStatus {
             started_at: None,
             finished_at: None,
             error: None,
-            incomplete: false,
         }
     }
 }
@@ -119,14 +112,6 @@ pub struct ScreenMemoryTranscriptRow {
     pub text: String,
 }
 
-/// One audio track's rows. `incomplete` is set when decoding stopped early, so
-/// some of its speech has no row.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TranscribedAudio {
-    pub rows: Vec<ScreenMemoryTranscriptRow>,
-    pub incomplete: bool,
-}
-
 pub fn transcribe_segment(
     app: &AppHandle,
     segment_path: &Path,
@@ -136,21 +121,17 @@ pub fn transcribe_segment(
     segment_started_at: DateTime<Utc>,
     duration_ms: u64,
     language: Option<&str>,
-) -> Result<TranscribedAudio, String> {
+) -> Result<Vec<ScreenMemoryTranscriptRow>, String> {
     validate_request(segment_path, segment_id, source, duration_ms)?;
     let samples = decode_audio(segment_path, audio_stream_index, duration_ms)?;
-    let transcript =
-        crate::whisper_speech::transcribe_offline_file_samples(app, &samples, language)?;
-    Ok(TranscribedAudio {
-        rows: clean_rows(
-            segment_id,
-            source,
-            segment_started_at,
-            duration_ms,
-            transcript.segments,
-        ),
-        incomplete: transcript.incomplete,
-    })
+    let raw = crate::whisper_speech::transcribe_offline_file_samples(app, &samples, language)?;
+    Ok(clean_rows(
+        segment_id,
+        source,
+        segment_started_at,
+        duration_ms,
+        raw,
+    ))
 }
 
 fn validate_request(
@@ -380,19 +361,9 @@ mod tests {
         );
         let active = ScreenMemoryTranscriptStatus::transcribing("start");
         assert_eq!(active.started_at.as_deref(), Some("start"));
-        let ready =
-            ScreenMemoryTranscriptStatus::ready(MAX_TRANSCRIPT_ROWS + 1, false, "start", "end");
+        let ready = ScreenMemoryTranscriptStatus::ready(MAX_TRANSCRIPT_ROWS + 1, "start", "end");
         assert_eq!(ready.row_count, MAX_TRANSCRIPT_ROWS);
         assert_eq!(ready.finished_at.as_deref(), Some("end"));
-        assert!(!serde_json::to_string(&ready)
-            .unwrap()
-            .contains("incomplete"));
-        let incomplete = ScreenMemoryTranscriptStatus::ready(1, true, "start", "end");
-        let json = serde_json::to_string(&incomplete).unwrap();
-        assert!(json.contains(r#""incomplete":true"#), "{json}");
-        let without_flag: ScreenMemoryTranscriptStatus =
-            serde_json::from_str(&serde_json::to_string(&ready).unwrap()).unwrap();
-        assert!(!without_flag.incomplete);
         let failed = ScreenMemoryTranscriptStatus::failed("start", "end", "x".repeat(20_000));
         assert_eq!(failed.error.unwrap().len(), MAX_ROW_TEXT_BYTES);
         assert_eq!(
