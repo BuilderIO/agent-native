@@ -467,8 +467,14 @@ export interface AuthOptions {
   workspaceAppPublicPaths?: string[];
   workspaceAppProtectedPaths?: string[];
   loginHtml?: string;
-  renderSignInPage?: (props: AuthPageProps) => string;
-  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string;
+  /**
+   * Server-render the sign-in page. Returning `undefined` serves core's
+   * fallback markup, which the auth client script replaces in the browser.
+   */
+  renderSignInPage?: (props: AuthPageProps) => string | undefined;
+  renderResetPasswordPage?: (
+    props: ResetPasswordPageProps,
+  ) => string | undefined;
   rootAuth?: boolean;
   googleOnly?: boolean;
   mountGoogleOAuthRoutes?: boolean;

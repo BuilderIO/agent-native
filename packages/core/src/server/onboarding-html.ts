@@ -1134,7 +1134,7 @@ export interface OnboardingHtmlOptions {
   requestOrigin?: string;
   signupLegalNotice?: SignupLegalNoticeOptions | false;
   googleAuthMode?: GoogleAuthMode;
-  renderSignInPage?: (props: AuthPageProps) => string;
+  renderSignInPage?: (props: AuthPageProps) => string | undefined;
 }
 
 function escapeHtml(value: string): string {
@@ -2552,7 +2552,9 @@ const RESET_PASSWORD_STYLES = `
 
 export function getResetPasswordHtml(
   requestPath?: string,
-  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string,
+  renderResetPasswordPage?: (
+    props: ResetPasswordPageProps,
+  ) => string | undefined,
 ): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
