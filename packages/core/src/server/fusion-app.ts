@@ -321,7 +321,37 @@ export async function ensureFusionContainer(
   return { status: "provisioning", message: lastMessage };
 }
 
+/**
+ * Whether the branch's dev server is serving pages. ensureFusionContainer
+ * reports `ready` once the container is up, which is earlier: a page loaded
+ * before the dev server serves never gets the editor bridge.
+ */
+export async function isFusionDevServerServing(
+  previewUrl: string,
+  timeoutMs = 5_000,
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      new URL("/_builder.io/api/status-v2", previewUrl),
+      { cache: "no-store", signal: AbortSignal.timeout(timeoutMs) },
+    );
+    if (!response.ok) return false;
+    const status = (await response.json()) as { httpServerState?: unknown };
+    return status.httpServerState === "ok-2xx";
+  } catch {
+    // coercion-ok: an unreachable or unparsable status is "not serving yet".
+    return false;
+  }
+}
+
 const DEFAULT_SEND_MESSAGE_TIMEOUT_MS = 30_000;
+
+/** Stop reasons after which the coding agent runs another turn. */
+const CONTINUING_STOP_REASONS = new Set([
+  "tool_use",
+  "pause_turn",
+  "compaction",
+]);
 
 export async function sendFusionBranchMessage(
   args: FusionBranchRef & {
@@ -400,7 +430,13 @@ export async function sendFusionBranchMessage(
         if (event && typeof event === "object") {
           const ev = event as Record<string, unknown>;
           args.onEvent?.(ev);
-          if (asString(ev.type) === "done") finished = true;
+          // A `done` ends one model turn, not the run: a turn that stopped
+          // to call tools (or pause, or compact) is followed by more turns.
+          if (asString(ev.type) === "done") {
+            finished = !CONTINUING_STOP_REASONS.has(
+              asString(ev.stopReason) ?? "",
+            );
+          }
           if (asString(ev.type) === "done" && Array.isArray(ev.actions)) {
             for (const action of ev.actions) {
               if (

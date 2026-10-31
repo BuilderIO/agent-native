@@ -1,7 +1,8 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { IconAlertTriangle, IconRefresh } from "@tabler/icons-react";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
+import { APP_STARTING_MESSAGE } from "@shared/full-app";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -11,6 +12,8 @@ export interface FusionAppBannerProps {
   designId: string;
   status: "building" | "ready" | "error";
   statusMessage?: string;
+  /** The app was built before, so a non-ready app is waking, not building. */
+  built?: boolean;
 }
 
 /** Canvas notice while a Builder app is building or failed to build. */
@@ -18,28 +21,34 @@ export function FusionAppBanner({
   designId,
   status,
   statusMessage,
+  built = false,
 }: FusionAppBannerProps) {
   const syncMutation = useActionMutation("sync-builder-app");
   const syncMutateRef = useRef(syncMutation.mutate);
   syncMutateRef.current = syncMutation.mutate;
   const syncInFlightRef = useRef(false);
+  const runSync = useCallback((): void => {
+    if (syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
+    syncMutateRef.current(
+      { designId } as any,
+      { onSettled: () => (syncInFlightRef.current = false) } as any,
+    );
+  }, [designId]);
+  // A container saved as ready may have gone to sleep since: check it once
+  // on open. One that is starting is then polled until it is up.
+  useEffect(() => {
+    runSync();
+  }, [runSync]);
   useEffect(() => {
     if (status !== "building") return;
-    const runSync = (): void => {
-      if (syncInFlightRef.current) return;
-      syncInFlightRef.current = true;
-      syncMutateRef.current(
-        { designId } as any,
-        { onSettled: () => (syncInFlightRef.current = false) } as any,
-      );
-    };
     runSync();
     const interval = window.setInterval(() => {
       if (document.hidden) return;
       runSync();
     }, SYNC_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  }, [designId, status]);
+  }, [runSync, status]);
 
   if (status === "building") {
     return (
@@ -47,9 +56,13 @@ export function FusionAppBanner({
         <Spinner className="size-3.5 shrink-0" />
         <span className="truncate">
           {
-            "Building your app…" /* i18n-ignore fusion app banner, flag-gated feature */
+            built
+              ? "Starting your app…" /* i18n-ignore fusion app banner, flag-gated feature */
+              : "Building your app…" /* i18n-ignore fusion app banner, flag-gated feature */
           }
-          {statusMessage ? ` ${statusMessage}` : ""}
+          {statusMessage && statusMessage !== APP_STARTING_MESSAGE
+            ? ` ${statusMessage}`
+            : ""}
         </span>
       </div>
     );

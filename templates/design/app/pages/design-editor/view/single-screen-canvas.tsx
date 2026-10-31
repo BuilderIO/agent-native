@@ -168,6 +168,7 @@ export function renderSingleScreenCanvas({
     handleActiveRuntimeLayerSnapshot,
     handleActiveRuntimeVerificationSnapshot,
     designFusionUrl,
+    fusionAppStarting,
     motionTracksWire,
     motionPathTargetNodeId,
     motionPathTrackId,
@@ -435,6 +436,7 @@ export function renderSingleScreenCanvas({
             : undefined
         }
         fusionUrl={designFusionUrl}
+        appStarting={fusionAppStarting}
         previewWidthPx={
           responsiveInteractActive
             ? interactDeviceSize.width

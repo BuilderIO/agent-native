@@ -708,6 +708,9 @@ interface DesignCanvasProps {
     documentId?: string;
   }) => void;
   fusionUrl?: string;
+  /** A Builder app screen whose container is still starting: its URL would
+   * not answer yet, so the frame waits instead of loading it. */
+  appStarting?: boolean;
   /** Read-only localhost bridge credential. Filesystem write tokens never enter
    * this browser component. */
   previewToken?: string;
@@ -1515,6 +1518,7 @@ export function DesignCanvas({
   onScreenRootComputedStyles,
   onRuntimeVerificationSnapshot,
   fusionUrl,
+  appStarting = false,
   previewToken,
   localhostPreviewUnavailable = false,
   localhostPreviewUnavailablePublic = false,
@@ -2448,6 +2452,10 @@ export function DesignCanvas({
     Boolean(onRuntimeLayerSnapshot);
 
   const urlBackedFrame = Boolean(rawExternalPreviewUrl);
+  // Nothing loads into the frame until the Builder app's container is up, so
+  // none of the frame's own loading states apply either.
+  const appStartingFrame =
+    appStarting && sourceType === "fusion" && urlBackedFrame;
 
   const editorChromeBridgeForCurrentState = useMemo(
     () =>
@@ -8462,7 +8470,7 @@ export function DesignCanvas({
         >
           {t("designEditor.liveCanvasWaitingForOwner")}
         </div>
-      ) : rawExternalPreviewUrl &&
+      ) : appStartingFrame ? null : rawExternalPreviewUrl &&
         !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
         <>
           {replacedFrame ? (
@@ -8574,6 +8582,7 @@ export function DesignCanvas({
       )}
       {motionOriginProxy}
       {externalPreviewUrl &&
+      !appStartingFrame &&
       !previewFrameLoaded &&
       !liveEditConnectionFailed ? (
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background px-2 text-muted-foreground">
@@ -8691,14 +8700,25 @@ export function DesignCanvas({
           onDismiss={handleDismissLocalNetworkAccessPrompt}
         />
       ) : null}
-      {localhostPreviewUnavailable ||
-      waitingForEditableExternalSnapshot ||
-      liveEditBridgeConfigurationPending ||
-      (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
-      sameOriginBridgePending ||
-      (liveEditDocumentPending &&
-        liveEditSameInstanceStalledError?.bridgeKey !== liveEditBridgeKey) ||
-      liveEditRegistrationFailurePending ? (
+      {appStartingFrame ? (
+        <div
+          data-design-app-starting
+          role="status"
+          className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background px-4 text-center text-sm text-muted-foreground"
+        >
+          <Spinner className="size-5" />
+          {
+            "Starting your app…" /* i18n-ignore Builder app screen, flag-gated feature */
+          }
+        </div>
+      ) : localhostPreviewUnavailable ||
+        waitingForEditableExternalSnapshot ||
+        liveEditBridgeConfigurationPending ||
+        (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
+        sameOriginBridgePending ||
+        (liveEditDocumentPending &&
+          liveEditSameInstanceStalledError?.bridgeKey !== liveEditBridgeKey) ||
+        liveEditRegistrationFailurePending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {localhostPreviewUnavailable ? (
             <div
