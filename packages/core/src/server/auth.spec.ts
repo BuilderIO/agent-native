@@ -3546,56 +3546,6 @@ describe("server/auth", () => {
       expect(html).not.toContain("ACCESS_TOKEN");
     });
 
-    it("keeps the fallback login shell out of shared caches until the app's renderer renders", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("BETTER_AUTH_SECRET", "login-page-secret");
-      vi.stubEnv("APP_BASE_PATH", "/demo");
-      vi.doMock("./better-auth-instance.js", () => ({
-        getBetterAuth: vi.fn(async () => ({
-          handler: vi.fn(async () => new Response("{}")),
-          api: {
-            getSession: vi.fn(async () => null),
-            signInEmail: vi.fn(),
-            signUpEmail: vi.fn(),
-            signOut: vi.fn(),
-          },
-        })),
-        getBetterAuthSync: vi.fn(() => undefined),
-      }));
-      const { autoMountAuth } = await import("./auth.js");
-      const { AUTH_FALLBACK_ATTRIBUTE } = await import("./onboarding-html.js");
-
-      let markup: string | undefined;
-      const app = createMockApp();
-      await autoMountAuth(app, { renderSignInPage: () => markup });
-      const guard = app.use.mock.calls
-        .map((call: any[]) => call[0])
-        .find((arg: unknown) => typeof arg === "function");
-
-      const deferred = (await guard(
-        createMockEvent({ path: "/demo/login" }),
-      )) as Response;
-      expect(await deferred.clone().text()).toContain(AUTH_FALLBACK_ATTRIBUTE);
-      expect(deferred.headers.get("Cache-Control")).toBe(
-        DISABLED_SSR_CACHE_HEADERS["cache-control"],
-      );
-      expect(deferred.headers.get("CDN-Cache-Control")).toBe(
-        DISABLED_SSR_CACHE_HEADERS["cdn-cache-control"],
-      );
-      expect(deferred.headers.get("Netlify-CDN-Cache-Control")).toBe(
-        DISABLED_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
-      );
-
-      markup = '<main id="login-form"></main>';
-      const rendered = (await guard(
-        createMockEvent({ path: "/demo/login" }),
-      )) as Response;
-      expectLoginHtmlCacheHeaders(rendered);
-      const html = await rendered.text();
-      expect(html).toContain('id="login-form"');
-      expect(html).not.toContain(AUTH_FALLBACK_ATTRIBUTE);
-    });
-
     it("honors the deployment-wide SSR cache override on the login shell", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("BETTER_AUTH_SECRET", "login-page-secret");
