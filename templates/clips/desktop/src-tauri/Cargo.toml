@@ -127,7 +127,7 @@ block2 = "0.6"
 screencapturekit = { version = "2.0.0", features = ["async", "macos_15_0"] }
 objc2-core-audio-types = "0.3"
 nnnoiseless = { version = "0.5.2", default-features = false }
-whisper-rs = { version = "0.16.0", features = ["metal"] }
+transcribe-cpp = "0.4.1"
 
 [profile.release]
 panic = "abort"

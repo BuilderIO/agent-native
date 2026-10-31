@@ -130,14 +130,13 @@ pub async fn whisper_transcription_reset_timeline(
 #[cfg(target_os = "macos")]
 mod macos {
     use std::collections::HashSet;
-    use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
     use std::time::{Duration, Instant};
 
     use serde::Serialize;
     use tauri::{AppHandle, Emitter};
-    use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+    use transcribe_cpp::Model;
 
     use crate::capture_audio_bus::{
         try_subscribe, AudioSources, AudioSubscription, SubscriptionAttempt,
@@ -153,7 +152,8 @@ mod macos {
         start_raw_meeting_capture, start_raw_system_capture, supports_sck_microphone_capture,
         RawSckAudioCapture,
     };
-    use crate::whisper_model::{ensure_model, model_file};
+    use crate::transcribe_engine::{open_session, transcribe_whisper, ModelSlot};
+    use crate::whisper_model::{ensure_model, model_file, remove_superseded_legacy_model};
 
     const MEETING_AUDIO_OWNER: &str = "meeting-whisper";
     const START_SUPERSEDED: &str = "speech-engine-start-superseded";
@@ -206,42 +206,20 @@ mod macos {
         buffer_start: Instant,
     }
 
-    fn context(app: &AppHandle) -> Result<Arc<WhisperContext>, String> {
-        whisper_rs::install_logging_hooks();
-
-        struct CachedContext {
-            model_path: PathBuf,
-            context: Arc<WhisperContext>,
-        }
-
-        static CTX: OnceLock<Mutex<Option<CachedContext>>> = OnceLock::new();
-        let slot = CTX.get_or_init(|| Mutex::new(None));
-        let mut guard = slot.lock().map_err(|e| e.to_string())?;
+    fn cached_model(app: &AppHandle) -> Result<Model, String> {
+        static MODEL: ModelSlot = ModelSlot::new();
         let path = model_file(app)?;
-        if let Some(cached) = guard.as_ref() {
-            if cached.model_path == path {
-                return Ok(cached.context.clone());
-            }
+        let (model, loaded) = MODEL
+            .get_or_load(&path)
+            .map_err(|e| format!("whisper {e}"))?;
+        if loaded {
+            remove_superseded_legacy_model(app, &path);
         }
-        let path_str = path
-            .to_str()
-            .ok_or_else(|| "model path is not valid UTF-8".to_string())?;
-        let mut params = WhisperContextParameters::default();
-        params.use_gpu(cfg!(target_arch = "aarch64"));
-        let ctx = WhisperContext::new_with_params(path_str, params)
-            .map_err(|e| format!("whisper model load failed: {e}"))?;
-        let context = Arc::new(ctx);
-        *guard = Some(CachedContext {
-            model_path: path,
-            context: context.clone(),
-        });
-        Ok(context)
+        Ok(model)
     }
 
     pub fn prewarm(app: &AppHandle) -> Result<(), String> {
-        let ctx = context(app)?;
-        ctx.create_state()
-            .map_err(|e| format!("whisper state init failed: {e}"))?;
+        open_session(&cached_model(app)?).map_err(|e| format!("whisper {e}"))?;
         Ok(())
     }
 
@@ -252,14 +230,11 @@ mod macos {
     ) -> Result<Vec<super::OfflineTranscriptSegment>, String> {
         const CHUNK_SAMPLES: usize = 25 * 16_000;
 
-        let ctx = context(app)?;
-        let mut state = ctx
-            .create_state()
-            .map_err(|e| format!("whisper state init failed: {e}"))?;
+        let mut session = open_session(&cached_model(app)?).map_err(|e| format!("whisper {e}"))?;
         let mut segments = Vec::new();
         for (chunk_index, chunk) in samples.chunks(CHUNK_SAMPLES).enumerate() {
             let chunk_offset_ms = chunk_index as i64 * 25_000;
-            segments.extend(infer(&mut state, chunk, language).into_iter().map(
+            segments.extend(infer(&mut session, chunk, language)?.into_iter().map(
                 |(start_ms, end_ms, text)| super::OfflineTranscriptSegment {
                     start_ms: chunk_offset_ms.saturating_add(start_ms),
                     end_ms: chunk_offset_ms.saturating_add(end_ms),
@@ -370,7 +345,7 @@ mod macos {
             source: &'static str,
             src_rate: f64,
             language: Option<String>,
-            ctx: Arc<WhisperContext>,
+            model: Model,
             stream_start: Instant,
             emit_partials: bool,
             echo_guard: Option<Arc<EchoGuard>>,
@@ -396,7 +371,7 @@ mod macos {
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
-                worker(worker_stream, ctx);
+                worker(worker_stream, model);
                 done.store(true, Ordering::SeqCst);
             });
             stream
@@ -480,6 +455,17 @@ mod macos {
                 timeline.buffer_start = now;
             }
             self.reset_generation.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn emit_inference(
+            &self,
+            event: &'static str,
+            result: Result<Vec<(i64, i64, String)>, String>,
+        ) {
+            match result {
+                Ok(segments) => self.emit_transcript(event, &segments, self.offset_ms()),
+                Err(error) => eprintln!("[whisper-{}] {error}", self.source),
+            }
         }
 
         fn emit_transcript(
@@ -566,40 +552,13 @@ mod macos {
     }
 
     fn infer(
-        state: &mut whisper_rs::WhisperState,
+        session: &mut transcribe_cpp::Session,
         samples: &[f32],
         language: Option<&str>,
-    ) -> Vec<(i64, i64, String)> {
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_n_threads(2);
-        params.set_language(language);
-        params.set_translate(false);
-        params.set_no_context(true);
-        params.set_suppress_nst(true);
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-        if state.full(params, samples).is_err() {
-            return Vec::new();
-        }
-        let mut out = Vec::new();
-        for segment in state.as_iter() {
-            let text = segment.to_string();
-            if !is_speech(&text) || segment.no_speech_probability() >= MAX_NO_SPEECH_PROBABILITY {
-                continue;
-            }
-            let confidence = segment_confidence(&segment);
-            if confidence < MIN_AVG_TOKEN_PROBABILITY {
-                continue;
-            }
-            out.push((
-                segment.start_timestamp() * 10,
-                segment.end_timestamp() * 10,
-                text,
-            ));
-        }
-        out
+    ) -> Result<Vec<(i64, i64, String)>, String> {
+        let mut segments = transcribe_whisper(session, samples, language)?;
+        segments.retain(|(_, _, text)| is_speech(text));
+        Ok(segments)
     }
 
     fn is_speech(text: &str) -> bool {
@@ -618,32 +577,7 @@ mod macos {
 
     const SAMPLE_RATE_16K: f32 = 16000.0;
     const VOICE_RMS_THRESHOLD: f32 = 0.006;
-    const MAX_NO_SPEECH_PROBABILITY: f32 = 0.72;
     const MIN_MIC_VAD_PROBABILITY: f32 = 0.6;
-    const MIN_AVG_TOKEN_PROBABILITY: f32 = 0.55;
-
-    fn segment_confidence(segment: &whisper_rs::WhisperSegment<'_>) -> f32 {
-        let mut sum = 0.0f32;
-        let mut count = 0u32;
-        for i in 0..segment.n_tokens() {
-            let Some(token) = segment.get_token(i) else {
-                continue;
-            };
-            let is_special = token
-                .to_str_lossy()
-                .map(|t| t.starts_with("[_"))
-                .unwrap_or(false);
-            if is_special {
-                continue;
-            }
-            sum += token.token_probability();
-            count += 1;
-        }
-        if count == 0 {
-            return 0.0;
-        }
-        sum / count as f32
-    }
 
     fn mic_voice_detected(rms: f32, vad_probability: Option<f32>) -> bool {
         rms > VOICE_RMS_THRESHOLD
@@ -686,11 +620,11 @@ mod macos {
         (have_secs > 0.4 && silence > Duration::from_millis(800)) || have_secs > 25.0
     }
 
-    fn worker(stream: Arc<WhisperStream>, ctx: Arc<WhisperContext>) {
-        let mut state = match ctx.create_state() {
+    fn worker(stream: Arc<WhisperStream>, model: Model) {
+        let mut session = match open_session(&model) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[whisper-{}] create_state failed: {e}", stream.source);
+                eprintln!("[whisper-{}] {e}", stream.source);
                 let _ = stream.app.emit(
                     "pill:error",
                     serde_json::json!({ "error": format!("Transcription worker ({}) failed: {e}", stream.source) }),
@@ -778,8 +712,10 @@ mod macos {
                         eprintln!("[whisper-mic] suppressed {have_secs:.1}s of speaker bleed");
                         stream.clear_partial();
                     } else {
-                        let segs = infer(&mut state, resample_state.samples(), lang);
-                        stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
+                        stream.emit_inference(
+                            "voice:final-transcript",
+                            infer(&mut session, resample_state.samples(), lang),
+                        );
                     }
                 }
                 let mut pending = 0usize;
@@ -816,8 +752,10 @@ mod macos {
                     stream.clear_partial();
                     false
                 } else {
-                    let segs = infer(&mut state, resample_state.samples(), lang);
-                    stream.emit_transcript("voice:partial-transcript", &segs, stream.offset_ms());
+                    stream.emit_inference(
+                        "voice:partial-transcript",
+                        infer(&mut session, resample_state.samples(), lang),
+                    );
                     true
                 };
                 last_infer = partial_inference_timestamp(last_infer, inference_ran, Instant::now());
@@ -831,8 +769,10 @@ mod macos {
             && samples.len() as f32 / SAMPLE_RATE_16K > 0.3
             && !stream.is_playback_echo(&samples)
         {
-            let segs = infer(&mut state, &samples, lang);
-            stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
+            stream.emit_inference(
+                "voice:final-transcript",
+                infer(&mut session, &samples, lang),
+            );
         }
         eprintln!("[whisper-{}] worker stopped", stream.source);
     }
@@ -1101,12 +1041,12 @@ mod macos {
         if !run_is_current_now(owner, run_id) {
             return Err(START_SUPERSEDED.into());
         }
-        let ctx = context(&app).map_err(|e| {
+        let model = cached_model(&app).map_err(|e| {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
             e
         })?;
-        ctx.create_state().map_err(|e| {
-            let msg = format!("whisper state init failed: {e}");
+        open_session(&model).map_err(|e| {
+            let msg = format!("whisper {e}");
             let _ = app.emit("pill:error", serde_json::json!({ "error": msg }));
             msg
         })?;
@@ -1124,7 +1064,7 @@ mod macos {
             "mic",
             48000.0,
             lang.clone(),
-            ctx.clone(),
+            model.clone(),
             session_start,
             emit_partials,
             echo_guard.clone(),
@@ -1136,7 +1076,7 @@ mod macos {
                 "system",
                 48000.0,
                 lang.clone(),
-                ctx.clone(),
+                model.clone(),
                 session_start,
                 emit_partials,
                 echo_guard.clone(),

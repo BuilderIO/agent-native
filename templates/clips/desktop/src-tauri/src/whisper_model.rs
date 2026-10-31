@@ -16,50 +16,58 @@ pub struct WhisperModel {
     pub sha256: &'static str,
     pub size_bytes: u64,
     pub size_mb: u64,
+    /// The whisper.cpp file earlier versions downloaded for this model. It is
+    /// removed once the replacement has loaded, never before.
+    #[serde(skip)]
+    pub legacy_filename: &'static str,
 }
 
 const TINY_MODEL: WhisperModel = WhisperModel {
     id: "tiny",
     title: "Tiny",
     description: "Transcribes instantly and uses very little space. May miss some words or struggle with accents, but great if speed is all that matters.",
-    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-    filename: "ggml-tiny.bin",
-    sha256: "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
-    size_bytes: 77_691_713,
-    size_mb: 74,
+    url: "https://huggingface.co/handy-computer/whisper-tiny-gguf/resolve/1bd61cda36bbd22c88fc5a33842498a6e1d30f45/whisper-tiny-Q8_0.gguf",
+    filename: "whisper-tiny-Q8_0.gguf",
+    sha256: "325b9c7997cd1eff81ef709d55766565e71be696130cc3a3d444713798706834",
+    size_bytes: 45_981_088,
+    size_mb: 44,
+    legacy_filename: "ggml-tiny.bin",
 };
 
 const BASE_MODEL: WhisperModel = WhisperModel {
     id: "base",
     title: "Base",
     description: "A great everyday choice. Transcribes quickly and gets most things right for dictation and meetings.",
-    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-    filename: "ggml-base.bin",
-    sha256: "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
-    size_bytes: 147_951_465,
-    size_mb: 141,
+    url: "https://huggingface.co/handy-computer/whisper-base-gguf/resolve/42fcd2077de47c36d779309e0e91b76ec620f56d/whisper-base-Q8_0.gguf",
+    filename: "whisper-base-Q8_0.gguf",
+    sha256: "81c069428bc8a24551a8169cf31cf09bcfd9d4cf50389ae281323c9aa9648c81",
+    size_bytes: 84_962_880,
+    size_mb: 81,
+    legacy_filename: "ggml-base.bin",
 };
 
 const SMALL_MODEL: WhisperModel = WhisperModel {
     id: "small",
     title: "Small",
     description: "More accurate than Base, especially with accents or background noise. Takes a bit longer and uses more space.",
-    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-    filename: "ggml-small.bin",
-    sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
-    size_bytes: 487_601_967,
-    size_mb: 488,
+    url: "https://huggingface.co/handy-computer/whisper-small-gguf/resolve/4afdc7942ecf1997f359deae48a63506b062eac4/whisper-small-Q8_0.gguf",
+    filename: "whisper-small-Q8_0.gguf",
+    sha256: "9b9c8811bbcc82a7766f0fb0925614bdacb0923b2cc630daeac17108b655b860",
+    size_bytes: 269_751_136,
+    size_mb: 257,
+    legacy_filename: "ggml-small.bin",
 };
 
 const LARGE_V3_TURBO_MODEL: WhisperModel = WhisperModel {
     id: "large-v3-turbo",
     title: "Large v3 Turbo",
     description: "The most accurate option. Catches subtle speech and complex vocabulary well. Best on newer Macs; requires a larger one-time download.",
-    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-    filename: "ggml-large-v3-turbo.bin",
-    sha256: "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
-    size_bytes: 1_624_555_275,
-    size_mb: 1549,
+    url: "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/18ada752005f5fddef499256f9a458d0b37a203a/whisper-large-v3-turbo-Q8_0.gguf",
+    filename: "whisper-large-v3-turbo-Q8_0.gguf",
+    sha256: "257aa7ec9121c22c167d5e2c49e3e76b4ba0e6e27ebc13074eba0a80f8190220",
+    size_bytes: 886_381_728,
+    size_mb: 845,
+    legacy_filename: "ggml-large-v3-turbo.bin",
 };
 
 const SUPPORTED_MODELS: &[WhisperModel] =
@@ -120,6 +128,47 @@ pub fn model_file(app: &AppHandle) -> Result<PathBuf, String> {
     let config = crate::config::feature_config(app);
     let model = find_model(&config.whisper_model_id)?;
     Ok(model_path(&models_dir(app)?, model))
+}
+
+/// Deletes the whisper.cpp download that `loaded_path` replaces. Call it only
+/// after `loaded_path` has loaded, so a failed download or an unreadable
+/// replacement never leaves the user without a model they already had.
+#[cfg(target_os = "macos")]
+pub(crate) fn remove_superseded_legacy_model(app: &AppHandle, loaded_path: &Path) {
+    if custom_model_override() {
+        return;
+    }
+    let dir = match models_dir(app) {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("[whisper] cannot check for an old model file: {e}");
+            return;
+        }
+    };
+    let Some(model) = SUPPORTED_MODELS
+        .iter()
+        .find(|m| model_path(&dir, m) == loaded_path)
+    else {
+        return;
+    };
+    remove_legacy_files(&dir, model);
+}
+
+fn remove_legacy_files(dir: &Path, model: &WhisperModel) {
+    let legacy = dir.join(model.legacy_filename);
+    for path in [partial_download_path(&legacy), legacy] {
+        match std::fs::remove_file(&path) {
+            Ok(()) => eprintln!("[whisper] removed superseded {}", path.display()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => eprintln!("[whisper] could not remove {}: {e}", path.display()),
+        }
+    }
+}
+
+fn partial_download_path(path: &Path) -> PathBuf {
+    let mut partial = path.as_os_str().to_owned();
+    partial.push(".tmp");
+    PathBuf::from(partial)
 }
 
 
@@ -228,10 +277,12 @@ pub async fn whisper_model_delete(app: AppHandle, model_id: String) -> Result<()
         return Err("Cannot delete the model that is currently selected.".to_string());
     }
     let model = find_model(&model_id)?;
-    let path = model_path(&models_dir(&app)?, model);
+    let dir = models_dir(&app)?;
+    let path = model_path(&dir, model);
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| format!("delete model: {e}"))?;
     }
+    remove_legacy_files(&dir, model);
     let _ = app.emit(
         "whisper:model-deleted",
         serde_json::json!({ "modelId": model_id }),
@@ -311,7 +362,7 @@ async fn do_download(
     use sha2::{Digest, Sha256};
     use std::io::Write as _;
 
-    let tmp = path.with_extension("bin.tmp");
+    let tmp = partial_download_path(path);
     let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
     let mut hasher = Sha256::new();
     let mut total = 0_u64;
@@ -380,9 +431,13 @@ mod tests {
             assert_eq!(model.sha256.len(), 64, "bad sha256 for {}", model.id);
             assert!(!model.title.is_empty());
             assert!(!model.description.is_empty());
+            assert!(model.filename.ends_with(".gguf"), "{}", model.id);
+            assert!(model.url.ends_with(model.filename), "{}", model.id);
+            assert!(model.legacy_filename.ends_with(".bin"), "{}", model.id);
             for other in SUPPORTED_MODELS.iter().skip(i + 1) {
                 assert_ne!(model.id, other.id);
                 assert_ne!(model.filename, other.filename);
+                assert_ne!(model.legacy_filename, other.legacy_filename);
             }
         }
     }
@@ -395,5 +450,48 @@ mod tests {
     #[test]
     fn unknown_model_id_is_rejected() {
         assert!(find_model("does-not-exist").is_err());
+    }
+
+    #[test]
+    fn removing_legacy_files_leaves_the_replacement_and_other_models() {
+        let dir = std::env::temp_dir().join(format!("clips-whisper-model-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let keep = [
+            model_path(&dir, &BASE_MODEL),
+            dir.join(SMALL_MODEL.legacy_filename),
+        ];
+        let remove = [
+            dir.join(BASE_MODEL.legacy_filename),
+            partial_download_path(&dir.join(BASE_MODEL.legacy_filename)),
+        ];
+        for path in keep.iter().chain(&remove) {
+            std::fs::write(path, b"model").unwrap();
+        }
+
+        remove_legacy_files(&dir, &BASE_MODEL);
+        remove_legacy_files(&dir, &BASE_MODEL);
+
+        for path in &keep {
+            assert!(path.exists(), "{} was removed", path.display());
+        }
+        for path in &remove {
+            assert!(!path.exists(), "{} was kept", path.display());
+        }
+        for path in &keep {
+            std::fs::remove_file(path).unwrap();
+        }
+        std::fs::remove_dir(&dir).unwrap();
+    }
+
+    #[test]
+    fn partial_downloads_sit_beside_the_finished_file() {
+        assert_eq!(
+            partial_download_path(Path::new("/models/whisper-base-Q8_0.gguf")),
+            Path::new("/models/whisper-base-Q8_0.gguf.tmp")
+        );
+        assert_eq!(
+            partial_download_path(Path::new("/models/ggml-base.bin")),
+            Path::new("/models/ggml-base.bin.tmp")
+        );
     }
 }
