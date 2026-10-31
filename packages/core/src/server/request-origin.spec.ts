@@ -380,8 +380,26 @@ describe("isSameOriginRequest", () => {
       expected: true,
     },
     {
+      name: "Tauri production origin with WebKit's cross-site fetch metadata",
+      headers: {
+        host: "app.example.com",
+        origin: "tauri://localhost",
+        "sec-fetch-site": "cross-site",
+      },
+      expected: true,
+    },
+    {
       name: "Tauri web origin against remote app host",
       headers: { host: "app.example.com", origin: "https://tauri.localhost" },
+      expected: false,
+    },
+    {
+      name: "Tauri web origin with cross-site fetch metadata",
+      headers: {
+        host: "localhost:3000",
+        origin: "https://tauri.localhost",
+        "sec-fetch-site": "cross-site",
+      },
       expected: false,
     },
     {
