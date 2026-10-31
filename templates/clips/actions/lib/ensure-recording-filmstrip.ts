@@ -5,6 +5,7 @@ import {
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
+import { allowsLegacyS3ObjectForPersistedMedia } from "../../server/lib/media-storage-provenance.js";
 import { deleteRecordingMediaObjects } from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import { uploadRecordingMedia } from "../../server/lib/upload-recording-media.js";
@@ -85,6 +86,7 @@ export async function ensureRecordingFilmstrip(params: {
       filmstripUrl: schema.recordings.filmstripUrl,
       storageMode: schema.recordings.storageMode,
       sourceAppName: schema.recordings.sourceAppName,
+      editsJson: schema.recordings.editsJson,
     })
     .from(schema.recordings)
     .where(
@@ -132,6 +134,11 @@ export async function ensureRecordingFilmstrip(params: {
   const fetched = await fetchProviderBytes(rec.videoUrl, {
     recordingId,
     storageMode: rec.storageMode,
+    allowLegacyObjectKey: allowsLegacyS3ObjectForPersistedMedia({
+      requestedUrl: rec.videoUrl,
+      persistedUrl: rec.videoUrl,
+      editsJson: rec.editsJson,
+    }),
   });
   if (!fetched.ok) {
     return { recordingId, status: fetched.reason, changed: false };
