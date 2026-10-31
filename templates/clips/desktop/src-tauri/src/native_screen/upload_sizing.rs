@@ -29,8 +29,9 @@ const TRANSCODE_RATE_FPS: f64 = 24.0;
 /// the full-resolution `screencapture` fallback is scaled down to it.
 const TRANSCODE_MAX_LONG_EDGE: u32 = 1280;
 
-/// The picture budgeted for when the source size is unknown.
-const UNKNOWN_SOURCE_DIMENSIONS: (u32, u32) = (1280, 720);
+/// The picture budgeted for when the source size is unknown: the largest the
+/// long-edge cap allows, so whatever ffmpeg scales it to is never starved.
+const UNKNOWN_SOURCE_DIMENSIONS: (u32, u32) = (TRANSCODE_MAX_LONG_EDGE, TRANSCODE_MAX_LONG_EDGE);
 
 /// libx264 quality, used only when the ffmpeg build has libx264. The bundled
 /// sidecar encodes with VideoToolbox, which takes the bitrate instead.
@@ -48,7 +49,7 @@ fn even_dimension(value: u32) -> u32 {
 
 /// The re-encode's output size: the source scaled down until its long edge
 /// fits, never scaled up, with even sides for H.264. `None` when the source
-/// size is unknown, and the picture is left as recorded.
+/// size is unknown, and ffmpeg applies the same cap itself.
 pub(super) fn transcode_dimensions(width: Option<u32>, height: Option<u32>) -> Option<(u32, u32)> {
     let (width, height) = (u64::from(width?.max(1)), u64::from(height?.max(1)));
     let long_side = width.max(height);
@@ -63,6 +64,22 @@ pub(super) fn transcode_dimensions(width: Option<u32>, height: Option<u32>) -> O
         even_dimension((width * num / den) as u32),
         even_dimension((height * num / den) as u32),
     ))
+}
+
+/// The ffmpeg scale filter for the re-encode. A known size is scaled to
+/// exactly; for an unknown one, ffmpeg caps the long edge at 1280 and keeps the
+/// aspect ratio, never scaling up.
+pub(super) fn transcode_scale_filter(dimensions: Option<(u32, u32)>) -> String {
+    match dimensions {
+        Some((width, height)) => format!("scale={width}:{height}:flags=lanczos"),
+        None => {
+            let max = TRANSCODE_MAX_LONG_EDGE;
+            format!(
+                "scale='if(gte(iw,ih),trunc(min(iw,{max})/2)*2,-2)':\
+                 'if(gte(iw,ih),-2,trunc(min(ih,{max})/2)*2)':flags=lanczos"
+            )
+        }
+    }
 }
 
 /// Video bitrate for the re-encode's picture, in kbit/s.
@@ -105,7 +122,21 @@ mod tests {
         // 30-second one, where the old 18 MB target gave it 350 kbit/s.
         assert_eq!(transcode_video_rate_kbps(Some((1280, 720))), 1659);
         assert_eq!(transcode_video_rate_kbps(Some((1280, 832))), 1917);
-        assert_eq!(transcode_video_rate_kbps(None), 1659);
+    }
+
+    #[test]
+    fn an_unknown_size_is_capped_by_ffmpeg_and_budgeted_for_the_largest_picture() {
+        assert_eq!(
+            transcode_scale_filter(Some((1280, 830))),
+            "scale=1280:830:flags=lanczos"
+        );
+        assert_eq!(
+            transcode_scale_filter(None),
+            "scale='if(gte(iw,ih),trunc(min(iw,1280)/2)*2,-2)':\
+             'if(gte(iw,ih),-2,trunc(min(ih,1280)/2)*2)':flags=lanczos"
+        );
+        // Budgeted as a 1280x1280 square, so no shape ffmpeg picks is starved.
+        assert_eq!(transcode_video_rate_kbps(None), 2949);
     }
 
     #[test]

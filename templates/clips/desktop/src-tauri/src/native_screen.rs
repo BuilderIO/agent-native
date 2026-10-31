@@ -163,7 +163,7 @@ use live_upload::{
 };
 mod upload_sizing;
 use upload_sizing::{
-    encode_is_worth_uploading, kept_original_expired, transcode_dimensions,
+    encode_is_worth_uploading, kept_original_expired, transcode_dimensions, transcode_scale_filter,
     transcode_video_rate_kbps, AVCONVERT_PRESET, TRANSCODE_AUDIO_BITRATE_KBPS, TRANSCODE_CRF,
 };
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
@@ -9657,11 +9657,7 @@ fn transcode_with_ffmpeg(
 
     command.arg("-map").arg("0:a?");
 
-    if let Some((scaled_w, scaled_h)) = dimensions {
-        command
-            .arg("-vf")
-            .arg(format!("scale={scaled_w}:{scaled_h}:flags=lanczos"));
-    }
+    command.arg("-vf").arg(transcode_scale_filter(dimensions));
 
     if normalize_audio {
         command.arg("-af").arg(audio_filter_chain(
