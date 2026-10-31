@@ -128,7 +128,6 @@ screencapturekit = { version = "2.0.0", features = ["async", "macos_15_0"] }
 objc2-core-audio-types = "0.3"
 nnnoiseless = { version = "0.5.2", default-features = false }
 transcribe-cpp = "0.4.1"
-flate2 = "1.1.9"
 
 [profile.release]
 panic = "abort"

@@ -4,12 +4,9 @@
 //! ggml. A second crate that links its own static ggml would silently run on
 //! whichever copy the linker kept, so new local engines belong here too.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Once};
 
-use flate2::write::ZlibEncoder;
-use flate2::Compression;
 use transcribe_cpp::{
     Backend, Error, Model, ModelOptions, RunExtension, RunOptions, Session, SessionOptions,
     TimestampKind, WhisperRunOptions,
@@ -98,22 +95,6 @@ pub(crate) struct Transcription {
 /// dropped, which keeps silence and steady noise from coming back as text.
 const MAX_NO_SPEECH_PROBABILITY: f32 = 0.72;
 
-/// Text that zlib shrinks by more than this is the decoder looping on a
-/// phrase, not speech. With temperature retries off, nothing else in the run
-/// catches a loop, so `transcribe_whisper` drops it.
-const MAX_COMPRESSION_RATIO: f32 = 2.4;
-
-fn compression_ratio(text: &str) -> f32 {
-    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-    encoder
-        .write_all(text.as_bytes())
-        .expect("compressing into memory cannot fail");
-    let compressed = encoder
-        .finish()
-        .expect("compressing into memory cannot fail");
-    text.len() as f32 / compressed.len() as f32
-}
-
 /// Greedy decoding of 16 kHz mono PCM, with each 30 s window decoded on its
 /// own (no previous-text prompt). `language: None` auto-detects.
 pub(crate) fn transcribe_whisper(
@@ -152,24 +133,12 @@ pub(crate) fn transcribe_whisper(
         }) => (*partial, Some(EarlyStop::Repetition)),
         Err(e) => return Err(format!("whisper inference failed: {e}")),
     };
-    let mut segments: Vec<_> = transcript
-        .segments
-        .into_iter()
-        .map(|segment| (segment.t0_ms, segment.t1_ms, segment.text))
-        .collect();
-    let text = segments
-        .iter()
-        .map(|(_, _, text)| text.as_str())
-        .collect::<String>();
-    if compression_ratio(&text) > MAX_COMPRESSION_RATIO {
-        eprintln!(
-            "[whisper] dropped {} segments that repeat a phrase",
-            segments.len()
-        );
-        segments.clear();
-    }
     Ok(Transcription {
-        segments,
+        segments: transcript
+            .segments
+            .into_iter()
+            .map(|segment| (segment.t0_ms, segment.t1_ms, segment.text))
+            .collect(),
         stopped_early,
     })
 }
@@ -255,24 +224,6 @@ mod tests {
                 transcription.segments
             );
         }
-    }
-
-    #[test]
-    fn compression_ratio_flags_a_looping_phrase_but_not_speech() {
-        let speech = [
-            "The quick brown fox jumps over the lazy dog.",
-            "Please send the quarterly report to the finance team by Friday,",
-            "and copy me on the thread so I can check the numbers before the",
-            "board meeting. If anything looks off, flag it in the doc and we",
-            "can talk it through on Monday morning.",
-        ]
-        .join(" ");
-        assert!(compression_ratio(&speech) <= MAX_COMPRESSION_RATIO);
-        assert!(compression_ratio("No, no, no, no, no.") <= MAX_COMPRESSION_RATIO);
-        assert!(compression_ratio(&" Thank you.".repeat(20)) > MAX_COMPRESSION_RATIO);
-        assert!(
-            compression_ratio(&" I'm going to go to the store.".repeat(6)) > MAX_COMPRESSION_RATIO
-        );
     }
 
     fn test_env(name: &str) -> String {
