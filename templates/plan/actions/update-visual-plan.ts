@@ -955,6 +955,48 @@ export default defineAction({
       }
     }
 
+    // plan_comments.section_id references plan_sections, so an unknown id
+    // would fail the comment writes below as a bare 500. Reject it the way new
+    // comments are rejected. Sections this request saves exist by the time
+    // the comments are written.
+    const requestSectionIds = new Set(
+      args.sections.flatMap((section) => (section.id ? [section.id] : [])),
+    );
+    const movedToSectionIds = onlyUpdatesCommentStatuses
+      ? []
+      : [
+          ...new Set(
+            existingCommentUpdates.flatMap((comment) =>
+              comment.sectionId &&
+              comment.sectionId !== comment.existing.sectionId &&
+              !requestSectionIds.has(comment.sectionId)
+                ? [comment.sectionId]
+                : [],
+            ),
+          ),
+        ];
+    if (movedToSectionIds.length > 0) {
+      const foundSections = await db
+        .select({ id: schema.planSections.id })
+        .from(schema.planSections)
+        .where(
+          and(
+            eq(schema.planSections.planId, args.planId),
+            inArray(schema.planSections.id, movedToSectionIds),
+          ),
+        );
+      const foundSectionIds = new Set(foundSections.map((s) => s.id));
+      const missingSectionId = movedToSectionIds.find(
+        (id) => !foundSectionIds.has(id),
+      );
+      if (missingSectionId) {
+        fail(
+          `Section ${missingSectionId} was not found on plan ${args.planId}.`,
+          { errorCode: "plan_section_not_found", statusCode: 422 },
+        );
+      }
+    }
+
     const bundleForCommentInserts =
       pendingCommentInserts.length > 0
         ? await loadPlanBundle(args.planId)
@@ -966,7 +1008,11 @@ export default defineAction({
         (bundleForCommentInserts.sections ?? []).map((s) => s.id),
       );
       for (const comment of pendingCommentInserts) {
-        if (comment.sectionId && !validSectionIds.has(comment.sectionId)) {
+        if (
+          comment.sectionId &&
+          !validSectionIds.has(comment.sectionId) &&
+          !requestSectionIds.has(comment.sectionId)
+        ) {
           fail(
             `Section ${comment.sectionId} was not found on plan ${args.planId}.`,
             { errorCode: "plan_section_not_found", statusCode: 422 },
@@ -1081,15 +1127,18 @@ export default defineAction({
       for (const [index, section] of args.sections.entries()) {
         const id = section.id ?? newId("sec");
         if (section.id) {
+          // Section ids are unique across plans, so another plan's id would
+          // fail the INSERT below as a bare 500.
           const [existing] = await tx
-            .select({ id: schema.planSections.id })
+            .select({ planId: schema.planSections.planId })
             .from(schema.planSections)
-            .where(
-              and(
-                eq(schema.planSections.id, section.id),
-                eq(schema.planSections.planId, args.planId),
-              ),
+            .where(eq(schema.planSections.id, section.id));
+          if (existing && existing.planId !== args.planId) {
+            fail(
+              `Section ${section.id} was not found on plan ${args.planId}.`,
+              { errorCode: "plan_section_not_found", statusCode: 422 },
             );
+          }
           if (existing) {
             await tx
               .update(schema.planSections)

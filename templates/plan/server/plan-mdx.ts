@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
+import * as nodeUtil from "node:util";
 
 import {
   BlockRegistry,
@@ -9,6 +8,14 @@ import {
   parseSpecBlock,
   type MdxJsxNode,
 } from "@agent-native/core/blocks/server";
+// The browser loads this module for parsePlanMdxFolder
+// (app/lib/plan-local-bridge.ts), which hashes idless blocks into stable ids,
+// so hashing uses a portable SHA-256. node:util stays a namespace import, read
+// only when comparing against previous content on the server: the Vite dev
+// server throws as soon as a named export of a Node module is read in client
+// code.
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import matter from "gray-matter";
 import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
@@ -1577,7 +1584,7 @@ function samePlanBlockSource(current: PlanBlock, previous: PlanBlock): boolean {
     unknown
   >;
   stripBlockIdsForSourceComparison(currentCopy, previousCopy);
-  return isDeepStrictEqual(currentCopy, previousCopy);
+  return nodeUtil.isDeepStrictEqual(currentCopy, previousCopy);
 }
 
 function canonicalSourceJson(value: unknown): string {
@@ -1674,9 +1681,7 @@ function planBlockSourceFingerprint(
   if (normalizeLegacyDefaults) {
     stripEmptyRequiredFieldsForSourceKey(currentCopy);
   }
-  return createHash("sha256")
-    .update(canonicalSourceJson(currentCopy))
-    .digest("hex");
+  return sha256Hex(canonicalSourceJson(currentCopy));
 }
 
 function nestedPlanGroups(block: PlanBlock): unknown[] | null {
@@ -1863,7 +1868,7 @@ function nestedParentShellFingerprint(block: PlanBlock): string | null {
     delete record.id;
     delete record.blocks;
   }
-  return createHash("sha256").update(canonicalSourceJson(copy)).digest("hex");
+  return sha256Hex(canonicalSourceJson(copy));
 }
 
 function preserveIdlessBlockIds(
@@ -2435,7 +2440,7 @@ function samePlanColumnSource(
       }
     }
   }
-  return isDeepStrictEqual(currentCopy, previousCopy);
+  return nodeUtil.isDeepStrictEqual(currentCopy, previousCopy);
 }
 
 function samePlanNestedGroupSource(
@@ -2471,7 +2476,7 @@ function samePlanNestedGroupSource(
     delete currentCopy.blocks;
     delete previousCopy.blocks;
   }
-  return isDeepStrictEqual(currentCopy, previousCopy);
+  return nodeUtil.isDeepStrictEqual(currentCopy, previousCopy);
 }
 
 function reuseMatchingNestedBlockIds(
@@ -3232,8 +3237,12 @@ function createStableWireframeNodeId(
     .slice(0, 80);
 }
 
+function sha256Hex(value: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(value)));
+}
+
 function createStablePlanSourceId(context: string): string {
-  return `source-${createHash("sha256").update(context).digest("hex").slice(0, 24)}`;
+  return `source-${sha256Hex(context).slice(0, 24)}`;
 }
 
 function parseWireframeNode(
