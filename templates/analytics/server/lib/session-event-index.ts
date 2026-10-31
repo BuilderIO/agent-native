@@ -513,7 +513,7 @@ export async function sessionEventFilterConditions(
   const recordingTenant = recordingTenantSql(r);
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${recordingTenant})`;
   // The same bound as `coverageStart`, on indexable columns. Without it a
-  // range reaching back before coverage times out in production, though
+  // range reaching back before coverage fails in production, though
   // every row it adds is excluded.
   const coverageRows: { tenantKey: string; startedAt: string }[] = await db
     .select({ tenantKey: coverage.tenantKey, startedAt: coverage.startedAt })
