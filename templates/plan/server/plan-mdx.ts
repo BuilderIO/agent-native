@@ -1,7 +1,3 @@
-// Namespace imports, read only when called: the browser loads this module for
-// parsePlanMdxFolder (app/lib/plan-local-bridge.ts), and the Vite dev server
-// throws as soon as a named export of a Node module is read in client code.
-import * as nodeCrypto from "node:crypto";
 import * as nodeUtil from "node:util";
 
 import {
@@ -12,6 +8,14 @@ import {
   parseSpecBlock,
   type MdxJsxNode,
 } from "@agent-native/core/blocks/server";
+// The browser loads this module for parsePlanMdxFolder
+// (app/lib/plan-local-bridge.ts), which hashes idless blocks into stable ids,
+// so hashing uses a portable SHA-256. node:util stays a namespace import, read
+// only when comparing against previous content on the server: the Vite dev
+// server throws as soon as a named export of a Node module is read in client
+// code.
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import matter from "gray-matter";
 import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
@@ -1677,10 +1681,7 @@ function planBlockSourceFingerprint(
   if (normalizeLegacyDefaults) {
     stripEmptyRequiredFieldsForSourceKey(currentCopy);
   }
-  return nodeCrypto
-    .createHash("sha256")
-    .update(canonicalSourceJson(currentCopy))
-    .digest("hex");
+  return sha256Hex(canonicalSourceJson(currentCopy));
 }
 
 function nestedPlanGroups(block: PlanBlock): unknown[] | null {
@@ -1867,10 +1868,7 @@ function nestedParentShellFingerprint(block: PlanBlock): string | null {
     delete record.id;
     delete record.blocks;
   }
-  return nodeCrypto
-    .createHash("sha256")
-    .update(canonicalSourceJson(copy))
-    .digest("hex");
+  return sha256Hex(canonicalSourceJson(copy));
 }
 
 function preserveIdlessBlockIds(
@@ -3239,8 +3237,12 @@ function createStableWireframeNodeId(
     .slice(0, 80);
 }
 
+function sha256Hex(value: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(value)));
+}
+
 function createStablePlanSourceId(context: string): string {
-  return `source-${nodeCrypto.createHash("sha256").update(context).digest("hex").slice(0, 24)}`;
+  return `source-${sha256Hex(context).slice(0, 24)}`;
 }
 
 function parseWireframeNode(

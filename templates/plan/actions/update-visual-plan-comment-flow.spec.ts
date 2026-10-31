@@ -500,6 +500,35 @@ describe("update-visual-plan comment path (integration)", () => {
     });
   });
 
+  it("saves an edit that moves a comment into a section the same request adds", async () => {
+    request.email = "owner@example.com";
+    const capturedRows: CapturedRow[] = [];
+    const capturedUpdates: CapturedCommentUpdate[] = [];
+    getDbMock.mockReturnValue(
+      buildTransactionDb(capturedRows, capturedUpdates, [pinnedComment], []),
+    );
+    loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+    await run({
+      ...pinnedEdit("sec_new"),
+      sections: [
+        {
+          id: "sec_new",
+          type: "custom",
+          title: "New section",
+          body: "",
+          createdBy: "human",
+        },
+      ],
+    });
+
+    expect(capturedUpdates).toHaveLength(1);
+    expect(capturedUpdates[0]).toMatchObject({
+      sectionId: "sec_new",
+      message: "Edited feedback",
+    });
+  });
+
   it("notifies recipients with the inserted ids and prior comments after a comment insert", async () => {
     request.email = "reviewer@example.com";
     const captured: CapturedRow[] = [];
@@ -868,6 +897,42 @@ describe("update-visual-plan comment path (integration)", () => {
 
       expect(captured).toHaveLength(1);
       expect(captured[0].message).toBe("Comment on the real section");
+    });
+    it("allows a new comment in a section the same request adds", async () => {
+      request.email = "owner@example.com";
+      const captured: CapturedRow[] = [];
+      getDbMock.mockReturnValue(buildTransactionDb(captured));
+      loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+      await run({
+        planId: "plan_1",
+        contentPatches: [],
+        sections: [
+          {
+            id: "sec_new",
+            type: "custom",
+            title: "New section",
+            body: "",
+            createdBy: "human",
+          },
+        ],
+        consumedCommentIds: [],
+        comments: [
+          {
+            sectionId: "sec_new",
+            message: "Comment on the new section",
+            kind: "comment",
+            status: "open",
+            createdBy: "human",
+          },
+        ],
+      });
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toMatchObject({
+        sectionId: "sec_new",
+        message: "Comment on the new section",
+      });
     });
   });
 

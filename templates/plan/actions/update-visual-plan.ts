@@ -956,15 +956,20 @@ export default defineAction({
     }
 
     // plan_comments.section_id references plan_sections, so an unknown id
-    // would fail the UPDATE below as a bare 500. Reject it the way new
-    // comments are rejected.
+    // would fail the comment writes below as a bare 500. Reject it the way new
+    // comments are rejected. Sections this request saves exist by the time
+    // the comments are written.
+    const requestSectionIds = new Set(
+      args.sections.flatMap((section) => (section.id ? [section.id] : [])),
+    );
     const movedToSectionIds = onlyUpdatesCommentStatuses
       ? []
       : [
           ...new Set(
             existingCommentUpdates.flatMap((comment) =>
               comment.sectionId &&
-              comment.sectionId !== comment.existing.sectionId
+              comment.sectionId !== comment.existing.sectionId &&
+              !requestSectionIds.has(comment.sectionId)
                 ? [comment.sectionId]
                 : [],
             ),
@@ -1003,7 +1008,11 @@ export default defineAction({
         (bundleForCommentInserts.sections ?? []).map((s) => s.id),
       );
       for (const comment of pendingCommentInserts) {
-        if (comment.sectionId && !validSectionIds.has(comment.sectionId)) {
+        if (
+          comment.sectionId &&
+          !validSectionIds.has(comment.sectionId) &&
+          !requestSectionIds.has(comment.sectionId)
+        ) {
           fail(
             `Section ${comment.sectionId} was not found on plan ${args.planId}.`,
             { errorCode: "plan_section_not_found", statusCode: 422 },
