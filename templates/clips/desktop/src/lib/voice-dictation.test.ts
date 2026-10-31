@@ -844,13 +844,15 @@ describe("desktop voice dictation runs", () => {
       });
       const started = await startDictation("parakeet");
       dispose = started.dispose;
+      const { runId } = started;
+      if (runId === undefined) throw new Error("Dictation did not start.");
       expect(tauri.invoke).toHaveBeenCalledWith(
         "native_speech_start",
         expect.objectContaining({ owner: "dictation" }),
       );
 
       await release();
-      emitFinal(started.runId!, "recognized words");
+      emitFinal(runId, "recognized words");
       await vi.advanceTimersByTimeAsync(250);
       await settle();
 
