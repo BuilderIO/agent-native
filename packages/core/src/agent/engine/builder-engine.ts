@@ -53,6 +53,7 @@ import {
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
+import { inlineToolResultImageUrls } from "./inline-tool-result-image-urls.js";
 import { limitProviderTools } from "./limit-provider-tools.js";
 import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 import {
@@ -296,7 +297,7 @@ class BuilderEngine implements AgentEngine {
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
     const providerTools = limitProviderTools(opts.tools);
     const messages = engineMessagesToBuilderGatewayAnthropic(
-      opts.messages,
+      await inlineToolResultImageUrls(opts.messages),
       toolNameMap,
     );
     const tools = engineToolsToAnthropic(providerTools, toolNameMap);

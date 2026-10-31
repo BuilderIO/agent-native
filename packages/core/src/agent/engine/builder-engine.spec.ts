@@ -102,6 +102,12 @@ vi.mock("../../usage/builder-credit-notice.js", () => ({
   sendBuilderCreditLimitNotice: credentialState.sendBuilderCreditLimitNotice,
 }));
 
+const imageFetch = vi.hoisted(() => vi.fn());
+vi.mock("../../extensions/url-safety.js", async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  ssrfSafeFetch: imageFetch,
+}));
+
 async function collectEvents(iterable: AsyncIterable<any>) {
   const events: any[] = [];
   for await (const e of iterable) events.push(e);
@@ -266,6 +272,56 @@ describe("createBuilderEngine", () => {
       ),
     ).rejects.toBe(dispatchError);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("sends tool-result screenshots to the gateway as bytes, not URLs", async () => {
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    imageFetch.mockResolvedValue(new Response(png, { status: 200 }));
+    const requestFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonlResponse([
+        { type: "text", text: "Done" },
+        { type: "stop", stop_reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", requestFetch);
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "t1",
+                name: "take-design-screenshot",
+                input: {},
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "t1",
+                toolName: "take-design-screenshot",
+                toolInput: "{}",
+                content: "ok",
+                images: [{ url: "https://cdn.builder.io/shot.png" }],
+              },
+            ],
+          },
+        ] as any,
+      }),
+    );
+    const body = JSON.parse(requestFetch.mock.calls[0][1]!.body as string);
+    const sources = JSON.stringify(body.messages);
+    expect(sources).not.toContain('"type":"url"');
+    expect(sources).toContain('"type":"base64"');
   });
 
   it("preserves optional action schemas in GPT gateway requests", async () => {
