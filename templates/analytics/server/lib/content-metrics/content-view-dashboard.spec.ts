@@ -330,20 +330,20 @@ describe("Content view dashboard", () => {
   });
 
   it("rejects a custom date scaffold wider than the supported range", () => {
-    const panel = contentView().panels.find(
-      (panel) => panel.id === "signups-per-day",
-    )!;
-    expect(
-      interpolateDashboardPanelSql(
-        panel.sql,
-        {
-          timeRange: "custom",
-          timeRangeStart: "2000-01-01",
-          timeRangeEnd: "2026-10-20",
-        },
-        panel,
-      ),
-    ).toBe("SELECT __invalid_custom_date_range__");
+    for (const id of ["signups-per-day", "pageviews-per-day"]) {
+      const panel = contentView().panels.find((panel) => panel.id === id)!;
+      expect(
+        interpolateDashboardPanelSql(
+          panel.sql,
+          {
+            timeRange: "custom",
+            timeRangeStart: "2000-01-01",
+            timeRangeEnd: "2026-10-20",
+          },
+          panel,
+        ),
+      ).toBe("SELECT __invalid_custom_date_range__");
+    }
   });
 
   it("keeps a day with no signups as null through yesterday", async () => {
@@ -402,18 +402,28 @@ describe("Content view dashboard", () => {
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
       SELECT 'day' || days_ago, 'org:org_a', 'alice@example.test', 'org_a', 'a1', to_char(CURRENT_DATE - days_ago, 'YYYY-MM-DD'), 'signups_first_touch', value, 'signups', 'r0', '2026-09-01'
       FROM (VALUES (8, 50), (7, 3), (0, 100)) AS days (days_ago, value);
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'view' || days_ago, 'org:org_a', 'alice@example.test', 'org_a', 'a1', to_char(CURRENT_DATE - days_ago, 'YYYY-MM-DD'), 'ga4_pageviews', value, 'ga4', 'r0', '2026-09-01'
+      FROM (VALUES (8, 50), (7, 3), (0, 100)) AS days (days_ago, value);
     `);
     // Last 7 days is the seven days through yesterday: the 3 from seven days
-    // ago and the 2 from three days ago, not the day before or today.
+    // ago and the 2 from three days ago, not the day before or today. Pageviews
+    // add the 3 to the 5 and 0 already collected three and two days ago.
     const days = await runPanel("signups-per-day", "7d");
     expect(days).toHaveLength(7);
     expect(days.reduce((sum, row) => sum + Number(row.signups ?? 0), 0)).toBe(
       5,
     );
+    const traffic = await runPanel("pageviews-per-day", "7d");
+    expect(traffic).toHaveLength(7);
     expect(
-      (await runPanel("articles", "7d")).find((row) => row.title === "Post one")
-        ?.signups,
-    ).toBe(5);
+      traffic.reduce((sum, row) => sum + Number(row.pageviews ?? 0), 0),
+    ).toBe(8);
+    const article = (await runPanel("articles", "7d")).find(
+      (row) => row.title === "Post one",
+    );
+    expect(article?.signups).toBe(5);
+    expect(article?.pageviews).toBe(8);
     expect(await runPanel("signups-by-author", "7d")).toEqual([
       { author: "Ada", signups: 5 },
     ]);
