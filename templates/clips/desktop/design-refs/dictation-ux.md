@@ -6,7 +6,16 @@ text available quickly in the focused app.
 
 ## Interaction
 
-- A configured shortcut starts capture; releasing it ends capture.
+- A configured shortcut starts capture; releasing it ends capture. The
+  microphone is closed while idle: no always-open mic and no pre-roll buffer.
+  Keep network calls and model loads off the path from press to the mic
+  opening, so the first word is not clipped.
+- Keep recording for 200 ms after release; people let go on the last syllable.
+- In hold mode, a press shorter than 300 ms is a stray tap. It leaves no
+  paste, history, error, or flow-bar state.
+- A hold the voice detector finds silent ends as no speech at once. When the
+  detector cannot run, the recording takes the normal path; it never counts
+  as silence.
 - Keep the recording indicator compact and visible above the current desktop
   app. Use the same color, type, spacing, and motion tokens as Clips recording.
 - Show clear listening, processing, delivered, and recoverable-error states.

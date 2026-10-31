@@ -122,6 +122,17 @@ and release-to-text time, never the text. `node scripts/dictation-wer.ts
 <clip-dir>` in `desktop/` measures word error rate per engine on recordings
 that each have a `.txt` reference beside them.
 
+### Recording edges
+
+Every Mac engine keeps recording for 200 ms after release, and in hold mode a
+press under 300 ms is dropped without a trace. While the key is held, Silero
+VAD (a 1.2 MB model downloaded once dictation is on, run on the CPU apart
+from the speech model) scores the audio; a silent hold ends as no speech at release instead of
+after the engine's timeout. If the detector is missing or fails, the dictation
+takes the normal path. Each dictation logs one `[vad]` line with the verdict
+and `press_to_first_sample_ms`, the time from key press to the first mic
+sample.
+
 Agents must **never** wire dictation start/stop server-side. Desktop key
 listeners and the mobile capture UI own those user gestures.
 
