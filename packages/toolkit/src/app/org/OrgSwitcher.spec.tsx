@@ -959,6 +959,49 @@ describe("OrgSwitcher (account menu)", () => {
     );
   });
 
+  it("hides Create organization when organization creation is closed", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        ...ownerOrg,
+        access: { signup: "invited", orgCreation: "closed" },
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    const menu = openMenu();
+
+    expect(menuItemLabels()).toEqual([
+      "Acme",
+      "Globex",
+      expect.stringMatching(/^Settings(⌘,|Ctrl\+,)$/),
+      "Usage",
+      "Log out",
+    ]);
+    for (const group of menu.querySelectorAll('[role="group"]')) {
+      expect(group.childElementCount).toBeGreaterThan(0);
+    }
+    expect(menu.querySelectorAll('[role="separator"]').length).toBe(2);
+  });
+
+  it("keeps the workspace link when organization creation is closed", () => {
+    const workspaceUrl = "https://agent-workspace.builder.io";
+    mocks.useOrg.mockReturnValue({
+      data: {
+        ...ownerOrg,
+        workspaceUrl,
+        access: { signup: "invited", orgCreation: "closed" },
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    const menu = openMenu();
+
+    expect(menu.querySelector(`a[href="${workspaceUrl}"]`)).not.toBeNull();
+    expect(menuItemLabels()).not.toContain("Create organization");
+  });
+
   it("hides Get apps and extensions unless the app passes utility links", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
 
