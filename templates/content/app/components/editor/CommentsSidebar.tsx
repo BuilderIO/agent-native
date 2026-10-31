@@ -2664,6 +2664,70 @@ export function CommentsSidebar({
     }
   }, [onSelectedThreadChange, selectedThreadId, selectableThreads]);
 
+  // Accepting moves the source thread's quote, which a revision still in
+  // flight would read as changed feedback and abandon.
+  const suggestionBusy = (suggestion: ResourceSuggestion) => {
+    const threadId = suggestionSourceThreadId(suggestion);
+    return (
+      decidingSuggestion(suggestion.id) ||
+      Boolean(
+        commentAi && threadId && isCommentAiWorkingOn(commentAi, threadId),
+      )
+    );
+  };
+
+  // Accept and resolve resolves only once its accepts land: a thread resolved
+  // first would send its still-pending edits out to cards of their own. While
+  // a decision is in flight its edits already show the status it asked for,
+  // so only a finished decision tells whether the accept landed.
+  const [resolveOnAccept, setResolveOnAccept] = useState<
+    ReadonlyMap<string, readonly string[]>
+  >(() => new Map());
+  const settledResolveOnAccept = [...resolveOnAccept]
+    .filter(([, requested]) =>
+      suggestions.every(
+        (suggestion) =>
+          !requested.includes(suggestion.id) || !suggestionBusy(suggestion),
+      ),
+    )
+    .map(([threadId]) => threadId)
+    .join(" ");
+  // No hook may follow the empty-sidebar return, and the resolve handler is
+  // defined below it, so it reaches this effect through a ref.
+  const resolveAcceptedRef = useRef<((thread: CommentThread) => void) | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!settledResolveOnAccept) return;
+    const settled = settledResolveOnAccept.split(" ");
+    setResolveOnAccept((current) => {
+      const next = new Map(current);
+      for (const threadId of settled) next.delete(threadId);
+      return next;
+    });
+    for (const threadId of settled) {
+      const thread = threads.find((item) => item.threadId === threadId);
+      const requested = resolveOnAccept.get(threadId) ?? [];
+      // A failed or refused accept leaves an edit pending, and an edit can
+      // also end rejected or withdrawn; the thread then stays open. So does
+      // an edit its AI made while the accept was in flight.
+      if (
+        thread &&
+        !thread.resolved &&
+        requested.every((id) =>
+          suggestions.some(
+            (suggestion) =>
+              suggestion.id === id && suggestion.status === "accepted",
+          ),
+        ) &&
+        (threadSuggestions.get(threadId) ?? []).every(
+          (suggestion) => suggestion.status !== "pending",
+        )
+      )
+        resolveAcceptedRef.current?.(thread);
+    }
+  }, [settledResolveOnAccept]);
+
   const hasContent =
     presentation === "history"
       ? threads.length > 0 ||
@@ -2899,71 +2963,11 @@ export function CommentsSidebar({
   const handleResolve = (thread: CommentThread) => {
     void changeResolution(thread, true);
   };
+  resolveAcceptedRef.current = handleResolve;
 
   const handleReopen = (thread: CommentThread) => {
     void changeResolution(thread, false);
   };
-
-  // Accepting moves the source thread's quote, which a revision still in
-  // flight would read as changed feedback and abandon.
-  const suggestionBusy = (suggestion: ResourceSuggestion) => {
-    const threadId = suggestionSourceThreadId(suggestion);
-    return (
-      decidingSuggestion(suggestion.id) ||
-      Boolean(
-        commentAi && threadId && isCommentAiWorkingOn(commentAi, threadId),
-      )
-    );
-  };
-
-  // Accept and resolve resolves only once its accepts land: a thread resolved
-  // first would send its still-pending edits out to cards of their own. While
-  // a decision is in flight its edits already show the status it asked for,
-  // so only a finished decision tells whether the accept landed.
-  const [resolveOnAccept, setResolveOnAccept] = useState<
-    ReadonlyMap<string, readonly string[]>
-  >(() => new Map());
-  const settledResolveOnAccept = [...resolveOnAccept]
-    .filter(([, requested]) =>
-      suggestions.every(
-        (suggestion) =>
-          !requested.includes(suggestion.id) || !suggestionBusy(suggestion),
-      ),
-    )
-    .map(([threadId]) => threadId)
-    .join(" ");
-  const resolveAcceptedRef = useRef(handleResolve);
-  resolveAcceptedRef.current = handleResolve;
-  useEffect(() => {
-    if (!settledResolveOnAccept) return;
-    const settled = settledResolveOnAccept.split(" ");
-    setResolveOnAccept((current) => {
-      const next = new Map(current);
-      for (const threadId of settled) next.delete(threadId);
-      return next;
-    });
-    for (const threadId of settled) {
-      const thread = threads.find((item) => item.threadId === threadId);
-      const requested = resolveOnAccept.get(threadId) ?? [];
-      // A failed or refused accept leaves an edit pending, and an edit can
-      // also end rejected or withdrawn; the thread then stays open. So does
-      // an edit its AI made while the accept was in flight.
-      if (
-        thread &&
-        !thread.resolved &&
-        requested.every((id) =>
-          suggestions.some(
-            (suggestion) =>
-              suggestion.id === id && suggestion.status === "accepted",
-          ),
-        ) &&
-        (threadSuggestions.get(threadId) ?? []).every(
-          (suggestion) => suggestion.status !== "pending",
-        )
-      )
-        resolveAcceptedRef.current(thread);
-    }
-  }, [settledResolveOnAccept]);
 
   const renderFoldedStack = (
     stack: CommentStack<CommentThread>,
