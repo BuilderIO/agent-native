@@ -22,7 +22,10 @@ export {
   replaceDataScreenReferences,
 } from "@shared/screen-rename";
 
-import { GOOGLE_FONT_QUERIES } from "@agent-native/toolkit/design-tweaks";
+import {
+  googleFontStylesheetUrl,
+  resolveGoogleFont,
+} from "@agent-native/toolkit/design-tweaks";
 
 import type { LayersPanelNode } from "@/components/design/LayersPanel";
 import type { ElementInfo } from "@/components/design/types";
@@ -1242,8 +1245,6 @@ export function codeLayerPatchMessage(
     : message;
 }
 
-export const KNOWN_GOOGLE_FONTS = GOOGLE_FONT_QUERIES;
-
 const LATO_MEDIUM_FACE_URL =
   "https://raw.githubusercontent.com/google/fonts/809e4d8b8d7e9364a914909bb777679606c178b8/ofl/lato/Lato-Medium.ttf";
 
@@ -1285,9 +1286,10 @@ export function ensureGoogleFontLinkInHtml(
   fontFamilyValue: string,
 ): string {
   if (typeof window === "undefined") return content;
-  const family = primaryFontFamilyName(fontFamilyValue);
-  const fontQuery = family ? KNOWN_GOOGLE_FONTS[family] : undefined;
-  if (!fontQuery) return content;
+  const font = resolveGoogleFont(primaryFontFamilyName(fontFamilyValue));
+  const fontHref = font && googleFontStylesheetUrl(font);
+  if (!font || !fontHref) return content;
+  const family = font.family;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     const head = doc.head;
@@ -1306,8 +1308,9 @@ export function ensureGoogleFontLinkInHtml(
       }
       normalizedHref = normalizedHref.replace(/\+/g, " ").toLowerCase();
       return (
-        href.includes(`family=${fontQuery}`) ||
-        normalizedHref.includes(`family=${family.toLowerCase()}:`)
+        href === fontHref ||
+        normalizedHref.includes(`family=${family.toLowerCase()}:`) ||
+        normalizedHref.includes(`family=${family.toLowerCase()}&`)
       );
     });
     let changed = ensurePinnedFontFace(doc, family);
@@ -1321,10 +1324,7 @@ export function ensureGoogleFontLinkInHtml(
       preconnectGstatic.setAttribute("crossorigin", "");
       const fontLink = doc.createElement("link");
       fontLink.setAttribute("rel", "stylesheet");
-      fontLink.setAttribute(
-        "href",
-        `https://fonts.googleapis.com/css2?family=${fontQuery}&display=swap`,
-      );
+      fontLink.setAttribute("href", fontHref);
       if (
         !head.querySelector(
           'link[href="https://fonts.googleapis.com"][rel="preconnect"]',

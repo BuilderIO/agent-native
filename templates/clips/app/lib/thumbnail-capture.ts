@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath, appBasePath } from "@agent-native/core/client/api-path";
 
 const PROBE_WIDTH = 40;
 const MIN_VISIBLE_MEAN_LUMA = 8;
@@ -12,6 +12,7 @@ const VIDEO_METADATA_TIMEOUT_MS = 10_000;
 function resolveAppUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
   if (url.startsWith("/") && !url.startsWith("//")) {
+    if (url === "/api" || url.startsWith("/api/")) return appApiPath(url);
     return `${appBasePath()}${url}`;
   }
   return url;
@@ -309,7 +310,7 @@ export async function uploadRecordingThumbnail(
 ) {
   const suffix = options.replaceAuto ? "?replace=auto" : "";
   const response = await fetch(
-    `${appBasePath()}/api/recordings/${recordingId}/thumbnail${suffix}`,
+    appApiPath(`/api/recordings/${recordingId}/thumbnail${suffix}`),
     {
       method: "POST",
       headers: { "Content-Type": blob.type || "image/jpeg" },

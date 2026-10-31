@@ -4043,7 +4043,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function isGeneratedGroupWrapper(group) {
       if (typeof group.getAttribute !== "function") return false;
-      var generatedGroupMarker = group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-an-primitive") !== "frame" && group.getAttribute("data-agent-native-clone-root") !== "true";
+      var generatedGroupMarker = group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-an-primitive") !== "frame" && (usesDirectScreenSelection() || group.getAttribute("data-agent-native-clone-root") !== "true");
       var legacyNodeId = group.getAttribute("data-agent-native-node-id");
       var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(layerNameForElement(group).trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
       return generatedGroupMarker || legacyGeneratedGroup;
@@ -4139,6 +4139,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       return Boolean(
         selectedEl && selectedEl !== group && group.contains(selectedEl) || selectionContainerScope && group.contains(selectionContainerScope)
       );
+    }
+    function usesDirectScreenSelection() {
+      return !readOnly && !designCanvasBoardSurface;
     }
     function modifierClickSelectionTarget(hit) {
       return selectionTargetForHit(hit, true);
@@ -12039,7 +12042,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       hoveredSpacingHandleKey = "";
-      var resolvedClickTarget = e.metaKey || e.ctrlKey ? modifierClickSelectionTarget(target) : selectedContainerForPlainClick(target, e) || containerFirstSelectionTarget(target);
+      var resolvedClickTarget = e.metaKey || e.ctrlKey ? modifierClickSelectionTarget(target) : usesDirectScreenSelection() ? selectionTargetForHit(target) : selectedContainerForPlainClick(target, e) || containerFirstSelectionTarget(target);
       var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
       if (toggled !== void 0) {
         postToggledSelection(toggled);
@@ -12467,8 +12470,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var info = null;
       if (target) {
         hoveredSpacingHandleKey = "";
-        var keepsSelection = !!selectedEl && document.documentElement.contains(selectedEl) && (selectedEl === target || selectedEl.contains(target));
-        selectedEl = keepsSelection ? selectedEl : (isApplePlatformBridge() ? e.metaKey : e.ctrlKey) ? selectionTargetForHit(target) : containerFirstSelectionTarget(target);
+        var keepsSelection = !!selectedEl && document.documentElement.contains(selectedEl) && (selectedEl === target || !usesDirectScreenSelection() && selectedEl.contains(target));
+        selectedEl = keepsSelection ? selectedEl : (isApplePlatformBridge() ? e.metaKey : e.ctrlKey) ? selectionTargetForHit(target) : usesDirectScreenSelection() ? selectionTargetForHit(target) : containerFirstSelectionTarget(target);
         if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
           info = getElementInfo(selectedEl);
           positionOverlay(selectionOverlay, selectedEl);
@@ -22501,7 +22504,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (labeledFrame) return;
         if (ev) stopNativeInteraction(ev);
         var cycledEl = isModifierCycleClick ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
-        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev) || clickThroughSelectionTarget(hit, ev, repeatedMouseClick) : null) || containerFirstSelectionTarget(hit);
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : usesDirectScreenSelection() ? selectionTargetForHit(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev) || clickThroughSelectionTarget(hit, ev, repeatedMouseClick) : null) || containerFirstSelectionTarget(hit);
         var preservesNestedHit = Boolean(
           isModifierCycleClick && !continuesModifierCycle && selectedEl && hit && selectedEl.contains(hit) && primaryClickTarget && primaryClickTarget !== selectedEl
         );
@@ -23788,7 +23791,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function resolveHoverTarget(clientX, clientY, deepSelect) {
       var rawHit = elementFromEditorPoint(clientX, clientY);
-      return deepSelect ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
+      return deepSelect || usesDirectScreenSelection() ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
     }
     function reresolveHoverAtLastPoint(deepSelect) {
       if (!lastHoverClientPoint) return;

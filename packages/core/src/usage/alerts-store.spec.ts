@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { __resetSchemaSnapshotForTests } from "../db/ddl-guard.js";
+import { USAGE_ALERT_MIGRATIONS } from "./migrations.js";
+import { builderCreditsFromCostCents } from "./store.js";
 
 const mockNotifyWithDelivery = vi.hoisted(() => vi.fn());
 const mockDeleteNotification = vi.hoisted(() => vi.fn());
@@ -41,6 +43,8 @@ const {
   enqueueUsageAlertEvaluation,
   listUsageAlerts,
   saveUsageAlert,
+  USAGE_ALERT_DEFAULT_DAILY_USD,
+  USAGE_ALERT_DEFAULT_MONTHLY_USD,
   USAGE_ALERT_UNIT_SCALE,
 } = await import("./alerts-store.js");
 
@@ -111,11 +115,91 @@ afterEach(async () => {
 });
 
 describe("usage alerts", () => {
-  it("keeps the $100 default durable and maps $100 to 1,000,000 raw centicents", async () => {
+  it("moves defaults still at $100 a day once, and leaves other limits alone", async () => {
+    const move = async () => {
+      const migration = USAGE_ALERT_MIGRATIONS.find((m) => m.version === 4);
+      await pglite.exec(migration!.sql as string);
+    };
+    const [rule] = await listUsageAlerts({ scope: "user" }, access);
+
+    await pglite.exec(
+      "UPDATE usage_alert_rules SET limit_value = 10000, period = 'day', dismissed_window_start = 1",
+    );
+    await pglite.exec(
+      `INSERT INTO usage_alert_events (id, rule_id, window_start, created_at) VALUES ('old', '${rule!.id}', 1, 1)`,
+    );
+    await move();
+    expect(
+      await (
+        await pglite.prepare("SELECT COUNT(*) AS n FROM usage_alert_events")
+      ).get(),
+    ).toMatchObject({ n: 0 });
+    expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
+      {
+        limit: 20,
+        period: "month",
+      },
+    );
+    expect(
+      await (
+        await pglite.prepare(
+          "SELECT dismissed_window_start FROM usage_alert_rules",
+        )
+      ).get(),
+    ).toMatchObject({ dismissed_window_start: null });
+
+    await pglite.exec(
+      "UPDATE usage_alert_rules SET is_default = 0, limit_value = 10000, period = 'day'",
+    );
+    await move();
+    expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
+      {
+        limit: 100,
+        period: "day",
+      },
+    );
+
+    await pglite.exec("UPDATE usage_alert_rules SET is_default = 1");
+    await saveUsageAlert(
+      { scope: "user", ruleId: rule!.id, limit: 50, period: "day" },
+      access,
+    );
+    await move();
+    expect((await listUsageAlerts({ scope: "user" }, access))[0]).toMatchObject(
+      {
+        limit: 50,
+        period: "day",
+      },
+    );
+  });
+
+  it("keeps the deprecated daily export at its old value", () => {
+    expect(USAGE_ALERT_DEFAULT_DAILY_USD).toBe(100);
+    expect(USAGE_ALERT_DEFAULT_MONTHLY_USD).toBe(20);
+  });
+
+  it("gives a new alert the monthly default for its unit", async () => {
+    const save = (unit: "usd" | "builder-credits" | "tokens") =>
+      saveUsageAlert({ scope: "user", appId: `app-${unit}`, unit }, access);
+
+    expect((await save("usd")).rule).toMatchObject({
+      unit: "usd",
+      period: "month",
+      limit: USAGE_ALERT_DEFAULT_MONTHLY_USD,
+    });
+    expect((await save("builder-credits")).rule.limit).toBe(
+      builderCreditsFromCostCents(USAGE_ALERT_DEFAULT_MONTHLY_USD * 100),
+    );
+    await expect(save("tokens")).rejects.toThrow(
+      "Usage alert limit must be greater than zero.",
+    );
+  });
+
+  it("keeps the $20 monthly default durable and maps $20 to 200,000 raw centicents", async () => {
     await insertUsage({
       id: 1,
       app: "agent-native-factory",
-      cost: 1_000_000,
+      cost: 200_000,
       orgId: "org-1",
     });
 
@@ -128,8 +212,9 @@ describe("usage alerts", () => {
     expect(rules).toHaveLength(1);
     expect(rules[0]).toMatchObject({
       isDefault: true,
-      limit: 100,
-      current: 100,
+      limit: 20,
+      period: "month",
+      current: 20,
       status: "triggered",
       channels: ["in-app", "email"],
     });

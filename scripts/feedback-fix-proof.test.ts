@@ -203,6 +203,12 @@ describe("parseProofCommand", () => {
       ],
     );
     assert.deepEqual(
+      parseProofCommand(
+        "corepack pnpm --filter design exec vitest run app/x.spec.ts",
+      ),
+      ["pnpm", "--filter", "design", "exec", "vitest", "run", "app/x.spec.ts"],
+    );
+    assert.deepEqual(
       parseProofCommand("node --test scripts/feedback-fix-proof.test.ts"),
       ["node", "--test", "scripts/feedback-fix-proof.test.ts"],
     );
@@ -213,6 +219,7 @@ describe("parseProofCommand", () => {
       "node -e process.exit(0)",
       "curl https://example.com/payload",
       "pnpm exec node -e process.exit(0)",
+      "corepack node -e process.exit(0)",
       "pnpm --filter ../../outside exec vitest run test.spec.ts",
       "node --test ../outside.test.ts",
       "pnpm --filter design exec vitest run app.spec.ts --config vitest.config.ts",

@@ -72,6 +72,7 @@ beforeEach(async () => {
       updated_at BIGINT NOT NULL,
       PRIMARY KEY (session_id, key)
     );
+    CREATE TABLE recording_media_cleanups (id TEXT PRIMARY KEY,accounting_settled BOOLEAN NOT NULL DEFAULT false);
     CREATE TABLE clips_hosted_clip_allowances (
       recording_id TEXT PRIMARY KEY,
       identity_key TEXT NOT NULL,
@@ -374,6 +375,28 @@ describe("hosted clip allowance", () => {
         quota_bytes: 0,
       },
     ]);
+  });
+
+  it("retains an orphaned reservation while its durable media cleanup is unconfirmed", async () => {
+    await reserve({ recordingId: "pending-cleanup" });
+    await client.exec(
+      "INSERT INTO recording_media_cleanups(id) VALUES ('pending-cleanup')",
+    );
+    expect(
+      await allowance.releaseOrphanedHostedClipAllowance({
+        recordingId: "pending-cleanup",
+        userId: "user-1",
+        createdBefore: new Date(NOW.getTime() + 1),
+        now: NOW,
+      }),
+    ).toBe(false);
+    expect(
+      (
+        await client.query(
+          "SELECT status,quota_bytes FROM clips_hosted_clip_allowances WHERE recording_id='pending-cleanup'",
+        )
+      ).rows,
+    ).toEqual([{ status: "reserved", quota_bytes: 100 }]);
   });
 
   it("reacquires the same released grant for an explicit retry without spending a second daily grant", async () => {

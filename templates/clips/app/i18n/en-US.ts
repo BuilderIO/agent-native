@@ -250,6 +250,30 @@ const messages = {
     clipsRestoreFailed: "{{count}} clips could not be restored",
     clipsPermanentlyDeleted: "{{count}} clips permanently deleted",
     clipsDeleteFailed: "{{count}} clips could not be deleted",
+    deletedMediaPending:
+      "Recording deleted. Media removal is still in progress.",
+    deletedMediaBlocked:
+      "Recording deleted, but its media files couldn't be removed.",
+    deletedMediaRetained:
+      "Recording deleted. Media files other recordings still use were kept.",
+    clipsDeletedMediaPending:
+      "Recordings deleted: {{count}}. Media removal is still in progress.",
+    clipsDeletedMediaBlocked:
+      "Recordings deleted: {{count}}. Media files couldn't be removed.",
+    clipsDeletedMediaRetained:
+      "Recordings deleted: {{count}}. Media files other recordings still use were kept.",
+    mediaCleanupListLabel: "Media removal",
+    mediaCleanupPending: "Removing media files from deleted recordings",
+    mediaCleanupBlocked:
+      "Media files from deleted recordings couldn't be removed",
+    mediaCleanupReconnect:
+      "Reconnect storage to remove media files from deleted recordings",
+    mediaCleanupRetained:
+      "Shared media files from deleted recordings are kept while other recordings use them",
+    mediaCleanupRemoved: "Media files removed",
+    mediaCleanupStillBlocked: "Media files still couldn't be removed",
+    mediaCleanupRetryFailed: "Couldn't retry media removal",
+    mediaCleanupLoadFailed: "Couldn't load media removal status",
   },
   recordingRoute: {
     pageTitle: "Clip recording · Clips",
