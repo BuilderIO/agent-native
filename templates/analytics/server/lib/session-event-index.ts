@@ -7,9 +7,11 @@ import {
   eq,
   gte,
   inArray,
+  isNull,
   lt,
   lte,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -510,6 +512,25 @@ export async function sessionEventFilterConditions(
   const gaps = schema.analyticsSessionEventGaps;
   const recordingTenant = recordingTenantSql(r);
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${recordingTenant})`;
+  // The same bound as `coverageStart`, on indexable columns. Without it a
+  // range reaching back before coverage times out in production, though
+  // every row it adds is excluded.
+  const coverageRows: { tenantKey: string; startedAt: string }[] = await db
+    .select({ tenantKey: coverage.tenantKey, startedAt: coverage.startedAt })
+    .from(coverage)
+    .where(inArray(coverage.tenantKey, viewerTenantKeys(scope)));
+  if (!coverageRows.length) return [sql`false`];
+  const coveredRange = or(
+    ...coverageRows.map(({ tenantKey, startedAt }) =>
+      tenantKey.startsWith("org:")
+        ? and(eq(r.orgId, tenantKey.slice(4)), gte(r.startedAt, startedAt))
+        : and(
+            isNull(r.orgId),
+            eq(r.ownerEmail, tenantKey.slice(5)),
+            gte(r.startedAt, startedAt),
+          ),
+    ),
+  );
   const sessionIndexed = (sessionId: AnyColumn, eventName?: string) =>
     sql`exists (select 1 from ${se} where ${se.tenantKey} = ${recordingTenant} and ${se.sessionId} = ${sessionId}${eventName === undefined ? sql`` : sql` and ${se.eventName} = ${eventName}`})`;
   const sessionCoverageConditions = (sessionId: AnyColumn) => [
@@ -616,6 +637,7 @@ export async function sessionEventFilterConditions(
   return [
     viewerReadsRecordingEventsSql(r, scope),
     sql`${r.startedAt} >= ${coverageStart}`,
+    coveredRange,
     sessionMatch,
     ...(allAssociatedSessionsCovered ? [allAssociatedSessionsCovered] : []),
     ...didNotEventConditions,
