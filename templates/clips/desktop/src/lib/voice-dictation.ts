@@ -811,14 +811,23 @@ export function installDesktopVoiceDictation(
         abortPendingStart(runId);
         return;
       }
-      if (resolved.kind === "server") {
-        await startServer(runId, resolved.providerPref, triggerSource);
-      } else if (resolved.kind === "browser") {
-        await startBrowser(runId, resolved.cleanupProvider, triggerSource);
-      } else if (resolved.kind === "native") {
-        await startNative(runId, resolved.cleanupProvider, triggerSource);
-      } else {
-        await startWhisper(runId, resolved.cleanupProvider, triggerSource);
+      switch (resolved.kind) {
+        case "server":
+          await startServer(runId, resolved.providerPref, triggerSource);
+          break;
+        case "browser":
+          await startBrowser(runId, resolved.cleanupProvider, triggerSource);
+          break;
+        case "native":
+          await startNative(runId, resolved.cleanupProvider, triggerSource);
+          break;
+        case "whisper":
+          await startWhisper(runId, resolved.cleanupProvider, triggerSource);
+          break;
+        default: {
+          const unrouted: never = resolved;
+          throw new Error(`No dictation start path for ${String(unrouted)}`);
+        }
       }
     } catch (err) {
       console.error("[voice-dictation] start failed", err);

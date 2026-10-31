@@ -787,9 +787,10 @@ function openPrivacySettings(pane: MacosPrivacyPane): void {
 function readStoredVoiceSetting(key: string): string | null {
   try {
     return localStorage.getItem(key);
-  } catch {
+  } catch (err) {
     // coercion-ok: storage that cannot be read is treated as a fresh install,
     // which loadVoiceSettings maps to the platform's built-in speech.
+    console.warn(`[voice-settings] could not read ${key}:`, err);
     return null;
   }
 }

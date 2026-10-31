@@ -110,16 +110,26 @@ export type DictationRoute =
     }
   | { kind: "server"; providerPref: VoicePolishProvider };
 
+// Every engine needs its own case here and a start path in voice-dictation;
+// the exhaustive switch makes an engine added without one a type error
+// instead of a silent fall back to built-in speech.
+function engineRouteKind(
+  engine: VoiceEngine,
+  isMac: boolean,
+): "native" | "browser" | "whisper" {
+  switch (engine) {
+    case "native":
+      return isMac ? "native" : "browser";
+    case "whisper":
+      return "whisper";
+  }
+}
+
 export function resolveDictationRoute(
   settings: VoiceSettings,
   env: { isMac: boolean; hasBrowserSpeech: boolean },
 ): DictationRoute {
-  const kind =
-    settings.engine === "whisper"
-      ? "whisper"
-      : env.isMac
-        ? "native"
-        : "browser";
+  const kind = engineRouteKind(settings.engine, env.isMac);
   if (settings.polish === "off") return { kind };
   // Off a Mac, a webview without speech recognition sends the audio to the
   // polish provider to transcribe, as the combined setting always did.

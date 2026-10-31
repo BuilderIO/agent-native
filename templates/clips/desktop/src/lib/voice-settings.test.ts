@@ -72,7 +72,7 @@ describe("loadVoiceSettings", () => {
     ).toEqual({ engine: "native", polish: "off" });
   });
 
-  it("fills an unreadable split value from the old provider key", () => {
+  it("fills an invalid split value from the old provider key", () => {
     expect(
       loadVoiceSettings(
         storage({

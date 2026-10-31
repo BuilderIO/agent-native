@@ -1131,9 +1131,13 @@ describe("desktop voice dictation runs", () => {
         expect(stateChanges()).toContainEqual(
           expect.objectContaining({ state: "processing", stage: "cleaning" }),
         );
-        expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
-          text: "Recognized words.",
-        });
+        expect(
+          tauri.invoke.mock.calls.filter(
+            ([command]) => command === "complete_voice_dictation",
+          ),
+        ).toEqual([
+          ["complete_voice_dictation", { text: "Recognized words." }],
+        ]);
         expect(stateChanges().at(-1)).toMatchObject({
           state: "complete",
           cleanupFailed: false,
