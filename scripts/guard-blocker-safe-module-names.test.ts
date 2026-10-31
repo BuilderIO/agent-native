@@ -20,6 +20,18 @@ test("maps every browser root to the URL it is served at", () => {
     ["templates/chat/app/routes/_index.tsx", "/app/routes/_index.tsx"],
     ["templates/chat/app/locales/en-US.json", "/app/locales/en-US.json"],
     ["templates/mail/shared/types.ts", "/shared/types.ts"],
+    [
+      "templates/content/actions/_builder-cms-write-adapter.js",
+      "/actions/_builder-cms-write-adapter.js",
+    ],
+    [
+      "templates/analytics/server/lib/dbt-connection.ts",
+      "/server/lib/dbt-connection.ts",
+    ],
+    [
+      "templates/design/.generated/bridge/editor-chrome.generated.ts",
+      "/.generated/bridge/editor-chrome.generated.ts",
+    ],
     ["community-templates/account-expert/app/root.tsx", "/app/root.tsx"],
     ["community-templates/account-expert/public/sw.js", "/sw.js"],
     ["templates/clips/public/sw.js", "/sw.js"],
@@ -35,8 +47,8 @@ test("ignores tests, type declarations and files outside the browser", () => {
   for (const file of [
     "packages/core/src/localization/consent-banner-messages.spec.ts",
     "packages/core/src/consent-banner-types.d.ts",
-    "templates/chat/server/consent-banner-route.ts",
-    "templates/chat/actions/consent-banner-copy.ts",
+    "templates/chat/server/consent-banner-route.spec.ts",
+    "templates/chat/CHANGELOG.md",
     "packages/mobile-app/app/consent-banner-screen.tsx",
     "packages/core/README.md",
   ]) {

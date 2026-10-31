@@ -77,10 +77,12 @@ const SCRIPT = /\.(?:[cm]?[jt]sx?)$/;
 const SKIPPED = /(?:\.spec\.|\.test\.|\/__tests__\/|\.d\.ts$)/;
 
 // Every place a browser loads modules from, with the URL each file gets in dev.
-// Package sources reach apps as their published `dist/*.js` files. App roots
-// are served at their own path, and `public/` files from the site root.
-// Package `src` also holds server-only code; it is checked too, because which
-// files reach a browser depends on imports, and a rename is cheap.
+// Package sources reach apps as their published `dist/*.js` files. `public/`
+// files are served from the site root, and the rest of an app at its own path.
+// Server-only code is checked too, because which files reach a browser depends
+// on imports, and a rename is cheap: template client code imports from
+// `server/`, `actions/` and `.generated/`, not just `app/` and `shared/`.
+// Roots are tried in order, so `public/` comes before the rest of a template.
 const BROWSER_ROOTS: BrowserRoot[] = [
   {
     pathspec: "packages/*/src/**",
@@ -90,27 +92,22 @@ const BROWSER_ROOTS: BrowserRoot[] = [
   },
   {
     pathspec: [
-      "templates/*/app/**",
-      "templates/*/shared/**",
-      "community-templates/*/app/**",
-      "community-templates/*/shared/**",
-    ],
-    pattern: /^(?:community-)?templates\/[^/]+\/((?:app|shared)\/.+)$/,
-    url: ([, rel]) => `/${rel}`,
-  },
-  {
-    pathspec: ["packages/docs/app/**", "packages/frame/client/**"],
-    pattern: /^packages\/(?:docs|frame)\/((?:app|client)\/.+)$/,
-    url: ([, rel]) => `/${rel}`,
-  },
-  {
-    pathspec: [
       "templates/*/public/**",
       "community-templates/*/public/**",
       "packages/docs/public/**",
     ],
     pattern:
       /^(?:(?:community-)?templates\/[^/]+|packages\/docs)\/public\/(.+)$/,
+    url: ([, rel]) => `/${rel}`,
+  },
+  {
+    pathspec: ["templates/*/**", "community-templates/*/**"],
+    pattern: /^(?:community-)?templates\/[^/]+\/(.+)$/,
+    url: ([, rel]) => `/${rel}`,
+  },
+  {
+    pathspec: ["packages/docs/app/**", "packages/frame/client/**"],
+    pattern: /^packages\/(?:docs|frame)\/((?:app|client)\/.+)$/,
     url: ([, rel]) => `/${rel}`,
   },
 ];
