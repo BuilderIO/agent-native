@@ -107,6 +107,7 @@ describe("server/auth", () => {
     resetAppConfigForTests();
     process.env = originalEnv;
     vi.doUnmock("./better-auth-instance.js");
+    vi.doUnmock("./auth-plugin.js");
     vi.doUnmock("../db/client.js");
     vi.doUnmock("./legacy-auth-migration.js");
     vi.doUnmock("../org/context.js");
@@ -11853,22 +11854,56 @@ describe("server/auth", () => {
       expect(html).toContain('src="/assets/auth-client.js"');
     });
 
-    it("passes OAuth debug configuration through the minimal Google auth plugin page", async () => {
+    // Mounts what createGoogleAuthPlugin hands core's plugin and returns the
+    // guard, which serves the signed-out sign-in page.
+    async function mountGoogleAuthPlugin(
+      renderSignInPage: (props: AuthPageProps) => string | undefined,
+    ) {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "login-page-secret");
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
       const createAuthPlugin = vi.fn((options: any) => options);
       vi.doMock("./auth-plugin.js", () => ({ createAuthPlugin }));
 
       const { createGoogleAuthPlugin } =
         await import("./google-auth-plugin.js");
-      createGoogleAuthPlugin({ renderSignInPage: renderAuthPage });
+      createGoogleAuthPlugin({ renderSignInPage });
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, createAuthPlugin.mock.calls[0]![0]);
 
-      const loginHtml = createAuthPlugin.mock.calls[0]?.[0]?.loginHtml as
-        | string
-        | undefined;
-      expect(loginHtml).toBeTypeOf("string");
-      expect(readAuthPageData(loginHtml!)).toMatchObject({
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+      return async (path: string) => {
+        const result = await guard(createMockEvent({ path }));
+        expect(result).toBeInstanceOf(Response);
+        return (result as Response).text();
+      };
+    }
+
+    it("passes OAuth debug configuration through the minimal Google auth plugin page", async () => {
+      const loadPage = await mountGoogleAuthPlugin(renderAuthPage);
+
+      const loginHtml = await loadPage("/");
+      expect(readAuthPageData(loginHtml)).toMatchObject({
         googleOnly: true,
         showGoogle: true,
         publicOAuthOrigin: "https://agent-workspace.builder.io",
@@ -11876,6 +11911,20 @@ describe("server/auth", () => {
       });
       expect(loginHtml).toContain('<main data-auth-view="googleOnly" />');
       expect(loginHtml).toContain('src="/assets/auth-client.js"');
+    });
+
+    it("server-renders the Google auth plugin page with a renderer that loads after startup", async () => {
+      let loaded = false;
+      const lazyRenderer = vi.fn((props: AuthPageProps) =>
+        loaded ? renderAuthPage(props) : undefined,
+      );
+      const loadPage = await mountGoogleAuthPlugin(lazyRenderer);
+      expect(lazyRenderer).not.toHaveBeenCalled();
+
+      loaded = true;
+      const loginHtml = await loadPage("/login");
+      expect(loginHtml).toContain('<main data-auth-view="googleOnly" />');
+      expect(loginHtml).not.toContain('data-agent-native-auth-fallback="true"');
     });
 
     it("defaults googleAuthMode to 'auto' and honors explicit overrides + env var", async () => {
