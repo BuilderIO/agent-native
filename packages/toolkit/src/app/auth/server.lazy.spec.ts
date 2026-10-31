@@ -48,27 +48,36 @@ describe("Toolkit auth plugin's lazy sign-in renderer", () => {
 
     await onRequest(request("GET", { accept: "*/*" }));
     await onRequest(request("GET", { accept: "application/json" }));
-    await onRequest(request("POST", { accept: "text/html" }));
+    await onRequest(request("POST", { accept: "*/*" }));
 
     expect(signInHtml()).toContain('data-agent-native-auth-fallback="true"');
   });
 
   it.each([
-    ["a document", { "sec-fetch-dest": "document" }],
-    ["an iframe", { "sec-fetch-dest": "iframe" }],
-    ["an HTML", { accept: "text/html,application/xhtml+xml" }],
+    ["a document", "GET", { "sec-fetch-dest": "document" }],
+    ["an iframe", "GET", { "sec-fetch-dest": "iframe" }],
+    ["an HTML", "GET", { accept: "text/html,application/xhtml+xml" }],
+    ["a form post", "POST", { "sec-fetch-dest": "document" }],
   ])(
     "server-renders the sign-in page once %s request has been handled",
-    async (_kind, headers) => {
+    async (_kind, method, headers) => {
       const { onRequest, signInHtml } = await installPlugin();
 
-      await onRequest(request("GET", headers));
+      await onRequest(request(method, headers));
 
       const html = signInHtml();
       expect(html).toContain('id="login-form"');
       expect(html).not.toContain('data-agent-native-auth-fallback="true"');
     },
   );
+
+  it("starts loading the renderers when it serves the fallback", async () => {
+    const { signInHtml } = await installPlugin();
+
+    expect(signInHtml()).toContain('data-agent-native-auth-fallback="true"');
+
+    await vi.waitFor(() => expect(signInHtml()).toContain('id="login-form"'));
+  });
 
   it("adds no request hook when the app brings both renderers", async () => {
     const server = await import("./server.js");

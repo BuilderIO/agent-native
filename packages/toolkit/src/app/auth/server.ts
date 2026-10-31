@@ -8,8 +8,8 @@ type AuthPageRenderers = typeof import("./render-pages.js");
 
 // The renderers bring React DOM's server renderer and the auth pages with
 // their icon set, about 3 MB a fresh server would otherwise compile before
-// answering anything. Only a page navigation can show a sign-in page, so the
-// plugin loads them before the first one is handled.
+// answering anything. The plugin loads them before the first page navigation
+// is handled, and a sign-in page served before then starts the load.
 let renderers: AuthPageRenderers | undefined;
 let loading: Promise<AuthPageRenderers | undefined> | undefined;
 
@@ -36,16 +36,19 @@ export function loadAuthPageRenderers(): Promise<
 
 /**
  * Server-render the sign-in page. Returns `undefined` until
- * `loadAuthPageRenderers()` has finished; core then serves its fallback
- * markup, which the auth client script replaces in the browser.
+ * `loadAuthPageRenderers()` has finished, and starts that load; core then
+ * serves its fallback markup, which the auth client script replaces in the
+ * browser.
  */
 export function renderAuthPage(props: AuthPageProps): string | undefined {
+  if (!renderers) void loadAuthPageRenderers();
   return renderers?.renderSignInPageMarkup(props);
 }
 
 export function renderAuthResetPasswordPage(
   props: ResetPasswordPageProps,
 ): string | undefined {
+  if (!renderers) void loadAuthPageRenderers();
   return renderers?.renderResetPasswordPageMarkup(props);
 }
 
@@ -60,12 +63,11 @@ type RequestHooks = {
   ): unknown;
 };
 
-// A browser navigation names a document or iframe destination, or accepts
-// HTML. `fetch()` calls send `*/*` and never load the renderers; a sign-in page
-// served to such a request gets core's fallback markup instead.
+// A browser navigation, including a form post, names a document or iframe
+// destination or accepts HTML. `fetch()` calls send `*/*` and never load the
+// renderers; a sign-in page served to such a request gets core's fallback
+// markup, kept out of shared caches.
 function isPageNavigation(event: RequestHookEvent): boolean {
-  const method = event.req.method;
-  if (method !== "GET" && method !== "HEAD") return false;
   const fetchDest = event.req.headers.get("sec-fetch-dest")?.toLowerCase();
   if (fetchDest === "document" || fetchDest === "iframe") return true;
   return (
