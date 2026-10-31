@@ -94,9 +94,13 @@ const FIXTURES = [
   // A word that exists as typed is never treated as a typo.
   { id: "literal-typo", title: "Scratch", content: "a note about roadmpa" },
   { id: "pre-launch", title: "Pre-launch checklist", content: "" },
-  // Full-width letters, which the index normalizes and the fallback scan
-  // matches as stored.
+  { id: "kickoff-agenda", title: "Kickoff-agenda v2", content: "" },
+  // Text stored in forms the index normalizes and the fallback scan matches
+  // as stored: full-width letters, circled letters, and a separate accent.
   { id: "fullwidth-gazebo", title: "Ｇａｚｅｂｏ plan", content: "" },
+  { id: "fullwidth-compound", title: "pre-Ｍｅｅｔｉｎｇ notes", content: "" },
+  { id: "circled-kiosk", title: "Ⓚⓘⓞⓢⓚ hours", content: "" },
+  { id: "decomposed-cafeteria", title: "Caféteria menu", content: "" },
   {
     id: "billing-archive",
     parentId: "billing",
@@ -269,15 +273,29 @@ describe.each([
     expect(inner.spellingCorrections).toEqual([
       { term: "lauch", replacements: ["launch"] },
     ]);
+
+    // Two mistyped words in one term, and one of them again on its own.
+    const both = await search("kikcoff-agneda kikcoff", { fallback });
+    expect(ids(both)).toEqual(["kickoff-agenda"]);
+    expect(both.spellingCorrections).toEqual([
+      { term: "kikcoff", replacements: ["kickoff"] },
+      { term: "agneda", replacements: ["agenda"] },
+    ]);
   });
 
   it("finds a correction taken from text stored in another form", async () => {
-    const result = await search("gazbeo", { fallback });
-
-    expect(ids(result)).toEqual(["fullwidth-gazebo"]);
-    expect(result.spellingCorrections).toEqual([
-      { term: "gazbeo", replacements: ["gazebo"] },
-    ]);
+    for (const [query, id, term, word] of [
+      ["gazbeo", "fullwidth-gazebo", "gazbeo", "gazebo"],
+      ["pre-meetnig", "fullwidth-compound", "meetnig", "meeting"],
+      ["kisok", "circled-kiosk", "kisok", "kiosk"],
+      ["cafétreia", "decomposed-cafeteria", "cafétreia", "caféteria"],
+    ]) {
+      const result = await search(query!, { fallback });
+      expect(ids(result), query).toEqual([id]);
+      expect(result.spellingCorrections, query).toEqual([
+        { term, replacements: [word] },
+      ]);
+    }
   });
 
   it("corrects only to words of pages the filters allow", async () => {

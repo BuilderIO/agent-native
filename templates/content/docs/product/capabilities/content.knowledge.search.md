@@ -86,7 +86,7 @@ correction never exposes a word from a Page the searcher can't open; the
 response lists the corrections. Body words aren't corrected yet, and a library
 of more than 50,000 distinct title and description words is corrected from its
 most-used 50,000. The committed relevance eval gates its typo cases, and
-focused tests cover access, filters, punctuation, stored full-width text,
+focused tests cover access, filters, punctuation, text stored in other forms,
 phrases, short words, literal matches, the word cap, and paging on both the
 index and the scan.
 

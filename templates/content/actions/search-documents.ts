@@ -469,11 +469,12 @@ export default defineAction({
         args.searchFields === "title"
           ? sql`coalesce(${schema.documents.title}, '')`
           : sql`coalesce(${schema.documents.title}, '') || ' ' || coalesce(${schema.documents.description}, '')`;
-      // Split on whitespace and punctuation here, so "roadmap," and
+      // Split on whitespace and ASCII punctuation here, so "roadmap," and
       // "roadmap" count as one word; searchVocabulary splits the rest.
+      // `[:punct:]` would also split at combining accents in UTF-8 locales.
       const words = db
         .select({
-          word: sql<string>`regexp_split_to_table(lower(${text}), ${"[[:space:][:punct:]]+"})`.as(
+          word: sql<string>`regexp_split_to_table(lower(${text}), ${"[\\s\\x21-\\x2f\\x3a-\\x40\\x5b-\\x60\\x7b-\\x7e]+"})`.as(
             "word",
           ),
         })

@@ -29,11 +29,41 @@ export interface SpellingCorrection {
 /** Each normalized word, with the other spellings it has in stored text. */
 export type SearchVocabulary = ReadonlyMap<string, readonly string[]>;
 
-/** Closest words kept per mistyped word, and alternatives kept per term. */
+/** Closest words kept per mistyped word. */
 const MAX_REPLACEMENTS = 5;
+/** Other stored spellings kept per word. */
+const MAX_SPELLINGS = 3;
+/** Alternatives kept per term: each word in each of its spellings. */
+const MAX_ALTERNATIVES = MAX_REPLACEMENTS * (1 + MAX_SPELLINGS);
 
 const EDGE_SEPARATORS = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
 const SEPARATORS_KEPT = /([^\p{L}\p{N}]+)/u;
+const ASCII = /^\p{ASCII}*$/u;
+const WORD_CHARACTER = /[\p{L}\p{N}]/u;
+const MARK = /^\p{M}$/u;
+
+/**
+ * The runs of a stored word that normalize to letters or digits. A circled
+ * "Ⓖ" or a combining accent isn't a letter until it is normalized, so
+ * splitting on WORD_SEPARATOR would cut the stored spelling apart.
+ */
+function storedPieces(stored: string): string[] {
+  const pieces: string[] = [];
+  let piece = "";
+  for (const character of stored) {
+    if (
+      MARK.test(character) ||
+      WORD_CHARACTER.test(character.normalize("NFKC"))
+    ) {
+      piece += character;
+    } else if (piece) {
+      pieces.push(piece);
+      piece = "";
+    }
+  }
+  if (piece) pieces.push(piece);
+  return pieces;
+}
 
 /**
  * Splits stored title and description words into distinct normalized words.
@@ -49,9 +79,14 @@ export function searchVocabulary(
     for (const word of normalizeSearchTitle(stored).split(WORD_SEPARATOR)) {
       if (word && !spellings.has(word)) spellings.set(word, new Set());
     }
-    for (const piece of stored.split(WORD_SEPARATOR)) {
+    // Lowercase ASCII is stored as it normalizes.
+    if (ASCII.test(stored)) continue;
+    for (const piece of storedPieces(stored)) {
       const word = normalizeSearchTitle(piece);
-      if (piece !== word) spellings.get(word)?.add(piece);
+      const forms = spellings.get(word);
+      if (forms && piece !== word && forms.size < MAX_SPELLINGS) {
+        forms.add(piece);
+      }
     }
   }
   return new Map(
@@ -115,21 +150,23 @@ export function correctSearchQueryTypos(
       corrections.set(pieces[index]!, words);
     }
     if (!corrected.size) return [];
-    if (pieces.length === 1) {
-      return corrected
-        .get(0)!
-        .flatMap((word) => [word, ...(vocabulary.get(word) ?? [])]);
-    }
-    // A word inside punctuation ("q3-roadmpa") is replaced in place.
+    // A word inside punctuation ("q3-roadmpa") is replaced in place, by each
+    // close word in each of its stored spellings.
     let combinations = [pieces];
     for (const [index, words] of corrected) {
+      const replacements = words.flatMap((word) => [
+        word,
+        ...(vocabulary.get(word) ?? []),
+      ]);
       combinations = combinations
         .flatMap((combination) =>
-          words.map((word) =>
-            combination.map((piece, at) => (at === index ? word : piece)),
+          replacements.map((replacement) =>
+            combination.map((piece, at) =>
+              at === index ? replacement : piece,
+            ),
           ),
         )
-        .slice(0, MAX_REPLACEMENTS);
+        .slice(0, MAX_ALTERNATIVES);
     }
     return combinations.map((combination) => combination.join(""));
   };
