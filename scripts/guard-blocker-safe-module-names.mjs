@@ -58,20 +58,44 @@ const RULES = [
 const MODULE = /\.(?:[cm]?[jt]sx?)$/;
 const SKIPPED = /(?:\.spec\.|\.test\.|\/__tests__\/|\.d\.ts$)/;
 
+// Every place a browser loads modules from, with the URL each file gets in dev.
+// Package sources reach apps as their published `dist/*.js` files. App roots
+// are served at their own path, and `public/` files from the site root.
+const BROWSER_ROOTS = [
+  {
+    pathspec: "packages/*/src/**",
+    pattern: /^packages\/([^/]+)\/src\/(.+)$/,
+    url: ([, pkg, rel]) =>
+      `/@fs/node_modules/@agent-native/${pkg}/dist/${rel.replace(MODULE, ".js")}`,
+  },
+  {
+    pathspec: ["templates/*/app/**", "templates/*/shared/**"],
+    pattern: /^templates\/[^/]+\/((?:app|shared)\/.+)$/,
+    url: ([, rel]) => `/${rel}`,
+  },
+  {
+    pathspec: ["packages/docs/app/**", "packages/frame/client/**"],
+    pattern: /^packages\/(?:docs|frame)\/((?:app|client)\/.+)$/,
+    url: ([, rel]) => `/${rel}`,
+  },
+  {
+    pathspec: ["templates/*/public/**", "packages/docs/public/**"],
+    pattern: /^(?:templates\/[^/]+|packages\/docs)\/public\/(.+)$/,
+    url: ([, rel]) => `/${rel}`,
+  },
+];
+
 /**
- * The URL path Vite serves a repo file at in dev, or null when the file never
- * reaches the browser. Package files load from `dist` as `.js`; template files
- * keep their source path and extension.
+ * The URL path a repo file is served at in dev, or null when the file never
+ * reaches a browser.
  */
 export function devModuleUrl(file) {
   if (!MODULE.test(file) || SKIPPED.test(file)) return null;
-  const pkg = /^packages\/([^/]+)\/src\/(.+)$/.exec(file);
-  if (pkg) {
-    const rel = pkg[2].replace(MODULE, ".js");
-    return `/@fs/node_modules/@agent-native/${pkg[1]}/dist/${rel}`;
+  for (const root of BROWSER_ROOTS) {
+    const match = root.pattern.exec(file);
+    if (match) return root.url(match);
   }
-  const template = /^templates\/[^/]+\/(app\/.+)$/.exec(file);
-  return template ? `/${template[1]}` : null;
+  return null;
 }
 
 export function findBlockedModuleNames(files) {
@@ -94,8 +118,7 @@ function main() {
       "--others",
       "--exclude-standard",
       "--",
-      "packages/*/src/**",
-      "templates/*/app/**",
+      ...BROWSER_ROOTS.flatMap(({ pathspec }) => pathspec),
     ],
     { cwd: REPO_ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   )

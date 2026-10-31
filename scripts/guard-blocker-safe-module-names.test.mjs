@@ -6,15 +6,21 @@ import {
   findBlockedModuleNames,
 } from "./guard-blocker-safe-module-names.mjs";
 
-test("maps package sources to their dist URL and keeps template paths", () => {
-  assert.equal(
-    devModuleUrl("packages/core/src/localization/core-messages.ts"),
-    "/@fs/node_modules/@agent-native/core/dist/localization/core-messages.js",
-  );
-  assert.equal(
-    devModuleUrl("templates/chat/app/routes/_index.tsx"),
-    "/app/routes/_index.tsx",
-  );
+test("maps every browser root to the URL it is served at", () => {
+  for (const [file, url] of [
+    [
+      "packages/core/src/localization/core-messages.ts",
+      "/@fs/node_modules/@agent-native/core/dist/localization/core-messages.js",
+    ],
+    ["templates/chat/app/routes/_index.tsx", "/app/routes/_index.tsx"],
+    ["templates/mail/shared/types.ts", "/shared/types.ts"],
+    ["templates/clips/public/sw.js", "/sw.js"],
+    ["packages/docs/app/root.tsx", "/app/root.tsx"],
+    ["packages/docs/public/search.js", "/search.js"],
+    ["packages/frame/client/main.ts", "/client/main.ts"],
+  ]) {
+    assert.equal(devModuleUrl(file), url, file);
+  }
 });
 
 test("ignores tests, type declarations and files outside the browser", () => {
@@ -22,6 +28,8 @@ test("ignores tests, type declarations and files outside the browser", () => {
     "packages/core/src/localization/consent-banner-messages.spec.ts",
     "packages/core/src/consent-banner-types.d.ts",
     "templates/chat/server/consent-banner-route.ts",
+    "templates/chat/actions/consent-banner-copy.ts",
+    "packages/mobile-app/app/consent-banner-screen.tsx",
     "packages/core/README.md",
   ]) {
     assert.equal(devModuleUrl(file), null, file);
@@ -44,14 +52,21 @@ test("finds the module name that kept apps from loading in Brave", () => {
   );
 });
 
-test("matches rules in any letter case, in template and package files", () => {
+test("matches rules in any letter case, in every browser root", () => {
   const files = [
     "templates/mail/app/components/Cookie-Notice-Panel.tsx",
+    "templates/mail/shared/gdpr-consent-copy.ts",
+    "packages/docs/public/click-tracking.js",
     "packages/toolkit/src/app/analytics-events-client.ts",
   ];
   assert.deepEqual(
     findBlockedModuleNames(files).map(({ rule }) => rule),
-    ["/cookie-notice-", "/analytics-events-"],
+    [
+      "/cookie-notice-",
+      "/gdpr-consent-",
+      "/click-tracking.js",
+      "/analytics-events-",
+    ],
   );
 });
 
