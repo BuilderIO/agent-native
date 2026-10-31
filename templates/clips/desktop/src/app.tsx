@@ -1129,16 +1129,16 @@ export function App({
   );
   const voiceEngine = voiceSettings.engine;
   const voicePolish = voiceSettings.polish;
-  const setVoiceEngine = useCallback(
-    (engine: VoiceEngine) =>
-      setVoiceSettings((current) => ({ ...current, engine })),
-    [],
-  );
-  const setVoicePolish = useCallback(
-    (polish: VoicePolish) =>
-      setVoiceSettings((current) => ({ ...current, polish })),
-    [],
-  );
+  // Saved only on an explicit change: if a stored value could not be read,
+  // saving the inferred one on mount would overwrite the user's real choice.
+  const setVoiceEngine = useCallback((engine: VoiceEngine) => {
+    saveString(VOICE_ENGINE_KEY, engine);
+    setVoiceSettings((current) => ({ ...current, engine }));
+  }, []);
+  const setVoicePolish = useCallback((polish: VoicePolish) => {
+    saveString(VOICE_POLISH_KEY, polish);
+    setVoiceSettings((current) => ({ ...current, polish }));
+  }, []);
   const [voiceInstructions, setVoiceInstructions] = useState<string>(() =>
     loadString(VOICE_INSTRUCTIONS_KEY, ""),
   );
@@ -3712,8 +3712,6 @@ export function App({
     [recordPauseShortcut],
   );
   useEffect(() => saveString(VOICE_MODE_KEY, voiceMode), [voiceMode]);
-  useEffect(() => saveString(VOICE_ENGINE_KEY, voiceEngine), [voiceEngine]);
-  useEffect(() => saveString(VOICE_POLISH_KEY, voicePolish), [voicePolish]);
   useEffect(
     () => saveString(VOICE_INSTRUCTIONS_KEY, voiceInstructions),
     [voiceInstructions],
