@@ -277,6 +277,9 @@ describe("Content view dashboard", () => {
         published: "2026-09-01",
         signups: 2,
         source_signups: 1,
+        pageviews: 5,
+        clicks: null,
+        impressions: null,
       },
       {
         title: "Post two",
@@ -285,7 +288,43 @@ describe("Content view dashboard", () => {
         published: daysAgo(0),
         signups: null,
         source_signups: null,
+        pageviews: null,
+        clicks: null,
+        impressions: null,
       },
+    ]);
+    expect(bigQuery.query).not.toHaveBeenCalled();
+  });
+
+  it("counts an article's search clicks and impressions, not other pages in search", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
+        ('c1', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(4)}', 'search_console_clicks', 3, 'search_console', 'r3', '${daysAgo(2)}'),
+        ('c2', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(4)}', 'search_console_impressions', 40, 'search_console', 'r3', '${daysAgo(2)}');
+    `);
+    expect(
+      (await runPanel("articles")).find((row) => row.title === "Post one"),
+    ).toEqual(
+      expect.objectContaining({ pageviews: 5, clicks: 3, impressions: 40 }),
+    );
+
+    // Search Console reports two to three days late, so its newest days stay
+    // blank instead of reading as zero clicks.
+    const days = await runPanel("pageviews-per-day");
+    expect(days).toHaveLength(28);
+    expect(days[days.length - 1]).toEqual({
+      date: await yesterday("YYYY-MM-DD"),
+      pageviews: null,
+      search_clicks: null,
+    });
+    expect(
+      days.filter(
+        (row) => row.pageviews !== null || row.search_clicks !== null,
+      ),
+    ).toEqual([
+      { date: daysAgo(4), pageviews: null, search_clicks: 3 },
+      { date: daysAgo(3), pageviews: 5, search_clicks: null },
+      { date: daysAgo(2), pageviews: 0, search_clicks: null },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
@@ -334,7 +373,13 @@ describe("Content view dashboard", () => {
     `);
     const all = await runPanel("articles", "all");
     expect(all.find((row) => row.title === "Post one")?.signups).toBe(12);
+    expect(all.find((row) => row.title === "Post one")?.pageviews).toBe(105);
     expect(all.some((row) => row.title === "Other org post")).toBe(false);
+    expect(
+      (await runPanel("pageviews-per-day", "all")).find(
+        (row) => row.date === daysAgo(3),
+      )?.pageviews,
+    ).toBe(5);
 
     expect(await runPanel("signups-by-author")).toEqual([
       { author: "Ada", signups: 2 },
