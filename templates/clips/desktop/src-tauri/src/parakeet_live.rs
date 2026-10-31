@@ -76,6 +76,8 @@ pub(crate) struct LiveDictation {
     audio: Mutex<LiveAudio>,
     fed_samples: AtomicUsize,
     partials: AtomicU32,
+    /// Set once a partial held words, which outweighs a silent verdict.
+    heard_words: AtomicBool,
     progress_at: Mutex<Instant>,
     outcome: Mutex<Option<Result<String, String>>>,
     outcome_set: Condvar,
@@ -99,6 +101,7 @@ impl LiveDictation {
             }),
             fed_samples: AtomicUsize::new(0),
             partials: AtomicU32::new(0),
+            heard_words: AtomicBool::new(false),
             progress_at: Mutex::new(Instant::now()),
             outcome: Mutex::new(None),
             outcome_set: Condvar::new(),
@@ -139,6 +142,9 @@ impl LiveDictation {
             |text| {
                 self.note_progress();
                 self.partials.fetch_add(1, Ordering::Relaxed);
+                if !text.is_empty() {
+                    self.heard_words.store(true, Ordering::SeqCst);
+                }
                 on_partial(text);
             },
         )
@@ -214,6 +220,10 @@ impl LiveDictation {
 
     fn note_progress(&self) {
         *lock(&self.progress_at) = Instant::now();
+    }
+
+    pub(crate) fn has_heard_words(&self) -> bool {
+        self.heard_words.load(Ordering::SeqCst)
     }
 
     /// Stops the live pass without transcribing what is left.
@@ -326,7 +336,7 @@ impl LiveDictation {
 
 /// Linear resampling to 16 kHz of audio that arrives in pieces. Its output
 /// matches resampling the whole input at once, sample for sample.
-struct StreamingResample {
+pub(crate) struct StreamingResample {
     src_rate: f64,
     ratio: f64,
     /// Raw samples not yet fully used, starting at absolute index `raw_start`.
@@ -337,7 +347,7 @@ struct StreamingResample {
 }
 
 impl StreamingResample {
-    fn new(src_rate: f64) -> Self {
+    pub(crate) fn new(src_rate: f64) -> Self {
         let src_rate = src_rate.max(1.0);
         Self {
             src_rate,
@@ -349,7 +359,7 @@ impl StreamingResample {
         }
     }
 
-    fn has_rate(&self, src_rate: f64) -> bool {
+    pub(crate) fn has_rate(&self, src_rate: f64) -> bool {
         (self.src_rate - src_rate.max(1.0)).abs() < 0.5
     }
 
@@ -371,7 +381,7 @@ impl StreamingResample {
         a + (b - a) * frac
     }
 
-    fn push(&mut self, input: &[f32], out: &mut Vec<f32>) {
+    pub(crate) fn push(&mut self, input: &[f32], out: &mut Vec<f32>) {
         if self.is_passthrough() {
             out.extend_from_slice(input);
             self.raw_total += input.len();
@@ -397,7 +407,7 @@ impl StreamingResample {
         self.raw_start += used;
     }
 
-    fn finish(mut self, out: &mut Vec<f32>) {
+    pub(crate) fn finish(mut self, out: &mut Vec<f32>) {
         if self.is_passthrough() {
             return;
         }

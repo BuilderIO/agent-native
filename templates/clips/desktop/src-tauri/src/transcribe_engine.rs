@@ -89,15 +89,28 @@ impl ModelSlot {
 }
 
 pub(crate) fn load_model(path: &Path) -> Result<Model, String> {
-    static LOGGING: Once = Once::new();
-    LOGGING.call_once(transcribe_cpp::init_logging);
-
-    let options = ModelOptions {
-        backend: if cfg!(target_arch = "aarch64") {
+    load_on(
+        path,
+        if cfg!(target_arch = "aarch64") {
             Backend::Auto
         } else {
             Backend::Cpu
         },
+    )
+}
+
+/// Loads a small model that must stay off the GPU queue the speech model
+/// runs on, like the voice activity detector.
+pub(crate) fn load_cpu_model(path: &Path) -> Result<Model, String> {
+    load_on(path, Backend::Cpu)
+}
+
+fn load_on(path: &Path, backend: Backend) -> Result<Model, String> {
+    static LOGGING: Once = Once::new();
+    LOGGING.call_once(transcribe_cpp::init_logging);
+
+    let options = ModelOptions {
+        backend,
         ..ModelOptions::default()
     };
     Model::load_with(path, &options).map_err(|e| format!("model load failed: {e}"))

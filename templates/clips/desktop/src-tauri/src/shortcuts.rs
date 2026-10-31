@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
@@ -46,6 +46,18 @@ fn countdown_shortcuts() -> Vec<Shortcut> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_voice_stop_says_how_long_the_key_was_held() {
+        assert_eq!(
+            voice_stop_payload("fn", Some(Duration::from_millis(240))),
+            serde_json::json!({ "source": "fn", "heldMs": 240 }),
+        );
+        assert_eq!(
+            voice_stop_payload("custom", None),
+            serde_json::json!({ "source": "custom" }),
+        );
+    }
 
     #[test]
     fn countdown_return_shortcuts_match_platform_registration() {
@@ -228,12 +240,42 @@ fn unregister_escape_if_unowned(app: &AppHandle) {
 struct PendingVoiceStart {
     pending: bool,
     released: bool,
+    held: Option<Duration>,
 }
 
 static PENDING_VOICE_START: Mutex<PendingVoiceStart> = Mutex::new(PendingVoiceStart {
     pending: false,
     released: false,
+    held: None,
 });
+
+static LAST_VOICE_PRESS: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// Notes when a dictation key went down; the hold time and the dictation's
+/// press-to-first-sample timing both count from it.
+fn note_voice_press() {
+    if let Ok(mut pressed) = LAST_VOICE_PRESS.lock() {
+        *pressed = Some(Instant::now());
+    }
+}
+
+pub(crate) fn last_voice_press() -> Option<Instant> {
+    LAST_VOICE_PRESS.lock().ok().and_then(|pressed| *pressed)
+}
+
+fn held_since_press() -> Option<Duration> {
+    last_voice_press().map(|pressed| pressed.elapsed())
+}
+
+/// `heldMs` is how long the key was down, measured here rather than from the
+/// late-arriving start, so a short tap can be told from a dictation.
+fn voice_stop_payload(source: &str, held: Option<Duration>) -> serde_json::Value {
+    let mut payload = serde_json::json!({ "source": source });
+    if let Some(held) = held {
+        payload["heldMs"] = serde_json::json!(held.as_millis() as u64);
+    }
+    payload
+}
 
 fn custom_voice_shortcut() -> &'static Mutex<Option<Shortcut>> {
     CUSTOM_VOICE_SHORTCUT.get_or_init(|| Mutex::new(None))
@@ -967,9 +1009,10 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                         }
                     }
                     if !already_active {
+                        note_voice_press();
                         eprintln!("[clips-tray] {source} down — starting voice dictation");
                         sync_dictation_escape_shortcut(app.clone(), true);
-                        emit_voice_shortcut(app, "voice:shortcut-start", source, true);
+                        emit_voice_start(app, source);
                     }
                 }
                 tauri_plugin_global_shortcut::ShortcutState::Released => {
@@ -980,10 +1023,11 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                     }
                     eprintln!("[clips-tray] {source} up — stopping voice dictation");
                     sync_dictation_escape_shortcut(app.clone(), false);
-                    if mark_released_if_start_pending() {
+                    let held = held_since_press();
+                    if mark_released_if_start_pending(held) {
                         return;
                     }
-                    emit_voice_shortcut(app, "voice:shortcut-stop", source, false);
+                    let _ = app.emit("voice:shortcut-stop", voice_stop_payload(source, held));
                 }
             }
             return;
@@ -1028,58 +1072,51 @@ fn wake_popover_for_recording_shortcut(app: &tauri::AppHandle) {
     let _ = app.emit("clips:popover-visible", false);
 }
 
-fn emit_voice_shortcut(
-    app: &tauri::AppHandle,
-    event: &'static str,
-    source: &'static str,
-    wake: bool,
-) {
-    if wake {
-        remember_voice_target(app);
-        wake_popover_for_voice(app);
-        if let Ok(mut pending) = PENDING_VOICE_START.lock() {
-            *pending = PendingVoiceStart {
-                pending: true,
-                released: false,
-            };
-        }
-        let app = app.clone();
-        thread::spawn(move || {
-            thread::sleep(Duration::from_millis(80));
-            // A tap shorter than the wake delay is still a deliberate press
-            // (toggle mode depends on it), so deliver it as start + stop in
-            // order rather than dropping it.
-            let released_early = PENDING_VOICE_START
-                .lock()
-                .map(|mut pending| {
-                    let released = pending.released;
-                    *pending = PendingVoiceStart::default();
-                    released
-                })
-                .unwrap_or(false);
-            if released_early || is_dictation_active(&app) {
-                let _ = app.emit(event, serde_json::json!({ "source": source }));
-                if released_early {
-                    let _ = app.emit(
-                        "voice:shortcut-stop",
-                        serde_json::json!({ "source": source }),
-                    );
-                }
-            } else {
-                hide_voice_wake_popover(&app);
-            }
-        });
-        return;
+fn emit_voice_start(app: &tauri::AppHandle, source: &'static str) {
+    remember_voice_target(app);
+    wake_popover_for_voice(app);
+    if let Ok(mut pending) = PENDING_VOICE_START.lock() {
+        *pending = PendingVoiceStart {
+            pending: true,
+            released: false,
+            held: None,
+        };
     }
-    let _ = app.emit(event, serde_json::json!({ "source": source }));
+    let app = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(80));
+        // A tap shorter than the wake delay is still a deliberate press
+        // (toggle mode depends on it), so deliver it as start + stop in
+        // order rather than dropping it.
+        let (released_early, held) = PENDING_VOICE_START
+            .lock()
+            .map(|mut pending| {
+                let released = (pending.released, pending.held);
+                *pending = PendingVoiceStart::default();
+                released
+            })
+            .unwrap_or((false, None));
+        if released_early || is_dictation_active(&app) {
+            let _ = app.emit(
+                "voice:shortcut-start",
+                serde_json::json!({ "source": source }),
+            );
+            if released_early {
+                let _ = app.emit("voice:shortcut-stop", voice_stop_payload(source, held));
+            }
+        } else {
+            hide_voice_wake_popover(&app);
+        }
+    });
 }
 
-fn mark_released_if_start_pending() -> bool {
+fn mark_released_if_start_pending(held: Option<Duration>) -> bool {
     let Ok(mut pending) = PENDING_VOICE_START.lock() else {
         return false;
     };
     if pending.pending {
         pending.released = true;
+        pending.held = held;
         return true;
     }
     false
@@ -1236,6 +1273,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     set_dictation_active_and_sync_escape(&app_for_cb, fn_down);
                     if fn_down {
                         dlog!("[clips-tray] Fn down — starting voice dictation");
+                        note_voice_press();
                         remember_voice_target(&app_for_cb);
                         fn_down_at_for_cb.store(
                             tap_epoch.elapsed().as_millis() as u64,
@@ -1263,7 +1301,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                                 if fast_tap {
                                     let _ = app_for_emit.emit(
                                         "voice:shortcut-stop",
-                                        serde_json::json!({ "source": "fn" }),
+                                        voice_stop_payload("fn", held_since_press()),
                                     );
                                 }
                             } else {
@@ -1282,7 +1320,10 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                         }
                         let _ = app_for_cb.emit(
                             "voice:shortcut-stop",
-                            serde_json::json!({ "source": "fn" }),
+                            voice_stop_payload(
+                                "fn",
+                                Some(Duration::from_millis(elapsed_since_down)),
+                            ),
                         );
                     }
                     CallbackResult::Keep
@@ -1410,10 +1451,9 @@ fn install_fn_release_watchdog(
                 if prev_down.swap(false, Ordering::SeqCst) {
                     dlog!("[clips-tray] Fn up missed — synthesizing voice stop");
                     set_dictation_active_and_sync_escape(&app, false);
-                    let _ = app.emit(
-                        "voice:shortcut-stop",
-                        serde_json::json!({ "source": "fn", "synthetic": true }),
-                    );
+                    let mut payload = voice_stop_payload("fn", held_since_press());
+                    payload["synthetic"] = serde_json::json!(true);
+                    let _ = app.emit("voice:shortcut-stop", payload);
                 }
                 break;
             }

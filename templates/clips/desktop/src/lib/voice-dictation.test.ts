@@ -48,6 +48,7 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => clipboard);
 vi.mock("./backtrack", () => ({ applyBacktrack: (text: string) => text }));
 vi.mock("./personal-vocabulary", () => ({
   configureVocabularyClient: vi.fn(),
+  currentVocabularyEntries: vi.fn(() => []),
   loadVocabulary: vi.fn(async () => []),
   loadVocabularyEntries: vi.fn(async () => []),
   recordPasteForLearn: vi.fn(),
@@ -208,6 +209,9 @@ async function startDictation(
   return { dispose, runId: latestState?.runId as number | undefined };
 }
 
+// How long the engines keep recording after the key comes up.
+const RELEASE_TAIL_MS = 200;
+
 // Parakeet's stop call returns the finished text instead of a final event.
 function parakeetReturns(text: string) {
   tauri.invoke.mockImplementation((command, args) => {
@@ -216,10 +220,13 @@ function parakeetReturns(text: string) {
       !(args as { discard?: boolean } | undefined)?.discard
     ) {
       return Promise.resolve({
-        text,
-        pass: "live",
-        releaseToTextMs: 120,
-        audioMs: 2_000,
+        voice: "heard",
+        transcript: {
+          text,
+          pass: "live",
+          releaseToTextMs: 120,
+          audioMs: 2_000,
+        },
       });
     }
     return Promise.resolve(
@@ -301,9 +308,11 @@ describe("desktop voice dictation runs", () => {
     Reflect.deleteProperty(window, "SpeechRecognition");
   });
 
+  // Holds the key long enough to dictate, then lets the release tail run out.
   async function release() {
     await vi.advanceTimersByTimeAsync(501);
-    await dispatch("voice:shortcut-stop", { source: "fn" });
+    await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 501 });
+    await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
   }
 
   it.each(["server", "browser", "native", "whisper"] as const)(
@@ -895,6 +904,250 @@ describe("desktop voice dictation runs", () => {
         "[voice-dictation] Parakeet stop returned no transcript for a dictation",
       );
     });
+  });
+
+  describe("recording edges", () => {
+    type OnDeviceKind = "native" | "whisper" | "parakeet";
+    const onDeviceKinds = ["native", "whisper", "parakeet"] as const;
+
+    const stopCommand = (kind: OnDeviceKind) =>
+      kind === "native" ? "native_speech_stop" : "audio_transcription_stop";
+
+    const stopCalls = (kind: OnDeviceKind) =>
+      tauri.invoke.mock.calls.filter(
+        ([command, args]) =>
+          command === stopCommand(kind) &&
+          !(args as { discard?: boolean } | undefined)?.discard,
+      );
+
+    const expectDiscarded = (kind: OnDeviceKind, runId: number) => {
+      if (kind === "native") {
+        expect(tauri.invoke).toHaveBeenCalledWith("native_speech_cancel", {
+          owner: "dictation",
+          runId,
+        });
+      } else {
+        expect(tauri.invoke).toHaveBeenCalledWith("audio_transcription_stop", {
+          owner: "dictation",
+          runId,
+          discard: true,
+        });
+      }
+    };
+
+    async function startRun(kind: OnDeviceKind) {
+      const started = await startDictation(kind);
+      dispose = started.dispose;
+      if (started.runId === undefined) {
+        throw new Error("Dictation did not start.");
+      }
+      return started.runId;
+    }
+
+    const runStates = (runId: number) =>
+      stateChanges()
+        .filter((state) => state.runId === runId)
+        .map((state) => state.state);
+
+    // The engine's stop call answers with the speech detector's verdict.
+    function engineStopReturns(result: unknown) {
+      tauri.invoke.mockImplementation((command, args) => {
+        if (
+          (command === "native_speech_stop" ||
+            command === "audio_transcription_stop") &&
+          !(args as { discard?: boolean } | undefined)?.discard
+        ) {
+          return Promise.resolve(result);
+        }
+        return Promise.resolve(
+          command === "complete_voice_dictation" ? "inserted" : undefined,
+        );
+      });
+    }
+
+    it("fetches the speech detector once dictation is on", async () => {
+      await startRun("native");
+      expect(tauri.invoke).toHaveBeenCalledWith("speech_detector_prepare");
+    });
+
+    it.each(onDeviceKinds)(
+      "keeps %s recording for the release tail before stopping",
+      async (kind) => {
+        if (kind === "parakeet") parakeetReturns("recognized words");
+        const runId = await startRun(kind);
+        await vi.advanceTimersByTimeAsync(501);
+        await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 501 });
+        expect(stateChanges().at(-1)).toMatchObject({ state: "processing" });
+
+        await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS - 1);
+        expect(stopCalls(kind)).toHaveLength(0);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(stopCalls(kind)).toEqual([
+          [stopCommand(kind), { owner: "dictation", runId: runId }],
+        ]);
+      },
+    );
+
+    it.each(onDeviceKinds)(
+      "drops a %s recording cancelled during the release tail",
+      async (kind) => {
+        if (kind === "parakeet") parakeetReturns("recognized words");
+        const runId = await startRun(kind);
+        await vi.advanceTimersByTimeAsync(501);
+        await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 501 });
+        await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS / 2);
+        await dispatch("voice:cancel");
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        expectDiscarded(kind, runId);
+        expect(stopCalls(kind)).toHaveLength(0);
+        expect(tauri.invoke).not.toHaveBeenCalledWith(
+          "complete_voice_dictation",
+          expect.anything(),
+        );
+      },
+    );
+
+    it.each(onDeviceKinds)(
+      "leaves no trace of a %s tap shorter than 300 ms",
+      async (kind) => {
+        if (kind === "parakeet") parakeetReturns("recognized words");
+        const runId = await startRun(kind);
+        await vi.advanceTimersByTimeAsync(299);
+        await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 299 });
+        await vi.advanceTimersByTimeAsync(10_000);
+        await settle();
+
+        expectDiscarded(kind, runId);
+        expect(stopCalls(kind)).toHaveLength(0);
+        expect(runStates(runId)).not.toContain("cancelled");
+        expect(runStates(runId)).not.toContain("error");
+        expect(stateChanges().at(-1)).toMatchObject({ state: "idle" });
+        expect(tauri.invoke).toHaveBeenCalledWith("hide_flow_bar");
+        expect(tauri.invoke).not.toHaveBeenCalledWith(
+          "complete_voice_dictation",
+          expect.anything(),
+        );
+        expect(
+          fetchMock.mock.calls.some(([url]) =>
+            String(url).includes("create-dictation"),
+          ),
+        ).toBe(false);
+      },
+    );
+
+    it("dictates a 300 ms hold", async () => {
+      const runId = await startRun("native");
+      await vi.advanceTimersByTimeAsync(300);
+      await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 300 });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      emitFinal(runId, "yes");
+      await vi.advanceTimersByTimeAsync(250);
+      await settle();
+
+      expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+        text: "yes",
+      });
+    });
+
+    it("leaves no trace of a tap released before the engine started", async () => {
+      let finishStart!: () => void;
+      tauri.invoke.mockImplementation((command) => {
+        if (command === "audio_transcription_start") {
+          return new Promise<void>((resolve) => {
+            finishStart = resolve;
+          });
+        }
+        return Promise.resolve(undefined);
+      });
+      const runId = await startRun("whisper");
+      await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 120 });
+      finishStart();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await settle();
+
+      expectDiscarded("whisper", runId);
+      expect(runStates(runId)).not.toContain("cancelled");
+      expect(runStates(runId)).not.toContain("error");
+      expect(runStates(runId)).not.toContain("recording");
+    });
+
+    it.each(onDeviceKinds)(
+      "ends a silent %s hold as no speech without waiting",
+      async (kind) => {
+        engineStopReturns({ voice: "silent" });
+        const runId = await startRun(kind);
+        await release();
+        await settle();
+
+        expect(stateChanges().at(-1)).toMatchObject({
+          runId: runId,
+          state: "error",
+          failure: "no-speech",
+        });
+        expect(tauri.invoke).not.toHaveBeenCalledWith(
+          "complete_voice_dictation",
+          expect.anything(),
+        );
+      },
+    );
+
+    it.each(["native", "whisper"] as const)(
+      "pastes what %s heard even when the detector called the hold silent",
+      async (kind) => {
+        engineStopReturns({ voice: "silent" });
+        const runId = await startRun(kind);
+        emitFinal(runId, "recognized words");
+        await release();
+        await settle();
+        expect(runStates(runId)).not.toContain("error");
+
+        await vi.advanceTimersByTimeAsync(8_000);
+        await settle();
+        expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+          text: "recognized words",
+        });
+      },
+    );
+
+    it("pastes what Parakeet heard even when the detector called the hold silent", async () => {
+      engineStopReturns({
+        voice: "silent",
+        transcript: {
+          text: "recognized words",
+          pass: "live",
+          releaseToTextMs: 120,
+          audioMs: 2_000,
+        },
+      });
+      const runId = await startRun("parakeet");
+      await release();
+      await settle();
+
+      expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+        text: "recognized words",
+      });
+    });
+
+    it.each(["heard", "unchecked"] as const)(
+      "waits for the transcript when the detector answers %s",
+      async (voice) => {
+        engineStopReturns({ voice });
+        const runId = await startRun("whisper");
+        await release();
+        await vi.advanceTimersByTimeAsync(1_000);
+        await settle();
+        expect(runStates(runId)).not.toContain("error");
+
+        emitFinal(runId, "recognized words");
+        await vi.advanceTimersByTimeAsync(250);
+        await settle();
+        expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+          text: "recognized words",
+        });
+      },
+    );
   });
 
   it("does not let an old recorder stop replace the newer finalizing run", async () => {

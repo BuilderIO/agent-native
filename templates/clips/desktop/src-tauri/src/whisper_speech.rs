@@ -52,6 +52,39 @@ pub struct DictationTranscript {
     pub audio_ms: u64,
 }
 
+/// Whether a dictation's audio held speech, from the voice activity check
+/// that runs while the key is held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Voice {
+    Heard,
+    Silent,
+    /// The check could not run or reach a verdict, so the dictation takes
+    /// the normal path. Never treated as silence.
+    Unchecked,
+}
+
+impl Voice {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Voice::Heard => "heard",
+            Voice::Silent => "silent",
+            Voice::Unchecked => "unchecked",
+        }
+    }
+}
+
+/// What stopping a dictation returns: the speech check's verdict, and for
+/// Parakeet the text itself.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictationStop {
+    pub voice: Voice,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<DictationTranscript>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OfflineTranscriptSegment {
     pub start_ms: i64,
@@ -143,15 +176,15 @@ pub fn prewarm_context(_app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Stops a transcription. A Parakeet dictation returns its text here, unless
-/// `discard` is set because the user cancelled it.
+/// Stops a transcription. A dictation returns whether it heard speech, and a
+/// Parakeet one its text, unless `discard` is set because the user cancelled.
 #[tauri::command]
 pub async fn whisper_transcription_stop(
     app: AppHandle,
     owner: Option<String>,
     run_id: Option<u64>,
     discard: bool,
-) -> Result<Option<DictationTranscript>, String> {
+) -> Result<Option<DictationStop>, String> {
     #[cfg(target_os = "macos")]
     {
         tauri::async_runtime::spawn_blocking(move || {
@@ -210,7 +243,7 @@ mod macos {
     use tauri::{AppHandle, Emitter};
     use transcribe_cpp::Model;
 
-    use super::{DictationTranscript, LocalEngine};
+    use super::{DictationStop, LocalEngine, Voice};
     use crate::capture_audio_bus::{
         try_subscribe, AudioSources, AudioSubscription, SubscriptionAttempt,
     };
@@ -219,6 +252,7 @@ mod macos {
         start_raw_mic_capture, MicVoiceProcessingMode, RawMicCapture,
     };
     use crate::parakeet_live::{AudioTap, LiveDictation};
+    use crate::silero_vad::SpeechCheck;
     use crate::speech_capture_ownership::{
         claim as claim_speech_capture, SpeechCaptureEngine, SpeechCaptureLease, SpeechCaptureOwner,
     };
@@ -418,6 +452,11 @@ mod macos {
         engine: LocalEngine,
         /// Set for a Parakeet dictation, which transcribes as audio arrives.
         live: Option<Arc<LiveDictation>>,
+        /// Set for a dictation's mic, so release can tell a silent hold.
+        speech_check: Option<Arc<SpeechCheck>>,
+        /// Set at release when the hold was silent, so the worker does not
+        /// transcribe what is left.
+        skip_final: AtomicBool,
         run_id: Option<u64>,
         src_rate: AtomicU32,
         language: Option<String>,
@@ -440,6 +479,7 @@ mod macos {
             model: Model,
             engine: LocalEngine,
             live: Option<Arc<LiveDictation>>,
+            speech_check: Option<Arc<SpeechCheck>>,
             stream_start: Instant,
             emit_partials: bool,
             echo_guard: Option<Arc<EchoGuard>>,
@@ -450,6 +490,8 @@ mod macos {
                 source,
                 engine,
                 live,
+                speech_check,
+                skip_final: AtomicBool::new(false),
                 run_id,
                 src_rate: AtomicU32::new(src_rate as u32),
                 language,
@@ -486,6 +528,9 @@ mod macos {
 
         fn set_src_rate(&self, rate: f64) {
             self.src_rate.store(rate as u32, Ordering::SeqCst);
+            if let Some(check) = &self.speech_check {
+                check.set_sample_rate(rate);
+            }
         }
 
         fn push(&self, frames: &[f32]) {
@@ -499,6 +544,9 @@ mod macos {
             }
             if let Ok(mut buf) = self.buf.lock() {
                 buf.extend_from_slice(frames);
+            }
+            if let Some(check) = &self.speech_check {
+                check.push(frames);
             }
         }
 
@@ -911,6 +959,7 @@ mod macos {
         let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
         let samples = resample_to_16k(&raw, src_rate);
         if had_voice
+            && !stream.skip_final.load(Ordering::SeqCst)
             && samples.len() as f32 / SAMPLE_RATE_16K > 0.3
             && !stream.is_playback_echo(&samples)
         {
@@ -1227,6 +1276,15 @@ mod macos {
             None
         };
 
+        let speech_check = (owner == SessionOwner::Dictation).then(|| {
+            Arc::new(SpeechCheck::for_dictation(
+                &app,
+                match engine {
+                    LocalEngine::Whisper => "whisper",
+                    LocalEngine::Parakeet => "parakeet",
+                },
+            ))
+        });
         let session_start = Instant::now();
         let echo_guard = capture_system.then(|| Arc::new(EchoGuard::new()));
         let mic_stream = WhisperStream::new(
@@ -1237,6 +1295,7 @@ mod macos {
             model.clone(),
             engine,
             live,
+            speech_check,
             session_start,
             emit_partials,
             echo_guard.clone(),
@@ -1250,6 +1309,7 @@ mod macos {
                 lang.clone(),
                 model.clone(),
                 engine,
+                None,
                 None,
                 session_start,
                 emit_partials,
@@ -1578,7 +1638,7 @@ mod macos {
         run_id: Option<u64>,
         replace_older: bool,
         discard: bool,
-    ) -> Result<Option<DictationTranscript>, String> {
+    ) -> Result<Option<DictationStop>, String> {
         let released = Instant::now();
         let mut latest = match latest_run_id_slot().lock() {
             Ok(latest) => latest,
@@ -1628,10 +1688,8 @@ mod macos {
         let Some(mut session) = session else {
             return Ok(None);
         };
-        session.mic.stop();
-        if let Some(sys) = &session.sys {
-            sys.stop();
-        }
+        // Capture stops before the streams, so the speech check has heard
+        // every sample before it is asked, and the worker before its last pass.
         if let Some(mic_cap) = session.mic_cap.take() {
             mic_cap.stop();
         }
@@ -1639,15 +1697,36 @@ mod macos {
             sys_cap.stop();
         }
         drop(session._shared_audio.take());
+        let voice = match &session.mic.speech_check {
+            Some(check) if !discard => Some(check.finish()),
+            _ => None,
+        };
+        if voice == Some(Voice::Silent) {
+            session.mic.skip_final.store(true, Ordering::SeqCst);
+        }
+        session.mic.stop();
+        if let Some(sys) = &session.sys {
+            sys.stop();
+        }
         release_temporary_audio(app, session.temporary_audio.take());
         if let Some(live) = session.mic.live.clone() {
             if discard {
                 live.discard();
                 return Ok(None);
             }
-            return live
-                .finish(&session.mic.audio_tap(), released, &session.mic.done)
-                .map(Some);
+            let voice = voice.unwrap_or(Voice::Unchecked);
+            if voice == Voice::Silent && !live.has_heard_words() {
+                live.discard();
+                return Ok(Some(DictationStop {
+                    voice,
+                    transcript: None,
+                }));
+            }
+            let transcript = live.finish(&session.mic.audio_tap(), released, &session.mic.done)?;
+            return Ok(Some(DictationStop {
+                voice,
+                transcript: Some(transcript),
+            }));
         }
         let deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
@@ -1660,8 +1739,11 @@ mod macos {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        eprintln!("[whisper] meeting transcription stopped");
-        Ok(None)
+        eprintln!("[whisper] {:?} transcription stopped", session.owner);
+        Ok(voice.map(|voice| DictationStop {
+            voice,
+            transcript: None,
+        }))
     }
 
     #[cfg(test)]

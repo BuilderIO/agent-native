@@ -37,6 +37,22 @@ export async function loadVocabularyEntries(): Promise<VocabularyEntry[]> {
   }
 }
 
+let refreshing: Promise<VocabularyEntry[]> | null = null;
+
+/**
+ * The vocabulary as last fetched, without waiting on the network. Starts a
+ * refresh once the copy is a minute old. A dictation start reads this so the
+ * microphone does not wait for the server.
+ */
+export function currentVocabularyEntries(): VocabularyEntry[] {
+  if (!cachedVocabulary || Date.now() - cachedAt >= 60_000) {
+    refreshing ??= loadVocabularyEntries().finally(() => {
+      refreshing = null;
+    });
+  }
+  return cachedVocabulary ?? [];
+}
+
 export async function loadVocabulary(): Promise<string[]> {
   const vocabulary = await loadVocabularyEntries();
   return vocabulary.map((v) => v.replacement);
