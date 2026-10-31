@@ -78,6 +78,15 @@ current warm-query budget. This is bounded lexical search substrate, not proof
 of indexed retrieval across every Source, authoritative author filtering,
 freshness ranking, or policy-governed global search.
 
+When a query matches nothing, the search Action corrects each word of four or
+more characters that no visible title or description contains, to the closest
+words that one does (one edit, two for words of eight or more characters). The
+vocabulary comes only from Pages the same search could return, so a
+correction never exposes a word from a Page the searcher can't open; the
+response lists the corrections. Body words aren't corrected yet. The committed
+relevance eval gates its typo cases, and focused tests cover access, phrases,
+short words, literal matches, and paging on both the index and the scan.
+
 Local browser verification of the command picker covered 27 authorized matches
 across two result pages, equal-title parent context, keyboard opening, title/body
 and type/date filters, explicit request failure and retry. Pagination and retry

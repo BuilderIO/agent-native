@@ -216,8 +216,9 @@ export const searchRelevanceCases: SearchEvalCase[] = [
   },
 
   // ---------------------------------------------------------------------
-  // typo (6) — report-only; the substring-matching engine cannot correct
-  // these, so most are expected to return zero results today.
+  // typo (6) — gating; when nothing matches, search-documents corrects a
+  // word against the closest words in titles and descriptions the caller
+  // can see.
   // ---------------------------------------------------------------------
   {
     id: "typo-priority",
