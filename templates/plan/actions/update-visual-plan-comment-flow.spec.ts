@@ -164,6 +164,7 @@ function buildTransactionDb(
   capturedUpdates: CapturedCommentUpdate[] = [],
   existingComments: ExistingCommentRow[] = [],
   sections: Array<{ id: string }> = [],
+  savedSections: Array<{ planId: string }> = [],
 ) {
   const txInsert = vi.fn((table: unknown) => ({
     values: vi.fn(async (row: CapturedRow) => {
@@ -189,7 +190,11 @@ function buildTransactionDb(
     }),
   }));
   const txSelect = vi.fn(() => ({
-    from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+    from: vi.fn((table: { id?: string }) => ({
+      where: vi.fn(async () =>
+        table?.id === "planSections.id" ? savedSections : [],
+      ),
+    })),
   }));
   return {
     transaction: vi.fn(async (cb) =>
@@ -933,6 +938,42 @@ describe("update-visual-plan comment path (integration)", () => {
         sectionId: "sec_new",
         message: "Comment on the new section",
       });
+    });
+    it("rejects a new comment in a section id another plan owns", async () => {
+      request.email = "owner@example.com";
+      const captured: CapturedRow[] = [];
+      getDbMock.mockReturnValue(
+        buildTransactionDb(captured, [], [], [], [{ planId: "plan_2" }]),
+      );
+      loadPlanBundleMock.mockResolvedValue(baseBundle);
+
+      await expect(
+        run({
+          planId: "plan_1",
+          contentPatches: [],
+          sections: [
+            {
+              id: "sec_other",
+              type: "custom",
+              title: "Section",
+              body: "",
+              createdBy: "human",
+            },
+          ],
+          consumedCommentIds: [],
+          comments: [
+            {
+              sectionId: "sec_other",
+              message: "Comment on another plan's section",
+              kind: "comment",
+              status: "open",
+              createdBy: "human",
+            },
+          ],
+        }),
+      ).rejects.toThrow("Section sec_other was not found on plan plan_1.");
+
+      expect(captured).toHaveLength(0);
     });
   });
 

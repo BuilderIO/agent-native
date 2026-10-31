@@ -1127,15 +1127,18 @@ export default defineAction({
       for (const [index, section] of args.sections.entries()) {
         const id = section.id ?? newId("sec");
         if (section.id) {
+          // Section ids are unique across plans, so another plan's id would
+          // fail the INSERT below as a bare 500.
           const [existing] = await tx
-            .select({ id: schema.planSections.id })
+            .select({ planId: schema.planSections.planId })
             .from(schema.planSections)
-            .where(
-              and(
-                eq(schema.planSections.id, section.id),
-                eq(schema.planSections.planId, args.planId),
-              ),
+            .where(eq(schema.planSections.id, section.id));
+          if (existing && existing.planId !== args.planId) {
+            fail(
+              `Section ${section.id} was not found on plan ${args.planId}.`,
+              { errorCode: "plan_section_not_found", statusCode: 422 },
             );
+          }
           if (existing) {
             await tx
               .update(schema.planSections)
