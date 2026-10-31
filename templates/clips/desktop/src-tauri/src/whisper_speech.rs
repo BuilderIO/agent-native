@@ -1196,6 +1196,7 @@ mod macos {
         if !run_is_current_now(owner, run_id) {
             return Err(START_SUPERSEDED.into());
         }
+        eprintln!("[whisper] {owner:?} transcription runs on {engine:?}");
         let (model, needs_warm_up) = match engine {
             LocalEngine::Whisper => cached_model(&app).map(|model| (model, false)),
             LocalEngine::Parakeet => crate::parakeet_model::resident_model(&app),
