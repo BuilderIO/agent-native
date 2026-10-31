@@ -232,6 +232,8 @@ mod macos {
     use crate::whisper_model::{ensure_model, model_file, remove_superseded_legacy_model};
 
     const MEETING_AUDIO_OWNER: &str = "meeting-whisper";
+    const PARTIAL_TRANSCRIPT: &str = "voice:partial-transcript";
+    const FINAL_TRANSCRIPT: &str = "voice:final-transcript";
     const START_SUPERSEDED: &str = "speech-engine-start-superseded";
 
     const SHARED_LEVEL_EVERY: u32 = 3;
@@ -541,7 +543,7 @@ mod macos {
 
         fn clear_partial(&self) {
             let _ = self.app.emit(
-                "voice:partial-transcript",
+                PARTIAL_TRANSCRIPT,
                 serde_json::json!({
                     "text": "",
                     "source": self.source,
@@ -569,8 +571,31 @@ mod macos {
         ) {
             match result {
                 Ok(segments) => self.emit_transcript(event, &segments, self.offset_ms()),
-                Err(error) => eprintln!("[whisper-{}] {error}", self.source),
+                Err(error) => {
+                    eprintln!("[whisper-{}] {error}", self.source);
+                    // The next partial replaces a failed one, but the audio
+                    // behind a failed final is dropped, so it must not pass
+                    // for silence.
+                    if event == FINAL_TRANSCRIPT {
+                        self.report_failure(&error);
+                    }
+                }
             }
+        }
+
+        fn report_failure(&self, error: &str) {
+            let _ = self.app.emit(
+                "pill:error",
+                serde_json::json!({ "error": format!("Transcription worker ({}) failed: {error}", self.source) }),
+            );
+            let _ = self.app.emit(
+                "voice:speech-error",
+                serde_json::json!({
+                    "error": error,
+                    "source": self.source,
+                    "runId": self.run_id,
+                }),
+            );
         }
 
         fn emit_transcript(
@@ -673,7 +698,7 @@ mod macos {
     fn live_worker(stream: &WhisperStream, live: &LiveDictation) {
         live.run(&stream.audio_tap(), |text| {
             let _ = stream.app.emit(
-                "voice:partial-transcript",
+                PARTIAL_TRANSCRIPT,
                 serde_json::json!({
                     "text": text,
                     "source": stream.source,
@@ -748,10 +773,7 @@ mod macos {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[whisper-{}] {e}", stream.source);
-                let _ = stream.app.emit(
-                    "pill:error",
-                    serde_json::json!({ "error": format!("Transcription worker ({}) failed: {e}", stream.source) }),
-                );
+                stream.report_failure(&e);
                 return;
             }
         };
@@ -836,7 +858,7 @@ mod macos {
                         stream.clear_partial();
                     } else {
                         stream.emit_inference(
-                            "voice:final-transcript",
+                            FINAL_TRANSCRIPT,
                             infer(&mut session, stream.engine, resample_state.samples(), lang),
                         );
                     }
@@ -876,7 +898,7 @@ mod macos {
                     false
                 } else {
                     stream.emit_inference(
-                        "voice:partial-transcript",
+                        PARTIAL_TRANSCRIPT,
                         infer(&mut session, stream.engine, resample_state.samples(), lang),
                     );
                     true
@@ -893,7 +915,7 @@ mod macos {
             && !stream.is_playback_echo(&samples)
         {
             stream.emit_inference(
-                "voice:final-transcript",
+                FINAL_TRANSCRIPT,
                 infer(&mut session, stream.engine, &samples, lang),
             );
         }
