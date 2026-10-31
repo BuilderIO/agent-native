@@ -469,6 +469,20 @@ export function mentionItemMatchesQuery(
   );
 }
 
+/**
+ * The items that match a query, in their given order except that one named
+ * exactly by the query comes first, so typing a whole name or alias and
+ * pressing Enter picks it over an earlier item that merely contains the text.
+ */
+export function mentionItemsForQuery(
+  items: MentionItem[],
+  query: string,
+): MentionItem[] {
+  const matches = items.filter((item) => mentionItemMatchesQuery(item, query));
+  const exact = findExactMentionItem(matches, query.trim());
+  return exact ? [exact, ...matches.filter((item) => item !== exact)] : matches;
+}
+
 export function findExactMentionItem(
   items: MentionItem[],
   query: string,
@@ -3177,9 +3191,7 @@ function TiptapComposerSurface({
       filterMentionItemsForSlots(
         [
           // Host items arrive unfiltered; the default search filters itself.
-          ...hostMentionItems.filter((item) =>
-            mentionItemMatchesQuery(item, mentionQuery),
-          ),
+          ...mentionItemsForQuery(hostMentionItems, mentionQuery),
           ...mentionItems,
         ].filter(
           (item, index, items) =>
@@ -6829,6 +6841,7 @@ function TiptapComposerSurface({
       <MentionPopover
         ref={popoverRef}
         density={mentionPopoverDensity}
+        keepSectionOrder={!includeDefaultMentionSearch}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
         mentionItems={inlineMentionItems}
