@@ -1,5 +1,10 @@
 #!/usr/bin/env tsx
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import {
+  spawn,
+  spawnSync,
+  type ChildProcess,
+  type SpawnOptions,
+} from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -97,6 +102,39 @@ const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
   pragma: "no-cache",
   expires: "0",
 };
+
+function quoteForWindowsShell(arg: string): string {
+  if (arg.includes('"')) {
+    throw new Error(
+      "cannot pass an argument containing a double quote through cmd.exe",
+    );
+  }
+  // Backslashes before the closing quote would otherwise escape it.
+  return `"${arg.replace(/\\+$/, "$&$&")}"`;
+}
+
+/**
+ * Starts pnpm. On Windows pnpm is usually a `pnpm.cmd` shim (npm, Corepack and
+ * `pnpm self-update` install one): Node cannot find it without a shell
+ * (`spawn pnpm ENOENT`), and it refuses to spawn the `.cmd` itself without one
+ * (`EINVAL`). The shell gets one quoted command line, so a workspace path with
+ * spaces stays a single argument.
+ */
+export function spawnPnpm(
+  spawnProcess: typeof spawn,
+  args: string[],
+  options: SpawnOptions,
+  platform: NodeJS.Platform = process.platform,
+): ChildProcess {
+  if (platform === "win32") {
+    return spawnProcess(
+      ["pnpm", ...args].map(quoteForWindowsShell).join(" "),
+      [],
+      { ...options, shell: true },
+    );
+  }
+  return spawnProcess("pnpm", args, options);
+}
 
 export function workspaceGatewayUrl(host: string, port: number): string {
   const bindHost =
@@ -894,7 +932,7 @@ export async function runWorkspaceDev(
       );
     }
 
-    const child = spawnProcess("pnpm", childArgs, {
+    const child = spawnPnpm(spawnProcess, childArgs, {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",

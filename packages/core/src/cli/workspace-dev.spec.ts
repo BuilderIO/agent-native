@@ -28,6 +28,7 @@ import {
   shouldOpenWorkspaceBrowser,
   shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
+  spawnPnpm,
   workspaceGatewayUrl,
   workspacePrewarmConcurrency,
   type WorkspaceDevHandle,
@@ -777,16 +778,18 @@ describe("workspace dev startup", () => {
     );
 
     const installCall = fake.calls().at(-1);
-    expect(installCall).toMatchObject({
-      command: "pnpm",
-      args: [
-        "--dir",
-        tmpDir,
-        "install",
-        "--no-frozen-lockfile",
-        "--prefer-offline",
-      ],
-    });
+    expect(
+      installCall?.options?.shell
+        ? shellLineArgv(installCall.command)
+        : [installCall?.command, ...(installCall?.args ?? [])],
+    ).toEqual([
+      "pnpm",
+      "--dir",
+      tmpDir,
+      "install",
+      "--no-frozen-lockfile",
+      "--prefer-offline",
+    ]);
     expect(fake.startedApps()).toEqual(["dispatch"]);
 
     createViteBin(path.join(tmpDir, "apps", "todo"));
@@ -849,7 +852,9 @@ describe("workspace dev startup", () => {
     expect(appCall?.options).toMatchObject({
       detached: process.platform !== "win32",
     });
-    expect(appCall?.options?.shell).toBeUndefined();
+    expect(appCall?.options?.shell).toBe(
+      process.platform === "win32" ? true : undefined,
+    );
     if (process.platform !== "win32") {
       Object.defineProperty(appCall?.child, "pid", {
         configurable: true,
@@ -928,6 +933,75 @@ describe("workspace dev startup", () => {
         Object.defineProperty(process, "platform", originalPlatform);
       }
     }
+  });
+});
+
+describe("spawnPnpm", () => {
+  const options = { cwd: "C:\\ws", stdio: "pipe" } as const;
+
+  function recordingSpawn() {
+    const calls: Array<[string, string[], unknown]> = [];
+    const spawnProcess = vi.fn(
+      (command: string, args: string[], opts: unknown) => {
+        calls.push([command, args, opts]);
+        return {} as ChildProcess;
+      },
+    ) as unknown as typeof spawn;
+    return { calls, spawnProcess };
+  }
+
+  it("runs pnpm directly on POSIX platforms", () => {
+    const { calls, spawnProcess } = recordingSpawn();
+    spawnPnpm(
+      spawnProcess,
+      ["--dir", "/ws/my app", "install"],
+      options,
+      "linux",
+    );
+    expect(calls).toEqual([
+      ["pnpm", ["--dir", "/ws/my app", "install"], options],
+    ]);
+  });
+
+  // A pnpm installed by npm, Corepack or `pnpm self-update` is a pnpm.cmd shim on
+  // Windows. Node cannot spawn it without a shell: `spawn pnpm` is ENOENT, and
+  // spawning `pnpm.cmd` itself is EINVAL.
+  it("runs pnpm through the shell on win32 as one quoted command line", () => {
+    const { calls, spawnProcess } = recordingSpawn();
+    spawnPnpm(
+      spawnProcess,
+      [
+        "--dir",
+        "C:\\Users\\Jane Doe\\ws\\apps\\todo",
+        "exec",
+        "vite",
+        "--port",
+        "8101",
+      ],
+      options,
+      "win32",
+    );
+    expect(calls).toEqual([
+      [
+        '"pnpm" "--dir" "C:\\Users\\Jane Doe\\ws\\apps\\todo" "exec" "vite" "--port" "8101"',
+        [],
+        { ...options, shell: true },
+      ],
+    ]);
+  });
+
+  it("keeps a trailing backslash from escaping the closing quote on win32", () => {
+    const { calls, spawnProcess } = recordingSpawn();
+    spawnPnpm(spawnProcess, ["--dir", "C:\\", "install"], options, "win32");
+    expect(calls[0][0]).toBe('"pnpm" "--dir" "C:\\\\" "install"');
+  });
+
+  it("refuses a win32 argument with a double quote, which cmd.exe cannot quote", () => {
+    const { calls, spawnProcess } = recordingSpawn();
+    expect(() =>
+      spawnPnpm(spawnProcess, ["--dir", 'a" & calc & "b'], options, "win32"),
+    ).toThrow(/double quote/);
+    expect(calls).toEqual([]);
   });
 });
 
@@ -1217,6 +1291,11 @@ async function waitUntil(
   throw new Error("Timed out waiting for condition");
 }
 
+/** Splits the quoted command line `spawnPnpm` hands to a Windows shell. */
+function shellLineArgv(line: string): string[] {
+  return [...line.matchAll(/"([^"]*)"/g)].map((match) => match[1]);
+}
+
 function fakeSpawn(pid?: number): {
   spawnProcess: typeof spawn;
   calls: () => Array<{
@@ -1282,12 +1361,13 @@ function fakeSpawn(pid?: number): {
     calls: () => calls,
     startedApps: () =>
       calls
-        .filter(
-          (call) =>
-            call.command === "pnpm" &&
-            call.args[0] === "--dir" &&
-            call.args[2] === "exec",
+        .map(({ command, args, options }) =>
+          options?.shell ? shellLineArgv(command) : [command, ...args],
         )
-        .map((call) => path.basename(call.args[1])),
+        .filter(
+          (argv) =>
+            argv[0] === "pnpm" && argv[1] === "--dir" && argv[3] === "exec",
+        )
+        .map((argv) => path.basename(argv[2])),
   };
 }
