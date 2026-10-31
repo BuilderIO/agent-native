@@ -667,6 +667,53 @@ describe("comment review interactions", () => {
       });
       expect(actions.resolve).not.toHaveBeenCalled();
     });
+
+    it("offers to resolve only on the last group with pending edits", () => {
+      const later = (status: ResourceSuggestion["status"]) => ({
+        ...asked("third", status),
+        proposalId: null,
+      });
+      const showBoth = (status: ResourceSuggestion["status"]) =>
+        render("one", [thread("one")], "inline", {
+          suggestions: [
+            asked("first", "pending"),
+            asked("second", "pending"),
+            later(status),
+          ],
+          onDecideSuggestionProposal: decide,
+          decidingSuggestion: () => deciding,
+        });
+
+      showBoth("pending");
+      expect(
+        container.querySelector("[data-suggestion-accept-resolve]"),
+      ).toBeNull();
+
+      showBoth("rejected");
+      expect(
+        container.querySelectorAll("[data-suggestion-accept-resolve]"),
+      ).toHaveLength(1);
+    });
+
+    it("leaves the thread open when its AI adds an edit during the accept", () => {
+      show("pending");
+      const button = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-accept-resolve]",
+      );
+      if (!button) throw new Error("The proposal has no Accept and resolve");
+      act(() => button.click());
+      deciding = false;
+      render("one", [thread("one")], "inline", {
+        suggestions: [
+          asked("first", "accepted"),
+          asked("second", "accepted"),
+          { ...asked("third", "pending"), proposalId: null },
+        ],
+        onDecideSuggestionProposal: decide,
+        decidingSuggestion: () => deciding,
+      });
+      expect(actions.resolve).not.toHaveBeenCalled();
+    });
   });
 
   it("holds a suggested request's place until its suggestion loads", () => {

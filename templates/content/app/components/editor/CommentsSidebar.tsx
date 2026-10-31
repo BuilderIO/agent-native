@@ -2946,7 +2946,8 @@ export function CommentsSidebar({
       const thread = threads.find((item) => item.threadId === threadId);
       const requested = resolveOnAccept.get(threadId) ?? [];
       // A failed or refused accept leaves an edit pending, and an edit can
-      // also end rejected or withdrawn; the thread then stays open.
+      // also end rejected or withdrawn; the thread then stays open. So does
+      // an edit its AI made while the accept was in flight.
       if (
         thread &&
         !thread.resolved &&
@@ -2955,6 +2956,9 @@ export function CommentsSidebar({
             (suggestion) =>
               suggestion.id === id && suggestion.status === "accepted",
           ),
+        ) &&
+        (threadSuggestions.get(threadId) ?? []).every(
+          (suggestion) => suggestion.status !== "pending",
         )
       )
         resolveAcceptedRef.current(thread);
@@ -3033,6 +3037,12 @@ export function CommentsSidebar({
           members.some((member) => member.id === suggestion.id) &&
           suggestion.status === "pending",
       );
+      // Resolving takes the thread's other pending edits out of it, so only
+      // the last group with any left offers to resolve.
+      const pendingElsewhere = embedded.some(
+        (suggestion) =>
+          suggestion.status === "pending" && !members.includes(suggestion),
+      );
       return {
         suggestions: members,
         canDecide: canDecideSuggestions,
@@ -3056,7 +3066,7 @@ export function CommentsSidebar({
                 )
             : undefined,
         onAcceptAndResolve:
-          !thread.resolved && threadCanResolve(thread)
+          !thread.resolved && threadCanResolve(thread) && !pendingElsewhere
             ? () => {
                 const requested =
                   proposalId && onDecideSuggestionProposal
