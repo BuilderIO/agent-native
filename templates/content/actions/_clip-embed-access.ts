@@ -76,8 +76,7 @@ const FAILURES: Record<
   },
   [CLIP_PLAYBACK_ERRORS.commentKeyUsed]: {
     statusCode: 409,
-    message:
-      "That idempotencyKey was already used for a different comment; send a new key for a new comment",
+    message: "A different comment was already saved with this key",
   },
   [CLIP_PLAYBACK_ERRORS.forbidden]: {
     statusCode: 403,
