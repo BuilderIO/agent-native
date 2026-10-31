@@ -114,9 +114,10 @@ const BROWSER_ROOTS: BrowserRoot[] = [
     pattern: /^packages\/docs\/public\/(.+)$/,
     url: servedAt,
   },
+  // The docs site is an app too; its components import from `lib/` as well.
   {
-    pathspec: "packages/docs/app/**",
-    pattern: /^packages\/docs\/(app\/.+)$/,
+    pathspec: "packages/docs/**",
+    pattern: /^packages\/docs\/(.+)$/,
     url: servedAt,
   },
   {

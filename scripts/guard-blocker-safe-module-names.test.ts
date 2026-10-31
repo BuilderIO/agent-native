@@ -41,6 +41,7 @@ test("maps every browser root to the URL it is served at", () => {
     ["community-templates/account-expert/public/sw.js", "/sw.js"],
     ["templates/clips/public/sw.js", "/sw.js"],
     ["packages/docs/app/root.tsx", "/app/root.tsx"],
+    ["packages/docs/lib/docs-nav.ts", "/lib/docs-nav.ts"],
     ["packages/docs/public/search.js", "/search.js"],
     ["packages/frame/client/main.ts", "/client/main.ts"],
   ] as const) {
@@ -70,9 +71,8 @@ test("reports every browser root that has no modules to check", () => {
       "templates/chat/app/root.tsx",
       "packages/docs/README.md",
       "templates/clips/public/sw.js",
-      "packages/docs/public/search.js",
     ]),
-    ["packages/docs/app/**", "packages/frame/client/**"],
+    ["packages/docs/public/**", "packages/docs/**", "packages/frame/client/**"],
   );
   assert.deepEqual(
     emptyBrowserRoots([
