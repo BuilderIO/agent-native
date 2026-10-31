@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  InlineMarkdown,
+  CommentBody,
   isComposingKey,
   isCommentSendKey,
 } from "@agent-native/toolkit/app/review";
@@ -258,8 +258,8 @@ export function CommentItem({
             </div>
           </div>
         ) : (
-          <InlineMarkdown
-            content={comment.content}
+          <CommentBody
+            body={comment.content}
             className="mt-0.5 text-[12px] leading-relaxed text-foreground/90"
           />
         )}

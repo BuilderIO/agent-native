@@ -14,6 +14,9 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   emailStrong: (value: string) => value,
+  // A stand-in for core's escape, so the test sees what reaches the HTML.
+  escapeEmailHtml: (value: string) =>
+    value.replaceAll("&", "&amp;").replaceAll("<", "&lt;"),
   notifyActivity: (...args: unknown[]) => mocks.notifyActivity(...args),
   renderEmail: (args: {
     heading: string;
@@ -182,6 +185,24 @@ describe("slides comment notifications", () => {
     expect(email.to).toBe("owner@example.com");
     expect(email.subject).toBe('Viewer commented on "Q3 review"');
     expect(email.text).toContain("Slide 2 needs a source");
+  });
+
+  it("escapes the quoted comment, since email paragraphs are HTML", async () => {
+    await notifyDeckComment({
+      deckId: "deck_1",
+      slideId: "slide_2",
+      threadId: "thread_1",
+      authorEmail: "viewer@example.com",
+      authorName: "Viewer",
+      content: "Ship if x<y & <img src=x onerror=alert(1)",
+      isReply: false,
+    });
+
+    await notifyArgs().send("owner@example.com");
+
+    const email = mocks.sendEmail.mock.calls[0]?.[0] as { text: string };
+    expect(email.text).toContain("x&lt;y &amp; &lt;img src=x");
+    expect(email.text).not.toContain("<img");
   });
 
   it("links to the slide by its one-based position, not its id", async () => {

@@ -72,6 +72,22 @@ function nitroStartupRecoveryMiddlewares(): unknown[] {
   return middlewares;
 }
 
+/**
+ * The repository root, found by walking up to `pnpm-workspace.yaml` rather
+ * than a fixed number of levels, so a copy of Core such as the mutation
+ * test's sandbox (`packages/core/.stryker-tmp/sandbox-*`) still finds
+ * `templates/`.
+ */
+function repositoryRoot(): string {
+  let directory = import.meta.dirname;
+  while (!fs.existsSync(path.join(directory, "pnpm-workspace.yaml"))) {
+    const parent = path.dirname(directory);
+    if (parent === directory) throw new Error("no pnpm-workspace.yaml above");
+    directory = parent;
+  }
+  return directory;
+}
+
 describe("Nitro dev startup recovery", () => {
   it("requires a continuous 5xx streak before restarting after a long idle", () => {
     let time = 0;
@@ -121,11 +137,7 @@ describe("Nitro dev startup recovery", () => {
   });
 
   it("finds the fetchable Nitro SSR wrapper before React Router's virtual build", () => {
-    const repositoryRoot = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../../..",
-    );
-    const rootDir = path.join(repositoryRoot, "templates/chat");
+    const rootDir = path.join(repositoryRoot(), "templates/chat");
 
     expect(_resolveNitroSsrServiceEntry(rootDir)).toBe(
       path.join(rootDir, "ssr-entry.ts"),
@@ -625,10 +637,7 @@ describe("design system theme plugin", () => {
   it("emits normalized build-time CSS from a virtual module", async () => {
     const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-theme-app-"));
     fs.writeFileSync(path.join(appRoot, "package.json"), "{}");
-    const toolkitRoot = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../../toolkit",
-    );
+    const toolkitRoot = path.join(repositoryRoot(), "packages/toolkit");
     const toolkitLink = path.join(
       appRoot,
       "node_modules/@agent-native/toolkit",
@@ -2472,9 +2481,7 @@ describe("agentNative Vite plugin preset", () => {
 
     const previousCwd = process.cwd();
     let config: any;
-    process.chdir(
-      path.resolve(import.meta.dirname, "../../../..", "templates/chat"),
-    );
+    process.chdir(path.join(repositoryRoot(), "templates/chat"));
     try {
       config = await configPlugin.config(
         {
@@ -4181,10 +4188,7 @@ describe("Vite SSR optional dependencies", () => {
 
   it("keeps the browser-only Tabler icon loader out of SSR chunks", async () => {
     const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-tabler-ssr-"));
-    const coreRoot = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../..",
-    );
+    const coreRoot = path.join(repositoryRoot(), "packages/core");
     fs.writeFileSync(
       path.join(appRoot, "package.json"),
       JSON.stringify({
@@ -4354,7 +4358,7 @@ describe("local-core dev aliases and router dedupe", () => {
 
   it("pre-optimizes core client deps when core is source-aliased", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-optimize-"));
-    const coreRoot = path.resolve(import.meta.dirname, "../..");
+    const coreRoot = path.join(repositoryRoot(), "packages/core");
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
       JSON.stringify({
@@ -4413,6 +4417,13 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).toContain("@agent-native/toolkit > shiki/core");
     expect(deps).toContain("html2canvas");
     expect(deps).not.toContain("@agent-native/core > html2canvas");
+    expect(deps).toEqual(
+      expect.arrayContaining([
+        "@agent-native/core > mdast-util-from-markdown",
+        "@agent-native/core > mdast-util-gfm",
+        "@agent-native/core > micromark-extension-gfm",
+      ]),
+    );
     expect(deps).toContain("react-dom/server");
     expect(deps).toContain("react-router");
     expect(deps).not.toContain("@agent-native/core > react-router");
@@ -5119,11 +5130,7 @@ describe("local-core dev aliases and router dedupe", () => {
 
   it("aliases file:@agent-native/toolkit conditional exports to source", () => {
     const previousCwd = process.cwd();
-    const toolkitRoot = path.resolve(
-      import.meta.dirname,
-      "../../..",
-      "toolkit",
-    );
+    const toolkitRoot = path.join(repositoryRoot(), "packages/toolkit");
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-toolkit-"));
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
@@ -5163,17 +5170,9 @@ describe("local-core dev aliases and router dedupe", () => {
 
   it("source-aliases workspace package dependencies during app builds", () => {
     const previousCwd = process.cwd();
-    const agentkitRoot = path.resolve(
-      import.meta.dirname,
-      "../../..",
-      "agentkit",
-    );
-    const toolkitRoot = path.resolve(
-      import.meta.dirname,
-      "../../..",
-      "toolkit",
-    );
-    const workspaceRoot = path.resolve(import.meta.dirname, "../../../..");
+    const workspaceRoot = repositoryRoot();
+    const agentkitRoot = path.join(workspaceRoot, "packages/agentkit");
+    const toolkitRoot = path.join(workspaceRoot, "packages/toolkit");
     const tmpDir = fs.mkdtempSync(
       path.join(workspaceRoot, ".tmp-an-vite-workspace-"),
     );

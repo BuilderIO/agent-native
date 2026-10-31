@@ -66,7 +66,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/toolkit/app/review", () => ({
-  InlineMarkdown: ({ content }: { content: string }) => <>{content}</>,
+  CommentBody: ({ body }: { body: string }) => <>{body}</>,
 }));
 
 const uploads = vi.hoisted(() => ({
