@@ -101,6 +101,7 @@ describe("integration config compare-and-swap", () => {
     );
 
     expect(deleted).toBe(false);
+    // raw-sql-ok: this test asserts the static SQL text and its bound args.
     expect(executeMock).toHaveBeenCalledWith({
       sql: expect.stringContaining("AND config_data = ? AND updated_at = ?"),
       args: [

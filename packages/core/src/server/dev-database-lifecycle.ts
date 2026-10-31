@@ -92,7 +92,7 @@ async function closeDevDatabaseOnShutdown(): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<"timed-out">((resolve) => {
     timer = setTimeout(() => resolve("timed-out"), timeoutMs);
-    timer.unref?.();
+    timer.unref();
   });
   try {
     if ((await Promise.race([closing, timedOut])) !== "timed-out") return;

@@ -134,6 +134,7 @@ export async function deleteIntegrationConfigIfUnchanged(
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
+  // raw-sql-ok: static SQL; the platform, key and snapshot are bound as query args.
   const result = await client.execute({
     sql: `DELETE FROM integration_configs WHERE platform = ? AND config_key = ? AND config_data = ? AND updated_at = ?`,
     args: [

@@ -615,7 +615,7 @@ async function getCommentCheckRetries(): Promise<
   const retries = new Map<string, CommentCheckRetry>();
   for (const row of await listIntegrationConfigs(PLATFORM)) {
     if (!row.configKey.startsWith(COMMENT_RETRY_KEY_PREFIX)) continue;
-    const attempts = row.configData?.attempts;
+    const attempts = row.configData.attempts;
     retries.set(row.configKey.slice(COMMENT_RETRY_KEY_PREFIX.length), {
       // Count a malformed row as one failure rather than skipping or trusting it.
       attempts:
@@ -630,10 +630,12 @@ async function getCommentCheckRetries(): Promise<
   return retries;
 }
 
+// raw-sql-ok: the file ID reaches the config store only as a bound key.
 async function recordCommentCheckFailure(
   fileId: string,
   retry: CommentCheckRetry | undefined,
 ): Promise<void> {
+  // raw-sql-ok: the key is passed to the config store as a bound value.
   const key = COMMENT_RETRY_KEY_PREFIX + fileId;
   const attempts = (retry?.attempts ?? 0) + 1;
   if (!retry || attempts < COMMENT_CHECK_MAX_ATTEMPTS) {
@@ -801,11 +803,13 @@ export async function processChanges(
     }
   }
 
+  // raw-sql-ok: file IDs reach the config store only as bound keys.
   for (const fileId of docFileIds) {
     const retry = retries.get(fileId);
     try {
       await checkDocumentComments(fileId, accessToken, options);
       if (retry) {
+        // raw-sql-ok: the key is passed to the config store as a bound value.
         await deleteIntegrationConfigIfUnchanged(
           PLATFORM,
           COMMENT_RETRY_KEY_PREFIX + fileId,
