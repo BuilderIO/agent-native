@@ -46,9 +46,10 @@ retired scheduled agent jobs such as PR governance, never for a new request.
    `code @ node x port y: detail`, all at once: fix them all, then save again.
    Nothing is saved on a failure.
 5. **Read `connections` in the save result.** Each entry is a provider the
-   graph needs: `status` is `connected`, `not connected` or `unknown`, and
-   `nodes` are the node ids that need it. Call `request-workflow-connection`
-   for each one that is `not connected`. See "Connecting".
+   graph needs: `status` is `connected`, `not connected`, `unknown` or
+   `unreadable`, and `nodes` are the node ids that need it. Call
+   `request-workflow-connection` for each one that is `not connected`. See
+   "Connecting".
 6. **Dry run.** `run-factory-workflow` with `mode: "dry"` and `waitSeconds: 25`.
    See "Dry run loop".
 7. **Enable.** Only after a clean dry run of the current version and every
@@ -104,6 +105,13 @@ quotes escaped. A parse failure names the position: fix it and send again.
   `filter.scopes[0]` is the Slack channel id, the GitHub repo (`owner/name`) or
   the Sentry project (`org/project`), one per workflow. `save-triage-config` is
   only a fallback; do not rely on it.
+- **An inbox source starts from now.** Its first live run takes the newest
+  position (the newest Slack message, open GitHub item or Sentry issue) and
+  nothing else, so history is never processed; the step and the run say
+  `primed`, which is not "no new messages". A dry run shows a sample of the
+  newest items and stores nothing, and a workflow turned off and on goes on from
+  where it was. Tell the user that what is in the channel today will not be
+  answered.
 
 ## Binding values and `{{ }}` paths
 
@@ -227,6 +235,14 @@ gong, pylon, stripe, posthog, bigquery, jira, notion or sentry. Read it with
   in a row, or one read over several items, fail as `output_over_cap` naming the
   step; the cap is not raised. Set `fieldsToKeep`, narrow the request, or split
   the work.
+- **A curated lookup hands on a bounded answer.** A Stripe billing lookup keeps
+  the customer, subscription and invoice facts (about 4,000 characters), a Gong
+  transcript the words of its opening, about 15 minutes (18,000), Sentry events
+  10,000, a thread read 6,500 and the open reports their title, text, thread and
+  Builder branch, about 13 of them (10,000). A cut answer leads with
+  `truncated: true` and `cuts` (the thread and the open reports instead say
+  `truncated`, `nextOldest` and `nextCursor`): say how much came back, never
+  that you read all of it.
 - **Never from a model.** `path` may be typed, a setting, an item field or an
   earlier lookup, not AI-written (`model_written_target`), and the step is never
   an AI step's tool (`unknown_tool`). Headers never carry credentials: the
@@ -268,10 +284,16 @@ Connections are per provider, from `connections` in a save or
 - **Gong, Pylon, Stripe, PostHog, Builder, email:** the call returns
   `connected: false` with `where` and `keys`. Tell the user exactly that, then
   check again when they say it is done.
-- **`unknown`:** the check itself failed, or a saved key (a Sentry organization
-  slug, a Jira token) exists but cannot be decrypted here; `detail` says which.
-  Say so; do not call it connected or not connected. An unreadable key is
-  fixed by saving it again, not by adding another.
+- **`unknown`:** the check itself failed; `detail` says why. Say so; do not call
+  it connected or not connected, and check again.
+- **`unreadable`:** a key or sign-in is saved (a Slack or Sentry token, a Sentry
+  organization slug, a Jira token, a Builder sign-in) but this deployment cannot
+  decrypt it, usually because the database came from another deployment or its
+  encryption key changed; `detail` names the key. A person must save it again
+  under Keys in Settings, or run with the key that saved it. Do not call a
+  connect card for it, do not retry it, and do not call it not connected.
+  `request-workflow-connection` and `set-factory-workflow-enabled` refuse it
+  with `connection_unreadable`, and a step that hits it fails `app_secret_unreadable`.
 - **Sentry also needs `SENTRY_ORG_SLUG`:** a token alone reads `not connected`,
   with the slug named in `detail`.
 - `set-factory-workflow-enabled` refuses with `connection_required` until every

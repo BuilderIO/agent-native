@@ -3,8 +3,11 @@ import { generateKeyPairSync } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveConnectorSecret } from "../connectors/credentials.js";
+import { failGitHubStep } from "../lib/factory-pull-request.js";
+import { UnreadableSecretError } from "../lib/unreadable-secret.js";
 import {
   GitHubMergeNotCompletedError,
+  GitHubRequestError,
   createGitHubClient,
   reviewCommentsFromGraphqlThreads,
 } from "./github-client.js";
@@ -304,6 +307,46 @@ describe("GitHub triage client", () => {
       commit_message: "Merge fix",
       sha: "head-sha",
     });
+  });
+
+  it("keeps a token it cannot decrypt apart from one that is not configured, from the request to the step's failure", async () => {
+    mockedResolveConnectorSecret.mockRejectedValue(
+      new UnreadableSecretError("GITHUB_TOKEN"),
+    );
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    });
+
+    const rest = await client
+      .listOpenIssues(repository)
+      .catch((error: unknown) => error);
+    const summary = await client
+      .getPullRequestSummary(repository, 7)
+      .catch((error: unknown) => error);
+
+    for (const failure of [rest, summary]) {
+      // A request that never left, as every reader of `requestAttempted` expects.
+      expect(failure).toBeInstanceOf(GitHubRequestError);
+      expect(failure).toMatchObject({
+        requestAttempted: false,
+        errorCode: "app_secret_unreadable",
+        actionContractError: true,
+        keys: ["GITHUB_TOKEN"],
+      });
+      let stepFailure: unknown;
+      try {
+        failGitHubStep(failure, "reading the pull request");
+      } catch (error) {
+        stepFailure = error;
+      }
+      expect(stepFailure).toMatchObject({ errorCode: "app_secret_unreadable" });
+      expect((stepFailure as Error).message).toMatch(
+        /GITHUB_TOKEN is saved but this deployment cannot decrypt it/,
+      );
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("does not turn a missing credential or failed merge into success", async () => {

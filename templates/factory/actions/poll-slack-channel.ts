@@ -11,6 +11,12 @@ import {
   writeFactoryPollCursor,
 } from "../server/lib/factory-poll-cursors.js";
 import {
+  assertPollStart,
+  boundPreviewRows,
+  pollStartFields,
+  previewRowOf,
+} from "../server/lib/factory-poll-start.js";
+import {
   factoryIdSchema,
   factoryStillPresent,
   readTriageConfigRow,
@@ -31,7 +37,43 @@ import {
   statusAfterTriageSourceUpdate,
   triageSourceUpsertGuard,
 } from "../server/triage/review-state.js";
-import { pollSlackChannel } from "../server/triage/slack-poller.js";
+import {
+  pollSlackChannel,
+  readNewestSlackTs,
+} from "../server/triage/slack-poller.js";
+
+/** The row a poll stores for a message the inbox does not have yet. */
+function newMessageRow(
+  envelope: IngestionEnvelope,
+  scope: { now: string; userEmail: string; orgId: string; factoryId: string },
+) {
+  const messageTs = envelope.metadata?.messageTs;
+  const seenAt = typeof messageTs === "string" ? messageTs : scope.now;
+  return previewRowOf({
+    id: itemDedupeKey(envelope, scope.orgId, scope.factoryId),
+    source: envelope.source,
+    externalId: envelope.externalId,
+    sourceUrl: envelope.sourceUrl ?? null,
+    title: envelope.title,
+    summary: envelope.summary ?? null,
+    status: statusAfterTriageSourceUpdate(undefined, true, "received"),
+    risk: "unknown",
+    channelId: envelope.channelId ?? null,
+    threadTs: envelope.threadTs ?? null,
+    repository: envelope.repository ?? null,
+    pullRequestNumber: envelope.pullRequestNumber ?? null,
+    headSha: envelope.headSha ?? null,
+    coverage: envelope.coverage,
+    dedupeKey: itemDedupeKey(envelope, scope.orgId, scope.factoryId),
+    metadataJson: mergeTriageMetadata("{}", envelope.metadata ?? {}),
+    lastSeenAt: seenAt,
+    createdAt: scope.now,
+    updatedAt: scope.now,
+    ownerEmail: scope.userEmail,
+    orgId: scope.orgId,
+    factoryId: scope.factoryId,
+  });
+}
 
 export default defineAction({
   description:
@@ -39,9 +81,14 @@ export default defineAction({
   schema: z.object({
     factoryId: factoryIdSchema,
     channelId: z.string().trim().min(1).max(128).optional(),
+    ...pollStartFields,
   }),
   http: false,
-  run: async ({ factoryId, channelId: requestedChannelId }, context) => {
+  run: async (
+    { factoryId, channelId: requestedChannelId, after, prime, preview },
+    context,
+  ) => {
+    assertPollStart({ after, prime });
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -75,18 +122,65 @@ export default defineAction({
         ? "secondary"
         : "primary";
     const destinationKey = channelId;
-    const storedCursor = await readFactoryPollCursor(
-      db,
-      orgId,
-      factoryId,
-      "slack",
-      destinationKey,
-    );
-    const priorLastSlackTs =
-      storedCursor?.lastSlackTs ?? config?.lastSlackTs ?? "0";
-    const historyCursor =
-      storedCursor?.slackHistoryCursor ?? config?.slackHistoryCursor;
     const inboxLimit = jobConfig?.inboxLimit ?? 25;
+
+    if (prime === true && preview !== true) {
+      // A workflow source's first live read: the newest position only. Nothing
+      // is stored and the factory-wide cursor is not touched, so the history
+      // that is already there is never brought into the inbox.
+      const newestTs = await readNewestSlackTs({
+        workspace,
+        channelId,
+        ownerEmail: userEmail,
+        orgId,
+      });
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-slack-channel",
+          kind: "observed",
+          source: "slack",
+          summary:
+            "Started reading the Slack channel from now; messages that were already there were not brought in.",
+          details: { channelId, primed: true, position: newestTs ?? "0" },
+        },
+        factoryId,
+      );
+      return {
+        ok: true,
+        source: "slack",
+        factoryId,
+        channelId,
+        observed: 0,
+        primed: true,
+        position: newestTs ?? "0",
+        hasMore: false,
+        coverage: "complete",
+      };
+    }
+
+    // A workflow source that has a position keeps its own: the factory-wide
+    // cursor is shared with every other reader of this channel, so it is
+    // neither read nor moved.
+    const ownsPosition = after !== undefined || prime === true;
+    const storedCursor = ownsPosition
+      ? null
+      : await readFactoryPollCursor(
+          db,
+          orgId,
+          factoryId,
+          "slack",
+          destinationKey,
+        );
+    const priorLastSlackTs =
+      after ??
+      (prime === true
+        ? "0"
+        : (storedCursor?.lastSlackTs ?? config?.lastSlackTs ?? "0"));
+    const historyCursor = ownsPosition
+      ? undefined
+      : (storedCursor?.slackHistoryCursor ?? config?.slackHistoryCursor);
 
     const result = await pollSlackChannel({
       workspace,
@@ -95,6 +189,7 @@ export default defineAction({
       historyCursor,
       ownerEmail: userEmail,
       orgId,
+      ...(prime === true ? { newest: inboxLimit } : {}),
     });
     const now = new Date().toISOString();
     const configRowId = config
@@ -134,7 +229,7 @@ export default defineAction({
     const addedEnvelopes: IngestionEnvelope[] = [];
     let added = 0;
     let updated = 0;
-    await db.transaction(async (tx) => {
+    const ingest = async (tx: ReturnType<typeof getDb>) => {
       for (const envelope of accepted) {
         const id = itemDedupeKey(envelope, orgId, factoryId);
         const existing = (
@@ -185,6 +280,8 @@ export default defineAction({
           existing?.metadataJson ?? "{}",
           envelope.metadata ?? {},
         );
+        // A preview stores nothing; its rows are made below from what was new.
+        if (preview === true) continue;
         await tx
           .insert(triageItems)
           .values({
@@ -230,45 +327,72 @@ export default defineAction({
           });
       }
 
-      await writeFactoryPollCursor(tx as unknown as ReturnType<typeof getDb>, {
-        orgId,
-        factoryId,
-        source: "slack",
-        destinationKey,
-        ownerEmail: userEmail,
-        lastSlackTs: nextLastSlackTs,
-        slackHistoryCursor: nextHistoryCursor,
-      });
-      if (config && configRowId) {
-        await tx
-          .update(triageConfig)
-          .set({
-            lastSlackTs: nextLastSlackTs,
-            slackHistoryCursor: nextHistoryCursor,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(triageConfig.id, configRowId),
-              eq(triageConfig.orgId, orgId),
-              factoryStillPresent(
-                tx as unknown as ReturnType<typeof getDb>,
-                orgId,
-                factoryId,
+      if (preview !== true && !ownsPosition) {
+        await writeFactoryPollCursor(tx, {
+          orgId,
+          factoryId,
+          source: "slack",
+          destinationKey,
+          ownerEmail: userEmail,
+          lastSlackTs: nextLastSlackTs,
+          slackHistoryCursor: nextHistoryCursor,
+        });
+        if (config && configRowId) {
+          await tx
+            .update(triageConfig)
+            .set({
+              lastSlackTs: nextLastSlackTs,
+              slackHistoryCursor: nextHistoryCursor,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(triageConfig.id, configRowId),
+                eq(triageConfig.orgId, orgId),
+                factoryStillPresent(tx, orgId, factoryId),
               ),
-            ),
-          );
+            );
+        }
       }
-      await requireExistingFactory(
-        tx as unknown as ReturnType<typeof getDb>,
-        orgId,
-        factoryId,
+      await requireExistingFactory(tx, orgId, factoryId);
+    };
+    if (preview === true) await ingest(db);
+    else {
+      await db.transaction(async (tx) =>
+        ingest(tx as unknown as ReturnType<typeof getDb>),
       );
-    });
+    }
 
     const truncatedByLimit = ingested.length < accepted.length;
     const authorFiltered = result.envelopes.length - accepted.length;
     const truncated = result.hasMore || truncatedByAuthor || truncatedByLimit;
+    if (preview === true) {
+      // A preview stores nothing, so it leaves no audit row either.
+      const sample = boundPreviewRows(
+        addedEnvelopes.map((envelope) =>
+          newMessageRow(envelope, {
+            now,
+            userEmail,
+            orgId,
+            factoryId,
+          }),
+        ),
+      );
+      return {
+        ok: true,
+        source: "slack",
+        factoryId,
+        channelId,
+        observed: ingested.length,
+        hasMore: truncated,
+        nextLastSlackTs,
+        nextHistoryCursor,
+        coverage: truncated ? "partial" : "complete",
+        preview: true,
+        previewRows: sample.rows,
+        previewTotal: sample.total,
+      };
+    }
     await recordFactoryAudit(
       context,
       { userEmail, orgId },
@@ -331,6 +455,8 @@ export default defineAction({
         result.hasMore || truncated || truncatedByLimit
           ? "partial"
           : "complete",
+      // The position a workflow source saves: where this read left off.
+      ...(ownsPosition ? { position: nextLastSlackTs } : {}),
     };
   },
 });

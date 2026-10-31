@@ -115,6 +115,8 @@ export class ItemRuntime {
   readonly cursorsHeld: string[] = [];
   /** Rows a source's provider read and could not turn into items, for want of a title or a time. */
   skippedRows = 0;
+  /** Inbox sources of a live run whose first read took the newest position and no item, so a quiet run is not read as an empty channel. */
+  primed = 0;
   /**
    * Items this run could not set aside for the next one and left to be built
    * again from their source: while there are any, the run has not accounted for

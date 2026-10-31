@@ -37,8 +37,12 @@ export type CreatorTarget =
     }
   | { kind: "insert"; edgeId: string };
 
-/** `unknown` is a check that failed or has not run. It is never read as `not connected`. */
-export type ProviderLinkStatus = "connected" | "not connected" | "unknown";
+/** `unknown` is a check that failed or has not run; `unreadable` is a saved key this deployment cannot read. Neither is read as `not connected`. */
+export type ProviderLinkStatus =
+  | "connected"
+  | "not connected"
+  | "unknown"
+  | "unreadable";
 
 /** A deeper list the root can open. `sources`, `actions` and `apiRequest` list the apps. */
 type ListId = "sources" | "actions" | "ai" | "data" | "flow" | "apiRequest";

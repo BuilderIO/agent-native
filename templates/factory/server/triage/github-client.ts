@@ -1,6 +1,10 @@
 import { createSign } from "node:crypto";
 
 import { resolveConnectorSecret } from "../connectors/credentials.js";
+import {
+  SECRET_UNREADABLE_CODE,
+  UnreadableSecretError,
+} from "../lib/unreadable-secret.js";
 import type { TriageCoverage } from "./contracts.js";
 import type { ReviewCommentObservation } from "./pr-babysit.js";
 import type {
@@ -186,6 +190,27 @@ export class GitHubRequestError extends Error {
   ) {
     super(message);
     this.name = "GitHubRequestError";
+  }
+}
+
+/**
+ * A request that never left because the token is saved but cannot be decrypted.
+ * Readers of `requestAttempted` still see a request that never left; readers of
+ * the typed failure (an action's output, `failGitHubStep`) see core's code, so
+ * it is neither read as "not connected" nor retried.
+ */
+export class GitHubTokenUnreadableError extends GitHubRequestError {
+  readonly actionContractError = true as const;
+  readonly errorCode = SECRET_UNREADABLE_CODE;
+  readonly statusCode = 412;
+  readonly keys: readonly string[];
+  cause: UnreadableSecretError;
+
+  constructor(cause: UnreadableSecretError) {
+    super(cause.message, false);
+    this.name = "GitHubTokenUnreadableError";
+    this.keys = cause.keys;
+    this.cause = cause;
   }
 }
 
@@ -786,6 +811,9 @@ export function createGitHubClient(options: GitHubClientOptions) {
       return (await response.json()) as T;
     } catch (error) {
       if (error instanceof GitHubRequestError) throw error;
+      if (error instanceof UnreadableSecretError) {
+        throw new GitHubTokenUnreadableError(error);
+      }
       throw new GitHubRequestError(
         error instanceof Error
           ? error.message
@@ -832,6 +860,9 @@ export function createGitHubClient(options: GitHubClientOptions) {
       return (await response.json()) as T;
     } catch (error) {
       if (error instanceof GitHubRequestError) throw error;
+      if (error instanceof UnreadableSecretError) {
+        throw new GitHubTokenUnreadableError(error);
+      }
       throw new GitHubRequestError(
         error instanceof Error ? error.message : "GitHub request failed",
         requestAttempted,

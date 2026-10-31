@@ -832,6 +832,7 @@ const messages = {
       itemFailures_other: "{{count}} items failed",
       needsCheck: "{{count}} to check",
       nothing: "Nothing new",
+      primed: "Started from now",
       summary: "{{head}}: {{parts}}",
     },
     change: {

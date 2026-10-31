@@ -44,6 +44,11 @@ export const slackOperations: OperationDefinitionInput[] = [
       "Reads a whole thread. A message's reactions are everyone's but the app's own bot, whose are listed apart as ownReactions.",
     nodeKinds: ["lookup"],
     effect: "read",
+    // The action cuts whole messages at its own 34,000 characters, and story 01
+    // reads a thread for each of up to three reports, then the open reports for
+    // each clear one. 6,500 holds about 16 messages and leaves a step room for
+    // both; a longer thread says so and gives `nextOldest` to read the rest.
+    answerBudgetChars: 6_500,
     fields: [
       { name: "channel", type: "string", required: true, label: "Channel" },
       { name: "threadTs", type: "string", required: true, label: "Thread" },

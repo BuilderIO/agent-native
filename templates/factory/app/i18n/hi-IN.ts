@@ -824,6 +824,7 @@ const messages = {
       itemFailures_other: "{{count}} आइटम विफल",
       needsCheck: "{{count}} जाँचने हैं",
       nothing: "कुछ नया नहीं",
+      primed: "अभी से शुरू",
       summary: "{{head}}: {{parts}}",
     },
     change: {

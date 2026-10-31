@@ -13,6 +13,7 @@ import {
   parseGitHubRepositoryRef,
   type GitHubRepositoryRef,
 } from "./github-repository.js";
+import { isUnreadableSecret } from "./unreadable-secret.js";
 import {
   failWorkflowAction,
   isWorkflowActionError,
@@ -102,6 +103,8 @@ export function parseRepositoryInput(repo: string): GitHubRepositoryRef {
  * response body.
  */
 export function failGitHubStep(error: unknown, what: string): never {
+  // GitHub was never asked: the typed failure already names the key, and no other branch here fits it.
+  if (isUnreadableSecret(error)) throw error;
   if (error instanceof GitHubRequestError) {
     if (!error.requestAttempted) {
       return failWorkflowAction({

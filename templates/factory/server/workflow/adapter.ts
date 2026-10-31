@@ -723,6 +723,17 @@ export interface OperationExecutor {
 
 type SourceNodeSettings = WorkflowNodeOfKind<"source">["settings"];
 
+/**
+ * Where an inbox-poll source starts. A source with no start keeps no position
+ * and reads as it always did: a workflow that was already running when
+ * positions were added.
+ */
+export type InboxStart =
+  /** No position is stored yet: the first read starts from now and takes no item that was already there. */
+  | { readonly kind: "prime" }
+  /** The position the last live read saved, exactly as the host returned it. */
+  | { readonly kind: "from"; readonly position: string };
+
 /** The two sources that read Factory's own inbox instead of calling a provider. */
 export interface InboxRequest {
   readonly settings: Extract<
@@ -731,6 +742,8 @@ export interface InboxRequest {
   >;
   readonly mode: RunMode;
   readonly signal: AbortSignal;
+  /** An inbox-poll source only. */
+  readonly start?: InboxStart;
 }
 
 export type InboxResult =
@@ -738,6 +751,19 @@ export type InboxResult =
       ok: true;
       items: readonly NormalizedItem[];
       totalAvailable?: number;
+      /**
+       * An inbox-poll source only: where the source stands after this read,
+       * opaque to the engine. A live run saves it; any other run leaves what
+       * is stored alone.
+       */
+      position?: string;
+      /** The read took the newest position and no item: a live source's first read. */
+      primed?: boolean;
+      /**
+       * The items are a read-only sample: nothing was stored and no position
+       * moved, so a later live run neither sees them as rows nor skips them.
+       */
+      sample?: boolean;
     }
   | {
       ok: false;

@@ -21,7 +21,7 @@
 
 ## The path
 
-1. **`tickets` (Source, provider query, remembered in the inbox):** `pylon.newTickets` since the cursor, at most 8 a run. Each ticket carries its thread through every later step and one step hands on 64 KB in all, so 8 tickets with a thread of at most 5,000 characters each fit with room for the classification. Taken at 50, a real queue's threads (about 10 KB each) failed the `thread` step with `output_over_cap` for every ticket in the run.
+1. **`tickets` (Source, provider query, remembered in the inbox):** `pylon.newTickets` since the cursor, at most 8 a run. Each ticket carries its thread through every later step and one step hands on 64 KB in all, so 8 tickets with a thread of at most 5,000 characters each fit with room for the classification. Taken at 50, a real queue's threads (about 10 KB each) failed the `thread` step with `output_over_cap` for every ticket in the run. Pylon's search takes no sort and its docs promise no order, so Factory sorts the page it gets by `created_at`, takes the **oldest** 8 and saves the `created_at` of the last one as the cursor: a burst of 20 is taken 8, 8 and 4 over three runs, each run's step records how many the page held (`truncated`, `totalAvailable`), and no ticket is skipped. This holds only while the page is every ticket newer than the cursor; a page Pylon marks partial (`pagination.has_next_page`) fails the run instead, because the oldest tickets may be the ones missing.
 2. **`thread` (Lookup, `pylon.ticketThread`):** the ticket's messages. A read that returns nothing at all is a failed lookup.
 3. **`classify` (AI, per ticket):** `category` (bug, billing, urgent, other), `severity`, `confidence`, `summary`.
 4. **`route` (Switch):**
@@ -45,6 +45,7 @@ flowchart LR
 
 ## What it must never do, and where that is enforced
 
+- **Lose a ticket because a burst was bigger than one run.** Taking the newest 8 and holding the cursor, as this source did before, re-read the same 8 on every run and never reached the rest (a burst of 20 left 12 unhandled for good, with no failure anywhere). The source now sorts oldest first and saves the position of the last ticket it took, so the rest are next run's (scenario `a-burst-of-twenty-tickets-is-taken-eight-a-run-and-every-ticket-once`). Tickets that share one `created_at` are never split by the cut, and a page Pylon marks partial fails the run (`unexpected_response`) rather than skip the oldest.
 - **Reply twice to one ticket.** A handled ticket (`resolved`, `dismissed` or `needs_manual`) that the provider offers again is recognised by the Source and not taken (the step records `alreadyHandled`); each reply is also a write under a receipt keyed by the ticket and the node.
 - **Use data from any customer other than the ticket's own.** The Stripe lookup is keyed by the ticket's requester email (`item.author`), and the scenarios assert the email of every Stripe request. Stripe is only asked for billing tickets.
 - **Reply automatically to an urgent ticket.** The urgent route has no Pylon write at all; the proof asserts no Pylon write for an urgent ticket.
@@ -58,6 +59,8 @@ flowchart LR
 - A billing answer that states an amount or a date is never sent on its own: finance answers it. Sending one safely needs a check in code that every amount and date in the answer appears in the Stripe lookup result, which no node kind does today.
 - A customer email that is not in Stripe, or matches several customers, is not routed to a person by code: the model is shown whatever Stripe returned and must say `supported: false`. The rules language cannot count a list, so the graph cannot test for "exactly one customer".
 - A ticket that fails does not depend on Pylon offering it again, and the Pylon cursor moves on. A failure a later try may fix (the model gave no usable answer) sets the ticket aside at that step, and the third failed attempt hands it to a person; one that cannot be fixed (a thread read that returns nothing) hands it to a person at once (scenario `an-unreadable-ticket-that-is-offered-again-is-handed-to-a-person-on-the-third-try` shows the re-offered case).
+- A burst of more than 100 tickets between two runs is not taken, and does not clear by itself. Pylon sends at most 100 tickets per search and the source does not read a second page, so more than 100 tickets created since the cursor fail the source step on every run as `unexpected_response`, naming `pagination.has_next_page`. Nothing is skipped and nothing is taken until a person moves the position. A burst of up to 100 is taken 8 a run: 20 tickets take three runs.
+- The first live run only primes: it saves the newest `created_at` of the first page of Pylon's tickets and takes none. Pylon documents no order and sends at most 100 of them, so on a workspace with more than 100 tickets the page may not hold the newest ticket; the priming run then records a `priming_page_partial` trace and a later run takes whatever is newer than the position it saved, 8 at a time.
 - Tickets with attachments are not looked at, and a ticket updated after classification is not re-evaluated.
 
 ## Scenarios
@@ -71,3 +74,4 @@ flowchart LR
 - `a-thread-that-returns-nothing-is-a-failed-lookup-not-an-empty-ticket`: never classified from nothing.
 - `a-test-of-the-classify-node-runs-on-a-sample-ticket-and-sends-nothing`: the test step on a pinned ticket.
 - `a-dry-run-sends-nothing`: every read and model answer real, no write.
+- `a-burst-of-twenty-tickets-is-taken-eight-a-run-and-every-ticket-once`: twenty tickets wait for a run that takes 8. Three runs take 8, 8 and 4 oldest first (the first two record `truncated` with 20 and 12 available), a fourth finds nothing, each ticket gets one note, and each run is sent the position the previous one saved. The pages are recorded answers of the Pylon source, so this scenario proves what the engine does with them; the host specs (`operation-executor-priming.spec.ts`, `provider-request-paging.spec.ts`) prove the source returns them from a search in any order, with a stored position moving the way the scenario says.

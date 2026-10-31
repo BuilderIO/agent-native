@@ -6,6 +6,7 @@ const getCredentialContextMock = vi.hoisted(() => vi.fn());
 const getEmailReadinessMock = vi.hoisted(() => vi.fn());
 const listCatalogMock = vi.hoisted(() => vi.fn());
 const connectorSourcesMock = vi.hoisted(() => vi.fn());
+const builderStateMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/credentials", () => ({
   resolveCredentialDetailed: resolveCredentialDetailedMock,
@@ -14,6 +15,7 @@ vi.mock("@agent-native/core/server", () => ({
   canAuthorizeBuilderApiRequest: canAuthorizeBuilderMock,
   getCredentialContext: getCredentialContextMock,
   getEmailReadiness: getEmailReadinessMock,
+  resolveBuilderOAuthRequestAccessState: builderStateMock,
 }));
 vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnectionProviderCatalogForApp: listCatalogMock,
@@ -30,6 +32,16 @@ import {
 } from "./factory-workflow-connections.js";
 
 const identity = { userEmail: "teammate@example.test", orgId: "org-1" };
+
+const present = (source: "workspace" | "local-env" = "workspace") => ({
+  state: "present" as const,
+  source,
+});
+const absent = { state: "absent" as const };
+const unreadableKeys = (...keys: string[]) => ({
+  state: "unreadable" as const,
+  keys,
+});
 
 async function statusOf(provider: string) {
   const [result] = await readProviderConnections([provider], identity);
@@ -70,16 +82,17 @@ beforeEach(() => {
     orgId: identity.orgId,
   });
   connectorSourcesMock.mockResolvedValue({
-    slack: "workspace",
-    slackSecondary: undefined,
-    github: undefined,
-    sentry: "workspace",
+    slack: present(),
+    slackSecondary: absent,
+    github: absent,
+    sentry: present(),
   });
   getEmailReadinessMock.mockResolvedValue({
     status: "ready",
     provider: "resend",
   });
   canAuthorizeBuilderMock.mockResolvedValue(true);
+  builderStateMock.mockResolvedValue({ kind: "not_connected" });
   listCatalogMock.mockResolvedValue({ providers: [] });
   vaultHas();
 });
@@ -115,10 +128,10 @@ describe("readProviderConnections", () => {
   it("says when a provider is connected only through the local .env, which provider-api-request cannot use", async () => {
     vaultHas("SENTRY_ORG_SLUG");
     connectorSourcesMock.mockResolvedValue({
-      slack: "local-env",
-      slackSecondary: undefined,
-      github: "workspace",
-      sentry: undefined,
+      slack: present("local-env"),
+      slackSecondary: absent,
+      github: present(),
+      sentry: absent,
     });
 
     const result = await readProviderConnections(
@@ -194,6 +207,81 @@ describe("readProviderConnections", () => {
     });
   });
 
+  it("calls a saved Builder sign-in this deployment cannot read unreadable, not not connected", async () => {
+    canAuthorizeBuilderMock.mockResolvedValue(false);
+    builderStateMock.mockResolvedValue({ kind: "unreadable" });
+
+    expect(await statusOf("builder")).toEqual({
+      provider: "builder",
+      status: "unreadable",
+      connectWith: "settings",
+      detail: expect.stringMatching(
+        /saved Builder sign-in exists but this deployment cannot read it/,
+      ),
+    });
+    expect(builderStateMock).toHaveBeenCalledWith({
+      ownerEmail: identity.userEmail,
+      requiredScope: "builder:agents:run",
+      orgId: identity.orgId,
+    });
+  });
+
+  it("still calls Builder not connected when no sign-in is saved or the saved one is expired", async () => {
+    canAuthorizeBuilderMock.mockResolvedValue(false);
+
+    for (const kind of ["not_connected", "unusable"]) {
+      builderStateMock.mockResolvedValue({ kind });
+      expect(await statusOf("builder")).toMatchObject({
+        status: "not connected",
+        detail: expect.stringContaining("builder:agents:run"),
+      });
+    }
+  });
+
+  it("does not ask for the Builder sign-in state when the shared check already says connected", async () => {
+    expect(await statusOf("builder")).toMatchObject({ status: "connected" });
+    expect(builderStateMock).not.toHaveBeenCalled();
+  });
+
+  it("is unknown, not not connected, when the saved Builder sign-in could not be looked at", async () => {
+    canAuthorizeBuilderMock.mockResolvedValue(false);
+    builderStateMock.mockRejectedValue(new Error("store offline"));
+
+    expect(await statusOf("builder")).toMatchObject({
+      status: "unknown",
+      detail: "store offline",
+    });
+  });
+
+  it("calls a connector token that is saved but cannot be decrypted unreadable, and leaves the other connectors their own answers", async () => {
+    connectorSourcesMock.mockResolvedValue({
+      slack: unreadableKeys("SLACK_BOT_TOKEN"),
+      slackSecondary: absent,
+      github: present(),
+      sentry: absent,
+    });
+
+    const result = await readProviderConnections(
+      ["slack", "github", "sentry"],
+      identity,
+    );
+
+    expect(
+      Object.fromEntries(
+        result.map(({ provider, status }) => [provider, status]),
+      ),
+    ).toEqual({
+      github: "connected",
+      sentry: "not connected",
+      slack: "unreadable",
+    });
+    expect(result.find((entry) => entry.provider === "slack")).toMatchObject({
+      detail: expect.stringMatching(
+        /SLACK_BOT_TOKEN is saved but could not be decrypted.*Save it again/,
+      ),
+    });
+  });
+
   it("counts a ready workspace connection granted to Factory", async () => {
     listCatalogMock.mockResolvedValue({
       providers: [{ id: "hubspot", readiness: { status: "ready" } }],
@@ -240,12 +328,12 @@ describe("readProviderConnections", () => {
     });
   });
 
-  it("calls a Sentry organization slug that is saved but cannot be decrypted unknown, never connected and never absent", async () => {
+  it("calls a Sentry organization slug that is saved but cannot be decrypted unreadable, never connected and never absent", async () => {
     vaultReads([], ["SENTRY_ORG_SLUG"]);
 
     expect(await statusOf("sentry")).toEqual({
       provider: "sentry",
-      status: "unknown",
+      status: "unreadable",
       connectWith: "vault",
       detail: expect.stringMatching(
         /SENTRY_ORG_SLUG is saved but could not be decrypted.*Save it again/,
@@ -255,10 +343,10 @@ describe("readProviderConnections", () => {
 
   it("does not look for the organization slug when the Sentry token itself is missing or unreadable", async () => {
     connectorSourcesMock.mockResolvedValue({
-      slack: "workspace",
-      slackSecondary: undefined,
-      github: undefined,
-      sentry: undefined,
+      slack: present(),
+      slackSecondary: absent,
+      github: absent,
+      sentry: absent,
     });
     expect(await statusOf("sentry")).toMatchObject({
       status: "not connected",
@@ -287,7 +375,7 @@ describe("readProviderConnections", () => {
 
     expect(await statusOf("jira")).toEqual({
       provider: "jira",
-      status: "unknown",
+      status: "unreadable",
       connectWith: "workspace-connection",
       detail: expect.stringMatching(
         /JIRA_API_TOKEN is saved but could not be decrypted/,
@@ -297,7 +385,7 @@ describe("readProviderConnections", () => {
 
   it("tries the ways of signing in in order, as a read does: an unreadable key stops the search", async () => {
     vaultReads(["HUBSPOT_ACCESS_TOKEN"], ["HUBSPOT_PRIVATE_APP_TOKEN"]);
-    expect(await statusOf("hubspot")).toMatchObject({ status: "unknown" });
+    expect(await statusOf("hubspot")).toMatchObject({ status: "unreadable" });
 
     vaultReads(["HUBSPOT_PRIVATE_APP_TOKEN"], ["HUBSPOT_ACCESS_TOKEN"]);
     expect(await statusOf("hubspot")).toMatchObject({ status: "connected" });

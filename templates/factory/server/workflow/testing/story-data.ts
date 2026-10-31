@@ -178,6 +178,8 @@ const inboxRecordingSchema = z.union([
       retryable: z.boolean().optional(),
     }),
   }),
+  /** A source's first live read: the newest position, saved as is, and no item. */
+  z.strictObject({ primed: z.string().min(1) }),
 ]);
 
 const named = <T extends z.ZodType>(recording: T) =>
@@ -605,13 +607,20 @@ function compile(
                 message: recording.failed.message,
                 retryable: recording.failed.retryable ?? false,
               }
-            : {
-                ok: true,
-                items: itemsOf(recording.items),
-                ...(recording.totalAvailable === undefined
-                  ? {}
-                  : { totalAvailable: recording.totalAvailable }),
-              };
+            : "primed" in recording
+              ? {
+                  ok: true,
+                  items: [],
+                  primed: true,
+                  position: recording.primed,
+                }
+              : {
+                  ok: true,
+                  items: itemsOf(recording.items),
+                  ...(recording.totalAvailable === undefined
+                    ? {}
+                    : { totalAvailable: recording.totalAvailable }),
+                };
         const source = sourceKind(graph, step.source);
         steps.push(
           step.calls === undefined

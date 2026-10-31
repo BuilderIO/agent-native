@@ -6,24 +6,34 @@ import {
   canAuthorizeBuilderApiRequest,
   getCredentialContext,
   getEmailReadiness,
+  resolveBuilderOAuthRequestAccessState,
 } from "@agent-native/core/server";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
 
-import { resolveFactoryConnectorSources } from "../connectors/credentials.js";
+import {
+  resolveFactoryConnectorSources,
+  type ConnectorReading,
+} from "../connectors/credentials.js";
 import { FACTORY_APP_ID } from "./provider-api.js";
+import { isUnreadableSecret } from "./unreadable-secret.js";
 
 export type ProviderConnectionStatus =
   | "connected"
   | "not connected"
-  | "unknown";
+  | "unknown"
+  | "unreadable";
 
 export interface ProviderConnection {
   provider: string;
-  /** `unknown` means the check itself failed or a saved key cannot be decrypted; it is never read as not connected. */
+  /**
+   * `unknown` means the check itself failed, so asking again may answer.
+   * `unreadable` means a credential is saved but this deployment cannot decrypt
+   * it, so only a person fixing the key helps. Neither is read as not connected.
+   */
   status: ProviderConnectionStatus;
   /** Where a person connects it when it is not connected. */
   connectWith: "workspace-connection" | "vault" | "settings" | null;
-  /** Why the status is `unknown`, what is missing, or what limits a connection that works. */
+  /** Why the status is `unknown` or `unreadable`, what is missing, or what limits a connection that works. */
   detail?: string;
 }
 
@@ -83,6 +93,14 @@ function unknown(
   return { provider, status: "unknown", connectWith, detail: message };
 }
 
+function unreadable(
+  provider: string,
+  connectWith: ProviderConnection["connectWith"],
+  detail: string,
+): ProviderConnection {
+  return { provider, status: "unreadable", connectWith, detail };
+}
+
 function known(
   provider: string,
   connectWith: ProviderConnection["connectWith"],
@@ -104,14 +122,6 @@ function known(
 // local `.env` included; provider-api-request needs a workspace connection.
 const LOCAL_ENV_ONLY =
   "Connected through this machine's local .env only: workflow runs can use it, but provider-api-request needs a workspace connection.";
-
-/** What core throws for a saved value it cannot decrypt; core does not export the class, so it is read by its code. */
-function isUnreadableSecret(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error as { errorCode?: unknown }).errorCode === "app_secret_unreadable"
-  );
-}
 
 type KeyState = "present" | "absent" | "unreadable";
 
@@ -197,7 +207,7 @@ function companionKeysOf(provider: string): readonly string[] | undefined {
 /**
  * A connector that has its credential still cannot read without the companion
  * keys the provider's paths carry. Absent is `not connected`; saved but
- * undecryptable is `unknown`, because adding the key would not fix it.
+ * undecryptable is `unreadable`, because adding the key would not fix it.
  */
 async function withCompanionKeys(
   connection: ProviderConnection,
@@ -208,7 +218,7 @@ async function withCompanionKeys(
   const reading = await attempt(() => keysState(keys));
   if (!reading.ok) return unknown(provider, "vault", reading.message);
   if ("unreadable" in reading.value) {
-    return unknown(
+    return unreadable(
       provider,
       "vault",
       unreadableDetail(provider, reading.value.unreadable),
@@ -221,6 +231,69 @@ async function withCompanionKeys(
     connectWith: "vault",
     detail: `${keys.join(", ")} ${keys.length === 1 ? "is" : "are"} not saved, so a ${provider} read has no organization to ask. Add ${keys.length === 1 ? "it" : "them"} under Keys in Settings.`,
   };
+}
+
+async function connectorConnection(
+  provider: string,
+  reading: ConnectorReading,
+): Promise<ProviderConnection> {
+  if (reading.state === "unreadable") {
+    return unreadable(
+      provider,
+      "vault",
+      unreadableDetail(provider, reading.keys),
+    );
+  }
+  const present = reading.state === "present";
+  return withCompanionKeys(
+    known(
+      provider,
+      "workspace-connection",
+      present,
+      "Connect it in Dispatch or add a vault token.",
+      present && reading.source === "local-env" ? LOCAL_ENV_ONLY : undefined,
+    ),
+  );
+}
+
+const BUILDER_RUN_SCOPE = "builder:agents:run";
+
+/**
+ * Builder's sign-in as a run will meet it. The shared check answers no for a
+ * saved sign-in this deployment cannot decrypt, just as it does for none at
+ * all, so a no is asked again of the state the Builder stream itself reads.
+ */
+async function builderConnection(identity: {
+  userEmail: string;
+  orgId: string;
+}): Promise<ProviderConnection> {
+  const provider = "builder";
+  const usable = await attempt(() =>
+    canAuthorizeBuilderApiRequest(BUILDER_RUN_SCOPE),
+  );
+  if (!usable.ok) return unknown(provider, "settings", usable.message);
+  if (usable.value) return known(provider, "settings", true, "");
+  const saved = await attempt(() =>
+    resolveBuilderOAuthRequestAccessState({
+      ownerEmail: identity.userEmail,
+      requiredScope: BUILDER_RUN_SCOPE,
+      orgId: identity.orgId,
+    }),
+  );
+  if (!saved.ok) return unknown(provider, "settings", saved.message);
+  if (saved.value.kind === "unreadable") {
+    return unreadable(
+      provider,
+      "settings",
+      "A saved Builder sign-in exists but this deployment cannot read it, so Builder steps cannot run. Sign in to Builder again under Integrations in Settings, or run with the key that saved it.",
+    );
+  }
+  return known(
+    provider,
+    "settings",
+    saved.value.kind === "available",
+    `No Builder connection grants ${BUILDER_RUN_SCOPE}.`,
+  );
 }
 
 /**
@@ -261,17 +334,7 @@ export async function readProviderConnections(
                 ? connectors.message
                 : "Connector readiness is unavailable.",
             )
-          : await withCompanionKeys(
-              known(
-                provider,
-                "workspace-connection",
-                connectors.value[provider] !== undefined,
-                "Connect it in Dispatch or add a vault token.",
-                connectors.value[provider] === "local-env"
-                  ? LOCAL_ENV_ONLY
-                  : undefined,
-              ),
-            ),
+          : await connectorConnection(provider, connectors.value[provider]),
       );
     } else if (provider === "email") {
       const readiness = await getEmailReadiness();
@@ -286,19 +349,7 @@ export async function readProviderConnections(
             ),
       );
     } else if (provider === "builder") {
-      const builder = await attempt(() =>
-        canAuthorizeBuilderApiRequest("builder:agents:run"),
-      );
-      result.push(
-        builder.ok
-          ? known(
-              provider,
-              "settings",
-              builder.value,
-              "No Builder connection grants builder:agents:run.",
-            )
-          : unknown(provider, "settings", builder.message),
-      );
+      result.push(await builderConnection(identity));
     } else {
       const connectWith = WORKSPACE_CONNECTION_PROVIDERS.has(provider)
         ? "workspace-connection"
@@ -316,14 +367,26 @@ export async function readProviderConnections(
         result.push({ provider, status: "connected", connectWith });
         continue;
       }
+      if (
+        viaConnection?.ok !== false &&
+        viaVault.ok &&
+        viaVault.value.state === "unreadable"
+      ) {
+        result.push(
+          unreadable(
+            provider,
+            connectWith,
+            unreadableDetail(provider, viaVault.value.keys),
+          ),
+        );
+        continue;
+      }
       const failure =
         viaConnection?.ok === false
           ? viaConnection.message
           : !viaVault.ok
             ? viaVault.message
-            : viaVault.value.state === "unreadable"
-              ? unreadableDetail(provider, viaVault.value.keys)
-              : undefined;
+            : undefined;
       result.push(
         failure !== undefined
           ? unknown(provider, connectWith, failure)

@@ -480,6 +480,7 @@ export async function runTick(input: RunTickInput): Promise<TickResult> {
     // Rows a provider sent that could not be read are rows to check, the same as items flagged by a write.
     needsCheck: runtime.needsCheck + runtime.skippedRows,
     skippedRows: runtime.skippedRows,
+    primed: runtime.primed,
     modelCalls: budget.usedModelCalls(),
     parked: runtime.parked,
     woke: runtime.woke,

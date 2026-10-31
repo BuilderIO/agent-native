@@ -29,11 +29,15 @@ const issueTarget = [
 
 export const sentryOperations: OperationDefinitionInput[] = [
   {
+    // An issue is 4 KB to 15 KB: its identity, status and counts come first,
+    // then the activity, seen-by and stats lists that grow with the issue, so
+    // the cut takes the tail.
     id: "sentry.issueStatus",
     provider: "sentry",
     label: "Sentry: read an issue's status",
     nodeKinds: ["lookup"],
     effect: "read",
+    answerBudgetChars: 6_000,
     fields: [...issue],
     implementation: {
       type: "provider-request",
@@ -43,11 +47,16 @@ export const sentryOperations: OperationDefinitionInput[] = [
     credential: { provider: "sentry" },
   },
   {
+    // Fifty events are 50 KB to 100 KB (each carries its tags, user and
+    // metadata), newest first. Story 07 reads one issue per incident that
+    // resolved, and with the model's postmortem each is about 5 KB more, so
+    // 10,000 lets four incidents through a step with the newest few events.
     id: "sentry.issueEvents",
     provider: "sentry",
     label: "Sentry: recent events of an issue",
     nodeKinds: ["lookup"],
     effect: "read",
+    answerBudgetChars: 10_000,
     fields: [...issue],
     implementation: {
       type: "provider-request",

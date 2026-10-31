@@ -432,6 +432,7 @@ describe("story 6: a support ticket to the right place", () => {
       itemFailures: 0,
       needsCheck: 0,
       skippedRows: 0,
+      primed: 0,
       modelCalls: 4,
       parked: 0,
       woke: 0,

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { GitHubRequestError } from "../triage/github-client.js";
+import {
+  GitHubRequestError,
+  GitHubTokenUnreadableError,
+} from "../triage/github-client.js";
 import { OPERATION_CATALOG } from "../workflow/catalog/index.js";
 import type { GitHubClient } from "./factory-pull-request.js";
 import {
@@ -12,6 +15,7 @@ import {
   parseIssueRepository,
   removeLabelFromIssue,
 } from "./github-issue-write.js";
+import { UnreadableSecretError } from "./unreadable-secret.js";
 
 function fakeGitHub(overrides: Record<string, unknown> = {}) {
   return {
@@ -95,6 +99,23 @@ describe("how a failed GitHub write is told", () => {
       sideEffect: "none",
       statusCode: 412,
     });
+  });
+
+  it("says a token it cannot decrypt is unreadable, not that GitHub is not connected, and nothing was written", async () => {
+    const failure = await write(
+      failing(
+        new GitHubTokenUnreadableError(
+          new UnreadableSecretError("GITHUB_TOKEN"),
+        ),
+      ),
+    ).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      errorCode: "app_secret_unreadable",
+      statusCode: 412,
+      keys: ["GITHUB_TOKEN"],
+    });
+    expect(failure).not.toMatchObject({ errorCode: "github_not_connected" });
   });
 
   it("is github_access_denied when the connection lacks write access (403), the code every GitHub step uses for a refused credential", async () => {

@@ -571,6 +571,32 @@ describe("a poller that does not deliver", () => {
     );
   });
 
+  // core hands the code on only for a non-recoverable error; the output text always carries it.
+  it.each([undefined, "app_secret_unreadable"])(
+    "says a saved key this deployment cannot decrypt is not retryable and not a missing connection, and names the key (errorCode %s)",
+    async (errorCode) => {
+      const { taken } = await seededTake({
+        status: "failed",
+        output:
+          "Error running poll-slack-channel: SLACK_BOT_TOKEN is saved but this deployment cannot decrypt it, so nothing that needs it can run. Retrying will not help: a person must save it again under Keys in Settings. (errorCode: app_secret_unreadable)",
+        ...(errorCode ? { errorCode } : {}),
+      });
+
+      expect(taken).toMatchObject({
+        ok: false,
+        reason: "poller_failed",
+        code: "provider_error",
+        retryable: false,
+      });
+      expect(taken.ok ? "" : taken.message).toContain(
+        "SLACK_BOT_TOKEN is saved but this deployment cannot decrypt it",
+      );
+      expect(taken.ok ? "" : taken.message).not.toContain(
+        "request-workflow-connection",
+      );
+    },
+  );
+
   it("says a refusal by the workflow gate is a refusal", async () => {
     const { taken } = await seededTake({
       status: "failed",

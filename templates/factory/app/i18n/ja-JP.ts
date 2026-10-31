@@ -831,6 +831,7 @@ const messages = {
       itemFailures_other: "{{count}} 件の項目が失敗",
       needsCheck: "{{count}} 件要チェック",
       nothing: "新しいものはありません",
+      primed: "今から開始",
       summary: "{{head}}：{{parts}}",
     },
     change: {

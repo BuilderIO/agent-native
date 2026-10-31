@@ -328,7 +328,7 @@ describe("the operation catalog", () => {
         if (def.cursor) {
           expect(rest.has(def.cursor.param), `${def.id} cursor`).toBe(true);
         }
-        if (def.cursor?.forward) {
+        if (def.cursor?.forward?.sortParam !== undefined) {
           expect(rest.has(def.cursor.forward.sortParam), `${def.id} sort`).toBe(
             true,
           );

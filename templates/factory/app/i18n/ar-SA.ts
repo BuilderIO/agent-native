@@ -869,6 +869,7 @@ const messages = {
       itemFailures_other: "فشل {{count}} عنصر",
       needsCheck: "{{count}} للتحقق",
       nothing: "لا جديد",
+      primed: "بدأ من الآن",
       summary: "{{head}}: {{parts}}",
     },
     change: {

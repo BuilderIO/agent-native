@@ -866,6 +866,7 @@ const messages = {
       itemFailures_other: "Fallaron {{count}} elementos",
       needsCheck: "{{count}} por comprobar",
       nothing: "Nada nuevo",
+      primed: "Iniciado desde ahora",
       summary: "{{head}}: {{parts}}",
     },
     change: {

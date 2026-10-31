@@ -821,6 +821,7 @@ const messages = {
       itemFailures_other: "항목 {{count}}개 실패",
       needsCheck: "{{count}}건 점검 필요",
       nothing: "새 항목 없음",
+      primed: "지금부터 시작",
       summary: "{{head}}: {{parts}}",
     },
     change: {

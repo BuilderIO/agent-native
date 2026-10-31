@@ -42,7 +42,7 @@ const PURPOSE: Record<NodeKind, string> = {
   trigger:
     "Says when the workflow looks for new work. Exactly one per workflow; it has no inputs.",
   source:
-    "Starts a list of items: new messages from an inbox poller, a provider query, a time window, or items already in a status.",
+    "Starts a list of items: new messages from an inbox poller, a provider query, a time window, or items already in a status. An inbox poller or cursor query starts from the moment the workflow goes live and never works through what was already there.",
   lookup:
     "Reads one thing about each item (a thread, a ticket, a pull request) and attaches it under the node's name. Runs in a dry run. When no lookup covers an endpoint, <provider>.apiRequest (label API request) sends a read-only GET to any path of a connected provider; read its description with operationIds before using it.",
   action:

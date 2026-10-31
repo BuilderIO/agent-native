@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { identifierSchema, operationIdSchema } from "./contract.js";
 import { FORBIDDEN_SEGMENTS, validateResponsePath } from "./expressions.js";
+import { MAX_KEEP_PATHS, parseFieldsToKeep } from "./fields-to-keep.js";
 import { itemKindSchema } from "./items.js";
 
 const OPERATION_NODE_KINDS = ["source", "lookup", "action", "agent"] as const;
@@ -233,17 +234,21 @@ export const operationDefinitionSchema = z
     cursor: z
       .strictObject({
         param: z.string().min(1).max(80),
-        // Where the position after a whole newest-first page sits in the response; priming reads it.
-        path: responsePathSchema,
+        // Where the position after a whole newest-first page sits in the response; priming reads it. A cursor that sorts in code has none: it reads each row's own position.
+        path: responsePathSchema.optional(),
         // The position before any row existed. A priming pass over an empty page stores it, so the source is primed and the first row that arrives is processed.
         origin: z.string().min(1).max(80).optional(),
         // For a provider that can sort oldest first: once a position is stored the request asks oldest first (`sortParam` holds `oldestFirst`, otherwise `newestFirst`) and the position after a page is `itemPath` of the last row kept, so a page cut at the limit continues next tick.
         forward: z
           .strictObject({
             itemPath: responsePathSchema,
-            sortParam: z.string().min(1).max(80),
-            newestFirst: z.string().min(1).max(40),
-            oldestFirst: z.string().min(1).max(40),
+            sortParam: z.string().min(1).max(80).optional(),
+            newestFirst: z.string().min(1).max(40).optional(),
+            oldestFirst: z.string().min(1).max(40).optional(),
+            // For a provider that cannot be asked to sort: Factory orders the page by `itemPath`, read as an RFC 3339 time or whole epoch seconds, oldest first, and a page cut at the limit continues next tick the same way. That is right only when the page holds every row newer than the position, so `morePath` names where the response says it does not; a `true` there fails the run, because the oldest rows are then not on the page.
+            sortInCode: z
+              .strictObject({ morePath: responsePathSchema })
+              .optional(),
           })
           .optional(),
       })
@@ -258,8 +263,20 @@ export const operationDefinitionSchema = z
     emptyRange: z
       .strictObject({ errorIncludes: z.string().trim().min(3).max(120) })
       .optional(),
-    // For a lookup: the most characters of the provider's answer it hands on, cut and reported the way any over-long answer is. One step carries 64 KB in all, summed over every item it emits and every earlier answer still attached, so a lookup that runs once per item is sized to what a full step of items can hold.
+    // For a lookup: the most characters of the answer it hands on, cut and reported the way any over-long answer is. One step carries 64 KB in all, summed over every item it emits and every earlier answer still attached, so a lookup that runs once per item is sized to what a full step of items can hold. A lookup that calls a host action passes it on as `budgetChars`, and the action cuts whole entries to it.
     answerBudgetChars: z.number().int().min(1_000).max(30_000).optional(),
+    // For a lookup whose answer is bulky and holds a few fields a graph reads: the dotted paths it keeps, as Fields to keep does on an API request. The rest is left out before the budget looks at it, so a cut drops the tail of a list and never a field a graph reads because it came late in the provider's key order, and a budget holds as many entries as it can. A lookup that calls a host action passes them on as `answerFields`, under `items.`, and the action applies them to its list.
+    answerFields: z
+      .array(z.string())
+      .min(1)
+      .max(MAX_KEEP_PATHS)
+      .superRefine((paths, ctx) => {
+        const checked = parseFieldsToKeep(paths);
+        if (!checked.ok) {
+          ctx.addIssue({ code: "custom", message: checked.message });
+        }
+      })
+      .optional(),
     // What `nodes.<step>` carries once this operation ran. A graph that reads a name not listed here is refused on save; an operation that lists none is not checked.
     outputs: z.array(operationOutputSchema).min(1).max(60).optional(),
     receipt: z
@@ -286,6 +303,30 @@ export const operationDefinitionSchema = z
       new Set(def.fields.map((field) => field.name)).size !== def.fields.length
     ) {
       fail("field names must be unique", "fields");
+    }
+    const forward = def.cursor?.forward;
+    if (forward) {
+      const asksProvider = [
+        forward.sortParam,
+        forward.newestFirst,
+        forward.oldestFirst,
+      ];
+      const named = asksProvider.filter((name) => name !== undefined).length;
+      if (forward.sortInCode ? named > 0 : named < asksProvider.length) {
+        fail(
+          "a forward cursor either names the parameter that sorts (sortParam, newestFirst and oldestFirst) or sorts in code, never both and never neither",
+          "cursor",
+        );
+      }
+    }
+    if (
+      def.cursor &&
+      (def.cursor.path === undefined) !== !!forward?.sortInCode
+    ) {
+      fail(
+        "a cursor names the response path of its position unless it sorts in code, where it reads each row's own",
+        "cursor",
+      );
     }
     const sortParam = def.cursor?.forward?.sortParam;
     if (
@@ -335,6 +376,22 @@ export const operationDefinitionSchema = z
       !(def.effect === "read" && kinds.size === 1 && kinds.has("lookup"))
     ) {
       fail("only a lookup read declares an answer budget", "answerBudgetChars");
+    }
+    if (
+      def.answerFields !== undefined &&
+      !(
+        def.effect === "read" &&
+        kinds.size === 1 &&
+        kinds.has("lookup") &&
+        (def.implementation.type === "action" ||
+          (def.implementation.type === "provider-request" &&
+            !def.implementation.freeForm))
+      )
+    ) {
+      fail(
+        "only a lookup read with a fixed endpoint or a host action keeps answer fields",
+        "answerFields",
+      );
     }
     if (def.effect === "read" && kinds.has("action")) {
       fail("a read operation cannot be an action", "effect");

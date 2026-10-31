@@ -5,6 +5,7 @@ import { readCallingFactoryAutomation } from "../lib/factory-automation-caller.j
 import { readTriageConfigRow } from "../lib/factory-scope.js";
 import { isSlackChannelId } from "../lib/slack-channel-id.js";
 import { REACTION_NAME } from "../lib/source-reaction.js";
+import { isUnreadableSecret } from "../lib/unreadable-secret.js";
 import { failWorkflowAction } from "../lib/workflow-action-errors.js";
 import {
   WORKFLOW_ACTION_OUTPUT_BUDGET_CHARS,
@@ -126,6 +127,8 @@ function failSlackStep(
   operation: SlackOperation,
   what: string,
 ): never {
+  // Slack was never asked: the typed failure already names the key, and wrapping it would make it retryable.
+  if (isUnreadableSecret(error)) throw error;
   failIfSlackNotReady(error);
   const code = slackApiCode(error);
   const status = slackHttpStatus(error);
@@ -259,6 +262,8 @@ export async function readWorkflowSlackThread(
     channel: string;
     threadTs: string;
     oldest?: string;
+    /** The most characters of messages to hand on; the output budget when absent. */
+    budgetChars?: number;
   },
 ): Promise<WorkflowThreadResult> {
   let thread: { messages: SlackMessage[]; hasMore: boolean };
@@ -313,8 +318,9 @@ export async function readWorkflowSlackThread(
   const shaped = after.map((message) => shapeMessage(message, ownUserId));
   const { kept, truncated } = takeWithinBudget(
     shaped,
-    WORKFLOW_ACTION_OUTPUT_BUDGET_CHARS,
+    input.budgetChars ?? WORKFLOW_ACTION_OUTPUT_BUDGET_CHARS,
     400,
+    { keepFirst: true },
   );
   return {
     channel: input.channel,

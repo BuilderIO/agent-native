@@ -11,6 +11,7 @@ vi.mock("../lib/factory-scope.js", () => ({
   readTriageConfigRow: readConfigRowMock,
 }));
 
+import { UnreadableSecretError } from "../lib/unreadable-secret.js";
 import {
   SLACK_MESSAGE_TEXT_LIMIT,
   SLACK_POST_TEXT_MAX,
@@ -318,6 +319,30 @@ describe("readWorkflowSlackThread", () => {
       readWorkflowSlackThread(asReader(notConnected), input),
     ).rejects.toMatchObject({ errorCode: "slack_not_connected" });
   });
+
+  it("keeps a saved token it cannot decrypt apart from a Slack failure and from not connected: it names the key and is not retryable", async () => {
+    const unreadable = fakeSlack({
+      getCompleteThread: vi
+        .fn()
+        .mockRejectedValue(new UnreadableSecretError("SLACK_BOT_TOKEN")),
+    });
+
+    const failure = await readWorkflowSlackThread(
+      asReader(unreadable),
+      input,
+    ).catch(
+      (error: Error & { errorCode: string; retryable: boolean }) => error,
+    );
+
+    expect(failure).toMatchObject({
+      errorCode: "app_secret_unreadable",
+      retryable: false,
+      sideEffect: "none",
+    });
+    expect((failure as Error).message).toMatch(
+      /SLACK_BOT_TOKEN is saved but this deployment cannot decrypt it/,
+    );
+  });
 });
 
 describe("classifySlackRecipient", () => {
@@ -571,6 +596,23 @@ describe("postWorkflowSlackMessage", () => {
       postWorkflowSlackMessage(asReader(slack), { ...base, to: "C0123ABCD" }),
     ).rejects.toMatchObject({
       errorCode: "slack_identity_mismatch",
+      sideEffect: "none",
+    });
+    expect(slack.postChannelMessage).not.toHaveBeenCalled();
+  });
+
+  it("fails before writing, and not as a Slack failure, when the saved token cannot be decrypted", async () => {
+    const slack = fakeSlack({
+      verifyAgentNativeIdentity: vi
+        .fn()
+        .mockRejectedValue(new UnreadableSecretError("SLACK_BOT_TOKEN")),
+    });
+
+    await expect(
+      postWorkflowSlackMessage(asReader(slack), { ...base, to: "C0123ABCD" }),
+    ).rejects.toMatchObject({
+      errorCode: "app_secret_unreadable",
+      retryable: false,
       sideEffect: "none",
     });
     expect(slack.postChannelMessage).not.toHaveBeenCalled();

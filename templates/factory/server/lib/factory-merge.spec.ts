@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   GitHubMergeNotCompletedError,
   GitHubRequestError,
+  GitHubTokenUnreadableError,
 } from "../triage/github-client.js";
 import { sanitizeDetails } from "../tripwire/redact.js";
 import { createCapturingTripwireSink } from "../tripwire/testing.js";
@@ -15,6 +16,7 @@ import {
   pullRequestSummary,
 } from "./factory-pull-request.fixture.js";
 import type { GitHubClient } from "./factory-pull-request.js";
+import { UnreadableSecretError } from "./unreadable-secret.js";
 import type { WorkflowActionError } from "./workflow-action-errors.js";
 
 function merge(
@@ -287,6 +289,23 @@ describe("mergeGatedPullRequest", () => {
       errorCode: "github_rate_limited",
       retryable: true,
     });
+  });
+
+  it("says a token it cannot decrypt is unreadable, and does not read the pull request back as if a merge may have left", async () => {
+    const unreadable = fakeGitHub({
+      mergePullRequest: vi
+        .fn()
+        .mockRejectedValue(
+          new GitHubTokenUnreadableError(
+            new UnreadableSecretError("GITHUB_TOKEN"),
+          ),
+        ),
+    });
+
+    await expect(merge(unreadable)).rejects.toMatchObject({
+      errorCode: "app_secret_unreadable",
+    });
+    expect(unreadable.getPullRequestSummary).toHaveBeenCalledTimes(1);
   });
 
   it("reads the pull request back after a failure that may have merged it", async () => {

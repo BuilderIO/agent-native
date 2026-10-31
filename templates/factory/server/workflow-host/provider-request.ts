@@ -245,13 +245,13 @@ function resolveInput(
   if (def.cursor && input.cursor !== undefined && isBound(input.cursor)) {
     values.set(def.cursor.param, input.cursor);
   }
-  if (def.cursor?.forward) {
+  const forward = def.cursor?.forward;
+  if (def.cursor && forward?.sortParam !== undefined) {
     // The first run has no position and asks for the newest rows to prime on;
     // every run after it pages forward from the stored position.
-    const { param, forward } = def.cursor;
     values.set(
       forward.sortParam,
-      values.has(param) ? forward.oldestFirst : forward.newestFirst,
+      values.has(def.cursor.param) ? forward.oldestFirst : forward.newestFirst,
     );
   }
   for (const name of required) {
@@ -263,7 +263,7 @@ function resolveInput(
   const known = new Set<string>([
     ...declared.keys(),
     ...(def.cursor ? [def.cursor.param] : []),
-    ...(def.cursor?.forward ? [def.cursor.forward.sortParam] : []),
+    ...(forward?.sortParam === undefined ? [] : [forward.sortParam]),
     ...(def.window ? [def.window.fromParam, def.window.toParam] : []),
   ]);
   return {
@@ -1001,6 +1001,45 @@ function readMapped<T>(
   return undefined;
 }
 
+const RFC3339_TIME =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/i;
+
+// Stripe sends `created` as whole seconds since the epoch, always ten digits.
+const EPOCH_SECONDS = /^\d{10}$/;
+
+interface Moment {
+  /** Milliseconds since the epoch, to the whole second. */
+  seconds: number;
+  /** The digits after the second, as written: a Date would keep only three of them. */
+  fraction: string;
+}
+
+function readTime(text: string): Moment | undefined {
+  const trimmed = text.trim();
+  if (EPOCH_SECONDS.test(trimmed)) {
+    return { seconds: Number(trimmed) * 1000, fraction: "" };
+  }
+  const match = RFC3339_TIME.exec(trimmed);
+  if (!match) return undefined;
+  const [, base = "", fraction = "", zone = ""] = match;
+  const seconds = Date.parse(`${base.toUpperCase()}${zone.toUpperCase()}`);
+  return Number.isNaN(seconds) ? undefined : { seconds, fraction };
+}
+
+/** Orders two positions that `mapRow` already read as times. */
+function comparePositions(a: string, b: string): number {
+  const left = readTime(a);
+  const right = readTime(b);
+  if (left === undefined || right === undefined) {
+    throw new TypeError("a position was ordered without being read as a time.");
+  }
+  if (left.seconds !== right.seconds) return left.seconds - right.seconds;
+  const width = Math.max(left.fraction.length, right.fraction.length);
+  const before = left.fraction.padEnd(width, "0");
+  const after = right.fraction.padEnd(width, "0");
+  return before < after ? -1 : before > after ? 1 : 0;
+}
+
 /** One row of the page: an item, or a row with no value for a required field. */
 type MappedRow =
   | { item: NormalizedItem; position?: string }
@@ -1059,6 +1098,12 @@ function mapRow(
     position = hit.found ? readScalarText(hit.value) : undefined;
     if (position === undefined) {
       return unexpected(def, `has no "${forward.itemPath}" on item ${index}`);
+    }
+    if (forward.sortInCode && readTime(position) === undefined) {
+      return unexpected(
+        def,
+        `has a "${forward.itemPath}" on item ${index} that is not an RFC 3339 time or whole epoch seconds`,
+      );
     }
   }
   if (skipped) return { skipped: true };
@@ -1157,12 +1202,16 @@ export function mapItems(
   const rows: readonly unknown[] = list.value;
   const items: NormalizedItem[] = [];
   const positions: string[] = [];
+  const tracked: { item: NormalizedItem; position: string }[] = [];
   try {
     rows.forEach((element, index) => {
       const mapped = mapRow(def, element, index, scope);
       if ("skipped" in mapped) return;
       items.push(mapped.item);
-      if (mapped.position !== undefined) positions.push(mapped.position);
+      if (mapped.position !== undefined) {
+        positions.push(mapped.position);
+        tracked.push({ item: mapped.item, position: mapped.position });
+      }
     });
   } catch (error) {
     if (error instanceof ProviderOperationError) {
@@ -1191,11 +1240,36 @@ export function mapItems(
       ...countMappingGaps(def, mapping, rows),
     });
   }
+  const inCode = def.cursor?.forward?.sortInCode;
   if (options.oldestFirst) {
-    return { items, positions, skippedRows };
+    if (!inCode) return { items, positions, skippedRows };
+    failIfPartialPage(def, body, inCode.morePath, rows.length, observe);
+    const order = tracked.sort((a, b) =>
+      comparePositions(a.position, b.position),
+    );
+    return {
+      items: order.map((entry) => entry.item),
+      positions: order.map((entry) => entry.position),
+      skippedRows,
+    };
   }
   let cursor: string | undefined;
-  if (def.cursor && items.length > 0) {
+  if (inCode && positions.length > 0) {
+    // A provider that sorts nothing has no "newest first" row to read: the
+    // position is the latest one on the page. A page that is only part of the
+    // rows may not hold the latest, which is worth a trace, not a failure:
+    // enabling a workflow over a long history must still work.
+    if (pageIsPartial(def, body, inCode.morePath, observe)) {
+      reportShape(observe, def, {
+        reason: "priming_page_partial",
+        rows: rows.length,
+        path: inCode.morePath,
+      });
+    }
+    cursor = positions.reduce((latest, position) =>
+      comparePositions(position, latest) > 0 ? position : latest,
+    );
+  } else if (def.cursor?.path !== undefined && items.length > 0) {
     const hit = readPath(def, body, def.cursor.path);
     cursor = hit.found ? readScalarText(hit.value) : undefined;
     if (cursor === undefined) {
@@ -1212,6 +1286,70 @@ export function mapItems(
     }
   }
   return { items, skippedRows, ...(cursor === undefined ? {} : { cursor }) };
+}
+
+/**
+ * Whether the response says it holds only part of the rows. Absent means it
+ * holds them all; a value that is neither `true` nor `false` is a response the
+ * operation did not promise, not an answer.
+ */
+function pageIsPartial(
+  def: OperationDefinition,
+  body: unknown,
+  morePath: string,
+  observe: ProviderObservation | undefined,
+): boolean {
+  const more = readPath(def, body, morePath);
+  if (!more.found || more.value === false) return false;
+  if (more.value === true) return true;
+  reportShape(observe, def, { reason: "page_flag_unreadable", path: morePath });
+  return unexpected(def, `has a "${morePath}" that is neither true nor false`);
+}
+
+/**
+ * A page sorted here is the oldest of the rows only when it holds all of them.
+ * A page the response calls partial would lose the rows it left out: the
+ * position moves past the rows kept, and the oldest may be the ones missing.
+ */
+function failIfPartialPage(
+  def: OperationDefinition,
+  body: unknown,
+  morePath: string,
+  rows: number,
+  observe: ProviderObservation | undefined,
+): void {
+  if (!pageIsPartial(def, body, morePath, observe)) return;
+  reportShape(observe, def, { reason: "page_partial", rows, path: morePath });
+  unexpected(
+    def,
+    `holds only part of the rows newer than the stored position (${rows} on the page, and "${morePath}" says more follow), so the oldest of them cannot be picked`,
+  );
+}
+
+/**
+ * Where an oldest-first page cut after `kept` rows may resume. Resuming after
+ * a time skips every row with that time, so a cut inside rows that share one
+ * keeps only the times it can take whole; when the first time alone is more
+ * than a run takes, no position can continue the page and it fails.
+ */
+function keepWholeMoments(
+  def: OperationDefinition,
+  positions: readonly string[],
+  kept: number,
+): number {
+  let end = kept;
+  for (; end > 0; end -= 1) {
+    const last = positions[end - 1];
+    const next = positions[end];
+    if (!last || !next || comparePositions(last, next) !== 0) break;
+  }
+  if (end === 0 && kept > 0) {
+    unexpected(
+      def,
+      `has more rows at one time than a run takes (${kept}), so it cannot resume between them`,
+    );
+  }
+  return end;
 }
 
 interface FittedItems {
@@ -1399,19 +1537,24 @@ export function parseProviderResponse(
       limit: options.limit,
       budgetChars: options.budgetChars,
     });
+    const kept =
+      fitted.cut && def.cursor?.forward?.sortInCode && mapped.positions
+        ? keepWholeMoments(def, mapped.positions, fitted.items.length)
+        : fitted.items.length;
+    const items = fitted.items.slice(0, kept);
     const cursor = oldestFirst
-      ? mapped.positions?.[fitted.items.length - 1]
+      ? mapped.positions?.[kept - 1]
       : fitted.cut
         ? undefined
         : mapped.cursor;
     return {
       output: {
-        itemCount: fitted.items.length,
+        itemCount: items.length,
         truncated: fitted.cut,
         ...skipped,
       },
       truncated: fitted.cut,
-      items: fitted.items,
+      items,
       ...skipped,
       ...(fitted.totalAvailable === undefined
         ? {}

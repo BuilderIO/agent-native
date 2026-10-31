@@ -175,10 +175,12 @@ describe("an action operation", () => {
     await read.executor.execute(
       request("slack.readThread", { channel: "C1", threadTs: "1.1" }),
     );
+    // The operation's own answer budget rides along; a graph cannot set it.
     expect(read.callTool.mock.calls[0][0].input).toEqual({
       factoryId: "support-triage",
       channel: "C1",
       threadTs: "1.1",
+      budgetChars: 6_500,
     });
   });
 

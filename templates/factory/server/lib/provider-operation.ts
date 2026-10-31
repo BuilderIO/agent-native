@@ -16,6 +16,7 @@ import {
 import type { WorkflowScope } from "../workflow/adapter.js";
 import {
   keepFields,
+  parseFieldsToKeep,
   reportMissing,
   type FieldsToKeep,
   type MissingReport,
@@ -593,6 +594,16 @@ function keepAnswerFields(
   };
 }
 
+/** The paths a catalog operation keeps of its own answer; the schema already refused a list that is not valid. */
+function answerFieldsOf(def: OperationDefinition): FieldsToKeep | undefined {
+  if (def.answerFields === undefined) return undefined;
+  const checked = parseFieldsToKeep(def.answerFields);
+  if (!checked.ok) {
+    throw new TypeError(`${def.id} keeps answer fields that are not valid.`);
+  }
+  return checked.value;
+}
+
 export interface ProviderOperationCall {
   def: OperationDefinition;
   fields: Record<string, unknown>;
@@ -775,10 +786,11 @@ export async function runProviderOperation(
     tripwire: call.tripwire,
   });
 
-  const kept = built.fieldsToKeep
+  const keep = built.fieldsToKeep ?? answerFieldsOf(def);
+  const kept = keep
     ? keepAnswerFields(
         def,
-        built.fieldsToKeep,
+        keep,
         response.json,
         built.fetchAllPages !== undefined,
       )
@@ -792,7 +804,8 @@ export async function runProviderOperation(
       cursor,
       status: response.status,
       observe: { tripwire, status: response.status },
-      fieldsMissing: kept?.missing,
+      // Only paths a person typed are reported: a catalog path that matched nothing is a field the provider left out.
+      fieldsMissing: built.fieldsToKeep ? kept?.missing : undefined,
       ...(built.includeStatus
         ? {
             includeStatus: {

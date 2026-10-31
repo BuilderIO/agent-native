@@ -907,6 +907,7 @@ describe("the run as recorded", () => {
       itemFailures: 0,
       needsCheck: 0,
       skippedRows: 0,
+      primed: 0,
       modelCalls: 0,
       ...NO_WAITING,
     });

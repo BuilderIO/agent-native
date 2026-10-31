@@ -72,6 +72,13 @@ retired seeded jobs once (`pausedReason: replaced_by_workflows`); none is
 deleted. Teammates may edit/run. New automation is a workflow, never
 `create-factory-automation`.
 
+`poll-slack-channel`, `poll-github-sources` and `poll-sentry-errors` also take
+`after`, `prime` and `preview`. Only a workflow's inbox source passes them: it
+starts from now (`prime` reads the newest position and stores nothing), goes on
+from its own position (`after`), and reads without storing in a dry or test run
+(`preview`). Never pass them from chat; without them a poll is the factory-wide
+read it always was.
+
 ## Source Changes
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; read

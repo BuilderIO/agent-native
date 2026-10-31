@@ -793,6 +793,7 @@ const messages = {
       itemFailures_other: "{{count}} 個項目失敗",
       needsCheck: "{{count}} 待確認",
       nothing: "沒有新內容",
+      primed: "從現在開始",
       summary: "{{head}}：{{parts}}",
     },
     change: {

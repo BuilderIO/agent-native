@@ -27,6 +27,11 @@ export interface SlackPollInput {
   historyCursor?: string | null;
   ownerEmail: string;
   orgId?: string | null;
+  /**
+   * A sample: read only the newest page and return the newest this many
+   * threads, not the oldest ones after the position. Never moves a cursor.
+   */
+  newest?: number;
 }
 
 export interface SlackPollResult {
@@ -221,6 +226,37 @@ function toEnvelope(
   };
 }
 
+/**
+ * The time of the newest message in the channel, or null when it has none.
+ * One message is read and nothing is stored.
+ */
+export async function readNewestSlackTs({
+  workspace,
+  channelId,
+  ownerEmail,
+  orgId,
+}: Pick<
+  SlackPollInput,
+  "workspace" | "channelId" | "ownerEmail" | "orgId"
+>): Promise<string | null> {
+  const slack = createSlackReader({
+    ownerEmail,
+    ...(orgId === undefined ? {} : { orgId }),
+  });
+  const history = await slack.getChannelHistory(workspace, channelId, 1);
+  return (
+    history.messages.reduce<{ value: number; raw: string } | null>(
+      (newest, message) => {
+        const value = numericTs(message.ts);
+        return newest === null || value > newest.value
+          ? { value, raw: message.ts }
+          : newest;
+      },
+      null,
+    )?.raw ?? null
+  );
+}
+
 export async function pollSlackChannel({
   workspace,
   channelId,
@@ -228,6 +264,7 @@ export async function pollSlackChannel({
   historyCursor,
   ownerEmail,
   orgId,
+  newest,
 }: SlackPollInput): Promise<SlackPollResult> {
   const slack = createSlackReader({ ownerEmail, orgId });
   const priorTs = numericTs(priorLastSlackTs);
@@ -236,7 +273,8 @@ export async function pollSlackChannel({
   let nextHistoryCursor: string | null = null;
   let hasMore = false;
 
-  for (let page = 0; page < MAX_HISTORY_PAGES; page += 1) {
+  const maxPages = newest === undefined ? MAX_HISTORY_PAGES : 1;
+  for (let page = 0; page < maxPages; page += 1) {
     const history = cursor
       ? await slack.getChannelHistory(
           workspace,
@@ -261,7 +299,7 @@ export async function pollSlackChannel({
     }
 
     nextHistoryCursor = history.next_cursor;
-    hasMore = page === MAX_HISTORY_PAGES - 1;
+    hasMore = page === maxPages - 1;
     if (hasMore) break;
     cursor = history.next_cursor;
   }
@@ -283,12 +321,14 @@ export async function pollSlackChannel({
     .filter(({ ts }) => ts > priorTs)
     .sort((a, b) => a.ts - b.ts);
   const seenThreads = new Set<string>();
-  const uniqueNewMessages = newMessages.filter(({ message }) => {
+  const distinctThreads = newMessages.filter(({ message }) => {
     const threadTs = message.thread_ts ?? message.ts;
     if (seenThreads.has(threadTs)) return false;
     seenThreads.add(threadTs);
     return true;
   });
+  const uniqueNewMessages =
+    newest === undefined ? distinctThreads : distinctThreads.slice(-newest);
   const maxSeen = messages.reduce(
     (max, message) => {
       const ts = numericTs(message.ts);

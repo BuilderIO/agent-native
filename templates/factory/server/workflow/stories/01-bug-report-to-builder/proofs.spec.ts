@@ -179,7 +179,7 @@ describe("story 1 proofs: a bug report to Builder", () => {
     expect(run.world.test.inbox.requests[0].settings).toMatchObject({
       source: "inbox-poll",
       poller: "slack",
-      takeLimit: 5,
+      takeLimit: 3,
       filter: { claimReaction: "eyes" },
     });
   });
@@ -336,5 +336,39 @@ describe("story 1 proofs: a bug report to Builder", () => {
     expect(callsTo(summary, "slack.replyInThread")).toBe(0);
     expect(summary.parked).toEqual([]);
     expect(summary.statuses).toEqual({});
+  });
+
+  it("starts from now when it goes live: the first run takes the newest position and nothing else, the next picks up the new bug", async () => {
+    const { summary, run } = await scenario(
+      "a-first-live-run-starts-from-now-and-the-next-picks-up-the-new-bug",
+    );
+
+    // The first live run is quiet on purpose, and says so rather than reading as an empty channel.
+    const first = run.ticks
+      .flatMap((tick) => tick.steps)
+      .find((step) => step.nodeId === "feedback");
+    expect(first?.fields).toMatchObject({ primed: true, ingested: false });
+    expect(tickAt(summary, 0)).toMatchObject({
+      run: { counts: { primed: 1 } },
+      calls: {},
+      ai: [],
+      effects: [],
+    });
+    expect(tickAt(summary, 0).run?.counts).not.toHaveProperty("taken");
+    // The position it took is saved, and the next run asks to go on from it.
+    expect(summary.cursors).toEqual({ feedback: "1760000000.000050" });
+    const requests = run.world.test.inbox.requests;
+    const primeRequest = requests.find((_, at) => at === 0);
+    const nextRequest = requests.find((_, at) => at === 1);
+    expect(primeRequest?.start).toEqual({ kind: "prime" });
+    expect(nextRequest?.start).toEqual({
+      kind: "from",
+      position: "1760000000.000050",
+    });
+    // The bug posted afterwards goes through the whole path once.
+    expect(tickAt(summary, 1).run?.counts).toMatchObject({ taken: 1, done: 1 });
+    expect(callsTo(summary, "builder.start")).toBe(1);
+    expect(callsTo(summary, "slack.replyInThread")).toBe(1);
+    expect(summary.statuses).toEqual({ m1: "automation_started" });
   });
 });

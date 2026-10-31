@@ -504,11 +504,11 @@ describe("run-workflow-operation: a good answer", () => {
       a: { b: { c: index } },
     }));
     executeRequestMock.mockResolvedValue(
-      answer({ callTranscripts: [{ callId: "c1", transcript: nested }] }),
+      answer({ id: "c1", associations: nested }),
     );
     const result = await run({
-      operationId: "gong.transcript",
-      fields: { callId: "c1" },
+      operationId: "hubspot.companyActivity",
+      fields: { leadId: "c1" },
     });
     expect(result.truncated).toBe(true);
     expect(JSON.stringify(result).length).toBeLessThan(
@@ -523,11 +523,11 @@ describe("run-workflow-operation: a good answer", () => {
       text: `sentence ${index} with some more words in it`,
     }));
     executeRequestMock.mockResolvedValue(
-      answer({ callTranscripts: [{ callId: "c1", transcript: sentences }] }),
+      answer({ id: "c1", associations: sentences }),
     );
     const result = await run({
-      operationId: "gong.transcript",
-      fields: { callId: "c1" },
+      operationId: "hubspot.companyActivity",
+      fields: { leadId: "c1" },
     });
     expect(result.truncated).toBe(true);
     expect(result.output.truncated).toBe(true);

@@ -4,11 +4,11 @@
 
 **Goal.** Bug reports in Slack become Builder work with nobody triaging, and reporters are kept informed.
 
-**Input.** New Slack messages in the configured feedback channel, and replies to questions this workflow asked. A message a person already reacted to with the claim reaction (`eyes`) is never offered.
+**Input.** New Slack messages in the configured feedback channel, and replies to questions this workflow asked. The source starts from the moment the workflow goes live: the first live run takes the newest message's time and nothing else, so what was already in the channel is never worked through, and a dry run shows a sample of the newest messages but stores nothing. A message a person already reacted to with the claim reaction (`eyes`) is never offered.
 
 **Output.** For each clear bug, Builder has accepted a task on a branch named for its group, and the reporter's thread says "Builder has started work on <report id>. We will report back when it is merged." The report becomes `automation_started`. Everything else ends one of four ways: a question was asked in the thread (and the answer is picked up later), the report was dismissed with a reason, a person was told, or it failed and is retried.
 
-**Runs.** Every 5 minutes, up to 5 new reports per run. Waiting reports are re-checked every 15 minutes (the workflow's check cadence).
+**Runs.** Every 5 minutes, up to 3 new reports per run; the rest wait in the queue for the next run. Waiting reports are re-checked every 15 minutes (the workflow's check cadence).
 
 **Needs.** Slack, and Builder (the workspace's Builder connection and the Builder project connected to the repository, a workflow setting).
 
@@ -16,7 +16,7 @@
 
 ## The path
 
-1. **`feedback` (Source, inbox poll):** new Slack messages, at most 5, skipping any a person claimed with `eyes`.
+1. **`feedback` (Source, inbox poll):** new Slack messages, at most 3, skipping any a person claimed with `eyes`.
 2. **`thread` (Lookup, `slack.readThread`):** reads the whole thread with its reactions and replies.
 3. **`assess` (AI, per report):** `clearBug`, `enoughContext`, `question`, `risk`, `confidence`, `productUxImplications`, `alreadyClaimed`, `categories`, `reason`.
 4. **`route` (Switch):** the first route that fits, in this order.
@@ -80,3 +80,4 @@ flowchart LR
 - `a-parked-report-is-found-again-after-a-restart`: the process restarts while a report waits.
 - `the-same-group-offered-again-is-not-started-twice`: done receipts stop a second start and a second reply.
 - `a-dry-run-asks-nothing-and-parks-nothing`: a dry run sends no question and writes nothing.
+- `a-first-live-run-starts-from-now-and-the-next-picks-up-the-new-bug`: the first live run takes the newest position and nothing else (no question, no Builder task, and a `primed` count on the run so it is not read as an empty channel); the next run goes on from that position and hands the new bug to Builder. The host half, that history is never ingested, is proved against a channel of 200 messages in `server/workflow-host/first-poll-prime.scenario.spec.ts`.

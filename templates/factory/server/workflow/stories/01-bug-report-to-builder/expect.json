@@ -1956,5 +1956,117 @@
     "journeys": {
       "m1": ["decision@route:route:needsInfo", "effect@ask", "parked@waitReply"]
     }
+  },
+  "a-first-live-run-starts-from-now-and-the-next-picks-up-the-new-bug": {
+    "ticks": [
+      {
+        "label": "the workflow goes live: what was already in the channel is not read",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "primed": 1 } },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "a bug posted afterwards is picked up",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 3 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1,
+          "slack.replyInThread": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-m1",
+              "url": "https://builder.example.test/branches/factory-m1"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "automation_started" },
+    "recorded": {
+      "m1": {
+        "builderTaskId": "project-1:factory-m1",
+        "projectId": "project-1",
+        "branchName": "factory-m1",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": { "feedback": "1760000000.000050" },
+    "journeys": {
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ],
+      "m1": ["decision@route:route:clear", "effect@tell", "ended@handed:done"]
+    }
   }
 }

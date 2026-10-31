@@ -1236,6 +1236,77 @@
           "mode": "dry"
         }
       ]
+    },
+    "a-first-live-run-starts-from-now-and-the-next-picks-up-the-new-bug": {
+      "description": "Switching the workflow on does not work through what was already in the channel: the first live run takes the newest position and nothing else, no question and no Builder task, and the next run picks up the bug posted after it.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "primed",
+          "calls": 1
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the workflow goes live: what was already in the channel is not read"
+        },
+        {
+          "kind": "tick",
+          "label": "a bug posted afterwards is picked up",
+          "at": "+5m"
+        }
+      ]
     }
   }
 }

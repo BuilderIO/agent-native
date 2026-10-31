@@ -660,7 +660,7 @@ function RowText({
   );
 }
 
-/** Connected reads as a word; not connected reads as a word and a Connect control; unknown shows nothing. */
+/** Connected reads as a word; not connected reads as a word and a Connect control; unknown and unreadable show nothing, since a Connect control would fix neither. */
 function ConnectionState({
   provider,
   status,
@@ -672,7 +672,7 @@ function ConnectionState({
   strings: WorkflowCanvasStrings;
   onConnect?: (provider: string) => void;
 }) {
-  if (status === "unknown") return null;
+  if (status === "unknown" || status === "unreadable") return null;
   if (status === "connected") {
     return (
       <span className="text-xs text-muted-foreground">

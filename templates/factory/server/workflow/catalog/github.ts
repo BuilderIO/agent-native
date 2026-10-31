@@ -95,11 +95,27 @@ export const githubOperations: OperationDefinitionInput[] = [
     credential: { provider: "github" },
   },
   {
+    // A search hit is 3 KB to 5 KB with its user, urls and description, so 30
+    // are about 120 KB. The kept paths are what a cause is named from, about
+    // 300 characters a pull request, so all 30 fit with room for long titles.
     id: "github.mergedPullRequests",
     provider: "github",
     label: "GitHub: pull requests merged since a time",
     nodeKinds: ["lookup"],
     effect: "read",
+    answerBudgetChars: 12_000,
+    answerFields: [
+      "total_count",
+      "incomplete_results",
+      "items.number",
+      "items.title",
+      "items.html_url",
+      "items.state",
+      "items.user.login",
+      "items.created_at",
+      "items.closed_at",
+      "items.pull_request.merged_at",
+    ],
     fields: [
       repo,
       { name: "since", type: "string", required: true, label: "Merged since" },
@@ -311,11 +327,15 @@ export const githubOperations: OperationDefinitionInput[] = [
     credential: { provider: "github" },
   },
   {
+    // The contents API answers a file of up to 1 MB as base64 beside about
+    // 600 characters of links, so the cut clips `content` and says how much it
+    // kept. 12,000 is about 8 KB of file; five reads fit in a step.
     id: "github.readFile",
     provider: "github",
     label: "GitHub: read a file",
     nodeKinds: ["lookup"],
     effect: "read",
+    answerBudgetChars: 12_000,
     fields: [
       repo,
       { name: "path", type: "string", required: true, label: "File path" },
@@ -330,11 +350,22 @@ export const githubOperations: OperationDefinitionInput[] = [
     credential: { provider: "github" },
   },
   {
+    // Each of 20 hits embeds the whole repository object, about 5 KB, so the
+    // answer is about 100 KB. A hit's name, path and link are about 200
+    // characters, so all 20 fit.
     id: "github.searchCode",
     provider: "github",
     label: "GitHub: search code",
     nodeKinds: ["lookup"],
     effect: "read",
+    answerBudgetChars: 8_000,
+    answerFields: [
+      "total_count",
+      "incomplete_results",
+      "items.name",
+      "items.path",
+      "items.html_url",
+    ],
     fields: [
       repo,
       { name: "query", type: "string", required: true, label: "Search for" },
