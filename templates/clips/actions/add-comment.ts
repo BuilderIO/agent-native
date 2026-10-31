@@ -1,17 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
-import {
-  getRequestUserEmail,
-  getRequestUserName,
-} from "@agent-native/core/server/request-context";
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
-import { assertCommentAccess } from "../server/lib/comment-access.js";
-import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
-import { nanoid } from "../server/lib/recordings.js";
+import {
+  commentIdempotencyKeySchema,
+  saveRecordingComment,
+} from "../server/lib/recording-comment-writes.js";
 
 const mentionSchema = z.object({
   email: z.string().email(),
@@ -55,102 +48,15 @@ export default defineAction({
       .union([z.string(), z.array(mentionSchema).max(20)])
       .optional()
       .describe("Organization members mentioned in the comment"),
+    idempotencyKey: commentIdempotencyKeySchema,
   }),
   run: async (args) => {
-    await assertCommentAccess(args.recordingId);
-
-    const authorEmail = getRequestUserEmail();
-    if (!authorEmail) {
-      throw new Error("Sign in required to comment on recordings.");
-    }
-    const authorName =
-      getRequestUserName()?.trim() || args.authorName?.trim() || null;
-
-    const db = getDb();
-    const id = nanoid();
-    const hasParentId = args.parentId !== undefined;
-    const hasThreadId = args.threadId !== undefined;
-    if (
-      hasParentId !== hasThreadId ||
-      (hasParentId && (!args.parentId?.trim() || !args.threadId?.trim()))
-    ) {
-      throw new Error(
-        "Replies must include non-empty threadId and parentId values.",
-      );
-    }
-    const threadId = args.threadId?.trim() ?? id;
-    const parentId = args.parentId?.trim() ?? null;
-    const now = new Date().toISOString();
-
-    const [rec] = await db
-      .select({ organizationId: schema.recordings.organizationId })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId))
-      .limit(1);
-
-    if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
-
-    if (parentId) {
-      const [parent] = await db
-        .select({
-          id: schema.recordingComments.id,
-          recordingId: schema.recordingComments.recordingId,
-          organizationId: schema.recordingComments.organizationId,
-          threadId: schema.recordingComments.threadId,
-        })
-        .from(schema.recordingComments)
-        .where(
-          and(
-            eq(schema.recordingComments.id, parentId),
-            eq(schema.recordingComments.recordingId, args.recordingId),
-            eq(schema.recordingComments.organizationId, rec.organizationId),
-            eq(schema.recordingComments.threadId, threadId),
-          ),
-        )
-        .limit(1);
-
-      if (!parent) {
-        throw new Error("Parent comment does not belong to this recording.");
-      }
-    }
-
-    const mentions = await resolveCommentMentions(
-      args.mentions,
-      rec.organizationId,
-    );
-
-    await db.insert(schema.recordingComments).values({
-      id,
-      recordingId: args.recordingId,
-      organizationId: rec.organizationId,
-      threadId,
-      parentId,
-      authorEmail,
-      authorName,
-      content: args.content,
-      mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
-      videoTimestampMs: args.videoTimestampMs,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    const notified = await notifyRecordingComment({
-      recordingId: args.recordingId,
-      threadId,
-      authorEmail,
-      authorName: authorName ?? undefined,
-      content: args.content,
-      mentions,
-      videoTimestampMs: args.videoTimestampMs,
-      isReply: Boolean(parentId),
-    });
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    console.log(
-      `Added comment to recording ${args.recordingId} @ ${args.videoTimestampMs}ms (thread: ${threadId})`,
-    );
-
-    return { id, threadId, notified };
+    const saved = await saveRecordingComment(args);
+    return {
+      id: saved.id,
+      threadId: saved.threadId,
+      notified: saved.repeated ? null : await saved.notify(),
+      repeated: saved.repeated,
+    };
   },
 });

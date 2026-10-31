@@ -442,6 +442,43 @@ describe("add-clip-comment", () => {
     );
   });
 
+  it("hands Clips the comment's key, so a retry is saved once", async () => {
+    const idempotencyKey = "0f5b3c1e-6a4d-4c2b-9e7f-1a2b3c4d5e6f";
+    await addClipComment.run({
+      ...args,
+      content: "Hi",
+      videoTimestampMs: 0,
+      idempotencyKey,
+    });
+    expect(mocks.writeClipComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        write: { operation: "add", content: "Hi", videoTimestampMs: 0 },
+        idempotencyKey,
+      }),
+    );
+    expect(mocks.writeClipComment.mock.calls[0]?.[0]).not.toHaveProperty(
+      "write.idempotencyKey",
+    );
+  });
+
+  it("refuses a key that isn't one, before asking Clips", async () => {
+    for (const idempotencyKey of [
+      "short",
+      "x".repeat(65),
+      "has spaces in it!",
+    ]) {
+      await expect(
+        addClipComment.run({
+          ...args,
+          content: "Hi",
+          videoTimestampMs: 0,
+          idempotencyKey,
+        }),
+      ).rejects.toThrow();
+    }
+    expect(mocks.writeClipComment).not.toHaveBeenCalled();
+  });
+
   it("takes exactly one of a moment or a thread", async () => {
     for (const target of [{}, { videoTimestampMs: 1_000, threadId: "c1" }]) {
       await expect(
@@ -507,6 +544,7 @@ describe("add-clip-comment", () => {
     ["clip_forbidden", 403],
     ["clip_not_found", 404],
     ["clip_rate_limited", 429],
+    ["clip_comment_key_used", 409],
   ])("keeps Clips' %s as its own failure", async (code, statusCode) => {
     mocks.writeClipComment.mockResolvedValue({ ok: false, code });
     await expect(

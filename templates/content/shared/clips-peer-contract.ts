@@ -56,6 +56,17 @@ export const CONTENT_CLIP_MAX_COMMENT_CHARS = 10_000;
 /** The latest moment of a video Clips takes a comment at. */
 export const CONTENT_CLIP_MAX_VIDEO_TIMESTAMP_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * The header that carries a comment's key on an `add` or `reply`: the same
+ * on every try of one comment, so Clips saves it once and answers a repeat
+ * with its ids. A Clips from before keys ignores it. Clips refuses a key its
+ * author already used for another comment with a 409 and
+ * `CONTENT_CLIP_COMMENT_KEY_USED`.
+ */
+export const CONTENT_CLIP_COMMENT_KEY_HEADER = "idempotency-key";
+export const CONTENT_CLIP_COMMENT_KEY = /^[A-Za-z0-9_-]{16,64}$/;
+export const CONTENT_CLIP_COMMENT_KEY_USED = "comment_key_used";
+
 /** Clips cuts the playback answer's recording title to this many characters. */
 export const CONTENT_CLIP_RECORDING_TITLE_CHARS = 500;
 
@@ -84,6 +95,8 @@ export const CLIP_PLAYBACK_ERRORS = {
   commentsDisabled: "clip_comments_disabled",
   /** The reader can read the page but not comment on it. */
   commentRequired: "clip_comment_required",
+  /** The comment's key was already used for a different comment. */
+  commentKeyUsed: "clip_comment_key_used",
   forbidden: "clip_forbidden",
   /** Clips refused Content's token. */
   unauthorized: "clip_token_refused",

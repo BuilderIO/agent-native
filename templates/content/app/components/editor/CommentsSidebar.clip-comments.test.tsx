@@ -262,6 +262,128 @@ describe("a Clip comment in the margin", () => {
     );
   });
 
+  describe("posted again after a failure", () => {
+    const sentKey = () => lastRequest().body.idempotencyKey as string;
+
+    async function postClipComment(text: string) {
+      let owner!: ReturnType<typeof usePendingCommentDraft>;
+      const completed = vi.fn();
+      function Margin() {
+        owner = usePendingCommentDraft(DOC);
+        return (
+          <CommentsSidebar
+            documentId={DOC}
+            replyDrafts={useCommentReplyDrafts(DOC)}
+            pendingComment={owner.pendingComment}
+            onPendingChange={owner.changePendingComment}
+            onPendingDone={(id, threadId) => {
+              if (owner.completePendingComment(id)) completed(threadId);
+            }}
+            alignToAnchors={false}
+            forceVisible
+          />
+        );
+      }
+      await show(<Margin />);
+      await act(async () =>
+        owner.setPendingComment({
+          quotedText: "",
+          offsetTop: 0,
+          clip: { recordingId: "rec_1", videoTimestampMs: 6_000 },
+        }),
+      );
+      await settle();
+      await setRichEditorValue(found(richEditor(container), "composer"), text);
+      await act(async () => found(submitButton(), "submit button").click());
+      return completed;
+    }
+
+    const submitAgain = () =>
+      act(async () => found(submitButton(), "submit button").click());
+
+    it("sends a comment Clips may have saved under the same key", async () => {
+      const completed = await postClipComment("Cut this pause");
+      const key = sentKey();
+      expect(key).toMatch(/^[A-Za-z0-9_-]{16,64}$/);
+
+      await respond(502, { error: "clips_unreachable" });
+      await submitAgain();
+      expect(lastRequest().body).toMatchObject({
+        content: "Cut this pause",
+        idempotencyKey: key,
+      });
+      await respond(200, { id: "c3", threadId: "c3" });
+      expect(completed).toHaveBeenCalledWith("clip:rec_1:c3");
+    });
+
+    it("sends a comment Clips refused under a new key", async () => {
+      await postClipComment("Cut this pause");
+      const key = sentKey();
+      await respond(403, { error: "clip_comments_disabled" });
+      await submitAgain();
+      expect(sentKey()).not.toBe(key);
+    });
+
+    it("sends a changed comment under a new key", async () => {
+      await postClipComment("Cut this pause");
+      const key = sentKey();
+      await respond(502, { error: "clips_unreachable" });
+      await setRichEditorValue(
+        found(richEditor(container), "composer"),
+        "Cut this pause too",
+      );
+      await submitAgain();
+      expect(lastRequest().body.content).toBe("Cut this pause too");
+      expect(sentKey()).not.toBe(key);
+    });
+
+    it("sends a reply Clips may have saved under the same key", async () => {
+      const thread = clipThread(true);
+      let replies!: ReturnType<typeof useCommentReplyDrafts>;
+      function Margin() {
+        replies = useCommentReplyDrafts(DOC);
+        return (
+          <CommentsSidebar
+            documentId={DOC}
+            replyDrafts={replies}
+            threads={[thread]}
+            alignToAnchors={false}
+            forceVisible
+          />
+        );
+      }
+      await show(<Margin />);
+      await act(async () => replies.setOpenReply(thread.threadId));
+      const composer = () =>
+        found(
+          container.querySelector<HTMLElement>(
+            "[data-comment-reply-composer] .ProseMirror",
+          ),
+          "reply composer",
+        );
+      const send = () =>
+        act(async () =>
+          found(
+            submitButton("[data-comment-reply-composer]"),
+            "reply button",
+          ).click(),
+        );
+      await setRichEditorValue(composer(), "Agreed");
+      await send();
+      const key = sentKey();
+      expect(key).toMatch(/^[A-Za-z0-9_-]{16,64}$/);
+
+      await respond(502, { error: "clips_unreachable" });
+      expect(richEditorValue(composer())).toBe("Agreed");
+      await send();
+      expect(lastRequest().body).toMatchObject({
+        threadId: "c1",
+        content: "Agreed",
+        idempotencyKey: key,
+      });
+    });
+  });
+
   it("moves the video to a thread's moment, and replies to it in Clips", async () => {
     const thread = clipThread(true);
     const seek = vi.fn();

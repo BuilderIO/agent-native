@@ -52,8 +52,20 @@ export interface CommentDraft {
   aiDraft: CommentAiDraft | null;
 }
 
+/**
+ * A submission that failed in a way that may still have saved it. Sending the
+ * same request again reuses its operation id, so the server can tell the
+ * repeat from a new comment.
+ */
+export interface UncertainSubmission {
+  payload: string;
+  operationId: string;
+}
+
 export interface CommentDraftRevision extends CommentDraft {
   revision: number;
+  /** Kept with a draft handed back after an uncertain failure. */
+  retry?: UncertainSubmission;
 }
 
 export type CommentHistoryStatus = "all" | "open" | "resolved";
@@ -79,8 +91,15 @@ interface CommentDraftContextValue {
     operationId: string,
     submittedDraft: CommentDraftRevision,
   ) => CommentDraftRevision;
-  /** False when a newer draft is kept instead of the submitted one. */
-  restoreSubmittedDraft: (key: string, operationId: string) => boolean;
+  /**
+   * False when a newer draft is kept instead of the submitted one. `retry`
+   * keeps the submission with the draft, for a failure that may have saved it.
+   */
+  restoreSubmittedDraft: (
+    key: string,
+    operationId: string,
+    retry?: UncertainSubmission | null,
+  ) => boolean;
   finishSubmission: (operationId: string) => void;
   isSubmittingDraft: (key: string) => boolean;
   resolutionVersion: number;
@@ -120,11 +139,20 @@ function draftsMatch(left: CommentDraft, right: CommentDraft) {
   );
 }
 
+function isUncertainSubmission(value: unknown): value is UncertainSubmission {
+  if (!value || typeof value !== "object") return false;
+  const retry = value as Partial<UncertainSubmission>;
+  return (
+    typeof retry.payload === "string" && typeof retry.operationId === "string"
+  );
+}
+
 function isCommentDraftRevision(value: unknown): value is CommentDraftRevision {
   if (!value || typeof value !== "object") return false;
   const draft = value as Partial<CommentDraftRevision>;
   return (
     typeof draft.text === "string" &&
+    (draft.retry === undefined || isUncertainSubmission(draft.retry)) &&
     Number.isSafeInteger(draft.revision) &&
     (draft.revision ?? -1) >= 0 &&
     Array.isArray(draft.mentions) &&
@@ -359,15 +387,17 @@ function CommentDraftStore({
   }, []);
   const restoreSubmittedDraft = useCallback<
     CommentDraftContextValue["restoreSubmittedDraft"]
-  >((key, operationId) => {
+  >((key, operationId, retry) => {
     const submitted = submittedDrafts.get(operationId);
     if (!submitted || draftsRef.current.has(key)) return false;
+    const { retry: _submittedRetry, ...draft } = submitted;
     setDrafts((current) => {
       if (current.has(key)) return current;
       const next = new Map(current);
       next.set(key, {
-        ...submitted,
-        mentions: submitted.mentions.map((mention) => ({ ...mention })),
+        ...draft,
+        mentions: draft.mentions.map((mention) => ({ ...mention })),
+        ...(retry ? { retry: { ...retry } } : {}),
         revision: ++revision.current,
       });
       return next;
@@ -546,8 +576,10 @@ export function useCommentDraft(
   };
   const beginSubmission = (operationId: string) =>
     context.beginSubmission(key, operationId, draft);
-  const restoreSubmittedDraft = (operationId: string) =>
-    context.restoreSubmittedDraft(key, operationId);
+  const restoreSubmittedDraft = (
+    operationId: string,
+    retry?: UncertainSubmission | null,
+  ) => context.restoreSubmittedDraft(key, operationId, retry);
   const getSubmittedDraft = (operationId: string) =>
     context.submittedDrafts.get(operationId);
 

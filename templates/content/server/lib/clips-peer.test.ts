@@ -24,6 +24,7 @@ const jose = await import(pathToFileURL(coreRequire.resolve("jose")).href);
 const { resetAppConfigForTests } = await import("@agent-native/core/server");
 const {
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
+  CONTENT_CLIP_COMMENT_KEY_HEADER,
   CONTENT_CLIP_COMMENT_TEXT_CHARS,
   CONTENT_CLIP_MAX_COMMENT_THREADS,
   CONTENT_CLIP_MAX_LISTED_REPLIES,
@@ -35,6 +36,7 @@ const {
   requestClips,
   requestClipsUpload,
   resolveClipsAppUrl,
+  writeClipComment,
 } = await import("./clips-peer.js");
 
 const signedIn = {
@@ -279,6 +281,7 @@ describe("requestClips", () => {
     [404, { error: "Not found" }, "clip_not_found"],
     [410, { code: "expired" }, "clip_expired"],
     [409, { code: "redaction_pending" }, "clip_redaction_pending"],
+    [409, { code: "comment_key_used" }, "clip_comment_key_used"],
     [403, { code: "password_required" }, "clip_password_required"],
     [403, { code: "comments_disabled" }, "clip_comments_disabled"],
     [403, { code: "forbidden" }, "clip_forbidden"],
@@ -345,6 +348,53 @@ describe("requestClips", () => {
       code: "clips_not_configured",
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("writeClipComment", () => {
+  const KEY = "0f5b3c1e-6a4d-4c2b-9e7f-1a2b3c4d5e6f";
+  const write = {
+    operation: "add" as const,
+    content: "Here",
+    videoTimestampMs: 5_000,
+  };
+
+  async function sent(idempotencyKey?: string) {
+    const fetchMock = vi.fn(async () =>
+      clipsResponse(200, { id: "c1", threadId: "c1" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      writeClipComment({
+        reader: signedIn,
+        documentId: "doc_1",
+        recordingId: "rec_1",
+        write,
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      }),
+    ).resolves.toEqual({ ok: true, body: { id: "c1", threadId: "c1" } });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    return {
+      headers: init.headers as Record<string, string>,
+      body: JSON.parse(String(init.body)),
+    };
+  }
+
+  // A Clips from before keys refuses a body field it doesn't know.
+  it("sends a comment's key in a header, leaving the body as it was", async () => {
+    const { headers, body } = await sent(KEY);
+    expect(headers[CONTENT_CLIP_COMMENT_KEY_HEADER]).toBe(KEY);
+    expect(headers.authorization).toMatch(/^Bearer /);
+    expect(body).toEqual(write);
+  });
+
+  it("sends no key for a comment without one", async () => {
+    const { headers, body } = await sent();
+    expect(headers).not.toHaveProperty(CONTENT_CLIP_COMMENT_KEY_HEADER);
+    expect(body).toEqual(write);
   });
 });
 

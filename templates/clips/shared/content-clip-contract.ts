@@ -104,6 +104,18 @@ export const CONTENT_CLIP_MAX_COMMENT_CHARS = 10_000;
 export const CONTENT_CLIP_MAX_VIDEO_TIMESTAMP_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * The header an `add` or `reply` may carry: one key per comment the reader
+ * means to post, the same on every try of it. Clips saves a keyed comment
+ * once, and a repeat gets that comment's ids. A header rather than a body
+ * field, because a Clips from before keys refuses unknown body fields and
+ * ignores the header. A key one author already used for another comment is
+ * refused with a 409 and `CONTENT_CLIP_COMMENT_KEY_USED`.
+ */
+export const CONTENT_CLIP_COMMENT_KEY_HEADER = "idempotency-key";
+export const CONTENT_CLIP_COMMENT_KEY = /^[A-Za-z0-9_-]{16,64}$/;
+export const CONTENT_CLIP_COMMENT_KEY_USED = "comment_key_used";
+
+/**
  * A listed thread start's text is cut to this many characters, and its
  * author's name and email to `CONTENT_CLIP_COMMENT_AUTHOR_CHARS`, so Content
  * can cap how much of a comment list it reads. A marker shows no more.

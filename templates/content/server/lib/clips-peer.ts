@@ -26,6 +26,8 @@ import {
   CONTENT_CLIP_AUDIENCE_PATH,
   CONTENT_CLIP_CLAIMS,
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
+  CONTENT_CLIP_COMMENT_KEY_HEADER,
+  CONTENT_CLIP_COMMENT_KEY_USED,
   CONTENT_CLIP_COMMENT_TEXT_CHARS,
   CONTENT_CLIP_MAX_COMMENT_THREADS,
   CONTENT_CLIP_MAX_LISTED_REPLIES,
@@ -205,9 +207,13 @@ function failureFor(status: number, code: unknown): ClipPlaybackErrorCode {
     case 404:
       return CLIP_PLAYBACK_ERRORS.notFound;
     case 409:
-      return code === "redaction_pending"
-        ? CLIP_PLAYBACK_ERRORS.redactionPending
-        : CLIP_PLAYBACK_ERRORS.unreachable;
+      if (code === "redaction_pending") {
+        return CLIP_PLAYBACK_ERRORS.redactionPending;
+      }
+      if (code === CONTENT_CLIP_COMMENT_KEY_USED) {
+        return CLIP_PLAYBACK_ERRORS.commentKeyUsed;
+      }
+      return CLIP_PLAYBACK_ERRORS.unreachable;
     case 410:
       return CLIP_PLAYBACK_ERRORS.expired;
     case 429:
@@ -256,12 +262,14 @@ async function fetchClips(input: {
   maxBytes: number;
   /** Sent as JSON with a POST; a GET when absent. */
   json?: unknown;
+  headers?: Record<string, string>;
 }): Promise<ClipsAnswer> {
   let response: Response;
   try {
     response = await fetch(input.url, {
       method: input.json === undefined ? "GET" : "POST",
       headers: {
+        ...input.headers,
         authorization: `Bearer ${input.token}`,
         accept: "application/json",
         ...(input.json === undefined
@@ -330,6 +338,8 @@ export async function writeClipComment(input: {
   documentId: string;
   recordingId: string;
   write: ClipCommentWrite;
+  /** For an add or reply: the same on every try of one comment. */
+  idempotencyKey?: string;
 }): Promise<ClipsResult> {
   return askClips({
     reader: input.reader,
@@ -338,6 +348,11 @@ export async function writeClipComment(input: {
     recordingId: input.recordingId,
     path: "comments",
     json: input.write,
+    ...(input.idempotencyKey === undefined
+      ? {}
+      : {
+          headers: { [CONTENT_CLIP_COMMENT_KEY_HEADER]: input.idempotencyKey },
+        }),
     maxBytes: CLIPS_COMMENT_WRITE_MAX_BYTES,
   });
 }
@@ -349,6 +364,7 @@ async function askClips(input: {
   recordingId: string;
   path: string;
   json?: ClipCommentWrite;
+  headers?: Record<string, string>;
   maxBytes: number;
 }): Promise<ClipsResult> {
   const clipsAppUrl = resolveClipsAppUrl();
@@ -371,6 +387,7 @@ async function askClips(input: {
     token,
     maxBytes: input.maxBytes,
     ...(input.json === undefined ? {} : { json: input.json }),
+    ...(input.headers === undefined ? {} : { headers: input.headers }),
   });
   if (!answer.reachable) {
     return { ok: false, code: CLIP_PLAYBACK_ERRORS.unreachable };

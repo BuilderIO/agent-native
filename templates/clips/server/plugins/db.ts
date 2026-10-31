@@ -1397,6 +1397,13 @@ export const migrations = runMigrations(
       sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_start_failed_at TEXT`,
     },
     mediaCleanupMigration,
+    {
+      version: 100,
+      name: "recording-comment-idempotency-key",
+      sql: `ALTER TABLE recording_comments ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_comments_idempotency_key_unique_idx
+        ON recording_comments (author_email, idempotency_key)`,
+    },
   ]),
   { table: "clips_migrations" },
 );
