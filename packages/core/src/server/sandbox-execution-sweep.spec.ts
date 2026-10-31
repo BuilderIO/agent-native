@@ -38,6 +38,18 @@ describe("sandbox execution sweep", () => {
     stop();
   });
 
+  it("lets at most three stuck sweeps run at once", async () => {
+    const drain = vi.fn(() => new Promise<void>(() => {}));
+    const stop = startSandboxExecutionSweep({
+      drain,
+      waitForExecutions: async () => {},
+    });
+
+    await vi.advanceTimersByTimeAsync(FIRST_SWEEP_MS + 60 * 60_000);
+    expect(drain).toHaveBeenCalledTimes(3);
+    stop();
+  });
+
   it("waits for every sweep still running, then for the executions, when stopped", async () => {
     const events: string[] = [];
     const finishes: (() => void)[] = [];

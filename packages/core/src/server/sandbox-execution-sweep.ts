@@ -8,6 +8,8 @@ const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
  * starts another instead of leaving due executions undriven for good.
  */
 const SWEEP_STALL_MS = 10 * 60 * 1000;
+/** Caps the stuck sweeps that can pile up, each holding its own queries. */
+const MAX_SWEEPS = 3;
 
 export interface SandboxExecutionSweepOptions {
   drain?: () => Promise<void>;
@@ -69,7 +71,7 @@ export function startSandboxExecutionSweep({
       const now = Date.now();
       // One sweep at a time, unless the last one has stalled.
       const wait = sweeps.size > 0 ? SWEEP_STALL_MS : SWEEP_INTERVAL_MS;
-      if (now - lastSweep < wait) return;
+      if (sweeps.size >= MAX_SWEEPS || now - lastSweep < wait) return;
       lastSweep = now;
 
       const sweep: Promise<void> = (async () => {

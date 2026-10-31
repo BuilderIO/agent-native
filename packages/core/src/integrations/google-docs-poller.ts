@@ -637,8 +637,19 @@ async function recordCommentCheckFailure(
 ): Promise<void> {
   // raw-sql-ok: the key is passed to the config store as a bound value.
   const key = COMMENT_RETRY_KEY_PREFIX + fileId;
-  const attempts = (retry?.attempts ?? 0) + 1;
-  if (!retry || attempts < COMMENT_CHECK_MAX_ATTEMPTS) {
+  if (!retry) {
+    // Add a row only if there isn't one: when the rows couldn't be read, the
+    // document may already have a count this must not reset.
+    await saveIntegrationConfigIfUnchanged(
+      PLATFORM,
+      { attempts: 1 },
+      key,
+      null,
+    );
+    return;
+  }
+  const attempts = retry.attempts + 1;
+  if (attempts < COMMENT_CHECK_MAX_ATTEMPTS) {
     await saveIntegrationConfig(PLATFORM, { attempts }, key);
     return;
   }

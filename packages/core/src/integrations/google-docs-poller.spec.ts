@@ -173,6 +173,16 @@ describe("Google Docs change processing", () => {
         saved.set(key, configData);
       },
     );
+    vi.spyOn(
+      configStore,
+      "saveIntegrationConfigIfUnchanged",
+    ).mockImplementation(async (_platform, configData, key, expected) => {
+      if (expected ? saved.get(key) !== expected.configData : saved.has(key)) {
+        return false;
+      }
+      saved.set(key, configData);
+      return true;
+    });
     // A save stores a new object, so an unchanged row is the same object.
     vi.spyOn(
       configStore,
@@ -297,6 +307,27 @@ describe("Google Docs change processing", () => {
     await processChanges(pollerOptions);
 
     expect(listComments).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a document's failure count when the retry rows can't be read", async () => {
+    const saved = useConfig({
+      "page-token": { pageToken: "token-1" },
+      "comment-retry:doc-1": { attempts: 3 },
+    });
+    vi.spyOn(configStore, "listIntegrationConfigs").mockRejectedValue(
+      new Error("database unavailable"),
+    );
+    vi.spyOn(googleDocs, "listChanges").mockResolvedValue({
+      changes: [docChange],
+      nextPageToken: "token-2",
+    });
+    vi.spyOn(googleDocs, "listDocComments").mockRejectedValue(
+      new Error("Drive unavailable"),
+    );
+
+    await processChanges(pollerOptions);
+
+    expect(saved.get("comment-retry:doc-1")).toEqual({ attempts: 3 });
   });
 
   it("keeps a failure another poll records while this one runs", async () => {
