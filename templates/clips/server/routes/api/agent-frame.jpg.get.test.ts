@@ -163,6 +163,51 @@ describe("agent-frame.jpg route", () => {
     );
   });
 
+  it("cuts the frame from the trimmed timeline, never from trimmed-out footage", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "trimmed",
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 2_000, endMs: 6_000, excluded: true }],
+          }),
+        },
+      }),
+    });
+
+    const event = makeEvent({ id: "trimmed", atMs: "2000" });
+    await handler(event as any);
+
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledWith(
+      expect.objectContaining({ atMs: 6_000 }),
+    );
+    expect(mockLoadStoredAgentFrame).toHaveBeenCalledWith(
+      expect.anything(),
+      6_000,
+    );
+  });
+
+  it("clamps frame requests to the trimmed duration", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "trimmed-end",
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 2_000, endMs: 6_000, excluded: true }],
+          }),
+        },
+      }),
+    });
+
+    await handler(makeEvent({ id: "trimmed-end", atMs: "99000" }) as any);
+
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledWith(
+      expect.objectContaining({ atMs: 9_999 }),
+    );
+  });
+
   it("holds the frame back while redactions are drawn but not burned", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
