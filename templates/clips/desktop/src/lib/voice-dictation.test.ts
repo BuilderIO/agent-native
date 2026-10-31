@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { VoicePolish } from "./voice-settings";
+
 const tauri = vi.hoisted(() => {
   const listeners = new Map<
     string,
@@ -182,16 +184,21 @@ function stateChanges() {
     .map((event) => event.payload as Record<string, unknown>);
 }
 
+// "server" is the built-in engine off a Mac with no browser speech, which
+// falls back to server transcription.
 async function startDictation(
-  provider: "auto" | "browser" | "macos-native" | "whisper",
+  route: "server" | "browser" | "native" | "whisper",
+  polish: VoicePolish = "off",
 ) {
+  if (route === "native") setPlatform("MacIntel");
   const { installDesktopVoiceDictation } = await import("./voice-dictation");
   const dispose = installDesktopVoiceDictation({
     enabled: true,
     serverUrl: "https://clips.test",
     shortcut: "both",
     mode: "push-to-talk",
-    provider,
+    engine: route === "whisper" ? "whisper" : "native",
+    polish,
   });
   await settle();
   await dispatch("voice:shortcut-start", { source: "fn" });
@@ -288,9 +295,7 @@ describe("desktop voice dictation runs", () => {
           value: FakeRecognition,
         });
       }
-      const provider =
-        kind === "server" ? "auto" : kind === "native" ? "macos-native" : kind;
-      const started = await startDictation(provider);
+      const started = await startDictation(kind);
       dispose = started.dispose;
       expect(started.runId).toEqual(expect.any(Number));
 
@@ -381,7 +386,7 @@ describe("desktop voice dictation runs", () => {
       .spyOn(console, "error")
       .mockImplementation(() => {});
 
-    const started = await startDictation("auto");
+    const started = await startDictation("server");
     dispose = started.dispose;
 
     expect(recorderStart).toHaveBeenCalledOnce();
@@ -416,7 +421,7 @@ describe("desktop voice dictation runs", () => {
       }
       return Promise.resolve(undefined);
     });
-    const started = await startDictation("auto");
+    const started = await startDictation("server");
     dispose = started.dispose;
     const recorder = FakeRecorder.instances[0];
     recorder.ondataavailable?.({ data: new Blob(["audio"]) });
@@ -649,7 +654,7 @@ describe("desktop voice dictation runs", () => {
   });
 
   it("classifies a native no-speech event separately from provider failure", async () => {
-    const started = await startDictation("macos-native");
+    const started = await startDictation("native");
     dispose = started.dispose;
     for (const callback of tauri.transcripts.error) {
       callback({ error: "no-speech", source: "mic", runId: started.runId });
@@ -663,7 +668,7 @@ describe("desktop voice dictation runs", () => {
   });
 
   it("classifies meeting-owned speech engine as an actionable dictation failure", async () => {
-    const started = await startDictation("macos-native");
+    const started = await startDictation("native");
     dispose = started.dispose;
     for (const callback of tauri.transcripts.error) {
       callback({
@@ -681,7 +686,7 @@ describe("desktop voice dictation runs", () => {
   });
 
   it("includes late final transcript events received just after stop", async () => {
-    const started = await startDictation("macos-native");
+    const started = await startDictation("native");
     dispose = started.dispose;
     await release();
 
@@ -717,7 +722,7 @@ describe("desktop voice dictation runs", () => {
         command === "complete_voice_dictation" ? "inserted" : undefined,
       );
     });
-    const started = await startDictation("macos-native");
+    const started = await startDictation("native");
     dispose = started.dispose;
     await dispatch("voice:cancel");
     await dispatch("voice:shortcut-start", { source: "fn" });
@@ -798,12 +803,12 @@ describe("desktop voice dictation runs", () => {
         );
       },
     );
-    const first = await startDictation("auto");
+    const first = await startDictation("server");
     dispose = first.dispose;
     const oldRecorder = FakeRecorder.instances[0];
     await dispatch("voice:cancel");
 
-    const second = await startDictation("auto");
+    const second = await startDictation("server");
     const newRecorder = FakeRecorder.instances[1];
     newRecorder.ondataavailable?.({ data: new Blob(["audio"]) });
     await release();
@@ -853,7 +858,7 @@ describe("desktop voice dictation runs", () => {
   });
 
   it("hides the flow bar when dictation is disposed", async () => {
-    const started = await startDictation("auto");
+    const started = await startDictation("server");
     dispose = started.dispose;
     tauri.invoke.mockClear();
 
@@ -890,7 +895,7 @@ describe("desktop voice dictation runs", () => {
         native: false,
       });
     });
-    const started = await startDictation("auto");
+    const started = await startDictation("server");
     dispose = started.dispose;
     const recorder = FakeRecorder.instances[0];
     recorder.ondataavailable?.({ data: new Blob(["audio"]) });
@@ -948,7 +953,7 @@ describe("desktop voice dictation runs", () => {
         native: false,
       });
     });
-    const started = await startDictation("auto");
+    const started = await startDictation("server");
     dispose = started.dispose;
     const recorder = FakeRecorder.instances[0];
     recorder.ondataavailable?.({ data: new Blob(["audio"]) });
@@ -1023,7 +1028,7 @@ describe("desktop voice dictation runs", () => {
           native: false,
         });
       });
-      const started = await startDictation("auto");
+      const started = await startDictation("server");
       dispose = started.dispose;
       const recorder = FakeRecorder.instances[0];
       recorder.ondataavailable?.({ data: new Blob(["audio"]) });
@@ -1061,4 +1066,170 @@ describe("desktop voice dictation runs", () => {
       expect(tauri.invoke).not.toHaveBeenCalledWith("hide_flow_bar");
     },
   );
+
+  describe("AI polish", () => {
+    function cleanupRequests() {
+      return fetchMock.mock.calls
+        .filter(([url, init]) => {
+          if (!String(url).includes("transcribe-voice")) return false;
+          return (init?.body as FormData | undefined)?.get("text") !== null;
+        })
+        .map(([, init]) => init?.body as FormData);
+    }
+
+    function savedHistory() {
+      const call = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes("create-dictation"),
+      );
+      return call ? JSON.parse(String(call[1]?.body)) : undefined;
+    }
+
+    function respondToCleanup(
+      respond: (init: RequestInit | undefined) => Promise<Response>,
+    ) {
+      const fallback = fetchMock;
+      fetchMock = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const isCleanup =
+            String(input).includes("transcribe-voice") &&
+            (init?.body as FormData | undefined)?.get("text") !== null;
+          return isCleanup ? respond(init) : fallback(input, init);
+        },
+      );
+      vi.stubGlobal("fetch", fetchMock);
+    }
+
+    async function speak(runId: number | undefined, text: string) {
+      if (runId === undefined) throw new Error("Dictation did not start.");
+      await release();
+      emitFinal(runId, text);
+      await vi.advanceTimersByTimeAsync(250);
+      await settle();
+    }
+
+    it.each([
+      ["native", "builder-gemini"],
+      ["native", "groq"],
+      ["whisper", "builder-gemini"],
+      ["whisper", "gemini"],
+    ] as const)(
+      "pastes the polished text from %s speech with %s polish",
+      async (route, polish) => {
+        respondToCleanup(async () =>
+          jsonResponse({ text: "Recognized words." }),
+        );
+        const started = await startDictation(route, polish);
+        dispose = started.dispose;
+        await speak(started.runId, "recognized words");
+
+        expect(
+          cleanupRequests().map((form) => [
+            form.get("text"),
+            form.get("provider"),
+          ]),
+        ).toEqual([["recognized words", polish]]);
+        expect(stateChanges()).toContainEqual(
+          expect.objectContaining({ state: "processing", stage: "cleaning" }),
+        );
+        expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+          text: "Recognized words.",
+        });
+        expect(stateChanges().at(-1)).toMatchObject({
+          state: "complete",
+          cleanupFailed: false,
+        });
+        expect(savedHistory()).toMatchObject({
+          fullText: "recognized words",
+          cleanedText: "Recognized words.",
+        });
+      },
+    );
+
+    it("pastes the raw text when polish fails", async () => {
+      respondToCleanup(
+        async () =>
+          ({
+            ok: false,
+            status: 502,
+            json: async () => ({ error: "Builder.io cleanup failed" }),
+            text: async () => "",
+          }) as Response,
+      );
+      const started = await startDictation("native", "builder-gemini");
+      dispose = started.dispose;
+      await speak(started.runId, "recognized words");
+
+      expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+        text: "recognized words",
+      });
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "complete",
+        cleanupFailed: true,
+      });
+      expect(savedHistory()).toMatchObject({
+        fullText: "recognized words",
+        cleanedText: null,
+      });
+    });
+
+    it("pastes the raw text when polish takes longer than 2.5 seconds", async () => {
+      let cleanupAborted = false;
+      respondToCleanup(
+        (init) =>
+          new Promise<Response>((_, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              cleanupAborted = true;
+              reject(new DOMException("Aborted", "AbortError"));
+            });
+          }),
+      );
+      const started = await startDictation("whisper", "gemini");
+      dispose = started.dispose;
+      await speak(started.runId, "recognized words");
+
+      expect(cleanupRequests()).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(2_400);
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "processing",
+        stage: "cleaning",
+      });
+
+      await vi.advanceTimersByTimeAsync(200);
+      await settle();
+
+      expect(cleanupAborted).toBe(true);
+      expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+        text: "recognized words",
+      });
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "complete",
+        cleanupFailed: true,
+      });
+    });
+
+    it.each(["native", "whisper"] as const)(
+      "pastes %s speech without a polish step when polish is off",
+      async (route) => {
+        const started = await startDictation(route, "off");
+        dispose = started.dispose;
+        await speak(started.runId, "recognized words");
+
+        expect(cleanupRequests()).toHaveLength(0);
+        expect(stateChanges()).not.toContainEqual(
+          expect.objectContaining({ stage: "cleaning" }),
+        );
+        expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+          text: "recognized words",
+        });
+        expect(stateChanges().at(-1)).toMatchObject({
+          state: "complete",
+          cleanupFailed: false,
+        });
+      },
+    );
+  });
 });
