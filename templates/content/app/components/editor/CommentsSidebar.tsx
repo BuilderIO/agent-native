@@ -2708,9 +2708,19 @@ export function CommentsSidebar({
     for (const threadId of settled) {
       const thread = threads.find((item) => item.threadId === threadId);
       const requested = resolveOnAccept.get(threadId) ?? [];
+      const request = commentAi
+        ? latestCommentAiRequest(commentAi.requests, threadId)
+        : undefined;
       // A failed or refused accept leaves an edit pending, and an edit can
       // also end rejected or withdrawn; the thread then stays open. So does
-      // an edit its AI made while the accept was in flight.
+      // an edit its AI made while the accept was in flight, loaded or still
+      // loading.
+      const undecided =
+        (threadSuggestions.get(threadId) ?? []).some(
+          (suggestion) => suggestion.status === "pending",
+        ) ||
+        (request?.status === "suggested" &&
+          awaitedSuggestionIds.has(request.result?.suggestionId ?? ""));
       if (
         thread &&
         !thread.resolved &&
@@ -2720,9 +2730,7 @@ export function CommentsSidebar({
               suggestion.id === id && suggestion.status === "accepted",
           ),
         ) &&
-        (threadSuggestions.get(threadId) ?? []).every(
-          (suggestion) => suggestion.status !== "pending",
-        )
+        !undecided
       )
         resolveAcceptedRef.current?.(thread);
     }

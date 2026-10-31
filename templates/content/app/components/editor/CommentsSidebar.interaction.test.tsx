@@ -590,6 +590,46 @@ describe("comment review interactions", () => {
     expect(dismissResolution).toHaveBeenCalledWith("one");
   });
 
+  /** Thread one's AI request, finished with the suggestion it names. */
+  const suggestedCommentAi = (suggestionId: string): CommentAiController => ({
+    requests: [
+      {
+        operationId: "request-one",
+        requestId: "request-one",
+        documentId: "fixture",
+        threadId: "one",
+        rootCommentId: "one-root",
+        intent: "suggest",
+        status: "suggested",
+        attemptId: null,
+        attemptCount: 1,
+        runId: null,
+        agentThreadId: null,
+        agentTurnId: null,
+        model: "claude-haiku-5-5",
+        engine: "anthropic",
+        result: { suggestionId },
+        errorCode: null,
+        error: null,
+        createdAt: "2026-10-20T12:00:00Z",
+        updatedAt: "2026-10-20T12:01:00Z",
+      },
+    ],
+    startingThreadIds: new Set<string>(),
+    stoppingRequestIds: new Set<string>(),
+    continuations: new Map(),
+    transcriptRevision: 0,
+    start: vi.fn(),
+    continue: vi.fn(),
+    retry: vi.fn(),
+    resume: vi.fn(),
+    stop: vi.fn(),
+    open: vi.fn(),
+    undo: vi.fn(),
+    freshResolutions: new Map(),
+    dismissResolution: vi.fn(),
+  });
+
   describe("Accept and resolve", () => {
     const asked = (id: string, status: ResourceSuggestion["status"]) => ({
       ...proposalSuggestion(id, status),
@@ -714,46 +754,28 @@ describe("comment review interactions", () => {
       });
       expect(actions.resolve).not.toHaveBeenCalled();
     });
+
+    it("leaves the thread open while its AI's new edit is still loading", () => {
+      show("pending");
+      const button = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-accept-resolve]",
+      );
+      if (!button) throw new Error("The proposal has no Accept and resolve");
+      act(() => button.click());
+      deciding = false;
+      render("one", [thread("one")], "inline", {
+        suggestions: [asked("first", "accepted"), asked("second", "accepted")],
+        onDecideSuggestionProposal: decide,
+        decidingSuggestion: () => deciding,
+        commentAi: suggestedCommentAi("fresh"),
+        awaitedSuggestionIds: new Set(["fresh"]),
+      });
+      expect(actions.resolve).not.toHaveBeenCalled();
+    });
   });
 
   it("holds a suggested request's place until its suggestion loads", () => {
-    const suggested: CommentAiRequest = {
-      operationId: "request-one",
-      requestId: "request-one",
-      documentId: "fixture",
-      threadId: "one",
-      rootCommentId: "one-root",
-      intent: "suggest",
-      status: "suggested",
-      attemptId: null,
-      attemptCount: 1,
-      runId: null,
-      agentThreadId: null,
-      agentTurnId: null,
-      model: "claude-haiku-5-5",
-      engine: "anthropic",
-      result: { suggestionId: "suggestion-one" },
-      errorCode: null,
-      error: null,
-      createdAt: "2026-10-20T12:00:00Z",
-      updatedAt: "2026-10-20T12:01:00Z",
-    };
-    const commentAi = {
-      requests: [suggested],
-      startingThreadIds: new Set<string>(),
-      stoppingRequestIds: new Set<string>(),
-      continuations: new Map(),
-      transcriptRevision: 0,
-      start: vi.fn(),
-      continue: vi.fn(),
-      retry: vi.fn(),
-      resume: vi.fn(),
-      stop: vi.fn(),
-      open: vi.fn(),
-      undo: vi.fn(),
-      freshResolutions: new Map(),
-      dismissResolution: vi.fn(),
-    } satisfies CommentAiController;
+    const commentAi = suggestedCommentAi("suggestion-one");
 
     render("one", [thread("one")], "inline", {
       commentAi,
