@@ -1214,7 +1214,7 @@ export default function TemplateEditorRoute() {
     return (
       <div className="grid gap-4">
         <div className="grid gap-2">
-          <div className="flex min-w-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
             <div className="text-xs font-medium text-muted-foreground">
               {t("brandKitDetail.referenceImageCount", {
                 count: entry.assetIds.length,
@@ -1225,7 +1225,7 @@ export default function TemplateEditorRoute() {
               disabled={pinningUnavailable}
               message={t("templates.associateToPin")}
             >
-              <div className="flex shrink-0 gap-2">
+              <div className="flex min-w-0 flex-wrap gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -1299,7 +1299,7 @@ export default function TemplateEditorRoute() {
             {entry.assetIds.length === 0 ? (
               <button
                 type="button"
-                className="col-span-4 flex aspect-[4/1] items-center justify-center rounded-md border border-dashed border-border bg-muted/40 px-3 text-center text-xs text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
+                className="col-span-4 flex min-h-16 min-w-0 items-center justify-center rounded-md border border-dashed border-border bg-muted/40 px-3 text-center text-xs text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
                 disabled={readOnly || pinningUnavailable}
                 onClick={() => openReferencePicker(index)}
               >
@@ -1464,9 +1464,9 @@ export default function TemplateEditorRoute() {
               className="h-full w-full object-cover transition group-hover:scale-[1.02]"
             />
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-2 px-3 text-center text-muted-foreground">
-              <IconUserPlus className="h-8 w-8" />
-              <span className="text-xs font-medium">
+            <div className="flex h-full min-w-0 flex-col items-center justify-center gap-2 overflow-hidden px-3 text-center text-muted-foreground">
+              <IconUserPlus className="h-8 w-8 shrink-0" />
+              <span className="max-w-full break-words text-xs font-medium">
                 {variableEmpty
                   ? t("brandKitDetail.filledPerGeneration")
                   : t("brandKitDetail.noReferenceImages")}
