@@ -113,6 +113,17 @@ export function devModuleUrl(file) {
   return null;
 }
 
+/**
+ * The pathspecs of browser roots with no modules among `files`. A root that
+ * stops matching, say after a folder moves, would otherwise pass unchecked.
+ */
+export function emptyBrowserRoots(files) {
+  return BROWSER_ROOTS.filter(
+    (root) =>
+      !files.some((file) => root.pattern.test(file) && devModuleUrl(file)),
+  ).map(({ pathspec }) => [pathspec].flat().join(", "));
+}
+
 export function findBlockedModuleNames(files) {
   const violations = [];
   for (const file of files) {
@@ -125,20 +136,41 @@ export function findBlockedModuleNames(files) {
 }
 
 function main() {
-  const files = execFileSync(
-    "git",
-    [
-      "ls-files",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-      "--",
-      ...BROWSER_ROOTS.flatMap(({ pathspec }) => pathspec),
-    ],
-    { cwd: REPO_ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-  )
-    .split("\n")
-    .filter(Boolean);
+  let files;
+  try {
+    files = execFileSync(
+      "git",
+      [
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "--",
+        ...BROWSER_ROOTS.flatMap(({ pathspec }) => pathspec),
+      ],
+      { cwd: REPO_ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+    )
+      .split("\n")
+      .filter(Boolean);
+  } catch (error) {
+    console.error(
+      `guard-blocker-safe-module-names: could not run: cannot list files — ${error.message}`,
+    );
+    process.exit(2);
+  }
+
+  // A pass that inspected nothing is not a pass.
+  const empty = emptyBrowserRoots(files);
+  if (empty.length > 0) {
+    console.error(
+      "guard-blocker-safe-module-names: could not run: no browser modules found under:",
+    );
+    for (const pathspecs of empty) console.error(`  ${pathspecs}`);
+    console.error(
+      "\nMoved a folder? Update BROWSER_ROOTS in this file in the same change.",
+    );
+    process.exit(2);
+  }
 
   const violations = findBlockedModuleNames(files);
   if (violations.length === 0) {

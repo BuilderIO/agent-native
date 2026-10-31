@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   devModuleUrl,
+  emptyBrowserRoots,
   findBlockedModuleNames,
 } from "./guard-blocker-safe-module-names.mjs";
 
@@ -41,6 +42,28 @@ test("ignores tests, type declarations and files outside the browser", () => {
   ]) {
     assert.equal(devModuleUrl(file), null, file);
   }
+});
+
+test("reports every browser root that has no modules to check", () => {
+  assert.equal(emptyBrowserRoots([]).length, 4);
+  assert.deepEqual(
+    emptyBrowserRoots([
+      "packages/core/src/index.ts",
+      "templates/chat/app/root.tsx",
+      "packages/docs/README.md",
+      "templates/clips/public/sw.js",
+    ]),
+    ["packages/docs/app/**, packages/frame/client/**"],
+  );
+  assert.deepEqual(
+    emptyBrowserRoots([
+      "packages/core/src/index.ts",
+      "community-templates/account-expert/shared/types.ts",
+      "packages/frame/client/main.ts",
+      "packages/docs/public/search.js",
+    ]),
+    [],
+  );
 });
 
 test("finds the module name that kept apps from loading in Brave", () => {
