@@ -1,8 +1,10 @@
 import { createAuthPlugin, type AuthOptions } from "@agent-native/core/server";
+import { getAuthGuardPath } from "@agent-native/core/server/auth-guard-path";
 import type {
   AuthPageProps,
   ResetPasswordPageProps,
 } from "@agent-native/core/shared/auth-page-types";
+import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "@agent-native/core/shared/framework-route-prefix";
 import { SIGN_IN_LEGACY_ENTRY_PATH } from "@agent-native/core/shared/sign-in-journey";
 
 type AuthPageRenderers = typeof import("./render-pages.js");
@@ -53,13 +55,7 @@ export function renderAuthResetPasswordPage(
   return renderers?.renderResetPasswordPageMarkup(props);
 }
 
-type RequestHookEvent = {
-  req: {
-    method: string;
-    url: string;
-    headers: { get(name: string): string | null };
-  };
-};
+type RequestHookEvent = Parameters<typeof getAuthGuardPath>[0];
 
 type RequestHooks = {
   hook(
@@ -68,22 +64,26 @@ type RequestHooks = {
   ): unknown;
 };
 
-// The app's own API calls go to `/_agent-native/` and never load the
-// renderers. Any read of a page outside it, or of the old sign-in path, loads
-// them first, whatever the client (a browser, a link preview, the deploy's
-// cache check), because the sign-in page it may get is cached for every
-// visitor. So does a browser navigation, a form post included, which names a
-// document or iframe destination or accepts HTML.
+// The app's own API calls go to its framework routes and never load the
+// renderers. Any read of a page outside them, or of the old sign-in path,
+// loads them first, whatever the client (a browser, a link preview, the
+// deploy's cache check), because the sign-in page it may get is cached for
+// every visitor. So does a browser navigation, a form post included, which
+// names a document or iframe destination or accepts HTML. The path is the one
+// the auth guard routes by, so an escaped character, a custom framework route
+// prefix or the app's base path reads the same here as there.
 function needsRenderers(event: RequestHookEvent): boolean {
-  const { method, url, headers } = event.req;
+  const { method, headers } = event.req;
   const fetchDest = headers.get("sec-fetch-dest")?.toLowerCase();
   if (fetchDest === "document" || fetchDest === "iframe") return true;
   if (headers.get("accept")?.toLowerCase().includes("text/html")) return true;
   if (method !== "GET" && method !== "HEAD") return false;
-  const { pathname } = new URL(url, "http://localhost");
+  const path = getAuthGuardPath(event);
+  // The guard turns this path away; loading anyway costs one import.
+  if (path === null) return true;
   return (
-    pathname.endsWith(SIGN_IN_LEGACY_ENTRY_PATH) ||
-    !pathname.includes("/_agent-native/")
+    path === SIGN_IN_LEGACY_ENTRY_PATH ||
+    !path.startsWith(`${FRAMEWORK_INTERNAL_ROUTE_PREFIX}/`)
   );
 }
 

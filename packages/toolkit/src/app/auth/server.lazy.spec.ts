@@ -1,5 +1,5 @@
 import { getOnboardingHtml } from "@agent-native/core/server/onboarding-html";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const corePlugin = vi.hoisted(() => vi.fn());
 
@@ -9,10 +9,13 @@ vi.mock("@agent-native/core/server", () => ({
 
 type RequestHook = (event: unknown) => Promise<void>;
 
+// `url` is H3's reading of the path, which drops an escape a character doesn't
+// need (`%73` for `s`); `req.url` keeps the path as it was sent.
 function request(
   method: string,
   path: string,
   headers: Record<string, string>,
+  h3Path = path,
 ) {
   return {
     req: {
@@ -20,6 +23,7 @@ function request(
       url: `https://slides.agent-native.com${path}`,
       headers: new Headers(headers),
     },
+    url: new URL(`https://slides.agent-native.com${h3Path}`),
   };
 }
 
@@ -45,6 +49,10 @@ describe("Toolkit auth plugin's lazy sign-in renderer", () => {
     corePlugin.mockClear();
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("serves core's fallback markup until the renderers load", async () => {
     const { signInHtml } = await installPlugin();
 
@@ -62,9 +70,7 @@ describe("Toolkit auth plugin's lazy sign-in renderer", () => {
       }),
     );
     await onRequest(
-      request("GET", "/docs/_agent-native/org/me", {
-        accept: "application/json",
-      }),
+      request("GET", "/_agent-native/org/me", { accept: "application/json" }),
     );
     await onRequest(
       request("POST", "/_agent-native/actions/update-document", {
@@ -100,7 +106,7 @@ describe("Toolkit auth plugin's lazy sign-in renderer", () => {
     [
       "another client's read of the old sign-in path",
       "GET",
-      "/docs/_agent-native/sign-in",
+      "/_agent-native/sign-in",
       { accept: "*/*" },
     ],
     ["a HEAD request for a page", "HEAD", "/login", {}],
@@ -116,6 +122,65 @@ describe("Toolkit auth plugin's lazy sign-in renderer", () => {
       expect(html).not.toContain('data-agent-native-auth-fallback="true"');
     },
   );
+
+  it("reads an escaped path the way the auth guard does", async () => {
+    const { onRequest, signInHtml } = await installPlugin();
+
+    await onRequest(
+      request(
+        "GET",
+        "/_agent-native/%73ign-in",
+        { accept: "*/*" },
+        "/_agent-native/sign-in",
+      ),
+    );
+
+    expect(signInHtml()).toContain('id="login-form"');
+  });
+
+  it("tells the app's API calls from its pages under its base path", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/apps/_agent-native/content");
+    const base = "/apps/_agent-native/content";
+    const { onRequest, signInHtml } = await installPlugin();
+
+    await onRequest(
+      request("GET", `${base}/_agent-native/actions/list-documents`, {
+        accept: "*/*",
+      }),
+    );
+    expect(signInHtml()).toContain('data-agent-native-auth-fallback="true"');
+
+    await onRequest(request("GET", `${base}/login`, { accept: "*/*" }));
+    expect(signInHtml()).toContain('id="login-form"');
+  });
+
+  it("loads for the old sign-in path under the app's base path", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/docs");
+    const { onRequest, signInHtml } = await installPlugin();
+
+    await onRequest(
+      request("GET", "/docs/_agent-native/sign-in", { accept: "*/*" }),
+    );
+
+    expect(signInHtml()).toContain('id="login-form"');
+  });
+
+  it("treats the app's own framework route prefix as its API", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      "/_platform",
+    );
+    const { onRequest, signInHtml } = await installPlugin();
+
+    await onRequest(request("GET", "/_platform/ping", { accept: "*/*" }));
+    await onRequest(
+      request("GET", "/_platform/actions/list-documents", { accept: "*/*" }),
+    );
+    expect(signInHtml()).toContain('data-agent-native-auth-fallback="true"');
+
+    await onRequest(request("GET", "/_platform/sign-in", { accept: "*/*" }));
+    expect(signInHtml()).toContain('id="login-form"');
+  });
 
   it("starts loading the renderers when it serves the fallback", async () => {
     const { signInHtml } = await installPlugin();

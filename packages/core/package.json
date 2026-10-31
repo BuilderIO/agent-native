@@ -631,6 +631,7 @@
     "./server/agent-chat/mcp-glue": "./dist/server/agent-chat/mcp-glue.js",
     "./server/deploy-environment": "./dist/server/deploy-environment.js",
     "./server/infrastructure-status": "./dist/server/infrastructure-status.js",
+    "./server/auth-guard-path": "./dist/server/auth-guard-path.js",
     "./server/onboarding-html": "./dist/server/onboarding-html.js",
     "./server/personal-provider-key-holders": "./dist/server/personal-provider-key-holders.js",
     "./shared/analytics-events": "./dist/shared/analytics-events.js",

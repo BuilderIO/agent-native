@@ -28,8 +28,8 @@ import {
   getConfiguredAppBasePath,
   stripAppBasePath,
 } from "../server/app-base-path.js";
+import { getAuthGuardPath } from "../server/auth-guard-path.js";
 import {
-  getAuthGuardPath,
   getBrowserCookieSession,
   getBrowserSessionConfigurationError,
   getConfiguredLoginHtml,
