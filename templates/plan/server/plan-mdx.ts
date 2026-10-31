@@ -1,6 +1,3 @@
-import { createHash } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
-
 import {
   BlockRegistry,
   prop,
@@ -9,6 +6,8 @@ import {
   parseSpecBlock,
   type MdxJsxNode,
 } from "@agent-native/core/blocks/server";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import matter from "gray-matter";
 import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
@@ -1577,7 +1576,7 @@ function samePlanBlockSource(current: PlanBlock, previous: PlanBlock): boolean {
     unknown
   >;
   stripBlockIdsForSourceComparison(currentCopy, previousCopy);
-  return isDeepStrictEqual(currentCopy, previousCopy);
+  return jsonDeepEqual(currentCopy, previousCopy);
 }
 
 function canonicalSourceJson(value: unknown): string {
@@ -1674,9 +1673,28 @@ function planBlockSourceFingerprint(
   if (normalizeLegacyDefaults) {
     stripEmptyRequiredFieldsForSourceKey(currentCopy);
   }
-  return createHash("sha256")
-    .update(canonicalSourceJson(currentCopy))
-    .digest("hex");
+  return sha256Hex(canonicalSourceJson(currentCopy));
+}
+
+// Browser-reachable via the local-plan bridge: no node:crypto / node:util.
+function sha256Hex(value: string): string {
+  return bytesToHex(sha256(utf8ToBytes(value)));
+}
+
+function jsonDeepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every(
+    (k) =>
+      Object.prototype.hasOwnProperty.call(b, k) &&
+      jsonDeepEqual(
+        (a as Record<string, unknown>)[k],
+        (b as Record<string, unknown>)[k],
+      ),
+  );
 }
 
 function nestedPlanGroups(block: PlanBlock): unknown[] | null {
@@ -1863,7 +1881,7 @@ function nestedParentShellFingerprint(block: PlanBlock): string | null {
     delete record.id;
     delete record.blocks;
   }
-  return createHash("sha256").update(canonicalSourceJson(copy)).digest("hex");
+  return sha256Hex(canonicalSourceJson(copy));
 }
 
 function preserveIdlessBlockIds(
@@ -2435,7 +2453,7 @@ function samePlanColumnSource(
       }
     }
   }
-  return isDeepStrictEqual(currentCopy, previousCopy);
+  return jsonDeepEqual(currentCopy, previousCopy);
 }
 
 function samePlanNestedGroupSource(
@@ -2471,7 +2489,7 @@ function samePlanNestedGroupSource(
     delete currentCopy.blocks;
     delete previousCopy.blocks;
   }
-  return isDeepStrictEqual(currentCopy, previousCopy);
+  return jsonDeepEqual(currentCopy, previousCopy);
 }
 
 function reuseMatchingNestedBlockIds(
@@ -3233,7 +3251,7 @@ function createStableWireframeNodeId(
 }
 
 function createStablePlanSourceId(context: string): string {
-  return `source-${createHash("sha256").update(context).digest("hex").slice(0, 24)}`;
+  return `source-${sha256Hex(context).slice(0, 24)}`;
 }
 
 function parseWireframeNode(

@@ -23,6 +23,7 @@
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/vazirmatn": "^5.2.8",
+    "@noble/hashes": "^2.4.0",
     "@tabler/icons-react": "catalog:",
     "@tanstack/react-query": "5.101.2",
     "@tiptap/core": "catalog:",
