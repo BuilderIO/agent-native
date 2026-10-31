@@ -8,6 +8,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import {
+  parseCommentMentions,
+  type CommentMention,
+} from "../../shared/comment-mentions.js";
+import {
   CONTENT_CLIP_COMMENT_KEY,
   CONTENT_CLIP_COMMENT_KEY_USED,
 } from "../../shared/content-clip-contract.js";
@@ -65,7 +69,13 @@ type CommentTarget = {
   parentId: string | null;
   videoTimestampMs: number;
   content: string;
+  /** The resolved mentions' emails, sorted. */
+  mentionEmails: string[];
 };
+
+function mentionEmails(mentions: CommentMention[]): string[] {
+  return mentions.map((mention) => mention.email).sort();
+}
 
 /**
  * The comment its author already saved with this key, or null. A key names
@@ -87,6 +97,7 @@ async function savedWithKey(
         parentId: comments.parentId,
         videoTimestampMs: comments.videoTimestampMs,
         content: comments.content,
+        mentionsJson: comments.mentionsJson,
       })
       .from(comments)
       .where(
@@ -103,7 +114,9 @@ async function savedWithKey(
     saved.parentId !== target.parentId ||
     (target.threadId !== null && saved.threadId !== target.threadId) ||
     saved.videoTimestampMs !== target.videoTimestampMs ||
-    saved.content !== target.content
+    saved.content !== target.content ||
+    mentionEmails(parseCommentMentions(saved.mentionsJson)).join("\n") !==
+      target.mentionEmails.join("\n")
   ) {
     fail(
       "That idempotencyKey was already used for a different comment; send a new key for a new comment.",
@@ -145,19 +158,6 @@ export async function saveRecordingComment(
   }
   const threadId = args.threadId?.trim() ?? id;
   const parentId = args.parentId?.trim() ?? null;
-  const target: CommentTarget = {
-    recordingId: args.recordingId,
-    threadId: parentId ? threadId : null,
-    parentId,
-    videoTimestampMs: args.videoTimestampMs,
-    content: args.content,
-  };
-  const key = args.idempotencyKey;
-  if (key) {
-    const saved = await savedWithKey(authorEmail, key, target);
-    if (saved) return saved;
-  }
-  const now = new Date().toISOString();
 
   const rec = firstRow(
     await db
@@ -169,6 +169,26 @@ export async function saveRecordingComment(
   if (!rec) {
     throw new Error(`Recording not found: ${args.recordingId}`);
   }
+
+  const mentions = await resolveCommentMentions(
+    args.mentions,
+    rec.organizationId,
+  );
+
+  const target: CommentTarget = {
+    recordingId: args.recordingId,
+    threadId: parentId ? threadId : null,
+    parentId,
+    videoTimestampMs: args.videoTimestampMs,
+    content: args.content,
+    mentionEmails: mentionEmails(mentions),
+  };
+  const key = args.idempotencyKey;
+  if (key) {
+    const saved = await savedWithKey(authorEmail, key, target);
+    if (saved) return saved;
+  }
+  const now = new Date().toISOString();
 
   if (parentId) {
     const parents = await db
@@ -187,11 +207,6 @@ export async function saveRecordingComment(
       throw new Error("Parent comment does not belong to this recording.");
     }
   }
-
-  const mentions = await resolveCommentMentions(
-    args.mentions,
-    rec.organizationId,
-  );
 
   const insert = db.insert(schema.recordingComments).values({
     id,
