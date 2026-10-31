@@ -5,7 +5,7 @@ import {
   devModuleUrl,
   emptyBrowserRoots,
   findBlockedModuleNames,
-} from "./guard-blocker-safe-module-names.mjs";
+} from "./guard-blocker-safe-module-names";
 
 test("maps every browser root to the URL it is served at", () => {
   for (const [file, url] of [
@@ -26,7 +26,7 @@ test("maps every browser root to the URL it is served at", () => {
     ["packages/docs/app/root.tsx", "/app/root.tsx"],
     ["packages/docs/public/search.js", "/search.js"],
     ["packages/frame/client/main.ts", "/client/main.ts"],
-  ]) {
+  ] as const) {
     assert.equal(devModuleUrl(file), url, file);
   }
 });

@@ -21,14 +21,28 @@
 
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 
-const REPO_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-);
+const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 
-const BLOCKED_WORDS = [
+interface BlockedWords {
+  pattern: RegExp;
+  list: string;
+}
+
+interface BrowserRoot {
+  pathspec: string | string[];
+  pattern: RegExp;
+  url: (match: RegExpExecArray) => string;
+}
+
+export interface BlockedModuleName {
+  file: string;
+  words: string;
+  list: string;
+}
+
+const BLOCKED_WORDS: BlockedWords[] = [
   // `ConsentBanner.js` passes every list, so this pair needs a separator.
   { pattern: /consent[-_]banner|consentbanner-/, list: "cookie-notice lists" },
   { pattern: /consent[-_]?(?:manager|modal)/, list: "cookie-notice lists" },
@@ -63,11 +77,11 @@ const SKIPPED = /(?:\.spec\.|\.test\.|\/__tests__\/|\.d\.ts$)/;
 // are served at their own path, and `public/` files from the site root.
 // Package `src` also holds server-only code; it is checked too, because which
 // files reach a browser depends on imports, and a rename is cheap.
-const BROWSER_ROOTS = [
+const BROWSER_ROOTS: BrowserRoot[] = [
   {
     pathspec: "packages/*/src/**",
     pattern: /^packages\/([^/]+)\/src\/(.+)$/,
-    url: ([, pkg, rel]) =>
+    url: ([, pkg, rel = ""]) =>
       `/@fs/node_modules/@agent-native/${pkg}/dist/${rel.replace(SCRIPT, ".js")}`,
   },
   {
@@ -101,7 +115,7 @@ const BROWSER_ROOTS = [
  * The URL path a repo file is served at in dev, or null when the file never
  * reaches a browser.
  */
-export function devModuleUrl(file) {
+export function devModuleUrl(file: string): string | null {
   if (!MODULE.test(file) || SKIPPED.test(file)) return null;
   for (const root of BROWSER_ROOTS) {
     const match = root.pattern.exec(file);
@@ -114,15 +128,15 @@ export function devModuleUrl(file) {
  * The pathspecs of browser roots with no modules among `files`. A root that
  * stops matching, say after a folder moves, would otherwise pass unchecked.
  */
-export function emptyBrowserRoots(files) {
+export function emptyBrowserRoots(files: string[]): string[] {
   return BROWSER_ROOTS.filter(
     (root) =>
       !files.some((file) => root.pattern.test(file) && devModuleUrl(file)),
   ).map(({ pathspec }) => [pathspec].flat().join(", "));
 }
 
-export function findBlockedModuleNames(files) {
-  const violations = [];
+export function findBlockedModuleNames(files: string[]): BlockedModuleName[] {
+  const violations: BlockedModuleName[] = [];
   for (const file of files) {
     const url = devModuleUrl(file)?.toLowerCase();
     if (!url) continue;
@@ -137,8 +151,8 @@ export function findBlockedModuleNames(files) {
   return violations;
 }
 
-function main() {
-  let files;
+function main(): void {
+  let files: string[];
   try {
     files = execFileSync(
       "git",
@@ -156,7 +170,7 @@ function main() {
       .filter(Boolean);
   } catch (error) {
     console.error(
-      `guard-blocker-safe-module-names: could not run: cannot list files — ${error.message}`,
+      `guard-blocker-safe-module-names: could not run: cannot list files — ${error instanceof Error ? error.message : String(error)}`,
     );
     process.exit(2);
   }
@@ -197,9 +211,4 @@ function main() {
   process.exit(1);
 }
 
-if (
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-) {
-  main();
-}
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) main();
