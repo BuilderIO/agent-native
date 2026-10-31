@@ -162,7 +162,13 @@ export async function upsertFusionScreens(args: {
     let fileId = existing?.id ?? nanoid();
     const title = titleFromPath(path);
 
-    if (existing) {
+    // Re-binding an unchanged screen writes nothing: every write makes open
+    // editors refetch the design.
+    const unchanged =
+      existing !== undefined &&
+      existing.filename === filename &&
+      (existing.content ?? "").trim() === url;
+    if (existing && !unchanged) {
       const updated = await withDesignSourceMutationTransaction(
         designId,
         async (tx) => {

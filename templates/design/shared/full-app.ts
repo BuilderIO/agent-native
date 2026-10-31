@@ -8,6 +8,9 @@ export const FULL_APP_BUILDING = defineFeatureFlag({
 
 export type DesignFusionAppStatus = "building" | "ready" | "error";
 
+/** The status message while an existing app's container wakes up. */
+export const APP_STARTING_MESSAGE = "Starting the app";
+
 export type DesignFusionAppSource = "design-app" | "builder-host";
 
 export interface DesignFusionApp {

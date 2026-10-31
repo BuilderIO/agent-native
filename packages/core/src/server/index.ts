@@ -888,6 +888,7 @@ export {
 } from "./builder-branch-files.js";
 export {
   ensureFusionContainer,
+  isFusionDevServerServing,
   sendFusionBranchMessage,
   pushFusionBranch,
   reserveFusionHostingSlug,

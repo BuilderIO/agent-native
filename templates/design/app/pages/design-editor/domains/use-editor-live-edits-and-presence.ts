@@ -1216,6 +1216,9 @@ export function useEditorLiveEditsAndPresence({
     if (typeof raw === "string" && raw) return raw;
     return fusionApp?.previewUrl;
   }, [designDataJson, fusionApp]);
+  const fusionAppStarting = Boolean(
+    fullAppBuildingEnabled && fusionApp?.status === "building",
+  );
 
   const handleActiveRuntimeLayerSnapshot = useCallback(
     (snapshot: RuntimeLayerSnapshot) => {
@@ -1696,6 +1699,7 @@ export function useEditorLiveEditsAndPresence({
     designReviewPanelEnabled,
     motionLabEnabled,
     designFusionUrl,
+    fusionAppStarting,
     handleActiveRuntimeLayerSnapshot,
     handleActiveRuntimeVerificationSnapshot,
     selectedComponentNodeId,

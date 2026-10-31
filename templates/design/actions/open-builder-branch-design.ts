@@ -1,5 +1,4 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { ensureFusionContainer } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -14,18 +13,35 @@ import { canAccessBuilderProject } from "../server/lib/builder-identity.js";
 import "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { upsertFusionScreens } from "../server/lib/fusion-screens.js";
-import { readFusionApp, writeFusionApp } from "../shared/full-app.js";
+import {
+  APP_STARTING_MESSAGE,
+  readFusionApp,
+  writeFusionApp,
+} from "../shared/full-app.js";
+
+/** Milliseconds spent in each named stage since the previous one. */
+function stageTimer() {
+  const startedAt = Date.now();
+  let last = startedAt;
+  const stages: Record<string, number> = {};
+  return {
+    mark(name: string) {
+      const now = Date.now();
+      stages[name] = now - last;
+      last = now;
+    },
+    done: () => ({ ...stages, totalMs: Date.now() - startedAt }),
+  };
+}
 
 /**
  * The Builder-hosted entry point: "the user opened Builder project X, branch
  * Y". Returns the one design bound to that branch (creating it on first
- * open) with its app screens pointed at the live branch container, so the
- * host can mount the ordinary production editor at `/design/:id`.
- *
- * The container is resolved through core's fusion-app client. Under Builder
- * identity that call carries the user's own Builder credential (see
- * server/lib/builder-identity.ts), so Builder authorizes it exactly as it
- * would a request from Builder.
+ * open) right away, so the host can mount the ordinary production editor at
+ * `/design/:id` while the branch's container is still waking. The editor
+ * wakes it with sync-builder-app, whose container call carries the user's
+ * own Builder credential under Builder identity (see
+ * server/lib/builder-identity.ts).
  */
 export default defineAction({
   mcpAnnotations: {
@@ -35,7 +51,8 @@ export default defineAction({
   },
   description:
     "Open (or create) the design bound to a Builder project branch and point " +
-    "its app screens at the branch's live container. Used by Builder when a " +
+    "its app screens at the branch's app, marked as starting until " +
+    "sync-builder-app reports the container ready. Used by Builder when a " +
     "project opens into Design.",
   schema: z.object({
     projectId: z.string().min(1),
@@ -43,7 +60,7 @@ export default defineAction({
     title: z.string().optional(),
     builderOrgId: z.string().optional(),
     paths: z.array(z.string()).optional(),
-    /** The host's current preview URL, used if the container lookup fails. */
+    /** The host's current preview URL, used until the container reports its own. */
     previewUrl: z.string().url().optional(),
   }),
   run: async ({
@@ -54,6 +71,7 @@ export default defineAction({
     paths,
     previewUrl: hostPreviewUrl,
   }) => {
+    const stages = stageTimer();
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
       fail("Sign in to open a Builder project in Design.", {
@@ -71,6 +89,7 @@ export default defineAction({
       projectId === "local"
         ? undefined
         : await canAccessBuilderProject(ownerEmail!, projectId);
+    stages.mark("accessMs");
     if (builderAccess === false) {
       fail("You don't have access to this Builder project.", {
         errorCode: "builder_project_forbidden",
@@ -103,6 +122,7 @@ export default defineAction({
       return projectId !== "local" || row.ownerEmail === ownerEmail;
     });
     if (existing) await assertAccess("design", existing.id, "editor");
+    stages.mark("lookupMs");
 
     let designId = existing?.id;
     if (!designId) {
@@ -137,34 +157,34 @@ export default defineAction({
       });
     }
 
-    // A local `builder.io launch` session has no cloud container; the host's
-    // preview URL (the local dev-tools proxy) is the app.
-    const container =
-      projectId === "local"
-        ? { status: "ready" as const, url: undefined, message: "local session" }
-        : await ensureFusionContainer({
-            projectId,
-            branchName,
-            timeoutMs: 20_000,
-          }).catch((error: unknown) => ({
-            status: "error" as const,
-            url: undefined,
-            message: error instanceof Error ? error.message : String(error),
-          }));
-    const previewUrl = container.url || hostPreviewUrl;
-    if (!previewUrl) {
-      return {
-        designId,
-        status: container.status,
-        message: container.message,
-      };
-    }
+    // The design never waits on the branch's container: a cold one takes
+    // longer to wake than a request may stay open. Screens are bound to the
+    // app's known URL now and, unless the app is already running there, it is
+    // marked as starting; the editor wakes the container through
+    // sync-builder-app and its screens load once that reports ready. A local
+    // `builder.io launch` session has no cloud container: the host's preview
+    // URL (the local dev-tools proxy) is the app.
+    const local = projectId === "local";
+    const existingApp = existing ? readFusionApp(existing.data) : null;
+    const previewUrl =
+      hostPreviewUrl ?? (local ? undefined : existingApp?.previewUrl);
+    const running =
+      local ||
+      (existingApp?.status === "ready" &&
+        existingApp.previewUrl === previewUrl);
+    const status = running ? ("ready" as const) : ("building" as const);
+    const statusMessage = running
+      ? existingApp?.statusMessage
+      : APP_STARTING_MESSAGE;
 
-    await upsertFusionScreens({
-      designId,
-      previewUrl,
-      paths: paths && paths.length > 0 ? paths : ["/"],
-    });
+    stages.mark("createMs");
+    if (previewUrl) {
+      await upsertFusionScreens({
+        designId,
+        previewUrl,
+        paths: paths && paths.length > 0 ? paths : ["/"],
+      });
+    }
     await mutateDesignData({
       designId,
       mutate: (current) => {
@@ -172,21 +192,29 @@ export default defineAction({
         return app
           ? writeFusionApp(current, {
               ...app,
-              previewUrl,
-              status: "ready",
+              ...(previewUrl ? { previewUrl } : {}),
+              status,
+              statusMessage,
               updatedAt: now,
             })
           : current;
       },
-      isApplied: (current) => readFusionApp(current)?.previewUrl === previewUrl,
+      isApplied: (current) => {
+        const app = readFusionApp(current);
+        return (
+          app?.status === status &&
+          app.statusMessage === statusMessage &&
+          (!previewUrl || app.previewUrl === previewUrl)
+        );
+      },
+    });
+    stages.mark("bindMs");
+    console.info("[open-builder-branch-design] stage timings", {
+      projectId,
+      created: !existing,
+      ...stages.done(),
     });
 
-    return {
-      designId,
-      status: "ready" as const,
-      previewUrl,
-      containerSource: container.url ? "ai-services" : "host",
-      containerMessage: container.message,
-    };
+    return { designId, status, ...(previewUrl ? { previewUrl } : {}) };
   },
 });

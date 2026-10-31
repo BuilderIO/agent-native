@@ -1,5 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { ensureFusionContainer } from "@agent-native/core/server";
+import {
+  ensureFusionContainer,
+  isFusionDevServerServing,
+} from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, count, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -18,6 +21,8 @@ import {
   readFusionApp,
   writeFusionApp,
 } from "../shared/full-app.js";
+
+const DEV_SERVER_STARTING_MESSAGE = "Starting the dev server";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -83,10 +88,27 @@ export default defineAction({
       });
     }
 
-    const result = await ensureFusionContainer({
+    const ensureStartedAt = Date.now();
+    const container = await ensureFusionContainer({
       projectId: fusionApp.projectId,
       branchName: fusionApp.branchName,
       timeoutMs: 20_000,
+    });
+    // The container is up before its dev server serves, and a screen loaded
+    // in between never gets the editor bridge: it is still starting until then.
+    const result =
+      container.status === "ready" &&
+      container.url &&
+      !(await isFusionDevServerServing(container.url))
+        ? {
+            status: "provisioning" as const,
+            message: DEV_SERVER_STARTING_MESSAGE,
+          }
+        : container;
+    console.info("[sync-builder-app] container", {
+      projectId: fusionApp.projectId,
+      status: result.status,
+      ensureMs: Date.now() - ensureStartedAt,
     });
 
     const now = new Date().toISOString();
