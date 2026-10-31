@@ -3611,6 +3611,7 @@ fn run_transcript_job(app: &AppHandle, job: ScreenMemoryTranscriptJob) -> Result
     let duration_ms = u64::try_from(job.segment.duration_ms)
         .unwrap_or(crate::screen_memory_transcript::MAX_DURATION_MS.saturating_add(1));
     let mut rows = Vec::new();
+    let mut incomplete = false;
     for (path, source) in [
         (job.segment.system_audio_path.as_ref(), "system-audio"),
         (job.segment.microphone_path.as_ref(), "microphone"),
@@ -3636,7 +3637,10 @@ fn run_transcript_job(app: &AppHandle, job: ScreenMemoryTranscriptJob) -> Result
             duration_ms,
             None,
         ) {
-            Ok(mut source_rows) => rows.append(&mut source_rows),
+            Ok(transcribed) => {
+                rows.extend(transcribed.rows);
+                incomplete |= transcribed.incomplete;
+            }
             Err(error) => {
                 return write_transcript_status(
                     app,
@@ -3651,7 +3655,7 @@ fn run_transcript_job(app: &AppHandle, job: ScreenMemoryTranscriptJob) -> Result
     let result = write_transcript_status(
         app,
         &job.segment.id,
-        &ScreenMemoryTranscriptStatus::ready(rows.len(), started_at, now_iso()),
+        &ScreenMemoryTranscriptStatus::ready(rows.len(), incomplete, started_at, now_iso()),
     );
     let _ = refresh_rewind_chapters(app);
     result

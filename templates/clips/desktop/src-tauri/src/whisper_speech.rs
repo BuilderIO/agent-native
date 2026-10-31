@@ -7,11 +7,19 @@ pub(crate) struct OfflineTranscriptSegment {
     pub text: String,
 }
 
+/// A file's transcript. `incomplete` is set when decoding stopped early
+/// somewhere in the file, so some of its speech is missing from `segments`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OfflineTranscript {
+    pub segments: Vec<OfflineTranscriptSegment>,
+    pub incomplete: bool,
+}
+
 pub(crate) fn transcribe_offline_file_samples(
     app: &AppHandle,
     samples: &[f32],
     language: Option<&str>,
-) -> Result<Vec<OfflineTranscriptSegment>, String> {
+) -> Result<OfflineTranscript, String> {
     #[cfg(target_os = "macos")]
     {
         macos::transcribe_offline_file_samples(app, samples, language)
@@ -152,10 +160,12 @@ mod macos {
         start_raw_meeting_capture, start_raw_system_capture, supports_sck_microphone_capture,
         RawSckAudioCapture,
     };
-    use crate::transcribe_engine::{open_session, transcribe_whisper, ModelSlot};
+    use crate::transcribe_engine::{open_session, transcribe_whisper, ModelSlot, Transcription};
     use crate::whisper_model::{ensure_model, model_file, remove_superseded_legacy_model};
 
     const MEETING_AUDIO_OWNER: &str = "meeting-whisper";
+    const PARTIAL_TRANSCRIPT: &str = "voice:partial-transcript";
+    const FINAL_TRANSCRIPT: &str = "voice:final-transcript";
     const START_SUPERSEDED: &str = "speech-engine-start-superseded";
 
     const SHARED_LEVEL_EVERY: u32 = 3;
@@ -199,6 +209,9 @@ mod macos {
         segments: Vec<Segment>,
         #[serde(skip_serializing_if = "Option::is_none")]
         run_id: Option<u64>,
+        /// Decoding stopped early, so speech after `text` is missing.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        incomplete: bool,
     }
 
     struct StreamTimeline {
@@ -227,22 +240,37 @@ mod macos {
         app: &AppHandle,
         samples: &[f32],
         language: Option<&str>,
-    ) -> Result<Vec<super::OfflineTranscriptSegment>, String> {
+    ) -> Result<super::OfflineTranscript, String> {
         const CHUNK_SAMPLES: usize = 25 * 16_000;
 
         let mut session = open_session(&cached_model(app)?).map_err(|e| format!("whisper {e}"))?;
-        let mut segments = Vec::new();
+        let mut transcript = super::OfflineTranscript {
+            segments: Vec::new(),
+            incomplete: false,
+        };
         for (chunk_index, chunk) in samples.chunks(CHUNK_SAMPLES).enumerate() {
             let chunk_offset_ms = chunk_index as i64 * 25_000;
-            segments.extend(infer(&mut session, chunk, language)?.into_iter().map(
-                |(start_ms, end_ms, text)| super::OfflineTranscriptSegment {
-                    start_ms: chunk_offset_ms.saturating_add(start_ms),
-                    end_ms: chunk_offset_ms.saturating_add(end_ms),
-                    text,
-                },
-            ));
+            let transcription = infer(&mut session, chunk, language)?;
+            if let Some(stop) = transcription.stopped_early {
+                eprintln!(
+                    "[whisper-file] {stop} in the chunk at {chunk_offset_ms} ms; its later speech is missing"
+                );
+                transcript.incomplete = true;
+            }
+            transcript
+                .segments
+                .extend(
+                    transcription
+                        .segments
+                        .into_iter()
+                        .map(|(start_ms, end_ms, text)| super::OfflineTranscriptSegment {
+                            start_ms: chunk_offset_ms.saturating_add(start_ms),
+                            end_ms: chunk_offset_ms.saturating_add(end_ms),
+                            text,
+                        }),
+                );
         }
-        Ok(segments)
+        Ok(transcript)
     }
 
     fn resample_linear_at(input: &[f32], ratio: f64, i: usize) -> f32 {
@@ -436,7 +464,7 @@ mod macos {
 
         fn clear_partial(&self) {
             let _ = self.app.emit(
-                "voice:partial-transcript",
+                PARTIAL_TRANSCRIPT,
                 serde_json::json!({
                     "text": "",
                     "source": self.source,
@@ -457,23 +485,51 @@ mod macos {
             self.reset_generation.fetch_add(1, Ordering::SeqCst);
         }
 
-        fn emit_inference(
-            &self,
-            event: &'static str,
-            result: Result<Vec<(i64, i64, String)>, String>,
-        ) {
+        fn emit_inference(&self, event: &'static str, result: Result<Transcription, String>) {
             match result {
-                Ok(segments) => self.emit_transcript(event, &segments, self.offset_ms()),
-                Err(error) => eprintln!("[whisper-{}] {error}", self.source),
+                Ok(transcription) => {
+                    if let Some(stop) = transcription.stopped_early {
+                        eprintln!(
+                            "[whisper-{}] {stop}; the {event} is missing later speech",
+                            self.source
+                        );
+                    }
+                    self.emit_transcript(event, &transcription, self.offset_ms())
+                }
+                Err(error) => {
+                    eprintln!("[whisper-{}] {error}", self.source);
+                    // The next partial replaces a failed one, but the audio
+                    // behind a failed final is dropped, so it must not pass
+                    // for silence.
+                    if event == FINAL_TRANSCRIPT {
+                        self.report_failure(&error);
+                    }
+                }
             }
+        }
+
+        fn report_failure(&self, error: &str) {
+            let _ = self.app.emit(
+                "pill:error",
+                serde_json::json!({ "error": format!("Transcription worker ({}) failed: {error}", self.source) }),
+            );
+            let _ = self.app.emit(
+                "voice:speech-error",
+                serde_json::json!({
+                    "error": error,
+                    "source": self.source,
+                    "runId": self.run_id,
+                }),
+            );
         }
 
         fn emit_transcript(
             &self,
             event: &'static str,
-            raw_segs: &[(i64, i64, String)],
+            transcription: &Transcription,
             offset_ms: i64,
         ) {
+            let raw_segs = &transcription.segments;
             if raw_segs.is_empty() {
                 return;
             }
@@ -501,6 +557,7 @@ mod macos {
                     source: self.source,
                     segments,
                     run_id: self.run_id,
+                    incomplete: transcription.stopped_early.is_some(),
                 },
             );
         }
@@ -555,10 +612,12 @@ mod macos {
         session: &mut transcribe_cpp::Session,
         samples: &[f32],
         language: Option<&str>,
-    ) -> Result<Vec<(i64, i64, String)>, String> {
-        let mut segments = transcribe_whisper(session, samples, language)?;
-        segments.retain(|(_, _, text)| is_speech(text));
-        Ok(segments)
+    ) -> Result<Transcription, String> {
+        let mut transcription = transcribe_whisper(session, samples, language)?;
+        transcription
+            .segments
+            .retain(|(_, _, text)| is_speech(text));
+        Ok(transcription)
     }
 
     fn is_speech(text: &str) -> bool {
@@ -625,10 +684,7 @@ mod macos {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[whisper-{}] {e}", stream.source);
-                let _ = stream.app.emit(
-                    "pill:error",
-                    serde_json::json!({ "error": format!("Transcription worker ({}) failed: {e}", stream.source) }),
-                );
+                stream.report_failure(&e);
                 return;
             }
         };
@@ -713,7 +769,7 @@ mod macos {
                         stream.clear_partial();
                     } else {
                         stream.emit_inference(
-                            "voice:final-transcript",
+                            FINAL_TRANSCRIPT,
                             infer(&mut session, resample_state.samples(), lang),
                         );
                     }
@@ -753,7 +809,7 @@ mod macos {
                     false
                 } else {
                     stream.emit_inference(
-                        "voice:partial-transcript",
+                        PARTIAL_TRANSCRIPT,
                         infer(&mut session, resample_state.samples(), lang),
                     );
                     true
@@ -769,10 +825,7 @@ mod macos {
             && samples.len() as f32 / SAMPLE_RATE_16K > 0.3
             && !stream.is_playback_echo(&samples)
         {
-            stream.emit_inference(
-                "voice:final-transcript",
-                infer(&mut session, &samples, lang),
-            );
+            stream.emit_inference(FINAL_TRANSCRIPT, infer(&mut session, &samples, lang));
         }
         eprintln!("[whisper-{}] worker stopped", stream.source);
     }
