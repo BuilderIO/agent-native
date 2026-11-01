@@ -1,8 +1,8 @@
 import { agentNativePath } from "../client/api-path.js";
 import {
   currentSessionIdentity,
-  SESSION_INVALIDATION_STORAGE_KEY,
   subscribeSessionIdentity,
+  subscribeSessionInvalidation,
 } from "../client/session-identity.js";
 import {
   collabLocalCopyAccount,
@@ -96,9 +96,9 @@ function dropPrefetch(prefetch: CollabStatePrefetch): void {
 }
 
 // One account's answer must never open a doc for another: any change of the
-// tab's session drops what was read under the one before, and so does another
-// tab signing out or switching organization, which can change this tab's
-// cookie before this tab reads its session again.
+// tab's session drops what was read under the one before, and so does a
+// sign-out or organization switch, in this tab or another, which can change
+// the cookie before this tab reads its session again.
 function watchSession(): void {
   if (sessionWatchInstalled) return;
   sessionWatchInstalled = true;
@@ -111,11 +111,7 @@ function watchSession(): void {
       }
     }
   });
-  window.addEventListener("storage", (event) => {
-    if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
-      dropCollabStatePrefetches();
-    }
-  });
+  subscribeSessionInvalidation(dropCollabStatePrefetches);
 }
 
 /**

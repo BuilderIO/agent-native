@@ -1305,6 +1305,9 @@ class CollabDocConnection {
       this.awaitingServerState = false;
       this.releaseTypingOnLocalCopy("unavailable");
       this.markInitializationFailed("forbidden-or-not-found");
+      // The typing went over with the copy, so none of it is sent: not as
+      // the page closes, and not by the next open.
+      this.dropUnsentUpdates();
       return {
         status: "failed",
         error: new Error(`Collab state request failed: HTTP ${res.status}`),
@@ -1464,6 +1467,20 @@ class CollabDocConnection {
       this.handOffDisplacedTyping(Y.encodeStateAsUpdate(this.ydoc), reason);
     }
     this.typingBaseline = null;
+  }
+
+  /** Forgets this connection's unsent updates, here and in its custody. */
+  private dropUnsentUpdates(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.updateAbortController?.abort();
+    this.pendingUpdates = [];
+    if (this.retiredUpdatesKey) {
+      retiredCollabUpdates.delete(this.retiredUpdatesKey);
+    }
+    this.storeUnsentUpdates();
   }
 
   private handOffDisplacedTyping(
@@ -1842,6 +1859,13 @@ class CollabDocConnection {
   private async flushPendingUpdates(keepalive = false): Promise<void> {
     // They wait for the server's state to cover the saved copy they build on.
     if (this.awaitingServerState) return;
+    // A doc the server refused or no longer has takes nothing until a retry.
+    const initialization = this.snapshot.initialization;
+    if (
+      initialization.status === "error" &&
+      initialization.category === "forbidden-or-not-found"
+    )
+      return;
     if (
       this.snapshot.updatesRefused ||
       (!keepalive &&

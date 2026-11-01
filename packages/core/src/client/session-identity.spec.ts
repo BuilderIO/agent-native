@@ -1,10 +1,14 @@
+// @vitest-environment happy-dom
+
 import { afterEach, expect, it } from "vitest";
 
 import {
+  announceSessionInvalidated,
   currentSessionIdentity,
   recordSessionIdentity,
   SESSION_INVALIDATION_STORAGE_KEY,
   subscribeSessionIdentity,
+  subscribeSessionInvalidation,
 } from "./session-identity.js";
 
 afterEach(() => recordSessionIdentity(undefined));
@@ -27,4 +31,19 @@ it("keeps the key other tabs, old and new, listen on", () => {
   expect(SESSION_INVALIDATION_STORAGE_KEY).toBe(
     "agent-native:session-invalidated",
   );
+});
+
+it("tells invalidation subscribers when this tab or another starts changing the session", () => {
+  let heard = 0;
+  const stop = subscribeSessionInvalidation(() => heard++);
+  announceSessionInvalidated();
+  window.dispatchEvent(
+    new StorageEvent("storage", { key: SESSION_INVALIDATION_STORAGE_KEY }),
+  );
+  window.dispatchEvent(new StorageEvent("storage", { key: "unrelated" }));
+  expect(heard).toBe(2);
+
+  stop();
+  announceSessionInvalidated();
+  expect(heard).toBe(2);
 });

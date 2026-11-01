@@ -236,9 +236,13 @@ The doc takes edits from the copy straight away, but sends them only once the
 server's vector covers the copy. Typing the server's state leaves out (the
 copy was thrown away, the server deleted the block it went into, or the doc is
 gone) is passed to `onEditsDisplaced` as `{ state, reason }`, where `state` is
-the whole doc as it stood with the typing. Keep it where the user can find it
-(Content files it in Version History), and never apply it back to the doc: the
-server's deletions stand.
+the whole doc as it stood with the typing. None of it is sent, then or by the
+next open. Keep it where the user can find it (Content files it in Version
+History), and never apply it back to the doc: the server's deletions stand.
+Server actions file under whoever is signed in, so keep it for the account and
+org that typed it: stop when the editor closes or the session changes.
+`subscribeSessionInvalidation(listener)` from `@agent-native/core/client/hooks`
+hears a sign-out or organization switch, in this tab or another, as it starts.
 
 A copy is a cache of the server's doc, never a second source: it is saved only
 while none of the tab's edits are unacknowledged, so it never holds text the
@@ -251,7 +255,8 @@ To start that read with the page instead of after the editor mounts, call
 client). The hook takes the answer over when it opens the same doc within a few
 seconds, for the account the copy belongs to. A read made before the tab's
 session is known belongs to the first session read; it is dropped once the
-session changes or another tab signs out.
+session changes, or a sign-out or organization switch starts in this tab or
+another.
 
 ### 4. Add TipTap extensions
 

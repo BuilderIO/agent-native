@@ -6,6 +6,7 @@ import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import { applyUpdate, Doc as YDoc } from "yjs";
 
 import {
+  clearPageDraftJournal,
   holdPageDraftWriter,
   writePageDraftJournal,
   type PageDraftJournalScope,
@@ -44,6 +45,19 @@ export interface DisplacedTypingDraft {
 
 const FILING_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
 
+/** Waits `ms`, or less once `signal` aborts. */
+function waitUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
 /**
  * Files displaced typing in History the way a draft found on open is filed:
  * held as the editor's recovery draft, then resolved keeping the saved page.
@@ -52,6 +66,11 @@ const FILING_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
  * the slot between the hold and the resolve. While its draft already holds
  * the slot, this waits and tries again; the journal entry covers the time in
  * between.
+ *
+ * The draft actions file under whoever is signed in, so this stops as soon
+ * as `owned` says the editor session or the account and org that held the
+ * typing are gone, or `signal` aborts; the journal entry stays for that
+ * account's next open.
  */
 export async function fileDisplacedTypingInHistory(input: {
   content: string;
@@ -68,18 +87,23 @@ export async function fileDisplacedTypingInHistory(input: {
     document?: { updatedAt?: string | null } | null;
   }>;
   documentUpdatedAt: () => string | null;
+  owned: () => boolean;
+  signal?: AbortSignal;
   exclusive?: <T>(job: () => Promise<T>) => Promise<T>;
   retryDelaysMs?: readonly number[];
-  wait?: (ms: number) => Promise<void>;
+  wait?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }): Promise<boolean> {
   const {
     content,
     slot,
+    signal,
     exclusive = (job) => job(),
     retryDelaysMs = FILING_RETRY_DELAYS_MS,
-    wait = (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    wait = waitUnlessAborted,
   } = input;
+  const owned = () => !signal?.aborted && input.owned();
   const fileOnce = async () => {
+    if (!owned()) return false;
     let draft = slot.current();
     if (draft && draft.content !== content) return false;
     if (!draft) {
@@ -89,6 +113,7 @@ export async function fileDisplacedTypingInHistory(input: {
     }
     let expectedDocumentUpdatedAt = input.documentUpdatedAt();
     for (let attempt = 0; attempt < 2 && expectedDocumentUpdatedAt; attempt++) {
+      if (!owned()) return false;
       const result = await input.resolve(draft, expectedDocumentUpdatedAt);
       if (result.status === "resolved") {
         slot.clear(draft.version);
@@ -105,7 +130,9 @@ export async function fileDisplacedTypingInHistory(input: {
       // coercion-ok: a failed try is tried again after the delay; the last
       // try's failure reaches the caller.
     }
-    await wait(delay);
+    if (!owned()) return false;
+    await wait(delay, signal);
+    if (!owned()) return false;
   }
   return exclusive(fileOnce);
 }
@@ -151,4 +178,57 @@ export function journalDisplacedTyping(input: {
     throw error;
   }
   return { scope, snapshot, release };
+}
+
+type DisplacedTypingFiling = Omit<
+  Parameters<typeof fileDisplacedTypingInHistory>[0],
+  "content"
+>;
+
+/**
+ * Keeps displaced typing: in the page's journal at once, then in History.
+ * The journal entry goes once History holds the typing, and stays otherwise
+ * for the next open to file.
+ */
+export async function keepDisplacedTyping(input: {
+  scope: Omit<PageDraftJournalScope, "writerId"> | null;
+  editorSessionId: string | null;
+  title: string;
+  content: string;
+  filing: DisplacedTypingFiling;
+  onJournalError?: (error: unknown) => void;
+  onFilingError?: (error: unknown) => void;
+}): Promise<"filed" | "journaled" | "lost"> {
+  const { scope, editorSessionId, title, content } = input;
+  let journaled: JournaledDisplacedTyping | null = null;
+  if (scope && editorSessionId) {
+    try {
+      journaled = journalDisplacedTyping({
+        scope,
+        editorSessionId,
+        title,
+        content,
+      });
+    } catch (error) {
+      input.onJournalError?.(error);
+    }
+  }
+  let filed = false;
+  try {
+    filed =
+      !!editorSessionId &&
+      (await fileDisplacedTypingInHistory({ ...input.filing, content }));
+  } catch (error) {
+    input.onFilingError?.(error);
+  }
+  if (filed && journaled) {
+    try {
+      clearPageDraftJournal(journaled.scope, journaled.snapshot);
+    } catch {
+      // coercion-ok: History holds the typing now; a stale journal entry
+      // only files it there again on the next open.
+    }
+  }
+  journaled?.release();
+  return filed ? "filed" : journaled ? "journaled" : "lost";
 }

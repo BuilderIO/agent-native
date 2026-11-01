@@ -14,6 +14,7 @@ import {
   actionErrorMessage,
   callAction,
   setClientAppState,
+  subscribeSessionInvalidation,
   tryCallActionKeepalive,
   useAvatarUrl,
   useDbSync,
@@ -248,9 +249,7 @@ import { directoryWidgetEditability } from "./directory-widget-editability";
 import { isPageCommentThread } from "./discussion-panel";
 import {
   displacedTypingMarkdown,
-  fileDisplacedTypingInHistory,
-  journalDisplacedTyping,
-  type JournaledDisplacedTyping,
+  keepDisplacedTyping,
 } from "./displaced-typing";
 import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
 import {
@@ -303,7 +302,6 @@ import {
 } from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
-  clearPageDraftJournal,
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
   syncPageDraftJournalBeforePersistingRecoveryDraft,
@@ -5196,7 +5194,34 @@ function PageEditorSessionBody({
   // was deleted there. The server's doc stays as it is. The journal keeps the
   // typing at once, and it then goes to History as a draft found on open
   // would, waiting its turn for the page's draft slot; if that keeps
-  // failing, the next open files the journal entry.
+  // failing, the next open files the journal entry. The draft actions file
+  // under whoever is signed in, so filing stops once this editor closes or
+  // the tab's account or org changes, and the entry waits for that account.
+  const sessionScopeRef = useRef<{
+    email: string;
+    orgId: string | null;
+  } | null>(null);
+  // Each session read vouches for the account and org again.
+  useEffect(() => {
+    sessionScopeRef.current = session?.email
+      ? { email: session.email, orgId: session.orgId ?? null }
+      : null;
+  }, [session]);
+  const displacedFilingsRef = useRef(new Set<AbortController>());
+  useEffect(() => {
+    const filings = displacedFilingsRef.current;
+    // A session change in progress vouches for nothing until it is read.
+    const stop = () => {
+      sessionScopeRef.current = null;
+      for (const filing of filings) filing.abort();
+      filings.clear();
+    };
+    const unsubscribe = subscribeSessionInvalidation(stop);
+    return () => {
+      unsubscribe();
+      stop();
+    };
+  }, [session?.email, session?.orgId]);
   keepDisplacedTypingRef.current = (edits) => {
     const content = displacedTypingMarkdown(edits.state);
     if (content === null) return;
@@ -5204,31 +5229,36 @@ function PageEditorSessionBody({
     // No base timestamp, so recovery never restores the draft over the page.
     const base = { ...lastSavedContentRef.current, updatedAt: null };
     const scope = journalScope();
-    let journaled: JournaledDisplacedTyping | null = null;
-    if (scope) {
-      try {
-        journaled = journalDisplacedTyping({
-          scope: {
-            accountId: scope.accountId,
-            orgId: scope.orgId,
-            documentId: scope.documentId,
-          },
-          editorSessionId: scope.writerId,
-          title,
-          content,
-        });
-      } catch (error) {
+    const editorSessionId = editorSessionIdRef.current;
+    if (!scope || !editorSessionId) {
+      toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+      return;
+    }
+    const filing = new AbortController();
+    displacedFilingsRef.current.add(filing);
+    void keepDisplacedTyping({
+      scope: {
+        accountId: scope.accountId,
+        orgId: scope.orgId,
+        documentId: scope.documentId,
+      },
+      editorSessionId,
+      title,
+      content,
+      onJournalError: (error) =>
         console.error(
           "Could not keep typing the server's copy left out",
           error,
-        );
-      }
-    }
-    const editorSessionId = editorSessionIdRef.current;
-    const fileInHistory = async () =>
-      !!editorSessionId &&
-      fileDisplacedTypingInHistory({
-        content,
+        ),
+      onFilingError: (error) =>
+        console.error("Could not save displaced typing to History", error),
+      filing: {
+        owned: () =>
+          editorSessionActiveRef.current &&
+          editorSessionIdRef.current === editorSessionId &&
+          sessionScopeRef.current?.email === scope.accountId &&
+          sessionScopeRef.current.orgId === scope.orgId,
+        signal: filing.signal,
         // Held and resolved in one job, so the editor's own draft waits.
         exclusive: (job) =>
           enqueueDocumentSave(recoveryDraftRetentionQueueRef, job),
@@ -5259,28 +5289,15 @@ function PageEditorSessionBody({
             expectedDocumentUpdatedAt,
           }),
         documentUpdatedAt: () => documentUpdatedAtRef.current,
-      });
-    void fileInHistory()
-      .catch((error: unknown) => {
-        console.error("Could not save displaced typing to History", error);
-        return false;
-      })
-      .then((filed) => {
-        if (filed) {
-          if (journaled) {
-            try {
-              clearPageDraftJournal(journaled.scope, journaled.snapshot);
-            } catch {
-              // coercion-ok: History holds the typing now; a stale journal
-              // entry only files it there again on the next open.
-            }
-          }
-          toast.success(t("editor.previewDraftSavedToHistory"));
-        } else if (!journaled) {
-          toast.error(t("editor.pageSaveBeforeNavigationFailed"));
-        }
-        journaled?.release();
-      });
+      },
+    }).then((outcome) => {
+      displacedFilingsRef.current.delete(filing);
+      if (outcome === "filed") {
+        toast.success(t("editor.previewDraftSavedToHistory"));
+      } else if (outcome === "lost") {
+        toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+      }
+    });
   };
   const syncRecoveryDraftTitle = useCallback(
     (title: string) => {

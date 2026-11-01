@@ -16,7 +16,10 @@ import {
   SESSION_INVALIDATION_STORAGE_KEY,
 } from "../client/session-identity.js";
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
-import { runBeforeSignOutCleanups } from "../client/use-session.js";
+import {
+  notifySessionInvalidated,
+  runBeforeSignOutCleanups,
+} from "../client/use-session.js";
 import {
   _resetCollabDocRegistryForTests,
   useCollaborativeDoc,
@@ -264,6 +267,9 @@ describe("collab local copies", () => {
         }
         if (url.includes("/_agent-native/poll")) {
           return new Response(JSON.stringify({ version: 1, events: [] }));
+        }
+        if (url.includes("/_agent-native/auth/session")) {
+          return new Response(JSON.stringify({ email: ADA.email }));
         }
         return new Response(JSON.stringify({ states: [] }));
       }),
@@ -595,6 +601,78 @@ describe("collab local copies", () => {
     expect(displaced).toHaveLength(1);
   });
 
+  it.each(["not-found", "forbidden"] as const)(
+    "sends none of the typing it hands over when the server answers %s, even as the page closes",
+    async (response) => {
+      const outboxEntries = () =>
+        Object.keys(window.localStorage).filter((key) =>
+          key.startsWith("agent-native-collab-outbox-"),
+        );
+      await visit({ durableUpdates: true });
+      stateResponses.push(response);
+
+      const release = holdStateResponses();
+      mount({ durableUpdates: true });
+      await advance(0);
+      act(() => {
+        current().ydoc!.getText("content").insert(5, " typed");
+      });
+      release();
+      await advance(10);
+      expect(displaced.map((edits) => edits.reason)).toEqual(["unavailable"]);
+      expect(textOf(displaced[0]!.state)).toBe("hello typed");
+
+      // The page closes without a retry: nothing it handed over is sent, and
+      // nothing is kept for the next open to send.
+      act(() => {
+        window.dispatchEvent(new Event("pagehide"));
+      });
+      await leave();
+      await advance(1_100);
+      expect(server.getText("content").toString()).toBe("hello");
+      expect(outboxEntries()).toEqual([]);
+
+      mount({ durableUpdates: true });
+      await advance(3_000);
+      expect(server.getText("content").toString()).toBe("hello");
+      expect(outboxEntries()).toEqual([]);
+      expect(displaced).toHaveLength(1);
+    },
+  );
+
+  it("sends nothing to a doc the server refuses, and keeps unsent typing for the next open", async () => {
+    const outboxEntries = () =>
+      Object.keys(window.localStorage).filter((key) =>
+        key.startsWith("agent-native-collab-outbox-"),
+      );
+    mount({ durableUpdates: true });
+    await advance(50);
+    expect(current().isSynced).toBe(true);
+    // Typing that could not be sent, then the server refuses the doc.
+    updateResponses.push("offline");
+    act(() => {
+      current().ydoc!.getText("content").insert(5, " typed");
+    });
+    await advance(600);
+    expect(server.getText("content").toString()).toBe("hello");
+    stateResponses.push("forbidden");
+    act(() => current().retry());
+    await advance(10);
+    expect(current().initialization).toEqual({
+      status: "error",
+      category: "forbidden-or-not-found",
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    await advance(3_000);
+    await leave();
+    await advance(1_100);
+    expect(server.getText("content").toString()).toBe("hello");
+    expect(outboxEntries()).toHaveLength(1);
+  });
+
   it("forgets the copy and reports the doc unavailable when the server no longer has it", async () => {
     await visit();
     stateResponses.push("not-found");
@@ -785,6 +863,20 @@ describe("collab local copies", () => {
 
     mount();
     await advance(50);
+    expect(stateRequests).toHaveLength(2);
+  });
+
+  it("drops boot reads when this tab switches organization", async () => {
+    stateRequests = [];
+    prefetchCollabState(DOC, { baseUrl: BASE_URL });
+    await advance(0);
+    // Still Ada, in another org: the cookie changed before the tab reads its
+    // session again, and the session it reads names the same account.
+    const reread = notifySessionInvalidated();
+
+    mount();
+    await advance(50);
+    await reread;
     expect(stateRequests).toHaveLength(2);
   });
 

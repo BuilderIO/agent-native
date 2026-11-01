@@ -29,6 +29,7 @@ import {
   displacedTypingMarkdown,
   fileDisplacedTypingInHistory,
   journalDisplacedTyping,
+  keepDisplacedTyping,
   type DisplacedTypingDraft,
 } from "./displaced-typing";
 import { readPageDraftJournal } from "./page-draft-journal";
@@ -232,6 +233,7 @@ it("files displaced typing once the editor's own draft lets go of the page's dra
     },
     resolve,
     documentUpdatedAt: () => "2026-11-01T05:00:00.000Z",
+    owned: () => true,
     // The editor settles its own draft meanwhile.
     wait: async () => page.free(),
   });
@@ -264,6 +266,7 @@ it("tries again when the editor's own draft takes the slot back before the resol
     },
     resolve,
     documentUpdatedAt: () => "2026-11-01T05:00:00.000Z",
+    owned: () => true,
     wait: async () => page.free(),
   });
 
@@ -304,6 +307,7 @@ it("keeps the editor's own draft out of the slot between holding the typing and 
     },
     resolve,
     documentUpdatedAt: () => "2026-11-01T05:00:00.000Z",
+    owned: () => true,
     exclusive,
     // The editor's draft stays for the session.
     wait: async () => {},
@@ -332,6 +336,7 @@ it("leaves the typing to the journal when the slot never frees", async () => {
     },
     resolve,
     documentUpdatedAt: () => "2026-11-01T05:00:00.000Z",
+    owned: () => true,
     wait: async (ms) => {
       waits.push(ms);
     },
@@ -342,4 +347,93 @@ it("leaves the typing to the journal when the slot never frees", async () => {
   // Bounded: about fifteen seconds, then the next open files it.
   expect(waits).toEqual([1_000, 2_000, 4_000, 8_000]);
   expect(page.held?.content).toBe("The editor's own draft");
+});
+
+it("stops filing once the tab changes account and org, and leaves the typing in the journal", async () => {
+  const scope = { accountId: ADA.email, orgId: "org-a", documentId: DOC };
+  let session: { accountId: string; orgId: string | null } = {
+    accountId: ADA.email,
+    orgId: "org-a",
+  };
+  const page = draftSlot();
+  // The first try fails, and meanwhile the tab signs in as Bob in his org.
+  const retain = vi
+    .fn<() => Promise<void>>()
+    .mockImplementationOnce(async () => {
+      session = { accountId: "bob@example.com", orgId: "org-b" };
+      throw new Error("Failed to fetch");
+    })
+    .mockImplementation(async () => page.hold("Typed on the copy"));
+  const resolve = vi.fn<
+    (draft: DisplacedTypingDraft) => Promise<{ status: string }>
+  >(async () => ({ status: "resolved" }));
+
+  const outcome = await keepDisplacedTyping({
+    scope,
+    editorSessionId: "tab:page:editor",
+    title: "Page",
+    content: "Typed on the copy",
+    filing: {
+      slot: {
+        current: () => page.held,
+        retain,
+        clear: () => page.free(),
+      },
+      resolve,
+      documentUpdatedAt: () => "2026-11-01T05:00:00.000Z",
+      owned: () =>
+        session.accountId === scope.accountId && session.orgId === scope.orgId,
+      wait: async () => {},
+    },
+  });
+
+  // Nothing is held or filed under Bob; Ada's next open files the entry.
+  expect(outcome).toBe("journaled");
+  expect(retain).toHaveBeenCalledTimes(1);
+  expect(resolve).not.toHaveBeenCalled();
+  expect(page.held).toBeNull();
+  expect(readPageDraftJournal(scope)).toMatchObject({
+    snapshot: { content: "Typed on the copy", baseUpdatedAt: null },
+  });
+});
+
+it("stops filing when the editor closes, without waiting out its retries", async () => {
+  const scope = { accountId: ADA.email, orgId: "org-closed", documentId: DOC };
+  const page = draftSlot();
+  page.hold("The editor's own draft");
+  const retain = vi.fn(async () => page.hold("Typed on the copy"));
+  const resolve = vi.fn<
+    (draft: DisplacedTypingDraft) => Promise<{ status: string }>
+  >(async () => ({ status: "resolved" }));
+  const closed = new AbortController();
+
+  const outcome = keepDisplacedTyping({
+    scope,
+    editorSessionId: "tab:page:editor",
+    title: "Page",
+    content: "Typed on the copy",
+    filing: {
+      slot: {
+        current: () => page.held,
+        retain,
+        clear: () => page.free(),
+      },
+      resolve,
+      documentUpdatedAt: () => "2026-11-01T05:00:00.000Z",
+      owned: () => true,
+      signal: closed.signal,
+    },
+  });
+  await advance(0);
+  // The editor closes while its own draft holds the slot.
+  closed.abort();
+  page.free();
+  await advance(15_000);
+
+  expect(await outcome).toBe("journaled");
+  expect(retain).not.toHaveBeenCalled();
+  expect(resolve).not.toHaveBeenCalled();
+  expect(readPageDraftJournal(scope)).toMatchObject({
+    snapshot: { content: "Typed on the copy" },
+  });
 });

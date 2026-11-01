@@ -32,6 +32,7 @@ export {
   useSession,
   type AuthSession,
 } from "../use-session.js";
+export { subscribeSessionInvalidation } from "../session-identity.js";
 export { signOut, type SignOutOptions } from "../sign-out.js";
 export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
