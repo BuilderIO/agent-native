@@ -768,7 +768,10 @@ describe("comment review interactions", () => {
 
     it("offers no resolve while an earlier request's edit is still loading", () => {
       const retryRead = vi.fn();
-      const showEarlier = (unreadable: ReadonlySet<string>) =>
+      const showEarlier = (
+        awaited: ReadonlySet<string>,
+        unreadable: ReadonlySet<string> = new Set(),
+      ) =>
         render("one", [thread("one")], "inline", {
           suggestions: [asked("first", "pending"), asked("second", "pending")],
           onDecideSuggestionProposal: decide,
@@ -781,12 +784,12 @@ describe("comment review interactions", () => {
             ),
             { ...suggestedRequest("first"), status: "replied" },
           ]),
-          awaitedSuggestionIds: new Set(["earlier"]),
+          awaitedSuggestionIds: awaited,
           unreadableSuggestionIds: unreadable,
           onRetrySuggestionRead: retryRead,
         });
 
-      showEarlier(new Set());
+      showEarlier(new Set(["earlier"]));
       expect(
         container.querySelector("[data-suggestion-accept-resolve]"),
       ).toBeNull();
@@ -795,12 +798,20 @@ describe("comment review interactions", () => {
       ).not.toBeNull();
 
       // The thread stays open on its read, so a failed one offers a retry.
-      showEarlier(new Set(["earlier"]));
+      showEarlier(new Set(["earlier"]), new Set(["earlier"]));
       const failed = container.querySelector(
         '[data-thread-suggestion-placeholder="failed"]',
       );
       act(() => failed?.querySelector("button")?.click());
       expect(retryRead).toHaveBeenCalled();
+
+      showEarlier(new Set());
+      expect(
+        container.querySelector("[data-thread-suggestion-placeholder]"),
+      ).toBeNull();
+      expect(
+        container.querySelector("[data-suggestion-accept-resolve]"),
+      ).not.toBeNull();
     });
 
     it("leaves the thread open when its AI adds an edit during the accept", () => {
