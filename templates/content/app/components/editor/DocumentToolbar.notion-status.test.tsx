@@ -197,6 +197,9 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
     const waiting = notionItem();
     expect(waiting?.textContent.trim()).toBe("editor.toolbar.notionSync");
     expect(waiting?.disabled).toBe(true);
+    // A spinner shows the item is checking Notion, not out of reach.
+    expect(waiting?.getAttribute("aria-busy")).toBe("true");
+    expect(waiting?.querySelector(".animate-spin")).not.toBeNull();
     expect(document.body.textContent).not.toContain(
       "editor.toolbar.linkToNotion",
     );
@@ -213,6 +216,8 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
     await vi.waitFor(() => expect(notionItem()?.disabled).toBe(false));
 
     expect(notionItem()?.textContent.trim()).toBe("editor.toolbar.notionSync");
+    expect(notionItem()?.hasAttribute("aria-busy")).toBe(false);
+    expect(notionItem()?.querySelector(".animate-spin")).toBeNull();
   });
 
   it("offers the link once the status says the page isn't linked", async () => {

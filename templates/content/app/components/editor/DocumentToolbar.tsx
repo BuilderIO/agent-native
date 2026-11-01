@@ -1042,6 +1042,7 @@ export function DocumentToolbar({
   const {
     data: syncStatus,
     isError: syncStatusFailed,
+    isFetching: syncStatusFetching,
     refetch: refetchSyncStatus,
   } = useDocumentSyncStatus(notionStatusApplies ? documentId : null, {
     now: pageActionsOpened,
@@ -1119,6 +1120,7 @@ export function DocumentToolbar({
   // offering a link. A failed read counts as waiting too: linking a page
   // that's already linked pulls Notion over local edits.
   const notionStatusPending = isConnected && notionStatusApplies && !syncStatus;
+  const notionStatusChecking = notionStatusPending && syncStatusFetching;
   const hasConflict = syncStatus?.hasConflict ?? false;
   const isWorking =
     linkDocument.isPending ||
@@ -2133,6 +2135,7 @@ export function DocumentToolbar({
                       <button
                         type="button"
                         disabled={notionStatusPending}
+                        aria-busy={notionStatusChecking || undefined}
                         className="flex min-h-7 w-full items-center gap-2 rounded-[8px] px-2 py-1 text-sm leading-5 text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                       >
                         <span className="min-w-0 flex-1 truncate text-start">
@@ -2142,7 +2145,12 @@ export function DocumentToolbar({
                               ? t("editor.toolbar.linkToNotion")
                               : t("editor.toolbar.connectNotion")}
                         </span>
-                        {hasConflict ? (
+                        {notionStatusChecking ? (
+                          <IconLoader2
+                            size={14}
+                            className="shrink-0 animate-spin text-muted-foreground"
+                          />
+                        ) : hasConflict ? (
                           <IconAlertTriangle
                             size={16}
                             className="shrink-0 text-destructive"
