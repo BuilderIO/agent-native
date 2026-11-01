@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   execFileSync,
   spawn,
+  spawnSync,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import fs from "node:fs";
@@ -159,16 +160,28 @@ async function startDispatch(): Promise<RunningDispatch> {
 
 async function stopDispatch(running: RunningDispatch): Promise<void> {
   if (running.child.exitCode != null) return;
-  running.child.kill("SIGTERM");
+  killDispatch(running, "SIGTERM");
   await Promise.race([
     new Promise<void>((resolve) => running.child.once("exit", () => resolve())),
     new Promise<void>((resolve) =>
       setTimeout(() => {
-        if (running.child.exitCode == null) running.child.kill("SIGKILL");
+        if (running.child.exitCode == null) killDispatch(running, "SIGKILL");
         resolve();
       }, 5_000),
     ),
   ]);
+}
+
+// On Windows the child is a cmd.exe wrapper around pnpm, so stopping only it
+// would leave Dispatch holding its port. taskkill stops the whole tree.
+function killDispatch(running: RunningDispatch, signal: NodeJS.Signals): void {
+  if (process.platform === "win32" && running.child.pid) {
+    spawnSync("taskkill", ["/pid", String(running.child.pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
+    return;
+  }
+  running.child.kill(signal);
 }
 
 async function launchBrowser(): Promise<Browser> {

@@ -107,6 +107,37 @@ describe("bare pnpm spawn guard", () => {
     assert.deepEqual(flagged(source, "all"), [1, 2, 5, 7]);
   });
 
+  it("reads same-named variables in other scopes conservatively", () => {
+    const source = [
+      "const shell = true;",
+      "function run() {",
+      "  const shell = false;",
+      '  spawn("pnpm", args, { shell });',
+      "}",
+      "const options = { shell: true };",
+      "function other() {",
+      "  const options = { cwd };",
+      '  spawn("pnpm", args, options);',
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [4, 9]);
+  });
+
+  it("lets a later property or spread override the shell option", () => {
+    const source = [
+      'spawn("pnpm", args, { shell: true, ...{ shell: false } });',
+      'spawn("pnpm", args, { shell: true, ...extra });',
+      'spawn("pnpm", args, { shell: true, shell: false });',
+      'spawn("pnpm", args, { ...extra, shell: true });',
+      'spawn("pnpm", args, { shell: true, ...{ cwd } });',
+      "const base = { shell: true };",
+      'spawn("pnpm", args, { ...base, cwd });',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [1, 2, 3]);
+  });
+
   it("ignores other commands and shells that exec always uses", () => {
     const source = [
       'spawn("git", ["status"]);',

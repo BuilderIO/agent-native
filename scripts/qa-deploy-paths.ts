@@ -31,7 +31,7 @@
  * allowed to delete a project.
  */
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
@@ -238,6 +238,14 @@ function errorMessage(error: unknown): string {
 // only the direct child would leave `close` unfired and cleanup unreached.
 function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (!child.pid) return;
+  if (process.platform === "win32") {
+    // Windows has no process groups, and pnpm runs under a cmd.exe wrapper
+    // there, so stop the whole tree under the child.
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
+    return;
+  }
   try {
     process.kill(-child.pid, signal);
   } catch (error) {

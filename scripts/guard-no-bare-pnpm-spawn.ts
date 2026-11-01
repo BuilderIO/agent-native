@@ -15,8 +15,11 @@
  * through scripts/lib/pnpm-command.ts; elsewhere, pass
  * `shell: process.platform === "win32"` (or run the joined command line with
  * `shell: true` on Windows, as the helper does); `shell: false` counts as no
- * shell, and so does a variable that is only ever `false`. Spawners imported
- * from child_process under another name are checked
+ * shell. Variables are matched by name, not scope, so the guard reads them
+ * conservatively: `shell: name` counts as no shell if any variable of that name
+ * holds `false`, and an options object counts only if every one sets a shell.
+ * A spread after `shell` that might override it also counts as no shell.
+ * Spawners imported from child_process under another name are checked
  * too, and so is `pnpm.command` from a `pnpmCommand(...)` result passed without
  * its `shell`. It also flags a new
  * `"pnpm.cmd"`-style literal, which only exists to spawn the shim without a
@@ -293,8 +296,8 @@ export function findBarePnpmSpawns(
     return false;
   };
 
-  // `false`, `null` or `undefined`, directly or through a variable that only
-  // ever holds one of them.
+  // `false`, `null` or `undefined`, directly or through a variable. Same-named
+  // variables in other scopes share one entry, so any such value counts.
   const isNoShell = (
     node: ts.Expression,
     seen = new Set<string>(),
@@ -310,31 +313,56 @@ export function findBarePnpmSpawns(
     seen.add(inner.text);
     const assigned = values.get(inner.text) ?? [];
     if (assigned.length === 0) return inner.text === "undefined";
-    return assigned.every((value) => isNoShell(value, seen));
+    return assigned.some((value) => isNoShell(value, seen));
   };
 
-  const enablesShell = (options: ts.Expression): boolean =>
-    ts.isObjectLiteralExpression(options) &&
-    options.properties.some((property) => {
-      if (ts.isShorthandPropertyAssignment(property)) {
-        return property.name.text === "shell" && !isNoShell(property.name);
-      }
-      return (
-        ts.isPropertyAssignment(property) &&
-        (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) &&
-        property.name.text === "shell" &&
-        !isNoShell(property.initializer)
+  const shellValue = (
+    property: ts.ObjectLiteralElementLike,
+  ): ts.Expression | undefined => {
+    if (ts.isShorthandPropertyAssignment(property)) {
+      return property.name.text === "shell" ? property.name : undefined;
+    }
+    return ts.isPropertyAssignment(property) &&
+      (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) &&
+      property.name.text === "shell"
+      ? property.initializer
+      : undefined;
+  };
+
+  // What an options value leaves `shell` as, reading properties and spreads
+  // in order so a later one wins. "unknown" is a value the guard can't read.
+  type ShellSetting = "on" | "off" | "unset" | "unknown";
+  const shellSetting = (
+    node: ts.Expression,
+    seen = new Set<string>(),
+  ): ShellSetting => {
+    const inner = unwrap(node);
+    if (ts.isIdentifier(inner)) {
+      if (seen.has(inner.text)) return "unknown";
+      seen.add(inner.text);
+      const settings = new Set(
+        (values.get(inner.text) ?? []).map((value) =>
+          shellSetting(value, seen),
+        ),
       );
-    });
+      return settings.size === 1 ? [...settings][0] : "unknown";
+    }
+    if (!ts.isObjectLiteralExpression(inner)) return "unknown";
+    let setting: ShellSetting = "unset";
+    for (const property of inner.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        const spread = shellSetting(property.expression, seen);
+        if (spread !== "unset") setting = spread;
+        continue;
+      }
+      const value = shellValue(property);
+      if (value !== undefined) setting = isNoShell(value) ? "off" : "on";
+    }
+    return setting;
+  };
 
   const setsShell = (call: ts.CallExpression): boolean =>
-    call.arguments.slice(1).some((argument) => {
-      const options = unwrap(argument);
-      if (!ts.isIdentifier(options)) return enablesShell(options);
-      return (values.get(options.text) ?? []).some((value) =>
-        enablesShell(unwrap(value)),
-      );
-    });
+    call.arguments.slice(1).some((argument) => shellSetting(argument) === "on");
 
   const report = (node: ts.Node) => {
     const start =
