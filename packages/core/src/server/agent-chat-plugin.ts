@@ -10114,7 +10114,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             processBody = await readBody(event);
           } catch {
             setResponseStatus(event, 400);
-            return { error: "Invalid request body" };
+            return {
+              error: "Invalid request body",
+              code: "invalid_request_body",
+            };
           }
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the

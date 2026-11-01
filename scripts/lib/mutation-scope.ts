@@ -17,5 +17,7 @@ export function isMutationScopePath(path: string): boolean {
   // see, and fixtures and generated files have no behavior a spec can pin.
   if (/\.(?:worker|fixtures?|generated)\.tsx?$/u.test(basename)) return false;
   if (path.includes("/__fixtures__/")) return false;
+  // Re-exports only: no behavior to mutate, so no spec could kill a mutant.
+  if (path === "packages/core/src/testing.ts") return false;
   return !MUTATION_SCOPE_EXCLUDED_DIRS.some((dir) => path.startsWith(dir));
 }

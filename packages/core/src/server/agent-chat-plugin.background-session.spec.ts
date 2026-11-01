@@ -441,11 +441,14 @@ describe("background agent sessions through the agent-chat plugin", () => {
       });
 
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({ error: "message is required" });
+      expect(await response.json()).toEqual({
+        error: "message is required",
+        code: "message_required",
+      });
       expect(finalizeFailure).toHaveBeenCalledWith(
         runId,
         expect.objectContaining({
-          message: expect.stringContaining("HTTP 400"),
+          message: expect.stringContaining("HTTP 400 code=message_required"),
         }),
       );
       const heartbeatCount = updateRunHeartbeat.mock.calls.length;
@@ -462,6 +465,21 @@ describe("background agent sessions through the agent-chat plugin", () => {
       if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
       else process.env.A2A_SECRET = previousA2ASecret;
     }
+  });
+
+  it("rejects a process-run request whose body is not JSON", async () => {
+    const response = await fetch(AGENT_CHAT_PROCESS_RUN_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // Bytes, not a string: the fetch spy above parses string bodies.
+      body: new TextEncoder().encode("{not json"),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid request body",
+      code: "invalid_request_body",
+    });
   });
 
   it("does not pass loopback as an org ChatGPT readiness exception", async () => {

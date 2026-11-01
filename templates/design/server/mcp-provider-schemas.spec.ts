@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 import {
+  AGENT_PATH_PROVIDERS,
   loadTemplateMcpConformance,
   providerSchemaViolations,
   templateMcpCatalogModes,
@@ -28,4 +29,17 @@ describe("Design MCP catalogs", () => {
     },
     60_000,
   );
+
+  it("offers the in-app agent only schemas its providers accept", () => {
+    const tools = template.listAgentTools();
+    expect(tools.length).toBeGreaterThan(0);
+    const violations = tools
+      .flatMap((tool) => providerSchemaViolations(tool))
+      .filter((violation) =>
+        (AGENT_PATH_PROVIDERS as readonly string[]).includes(
+          violation.provider,
+        ),
+      );
+    expect(violations).toEqual([]);
+  });
 });
