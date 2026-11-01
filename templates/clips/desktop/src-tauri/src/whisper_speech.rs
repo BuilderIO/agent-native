@@ -821,7 +821,12 @@ mod macos {
         let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
         // Stopping delivers the capture's last buffers after the loop's final
         // poll, so speech heard only there must still count.
-        let polled = if reset_since_poll { 0 } else { last_raw_len };
+        // A reset since the last poll discarded the audio `had_voice` judged.
+        let (had_voice, polled) = if reset_since_poll {
+            (false, 0)
+        } else {
+            (had_voice, last_raw_len)
+        };
         let had_voice = had_voice
             || unpolled_voice(
                 &raw,
