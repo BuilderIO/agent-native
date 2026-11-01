@@ -29,9 +29,7 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   // Like the session store: a read sent while the load's first session read
   // is out belongs to that read, and is current only if it answers. These
   // specs never switch the session after it, so a later read is current.
-  sessionReadIdentity: (
-    options: { sentWithFirstSessionRead?: boolean } = {},
-  ) =>
+  sessionReadIdentity: (options: { sentWithFirstSessionRead?: boolean } = {}) =>
     options.sentWithFirstSessionRead || session.get() === "pending"
       ? { sentWith: "first-read", transport: session.transport }
       : { sentWith: "answered", scope: "a", transport: session.transport },
