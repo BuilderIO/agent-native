@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   status: { body: null as unknown, code: 200 },
+  hold: false,
+  release: null as null | ((body: unknown) => void),
 }));
 
 vi.mock(
@@ -26,6 +28,8 @@ vi.mock("sonner", async (importOriginal) => ({
   ...(await importOriginal<typeof import("sonner")>()),
   toast: { error: vi.fn(), success: vi.fn() },
 }));
+
+import { documentSyncStatusQueryKey } from "@/hooks/use-notion";
 
 import { NotionSyncBar } from "./NotionSyncBar";
 
@@ -79,6 +83,8 @@ describe("NotionSyncBar's link form", () => {
 
   beforeEach(() => {
     mocks.status = { body: null, code: 200 };
+    mocks.hold = false;
+    mocks.release = null;
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(
       "fetch",
@@ -100,6 +106,11 @@ describe("NotionSyncBar's link form", () => {
           return json({ connected: true });
         }
         if (href.includes("refresh-notion-sync-status")) {
+          if (mocks.hold) {
+            return new Promise<Response>((resolve) => {
+              mocks.release = (body) => resolve(json(body));
+            });
+          }
           return json(mocks.status.body, mocks.status.code);
         }
         return json({});
@@ -167,5 +178,33 @@ describe("NotionSyncBar's link form", () => {
       expect(buttonLabels()).toContain("editor.toolbar.linkPage"),
     );
     expect(container.querySelector("input")).not.toBeNull();
+  });
+  it("offers no link form from an answer cached before it showed the page, until a new read answers", async () => {
+    // An earlier visit left "unlinked" cached; the page has been linked since.
+    queryClient.setQueryData(documentSyncStatusQueryKey("notion-fixture"), {
+      connected: true,
+      pageId: null,
+      hasConflict: false,
+    });
+    mocks.hold = true;
+    await renderBar();
+    await vi.waitFor(() => expect(mocks.release).not.toBeNull());
+
+    expect(buttonLabels()).not.toContain("editor.toolbar.linkPage");
+    expect(container.querySelector("input")).toBeNull();
+
+    await act(async () =>
+      mocks.release?.({
+        connected: true,
+        pageId: "notion-page-1",
+        state: "idle",
+        hasConflict: false,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("editor.toolbar.linkedToPage"),
+    );
+    expect(buttonLabels()).not.toContain("editor.toolbar.linkPage");
+    expect(container.querySelector("input")).toBeNull();
   });
 });

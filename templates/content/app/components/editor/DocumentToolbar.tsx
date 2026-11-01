@@ -1043,6 +1043,7 @@ export function DocumentToolbar({
     data: syncStatus,
     isError: syncStatusFailed,
     isFetching: syncStatusFetching,
+    isFetchedAfterMount: syncStatusReadSinceMount,
     refetch: refetchSyncStatus,
   } = useDocumentSyncStatus(notionStatusApplies ? documentId : null, {
     now: pageActionsOpened,
@@ -1118,9 +1119,13 @@ export function DocumentToolbar({
   // Until a status read succeeds the toolbar can't tell a linked page from
   // an unlinked one, so the Notion item waits instead of offering a link. A
   // failed read counts as waiting too, even with an earlier answer cached:
-  // linking a page that's already linked pulls Notion over local edits.
+  // linking a page that's already linked pulls Notion over local edits. So
+  // does an answer cached before this toolbar showed the page, since the
+  // status now loads late: it waits for a read made since.
   const notionStatusPending =
-    isConnected && notionStatusApplies && (!syncStatus || syncStatusFailed);
+    isConnected &&
+    notionStatusApplies &&
+    (!syncStatus || syncStatusFailed || !syncStatusReadSinceMount);
   const notionStatusChecking = notionStatusPending && syncStatusFetching;
   // A read that fails while the Notion popover is open closes it, so its link
   // form can't act on the stale answer (and it doesn't reopen on a retry).

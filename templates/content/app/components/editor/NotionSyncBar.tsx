@@ -38,11 +38,14 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
   const {
     data: syncStatus,
     isError: syncStatusFailed,
+    isFetchedAfterMount: syncStatusReadSinceMount,
     isLoading: syncLoading,
   } = useDocumentSyncStatus(documentId);
-  // The last answer counts only while the latest read succeeded: after a
-  // failed refetch the page may have been linked since.
-  const knownStatus = syncStatusFailed ? undefined : syncStatus;
+  // The last answer counts only once a read since the bar showed the page
+  // has succeeded, and only while the latest read did: the page may have been
+  // linked since an older answer or a failed refetch.
+  const knownStatus =
+    syncStatusFailed || !syncStatusReadSinceMount ? undefined : syncStatus;
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);

@@ -53,6 +53,8 @@ vi.mock("@agent-native/toolkit/app/sharing", () => ({
   ShareButton: () => null,
 }));
 
+import { documentSyncStatusQueryKey } from "@/hooks/use-notion";
+
 import { DocumentToolbar } from "./DocumentToolbar";
 
 const json = (body: unknown, status = 200) =>
@@ -295,6 +297,75 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
     // The link form closed with the failure and stays closed.
     await act(async () => Promise.resolve());
     expect(document.body.textContent).not.toContain(
+      "editor.toolbar.linkToNotionPage",
+    );
+  });
+
+  it("doesn't offer the link from an answer cached before it showed the page, until a new read answers", async () => {
+    // An earlier visit left "unlinked" cached; the page has been linked since.
+    queryClient.setQueryData(documentSyncStatusQueryKey("notion-fixture"), {
+      connected: true,
+      pageId: null,
+      hasConflict: false,
+    });
+    await renderToolbar();
+    await openPageActions();
+
+    expect(statusRequests()).toHaveLength(1);
+    const checking = notionItem();
+    expect(checking?.textContent.trim()).toBe("editor.toolbar.notionSync");
+    expect(checking?.disabled).toBe(true);
+    expect(document.body.textContent).not.toContain(
+      "editor.toolbar.linkToNotion",
+    );
+
+    await act(async () =>
+      answerStatus({
+        connected: true,
+        pageId: "notion-page-1",
+        state: "idle",
+        hasConflict: false,
+      }),
+    );
+    await vi.waitFor(() => expect(notionItem()?.disabled).toBe(false));
+    expect(notionItem()?.textContent.trim()).toBe("editor.toolbar.notionSync");
+    expect(document.body.textContent).not.toContain(
+      "editor.toolbar.linkToNotion",
+    );
+  });
+
+  it("keeps the link form open through a background refetch once a read since it showed the page has answered", async () => {
+    const unlinked = { connected: true, pageId: null, hasConflict: false };
+    await renderToolbar();
+    await openPageActions();
+    await act(async () => answerStatus(unlinked));
+    await vi.waitFor(() =>
+      expect(notionItem()?.textContent.trim()).toBe(
+        "editor.toolbar.linkToNotion",
+      ),
+    );
+    await act(async () => notionItem()?.click());
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain(
+        "editor.toolbar.linkToNotionPage",
+      ),
+    );
+
+    // The status refetches every 30 seconds; one in flight changes nothing.
+    await act(async () => {
+      void queryClient.refetchQueries({
+        queryKey: ["action", "refresh-notion-sync-status"],
+      });
+    });
+    await vi.waitFor(() => expect(statusRequests()).toHaveLength(2));
+    expect(notionItem()?.disabled).toBe(false);
+    expect(document.body.textContent).toContain(
+      "editor.toolbar.linkToNotionPage",
+    );
+
+    await act(async () => answerStatus(unlinked));
+    await act(async () => Promise.resolve());
+    expect(document.body.textContent).toContain(
       "editor.toolbar.linkToNotionPage",
     );
   });
