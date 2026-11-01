@@ -214,4 +214,33 @@ describe("NotionSyncBar's link form", () => {
     expect(buttonLabels()).not.toContain("editor.toolbar.linkPage");
     expect(container.querySelector("input")).toBeNull();
   });
+  it("offers no conflict choice from a conflict an earlier visit cached, until a new read reports it", async () => {
+    const conflict = {
+      connected: true,
+      pageId: "notion-page-1",
+      state: "conflict",
+      hasConflict: true,
+    };
+    queryClient.setQueryData(
+      documentSyncStatusQueryKey("notion-fixture"),
+      conflict,
+      { updatedAt: Date.now() - 60_000 },
+    );
+    mocks.hold = true;
+    await renderBar();
+    await vi.waitFor(() => expect(mocks.release).not.toBeNull());
+    await vi.waitFor(() =>
+      expect(buttonLabels()).toContain("editor.toolbar.disconnect"),
+    );
+
+    expect(buttonLabels()).not.toContain("editor.toolbar.pullFromNotion");
+    expect(buttonLabels()).not.toContain("editor.toolbar.pushLocal");
+    expect(container.textContent).not.toContain("editor.toolbar.conflict");
+
+    await act(async () => mocks.release?.(conflict));
+    await vi.waitFor(() =>
+      expect(buttonLabels()).toContain("editor.toolbar.pullFromNotion"),
+    );
+    expect(buttonLabels()).toContain("editor.toolbar.pushLocal");
+  });
 });
