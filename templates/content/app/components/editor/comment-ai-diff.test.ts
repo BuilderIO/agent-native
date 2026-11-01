@@ -56,6 +56,30 @@ describe("wordDiff", () => {
     ]);
   });
 
+  it("decides paragraph by paragraph, as the page does", () => {
+    const kept =
+      "Stable context unchanged for many words in a separate paragraph.";
+    expect(
+      wordDiff(
+        `It turns out that a lot of people in town had the same problem, and the response was much bigger than expected.\n\n${kept}\n\nThe red bird sang.`,
+        `Plenty of neighbors had the same problem, and the shelf grew.\n\n${kept}\n\nThe blue bird sang.`,
+      ),
+    ).toEqual([
+      {
+        kind: "removed",
+        text: "It turns out that a lot of people in town had the same problem, and the response was much bigger than expected.\n\n",
+      },
+      {
+        kind: "added",
+        text: "Plenty of neighbors had the same problem, and the shelf grew.\n\n",
+      },
+      { kind: "same", text: `${kept}\n\nThe ` },
+      { kind: "removed", text: "red " },
+      { kind: "added", text: "blue " },
+      { kind: "same", text: "bird sang." },
+    ]);
+  });
+
   it("reads a busy rewrite as one old phrase and one new phrase", () => {
     expect(
       wordDiff(
