@@ -3374,6 +3374,7 @@ function DatabaseTable({
                 const reopenIndex = databaseFilterChipToReopen(
                   filters,
                   key,
+                  filterMode,
                   orderedProperties,
                 );
                 if (reopenIndex === null) {
@@ -7020,6 +7021,7 @@ export function DatabaseActiveConstraintsBar({
           const reopenIndex = databaseFilterChipToReopen(
             filters,
             key,
+            filterMode,
             properties,
           );
           if (reopenIndex === null) {

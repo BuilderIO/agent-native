@@ -47,6 +47,7 @@ function property(
 
 const properties = [
   property("status", "Status", "status", ["active", "done", "dropped"]),
+  property("tags", "Tags", "multi_select", ["a", "b"]),
   property("due", "Due", "date"),
 ];
 
@@ -154,6 +155,16 @@ describe("filter chips on one option property", () => {
       ),
     ]);
     expect(button("Status: is not done, dropped")).toBeDefined();
+  });
+
+  it("adds a second is chip on a multi-select under All, for rows with both", async () => {
+    const latest = renderBar([chip("tags", "Tags", "contains", "a")]);
+
+    await click(button("Filter"));
+    await click(menuItem("Tags"));
+
+    expect(latest.filters).toHaveLength(2);
+    expect(latest.openFilterIndex).toBe(1);
   });
 
   it("still adds a second date chip, for a range", async () => {

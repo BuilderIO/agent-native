@@ -54,19 +54,42 @@ function chip(
 }
 
 describe("databaseFilterChipToReopen", () => {
-  it("reopens an option property's is or is not chip", () => {
+  it("reopens a status chip, whose second value never means more on a chip of its own", () => {
     const filters = [
       chip("due", "after", "2026-01-01"),
       chip("status", "does_not_equal", "done"),
     ];
-    expect(databaseFilterChipToReopen(filters, "status", properties)).toBe(1);
+    expect(
+      databaseFilterChipToReopen(filters, "status", "and", properties),
+    ).toBe(1);
+    expect(
+      databaseFilterChipToReopen(filters, "status", "or", properties),
+    ).toBe(1);
     expect(
       databaseFilterChipToReopen(
-        [chip("tags", "contains", "a")],
-        "tags",
+        [chip("status", "contains", "active")],
+        "status",
+        "and",
         properties,
       ),
     ).toBe(0);
+  });
+
+  it("reopens a multi-select chip only when another value means the same there", () => {
+    const is = [chip("tags", "contains", "a")];
+    const isNot = [chip("tags", "does_not_equal", "a")];
+    expect(databaseFilterChipToReopen(is, "tags", "or", properties)).toBe(0);
+    expect(databaseFilterChipToReopen(isNot, "tags", "and", properties)).toBe(
+      0,
+    );
+    // "Tagged a" and "tagged b" under All means tagged both, which one chip
+    // can't say.
+    expect(
+      databaseFilterChipToReopen(is, "tags", "and", properties),
+    ).toBeNull();
+    expect(
+      databaseFilterChipToReopen(isNot, "tags", "or", properties),
+    ).toBeNull();
   });
 
   it("adds a chip for dates, so two can bound a range", () => {
@@ -74,6 +97,7 @@ describe("databaseFilterChipToReopen", () => {
       databaseFilterChipToReopen(
         [chip("due", "after", "2026-01-01")],
         "due",
+        "and",
         properties,
       ),
     ).toBeNull();
@@ -84,6 +108,7 @@ describe("databaseFilterChipToReopen", () => {
       databaseFilterChipToReopen(
         [chip("status", "is_empty")],
         "status",
+        "and",
         properties,
       ),
     ).toBeNull();
@@ -94,6 +119,7 @@ describe("databaseFilterChipToReopen", () => {
       databaseFilterChipToReopen(
         [{ ...chip("status", "contains", "done"), filterGroupId: "advanced" }],
         "status",
+        "and",
         properties,
       ),
     ).toBeNull();
@@ -143,6 +169,27 @@ describe("foldDatabaseFilterChips", () => {
       isNotUnderAny,
     );
     expect(foldDatabaseFilterChips(mixed, "and", properties)).toBe(mixed);
+  });
+
+  it("leaves a chip with no value yet where it is", () => {
+    const unfinishedSecond = [
+      chip("status", "does_not_equal", "done"),
+      chip("status", "does_not_equal"),
+    ];
+    const unfinishedFirst = [
+      chip("status", "does_not_equal"),
+      chip("status", "does_not_equal", "done"),
+      chip("status", "does_not_equal", "dropped"),
+    ];
+    expect(foldDatabaseFilterChips(unfinishedSecond, "and", properties)).toBe(
+      unfinishedSecond,
+    );
+    expect(foldDatabaseFilterChips(unfinishedFirst, "and", properties)).toEqual(
+      [
+        chip("status", "does_not_equal"),
+        chip("status", "does_not_equal", JSON.stringify(["done", "dropped"])),
+      ],
+    );
   });
 
   it("matches the same rows before and after folding", () => {
