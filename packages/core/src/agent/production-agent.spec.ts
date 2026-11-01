@@ -25572,12 +25572,30 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
 });
 
 describe("runAgentLoop tool-result images", () => {
-  it.each([false, true])(
-    "omits inline bytes before applying the model budget without changing other JSON data (mirrored Blocks: %s)",
-    async (mirrored) => {
+  it.each([
+    {
+      prefix: "data:image/png;base64,",
+      mediaType: "image/png",
+      mirrored: false,
+    },
+    {
+      prefix: "data:image/png;base64,",
+      mediaType: "image/png",
+      mirrored: true,
+    },
+    { prefix: "data:;base64,", mediaType: "text/plain", mirrored: false },
+    { prefix: "data:,", mediaType: "text/plain", mirrored: false },
+    {
+      prefix: "data:;charset=UTF-8,",
+      mediaType: "text/plain",
+      mirrored: false,
+    },
+  ])(
+    "omits inline bytes before applying the model budget without changing other JSON data ($prefix, mirrored Blocks: $mirrored)",
+    async ({ prefix, mediaType, mirrored }) => {
       const imageData = "A".repeat(70_000);
       const suffix = mirrored ? `\n${"Fictional record ".repeat(800)}` : "";
-      const content = `Opening paragraph.\n![chart](data:image/png;base64,${imageData})\nClosing paragraph.${suffix}`;
+      const content = `Opening paragraph.\n![chart](${prefix}${imageData})\nClosing paragraph.${suffix}`;
       const original = {
         content,
         baseRevision: "body:7:sha256:original",
@@ -25696,7 +25714,7 @@ describe("runAgentLoop tool-result images", () => {
       if (toolResult?.type !== "tool-result")
         throw new Error("Missing tool result");
       expect(toolResult.content).not.toContain("truncated");
-      const projectedContent = `Opening paragraph.\n![chart]([inline image/png data omitted])\nClosing paragraph.${suffix}`;
+      const projectedContent = `Opening paragraph.\n![chart]([inline ${mediaType} data omitted])\nClosing paragraph.${suffix}`;
       const expected = {
         ...JSON.parse(JSON.stringify(saved)),
         content: projectedContent,

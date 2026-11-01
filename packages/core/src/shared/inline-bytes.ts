@@ -80,7 +80,7 @@ const IMAGE_BYTE_FIELD_KEYS = new Set([
 // URL schemes are case-insensitive: `DATA:image/png;base64,...` is still bytes.
 const DATA_SCHEME = /data:/i;
 const EMBEDDED_DATA_URL =
-  /\bdata:[\w.+-]+\/[\w.+-]+(?:;[^,;\s"'<>]*)*,[^\s"'<>)\]]*/gi;
+  /\bdata:(?:[\w.+-]+\/[\w.+-]+)?(?:;[^,;\s"'<>]*)*,[^\s"'<>)\]]*/gi;
 
 function hasInlineByteProperty(json: string): boolean {
   for (const match of json.matchAll(/"((?:\\.|[^"\\])*)"\s*:/g)) {
@@ -169,7 +169,7 @@ function inlineMediaType(
 function scrubString(value: string): string {
   return DATA_SCHEME.test(value)
     ? value.replace(EMBEDDED_DATA_URL, (match) => {
-        const mediaType = /^data:([^;,]+)/i.exec(match)?.[1] ?? "unknown";
+        const mediaType = /^data:([^;,]+)/i.exec(match)?.[1] ?? "text/plain";
         return `[inline ${mediaType.toLowerCase()} data omitted]`;
       })
     : value;
