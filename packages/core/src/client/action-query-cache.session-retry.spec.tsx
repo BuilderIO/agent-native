@@ -163,6 +163,10 @@ it("uses the real first session read for preload trust and rejects a later inval
         ? firstSessionRead.promise
         : secondSessionRead.promise;
     }
+    // A known sign-in mints the UI write capability; it isn't an action read.
+    if (String(input).includes("ui-capability")) {
+      return new Response(null, { status: 204 });
+    }
     actionCalls += 1;
     return actionCalls === 1
       ? actionResponse("prebind-owner-a")
