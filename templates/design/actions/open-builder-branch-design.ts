@@ -196,13 +196,18 @@ export default defineAction({
       app?.status === status &&
       app.statusMessage === statusMessage &&
       (!previewUrl || app.previewUrl === previewUrl);
+    const isReadyAt = (app: ReturnType<typeof readFusionApp>) =>
+      app?.status === "ready" &&
+      Boolean(previewUrl) &&
+      app.previewUrl === previewUrl;
     // Re-opening an app that is already bound this way writes nothing.
     if (!isBound(existingApp))
       await mutateDesignData({
         designId,
         mutate: (current) => {
           const app = readFusionApp(current);
-          return app
+          // A sync may have found the app ready while the screens were bound.
+          return app && !isReadyAt(app)
             ? writeFusionApp(current, {
                 ...app,
                 ...(previewUrl ? { previewUrl } : {}),
@@ -212,7 +217,10 @@ export default defineAction({
               })
             : current;
         },
-        isApplied: (current) => isBound(readFusionApp(current)),
+        isApplied: (current) => {
+          const app = readFusionApp(current);
+          return isBound(app) || isReadyAt(app);
+        },
       });
     stages.mark("bindMs");
     console.info("[open-builder-branch-design] stage timings", {

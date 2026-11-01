@@ -107,6 +107,7 @@ export default defineAction({
       // instead of polling a starting app forever.
       status: "error" as const,
       message: err instanceof Error ? err.message : String(err),
+      unreachable: true,
     }));
     // The container is up before its dev server serves, and a screen loaded
     // in between never gets the editor bridge: it is still starting until then.
@@ -133,6 +134,11 @@ export default defineAction({
 
     if (result.status === "error") {
       const statusMessage = result.message ?? "Container provisioning failed";
+      // Failing to reach Builder says nothing about an app that was working:
+      // report it to this caller without marking the app failed for everyone.
+      if ("unreachable" in result && fusionApp.status === "ready") {
+        return { status: "error" as const, message: statusMessage };
+      }
       await mutateDesignData({
         designId,
         mutate: (current) =>
