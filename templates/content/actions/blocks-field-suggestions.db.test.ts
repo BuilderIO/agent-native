@@ -569,7 +569,7 @@ describe("suggestions on a Blocks field tab", () => {
     });
   });
 
-  it("lets only the Collection's editors accept a tab suggestion", async () => {
+  it("lets only the Collection's editors accept a tab suggestion, and the row's editors reject one", async () => {
     const seeded = await seedRow("row-editor", "Body.", "Notes to keep.");
     const before = await fieldState(
       seeded.row,
@@ -623,5 +623,41 @@ describe("suggestions on a Blocks field tab", () => {
 
     const decided = await accept(suggestion.id);
     expect(decided.suggestion.status).toBe("accepted");
+
+    // Rejecting writes nothing, so the row's own check is enough.
+    const accepted = await fieldState(
+      seeded.row,
+      seeded.databaseId,
+      seeded.notesId,
+    );
+    const second = present(
+      (
+        await suggest(
+          seeded.row,
+          blocksFieldSuggestionRevision(seeded.notesId, accepted.revision),
+          [tabEdit(seeded.notesId, accepted.content, "Notes to drop.")],
+          "row-editor-create-2",
+        )
+      ).suggestions[0],
+      "the second suggestion",
+    );
+    const rejected = await runWithRequestContext(
+      { userEmail: rowEditor, orgId: null },
+      () =>
+        decideSuggestion.run(
+          {
+            id: second.id,
+            decision: "rejected",
+            idempotencyKey: `row-editor-reject-${second.id}`,
+            observedBase: second.baseRevision,
+            observedRevision: second.revision,
+          },
+          asRowEditor,
+        ),
+    );
+    expect(rejected.suggestion.status).toBe("rejected");
+    expect(
+      await fieldState(seeded.row, seeded.databaseId, seeded.notesId),
+    ).toEqual(accepted);
   });
 });

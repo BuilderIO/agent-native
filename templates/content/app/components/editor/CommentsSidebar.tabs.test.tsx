@@ -412,36 +412,32 @@ describe("comments across Blocks field tabs", () => {
     expect(feed()).toEqual(["# Content", "body-1", "edit-1"]);
   });
 
-  it("offers decisions on a tab's suggestion only to the Collection's editors", () => {
+  it("offers accepting a tab's suggestion only to the Collection's editors", () => {
     const decisions = (id: string) =>
       [
         ...container.querySelectorAll<HTMLButtonElement>(
-          `[data-suggestion-id="${id}"] button[aria-label]`,
+          `[data-suggestion-id="${id}"] button[data-suggestion-decision]`,
         ),
-      ]
-        .map((button) => button.getAttribute("aria-label"))
-        .filter((label) => label?.endsWith("Suggestion"));
+      ].map(
+        (button) =>
+          `${button.dataset.suggestionDecision}${button.disabled ? " (off)" : ""}`,
+      );
     const suggestions = [
       suggestion("edit-1"),
       tabSuggestion("notes-edit", "notes"),
     ];
 
+    // Rejecting writes nothing, so whoever decides on the page can reject.
     render(tabThreads, {
       documentProperties: twoFields,
       suggestions,
       canDecideFieldSuggestions: false,
     });
-    expect(decisions("edit-1")).toEqual([
-      "editor.acceptSuggestion",
-      "editor.rejectSuggestion",
-    ]);
-    expect(decisions("notes-edit")).toEqual([]);
+    expect(decisions("edit-1")).toEqual(["accepted", "rejected"]);
+    expect(decisions("notes-edit")).toEqual(["accepted (off)", "rejected"]);
 
     render(tabThreads, { documentProperties: twoFields, suggestions });
-    expect(decisions("notes-edit")).toEqual([
-      "editor.acceptSuggestion",
-      "editor.rejectSuggestion",
-    ]);
+    expect(decisions("notes-edit")).toEqual(["accepted", "rejected"]);
   });
 
   it("shows every tab again when the chosen one is gone", () => {

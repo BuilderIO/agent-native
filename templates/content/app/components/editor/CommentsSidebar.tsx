@@ -1094,8 +1094,8 @@ interface CommentsSidebarOptions {
   ) => void;
   canDecideSuggestions?: boolean;
   /**
-   * A tab's suggestion writes its Collection's field, so deciding on one
-   * also takes edit access to the Collection.
+   * Accepting a tab's suggestion writes its Collection's field, so it also
+   * takes edit access to the Collection. Rejecting one writes nothing.
    */
   canDecideFieldSuggestions?: boolean;
   decidingSuggestion?: (suggestionId: string) => boolean;
@@ -2897,12 +2897,11 @@ export function CommentsSidebar({
     );
   };
 
-  const canDecide = (
-    suggestions: ReadonlyArray<ResourceSuggestion | DraftSuggestion>,
-  ) =>
-    canDecideSuggestions &&
-    (canDecideFieldSuggestions ||
-      suggestions.every((suggestion) => !suggestionBlocksFieldId(suggestion)));
+  // Whoever decides on the page's suggestions can reject a tab's, which
+  // writes nothing. Accepting one writes its Collection's field, which the
+  // server lets only the Collection's editors do.
+  const acceptBlocked = (suggestion: ResourceSuggestion | DraftSuggestion) =>
+    !canDecideFieldSuggestions && suggestionBlocksFieldId(suggestion) !== null;
 
   const renderFoldedStack = (
     stack: CommentStack<CommentThread>,
@@ -2973,9 +2972,10 @@ export function CommentsSidebar({
       const proposalId = members.length > 1 ? members[0]?.proposalId : null;
       return {
         suggestions: members,
-        canDecide: canDecide(members),
+        canDecide: canDecideSuggestions,
         busy: suggestionBusy,
         conflict: isUnplaceable,
+        acceptBlocked,
         onDecide: (
           suggestion: ResourceSuggestion,
           decision: SuggestionDecision,
@@ -3296,7 +3296,8 @@ export function CommentsSidebar({
         anchorUnavailable={anchorUnavailable}
         unplaceable={isUnplaceable(suggestion)}
         canComment={canComment}
-        canDecide={canDecide([suggestion])}
+        canDecide={canDecideSuggestions}
+        acceptDisabled={acceptBlocked(suggestion)}
         deciding={suggestionBusy(suggestion)}
         onActivate={() => {
           if (presentation !== "history") onActivateSuggestion?.(suggestion.id);
@@ -3328,8 +3329,10 @@ export function CommentsSidebar({
       expanded={expandedProposalIds.has(proposalId)}
       onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
-      acceptDisabled={members.some(isUnplaceable)}
-      canDecide={canDecide(members) && !!onDecideSuggestionProposal}
+      acceptDisabled={
+        members.some(isUnplaceable) || members.some(acceptBlocked)
+      }
+      canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
         onDecideSuggestionProposal?.(
           proposalId,
@@ -3368,7 +3371,8 @@ export function CommentsSidebar({
         activeSuggestionId === suggestion.id ||
         hoveredSuggestionId === suggestion.id
       }
-      canDecide={canDecide([suggestion])}
+      canDecide={canDecideSuggestions}
+      acceptDisabled={acceptBlocked(suggestion)}
       deciding={decidingSuggestion(suggestion.id)}
       onActivate={() => onActivateSuggestion?.(suggestion.id)}
       onMaterialize={onMaterializeDraft}
@@ -4186,6 +4190,7 @@ function DraftSuggestionThreadView({
   suggestion,
   isActive,
   canDecide,
+  acceptDisabled,
   deciding,
   onActivate,
   onMaterialize,
@@ -4207,6 +4212,8 @@ function DraftSuggestionThreadView({
   suggestion: DraftSuggestion;
   isActive: boolean;
   canDecide: boolean;
+  /** Accepting needs more access than this person has; rejecting doesn't. */
+  acceptDisabled: boolean;
   deciding: boolean;
   onActivate: () => void;
   onMaterialize?: (
@@ -4297,6 +4304,7 @@ function DraftSuggestionThreadView({
               disabled={
                 isSaving || deciding || (!onDecideDraft && !onMaterialize)
               }
+              acceptDisabled={acceptDisabled}
               onDecide={(decision) => {
                 if (onDecideDraft) {
                   onDecideDraft(suggestion, decision);
@@ -4330,6 +4338,7 @@ function SuggestionThreadView({
   unplaceable,
   canComment,
   canDecide,
+  acceptDisabled,
   deciding,
   onActivate,
   onExpansionChange,
@@ -4360,6 +4369,8 @@ function SuggestionThreadView({
   unplaceable: boolean;
   canComment: boolean;
   canDecide: boolean;
+  /** Accepting needs more access than this person has; rejecting doesn't. */
+  acceptDisabled: boolean;
   deciding: boolean;
   onActivate: () => void;
   onExpansionChange: (expanded: boolean) => void;
@@ -4667,6 +4678,7 @@ function SuggestionThreadView({
           canDecide && suggestion.status === "pending" ? (
             <SuggestionDecisionButtons
               disabled={deciding}
+              acceptDisabled={acceptDisabled}
               onDecide={onDecide}
             />
           ) : null
