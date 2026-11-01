@@ -46,8 +46,9 @@ export function databaseFilterEncodeSelectedValues(values: string[]) {
   const normalized = [
     ...new Set(values.map((value) => value.trim()).filter(Boolean)),
   ];
-  if (normalized.length === 0) return "";
-  if (normalized.length === 1) return normalized[0];
+  const [only] = normalized;
+  if (only === undefined) return "";
+  if (normalized.length === 1) return only;
   return JSON.stringify(normalized);
 }
 
