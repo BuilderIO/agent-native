@@ -1059,6 +1059,7 @@ describe("one session read per page load", () => {
       jsonResponse({ error: "unexpected fetch" }),
     );
     vi.stubGlobal("fetch", fetchMock);
+    window.__agentNativeSessionBootstrapFetch = fetchMock;
     window.__agentNativeSessionBootstrap = Promise.resolve({
       state: "available",
       value: { userId: "user-9", email: "bootstrap@example.com" },
@@ -1258,6 +1259,7 @@ describe("a peer tab's invalidation broadcast before this tab listened", () => {
   afterEach(() => {
     delete window.__agentNativeSessionBootstrap;
     delete window.__agentNativeSessionBootstrapInvalidation;
+    delete window.__agentNativeSessionBootstrapFetch;
     window.localStorage.removeItem(KEY);
   });
 
@@ -1275,6 +1277,7 @@ describe("a peer tab's invalidation broadcast before this tab listened", () => {
       jsonResponse({ userId: "user-b", email: "b@x.test" }),
     );
     vi.stubGlobal("fetch", fetchMock);
+    window.__agentNativeSessionBootstrapFetch = fetchMock;
     const module = await freshSessionModule();
     const heard: string[] = [];
     module.subscribeFirstSessionReadAnswer(() =>
