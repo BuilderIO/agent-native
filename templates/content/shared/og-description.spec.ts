@@ -46,6 +46,42 @@ Quarterly Launch Plan
     ).toBe("Read the brief Ship faster with notes Diagram");
   });
 
+  it("keeps comparisons while removing tags", () => {
+    expect(
+      stripMarkdownForPreview(
+        'If 3 < 4 and 5 > 2, the <span color="red">check</span> passes.',
+      ),
+    ).toBe("If 3 < 4 and 5 > 2, the check passes.");
+  });
+
+  it("removes HTML comments, even multi-line or unclosed ones", () => {
+    expect(
+      stripMarkdownForPreview(
+        "Launch plan <!-- TODO: internal note -->for Q3.\n\n<!--\nprivate\n-->Ships in May.",
+      ),
+    ).toBe("Launch plan for Q3. Ships in May.");
+    expect(
+      stripMarkdownForPreview("Public text. <!-- draft: never shown"),
+    ).toBe("Public text.");
+  });
+
+  it("keeps a comment marker written as code", () => {
+    const text = stripMarkdownForPreview(
+      "Write `<!--` to open a comment.\n\n```html\n<!-- a note -->\n```\n\nThen close it.",
+    );
+    expect(text).toContain("Write <!-- to open a comment.");
+    expect(text).toContain("a note");
+    expect(text).toContain("Then close it.");
+  });
+
+  it("removes a link address with parentheses in it", () => {
+    expect(
+      stripMarkdownForPreview(
+        "See [the history](https://en.wikipedia.org/wiki/Launch_(rocketry)) first.",
+      ),
+    ).toBe("See the history first.");
+  });
+
   it("falls back when the content has no body text beyond the title", () => {
     expect(
       buildPublicDocumentDescription({
@@ -453,5 +489,18 @@ describe("buildListRowExcerpt", () => {
         buildListRowExcerpt({ content: `---\n${label}: ${value}` }),
       ).toMatch(new RegExp(`^${label}: word word .*\\.\\.\\.$`));
     }
+  });
+
+  it("keeps markup out of a shorter preview and ends it at a word", () => {
+    const content = `Fieldnote 2.0 ships on **November 18**. See <mention-page url="https://content.test/page/abc"/> for the [launch plan](https://content.test/plan).\n\n<table>\n<tr>\n<td>Feature freeze</td>\n<td>Oct 31</td>\n</tr>\n</table>\n\n${"Each wave waits a full day before the next one starts. ".repeat(6)}`;
+
+    const excerpt = buildListRowExcerpt({ content, maxLength: 180 });
+
+    expect(excerpt.length).toBeLessThanOrEqual(180);
+    expect(excerpt).toMatch(
+      /^Fieldnote 2\.0 ships on November 18\. See for the launch plan\. Feature freeze Oct 31 Each wave/,
+    );
+    expect(excerpt).not.toMatch(/[<>*[\]]/);
+    expect(excerpt).toMatch(/ [a-z]+\.\.\.$/);
   });
 });
