@@ -1955,6 +1955,7 @@ const enUS = {
   },
   publicDocument: {
     chat: "Chat",
+    freeAndOpenSource: "Free and open source on GitHub",
     pagePath: "Page path",
     privateDescription:
       "Ask the owner to share it with your account or workspace before opening this link.",

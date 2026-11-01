@@ -1325,6 +1325,7 @@ const rawLiterals = {
   },
   publicDocument: {
     chat: "聊天",
+    freeAndOpenSource: "在 GitHub 上免费开源",
     pagePath: "页面路径",
     privateDescription: "打开此链接前，请让所有者将其共享给你的账户或工作区。",
     privateTitle: "此文档为私密文档",

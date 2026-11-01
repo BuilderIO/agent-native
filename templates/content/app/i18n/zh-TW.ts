@@ -36,6 +36,7 @@ const rawLiterals = {
   },
   publicDocument: {
     chat: "聊天",
+    freeAndOpenSource: "在 GitHub 上免費開源",
     pagePath: "頁面路徑",
     privateDescription:
       "開啟此連結前，請要求擁有者將其分享給你的帳戶或工作區。",

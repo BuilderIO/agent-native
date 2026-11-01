@@ -1263,6 +1263,7 @@ const rawLiterals = {
   },
   publicDocument: {
     chat: "チャット",
+    freeAndOpenSource: "無料のオープンソース（GitHub）",
     pagePath: "ページの階層",
     privateDescription:
       "このリンクを開く前に、オーナーにあなたのアカウントまたはワークスペースと共有するよう依頼してください。",

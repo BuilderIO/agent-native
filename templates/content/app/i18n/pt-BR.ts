@@ -1279,6 +1279,7 @@ const rawLiterals = {
   },
   publicDocument: {
     chat: "Chat",
+    freeAndOpenSource: "Gratuito e de código aberto no GitHub",
     pagePath: "Caminho da página",
     privateDescription:
       "Peça ao proprietário para compartilhá-lo com sua conta ou espaço de trabalho antes de abrir este link.",

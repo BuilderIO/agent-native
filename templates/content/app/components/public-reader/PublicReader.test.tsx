@@ -8,7 +8,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 import type { PublicReaderContext } from "@shared/public-reader";
 
-import { PublicReader, publicReaderSignInHrefs } from "./PublicReader";
+import {
+  CONTENT_SOURCE_URL,
+  PublicReader,
+  publicReaderSignInHrefs,
+} from "./PublicReader";
 
 const DOCUMENT = {
   id: "doc-1",
@@ -59,6 +63,8 @@ describe("public reader", () => {
     expect(hrefs(html).filter((href) => href === signUp)).toHaveLength(2);
     expect(html).toContain("publicDocument.tryContentFree");
     expect(html).toContain("publicDocument.writtenIn");
+    expect(hrefs(html)).toContain(CONTENT_SOURCE_URL);
+    expect(html).toContain("publicDocument.freeAndOpenSource");
     expect(html).not.toContain("publicDocument.chat");
   });
 
@@ -68,6 +74,7 @@ describe("public reader", () => {
     expect(html).toContain("publicDocument.chat");
     expect(html).not.toContain("sign-in");
     expect(html).not.toContain("publicDocument.writtenIn");
+    expect(hrefs(html)).not.toContain(CONTENT_SOURCE_URL);
   });
 
   it("keeps sign-in inside the app's base path", () => {

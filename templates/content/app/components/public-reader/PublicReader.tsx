@@ -5,7 +5,11 @@ import type {
   PublicReaderContext,
   PublicReaderPage,
 } from "@shared/public-reader";
-import { IconFileText, IconLayoutSidebarRight } from "@tabler/icons-react";
+import {
+  IconBrandGithub,
+  IconFileText,
+  IconLayoutSidebarRight,
+} from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
 import { ContentIcon } from "@/components/icons/ContentIcon";
@@ -21,6 +25,10 @@ function formatUpdatedAt(value: string) {
     year: "numeric",
   });
 }
+
+/** Content's source, linked from the card at the end of a signed-out page. */
+export const CONTENT_SOURCE_URL =
+  "https://github.com/BuilderIO/agent-native/tree/main/templates/content";
 
 /**
  * Where the reader's sign-in and sign-up go: the page's editor link comes
@@ -248,6 +256,13 @@ export function PublicReader({
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 {t("publicDocument.writtenInDescription")}
               </p>
+              <a
+                href={CONTENT_SOURCE_URL}
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              >
+                <IconBrandGithub size={16} stroke={1.8} aria-hidden />
+                {t("publicDocument.freeAndOpenSource")}
+              </a>
             </div>
             <div className="mt-4 flex shrink-0 gap-2 sm:mt-0">
               <Button asChild>
