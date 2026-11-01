@@ -41,10 +41,31 @@ export function DataChartWidget({
       "dataChartLayout.maxWidth must be a positive CSS length",
     );
   }
-  const cardStyle: CSSProperties | undefined =
-    maxWidth === undefined
-      ? undefined
-      : { width: "100%", maxWidth: `${maxWidth}px`, marginInline: "auto" };
+  for (const [name, value] of [
+    ["marginBlockStart", layout?.marginBlockStart],
+    ["marginBlockEnd", layout?.marginBlockEnd],
+  ] as const) {
+    if (value !== undefined && !Number.isFinite(value)) {
+      throw new RangeError(`dataChartLayout.${name} must be finite`);
+    }
+  }
+  const hasCardStyle =
+    maxWidth !== undefined ||
+    layout?.marginBlockStart !== undefined ||
+    layout?.marginBlockEnd !== undefined;
+  const cardStyle: CSSProperties | undefined = hasCardStyle
+    ? {
+        ...(maxWidth === undefined
+          ? {}
+          : {
+              width: "100%",
+              maxWidth: `${maxWidth}px`,
+              marginInline: layout?.alignment === "start" ? 0 : "auto",
+            }),
+        marginBlockStart: layout?.marginBlockStart,
+        marginBlockEnd: layout?.marginBlockEnd,
+      }
+    : undefined;
 
   useEffect(() => {
     setMounted(true);
@@ -99,6 +120,10 @@ export function DataChartWidget({
           display={display}
           chartActions={chart.actions}
           variant={layout?.actionsVariant ?? "secondary"}
+          actionIconPosition={layout?.actionIconPosition}
+          actionLabelFontSize={layout?.actionLabelFontSize}
+          actionLabelFontWeight={layout?.actionLabelFontWeight}
+          actionLabelLineHeight={layout?.actionLabelLineHeight}
         />
       </div>
       {!mounted ? (

@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -359,8 +360,8 @@ describe("OrgSwitcher (account menu)", () => {
     expect(button.parentElement?.className).not.toContain("flex-1");
     expect(button.textContent).toBe("BL");
     expect(button.getAttribute("title")).toBeNull();
-    // The tooltip and the menu both target this one button. Anything
-    // rendered between the menu trigger and the button eats the click.
+    // The menu trigger stays on the button while the tooltip anchors to its
+    // wrapper, so each popper owns a separate ref target.
     expect(button.getAttribute("aria-haspopup")).toBe("menu");
 
     act(() => {
@@ -1087,6 +1088,34 @@ describe("OrgSwitcher (account menu)", () => {
     );
     expect(menuItemLabels()).toContain("Turn off demo mode");
     expect(document.body.textContent).not.toContain("anonymous@builder.io");
+  });
+
+  it("allows another log out attempt when local cleanup fails", async () => {
+    const { registerSignOutCleanup } =
+      await import("@agent-native/core/client/sign-out");
+    const cleanup = vi.fn().mockRejectedValue(new Error("storage unavailable"));
+    const notify = vi.spyOn(toast, "error").mockImplementation(() => "error");
+    const unregister = registerSignOutCleanup(cleanup);
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    try {
+      render(<OrgSwitcher />);
+      openMenu();
+      await act(async () => {
+        findItem("Log out").click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(findItem("Log out").getAttribute("data-disabled")).toBeNull();
+      await act(async () => {
+        findItem("Log out").click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(cleanup).toHaveBeenCalledTimes(2);
+      expect(notify).toHaveBeenCalledTimes(2);
+      // oracle-change: the missing key now resolves to the localized error; retry and cleanup assertions stay fixed.
+      expect(notify).toHaveBeenCalledWith("Log out failed");
+    } finally {
+      unregister();
+    }
   });
 
   it("reloads after a failed log out without returning to sign-in", async () => {

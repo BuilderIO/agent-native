@@ -122,6 +122,25 @@ vi.mock("./run-store.js", () => ({
       }
     },
   ),
+  persistedRunEventData: (eventData: string) => {
+    const event = JSON.parse(eventData) as Record<string, unknown>;
+    if (event.omitFromPersistedHistory !== true) return eventData;
+    return JSON.stringify({
+      type: event.type,
+      omitFromPersistedHistory: true,
+      ...(event.type === "text" ? { text: "" } : {}),
+      ...(event.type === "error" ? { error: "Private content omitted" } : {}),
+      ...(event.type === "tool_start" ? { tool: event.tool, input: {} } : {}),
+      ...(event.type === "tool_done"
+        ? {
+            tool: event.tool,
+            input: {},
+            result: "[Private content omitted]",
+            ...(event.isError === true ? { isError: true } : {}),
+          }
+        : {}),
+    });
+  },
   updateRunStatus: vi.fn(() => Promise.resolve()),
   updateRunStatusIfRunning: vi.fn(() => Promise.resolve(true)),
   getRunStatus: vi.fn(() => Promise.resolve("running")),
@@ -8867,6 +8886,241 @@ describe("run manager soft timeout", () => {
     expect(durableOrder).toEqual([0, 1]);
     expect(publishedOrder.slice(0, 2)).toEqual([0, 1]);
     expect(writeBatches).toEqual([[0], [1]]);
+  });
+
+  it("completes private text and UI tool responses without an unwanted continuation", async () => {
+    for (const kind of ["text", "ui"] as const) {
+      const runId = `run-private-completion-${kind}`;
+      const run = startRun(
+        runId,
+        `thread-${runId}`,
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "read",
+            input: {},
+            omitFromPersistedHistory: true,
+          });
+          await send({
+            type: "tool_done",
+            tool: "read",
+            input: {},
+            result: "private result",
+            ...(kind === "ui"
+              ? { chatUI: { renderer: "core.inline-extension" } }
+              : {}),
+          });
+          if (kind === "text")
+            await send({ type: "text", text: "private final answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await run.finalized;
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
+      expect(setRunTerminalReason).toHaveBeenCalledWith(runId, "done");
+      expect(JSON.stringify(run.events)).not.toContain("private final answer");
+      expect(
+        run.events.some(({ event }) => event.type === "auto_continue"),
+      ).toBe(false);
+    }
+  });
+
+  it("continues after a failed private UI result or a later unfinished tool", async () => {
+    for (const kind of ["failed-ui", "later-tool"] as const) {
+      const runId = `run-private-unfinished-${kind}`;
+      const run = startRun(
+        runId,
+        `thread-${runId}`,
+        async (send) => {
+          await send({
+            type: "tool_done",
+            tool: "render",
+            input: {},
+            result: "private",
+            chatUI: { renderer: "core.inline-extension" },
+            omitFromPersistedHistory: true,
+            ...(kind === "failed-ui" ? { isError: true } : {}),
+          });
+          if (kind === "later-tool") {
+            await send({
+              type: "text",
+              text: "private final before later tool",
+            });
+            await send({
+              type: "tool_done",
+              tool: "read",
+              input: {},
+              result: "private",
+            });
+          }
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await run.finalized;
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        runId,
+        "truncated",
+        { terminalReason: "stream_ended" },
+      );
+    }
+  });
+
+  it("does not leak private persistence failures or error codes into diagnostics", async () => {
+    const sentinel = "private-persistence-sentinel";
+    const provider = vi.fn(() => "event-id");
+    const unregister = registerErrorCaptureProvider(
+      "private-persistence-test",
+      provider,
+    );
+    const writes: string[] = [];
+    let failOnce = true;
+    try {
+      const run = startRun(
+        "run-private-persistence-failure",
+        "thread-private-persistence-failure",
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "read",
+            input: { sentinel },
+            omitFromPersistedHistory: true,
+          });
+          await send({ type: "error", error: sentinel, errorCode: sentinel });
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          persistEvent: async (write, metadata) => {
+            writes.push(metadata.eventData);
+            if (failOnce) {
+              failOnce = false;
+              throw new Error(sentinel);
+            }
+            await write();
+          },
+        },
+      );
+      await run.finalized;
+      expect(provider).toHaveBeenCalled();
+      expect(
+        provider.mock.calls
+          .map(
+            ([error, context]) => `${error.message} ${JSON.stringify(context)}`,
+          )
+          .join(" "),
+      ).not.toContain(sentinel);
+      expect(writes.join(" ")).not.toContain(sentinel);
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        "run-private-persistence-failure",
+        "error:private_content_omitted",
+      );
+      expect(setRunError).toHaveBeenCalledWith(
+        "run-private-persistence-failure",
+        "private_content_omitted",
+        "Private content omitted",
+      );
+    } finally {
+      unregister();
+    }
+  });
+
+  it("keeps private run events live but omits them from batches and retained state", async () => {
+    const body = "private-run-event-sentinel";
+    let releaseRun!: () => void;
+    const runBarrier = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    vi.mocked(insertRunEvents).mockClear();
+
+    const run = startRun(
+      "run-private-event-cache",
+      "thread-private-event-cache",
+      async (send) => {
+        await runBarrier;
+        await send({
+          type: "tool_input_start",
+          id: "private-call",
+          tool: "read-private-message",
+          omitFromPersistedHistory: true,
+        });
+        await send({ type: "text", text: `Summary: ${body}` });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    const liveEvents: RunEvent[] = [];
+    run.subscribers.add((event) => liveEvents.push(event));
+    releaseRun();
+
+    await run.finalized;
+
+    expect(
+      liveEvents.find(({ event }) => event.type === "text")?.event,
+    ).toMatchObject({ type: "text", text: `Summary: ${body}` });
+    expect(JSON.stringify(run.events)).not.toContain(body);
+    const batchedEvents = vi
+      .mocked(insertRunEvents)
+      .mock.calls.flatMap(([, events]) =>
+        events.map(({ eventData }) => eventData),
+      );
+    expect(batchedEvents.join("\n")).not.toContain(body);
+    expect(batchedEvents).toContain(
+      JSON.stringify({
+        type: "text",
+        omitFromPersistedHistory: true,
+        text: "",
+      }),
+    );
+  });
+
+  it("omits private run failures from stored error details while preserving the live error", async () => {
+    const body = "private-run-error-sentinel";
+    const completionEvents: unknown[] = [];
+    vi.mocked(setRunError).mockClear();
+    const run = startRun(
+      "run-private-error",
+      "thread-private-error",
+      async (send) => {
+        await send({
+          type: "tool_start",
+          id: "private-call",
+          tool: "read-private-message",
+          input: { body },
+          omitFromPersistedHistory: true,
+        });
+        throw new Error(`Private read failed: ${body}`);
+      },
+      async (completedRun) => {
+        completionEvents.push(...completedRun.events);
+      },
+      { softTimeoutMs: 0 },
+    );
+    const liveEvents: RunEvent[] = [];
+    run.subscribers.add((event) => liveEvents.push(event));
+
+    await run.finalized;
+
+    expect(
+      liveEvents.find(({ event }) => event.type === "error")?.event,
+    ).toMatchObject({
+      type: "error",
+      error: `Private read failed: ${body}`,
+    });
+    expect(JSON.stringify(run.events)).not.toContain(body);
+    expect(JSON.stringify(completionEvents)).not.toContain(body);
+    expect(JSON.stringify(completionEvents)).toContain(
+      "Private content omitted",
+    );
+    expect(JSON.stringify(vi.mocked(setRunError).mock.calls)).not.toContain(
+      body,
+    );
+    expect(vi.mocked(setRunError).mock.calls).toContainEqual([
+      "run-private-error",
+      "private_content_omitted",
+      "Private content omitted",
+    ]);
   });
 
   it("retries a failed sequence before persisting later events", async () => {

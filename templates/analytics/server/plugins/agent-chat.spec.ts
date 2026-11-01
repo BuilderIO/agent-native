@@ -964,15 +964,11 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard dbt fallback disclosure", () => {
-  // These fixtures read "last month" as September 2026, so the clock stays in
-  // October 2026 or every relative-date case fails once the month turns.
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-24T12:00:00Z"));
+    vi.setSystemTime(new Date("2026-10-15T19:00:00.000Z"));
   });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+  afterEach(() => vi.useRealTimers());
 
   const dbtNotFound = {
     name: "query-dbt-semantic-metric",
@@ -5219,18 +5215,6 @@ describe("realDataFinalGuard", () => {
       .toISOString()
       .slice(0, 10),
   };
-  const lastMonthRange = {
-    startDate: new Date(
-      Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth() - 1, 1),
-    )
-      .toISOString()
-      .slice(0, 10),
-    endDate: new Date(
-      Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), 0),
-    )
-      .toISOString()
-      .slice(0, 10),
-  };
 
   function dbtMetricCall(
     timeRange: {
@@ -7025,13 +7009,16 @@ describe("realDataFinalGuard", () => {
   });
 
   it("requires a separate partial disclosure for every incomplete dbt metric", () => {
-    const resultRange = lastMonthRange;
+    const resultRange = {
+      startDate: "2026-09-01",
+      endDate: "2026-09-30",
+    };
     const result = realDataFinalGuard(
       guardContext({
         userText: "Compare active accounts and activation rate last month.",
         draftText:
           "Active accounts returned 10 partial rows. The activation rate was 42%.",
-        runStartedAt: todayUtc.getTime(),
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         toolCalls: [
           {
             toolCallId: "dbt-active-accounts",
@@ -7088,13 +7075,16 @@ describe("realDataFinalGuard", () => {
   });
 
   it("does not let a partial disclosure release a different unresolved metric", () => {
-    const resultRange = lastMonthRange;
+    const resultRange = {
+      startDate: "2026-09-01",
+      endDate: "2026-09-30",
+    };
     const result = realDataFinalGuard(
       guardContext({
         userText: "Compare active accounts and activation rate last month.",
         draftText:
           "Active accounts returned 10 partial rows. The activation rate was 42%.",
-        runStartedAt: todayUtc.getTime(),
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         toolCalls: [
           {
             toolCallId: "dbt-active-accounts",

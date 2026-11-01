@@ -41,6 +41,7 @@ export interface UseSemanticNavigationStateOptions<
   commandQueryKey?: QueryKey;
   requestSource?: string;
   commandRefetchInterval?: number | false;
+  beforeCommandRead?: (signal: AbortSignal) => Promise<void>;
   enabled?: boolean;
   keepalive?: boolean;
   writeDebounceMs?: number;
@@ -95,6 +96,7 @@ export interface UseAgentRouteStateOptions<
   readGlobalCommandFallback?: boolean;
   commandQueryKey?: QueryKey;
   refetchInterval?: number | false;
+  beforeCommandRead?: (signal: AbortSignal) => Promise<void>;
   enabled?: boolean;
   keepalive?: boolean;
   writeDebounceMs?: number;
@@ -280,6 +282,8 @@ export function useSemanticNavigationState<
   const getCommandDedupKeyRef = useRef(options.getCommandDedupKey);
   const onCommandRef = useRef(options.onCommand);
   const onErrorRef = useRef(options.onError);
+  const beforeCommandReadRef = useRef(options.beforeCommandRead);
+  beforeCommandReadRef.current = options.beforeCommandRead;
   getCommandDedupKeyRef.current = options.getCommandDedupKey;
   onCommandRef.current = options.onCommand;
   onErrorRef.current = options.onError;
@@ -323,8 +327,11 @@ export function useSemanticNavigationState<
       enabled,
       retry: false,
       refetchInterval: commandRefetchInterval,
-      queryFn: async () => {
+      queryFn: async ({ signal }) => {
         for (const key of commandKeys) {
+          await beforeCommandReadRef.current?.(signal);
+          if (signal.aborted)
+            throw new DOMException("Navigation read aborted.", "AbortError");
           const command = await readClientAppState<NavigateCommand>(key);
           if (command !== null && command !== undefined) {
             return { key, command };
@@ -469,6 +476,7 @@ export function useAgentRouteState<
     browserTabId,
     requestSource,
     commandRefetchInterval: options.refetchInterval,
+    beforeCommandRead: options.beforeCommandRead,
     enabled: options.enabled,
     keepalive: options.keepalive,
     writeDebounceMs: options.writeDebounceMs,
