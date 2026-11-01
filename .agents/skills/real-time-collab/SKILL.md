@@ -223,14 +223,22 @@ const { ydoc, awareness, activeUsers, agentActive, agentPresent } =
 
 #### Opening from a saved copy
 
-Pass `localCopy: true` to keep each doc's acknowledged state in IndexedDB, per
-account. A doc opened again is ready from that copy at once
+Pass `localCopy: { onEditsDisplaced }` to keep each doc's acknowledged state
+in IndexedDB, per account. A doc opened again is ready from that copy at once
 (`fromLocalCopy: true`, `isSynced: false`), and the hook asks the server only
 for what the copy lacks. The server answers with its state vector; if it does
 not cover the copy, the copy is thrown away and the doc reopens from the
 server (the hook's `ydoc` changes). Copies are cleared on sign-out and when a
 different account uses the browser, and are bounded (least recently opened go
 first). Storage that cannot be used just means no copy.
+
+The doc takes edits from the copy straight away, but sends them only once the
+server's vector covers the copy. Typing the server's state leaves out (the
+copy was thrown away, the server deleted the block it went into, or the doc is
+gone) is passed to `onEditsDisplaced` as `{ state, reason }`, where `state` is
+the whole doc as it stood with the typing. Keep it where the user can find it
+(Content files it in Version History), and never apply it back to the doc: the
+server's deletions stand.
 
 A copy is a cache of the server's doc, never a second source: it is saved only
 while none of the tab's edits are unacknowledged, so it never holds text the
@@ -241,7 +249,9 @@ To start that read with the page instead of after the editor mounts, call
 `prefetchCollabState(docId)` from
 `@agent-native/core/client/collab/prefetch` (it doesn't load the collab
 client). The hook takes the answer over when it opens the same doc within a few
-seconds, for the account the copy belongs to.
+seconds, for the account the copy belongs to. A read made before the tab's
+session is known belongs to the first session read; it is dropped once the
+session changes or another tab signs out.
 
 ### 4. Add TipTap extensions
 

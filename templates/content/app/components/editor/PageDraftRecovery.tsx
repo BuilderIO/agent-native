@@ -5,7 +5,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -188,6 +188,17 @@ export function PageDraftRecovery({
     : null;
   const draftLivenessKnown =
     draftKey === null || scopeLiveWriters?.draftKey === draftKey;
+  // Journal entries this page leaves alone: those of editors known to be
+  // open, this page's own included before its writer lock is seen. Both the
+  // journal and the SQL draft checks skip the same entries, or each would
+  // leave an entry to the other.
+  const journalSkippedWriterIds = useMemo(
+    () =>
+      liveEditorSessionId
+        ? new Set([...(skippedWriterIds ?? []), liveEditorSessionId])
+        : skippedWriterIds,
+    [liveEditorSessionId, skippedWriterIds],
+  );
   const draftOpenElsewhere = Boolean(
     draft?.editorSessionId && skippedWriterIds?.has(draft.editorSessionId),
   );
@@ -293,11 +304,7 @@ export function PageDraftRecovery({
     };
     let entry;
     try {
-      // The journal was empty when the editor showed; entries since are an
-      // open editor's own, which it settles.
-      entry = openedBeforeDraftRead
-        ? null
-        : readPageDraftJournal(scope, skippedWriterIds);
+      entry = readPageDraftJournal(scope, journalSkippedWriterIds);
     } catch {
       setJournalState("failed");
       return;
@@ -611,8 +618,8 @@ export function PageDraftRecovery({
     drafts.data,
     editorReleased,
     journalRevision,
+    journalSkippedWriterIds,
     journalState,
-    openedBeforeDraftRead,
     scopeKey,
     scopeLiveWriters,
     session?.email,
@@ -863,7 +870,7 @@ export function PageDraftRecovery({
             orgId: session.orgId ?? null,
             documentId: document.id,
           },
-          skippedWriterIds,
+          journalSkippedWriterIds,
         );
         if (
           journal?.snapshot.title === draft.title &&
@@ -887,10 +894,10 @@ export function PageDraftRecovery({
     draftOpenElsewhere,
     failure,
     hasEditIdentity,
+    journalSkippedWriterIds,
     journalState,
     session?.email,
     session?.orgId,
-    skippedWriterIds,
   ]);
 
   // Keep the editor at one tree position so a notice never remounts it.
@@ -926,7 +933,10 @@ export function PageDraftRecovery({
         retrying={drafts.isFetching}
       />
     );
-  if (openedBeforeDraftRead && !draft) return withNotice(null);
+  // A closed editor's journal entry found since is filed like any other,
+  // with the editor out of the way.
+  if (openedBeforeDraftRead && !draft && journalState !== "promoting")
+    return withNotice(null);
   if (
     !drafts.data ||
     !scopeVerified ||

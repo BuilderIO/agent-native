@@ -11,11 +11,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import {
+  recordSessionIdentity,
+  SESSION_INVALIDATION_STORAGE_KEY,
+} from "../client/session-identity.js";
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
 import { runBeforeSignOutCleanups } from "../client/use-session.js";
 import {
   _resetCollabDocRegistryForTests,
   useCollaborativeDoc,
+  type DisplacedCollabEdits,
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
 } from "./client.js";
@@ -32,7 +37,12 @@ const BASE_URL = "/_agent-native/collab";
 const ADA = { name: "Ada", email: "ada@example.com", color: "#123456" };
 const BOB = { name: "Bob", email: "bob@example.com", color: "#654321" };
 
-type StateResponse = "offline" | "server-error" | "not-found" | "no-vector";
+type StateResponse =
+  | "offline"
+  | "server-error"
+  | "not-found"
+  | "forbidden"
+  | "no-vector";
 
 function toBase64(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes));
@@ -98,6 +108,41 @@ function memoryPersistence() {
   };
 }
 
+/** Two paragraphs in the fragment an editor binds, as y-prosemirror writes them. */
+function paragraphs(doc: Y.Doc, texts: string[]): void {
+  const fragment = doc.getXmlFragment("default");
+  fragment.insert(
+    fragment.length,
+    texts.map((value) => {
+      const paragraph = new Y.XmlElement("paragraph");
+      paragraph.insert(0, [new Y.XmlText(value)]);
+      return paragraph;
+    }),
+  );
+}
+
+function paragraphsOf(doc: Y.Doc): string[] {
+  return doc
+    .getXmlFragment("default")
+    .toArray()
+    .map((node) =>
+      node instanceof Y.XmlElement ? node.toArray().join("") : String(node),
+    );
+}
+
+function paragraphsIn(state: Uint8Array): string[] {
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, state);
+    return paragraphsOf(doc);
+  } finally {
+    doc.destroy();
+  }
+}
+
+// What the app kept of typing the server's state displaced.
+let displaced: DisplacedCollabEdits[] = [];
+
 function Probe({
   options,
   onResult,
@@ -109,7 +154,7 @@ function Probe({
     docId: DOC,
     baseUrl: BASE_URL,
     user: ADA,
-    localCopy: true,
+    localCopy: { onEditsDisplaced: (edits) => displaced.push(edits) },
     ...options,
   });
   onResult(result);
@@ -134,6 +179,9 @@ describe("collab local copies", () => {
     _resetSyncTransportRegistryForTests();
     store = memoryPersistence();
     _setCollabLocalCopyPersistenceForTests(store.persistence);
+    displaced = [];
+    // The tab has read its session: Ada's.
+    recordSessionIdentity(ADA.email);
     server = new Y.Doc();
     server.getText("content").insert(0, "hello");
     stateRequests = [];
@@ -153,6 +201,11 @@ describe("collab local copies", () => {
           if (response === "not-found") {
             return new Response(JSON.stringify({ error: "Not found" }), {
               status: 404,
+            });
+          }
+          if (response === "forbidden") {
+            return new Response(JSON.stringify({ error: "Forbidden" }), {
+              status: 403,
             });
           }
           if (response === "server-error") {
@@ -211,6 +264,7 @@ describe("collab local copies", () => {
     _resetCollabDocRegistryForTests();
     _resetSyncTransportRegistryForTests();
     _setCollabLocalCopyPersistenceForTests(null);
+    recordSessionIdentity(undefined);
     server.destroy();
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -314,7 +368,7 @@ describe("collab local copies", () => {
     expect(current().fromLocalCopy).toBe(true);
   });
 
-  it("sends edits made on the saved copy, and saves only what the server acknowledged", async () => {
+  it("sends edits made on the saved copy once the server's state covers it, and saves only what the server acknowledged", async () => {
     await visit();
 
     const release = holdStateResponses();
@@ -322,11 +376,13 @@ describe("collab local copies", () => {
     await advance(0);
     current().ydoc!.getText("content").insert(5, "!");
     await advance(100);
-    // Everything the copy holds, the server has, so the edit is sent now.
-    expect(server.getText("content").toString()).toBe("hello!");
+    // Until then the server may not hold what the edit builds on.
+    expect(server.getText("content").toString()).toBe("hello");
     release();
     await advance(10);
     expect(current().isSynced).toBe(true);
+    await advance(100);
+    expect(server.getText("content").toString()).toBe("hello!");
     await advance(2_100);
     expect(textOf(store.copy()!)).toBe("hello!");
 
@@ -377,6 +433,36 @@ describe("collab local copies", () => {
     expect(text()).toContain(" and typed");
     expect(text()).not.toContain("hello");
     expect(server.getText("content").toString()).toBe(text());
+    expect(displaced).toEqual([]);
+  });
+
+  it("hands over typing that went into a block the server has deleted since, and keeps the deletion", async () => {
+    paragraphs(server, ["First paragraph.", "Second paragraph."]);
+    await visit();
+    // Deleted on the server (an agent, another tab) while the page is closed.
+    server.getXmlFragment("default").delete(0, 1);
+
+    const release = holdStateResponses();
+    mount();
+    await advance(0);
+    const first = current().ydoc!.getXmlFragment("default").get(0);
+    if (!(first instanceof Y.XmlElement)) throw new Error("No paragraph");
+    act(() => {
+      (first.get(0) as Y.XmlText).insert(16, " Typed on the copy");
+    });
+    release();
+    await advance(200);
+
+    // The server's deletion stands, on both sides.
+    expect(paragraphsOf(current().ydoc!)).toEqual(["Second paragraph."]);
+    expect(paragraphsOf(server)).toEqual(["Second paragraph."]);
+    // The typing is handed over as the page stood with it.
+    expect(displaced).toHaveLength(1);
+    expect(displaced[0]!.reason).toBe("deleted");
+    expect(paragraphsIn(displaced[0]!.state)).toEqual([
+      "First paragraph. Typed on the copy",
+      "Second paragraph.",
+    ]);
   });
 
   it("throws a saved copy away when the server's doc does not hold it", async () => {
@@ -401,6 +487,58 @@ describe("collab local copies", () => {
     );
     await advance(2_100);
     expect(textOf(store.copy()!)).toBe("fresh");
+  });
+
+  it("hands over typing on a copy the server's doc no longer holds, and sends none of it", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await visit({ durableUpdates: true });
+    server.destroy();
+    server = new Y.Doc();
+    server.getText("content").insert(0, "fresh");
+
+    const release = holdStateResponses();
+    mount({ durableUpdates: true });
+    await advance(0);
+    act(() => {
+      current().ydoc!.getText("content").insert(5, " typed");
+    });
+    // The server answers before the update debounce would have sent it.
+    release();
+    await advance(10);
+
+    expect(displaced).toHaveLength(1);
+    expect(displaced[0]!.reason).toBe("superseded");
+    expect(textOf(displaced[0]!.state)).toBe("hello typed");
+    await advance(3_000);
+    expect(text()).toBe("fresh");
+    expect(server.getText("content").toString()).toBe("fresh");
+    // A reload finds nothing stale to send either.
+    await leave();
+    mount({ durableUpdates: true });
+    await advance(3_000);
+    expect(server.getText("content").toString()).toBe("fresh");
+    expect(displaced).toHaveLength(1);
+  });
+
+  it("hands over typing on a page the server no longer has", async () => {
+    await visit();
+    stateResponses.push("not-found");
+
+    const release = holdStateResponses();
+    mount();
+    await advance(0);
+    act(() => {
+      current().ydoc!.getText("content").insert(5, " typed");
+    });
+    release();
+    await advance(10);
+    expect(displaced.map((edits) => edits.reason)).toEqual(["unavailable"]);
+    expect(textOf(displaced[0]!.state)).toBe("hello typed");
+
+    // Opening the page again hands nothing over twice.
+    act(() => current().retry());
+    await advance(50);
+    expect(displaced).toHaveLength(1);
   });
 
   it("forgets the copy and reports the doc unavailable when the server no longer has it", async () => {
@@ -555,6 +693,47 @@ describe("collab local copies", () => {
     expect(stateRequests).toHaveLength(1);
   });
 
+  it("never opens a doc from a boot read made for another account", async () => {
+    // At boot the tab has not read its session yet.
+    recordSessionIdentity(undefined);
+    stateRequests = [];
+    prefetchCollabState(DOC, { baseUrl: BASE_URL });
+    await advance(0);
+    expect(stateRequests).toHaveLength(1);
+    expect(stateRequests[0]).not.toContain("stateVector=");
+    // The read was Ada's; then Bob signs in before the editor takes it.
+    recordSessionIdentity(ADA.email);
+    recordSessionIdentity(BOB.email);
+    stateResponses.push("forbidden");
+
+    mount({ user: BOB });
+    await advance(50);
+    expect(stateRequests).toHaveLength(2);
+    expect(current().initialization).toEqual({
+      status: "error",
+      category: "forbidden-or-not-found",
+    });
+    expect(current().ydoc).toBeNull();
+  });
+
+  it("drops boot reads when another tab signs out", async () => {
+    stateRequests = [];
+    prefetchCollabState(DOC, { baseUrl: BASE_URL });
+    await advance(0);
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: SESSION_INVALIDATION_STORAGE_KEY,
+          newValue: "signed-out",
+        }),
+      );
+    });
+
+    mount();
+    await advance(50);
+    expect(stateRequests).toHaveLength(2);
+  });
+
   it("drops a boot read built on another account's copy", async () => {
     await visit();
     stateRequests = [];
@@ -574,7 +753,7 @@ describe("collab local copies", () => {
     await visit();
     stateRequests = [];
 
-    mount({ localCopy: false });
+    mount({ localCopy: undefined });
     await advance(0);
     expect(current().fromLocalCopy).toBe(false);
     await advance(50);

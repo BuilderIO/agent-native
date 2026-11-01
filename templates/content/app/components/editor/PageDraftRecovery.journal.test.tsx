@@ -118,6 +118,7 @@ vi.mock("./DocumentEditorSkeleton", () => ({
   DocumentEditorSkeleton: () => <div data-testid="editor-skeleton" />,
 }));
 
+import { journalDisplacedTyping } from "./displaced-typing";
 import { useRegisterLiveEditorSession } from "./live-editor-session";
 import { PageDraftRecovery } from "./PageDraftRecovery";
 
@@ -960,6 +961,51 @@ describe("Page browser journal recovery", () => {
     );
     expect(state.entries).toEqual([]);
     expect(toast.success).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("textarea")).not.toBeNull();
+  });
+
+  it("files typing a saved copy displaced to History, never over the page", async () => {
+    // Left by an editor that closed before it could file it: the typing went
+    // into a block the server has deleted since.
+    const typed = "Typed into a deleted block\n\nSaved body";
+    const kept = journalDisplacedTyping({
+      scope: {
+        accountId: "writer@example.test",
+        orgId: "org",
+        documentId: "page",
+      },
+      editorSessionId: "closed-editor",
+      title: "Saved",
+      content: typed,
+    });
+    state.entries = [
+      {
+        scope: { ...kept.scope, orgId: "org" },
+        snapshot: kept.snapshot,
+        writtenAt: 1,
+      },
+    ];
+    state.upsert.mockResolvedValue({
+      status: "saved",
+      draft: { title: "Saved", content: typed, version: 1 },
+    });
+    await act(async () => render());
+
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draft: expect.objectContaining({
+          content: typed,
+          baseDocumentUpdatedAt: null,
+          baseContentHash: null,
+        }),
+      }),
+    );
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "use_saved" }),
+    );
+    expect(state.entries).toEqual([]);
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 });

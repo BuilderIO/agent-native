@@ -34,6 +34,7 @@ import {
   requestCollabState,
   takeCollabStatePrefetch,
   type CollabStateRequest,
+  type TakenCollabStatePrefetch,
 } from "./state-prefetch.js";
 import { dedupeCollabUsersByEmail, type CollabUser } from "./types.js";
 export {
@@ -75,9 +76,35 @@ export interface UseCollaborativeDocOptions {
    * the doc from it next time: the doc is ready at once, takes edits, and
    * catches up with the server behind it. Needs `user`, whose email scopes
    * the copy. `fromLocalCopy` is true and `isSynced` false until the server
-   * has answered.
+   * has answered. What is typed meanwhile is sent once the server's state
+   * covers the copy; typing that state leaves out goes to `onEditsDisplaced`.
    */
-  localCopy?: boolean;
+  localCopy?: CollabLocalCopyOptions;
+}
+
+/**
+ * Typing made on a doc opened from a saved copy, before the server answered,
+ * that the server's state left out.
+ */
+export interface DisplacedCollabEdits {
+  /** The doc as it stood with that typing, as a whole Yjs state. */
+  state: Uint8Array;
+  /**
+   * `superseded`: the server's doc no longer holds the saved copy, so the doc
+   * opens again from the server's state alone. `deleted`: the server had
+   * since deleted the part of the doc the typing went into. `unavailable`:
+   * the server no longer has the doc, or this account cannot open it.
+   */
+  reason: "superseded" | "deleted" | "unavailable";
+}
+
+export interface CollabLocalCopyOptions {
+  /**
+   * Called at once, before the doc lets the typing go. The server's state
+   * stays as it is: keep the typing where the user can find it, and never
+   * write it back into the doc.
+   */
+  onEditsDisplaced: (edits: DisplacedCollabEdits) => void;
 }
 
 /**
@@ -306,6 +333,7 @@ interface CollabDocSubscription {
   requestSource?: string;
   durableUpdates?: boolean;
   localCopy?: boolean;
+  onLocalCopyEditsDisplaced?: (edits: DisplacedCollabEdits) => void;
   requireLiveCopyOutcome: () => boolean;
   canAcknowledge: () => boolean;
   onUpdateAcknowledged?: (ack: CollabUpdateAck) => void;
@@ -511,6 +539,11 @@ class CollabDocConnection {
   // Set once this doc gave up a copy the server did not cover; nothing it
   // holds is saved again.
   private localCopyRejected = false;
+  // Set once the server's state covered the copy this doc opened from.
+  private localCopyVerified = false;
+  // Until then, the vector past which content in the doc was typed here (or
+  // kept unsent from before): the copy's, or null once nothing is tracked.
+  private typingBaseline: Map<number, number> | null = null;
 
   constructor(
     readonly docId: string,
@@ -595,6 +628,7 @@ class CollabDocConnection {
       this.keepsLocalCopy = true;
       this.ydoc.on("update", this.scheduleLocalCopySave);
     }
+    this.deliverDisplacedTyping();
     if (!this.started) {
       this.started = true;
       this.start();
@@ -1107,12 +1141,16 @@ class CollabDocConnection {
       this.fetchInitialState();
       return;
     }
-    // A prefetched diff is built on a saved copy this connection does not use.
-    void prefetch.then(
+    // A prefetched diff is built on a saved copy this connection does not use,
+    // and an answer made for another session than the tab's now is another
+    // account's.
+    void prefetch.request.then(
       (request) => {
         if (this.disposed) return;
         this.fetchInitialState(
-          request.localState ? undefined : request.response,
+          request.localState || !prefetch.isCurrent()
+            ? undefined
+            : request.response,
         );
       },
       () => {
@@ -1144,19 +1182,25 @@ class CollabDocConnection {
    * A copy already in memory opens in this task.
    */
   private async openFromLocalCopy(
-    prefetch: Promise<CollabStateRequest> | undefined,
+    prefetch: TakenCollabStatePrefetch | undefined,
   ): Promise<void> {
     const account = this.actorIdentity;
     const key = collabLocalCopyKey(this.baseUrl, this.docId);
     let request = prefetch
-      ? await prefetch.then(
+      ? await prefetch.request.then(
           (value): CollabStateRequest | undefined => value,
           () => undefined,
         )
       : undefined;
     if (this.disposed) return;
-    // Read before the session was known, the copy may be another account's.
-    if (request?.localState && request.account !== account) request = undefined;
+    // An answer made for another session than the tab's now is another
+    // account's, and a copy read before the session was known may be too.
+    if (
+      request &&
+      (!prefetch?.isCurrent() ||
+        (request.localState && request.account !== account))
+    )
+      request = undefined;
     let local = request ? request.localState : null;
     if (!request) {
       const inMemory = peekCollabLocalCopy(account, key);
@@ -1203,8 +1247,10 @@ class CollabDocConnection {
       Y.applyUpdate(this.ydoc, item.update, "remote");
     }
     this.localCopyVector = Y.encodeStateVectorFromUpdate(state);
+    this.typingBaseline = Y.decodeStateVector(this.localCopyVector);
     this.awaitingServerState = true;
-    // Edits made now reach the server: everything the copy holds, it has.
+    // Edits made now wait in the queue until the server's state covers the
+    // copy: only then is everything they build on known to be the server's.
     this.attachUpdateHandler();
     this.setSnapshot({
       isLoading: false,
@@ -1257,6 +1303,7 @@ class CollabDocConnection {
     if (res.status === 404 || res.status === 403) {
       this.forgetLocalCopy();
       this.awaitingServerState = false;
+      this.releaseTypingOnLocalCopy("unavailable");
       this.markInitializationFailed("forbidden-or-not-found");
       return {
         status: "failed",
@@ -1310,6 +1357,12 @@ class CollabDocConnection {
       );
       return { status: "unavailable" };
     }
+    // Covering the copy keeps what it holds, but not typing that went inside
+    // something the server has deleted since: the deletion stands, and the
+    // typing as it was is handed over.
+    const typed = this.typedOnLocalCopy();
+    const withTyping =
+      typed.length > 0 ? Y.encodeStateAsUpdate(this.ydoc) : null;
     try {
       Y.applyUpdate(this.ydoc, update, "remote");
     } catch (error) {
@@ -1321,6 +1374,11 @@ class CollabDocConnection {
         error: error instanceof Error ? error : new Error(String(error)),
       };
     }
+    if (withTyping && typed.some((item) => item.deleted)) {
+      this.handOffDisplacedTyping(withTyping, "deleted");
+    }
+    this.typingBaseline = null;
+    this.localCopyVerified = true;
     this.takeActivityBaseline(data.activityBaseline);
     this.awaitingServerState = false;
     this.serverStateRetryDelay = SERVER_STATE_RETRY_MS;
@@ -1328,6 +1386,8 @@ class CollabDocConnection {
     this.startTransport();
     this.restoreUnsentUpdates();
     this.scheduleLocalCopySave();
+    // What was typed on the copy waited for this.
+    void this.flushPendingUpdates();
     return { status: "synced" };
   }
 
@@ -1363,13 +1423,80 @@ class CollabDocConnection {
   }
 
   /**
+   * Content the doc shows that was added since it opened from its saved copy:
+   * typed here, or kept unsent from before. Only content in a sequence (text,
+   * blocks); attribute and format changes are not typing.
+   */
+  private typedOnLocalCopy(): Y.Item[] {
+    const baseline = this.typingBaseline;
+    if (!baseline) return [];
+    const typed: Y.Item[] = [];
+    for (const [client, structs] of this.ydoc.store.clients) {
+      const from = baseline.get(client) ?? 0;
+      // Structs are in clock order, so walk back from the newest.
+      for (let index = structs.length - 1; index >= 0; index--) {
+        const struct = structs.at(index);
+        if (!struct || struct.id.clock + struct.length <= from) break;
+        if (
+          struct instanceof Y.Item &&
+          struct.countable &&
+          !struct.deleted &&
+          struct.parentSub === null
+        )
+          typed.push(struct);
+      }
+    }
+    return typed;
+  }
+
+  /** Hands typing on the saved copy over, if there is any; then stops looking. */
+  private releaseTypingOnLocalCopy(
+    reason: DisplacedCollabEdits["reason"],
+  ): void {
+    if (this.typedOnLocalCopy().length > 0) {
+      this.handOffDisplacedTyping(Y.encodeStateAsUpdate(this.ydoc), reason);
+    }
+    this.typingBaseline = null;
+  }
+
+  private handOffDisplacedTyping(
+    state: Uint8Array,
+    reason: DisplacedCollabEdits["reason"],
+  ): void {
+    const queue = displacedTyping.get(this.registryKey) ?? [];
+    queue.push({ state, reason });
+    displacedTyping.set(this.registryKey, queue);
+    this.deliverDisplacedTyping();
+  }
+
+  /** Gives displaced typing to the newest subscriber that keeps it. */
+  private deliverDisplacedTyping(): void {
+    const queue = displacedTyping.get(this.registryKey);
+    if (!queue) return;
+    const keep = Array.from(this.subscribers.values())
+      .reverse()
+      .find((sub) => sub.onLocalCopyEditsDisplaced)?.onLocalCopyEditsDisplaced;
+    if (!keep) return;
+    displacedTyping.delete(this.registryKey);
+    for (const edits of queue) {
+      try {
+        keep(edits);
+      } catch (error) {
+        console.error("Displaced typing could not be kept", error);
+      }
+    }
+  }
+
+  /**
    * Gives this doc up for a new connection that reads the server's state from
    * scratch: a doc opened from a saved copy can never drop what the copy put
-   * in it. Edits made on it since are dropped with it, since the server could
-   * not take them on top of state it does not have.
+   * in it. Edits made on it since go with it, since the server could not take
+   * them on top of state it does not have; typing among them is handed over
+   * first.
    */
   private supersede(warning?: string): void {
     if (warning) console.warn(warning);
+    this.releaseTypingOnLocalCopy("superseded");
     rejectedLocalCopies.add(this.registryKey);
     this.forgetLocalCopy();
     this.localCopyRejected = true;
@@ -1576,8 +1703,8 @@ class CollabDocConnection {
 
   retry = (): void => {
     // What a saved copy put in this doc stays in it, so a doc opened from one
-    // starts again from the server's state alone.
-    if (this.localCopyVector) {
+    // the server never confirmed starts again from the server's state alone.
+    if (this.localCopyVector && !this.localCopyVerified) {
       this.supersede();
       return;
     }
@@ -1605,6 +1732,12 @@ class CollabDocConnection {
 
   flushUpdates = async (): Promise<boolean> => {
     while (!this.disposed && this.pendingUpdates.length > 0) {
+      // Edits on a saved copy go out only once the server's state covers it.
+      if (this.awaitingServerState) {
+        await this.requestServerState();
+        if (!this.serverStateReady || this.localCopyRejected) return false;
+        continue;
+      }
       if (this.updateInFlight) {
         await new Promise((resolve) => setTimeout(resolve, 25));
         continue;
@@ -1700,6 +1833,8 @@ class CollabDocConnection {
   }
 
   private async flushPendingUpdates(keepalive = false): Promise<void> {
+    // They wait for the server's state to cover the saved copy they build on.
+    if (this.awaitingServerState) return;
     if (
       this.snapshot.updatesRefused ||
       (!keepalive &&
@@ -2381,6 +2516,9 @@ const retiredCollabUpdates = new Map<string, PendingCollabUpdate[]>();
 // Saved copies the server's state did not cover, by registry key: not opened
 // again in this page, even if deleting them from storage failed.
 const rejectedLocalCopies = new Set<string>();
+// Typing the server's state displaced, by registry key, until a subscriber
+// that keeps it is attached.
+const displacedTyping = new Map<string, DisplacedCollabEdits[]>();
 
 const SIGN_OUT_LOCAL_COPY_CLEAR_MS = 2000;
 
@@ -2462,6 +2600,7 @@ export function _resetCollabDocRegistryForTests(): void {
   collabConnectionRegistry.clear();
   retiredCollabUpdates.clear();
   rejectedLocalCopies.clear();
+  displacedTyping.clear();
   dropCollabStatePrefetches();
 }
 
@@ -2483,7 +2622,7 @@ export function useCollaborativeDoc(
     user,
     activityResource,
     durableUpdates = false,
-    localCopy = false,
+    localCopy,
     requireLiveCopyOutcome = false,
     onUpdateAcknowledged,
     onEvent,
@@ -2495,6 +2634,9 @@ export function useCollaborativeDoc(
   const wantsAcks = onUpdateAcknowledged !== undefined;
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const keepsLocalCopy = localCopy !== undefined;
+  const onEditsDisplacedRef = useRef(localCopy?.onEditsDisplaced);
+  onEditsDisplacedRef.current = localCopy?.onEditsDisplaced;
   useEffect(() => {
     if (!docId || !activityResource) return;
     return registerCollabActivityResource(activityResource);
@@ -2560,7 +2702,13 @@ export function useCollaborativeDoc(
         pauseWhenHidden,
         ...(requestSource !== undefined ? { requestSource } : {}),
         durableUpdates,
-        localCopy,
+        localCopy: keepsLocalCopy,
+        ...(keepsLocalCopy
+          ? {
+              onLocalCopyEditsDisplaced: (edits: DisplacedCollabEdits) =>
+                onEditsDisplacedRef.current?.(edits),
+            }
+          : {}),
         requireLiveCopyOutcome: () =>
           activeAcknowledgementScope.current === acknowledgementScope &&
           requireLiveCopyOutcomeRef.current,
@@ -2591,7 +2739,7 @@ export function useCollaborativeDoc(
     pauseWhenHidden,
     requestSource,
     durableUpdates,
-    localCopy,
+    keepsLocalCopy,
     requireLiveCopyOutcome,
     wantsAcks,
     wantsAcks ? acknowledgementScope : null,

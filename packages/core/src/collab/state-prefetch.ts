@@ -1,5 +1,10 @@
 import { agentNativePath } from "../client/api-path.js";
 import {
+  currentSessionIdentity,
+  SESSION_INVALIDATION_STORAGE_KEY,
+  subscribeSessionIdentity,
+} from "../client/session-identity.js";
+import {
   collabLocalCopyAccount,
   collabLocalCopyKey,
   readCollabLocalCopy,
@@ -59,25 +64,81 @@ export function requestCollabState(
   };
 }
 
-const prefetches = new Map<string, Promise<CollabStateRequest>>();
+/**
+ * A boot read, and the session it was made under. Requests carry the tab's
+ * cookie, so the answer is that session's: until this tab first reads its
+ * session, the first identity it reads; then that identity for good.
+ */
+interface CollabStatePrefetch {
+  request: Promise<CollabStateRequest>;
+  identity: string | null | undefined;
+  dropped: boolean;
+}
+
+/** A boot read the editor took, with whether its session is still the tab's. */
+export interface TakenCollabStatePrefetch {
+  request: Promise<CollabStateRequest>;
+  /** False once this tab's session is another, or another tab's changed. */
+  isCurrent(): boolean;
+}
+
+const prefetches = new Map<string, CollabStatePrefetch>();
+// Reads not yet answered or expired, taken or not: an account change drops them all.
+const unexpired = new Set<CollabStatePrefetch>();
+let sessionWatchInstalled = false;
+
+function dropPrefetch(prefetch: CollabStatePrefetch): void {
+  prefetch.dropped = true;
+  unexpired.delete(prefetch);
+  for (const [key, value] of prefetches) {
+    if (value === prefetch) prefetches.delete(key);
+  }
+}
+
+// One account's answer must never open a doc for another: any change of the
+// tab's session drops what was read under the one before, and so does another
+// tab signing out or switching organization, which can change this tab's
+// cookie before this tab reads its session again.
+function watchSession(): void {
+  if (sessionWatchInstalled) return;
+  sessionWatchInstalled = true;
+  subscribeSessionIdentity((identity) => {
+    for (const prefetch of [...unexpired]) {
+      if (prefetch.identity === undefined && typeof identity === "string") {
+        prefetch.identity = identity;
+      } else if (prefetch.identity !== identity) {
+        dropPrefetch(prefetch);
+      }
+    }
+  });
+  window.addEventListener("storage", (event) => {
+    if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
+      dropCollabStatePrefetches();
+    }
+  });
+}
 
 /**
  * Starts reading a doc's collab state at page boot, beside the page's other
  * first reads, instead of after the editor mounts. It reads this browser's
  * saved copy of the doc first, when there is one, and asks only for what the
  * copy lacks. The editor's connection takes the answer over when it opens the
- * same doc within a few seconds, and only for the account the copy belongs
- * to; an answer nobody takes is dropped.
+ * same doc within a few seconds, and only while this tab's session is still
+ * the one the read was made under; an answer nobody takes is dropped.
  */
 export function prefetchCollabState(
   docId: string,
   options: { baseUrl?: string } = {},
 ): void {
   if (typeof window === "undefined" || !docId) return;
+  const identity = currentSessionIdentity();
+  // Signed out, the read could only be refused.
+  if (identity === null) return;
   const baseUrl = options.baseUrl ?? agentNativePath("/_agent-native/collab");
   const key = collabLocalCopyKey(baseUrl, docId);
   if (prefetches.has(key)) return;
-  const prefetch = (async (): Promise<CollabStateRequest> => {
+  watchSession();
+  const request = (async (): Promise<CollabStateRequest> => {
     const account = await collabLocalCopyAccount();
     const read = account
       ? await readCollabLocalCopy(account, key)
@@ -95,31 +156,48 @@ export function prefetchCollabState(
         localState = null;
       }
     }
-    const request = requestCollabState(baseUrl, docId, stateVector);
+    const sent = requestCollabState(baseUrl, docId, stateVector);
     return {
       account: localState ? account : null,
       localState,
-      ...request,
+      ...sent,
     };
   })();
+  const prefetch: CollabStatePrefetch = { request, identity, dropped: false };
   prefetches.set(key, prefetch);
+  unexpired.add(prefetch);
   setTimeout(() => {
+    unexpired.delete(prefetch);
     if (prefetches.get(key) === prefetch) prefetches.delete(key);
   }, PREFETCH_TTL_MS);
 }
 
-/** Takes the prefetched request for a doc, at most once. */
+/**
+ * Takes the boot read for a doc, at most once, while this tab's session is
+ * the one it was made under.
+ */
 export function takeCollabStatePrefetch(
   baseUrl: string,
   docId: string,
-): Promise<CollabStateRequest> | undefined {
+): TakenCollabStatePrefetch | undefined {
   const key = collabLocalCopyKey(baseUrl, docId);
   const prefetch = prefetches.get(key);
-  if (prefetch) prefetches.delete(key);
-  return prefetch;
+  if (!prefetch) return undefined;
+  prefetches.delete(key);
+  const isCurrent = () =>
+    !prefetch.dropped &&
+    typeof prefetch.identity === "string" &&
+    prefetch.identity === currentSessionIdentity();
+  if (!isCurrent()) {
+    dropPrefetch(prefetch);
+    return undefined;
+  }
+  return { request: prefetch.request, isCurrent };
 }
 
-/** Drops every prefetched answer, as signing out does. */
+/** Drops every boot read, as signing out does. */
 export function dropCollabStatePrefetches(): void {
+  for (const prefetch of [...unexpired]) dropPrefetch(prefetch);
+  for (const prefetch of prefetches.values()) prefetch.dropped = true;
   prefetches.clear();
 }

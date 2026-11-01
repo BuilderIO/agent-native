@@ -7,6 +7,7 @@ import {
   emailToName,
   type CollabUpdateAck,
   type CollabUser,
+  type DisplacedCollabEdits,
 } from "@agent-native/core/client/collab";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
@@ -245,6 +246,11 @@ import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import { directoryWidgetEditability } from "./directory-widget-editability";
 import { isPageCommentThread } from "./discussion-panel";
+import {
+  displacedTypingMarkdown,
+  journalDisplacedTyping,
+  type JournaledDisplacedTyping,
+} from "./displaced-typing";
 import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
 import {
   DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
@@ -296,6 +302,7 @@ import {
 } from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
+  clearPageDraftJournal,
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
   syncPageDraftJournalBeforePersistingRecoveryDraft,
@@ -3885,6 +3892,17 @@ function PageEditorSessionBody({
     },
     [liveCopyWritePath],
   );
+  // Defined once the recovery draft queue exists, below.
+  const keepDisplacedTypingRef = useRef<(edits: DisplacedCollabEdits) => void>(
+    () => {},
+  );
+  const collabLocalCopy = useMemo(
+    () => ({
+      onEditsDisplaced: (edits: DisplacedCollabEdits) =>
+        keepDisplacedTypingRef.current(edits),
+    }),
+    [],
+  );
   const {
     ydoc,
     awareness,
@@ -3903,7 +3921,7 @@ function PageEditorSessionBody({
     activityResource: { resourceType: "document", resourceId: documentId },
     requestSource: TAB_ID,
     user: currentUser,
-    localCopy: true,
+    localCopy: collabLocalCopy,
     durableUpdates: bodyWritesThroughLiveCopy,
     requireLiveCopyOutcome: bodyWritesThroughLiveCopy,
     ...(bodyWritesThroughLiveCopy
@@ -5172,6 +5190,99 @@ function PageEditorSessionBody({
     },
     [retainRecoveryDraft],
   );
+  // Typing on a page opened from its saved copy that the server's answer
+  // left out: the copy was rebuilt on the server, or the block it went into
+  // was deleted there. The server's doc stays as it is. The journal keeps the
+  // typing at once, and it then goes to History as a draft found on open
+  // would; if that fails, the next open files the journal entry.
+  keepDisplacedTypingRef.current = (edits) => {
+    const content = displacedTypingMarkdown(edits.state);
+    if (content === null) return;
+    const title = localTitleRef.current;
+    // No base timestamp, so recovery never restores the draft over the page.
+    const base = { ...lastSavedContentRef.current, updatedAt: null };
+    const scope = journalScope();
+    let journaled: JournaledDisplacedTyping | null = null;
+    if (scope) {
+      try {
+        journaled = journalDisplacedTyping({
+          scope: {
+            accountId: scope.accountId,
+            orgId: scope.orgId,
+            documentId: scope.documentId,
+          },
+          editorSessionId: scope.writerId,
+          title,
+          content,
+        });
+      } catch (error) {
+        console.error(
+          "Could not keep typing the server's copy left out",
+          error,
+        );
+      }
+    }
+    // Read afresh after each await: the retention queue moves it.
+    const retainedDraft = () => recoveryDraftRef.current;
+    const editorSessionId = editorSessionIdRef.current;
+    const fileInHistory = async () => {
+      // This editor's own recovery draft would be replaced.
+      if (!editorSessionId || retainedDraft()) return false;
+      await queueRecoveryDraftRetention(
+        title,
+        content,
+        "conflict",
+        editorSessionId,
+        editorEditGenerationRef.current,
+        base,
+      );
+      const draft = retainedDraft();
+      if (draft?.content !== content) return false;
+      let expectedDocumentUpdatedAt = documentUpdatedAtRef.current;
+      for (
+        let attempt = 0;
+        attempt < 2 && expectedDocumentUpdatedAt;
+        attempt++
+      ) {
+        const result = await resolvePreviewDocumentDraft.mutateAsync({
+          choice: "use_saved",
+          documentId,
+          expectedDraftVersion: draft.version,
+          expectedDraftTitle: draft.title,
+          expectedDraftContent: draft.content,
+          expectedDocumentUpdatedAt,
+        });
+        if (result.status === "resolved") {
+          if (retainedDraft()?.version === draft.version)
+            recoveryDraftRef.current = null;
+          return true;
+        }
+        expectedDocumentUpdatedAt = result.document?.updatedAt ?? null;
+      }
+      return false;
+    };
+    void fileInHistory()
+      .catch((error: unknown) => {
+        console.error("Could not save displaced typing to History", error);
+        return false;
+      })
+      .then((filed) => {
+        if (filed) {
+          if (journaled) {
+            try {
+              clearPageDraftJournal(journaled.scope, journaled.snapshot);
+            } catch {
+              // coercion-ok: History holds the typing now; a stale journal
+              // entry only files it there again on the next open.
+            }
+          }
+          toast.success(t("editor.previewDraftSavedToHistory"));
+        } else if (!journaled) {
+          toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+        }
+        journaled?.release();
+      });
+  };
   const syncRecoveryDraftTitle = useCallback(
     (title: string) => {
       const sync = async () => {

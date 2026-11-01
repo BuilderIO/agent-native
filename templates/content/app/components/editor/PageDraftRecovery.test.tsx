@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { Document } from "@shared/api";
-import { act } from "react";
+import { act, useContext, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -88,6 +88,7 @@ vi.mock("./RecoveryComparison", () => ({
   ),
 }));
 
+import { LiveEditorSessionContext } from "./live-editor-session";
 import { PageDraftRecovery } from "./PageDraftRecovery";
 
 describe("Page draft recovery", () => {
@@ -223,6 +224,75 @@ describe("Page draft recovery", () => {
       expect(state.resolve).toHaveBeenCalledWith(
         expect.objectContaining({ choice: "use_saved" }),
       );
+    });
+
+    it("hands a late draft to recovery when its closed editor's journal entry holds it too", async () => {
+      const finishDraftRead = holdDraftRead();
+      await act(async () => render());
+      expect(container.querySelector("textarea")).not.toBeNull();
+
+      // Another tab wrote both, then closed, while this open's read ran.
+      state.draft = otherSessionDraft;
+      state.readJournal.mockReturnValue({
+        scope: { writerId: "tab:page" },
+        snapshot: {
+          title: "Draft",
+          content: "Draft body",
+          baseTitle: "Older",
+          baseContent: "Older body",
+          baseUpdatedAt: null,
+          editGeneration: 4,
+        },
+        writtenAt: 2,
+      });
+      await finishDraftRead();
+      await act(async () => render());
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({
+          choice: "use_saved",
+          expectedDraftContent: "Draft body",
+        }),
+      );
+    });
+
+    it("leaves the shown editor's own journal entries to it", async () => {
+      const finishDraftRead = holdDraftRead();
+      const own = {
+        scope: { writerId: "tab:live" },
+        snapshot: {
+          title: "Saved",
+          content: "Typed here",
+          baseTitle: "Saved",
+          baseContent: "Saved body",
+          baseUpdatedAt: "v2",
+          editGeneration: 1,
+        },
+        writtenAt: 2,
+      };
+      const LiveEditor = () => {
+        const register = useContext(LiveEditorSessionContext);
+        useEffect(() => register?.("tab:live"), [register]);
+        return <textarea defaultValue="Live editor" />;
+      };
+      await act(async () =>
+        root.render(
+          <PageDraftRecovery document={page}>
+            <LiveEditor />
+          </PageDraftRecovery>,
+        ),
+      );
+      expect(container.querySelector("textarea")).not.toBeNull();
+
+      // Its writer lock is not seen here (no other tab is open), only the
+      // session it registered.
+      state.readJournal.mockImplementation(
+        (_scope: unknown, skip?: ReadonlySet<string>) =>
+          skip?.has("tab:live") ? null : own,
+      );
+      await finishDraftRead();
+      expect(container.querySelector("textarea")).not.toBeNull();
+      expect(state.resolve).not.toHaveBeenCalled();
+      expect(state.remove).not.toHaveBeenCalled();
     });
 
     it("settles no draft until this open's page read returns", async () => {
