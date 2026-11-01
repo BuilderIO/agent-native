@@ -78,6 +78,7 @@ import {
 } from "../components/editor/database/DatabaseView";
 import { useContentDatabase } from "../hooks/use-content-database";
 import {
+  loadDatabaseViewId,
   openingDatabaseQueryKey,
   seedPageOpenCollection,
   type PageOpenReadAnswer,
@@ -316,6 +317,26 @@ const overrides = (
   version: 2,
   ...(activeViewId ? { activeViewId } : {}),
   views,
+});
+
+describe("the view a page's address selects", () => {
+  afterEach(() => window.history.replaceState(null, "", "/"));
+
+  it.each([
+    ["/page/p?databaseViewId=%20board%20", "board"],
+    ["/page/p?viewId=list&databaseViewId=board", "list"],
+    ["/page/p?viewId=%20&databaseViewId=board", "board"],
+    ["/page/p", null],
+  ])("is read from %s as the table reads it", (address, expected) => {
+    window.history.replaceState(null, "", address);
+    expect(loadDatabaseViewId()).toBe(expected);
+    expect(loadDatabaseViewId()).toBe(
+      requestedDatabaseViewId(
+        new URLSearchParams(window.location.search).get("viewId"),
+        new URLSearchParams(window.location.search).get("databaseViewId"),
+      ),
+    );
+  });
 });
 
 describe("the first rows query of a collection page", () => {

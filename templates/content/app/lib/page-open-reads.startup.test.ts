@@ -69,6 +69,17 @@ describe("the load's page read from the document head", () => {
     });
   });
 
+  it("sends the view an exact viewId names ahead of the remembered one", () => {
+    openLoad("/page/doc-1?databaseId=db-1&viewId=list&databaseViewId=board");
+
+    runHeadScript();
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(
+      new URL(url, "http://localhost").searchParams.get("databaseViewId"),
+    ).toBe("list");
+  });
+
   it("is taken once, so a later open of the page reads it fresh", () => {
     openLoad("/page/doc-1");
     runHeadScript();

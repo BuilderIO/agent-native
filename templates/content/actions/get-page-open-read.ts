@@ -79,7 +79,9 @@ export default defineAction({
     databaseViewId: z
       .string()
       .optional()
-      .describe("Collection view the page's address selects, if any."),
+      .describe(
+        "Collection view the page's address selects, if any: its viewId, else its databaseViewId.",
+      ),
     includePreviewDraft: z
       .boolean()
       .optional()
@@ -102,9 +104,9 @@ export default defineAction({
       },
       ctx,
     );
-    // Only a collection's own page shows its table; a row opened in a
-    // collection shows the row.
-    if (!document.database || args.databaseId) return { document };
+    // A collection's own page shows its table, whichever collection the
+    // address opens it in; any other page, a row included, shows no table.
+    if (!document.database) return { document };
     return {
       document,
       collection: await readOpeningCollection(

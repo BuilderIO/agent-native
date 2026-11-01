@@ -36,13 +36,14 @@ export type PageOpenReadAnswer = {
 };
 
 // The collection view a page's address selects, as the collection's table
-// reads it (DATABASE_VIEW_SELECTION_SEARCH_PARAM). Only the load's own read
-// knows the address it opens; any other open leaves the view to the table.
+// reads it: an exact `viewId` first, then the remembered selection
+// (DATABASE_VIEW_SELECTION_SEARCH_PARAM). Only the load's own read knows the
+// address it opens; any other open leaves the view to the table.
 export function loadDatabaseViewId(): string | null {
   if (typeof window === "undefined") return null;
+  const search = new URLSearchParams(window.location.search);
   return (
-    new URLSearchParams(window.location.search).get("databaseViewId")?.trim() ||
-    null
+    search.get("viewId")?.trim() || search.get("databaseViewId")?.trim() || null
   );
 }
 

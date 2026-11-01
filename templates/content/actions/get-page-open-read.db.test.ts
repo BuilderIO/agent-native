@@ -264,6 +264,18 @@ describe("get-page-open-read", () => {
     expect(owner.collection?.rows?.tableQuery.sorts).toEqual([
       fixture.deepestFirst,
     ]);
+    // A collection opened in itself, as the sidebar's links open it, still
+    // reads its table, here for the view the address names exactly.
+    const linked = await openPage(VIEWER, {
+      id: fixture.documentId,
+      databaseId: fixture.databaseId,
+      databaseViewId: "table",
+    });
+    expect(titles(linked.collection?.rows?.page)).toEqual([
+      "Pier 0",
+      "Pier 2",
+      "Pier 1",
+    ]);
     // A board shows the collection read's own rows, so it reads none.
     const board = await openPage(VIEWER, {
       id: fixture.documentId,
