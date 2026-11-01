@@ -315,7 +315,14 @@ export function buildAssistantMessage(
   let textBreakPending = false;
   const appendText = (text: string) => {
     const last = content[content.length - 1];
-    const sep = textBreakPending && last?.text && text ? "\n\n" : "";
+    const sep =
+      textBreakPending &&
+      content.length > 0 &&
+      last.type === "text" &&
+      last.text &&
+      text
+        ? "\n\n"
+        : "";
     if (text) textBreakPending = false;
     if (last && last.type === "text") {
       last.text = (last.text ?? "") + sep + text;
