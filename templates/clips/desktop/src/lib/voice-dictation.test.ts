@@ -48,9 +48,8 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => clipboard);
 vi.mock("./backtrack", () => ({ applyBacktrack: (text: string) => text }));
 vi.mock("./personal-vocabulary", () => ({
   configureVocabularyClient: vi.fn(),
-  currentVocabularyEntries: vi.fn(() => []),
-  loadVocabulary: vi.fn(async () => []),
-  loadVocabularyEntries: vi.fn(async () => []),
+  currentVocabulary: vi.fn(() => ({ status: "unloaded" })),
+  loadVocabulary: vi.fn(async () => ({ status: "unloaded" })),
   recordPasteForLearn: vi.fn(),
 }));
 vi.mock("./transcription-engine", () => ({
@@ -185,11 +184,36 @@ function stateChanges() {
     .map((event) => event.payload as Record<string, unknown>);
 }
 
+// A hold shows nothing until it outlasts a stray tap.
+const SHORT_TAP_MS = 300;
+
+const runIdOf = (value: unknown): number | undefined => {
+  const runId = (value as { runId?: unknown } | null | undefined)?.runId;
+  return typeof runId === "number" ? runId : undefined;
+};
+
+// The run a press started: the newest run any event or engine call after it
+// names. A tap too short to show a state still reaches the engine.
+function pressedRunId(eventsBefore: number, callsBefore: number) {
+  const runIds = [
+    ...tauri.events.slice(eventsBefore).map((event) => runIdOf(event.payload)),
+    ...tauri.invoke.mock.calls
+      .slice(callsBefore)
+      .map(([, args]) => runIdOf(args)),
+  ].filter((runId) => runId !== undefined);
+  return runIds.length > 0 ? Math.max(...runIds) : undefined;
+}
+
 // "server" is the built-in engine off a Mac with no browser speech, which
-// falls back to server transcription.
+// falls back to server transcription. The key stays down past a stray tap
+// unless `held` is false.
 async function startDictation(
   route: "server" | "browser" | "native" | "whisper" | "parakeet",
   polish: VoicePolish = "off",
+  {
+    held = true,
+    mode = "push-to-talk",
+  }: { held?: boolean; mode?: "push-to-talk" | "toggle" } = {},
 ) {
   if (route === "native" || route === "parakeet") setPlatform("MacIntel");
   const { installDesktopVoiceDictation } = await import("./voice-dictation");
@@ -197,16 +221,16 @@ async function startDictation(
     enabled: true,
     serverUrl: "https://clips.test",
     shortcut: "both",
-    mode: "push-to-talk",
+    mode,
     engine: route === "whisper" || route === "parakeet" ? route : "native",
     polish,
   });
   await settle();
+  const eventsBefore = tauri.events.length;
+  const callsBefore = tauri.invoke.mock.calls.length;
   await dispatch("voice:shortcut-start", { source: "fn" });
-  const latestState = stateChanges()
-    .reverse()
-    .find((state) => typeof state.runId === "number");
-  return { dispose, runId: latestState?.runId as number | undefined };
+  if (held) await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+  return { dispose, runId: pressedRunId(eventsBefore, callsBefore) };
 }
 
 // How long the engines keep recording after the key comes up.
@@ -763,7 +787,7 @@ describe("desktop voice dictation runs", () => {
     ).toHaveLength(2);
 
     finishFirstStart();
-    await settle();
+    await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
     const recordingRuns = stateChanges()
       .filter((state) => state.state === "recording")
       .map((state) => state.runId as number);
@@ -800,7 +824,7 @@ describe("desktop voice dictation runs", () => {
     await dispatch("voice:shortcut-start", { source: "fn" });
     await settle();
     finishFirstStart();
-    await settle();
+    await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
 
     const recordingRuns = stateChanges()
       .filter((state) => state.state === "recording")
@@ -928,6 +952,119 @@ describe("desktop voice dictation runs", () => {
       );
     });
 
+    describe("cancelled, then pressed again at once", () => {
+      const transcript = (text: string) => ({
+        voice: "heard",
+        transcript: { text, pass: "live", releaseToTextMs: 120, audioMs: 900 },
+      });
+
+      // Every stop the test has not answered yet, by run.
+      function holdStops() {
+        const stops = new Map<number, (result: unknown) => void>();
+        tauri.invoke.mockImplementation((command, args) => {
+          const { runId, discard } = (args ?? {}) as {
+            runId?: number;
+            discard?: boolean;
+          };
+          if (
+            command === "audio_transcription_stop" &&
+            !discard &&
+            runId !== undefined
+          ) {
+            return new Promise((resolve) => stops.set(runId, resolve));
+          }
+          return Promise.resolve(
+            command === "complete_voice_dictation" ? "inserted" : undefined,
+          );
+        });
+        return stops;
+      }
+
+      const engineCalls = (command: string, runId: number) =>
+        tauri.invoke.mock.calls.filter(
+          ([name, args]) =>
+            name === command && (args as { runId?: number }).runId === runId,
+        );
+
+      async function firstPress() {
+        const { dispose: disposeRun, runId } = await startDictation("parakeet");
+        dispose = disposeRun;
+        if (runId === undefined) throw new Error("the press started no run");
+        return runId;
+      }
+
+      async function pressAgain() {
+        const before = tauri.invoke.mock.calls.length;
+        await dispatch("voice:shortcut-start", { source: "fn" });
+        await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+        const start = tauri.invoke.mock.calls
+          .slice(before)
+          .find(([name]) => name === "audio_transcription_start");
+        if (!start) throw new Error("the second press started no capture");
+        return (start[1] as { runId: number }).runId;
+      }
+
+      it("drops the run cancelled while recording and starts the next on its own run", async () => {
+        const stops = holdStops();
+        const first = await firstPress();
+        await dispatch("voice:cancel");
+        const second = await pressAgain();
+
+        expect(second).toBeGreaterThan(first);
+        expect(engineCalls("audio_transcription_stop", first)).toEqual([
+          [
+            "audio_transcription_stop",
+            { owner: "dictation", runId: first, discard: true },
+          ],
+        ]);
+        expect(engineCalls("audio_transcription_stop", second)).toEqual([]);
+
+        await release();
+        stops.get(second)?.(transcript("second words"));
+        await settle();
+        expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+          text: "second words",
+        });
+      });
+
+      it("drops the run cancelled while transcribing, even when its text arrives after the next press", async () => {
+        const stops = holdStops();
+        const first = await firstPress();
+        await release();
+        expect(stops.has(first)).toBe(true);
+
+        await dispatch("voice:cancel");
+        expect(tauri.invoke).toHaveBeenCalledWith("audio_transcription_stop", {
+          owner: "dictation",
+          runId: first,
+          discard: true,
+        });
+        const second = await pressAgain();
+        expect(second).toBeGreaterThan(first);
+
+        stops.get(first)?.(transcript("first words"));
+        await settle();
+        expect(tauri.invoke).not.toHaveBeenCalledWith(
+          "complete_voice_dictation",
+          expect.anything(),
+        );
+        expect(stateChanges().at(-1)).toMatchObject({
+          runId: second,
+          state: "recording",
+        });
+        expect(engineCalls("audio_transcription_stop", second).length).toBe(0);
+
+        await release();
+        stops.get(second)?.(transcript("second words"));
+        await settle();
+        expect(
+          tauri.invoke.mock.calls.filter(
+            ([name]) => name === "complete_voice_dictation",
+          ),
+        ).toEqual([["complete_voice_dictation", { text: "second words" }]]);
+      });
+    });
+
     it("fails the run when the stop call returns no transcript", async () => {
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       const started = await startDictation("parakeet");
@@ -974,13 +1111,51 @@ describe("desktop voice dictation runs", () => {
       }
     };
 
-    async function startRun(kind: OnDeviceKind) {
-      const started = await startDictation(kind);
+    async function startRun(
+      kind: OnDeviceKind,
+      press: Parameters<typeof startDictation>[2] = {},
+    ) {
+      const started = await startDictation(kind, "off", press);
       dispose = started.dispose;
       if (started.runId === undefined) {
         throw new Error("Dictation did not start.");
       }
       return started.runId;
+    }
+
+    const startCommand = (kind: OnDeviceKind) =>
+      kind === "native" ? "native_speech_start" : "audio_transcription_start";
+
+    const flowBarShown = () =>
+      tauri.invoke.mock.calls.some(([command]) => command === "show_flow_bar");
+
+    // Counts start sounds: the ping is the only oscillator dictation plays.
+    function listenForStartSound() {
+      const played = vi.fn();
+      const param = () => ({
+        setValueAtTime: vi.fn(),
+        exponentialRampToValueAtTime: vi.fn(),
+      });
+      class FakeAudioContext {
+        currentTime = 0;
+        destination = {};
+        createOscillator() {
+          played();
+          return {
+            type: "",
+            frequency: param(),
+            connect: vi.fn(),
+            start: vi.fn(),
+            stop: vi.fn(),
+          };
+        }
+        createGain() {
+          return { gain: param(), connect: vi.fn() };
+        }
+        close = vi.fn(async () => {});
+      }
+      vi.stubGlobal("AudioContext", FakeAudioContext);
+      return played;
     }
 
     const runStates = (runId: number) =>
@@ -1052,7 +1227,13 @@ describe("desktop voice dictation runs", () => {
       "leaves no trace of a %s tap shorter than 300 ms",
       async (kind) => {
         if (kind === "parakeet") parakeetReturns("recognized words");
-        const runId = await startRun(kind);
+        const startSound = listenForStartSound();
+        const runId = await startRun(kind, { held: false });
+        // The mic opens on the press, before the hold has proved itself.
+        expect(tauri.invoke).toHaveBeenCalledWith(
+          startCommand(kind),
+          expect.objectContaining({ runId }),
+        );
         await vi.advanceTimersByTimeAsync(299);
         await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 299 });
         await vi.advanceTimersByTimeAsync(10_000);
@@ -1060,10 +1241,11 @@ describe("desktop voice dictation runs", () => {
 
         expectDiscarded(kind, runId);
         expect(stopCalls(kind)).toHaveLength(0);
-        expect(runStates(runId)).not.toContain("cancelled");
-        expect(runStates(runId)).not.toContain("error");
-        expect(stateChanges().at(-1)).toMatchObject({ state: "idle" });
-        expect(tauri.invoke).toHaveBeenCalledWith("hide_flow_bar");
+        for (const state of ["processing", "recording", "cancelled", "error"]) {
+          expect(runStates(runId)).not.toContain(state);
+        }
+        expect(flowBarShown()).toBe(false);
+        expect(startSound).not.toHaveBeenCalled();
         expect(tauri.invoke).not.toHaveBeenCalledWith(
           "complete_voice_dictation",
           expect.anything(),
@@ -1075,6 +1257,46 @@ describe("desktop voice dictation runs", () => {
         ).toBe(false);
       },
     );
+
+    it.each(onDeviceKinds)(
+      "shows a %s hold only once it outlasts a stray tap",
+      async (kind) => {
+        if (kind === "parakeet") parakeetReturns("recognized words");
+        const startSound = listenForStartSound();
+        const runId = await startRun(kind, { held: false });
+        await vi.advanceTimersByTimeAsync(SHORT_TAP_MS - 1);
+        expect(runStates(runId)).toEqual([]);
+        expect(flowBarShown()).toBe(false);
+        expect(startSound).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(flowBarShown()).toBe(true);
+        expect(runStates(runId)).toEqual(["recording"]);
+        expect(startSound).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("shows a toggle dictation at once", async () => {
+      const startSound = listenForStartSound();
+      const runId = await startRun("native", { held: false, mode: "toggle" });
+
+      expect(flowBarShown()).toBe(true);
+      expect(runStates(runId)).toEqual(["processing", "recording"]);
+      expect(startSound).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows a start failure even within a stray tap's time", async () => {
+      tauri.invoke.mockImplementation((command) =>
+        command === "audio_transcription_start"
+          ? Promise.reject(new Error("microphone unavailable"))
+          : Promise.resolve(undefined),
+      );
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const runId = await startRun("whisper", { held: false });
+
+      expect(flowBarShown()).toBe(true);
+      expect(runStates(runId)).toEqual(["error"]);
+    });
 
     it("dictates a 300 ms hold", async () => {
       const runId = await startRun("native");
@@ -1100,16 +1322,19 @@ describe("desktop voice dictation runs", () => {
         }
         return Promise.resolve(undefined);
       });
-      const runId = await startRun("whisper");
+      const startSound = listenForStartSound();
+      const runId = await startRun("whisper", { held: false });
       await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 120 });
       finishStart();
       await vi.advanceTimersByTimeAsync(5_000);
       await settle();
 
       expectDiscarded("whisper", runId);
-      expect(runStates(runId)).not.toContain("cancelled");
-      expect(runStates(runId)).not.toContain("error");
-      expect(runStates(runId)).not.toContain("recording");
+      for (const state of ["processing", "recording", "cancelled", "error"]) {
+        expect(runStates(runId)).not.toContain(state);
+      }
+      expect(flowBarShown()).toBe(false);
+      expect(startSound).not.toHaveBeenCalled();
     });
 
     it.each(onDeviceKinds)(
@@ -1160,7 +1385,7 @@ describe("desktop voice dictation runs", () => {
           audioMs: 2_000,
         },
       });
-      const runId = await startRun("parakeet");
+      await startRun("parakeet");
       await release();
       await settle();
 
@@ -1393,6 +1618,7 @@ describe("desktop voice dictation runs", () => {
 
     await dispatch("voice:dismiss-recovery", { runId: started.runId });
     await dispatch("voice:shortcut-start", { source: "fn" });
+    await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
     expect(FakeRecorder.instances).toHaveLength(2);
     expect(stateChanges().at(-1)).toMatchObject({ state: "recording" });
     expect(stateChanges().at(-1)?.runId).toBeGreaterThan(started.runId!);

@@ -8,54 +8,103 @@ export interface VocabularyEntry {
   usesCount: number;
 }
 
-let cachedVocabulary: VocabularyEntry[] | null = null;
-let cachedAt = 0;
+/** The vocabulary as this client knows it. Only `loaded` carries entries, so
+ * a vocabulary that never loaded, or failed to, can't pass for an empty one. */
+export type Vocabulary =
+  | { status: "unloaded" }
+  | { status: "failed"; error: string }
+  | { status: "loaded"; entries: VocabularyEntry[]; loadedAt: number };
+
+const FRESH_MS = 60_000;
+
+let vocabulary: Vocabulary = { status: "unloaded" };
 let serverUrl = "";
+// Bumped whenever a fetch already under way may return a stale list.
+let generation = 0;
+let inflight: { generation: number; promise: Promise<Vocabulary> } | null =
+  null;
 
 export function configureVocabularyClient(url: string): void {
-  serverUrl = url.replace(/\/+$/, "");
+  const next = url.replace(/\/+$/, "");
+  if (next === serverUrl) return;
+  serverUrl = next;
+  generation += 1;
+  vocabulary = { status: "unloaded" };
 }
 
-export async function loadVocabularyEntries(): Promise<VocabularyEntry[]> {
-  if (cachedVocabulary && Date.now() - cachedAt < 60_000) {
-    return cachedVocabulary;
-  }
-  if (!serverUrl) return [];
-  try {
-    const res = await fetch(
-      `${serverUrl}/_agent-native/actions/list-vocabulary`,
-      { method: "GET", credentials: "include" },
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as { vocabulary?: VocabularyEntry[] };
-    cachedVocabulary = data.vocabulary ?? [];
-    cachedAt = Date.now();
-    return cachedVocabulary;
-  } catch (err) {
-    console.warn("[personal-vocabulary] loadVocabulary failed:", err);
-    return [];
-  }
+function isFresh(current: Vocabulary): boolean {
+  return (
+    current.status === "loaded" && Date.now() - current.loadedAt < FRESH_MS
+  );
 }
 
-let refreshing: Promise<VocabularyEntry[]> | null = null;
+/** One fetch per generation, however many callers ask. A response from an
+ * older generation is dropped, and a failed fetch keeps entries already
+ * loaded. */
+function refreshVocabulary(): Promise<Vocabulary> {
+  if (inflight?.generation === generation) return inflight.promise;
+  const requested = generation;
+  const url = serverUrl;
+  const promise = (async (): Promise<Vocabulary> => {
+    try {
+      const res = await fetch(`${url}/_agent-native/actions/list-vocabulary`, {
+        method: "GET",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { vocabulary?: unknown };
+      if (!Array.isArray(data.vocabulary)) {
+        throw new Error("the response has no vocabulary list");
+      }
+      if (requested === generation) {
+        vocabulary = {
+          status: "loaded",
+          entries: data.vocabulary as VocabularyEntry[],
+          loadedAt: Date.now(),
+        };
+      }
+    } catch (err) {
+      console.warn("[personal-vocabulary] loading the vocabulary failed:", err);
+      if (requested === generation && vocabulary.status !== "loaded") {
+        vocabulary = {
+          status: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+    return requested === generation ? vocabulary : loadVocabulary();
+  })();
+  inflight = { generation: requested, promise };
+  void promise.finally(() => {
+    if (inflight?.promise === promise) inflight = null;
+  });
+  return promise;
+}
+
+/** The vocabulary, fetched first when the copy on hand is missing or a minute
+ * old. */
+export async function loadVocabulary(): Promise<Vocabulary> {
+  if (isFresh(vocabulary) || !serverUrl) return vocabulary;
+  return refreshVocabulary();
+}
 
 /**
- * The vocabulary as last fetched, without waiting on the network. Starts a
- * refresh once the copy is a minute old. A dictation start reads this so the
+ * The vocabulary on hand, without waiting on the network. Starts a refresh
+ * when it is missing or a minute old. A dictation start reads this so the
  * microphone does not wait for the server.
  */
-export function currentVocabularyEntries(): VocabularyEntry[] {
-  if (!cachedVocabulary || Date.now() - cachedAt >= 60_000) {
-    refreshing ??= loadVocabularyEntries().finally(() => {
-      refreshing = null;
-    });
-  }
-  return cachedVocabulary ?? [];
+export function currentVocabulary(): Vocabulary {
+  if (!isFresh(vocabulary) && serverUrl) void refreshVocabulary();
+  return vocabulary;
 }
 
-export async function loadVocabulary(): Promise<string[]> {
-  const vocabulary = await loadVocabularyEntries();
-  return vocabulary.map((v) => v.replacement);
+// After a write the list on hand is out of date, and so is any fetch already
+// under way; the old entries stay usable until the new list arrives.
+function invalidateVocabulary(): void {
+  generation += 1;
+  if (vocabulary.status === "loaded") {
+    vocabulary = { ...vocabulary, loadedAt: 0 };
+  }
 }
 
 function diffSingleWord(
@@ -117,8 +166,7 @@ export function recordPasteForLearn(pastedText: string): void {
               }),
             },
           ).catch(() => {});
-          cachedVocabulary = null;
-          cachedAt = 0;
+          invalidateVocabulary();
         } catch (err) {
           console.warn("[personal-vocabulary] persist failed:", err);
         }

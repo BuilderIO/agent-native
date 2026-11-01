@@ -32,7 +32,7 @@ mod macos {
     use tauri::AppHandle;
     use transcribe_cpp::{Model, VadSession, VadSessionOptions};
 
-    use crate::model_download::{download_verified, PinnedFile, VerifiedDownload};
+    use crate::model_download::{download_verified, file_sha256, PinnedFile, VerifiedDownload};
     use crate::parakeet_live::StreamingResample;
     use crate::whisper_speech::Voice;
 
@@ -109,14 +109,31 @@ mod macos {
         });
     }
 
+    /// Runs when the file on disk turns out damaged, after it is deleted.
+    type Repair = Box<dyn FnOnce() + Send>;
+
     /// The detector stays loaded once used; at about 1 MB it is not worth
-    /// reloading for every dictation.
-    fn resident_model(path: &Path) -> Result<Model, String> {
+    /// reloading for every dictation. The file is checked against its pinned
+    /// SHA-256 before its first load: a download is checked as it lands, but a
+    /// file already on disk was only checked for size, and damaged weights of
+    /// the right size would load and give confident verdicts.
+    fn resident_model(path: &Path, repair: Repair) -> Result<Model, String> {
         let mut slot = MODEL.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some((loaded, model)) = slot.as_ref() {
             if loaded == path {
                 return Ok(model.clone());
             }
+        }
+        let digest = file_sha256(path)?;
+        if digest != SILERO_VAD_MODEL.sha256 {
+            eprintln!(
+                "[vad] model file is damaged (checksum mismatch); deleting it to download again"
+            );
+            if let Err(error) = std::fs::remove_file(path) {
+                eprintln!("[vad] could not delete the damaged model: {error}");
+            }
+            repair();
+            return Err("checksum mismatch".to_owned());
         }
         let model = crate::transcribe_engine::load_cpu_model(path)?;
         *slot = Some((path.to_path_buf(), model.clone()));
@@ -209,13 +226,20 @@ mod macos {
                     Err("the model is not downloaded yet".to_owned())
                 }
             });
-            Self::start(path, engine, crate::shortcuts::last_voice_press())
+            let app = app.clone();
+            Self::start(
+                path,
+                engine,
+                crate::shortcuts::last_voice_press(),
+                Box::new(move || download_in_background(&app)),
+            )
         }
 
         fn start(
             model_path: Result<PathBuf, String>,
             engine: &'static str,
             pressed_at: Option<Instant>,
+            repair: Repair,
         ) -> Self {
             let shared = Arc::new(Shared {
                 pending: Mutex::new(Vec::new()),
@@ -231,7 +255,7 @@ mod macos {
                 .name("clips-vad".into())
                 .spawn(move || {
                     let outcome = match model_path {
-                        Ok(path) => score(&worker_shared, &path),
+                        Ok(path) => score(&worker_shared, &path, repair),
                         Err(failure) => Outcome {
                             tally: Tally::default(),
                             failure: Some(failure),
@@ -342,13 +366,13 @@ mod macos {
 
     /// The worker: scores audio as it arrives and stops at the first speech, or
     /// at release with whatever is left.
-    fn score(shared: &Shared, path: &Path) -> Outcome {
+    fn score(shared: &Shared, path: &Path, repair: Repair) -> Outcome {
         let mut tally = Tally::default();
         let fail = |tally: Tally, failure: String| Outcome {
             tally,
             failure: Some(failure),
         };
-        let model = match resident_model(path) {
+        let model = match resident_model(path, repair) {
             Ok(model) => model,
             Err(error) => return fail(tally, format!("load: {error}")),
         };
@@ -480,17 +504,58 @@ mod macos {
 
         #[test]
         fn a_check_that_cannot_run_is_never_silence() {
-            let check =
-                SpeechCheck::start(Err("the model is not downloaded yet".into()), "test", None);
+            let check = SpeechCheck::start(
+                Err("the model is not downloaded yet".into()),
+                "test",
+                None,
+                Box::new(|| {}),
+            );
             check.set_sample_rate(16_000.0);
             check.push(&[0.0; 16_000]);
             assert_eq!(check.finish(), Voice::Unchecked);
 
             let missing = std::env::temp_dir().join("clips-vad-test-no-such-model.gguf");
-            let check = SpeechCheck::start(Ok(missing), "test", None);
+            let check = SpeechCheck::start(Ok(missing), "test", None, Box::new(|| {}));
             check.set_sample_rate(16_000.0);
             check.push(&[0.0; 16_000]);
             assert_eq!(check.finish(), Voice::Unchecked);
+        }
+
+        #[test]
+        fn a_damaged_model_of_the_right_size_is_deleted_and_fetched_again() {
+            let dir = std::env::temp_dir().join(format!(
+                "clips-vad-damaged-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join(SILERO_VAD_MODEL.filename);
+            std::fs::write(&path, vec![0x47; SILERO_VAD_MODEL.size_bytes as usize]).unwrap();
+            assert!(is_complete_on_disk(&path));
+
+            let (repaired, repair_called) = mpsc::channel();
+            let check = SpeechCheck::start(
+                Ok(path.clone()),
+                "test",
+                None,
+                Box::new(move || {
+                    let _ = repaired.send(());
+                }),
+            );
+            check.set_sample_rate(16_000.0);
+            check.push(&[0.0; 16_000]);
+
+            assert_eq!(check.finish(), Voice::Unchecked);
+            repair_called
+                .recv_timeout(Duration::from_secs(5))
+                .expect("a damaged model must be fetched again");
+            assert!(!path.exists(), "the damaged file must be deleted");
+            assert!(MODEL
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+                .is_none_or(|(loaded, _)| loaded != &path));
+            let _ = std::fs::remove_dir_all(&dir);
         }
 
         fn noise(len: usize, amplitude: f32) -> Vec<f32> {
@@ -518,7 +583,7 @@ mod macos {
 
         /// Feeds `audio` the way capture does, in 10 ms buffers.
         fn check(model: &Path, audio: &[f32], rate: f64) -> (Voice, Duration) {
-            let check = SpeechCheck::start(Ok(model.to_path_buf()), "test", None);
+            let check = SpeechCheck::start(Ok(model.to_path_buf()), "test", None, Box::new(|| {}));
             check.set_sample_rate(rate);
             let buffer = (rate / 100.0) as usize;
             for piece in audio.chunks(buffer) {
@@ -544,7 +609,7 @@ mod macos {
                 .expect("set CLIPS_TEST_VAD_SPEECH_WAVS");
 
             let loaded = Instant::now();
-            resident_model(&model).unwrap();
+            resident_model(&model, Box::new(|| panic!("the test model is damaged"))).unwrap();
             eprintln!("model load: {} ms", loaded.elapsed().as_millis());
 
             let silent: [(&str, Vec<f32>); 4] = [

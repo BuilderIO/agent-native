@@ -59,6 +59,69 @@ mod tests {
         );
     }
 
+    fn ms(millis: u64) -> Duration {
+        Duration::from_millis(millis)
+    }
+
+    fn names(events: &[(&'static str, serde_json::Value)]) -> Vec<&'static str> {
+        events.iter().map(|(name, _)| *name).collect()
+    }
+
+    #[test]
+    fn an_fn_tap_let_go_before_the_start_delay_arrives_as_start_then_stop() {
+        let down = Instant::now();
+        let press = FnPress::new(down);
+        assert_eq!(press.release(down + ms(40)), None);
+
+        let start = press.start_due();
+        assert_eq!(start, FnStart::Tap(ms(40)));
+        let events = fn_start_events(start, true, || panic!("a tap is not a hold"));
+        assert_eq!(
+            names(&events),
+            ["voice:shortcut-start", "voice:shortcut-stop"]
+        );
+        assert_eq!(events[1].1["heldMs"], 40);
+    }
+
+    #[test]
+    fn two_quick_fn_taps_each_arrive_for_the_hands_free_gesture() {
+        let first_down = Instant::now();
+        let first = FnPress::new(first_down);
+        assert_eq!(first.release(first_down + ms(30)), None);
+        let second = FnPress::new(first_down + ms(60));
+        assert_eq!(second.release(first_down + ms(95)), None);
+
+        for (press, held) in [(&first, 30), (&second, 35)] {
+            let events = fn_start_events(press.start_due(), true, || false);
+            assert_eq!(
+                names(&events),
+                ["voice:shortcut-start", "voice:shortcut-stop"]
+            );
+            assert_eq!(events[1].1["heldMs"], held);
+        }
+    }
+
+    #[test]
+    fn an_fn_hold_starts_at_the_delay_and_stops_at_key_up() {
+        let down = Instant::now();
+        let press = FnPress::new(down);
+        let start = press.start_due();
+        assert_eq!(start, FnStart::Hold);
+        assert_eq!(
+            names(&fn_start_events(start, true, || true)),
+            ["voice:shortcut-start"]
+        );
+        assert_eq!(press.release(down + ms(500)), Some(ms(500)));
+    }
+
+    #[test]
+    fn an_fn_tap_sends_nothing_while_fn_dictation_is_off() {
+        let down = Instant::now();
+        let press = FnPress::new(down);
+        press.release(down + ms(40));
+        assert!(fn_start_events(press.start_due(), false, || true).is_empty());
+    }
+
     #[test]
     fn countdown_return_shortcuts_match_platform_registration() {
         let shortcuts = countdown_return_shortcuts();
@@ -1110,6 +1173,93 @@ fn emit_voice_start(app: &tauri::AppHandle, source: &'static str) {
     });
 }
 
+/// One Fn press, shared by its key-up and its delayed start, so a tap let go
+/// before the start fires still arrives, as a start and then a stop.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct FnPress {
+    down_at: Instant,
+    state: Mutex<FnPressState>,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FnPressState {
+    Down,
+    /// Let go before the delayed start, after this long.
+    Released(Duration),
+    /// The delayed start has run; the key-up sends the stop.
+    StartDue,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FnStart {
+    /// Still down when the start came due.
+    Hold,
+    /// Let go before it, after this long.
+    Tap(Duration),
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+impl FnPress {
+    fn new(down_at: Instant) -> Self {
+        Self {
+            down_at,
+            state: Mutex::new(FnPressState::Down),
+        }
+    }
+
+    /// Called once the start delay has passed.
+    fn start_due(&self) -> FnStart {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        match *state {
+            FnPressState::Released(held) => FnStart::Tap(held),
+            FnPressState::Down | FnPressState::StartDue => {
+                *state = FnPressState::StartDue;
+                FnStart::Hold
+            }
+        }
+    }
+
+    /// Called at key-up. The hold time when the key-up sends the stop itself;
+    /// `None` when the delayed start will send the whole tap.
+    fn release(&self, now: Instant) -> Option<Duration> {
+        let held = now.saturating_duration_since(self.down_at);
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        match *state {
+            FnPressState::Down => {
+                *state = FnPressState::Released(held);
+                None
+            }
+            FnPressState::StartDue => Some(held),
+            FnPressState::Released(_) => None,
+        }
+    }
+}
+
+/// The events an Fn press's delayed start sends. A tap goes out whole even
+/// though the key is already up: toggle mode starts on it, and two in a row
+/// make the hands-free gesture.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn fn_start_events(
+    start: FnStart,
+    tap_enabled: bool,
+    hold_wanted: impl FnOnce() -> bool,
+) -> Vec<(&'static str, serde_json::Value)> {
+    let start_event = (
+        "voice:shortcut-start",
+        serde_json::json!({ "source": "fn" }),
+    );
+    match start {
+        FnStart::Tap(held) if tap_enabled => vec![
+            start_event,
+            ("voice:shortcut-stop", voice_stop_payload("fn", Some(held))),
+        ],
+        FnStart::Hold if hold_wanted() => vec![start_event],
+        _ => Vec::new(),
+    }
+}
+
 fn mark_released_if_start_pending(held: Option<Duration>) -> bool {
     let Ok(mut pending) = PENDING_VOICE_START.lock() else {
         return false;
@@ -1199,8 +1349,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
     let prev_down = Arc::new(AtomicBool::new(false));
     let needs_reenable = Arc::new(AtomicBool::new(false));
     let event_count = Arc::new(AtomicU64::new(0));
-    let fn_down_at = Arc::new(AtomicU64::new(0));
-    let tap_epoch = std::time::Instant::now();
+    let current_press: Arc<Mutex<Option<Arc<FnPress>>>> = Arc::new(Mutex::new(None));
 
     let app_for_cancel = app.clone();
     let prev_for_cancel = prev_down.clone();
@@ -1218,7 +1367,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
             let prev_for_cb = prev_down.clone();
             let needs_reenable_for_cb = needs_reenable.clone();
             let event_count_for_cb = event_count.clone();
-            let fn_down_at_for_cb = fn_down_at.clone();
+            let current_press_for_cb = current_press.clone();
 
             dlog!("[clips-tray][fn-tap] thread started; about to call CGEventTap::new");
             let tap_result = CGEventTap::new(
@@ -1275,56 +1424,43 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                         dlog!("[clips-tray] Fn down — starting voice dictation");
                         note_voice_press();
                         remember_voice_target(&app_for_cb);
-                        fn_down_at_for_cb.store(
-                            tap_epoch.elapsed().as_millis() as u64,
-                            Ordering::SeqCst,
-                        );
+                        let press = Arc::new(FnPress::new(Instant::now()));
+                        *current_press_for_cb
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = Some(press.clone());
                         wake_popover_for_voice(&app_for_cb);
                         let app_for_emit = app_for_cb.clone();
-                        let prev_for_emit = prev_for_cb.clone();
-                        let fn_down_at_for_emit = fn_down_at_for_cb.clone();
                         thread::spawn(move || {
                             thread::sleep(Duration::from_millis(80));
-                            let still_down = prev_for_emit.load(Ordering::SeqCst);
-                            let fast_tap = !still_down
-                                && fn_down_at_for_emit.load(Ordering::SeqCst) != 0;
-                            let should_emit = if fast_tap {
-                                FN_TAP_ENABLED.load(Ordering::SeqCst)
-                            } else {
-                                should_emit_delayed_voice_start(&app_for_emit, "fn")
-                            };
-                            if (still_down || fast_tap) && should_emit {
-                                let _ = app_for_emit.emit(
-                                    "voice:shortcut-start",
-                                    serde_json::json!({ "source": "fn" }),
-                                );
-                                if fast_tap {
-                                    let _ = app_for_emit.emit(
-                                        "voice:shortcut-stop",
-                                        voice_stop_payload("fn", held_since_press()),
-                                    );
-                                }
-                            } else {
+                            let events = fn_start_events(
+                                press.start_due(),
+                                FN_TAP_ENABLED.load(Ordering::SeqCst),
+                                || should_emit_delayed_voice_start(&app_for_emit, "fn"),
+                            );
+                            if events.is_empty() {
                                 hide_voice_wake_popover(&app_for_emit);
+                            }
+                            for (name, payload) in events {
+                                let _ = app_for_emit.emit(name, payload);
                             }
                         });
                         install_fn_release_watchdog(app_for_cb.clone(), prev_for_cb.clone());
                     } else {
                         dlog!("[clips-tray] Fn up — stopping voice dictation");
-                        let elapsed_since_down =
-                            tap_epoch.elapsed().as_millis() as u64
-                                - fn_down_at_for_cb.load(Ordering::SeqCst);
-                        fn_down_at_for_cb.store(0, Ordering::SeqCst);
-                        if elapsed_since_down < 80 {
-                            return CallbackResult::Keep;
+                        let press = current_press_for_cb
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .take();
+                        let held = match press {
+                            Some(press) => press.release(Instant::now()),
+                            None => held_since_press(),
+                        };
+                        if let Some(held) = held {
+                            let _ = app_for_cb.emit(
+                                "voice:shortcut-stop",
+                                voice_stop_payload("fn", Some(held)),
+                            );
                         }
-                        let _ = app_for_cb.emit(
-                            "voice:shortcut-stop",
-                            voice_stop_payload(
-                                "fn",
-                                Some(Duration::from_millis(elapsed_since_down)),
-                            ),
-                        );
                     }
                     CallbackResult::Keep
                 },

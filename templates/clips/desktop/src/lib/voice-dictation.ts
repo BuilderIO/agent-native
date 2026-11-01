@@ -6,9 +6,8 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { applyBacktrack } from "./backtrack";
 import {
   configureVocabularyClient,
-  currentVocabularyEntries,
+  currentVocabulary,
   loadVocabulary,
-  loadVocabularyEntries,
   recordPasteForLearn,
 } from "./personal-vocabulary";
 import { isMacPlatform } from "./platform";
@@ -67,6 +66,7 @@ type FlowProcessingStage =
   | "saving-history";
 interface FlowStateDetails {
   runId?: number;
+  startedAtMs?: number;
   failure?: DictationFailure;
   insertion?: DictationInsertion | null;
   recoverable?: boolean;
@@ -286,10 +286,10 @@ function setFlowState(
   details: FlowStateDetails = {},
 ): void {
   const payload = {
+    ...(state === "recording" ? { startedAtMs: Date.now() } : {}),
     state,
     stage,
     ...details,
-    ...(state === "recording" ? { startedAtMs: Date.now() } : {}),
   };
   latestFlowStatePayload = payload;
   emit("voice:state-change", payload).catch(() => {});
@@ -592,6 +592,59 @@ export function installDesktopVoiceDictation(
       .catch(() => {});
   };
 
+  // A hold shows nothing (flow bar, states, start sound) until it outlasts a
+  // stray tap, so a tap leaves no trace. Capture starts at once regardless.
+  let quietRun: {
+    runId: number;
+    timer: number;
+    held: [FlowState, FlowProcessingStage | undefined, FlowStateDetails];
+    ping: boolean;
+  } | null = null;
+
+  const showFlowState = (
+    state: FlowState,
+    stage: FlowProcessingStage | undefined,
+    details: FlowStateDetails & { runId: number },
+  ) => {
+    if (quietRun?.runId === details.runId) {
+      quietRun.held = [
+        state,
+        stage,
+        state === "recording"
+          ? { startedAtMs: Date.now(), ...details }
+          : details,
+      ];
+      return;
+    }
+    setFlowState(state, stage, details);
+  };
+
+  const beginQuietRun = (runId: number) => {
+    quietRun = {
+      runId,
+      timer: window.setTimeout(() => revealRun(runId), SHORT_TAP_MS),
+      held: ["processing", "initializing", { runId }],
+      ping: false,
+    };
+  };
+
+  // Ends a run's quiet start without showing anything.
+  const dropQuietRun = (runId: number) => {
+    if (quietRun?.runId !== runId) return;
+    window.clearTimeout(quietRun.timer);
+    quietRun = null;
+  };
+
+  const revealRun = (runId: number) => {
+    const held = quietRun;
+    if (held?.runId !== runId) return;
+    dropQuietRun(runId);
+    if (disposed || !lifecycle.isActive(runId)) return;
+    void invoke("show_flow_bar").catch(() => {});
+    setFlowState(...held.held);
+    if (held.ping) playStartPing();
+  };
+
   const transitionRun = (
     runId: number,
     phase: Exclude<
@@ -603,14 +656,19 @@ export function installDesktopVoiceDictation(
     details: Omit<FlowStateDetails, "runId"> = {},
   ): boolean => {
     if (!lifecycle.transition(runId, phase)) return false;
-    setFlowState(state, stage, { ...details, runId });
+    showFlowState(state, stage, { ...details, runId });
     return true;
   };
 
   const enterRecordingState = (runId: number): boolean => {
     const entered = transitionRun(runId, "capturing", "recording");
-    if (entered) playStartPing();
-    return entered;
+    if (!entered) return false;
+    if (quietRun?.runId === runId) {
+      quietRun.ping = true;
+    } else {
+      playStartPing();
+    }
+    return true;
   };
 
   const dismissRunAfter = (runId: number, delayMs: number) => {
@@ -630,6 +688,12 @@ export function installDesktopVoiceDictation(
     const phase =
       state === "complete" ? "completed" : state === "error" ? "failed" : state;
     if (!lifecycle.finish(runId, phase)) return false;
+    if (quietRun?.runId === runId) {
+      dropQuietRun(runId);
+      // An error is worth showing however short the hold; a cancel is not.
+      if (state !== "error") return true;
+      void invoke("show_flow_bar").catch(() => {});
+    }
     setFlowState(state, undefined, { ...details, runId });
     if (dismissAfterMs !== undefined) {
       dismissRunAfter(runId, dismissAfterMs);
@@ -766,6 +830,7 @@ export function installDesktopVoiceDictation(
 
   // A stray tap ends without the cancelled chip, an error or history.
   const endShortTap = (runId: number) => {
+    dropQuietRun(runId);
     if (!lifecycle.finish(runId, "cancelled")) return;
     setFlowState("idle", undefined, { runId });
     invoke("hide_flow_bar").catch(() => {});
@@ -876,8 +941,12 @@ export function installDesktopVoiceDictation(
     startInFlight = true;
     startInFlightRunId = runId;
     stopRequestedBeforeReady = false;
-    setFlowState("processing", "initializing", { runId });
-    void invoke("show_flow_bar").catch(() => {});
+    if (mode === "push-to-talk" && !handsFreeActive) {
+      beginQuietRun(runId);
+    } else {
+      setFlowState("processing", "initializing", { runId });
+      void invoke("show_flow_bar").catch(() => {});
+    }
 
     try {
       const resolved = resolveProvider();
@@ -1170,8 +1239,10 @@ export function installDesktopVoiceDictation(
   const buildDesktopVoiceContextPack = async (): Promise<
     VoiceContextPack | undefined
   > => {
-    const vocabulary = await loadVocabularyEntries().catch(() => []);
-    const terms = vocabulary.map((entry) => ({
+    const vocabulary = await loadVocabulary();
+    // Polish runs without learned terms until the vocabulary loads.
+    const entries = vocabulary.status === "loaded" ? vocabulary.entries : [];
+    const terms = entries.map((entry) => ({
       term: entry.term,
       replacement: entry.replacement,
       confidence: entry.confidence,
@@ -1388,9 +1459,11 @@ export function installDesktopVoiceDictation(
       };
       session = next;
       try {
-        const contextualStrings = currentVocabularyEntries().map(
-          (v) => v.replacement,
-        );
+        const vocabulary = currentVocabulary();
+        const contextualStrings =
+          vocabulary.status === "loaded"
+            ? vocabulary.entries.map((v) => v.replacement)
+            : [];
         await invoke("native_speech_set_vocabulary", {
           strings: contextualStrings,
         }).catch(() => {});
@@ -1418,7 +1491,7 @@ export function installDesktopVoiceDictation(
           return;
         }
         console.log(
-          `[voice-dictation] native_speech_start ok (vocab=${contextualStrings.length})`,
+          `[voice-dictation] native_speech_start ok (vocab=${vocabulary.status}:${contextualStrings.length})`,
         );
         startSyntheticMeter(next);
       } catch (err) {
@@ -2120,6 +2193,7 @@ export function installDesktopVoiceDictation(
       return;
     }
     setHandsFreeActive(false);
+    revealRun(current.runId);
     current.releasedAtMs = monotonicNow();
     logDictationTiming(current, "release", "complete", current.releasedAtMs);
     try {
@@ -2237,7 +2311,7 @@ export function installDesktopVoiceDictation(
   };
 
   configureVocabularyClient(serverUrl);
-  loadVocabulary().catch(() => {});
+  void loadVocabulary();
   if (enabled && isMacPlatform()) {
     invoke("speech_detector_prepare").catch((err) => {
       console.warn("[voice-dictation] speech_detector_prepare failed:", err);
