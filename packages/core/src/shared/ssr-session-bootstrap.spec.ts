@@ -124,28 +124,49 @@ describe("getSsrSessionBootstrapScriptBody", () => {
     expect(recordedWhenSent).toEqual(["signed-in-earlier"]);
   });
 
-  it("records the fetch the read goes out on, so only a caller on it takes the answer", () => {
-    const windowObject: { __agentNativeSessionBootstrapFetch?: unknown } = {};
+  it("records the transport the read goes out on, as it is sent, so only a caller on it takes the answer", () => {
+    const runScript = (fetch: unknown) => {
+      const windowObject: { __agentNativeSessionBootstrapTransport?: unknown } =
+        {};
+      new Function(
+        "window",
+        "document",
+        "AbortController",
+        "setTimeout",
+        "clearTimeout",
+        "fetch",
+        getSsrSessionBootstrapScriptBody("/session", "an_hint"),
+      )(
+        windowObject,
+        { cookie: "an_hint=1" },
+        undefined,
+        () => 1,
+        vi.fn(),
+        fetch,
+      );
+      return windowObject.__agentNativeSessionBootstrapTransport;
+    };
     const fetch = vi.fn(() => new Promise(() => {}));
-    new Function(
-      "window",
-      "document",
-      "AbortController",
-      "setTimeout",
-      "clearTimeout",
-      "fetch",
-      getSsrSessionBootstrapScriptBody("/session", "an_hint"),
-    )(
-      windowObject,
-      { cookie: "an_hint=1" },
-      undefined,
-      () => 1,
-      vi.fn(),
-      fetch,
-    );
-
+    expect(runScript(fetch)).toBe(fetch);
     expect(fetch).toHaveBeenCalledOnce();
-    expect(windowObject.__agentNativeSessionBootstrapFetch).toBe(fetch);
+
+    // A wrapper that signs with the token it holds now: the transport is that
+    // token's, kept after the token changes.
+    let token = "token-a";
+    const transports = new Map([
+      ["token-a", { token: "token-a" }],
+      ["token-b", { token: "token-b" }],
+    ]);
+    const signed = Object.assign(
+      vi.fn(() => new Promise(() => {})),
+      {
+        [Symbol.for("agent-native.fetch.transport")]: () =>
+          transports.get(token),
+      },
+    );
+    const recorded = runScript(signed);
+    token = "token-b";
+    expect(recorded).toBe(transports.get("token-a"));
   });
 
   it("does not schedule or fetch without the session hint", () => {

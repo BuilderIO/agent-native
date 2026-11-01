@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "退出登录失败",
   "block.renderUnavailable": "此区块暂时不可用。",
   "block.loading": "正在加载区块。",
   "composer.contextUrlLabel": "网址",

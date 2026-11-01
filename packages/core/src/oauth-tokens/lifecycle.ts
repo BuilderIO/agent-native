@@ -30,7 +30,7 @@ export interface OAuthCredentialIdentity {
 
 export interface OAuthCredentialTokens {
   access_token: string;
-  refresh_token?: string;
+  refresh_token?: string | undefined;
   [key: string]: unknown;
 }
 

@@ -134,7 +134,7 @@ function runScript({
       sessionRead: window.__agentNativeSessionBootstrap as
         | Promise<unknown>
         | undefined,
-      sessionReadFetch: window.__agentNativeSessionBootstrapFetch,
+      sessionReadTransport: window.__agentNativeSessionBootstrapTransport,
       pageFetch: fetch,
       navigationClaim: window[SESSION_NAVIGATION_FLAG] as string | undefined,
     }));
@@ -239,7 +239,7 @@ describe("getSsrBetaRedirectScript", () => {
         value: { email: "employee@builder.io" },
       });
       // Only a caller on the transport the probe used takes its answer.
-      expect(result.sessionReadFetch).toBe(result.pageFetch);
+      expect(result.sessionReadTransport).toBe(result.pageFetch);
     });
 
     it("keeps a probe for another workspace mount separate from the app's read", async () => {

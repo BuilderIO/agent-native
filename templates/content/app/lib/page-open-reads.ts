@@ -4,6 +4,7 @@ import {
   subscribeSessionReadIdentity,
   type SessionReadIdentity,
 } from "@agent-native/core/client/use-session";
+import { fetchTransportScript } from "@agent-native/core/shared/ssr-session-bootstrap";
 import {
   hashKey,
   type FetchQueryOptions,
@@ -32,20 +33,33 @@ export type PageOpenRead = {
   // Who the read was sent as. It is shown only while that is the session
   // this tab accepts (`sessionReadIdentityStatus` is "current").
   identity: SessionReadIdentity;
+  // A read dropped as not this session's is read again, and a component
+  // already holding it counts that read as its open's once a fetch's own
+  // success lands it. The query observer cannot tell: dropping the read resets
+  // the query's update count below where the observer started counting.
+  readAgain: "no" | "pending" | "landed";
 };
 
 export type PageOpenReadAdoption = "fresh" | "pending" | "none";
 
 const readsByClient = new WeakMap<QueryClient, Map<string, PageOpenRead>>();
+// Dropped reads whose page is being read again, by query hash.
+const droppedByClient = new WeakMap<QueryClient, Map<string, PageOpenRead>>();
 
 // Every read is checked against the session this tab accepts, claimed or
 // not, until it has been handed to its component under the session it was
 // sent as. One whose session is replaced by another account's, or that went
 // out over another transport, is dropped before the app shows it. Work that
 // must not run as another account waits here too.
+type WaitingWork = {
+  identity: SessionReadIdentity;
+  run: () => void;
+  // The page it is for; leaving that page cancels it.
+  documentId: string | null;
+};
 type WatchedReads = {
   reads: Map<PageOpenRead, { queryKey: QueryKey; handedOver: boolean }>;
-  waiting: Array<{ identity: SessionReadIdentity; run: () => void }>;
+  waiting: WaitingWork[];
   unsubscribe: () => void;
 };
 const watchedByClient = new WeakMap<QueryClient, WatchedReads>();
@@ -86,11 +100,24 @@ function settleReadIdentities(queryClient: QueryClient) {
     if (status === "current") ready.push(run);
     return status === "pending";
   });
-  if (watched.reads.size === 0 && watched.waiting.length === 0) {
-    watched.unsubscribe();
-    watchedByClient.delete(queryClient);
-  }
+  stopWatchingWhenIdle(queryClient, watched);
   for (const run of ready) run();
+}
+
+function stopWatchingWhenIdle(queryClient: QueryClient, watched: WatchedReads) {
+  if (watched.reads.size > 0 || watched.waiting.length > 0) return;
+  watched.unsubscribe();
+  watchedByClient.delete(queryClient);
+}
+
+function cancelWaitingWork(
+  queryClient: QueryClient,
+  cancels: (work: WaitingWork) => boolean,
+) {
+  const watched = watchedByClient.get(queryClient);
+  if (!watched) return;
+  watched.waiting = watched.waiting.filter((work) => !cancels(work));
+  stopWatchingWhenIdle(queryClient, watched);
 }
 
 // Not the session this tab accepts: none of it is shown, and a component
@@ -103,6 +130,13 @@ function dropRead(
   const reads = openReads(queryClient);
   const queryHash = hashKey(queryKey);
   if (reads.get(queryHash) === read) reads.delete(queryHash);
+  read.readAgain = "pending";
+  let dropped = droppedByClient.get(queryClient);
+  if (!dropped) {
+    dropped = new Map();
+    droppedByClient.set(queryClient, dropped);
+  }
+  dropped.set(queryHash, read);
   void queryClient.resetQueries({ queryKey, exact: true });
 }
 
@@ -115,17 +149,27 @@ function handOver(queryClient: QueryClient, read: PageOpenRead) {
 }
 
 // Runs `callback` once a request sent as `identity` is known to have been
-// answered for the session this tab accepts, and never if it was not.
+// answered for the session this tab accepts, and never if it was not. Work for
+// a page (`documentId`) is cancelled when its open ends: the page is left, or
+// another is opened. The returned function cancels it too.
 export function whenReadIdentityCurrent(
   queryClient: QueryClient,
   identity: SessionReadIdentity,
   callback: () => void,
-) {
+  { documentId = null }: { documentId?: string | null } = {},
+): () => void {
   const status = sessionReadIdentityStatus(identity);
   if (status === "current") callback();
-  else if (status === "pending") {
-    watchReads(queryClient).waiting.push({ identity, run: callback });
-  }
+  if (status !== "pending") return () => {};
+  const work: WaitingWork = { identity, run: callback, documentId };
+  watchReads(queryClient).waiting.push(work);
+  return () => cancelWaitingWork(queryClient, (waiting) => waiting === work);
+}
+
+// The page's open has ended: it was left. Work waiting on the session for it
+// is not run.
+export function endPageOpen(queryClient: QueryClient, documentId: string) {
+  cancelWaitingWork(queryClient, (work) => work.documentId === documentId);
 }
 
 // Whether nothing may be shown from this read yet: the session read that
@@ -143,8 +187,10 @@ function openReads(queryClient: QueryClient) {
     reads = new Map();
     readsByClient.set(queryClient, reads);
     queryClient.getQueryCache().subscribe((event) => {
+      const dropped = droppedByClient.get(queryClient);
       if (event.type === "removed") {
         reads!.delete(event.query.queryHash);
+        dropped?.delete(event.query.queryHash);
         const watched = watchedByClient.get(queryClient)?.reads;
         for (const [read, { queryKey }] of watched ?? []) {
           if (hashKey(queryKey) === event.query.queryHash)
@@ -153,6 +199,15 @@ function openReads(queryClient: QueryClient) {
         return;
       }
       if (event.type !== "updated") return;
+      const droppedRead = dropped?.get(event.query.queryHash);
+      if (
+        droppedRead &&
+        event.action.type === "success" &&
+        event.action.manual !== true
+      ) {
+        droppedRead.readAgain = "landed";
+        dropped?.delete(event.query.queryHash);
+      }
       const read = reads!.get(event.query.queryHash);
       if (!read) return;
       if (event.action.type === "invalidate") read.invalidated = true;
@@ -249,6 +304,7 @@ function beginPageOpenRead(
     invalidated: false,
     landed: false,
     identity,
+    readAgain: "no",
   };
   reads.set(queryHash, read);
   watchReads(queryClient).reads.set(read, { queryKey, handedOver: false });
@@ -397,6 +453,10 @@ export function retirePageOpenReads(
   for (const [queryHash, read] of reads) {
     if (read.documentId !== keepDocumentId) reads.delete(queryHash);
   }
+  cancelWaitingWork(
+    queryClient,
+    (work) => work.documentId !== null && work.documentId !== keepDocumentId,
+  );
 }
 
 // A load of /page/:id sends its page read from a script in the document head,
@@ -422,8 +482,9 @@ type StartupPageRead = {
   // When the request left, so its age counts from the read, not from the
   // moment the app code takes it.
   startedAt: number;
-  // The fetch it went out on, beside the shell's session read.
-  fetch: typeof fetch;
+  // The transport it went out on, beside the shell's session read, resolved
+  // as it was sent (`fetchTransport`).
+  transport: unknown;
   answer: Promise<StartupPageReadAnswer>;
 };
 
@@ -477,7 +538,9 @@ export function startupPageReadScript(
   }
   return `(function(){try{if(window.top!==window)return;var h=document.cookie.split(";").some(function(e){e=e.trim();var s=e.indexOf("=");if(s<1||e.slice(s+1)!=="1")return false;var n=e.slice(0,s);return n==="an_session_hint"||(n.indexOf("an_session_")===0&&n.slice(-5)==="_hint")});if(!h)return;var l=location.pathname,b=${JSON.stringify(basePath)};if(b&&l.indexOf(b+"/")===0)l=l.slice(b.length);var m=/^\\/page\\/([^/]+)\\/?$/.exec(l);if(!m)return;var q=new URLSearchParams(location.search),e=q.get("embedded");if(e==="1"||e==="true")return;var id=decodeURIComponent(m[1]),d=q.get("databaseId"),dd=q.get("databaseDocumentId"),p=new URLSearchParams();p.set("id",id);if(d)p.set("databaseId",d);if(dd)p.set("databaseDocumentId",dd);var v=(q.get("viewId")||"").trim()||(q.get("databaseViewId")||"").trim();if(v)p.set("databaseViewId",v);p.set("includePreviewDraft","true");var c=typeof AbortController==="function"?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},${STARTUP_PAGE_READ_TIMEOUT_MS}),i={credentials:"same-origin",cache:"no-store",headers:${JSON.stringify(headers)}};if(c)i.signal=c.signal;var f=function(){return{ok:false}};window[${JSON.stringify(
     STARTUP_PAGE_READ_GLOBAL,
-  )}]={id:id,databaseId:d,databaseDocumentId:dd,startedAt:Date.now(),fetch:fetch,answer:fetch(${JSON.stringify(
+  )}]={id:id,databaseId:d,databaseDocumentId:dd,startedAt:Date.now(),transport:${fetchTransportScript(
+    "fetch",
+  )},answer:fetch(${JSON.stringify(
     actionUrl,
   )}+"?"+p.toString(),i).then(function(r){return r.ok?r.json().then(function(v){return{ok:true,value:v}},f):f()},f).then(function(a){clearTimeout(t);return a})}}catch(e){}})();`; // coercion-ok: a script that cannot send leaves the read to the app.
 }
@@ -500,13 +563,19 @@ export function takeStartupPageRead(
   ) {
     return null;
   }
-  if (typeof read.fetch !== "function") return null;
+  const transport = read.transport;
+  if (
+    typeof transport !== "function" &&
+    (typeof transport !== "object" || transport === null)
+  ) {
+    return null;
+  }
   // The script read the page with the cookies the load's first session read
-  // went out with, over the page's fetch as it was then. It is the page only
-  // for that session, and only if the app would read it over the same
-  // transport, since the app's own read can take its place.
+  // went out with, over the transport the page's fetch had then. It is the
+  // page only for that session, and only if the app would read it over the
+  // same transport, since the app's own read can take its place.
   const identity = sessionReadIdentity({
-    fetch: read.fetch,
+    transport,
     sentWithFirstSessionRead: true,
   });
   if (sessionReadIdentityStatus(identity) === "stale") return null;

@@ -14,6 +14,9 @@ export interface WorkspaceProviderOAuthOptions {
    */
   serverReturnPath?: string;
   scope?: WorkspaceProviderOAuthScope;
+  requestedScopes?: readonly string[];
+  optionalScopes?: readonly string[];
+  targetAccountEmail?: string;
 }
 
 export function workspaceProviderOAuthUrl(
@@ -30,6 +33,15 @@ export function workspaceProviderOAuthUrl(
       ? serverMountReturnPath(options.returnPath)
       : undefined);
   if (returnTarget) params.set("return", returnTarget);
+  if (options.requestedScopes?.length) {
+    params.set("requestedScopes", options.requestedScopes.join(" "));
+  }
+  if (options.optionalScopes?.length) {
+    params.set("optionalScopes", options.optionalScopes.join(" "));
+  }
+  if (options.targetAccountEmail) {
+    params.set("targetAccountEmail", options.targetAccountEmail);
+  }
   return agentNativePath(
     `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,
   );

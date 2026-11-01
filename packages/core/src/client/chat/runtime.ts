@@ -70,6 +70,7 @@ export interface AgentChatRuntimeContentPartBase<
 > {
   readonly type: TType;
   readonly id?: string;
+  readonly omitFromPersistedHistory?: true;
   readonly metadata?: AgentChatRuntimeMetadata;
 }
 
@@ -2019,6 +2020,19 @@ function isUnstartedNativeHistoryMessage(
   return custom?.[RUN_NOT_STARTED_METADATA_KEY] === true;
 }
 
+function isOmittedFromPersistedHistory(
+  message: AgentChatRuntimeMessage,
+): boolean {
+  if (message.role !== "assistant") return false;
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  return (
+    custom?.omitFromPersistedHistory === true ||
+    message.content.some(
+      (part) => asRecord(part)?.omitFromPersistedHistory === true,
+    )
+  );
+}
+
 function nativeHistorySourceMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
@@ -2039,8 +2053,9 @@ function nativeHistorySourceMessages(
   }
   return source.filter(
     (message, index) =>
-      index === currentPromptMessageIndex ||
-      !isUnstartedNativeHistoryMessage(message),
+      !isOmittedFromPersistedHistory(message) &&
+      (index === currentPromptMessageIndex ||
+        !isUnstartedNativeHistoryMessage(message)),
   );
 }
 
@@ -2148,6 +2163,7 @@ export function loadedSkillSlugsFromMessages(
   const slugByCallId = new Map<string, string>();
   const loaded: string[] = [];
   for (const message of messages ?? []) {
+    if (isOmittedFromPersistedHistory(message)) continue;
     for (const part of message.content) {
       if (part.type === "tool-call" && part.toolName === "docs-search") {
         const slug = (part.input as { slug?: unknown } | undefined)?.slug;
@@ -3751,6 +3767,7 @@ interface AgentNativeMessageProjectionState {
     approvalPending: boolean;
     pendingApprovalToolCallId?: string | undefined;
     connectionPending: boolean;
+    omitFromPersistedHistory?: boolean;
     /** Delegated calls that streamed an activity row, which reports their end. */
     activityParticipants?: Set<string>;
     /** Ids given to tool input that streamed without one, by tool name. */
@@ -3864,6 +3881,10 @@ function pendingApprovalRuntimeMessages(
         {
           type: "tool-result",
           toolCallId: part.toolCallId,
+          ...(part.omitFromPersistedHistory === true ||
+          state.message.omitFromPersistedHistory === true
+            ? { omitFromPersistedHistory: true }
+            : {}),
           ...(part.approval?.askId
             ? { approvalAskId: part.approval.askId }
             : {}),
@@ -3885,6 +3906,10 @@ function pendingApprovalRuntimeMessages(
           toolName: part.toolName,
           input: part.args,
           approval: part.approval,
+          ...(part.omitFromPersistedHistory === true ||
+          state.message.omitFromPersistedHistory === true
+            ? { omitFromPersistedHistory: true }
+            : {}),
           ...(isApprovedPendingCall ? { approvedReplay: true } : {}),
         },
       ],
@@ -4124,6 +4149,7 @@ function mapAgentNativeEvent(
       approvalPending: boolean;
       pendingApprovalToolCallId?: string | undefined;
       connectionPending: boolean;
+      omitFromPersistedHistory?: boolean;
       activityParticipants?: Set<string>;
       pendingToolInputIds?: Map<string, string>;
     };
@@ -4137,7 +4163,16 @@ function mapAgentNativeEvent(
   > = {
     sessionId: input.sessionId,
     turnId: input.turnId,
-    ...(ev.seq !== undefined ? { metadata: { seq: ev.seq } } : {}),
+    ...(ev.seq !== undefined || input.message.omitFromPersistedHistory
+      ? {
+          metadata: {
+            ...(ev.seq !== undefined ? { seq: ev.seq } : {}),
+            ...(input.message.omitFromPersistedHistory
+              ? { omitFromPersistedHistory: true }
+              : {}),
+          },
+        }
+      : {}),
   };
   if (ev.type === "auto_continue") {
     return [{ type: "continuation", ...base }];
@@ -4145,7 +4180,7 @@ function mapAgentNativeEvent(
   // Skipping this leaves the saved reply as a suffix of the live one, and
   // reload renders it as a second reply.
   if (ev.type === "clear") {
-    clearAssistantDraftContent(input.message.content);
+    clearAssistantDraftContent(input.message.content, ev.allText === true);
     if (!input.message.started) return [];
     const content: AgentChatRuntimeKnownContentPart[] = input.message.content
       .filter(
@@ -4205,11 +4240,17 @@ function mapAgentNativeEvent(
           ? {
               type: "reasoning",
               text: "",
+              ...(input.message.omitFromPersistedHistory
+                ? { omitFromPersistedHistory: true }
+                : {}),
               ...(partId ? { id: partId } : {}),
             }
           : {
               type: "text",
               text: "",
+              ...(input.message.omitFromPersistedHistory
+                ? { omitFromPersistedHistory: true }
+                : {}),
               ...(partId ? { id: partId } : {}),
             };
       input.message.content.push(nextPart);
@@ -4217,6 +4258,9 @@ function mapAgentNativeEvent(
     }
     if (part.type === "text" || part.type === "reasoning") {
       part.text += text;
+      if (input.message.omitFromPersistedHistory) {
+        part.omitFromPersistedHistory = true;
+      }
     }
     if (part.type === "reasoning" && extended.signature) {
       part.signature = extended.signature;
@@ -4322,6 +4366,9 @@ function mapAgentNativeEvent(
       }
       toolCall.args = ev.input ?? {};
       toolCall.argsText = JSON.stringify(toolCall.args);
+      if (input.message.omitFromPersistedHistory) {
+        toolCall.omitFromPersistedHistory = true;
+      }
       if (structuredMeta) toolCall.structuredMeta = structuredMeta;
       delete toolCall.approvalPauseCandidate;
     } else {
@@ -4331,6 +4378,9 @@ function mapAgentNativeEvent(
         toolName,
         argsText: JSON.stringify(ev.input ?? {}),
         args: ev.input ?? {},
+        ...(input.message.omitFromPersistedHistory
+          ? { omitFromPersistedHistory: true }
+          : {}),
         ...(structuredMeta ? { structuredMeta } : {}),
       });
     }
@@ -4371,6 +4421,9 @@ function mapAgentNativeEvent(
       (storedToolCall?.type === "tool-call" ? storedToolCall.toolCallId : "");
     const structuredMeta = agentNativeStructuredMeta(ev);
     if (storedToolCall?.type === "tool-call") {
+      if (input.message.omitFromPersistedHistory) {
+        storedToolCall.omitFromPersistedHistory = true;
+      }
       const resultText = agentNativeToolResultText(ev.result);
       storedToolCall.result = resultText;
       const legacyApprovalPause =
@@ -4799,6 +4852,9 @@ function mapAgentNativeEvent(
               > => part.type === "text" || part.type === "reasoning",
             )
             .map((part) => ({ ...part })),
+          ...(input.message.omitFromPersistedHistory
+            ? { metadata: { custom: { omitFromPersistedHistory: true } } }
+            : {}),
         },
       });
     }
@@ -4840,6 +4896,9 @@ function mapAgentNativeEvent(
               > => part.type === "text" || part.type === "reasoning",
             )
             .map((part) => ({ ...part })),
+          ...(input.message.omitFromPersistedHistory
+            ? { metadata: { custom: { omitFromPersistedHistory: true } } }
+            : {}),
         },
       });
     }
@@ -4873,6 +4932,9 @@ function mapAgentNativeEvent(
       id: input.messageId,
       role: "assistant",
       content: messageContent.map((part) => ({ ...part })),
+      ...(input.message.omitFromPersistedHistory
+        ? { metadata: { custom: { omitFromPersistedHistory: true } } }
+        : {}),
     };
     if (
       !userStoppedRun &&
@@ -4937,13 +4999,16 @@ function mapAgentNativeEvent(
           > => part.type === "text" || part.type === "reasoning",
         )
         .map((part) => ({ ...part })),
-      ...(warning
+      ...(warning || input.message.omitFromPersistedHistory
         ? {
             metadata: {
               ...message.metadata,
               custom: {
                 ...asRecord(message.metadata?.custom),
-                runWarning: warning,
+                ...(input.message.omitFromPersistedHistory
+                  ? { omitFromPersistedHistory: true }
+                  : {}),
+                ...(warning ? { runWarning: warning } : {}),
               },
             },
           }
@@ -5438,6 +5503,13 @@ export function createAgentNativeChatRuntime(
                     id: state.messageId,
                     role: "assistant" as const,
                     content: [],
+                    ...(state.message.omitFromPersistedHistory
+                      ? {
+                          metadata: {
+                            custom: { omitFromPersistedHistory: true },
+                          },
+                        }
+                      : {}),
                     status: "complete" as const,
                   },
                 },
@@ -5451,7 +5523,16 @@ export function createAgentNativeChatRuntime(
         state.messageId = steered.continuationMessageId;
         state.message.content = [];
         state.message.started = false;
+        state.message.omitFromPersistedHistory = false;
         return mappedSteer;
+      }
+      if (
+        event &&
+        typeof event === "object" &&
+        (event as { omitFromPersistedHistory?: unknown })
+          .omitFromPersistedHistory === true
+      ) {
+        state.message.omitFromPersistedHistory = true;
       }
       const mapped = mapAgentNativeEvent(event, {
         sessionId: context.sessionId,

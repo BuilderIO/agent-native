@@ -150,6 +150,32 @@ describe("the load's page read from the document head", () => {
     }
   });
 
+  it("is not the answer when the page's credentials changed after it was sent", () => {
+    // A wrapper that signs requests with the token it holds when each is
+    // sent, and marks its transport as that token's.
+    const tokens = new Map([
+      ["token-a", {}],
+      ["token-b", {}],
+    ]);
+    let token = "token-a";
+    const pageFetch = globalThis.fetch;
+    const signed = Object.assign(
+      (...args: Parameters<typeof fetch>) => pageFetch(...args),
+      {
+        [Symbol.for("agent-native.fetch.transport")]: () => tokens.get(token),
+      },
+    );
+    vi.stubGlobal("fetch", signed);
+    openLoad("/page/doc-1");
+    runHeadScript();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // The token changes before the app code takes the read.
+    token = "token-b";
+
+    expect(takeStartupPageRead("doc-1", {})).toBeNull();
+  });
+
   it("is not sent without the session hint", () => {
     openLoad("/page/doc-1", { hint: false });
     runHeadScript();

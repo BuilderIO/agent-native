@@ -631,16 +631,18 @@ function recheckSessionTransport(): void {
 }
 
 /**
- * The identity a request sent now goes out under: `fetch` is the one it is
- * sent with (the page's own by default). A request the document head sent
- * beside the shell's session read passes `sentWithFirstSessionRead`.
+ * The identity a request sent now goes out under: `transport` is the one it
+ * went out on, resolved as it was sent (the page fetch's now by default). A
+ * request the document head sent beside the shell's session read passes
+ * `sentWithFirstSessionRead`.
  */
 export function sessionReadIdentity(
-  options: { fetch?: typeof fetch; sentWithFirstSessionRead?: boolean } = {},
+  options: {
+    transport?: FetchTransport;
+    sentWithFirstSessionRead?: boolean;
+  } = {},
 ): SessionReadIdentity {
-  const transport = options.fetch
-    ? fetchTransport(options.fetch)
-    : currentFetchTransport();
+  const transport = options.transport ?? currentFetchTransport();
   // Requests now go out over a transport the session was not read over, and
   // nothing announced it: read the session again over this one.
   if (sessionTransportChanged(currentFetchTransport())) {

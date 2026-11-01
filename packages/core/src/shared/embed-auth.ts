@@ -13,6 +13,22 @@ export const EMBED_TARGET_HEADER = "x-agent-native-embed-target";
  */
 export const FETCH_TRANSPORT_CHANGED_EVENT =
   "agent-native:fetch-transport-changed";
+/**
+ * A `fetch` wrapper describes the transport its requests go out on under this
+ * symbol key (`markFetchTransport`), read through this many wrappers at most.
+ */
+export const FETCH_TRANSPORT_SYMBOL_KEY = "agent-native.fetch.transport";
+export const MAX_FETCH_WRAPPER_DEPTH = 16;
+
+/**
+ * `fetchTransport` as an inline expression, for the document head's scripts:
+ * the transport a request sent now with `fetchExpression` goes out on. A head
+ * script resolves it as it sends, since a wrapper's mark may answer for
+ * credentials that change later. Undefined when a mark throws.
+ */
+export function fetchTransportScript(fetchExpression: string): string {
+  return `(function(t){try{var k=Symbol.for(${JSON.stringify(FETCH_TRANSPORT_SYMBOL_KEY)});for(var i=0;i<${MAX_FETCH_WRAPPER_DEPTH};i++){if(typeof t!=="function")break;var m=t[k];if(typeof m!=="function")break;t=m()}return t}catch(e){return undefined}})(${fetchExpression})`; // coercion-ok: no transport is a read the app makes itself, never a shared answer.
+}
 export const MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER =
   "x-agent-native-widget-session-expired";
 

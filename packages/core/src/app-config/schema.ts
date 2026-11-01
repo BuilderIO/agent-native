@@ -15,6 +15,7 @@ import { integrationsConfig } from "./integrations.js";
 import { launchDarklyConfig } from "./launchdarkly.js";
 import { mcpConfig } from "./mcp.js";
 import { migrationConfig } from "./migration.js";
+import { nativeCapabilities } from "./native-capabilities.js";
 import { observabilityConfig } from "./observability.js";
 import { onboardingConfig } from "./onboarding.js";
 import { openAiAppsConfig } from "./openai-apps.js";
@@ -23,6 +24,48 @@ import { privateBlobConfig } from "./private-blob.js";
 import { runtimeConfig } from "./runtime.js";
 import { testIdentityConfig } from "./test-identity.js";
 import { workspaceConfig } from "./workspace.js";
+
+export const nativeCapabilitySchema = z.enum(nativeCapabilities);
+
+const nativeId = z.string().min(1);
+const nativeRoute = z.string().startsWith("/");
+export const nativeManifestSchema = z.strictObject({
+  uses: z.array(nativeCapabilitySchema),
+  menubar: z
+    .strictObject({
+      id: nativeId,
+      icon: nativeId,
+      popover: nativeRoute,
+      size: z.tuple([z.number().positive(), z.number().positive()]),
+    })
+    .optional(),
+  hotkeys: z
+    .array(
+      z.strictObject({ id: nativeId, default: nativeId, action: nativeId }),
+    )
+    .optional(),
+  surfaces: z
+    .array(
+      z.strictObject({
+        id: nativeId,
+        route: nativeRoute,
+        kind: z.enum(["overlay", "window"]),
+        excludeFromCapture: z.boolean().optional(),
+        clickThrough: z.boolean().optional(),
+      }),
+    )
+    .optional(),
+  background: z
+    .strictObject({
+      keepAlive: z.boolean().optional(),
+      launchAtLogin: z.union([z.boolean(), z.literal("ask")]).optional(),
+    })
+    .optional(),
+  extensions: z
+    .array(z.strictObject({ id: nativeId, version: nativeId }))
+    .optional(),
+});
+export type NativeManifest = z.infer<typeof nativeManifestSchema>;
 
 export const appConfigSchema = z.object({
   a2a: a2aConfig.prefault({}),
@@ -40,6 +83,7 @@ export const appConfigSchema = z.object({
   launchDarkly: launchDarklyConfig.prefault({}),
   mcp: mcpConfig.prefault({}),
   migration: migrationConfig.prefault({}),
+  native: nativeManifestSchema.optional(),
   observability: observabilityConfig.prefault({}),
   onboarding: onboardingConfig.prefault({}),
   openAiApps: openAiAppsConfig.prefault({}),

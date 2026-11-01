@@ -1,6 +1,6 @@
 import {
   SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL,
-  SESSION_BOOTSTRAP_FETCH_GLOBAL,
+  SESSION_BOOTSTRAP_TRANSPORT_GLOBAL,
 } from "../shared/ssr-session-bootstrap.js";
 import { agentNativePath } from "./api-path.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
@@ -151,7 +151,7 @@ function statusRequestKey(
 
 function forgetSessionBootstrap(): void {
   delete window.__agentNativeSessionBootstrap;
-  delete window[SESSION_BOOTSTRAP_FETCH_GLOBAL];
+  delete window[SESSION_BOOTSTRAP_TRANSPORT_GLOBAL];
   delete window[SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL];
 }
 
@@ -174,15 +174,17 @@ function takeSessionBootstrap(
     forgetSessionBootstrap();
     return undefined;
   }
-  const bootstrapFetch = window[SESSION_BOOTSTRAP_FETCH_GLOBAL];
-  if (typeof bootstrapFetch !== "function") {
+  // Resolved when the head sent the read: a wrapper's mark may answer for
+  // other credentials by now.
+  const bootstrapTransport = window[SESSION_BOOTSTRAP_TRANSPORT_GLOBAL];
+  if (bootstrapTransport === undefined || bootstrapTransport === null) {
     forgetSessionBootstrap();
     return undefined;
   }
   const fetcher = options?.fetch ?? globalThis.fetch;
   if (
     typeof fetcher !== "function" ||
-    fetchTransport(bootstrapFetch) !== fetchTransport(fetcher)
+    bootstrapTransport !== fetchTransport(fetcher)
   ) {
     return undefined;
   }

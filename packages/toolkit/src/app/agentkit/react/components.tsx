@@ -6252,8 +6252,12 @@ export interface AgentKitComposerProps extends Omit<
     | "interceptBuildRequestsForBuilder"
     | "stopButton"
   >,
-  "onSubmit"
+  "onSubmit" | "initialText" | "initialTextKey"
 > {
+  /** Programmatically seed the composer with plain text. */
+  initialText?: string | undefined;
+  /** Stable key used to re-apply `initialText` when the host picks a preset. */
+  initialTextKey?: string | number | undefined;
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
   /** Opt in to Agent-Native provider UI when this host owns that setup flow. */

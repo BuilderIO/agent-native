@@ -611,12 +611,98 @@ describe("callAction", () => {
       );
     vi.stubGlobal("fetch", fetchMock);
 
-    await callActionBlob("render-export-png", {}, { uiOnly: true });
+    const beforeSend = vi.fn(async () => {});
+    await callActionBlob("render-export-png", {}, { uiOnly: true, beforeSend });
 
+    expect(beforeSend).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "/_agent-native/ui-capability",
       "/_agent-native/actions/render-export-png",
     ]);
+  });
+
+  it("waits for a caller's send gate after minting a UI capability", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ done: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const beforeSend = vi.fn(() => gate);
+    const request = callAction("read-thing", {}, { uiOnly: true, beforeSend });
+    await vi.waitFor(() => expect(beforeSend).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    release();
+    await expect(request).resolves.toEqual({ done: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not send after a gated action has timed out", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const beforeSend = vi.fn(() => gate);
+    const request = callAction(
+      "read-thing",
+      {},
+      { uiOnly: true, beforeSend, timeoutMs: 50 },
+    );
+    const rejected = expect(request).rejects.toThrow("timed out");
+    await vi.waitFor(() => expect(beforeSend).toHaveBeenCalledOnce());
+    await rejected;
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a gated action without waiting for the gate", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const beforeSend = vi.fn(() => gate);
+    const controller = new AbortController();
+    const request = callAction(
+      "read-thing",
+      {},
+      { uiOnly: true, beforeSend, signal: controller.signal },
+    );
+    const rejected = expect(request).rejects.toBeDefined();
+    await vi.waitFor(() => expect(beforeSend).toHaveBeenCalledOnce());
+    controller.abort();
+    try {
+      await rejected;
+    } finally {
+      release();
+    }
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects when the send gate throws", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      callAction(
+        "read-thing",
+        {},
+        {
+          beforeSend: () => {
+            throw new Error("gate failed");
+          },
+        },
+      ),
+    ).rejects.toThrow("gate failed");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("fails loudly when the UI capability cannot be minted", async () => {

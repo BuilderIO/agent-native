@@ -460,12 +460,16 @@ describe("page open reads", () => {
       expect(queryClient.getQueryData(queryKey)).toBeUndefined();
       expect(queryClient.getQueryData(draftKey)).toBeUndefined();
       expect(isAwaitingSession(claim.read)).toBe(false);
+      // The component holding it counts the page as read only once it is
+      // read again.
+      expect(claim.read.readAgain).toBe("pending");
       await vi.waitFor(() =>
         expect(queryClient.getQueryData(queryKey)).toEqual({
           id: "doc-1",
           by: "b",
         }),
       );
+      expect(claim.read.readAgain).toBe("landed");
       await vi.waitFor(() =>
         expect(queryClient.getQueryData(draftKey)).toEqual({
           draft: "b's draft",
@@ -536,6 +540,34 @@ describe("page open reads", () => {
       whenReadIdentityCurrent(other, sessionReadIdentity(), dropped);
       session.set("replaced");
       expect(dropped).not.toHaveBeenCalled();
+    });
+
+    it("does not run work waiting on the session for a page whose open has ended", () => {
+      session.reset("pending");
+      const cancelled = vi.fn();
+      const otherPage = vi.fn();
+      const openedPage = vi.fn();
+      const cancel = whenReadIdentityCurrent(
+        queryClient,
+        sessionReadIdentity(),
+        cancelled,
+        { documentId: "doc-1" },
+      );
+      whenReadIdentityCurrent(queryClient, sessionReadIdentity(), otherPage, {
+        documentId: "doc-2",
+      });
+      whenReadIdentityCurrent(queryClient, sessionReadIdentity(), openedPage, {
+        documentId: "doc-3",
+      });
+
+      cancel();
+      // Another page is opened.
+      retirePageOpenReads(queryClient, "doc-3");
+      session.set("first-read");
+
+      expect(cancelled).not.toHaveBeenCalled();
+      expect(otherPage).not.toHaveBeenCalled();
+      expect(openedPage).toHaveBeenCalledTimes(1);
     });
   });
 });
