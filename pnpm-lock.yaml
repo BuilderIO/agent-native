@@ -7346,9 +7346,6 @@ importers:
       '@fontsource-variable/vazirmatn':
         specifier: ^5.2.8
         version: 5.2.8
-      '@noble/hashes':
-        specifier: ^2.4.0
-        version: 2.4.0
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)

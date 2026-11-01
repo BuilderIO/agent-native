@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+
 import {
   BlockRegistry,
   prop,
@@ -6,8 +9,6 @@ import {
   parseSpecBlock,
   type MdxJsxNode,
 } from "@agent-native/core/blocks/server";
-import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
 import matter from "gray-matter";
 import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
@@ -1576,11 +1577,7 @@ function samePlanBlockSource(current: PlanBlock, previous: PlanBlock): boolean {
     unknown
   >;
   stripBlockIdsForSourceComparison(currentCopy, previousCopy);
-  return canonicalSourceJson(currentCopy) === canonicalSourceJson(previousCopy);
-}
-
-function sha256Hex(value: string): string {
-  return bytesToHex(sha256(new TextEncoder().encode(value)));
+  return isDeepStrictEqual(currentCopy, previousCopy);
 }
 
 function canonicalSourceJson(value: unknown): string {
@@ -1677,7 +1674,9 @@ function planBlockSourceFingerprint(
   if (normalizeLegacyDefaults) {
     stripEmptyRequiredFieldsForSourceKey(currentCopy);
   }
-  return sha256Hex(canonicalSourceJson(currentCopy));
+  return createHash("sha256")
+    .update(canonicalSourceJson(currentCopy))
+    .digest("hex");
 }
 
 function nestedPlanGroups(block: PlanBlock): unknown[] | null {
@@ -1864,7 +1863,7 @@ function nestedParentShellFingerprint(block: PlanBlock): string | null {
     delete record.id;
     delete record.blocks;
   }
-  return sha256Hex(canonicalSourceJson(copy));
+  return createHash("sha256").update(canonicalSourceJson(copy)).digest("hex");
 }
 
 function preserveIdlessBlockIds(
@@ -2436,7 +2435,7 @@ function samePlanColumnSource(
       }
     }
   }
-  return canonicalSourceJson(currentCopy) === canonicalSourceJson(previousCopy);
+  return isDeepStrictEqual(currentCopy, previousCopy);
 }
 
 function samePlanNestedGroupSource(
@@ -2472,7 +2471,7 @@ function samePlanNestedGroupSource(
     delete currentCopy.blocks;
     delete previousCopy.blocks;
   }
-  return canonicalSourceJson(currentCopy) === canonicalSourceJson(previousCopy);
+  return isDeepStrictEqual(currentCopy, previousCopy);
 }
 
 function reuseMatchingNestedBlockIds(
@@ -3234,7 +3233,7 @@ function createStableWireframeNodeId(
 }
 
 function createStablePlanSourceId(context: string): string {
-  return `source-${sha256Hex(context).slice(0, 24)}`;
+  return `source-${createHash("sha256").update(context).digest("hex").slice(0, 24)}`;
 }
 
 function parseWireframeNode(
