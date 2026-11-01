@@ -717,6 +717,31 @@ describe("client application-state helpers", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("doesn't fold a keepalive write into an identical one sent without keepalive", async () => {
+    let release!: () => void;
+    const fetchMock = vi.fn(
+      (_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          release = () => resolve(jsonResponse(JSON.parse(String(init?.body))));
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = writeClientAppState("draft-join", { text: "a" });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const leaving = writeClientAppState(
+      "draft-join",
+      { text: "a" },
+      { keepalive: true },
+    );
+    release();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    release();
+    await Promise.all([first, leaving]);
+
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ keepalive: true });
+  });
+
   it("keeps a write made after a compare-and-set behind it", async () => {
     const releases: Array<() => void> = [];
     const fetchMock = vi.fn(
@@ -856,5 +881,342 @@ describe("client application-state helpers", () => {
       expect.objectContaining({ method: "POST", keepalive: true }),
     ]);
     await Promise.all([waiting, leaving]);
+  });
+  describe("keepalive budget", () => {
+    // Browsers refuse a keepalive request once the keepalive bodies in flight
+    // pass 64 KiB, counted in encoded bytes.
+    const KEEPALIVE_BYTES = 64 * 1024;
+    const encodedLength = (body: unknown) =>
+      new TextEncoder().encode(String(body ?? "")).length;
+
+    function browserLikeFetch(hold?: (url: string) => Promise<void>) {
+      let inFlight = 0;
+      const overBudget: number[] = [];
+      const fetchMock = vi.fn(
+        async (url: RequestInfo | URL, init?: RequestInit) => {
+          const bytes = init?.keepalive ? encodedLength(init.body) : 0;
+          if (inFlight + bytes > KEEPALIVE_BYTES) {
+            overBudget.push(inFlight + bytes);
+            throw new TypeError("Failed to fetch");
+          }
+          inFlight += bytes;
+          try {
+            await hold?.(String(url));
+            const body = JSON.parse(String(init?.body));
+            return jsonResponse(
+              String(url) === "/_agent-native/application-state"
+                ? {
+                    results: body.writes.map((write: { value: unknown }) => ({
+                      ok: true,
+                      value: write.value,
+                    })),
+                  }
+                : body,
+              {
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Agent-Native-App-State-Batch": "1",
+                },
+              },
+            );
+          } finally {
+            inFlight -= bytes;
+          }
+        },
+      );
+      return { fetchMock, overBudget };
+    }
+
+    it("splits keepalive writes by encoded bytes so each stays keepalive", async () => {
+      vi.resetModules();
+      const fresh = await import("./application-state.js");
+      const { fetchMock, overBudget } = browserLikeFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      const big = "a".repeat(31_000);
+
+      await expect(
+        Promise.all([
+          fresh.writeClientAppState("a", big, { keepalive: true }),
+          fresh.writeClientAppState("b", big, { keepalive: true }),
+        ]),
+      ).resolves.toEqual([big, big]);
+
+      expect(overBudget).toEqual([]);
+      const keepaliveBodies = fetchMock.mock.calls
+        .filter(([, init]) => init?.keepalive === true)
+        .map(([, init]) => String(init?.body))
+        .join("");
+      expect(keepaliveBodies.split(big).length - 1).toBe(2);
+    });
+
+    it("counts multi-byte characters against the budget", async () => {
+      vi.resetModules();
+      const fresh = await import("./application-state.js");
+      const { fetchMock, overBudget } = browserLikeFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      const wide = "漢".repeat(12_000);
+
+      await expect(
+        Promise.all([
+          fresh.writeClientAppState("a", wide, { keepalive: true }),
+          fresh.writeClientAppState("b", wide, { keepalive: true }),
+        ]),
+      ).resolves.toEqual([wide, wide]);
+      expect(overBudget).toEqual([]);
+    });
+
+    it("leaves room for keepalive writes already in flight", async () => {
+      vi.resetModules();
+      const fresh = await import("./application-state.js");
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const { fetchMock, overBudget } = browserLikeFetch((url) =>
+        url.endsWith("/a") ? held : Promise.resolve(),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const first = fresh.writeClientAppState("a", "a".repeat(40_000), {
+        keepalive: true,
+      });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const second = fresh.writeClientAppState("b", "b".repeat(30_000), {
+        keepalive: true,
+      });
+      await expect(second).resolves.toBe("b".repeat(30_000));
+      release();
+      await first;
+      expect(overBudget).toEqual([]);
+    });
+  });
+
+  describe("page teardown", () => {
+    async function hidingPage(visibilityState = "visible") {
+      vi.resetModules();
+      const listeners: Record<string, Array<() => void>> = {};
+      const listen = (type: string, listener: () => void) => {
+        (listeners[type] ??= []).push(listener);
+      };
+      vi.stubGlobal("window", {
+        location: { pathname: "/" },
+        addEventListener: listen,
+      });
+      vi.stubGlobal("document", { visibilityState, addEventListener: listen });
+      const fresh = await import("./application-state.js");
+      const fetchMock = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "null"));
+        return Promise.resolve(
+          jsonResponse(
+            String(url) === "/_agent-native/application-state"
+              ? {
+                  results: body.writes.map((write: { value: unknown }) => ({
+                    ok: true,
+                    value: write.value,
+                  })),
+                }
+              : body,
+          ),
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      return { fresh, listeners, listen, fetchMock };
+    }
+
+    const sentKeys = (fetchMock: ReturnType<typeof vi.fn>) =>
+      fetchMock.mock.calls.flatMap(([url, init]) => {
+        const body = JSON.parse(String(init?.body));
+        return String(url) === "/_agent-native/application-state"
+          ? body.writes.map((write: { key: string }) => [
+              write.key,
+              init.keepalive,
+            ])
+          : [[String(url).split("/").pop(), init.keepalive]];
+      });
+
+    it("sends writes made by pagehide handlers before or after its own, with keepalive", async () => {
+      const { fresh, listeners, listen, fetchMock } = await hidingPage();
+      const writes: Promise<unknown>[] = [];
+      listen("pagehide", () => {
+        writes.push(fresh.writeClientAppState("early", 1));
+      });
+      writes.push(fresh.writeClientAppState("waiting", 2));
+      await Promise.resolve();
+      listen("pagehide", () => {
+        writes.push(fresh.writeClientAppState("late", 3));
+      });
+
+      for (const listener of listeners.pagehide ?? []) listener();
+
+      expect(sentKeys(fetchMock)).toEqual(
+        expect.arrayContaining([
+          ["early", true],
+          ["waiting", true],
+          ["late", true],
+        ]),
+      );
+      await Promise.all(writes);
+    });
+
+    it("sends a keepalive write waiting behind one in flight when the page hides", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
+
+      void fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const last = fresh.writeClientAppState(
+        "draft",
+        { text: "ab" },
+        { keepalive: true },
+      );
+      await Promise.resolve();
+      for (const listener of listeners.pagehide ?? []) listener();
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        body: JSON.stringify({ text: "ab" }),
+        keepalive: true,
+      });
+      void last;
+    });
+
+    it("sends a write made while the page is hidden at once, with keepalive", async () => {
+      const { fresh, fetchMock } = await hidingPage("hidden");
+
+      const write = fresh.writeClientAppState("draft", { text: "bye" });
+
+      expect(sentKeys(fetchMock)).toEqual([["draft", true]]);
+      await write;
+    });
+  });
+
+  describe("batch answers", () => {
+    const batchHeaders = {
+      "Content-Type": "application/json",
+      "X-Agent-Native-App-State-Batch": "1",
+    };
+
+    async function batching(answer: () => Response) {
+      vi.resetModules();
+      const fresh = await import("./application-state.js");
+      const fetchMock = vi.fn((url: RequestInfo | URL, init?: RequestInit) =>
+        Promise.resolve(
+          String(url) === "/_agent-native/application-state" &&
+            init?.method === "POST"
+            ? answer()
+            : jsonResponse(init?.body ? JSON.parse(String(init.body)) : {}),
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      return { fresh, fetchMock };
+    }
+
+    it("doesn't replay writes when the batch answer can't be read", async () => {
+      const { fresh, fetchMock } = await batching(
+        () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(new Error("connection reset"));
+              },
+            }),
+            { headers: batchHeaders },
+          ),
+      );
+
+      const results = await Promise.allSettled([
+        fresh.writeClientAppState("a", 1),
+        fresh.writeClientAppState("b", 2),
+      ]);
+
+      expect(results.map(({ status }) => status)).toEqual([
+        "rejected",
+        "rejected",
+      ]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("doesn't replay writes when the batch route answers malformed JSON", async () => {
+      const { fresh, fetchMock } = await batching(
+        () => new Response("{not json", { headers: batchHeaders }),
+      );
+
+      const results = await Promise.allSettled([
+        fresh.writeClientAppState("a", 1),
+        fresh.writeClientAppState("b", 2),
+      ]);
+
+      expect(results.map(({ status }) => status)).toEqual([
+        "rejected",
+        "rejected",
+      ]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects every write when a result entry is malformed", async () => {
+      const { fresh } = await batching(() =>
+        jsonResponse(
+          { results: [null, { ok: true, value: 2 }] },
+          { headers: batchHeaders },
+        ),
+      );
+
+      const results = await Promise.allSettled([
+        fresh.writeClientAppState("a", 1),
+        fresh.writeClientAppState("b", 2),
+      ]);
+
+      expect(results.map(({ status }) => status)).toEqual([
+        "rejected",
+        "rejected",
+      ]);
+      expect(fresh.isClientAppStateMutationPending("a")).toBe(false);
+      expect(fresh.isClientAppStateMutationPending("b")).toBe(false);
+    });
+
+    it("keeps batching after a server error without replaying", async () => {
+      const { fresh, fetchMock } = await batching(() =>
+        jsonResponse({ error: "boom" }, { status: 500 }),
+      );
+
+      await Promise.allSettled([
+        fresh.writeClientAppState("a", 1),
+        fresh.writeClientAppState("b", 2),
+      ]);
+      await Promise.allSettled([
+        fresh.writeClientAppState("a", 3),
+        fresh.writeClientAppState("b", 4),
+      ]);
+
+      expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+        "/_agent-native/application-state",
+        "/_agent-native/application-state",
+      ]);
+    });
+  });
+
+  it("makes a read through a tab's explicit key wait for a write through its alias", async () => {
+    vi.stubGlobal("window", {
+      sessionStorage: { getItem: () => "tab-1", setItem: () => {} },
+    });
+    const tab = getBrowserTabId();
+    const methods: string[] = [];
+    const fetchMock = vi.fn((_: RequestInfo | URL, init?: RequestInit) => {
+      methods.push(String(init?.method));
+      return Promise.resolve(
+        init?.method === "GET"
+          ? jsonResponse({
+              values: { [`navigation:${tab}`]: { view: "new" } },
+              missing: [],
+            })
+          : jsonResponse(JSON.parse(String(init?.body))),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    void writeClientAppState("navigation", { view: "new" });
+    await readClientAppStateMany([`navigation:${tab}`]);
+
+    expect(methods).toEqual(["PUT", "GET"]);
   });
 });

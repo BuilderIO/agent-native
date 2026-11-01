@@ -25,6 +25,7 @@ vi.mock("../server/auth.js", () => ({
 }));
 
 let lastStatus = 200;
+const lastHeaders: Record<string, string> = {};
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -36,6 +37,9 @@ vi.mock("h3", () => ({
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   setResponseStatus: (_event: any, code: number) => {
     lastStatus = code;
+  },
+  setResponseHeader: (_event: any, name: string, value: string) => {
+    lastHeaders[name.toLowerCase()] = value;
   },
 }));
 
@@ -432,6 +436,36 @@ describe("application-state handlers", () => {
         ).rejects.toMatchObject({ statusCode: 400 });
       }
       expect(mockAppStatePut).not.toHaveBeenCalled();
+    });
+
+    it("deletes only for delete: true and rejects entries that mix a value with delete", async () => {
+      for (const write of [
+        { key: "navigation", value: { view: "editor" }, delete: false },
+        { key: "navigation", value: { view: "editor" }, delete: true },
+        { key: "navigation", delete: false },
+        { key: "navigation", delete: null },
+      ]) {
+        await expect(
+          putStateMany({
+            _headers: { "x-agent-native-browser-tab": "tab-a" },
+            _body: { writes: [write] },
+          }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+      }
+      expect(mockAppStateDelete).not.toHaveBeenCalled();
+      expect(mockAppStatePut).not.toHaveBeenCalled();
+    });
+
+    it("marks its answers so the client can tell the route ran", async () => {
+      mockAppStatePut.mockResolvedValue(undefined);
+      delete lastHeaders["x-agent-native-app-state-batch"];
+
+      await putStateMany({
+        _headers: {},
+        _body: { writes: [{ key: "a", value: 1 }] },
+      });
+
+      expect(lastHeaders["x-agent-native-app-state-batch"]).toBe("1");
     });
 
     it("requires a session like the single-key route", async () => {
