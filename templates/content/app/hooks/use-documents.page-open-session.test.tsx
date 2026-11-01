@@ -56,7 +56,10 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => {
   // Answers as whichever account the cookies name when the request goes out.
-  const callAction = (name: string, params: any): Promise<any> => {
+  const callAction = (
+    name: string,
+    params: { id?: string; includePreviewDraft?: boolean },
+  ): Promise<unknown> => {
     server.calls.push({ name, params });
     const account = server.account;
     if (name === "get-preview-document-draft") {
@@ -76,7 +79,11 @@ vi.mock("@agent-native/core/client/hooks", () => {
     callAction,
     getBrowserTabId: () => "tab-1",
     useDbSync: vi.fn(),
-    useActionQuery: (name: string, params: unknown, options: object) =>
+    useActionQuery: (
+      name: string,
+      params: Parameters<typeof callAction>[1],
+      options: object,
+    ) =>
       useQuery({
         queryKey: ["action", name, params],
         queryFn: () => callAction(name, params),
@@ -88,6 +95,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+import {
+  startupPageReadScript,
+  takeStartupPageRead,
+} from "../lib/page-open-reads";
 import {
   startPageOpenDocumentReads,
   usePageOpenDocument,
@@ -104,8 +115,8 @@ describe("a page read sent before the session is known", () => {
   let last: {
     fetchedForThisOpen: boolean;
     readsStartedEarly: boolean;
-    title?: string;
-    draft?: unknown;
+    title: string | undefined;
+    draft: unknown;
   } | null;
 
   function Page() {
@@ -197,6 +208,65 @@ describe("a page read sent before the session is known", () => {
       }),
     );
     expect(reads("list-comments")).toBe(0);
+  });
+
+  describe("sent by the document head", () => {
+    beforeEach(() => {
+      window.history.replaceState(null, "", "/page/doc-1");
+      document.cookie = "an_session_hint=1; path=/";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                id: "doc-1",
+                title: "a's page",
+                canEdit: true,
+                previewDraft: { editable: true, draft: "a's draft" },
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            ),
+        ),
+      );
+      new Function(
+        startupPageReadScript("/_agent-native/actions/get-document"),
+      )();
+    });
+
+    afterEach(() => {
+      void takeStartupPageRead("", {});
+      document.cookie = "an_session_hint=; path=/; max-age=0";
+      vi.unstubAllGlobals();
+    });
+
+    it("is the editor's page and draft, with no read of its own", async () => {
+      await loadAndMount();
+      await act(async () => session.set("first-read"));
+
+      expect(last).toMatchObject({
+        fetchedForThisOpen: true,
+        title: "a's page",
+        draft: "a's draft",
+      });
+      expect(reads("get-document")).toBe(0);
+      expect(reads("get-preview-document-draft")).toBe(0);
+    });
+
+    it("is dropped like any read sent before the session when another account answers", async () => {
+      await loadAndMount();
+      server.account = "b";
+
+      await act(async () => session.set("replaced"));
+
+      await vi.waitFor(() =>
+        expect(last).toMatchObject({
+          fetchedForThisOpen: true,
+          title: "b's page",
+          draft: "b's draft",
+        }),
+      );
+    });
   });
 
   it("never reaches the editor between the drop and the new read", async () => {

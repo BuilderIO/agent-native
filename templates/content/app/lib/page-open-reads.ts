@@ -284,3 +284,57 @@ export function retirePageOpenReads(
     if (read.documentId !== keepDocumentId) reads.delete(queryHash);
   }
 }
+
+// A load of /page/:id sends its page read from a script in the document head,
+// beside the session read, instead of waiting for the app code to arrive. It
+// is sent only where the module-time read would be: a top-level window with
+// the session hint. The page's first read takes its answer once, for the same
+// page and context; any other answer, or none, leaves the read to the app.
+const STARTUP_PAGE_READ_GLOBAL = "__contentStartupPageRead";
+export const STARTUP_PAGE_READ_TIMEOUT_MS = 15_000;
+
+export type StartupPageReadAnswer =
+  | { ok: true; value: unknown }
+  | { ok: false };
+
+type StartupPageRead = {
+  id: string;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
+  answer: Promise<StartupPageReadAnswer>;
+};
+
+declare global {
+  interface Window {
+    [STARTUP_PAGE_READ_GLOBAL]?: StartupPageRead;
+  }
+}
+
+export function startupPageReadScript(actionUrl: string): string {
+  return `(function(){try{if(window.top!==window)return;var h=document.cookie.split(";").some(function(e){e=e.trim();var s=e.indexOf("=");if(s<1||e.slice(s+1)!=="1")return false;var n=e.slice(0,s);return n==="an_session_hint"||(n.indexOf("an_session_")===0&&n.slice(-5)==="_hint")});if(!h)return;var m=/\\/page\\/([^/]+)\\/?$/.exec(location.pathname);if(!m)return;var q=new URLSearchParams(location.search),e=q.get("embedded");if(e==="1"||e==="true")return;var id=decodeURIComponent(m[1]),d=q.get("databaseId"),dd=q.get("databaseDocumentId"),p=new URLSearchParams();p.set("id",id);if(d)p.set("databaseId",d);if(dd)p.set("databaseDocumentId",dd);p.set("includePreviewDraft","true");var c=typeof AbortController==="function"?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},${STARTUP_PAGE_READ_TIMEOUT_MS}),i={credentials:"same-origin",cache:"no-store",headers:{Accept:"application/json","Content-Type":"application/json","X-Agent-Native-Frontend":"1"}};if(c)i.signal=c.signal;var f=function(){return{ok:false}};window[${JSON.stringify(
+    STARTUP_PAGE_READ_GLOBAL,
+  )}]={id:id,databaseId:d,databaseDocumentId:dd,answer:fetch(${JSON.stringify(
+    actionUrl,
+  )}+"?"+p.toString(),i).then(function(r){return r.ok?r.json().then(function(v){return{ok:true,value:v}},f):f()},f).then(function(a){clearTimeout(t);return a})}}catch(e){}})();`; // coercion-ok: a script that cannot send leaves the read to the app.
+}
+
+export function takeStartupPageRead(
+  documentId: string,
+  context: {
+    databaseId?: string | null;
+    databaseDocumentId?: string | null;
+  },
+): Promise<StartupPageReadAnswer> | null {
+  if (typeof window === "undefined") return null;
+  const read = window[STARTUP_PAGE_READ_GLOBAL];
+  if (!read) return null;
+  delete window[STARTUP_PAGE_READ_GLOBAL];
+  if (
+    read.id !== documentId ||
+    read.databaseId !== (context.databaseId ?? null) ||
+    read.databaseDocumentId !== (context.databaseDocumentId ?? null)
+  ) {
+    return null;
+  }
+  return read.answer;
+}

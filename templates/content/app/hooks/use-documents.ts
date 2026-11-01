@@ -78,6 +78,7 @@ import {
   releasePageOpenRead,
   spoilPageOpenReads,
   startPageOpenRead,
+  takeStartupPageRead,
   whenReadsBeforeSessionKept,
   type PageOpenRead,
   type PageOpenReadAdoption,
@@ -950,15 +951,26 @@ export function startPageOpenDocumentReads(
   // the page back on its own. Each read takes that answer once: a refetch
   // through either key sends its own request rather than replaying this one.
   let pageRead: Promise<PageOpenDocumentRead> | null = null;
-  const readPage = () =>
-    (pageRead ??= callAction<PageOpenDocumentRead>(
+  const sendPageRead = () =>
+    callAction<PageOpenDocumentRead>(
       "get-document",
       {
         ...documentReadParams(documentId, context),
         ...(readsDraft ? { includePreviewDraft: true } : {}),
       },
       { method: "GET" },
-    ));
+    );
+  // The load's head script may already have sent this read; a failed one is
+  // sent again here, so its error comes from the app's own request.
+  const startupRead = beforeSession
+    ? takeStartupPageRead(documentId, context)
+    : null;
+  const readPage = () =>
+    (pageRead ??= startupRead
+      ? startupRead.then((answer) =>
+          answer.ok ? (answer.value as PageOpenDocumentRead) : sendPageRead(),
+        )
+      : sendPageRead());
   let documentTaken = false;
   const documentReadStarted = startPageOpenRead(
     queryClient,
