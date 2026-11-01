@@ -1442,10 +1442,8 @@ mod macos {
         let Some(mut session) = session else {
             return super::WhisperStopResult::default();
         };
-        session.mic.stop();
-        if let Some(sys) = &session.sys {
-            sys.stop();
-        }
+        // Captures go first: stopping one delivers the buffers it already
+        // queued, and a stream drops whatever arrives after its own stop.
         if let Some(mic_cap) = session.mic_cap.take() {
             if let Err(error) = mic_cap.stop() {
                 session.mic.report_failure(&error);
@@ -1455,27 +1453,36 @@ mod macos {
             sys_cap.stop();
         }
         drop(session._shared_audio.take());
+        session.mic.stop();
+        if let Some(sys) = &session.sys {
+            sys.stop();
+        }
         release_temporary_audio(app, session.temporary_audio.take());
+        let workers_done = || {
+            session.mic.done.load(Ordering::SeqCst)
+                && session
+                    .sys
+                    .as_ref()
+                    .map_or(true, |s| s.done.load(Ordering::SeqCst))
+        };
         let deadline = Instant::now() + Duration::from_secs(4);
-        while Instant::now() < deadline {
-            let sys_done = session
-                .sys
-                .as_ref()
-                .map_or(true, |s| s.done.load(Ordering::SeqCst));
-            if session.mic.done.load(Ordering::SeqCst) && sys_done {
-                break;
-            }
+        while !workers_done() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(50));
         }
+        let workers_done = workers_done();
         eprintln!("[whisper] meeting transcription stopped");
         let failure = session
             .mic
             .failure
             .get()
-            .or_else(|| session.sys.as_ref().and_then(|sys| sys.failure.get()));
-        super::WhisperStopResult {
-            failure: failure.cloned(),
-        }
+            .or_else(|| session.sys.as_ref().and_then(|sys| sys.failure.get()))
+            .cloned()
+            .or_else(|| {
+                (!workers_done).then(|| {
+                    "Local Whisper was still transcribing when the recording stopped, so the end of the transcript may be missing.".to_owned()
+                })
+            });
+        super::WhisperStopResult { failure }
     }
 
     #[cfg(test)]
