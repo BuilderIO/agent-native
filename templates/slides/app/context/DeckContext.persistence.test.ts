@@ -41,6 +41,19 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => orgQueryState,
 }));
 
+// The real error reporter loads @sentry/browser on its first call. That import
+// finishes during whichever test runs next and can stall it past waitFor's
+// one-second default, so a refused write here failed a later test at random.
+const errorReports = vi.hoisted(() => ({ captureError: vi.fn() }));
+
+vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/analytics")
+  >()),
+  captureError: errorReports.captureError,
+  captureClientException: errorReports.captureError,
+}));
+
 import {
   registerInlineEditRemoteApplier,
   requestInlineEditRemoteRetry,
@@ -904,6 +917,7 @@ function deletedDeck(
 describe("DeckContext deck creation persistence", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
+    errorReports.captureError.mockClear();
     orgQueryState.data = { orgId: null };
     orgQueryState.isLoading = false;
     vi.stubGlobal("EventSource", MockEventSource);
@@ -7413,6 +7427,7 @@ describe("DeckContext deck creation persistence", () => {
       );
       expect(toastSpy).toHaveBeenCalledTimes(1);
       expect(errorSpy).toHaveBeenCalled();
+      expect(errorReports.captureError).toHaveBeenCalledTimes(1);
     });
   });
 
