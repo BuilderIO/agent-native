@@ -175,6 +175,9 @@ test("a pin on a repeated instance stays on that instance when the canvas pans",
     .first()
     .getByRole("button", { name: "Comment", exact: true })
     .click();
+  // The draft pin is also a [data-review-pin] and is swapped for the saved one, so wait for the saved thread.
+  await expect(composer).toBeHidden();
+  await expect(page.getByText("1 thread", { exact: true })).toBeVisible();
   await expect(page.locator("[data-review-pin]")).toHaveCount(1);
   const before = await pinOffset();
   expect(Math.abs(before.y)).toBeLessThan(6);
