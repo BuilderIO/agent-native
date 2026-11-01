@@ -109,6 +109,10 @@ export interface ResourceIconPickerProps {
   onValueChange: (value: ResourceIconValue | null) => void | Promise<void>;
   labels: ResourceIconPickerLabels;
   recentValues?: readonly ResourceIconValue[];
+  emojiFirst?: boolean;
+  initialTab?: "icons" | "emoji" | "upload";
+  onUploadPreviewChange?: (url: string | null) => void;
+  uploadExtra?: React.ReactNode;
   onRecentsChange?: (recents: ResourceIconValue[]) => void;
   uploadedImages?: readonly ResourceIconImage[];
   uploadedImagesError?: boolean;
@@ -351,6 +355,10 @@ export function ResourceIconPicker({
   value,
   onValueChange,
   labels,
+  emojiFirst = false,
+  initialTab,
+  onUploadPreviewChange,
+  uploadExtra,
   recentValues,
   onRecentsChange,
   uploadedImages = [],
@@ -380,7 +388,7 @@ export function ResourceIconPicker({
     if (controlledOpen === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
-  const [tab, setTab] = React.useState("icons");
+  const [tab, setTab] = React.useState<string>(initialTab ?? "icons");
   const [query, setQuery] = React.useState("");
   const [category, setCategory] = React.useState("all");
   const [catalog, setCatalog] = React.useState<ChoiceItem[]>([]);
@@ -389,6 +397,7 @@ export function ResourceIconPicker({
   const [loadFailed, setLoadFailed] = React.useState(false);
   const [retry, setRetry] = React.useState(0);
   const [uploading, setUploading] = React.useState(false);
+  const [uploadPreview, setUploadPreview] = React.useState<string | null>(null);
   const [saveFailed, setSaveFailed] = React.useState(false);
   const [uploadError, setUploadError] = React.useState<string>();
   const [color, setColor] = React.useState<ResourceIconColor | undefined>(
@@ -399,6 +408,7 @@ export function ResourceIconPicker({
   const effectiveRecents = recentValues ?? localRecents;
   React.useEffect(() => {
     if (!open) return;
+    if (initialTab) setTab(initialTab);
     setColor(value?.kind === "library" ? value.color : undefined);
     try {
       const parsed: unknown = JSON.parse(
@@ -419,7 +429,7 @@ export function ResourceIconPicker({
         );
       // coercion-ok: recents are optional browser convenience; selection does not depend on storage.
     } catch {}
-  }, [open]);
+  }, [open, initialTab]);
   const remember = useResourceIconRecents(effectiveRecents, (next) => {
     if (recentValues === undefined) {
       setLocalRecents(next);
@@ -516,7 +526,10 @@ export function ResourceIconPicker({
       if (fileInput.current) fileInput.current.value = "";
       return;
     }
+    const previewUrl = URL.createObjectURL(supportedFile);
     setUploading(true);
+    setUploadPreview(previewUrl);
+    onUploadPreviewChange?.(previewUrl);
     setSaveFailed(false);
     setUploadError(undefined);
     try {
@@ -528,6 +541,9 @@ export function ResourceIconPicker({
       onUploadError?.(error);
     } finally {
       setUploading(false);
+      setUploadPreview(null);
+      onUploadPreviewChange?.(null);
+      URL.revokeObjectURL(previewUrl);
       if (fileInput.current) fileInput.current.value = "";
     }
   };
@@ -650,8 +666,17 @@ export function ResourceIconPicker({
                 showUploadTab ? "grid-cols-3" : "grid-cols-2",
               )}
             >
-              <TabsTrigger value="icons">{labels.iconsTab}</TabsTrigger>
-              <TabsTrigger value="emoji">{labels.emojiTab}</TabsTrigger>
+              {emojiFirst ? (
+                <>
+                  <TabsTrigger value="emoji">{labels.emojiTab}</TabsTrigger>
+                  <TabsTrigger value="icons">{labels.iconsTab}</TabsTrigger>
+                </>
+              ) : (
+                <>
+                  <TabsTrigger value="icons">{labels.iconsTab}</TabsTrigger>
+                  <TabsTrigger value="emoji">{labels.emojiTab}</TabsTrigger>
+                </>
+              )}
               {showUploadTab && (
                 <TabsTrigger value="upload">{labels.uploadTab}</TabsTrigger>
               )}
@@ -758,7 +783,15 @@ export function ResourceIconPicker({
                     if (file && !uploading) void upload(file);
                   }}
                 >
-                  <IconPhotoPlus className="size-6 text-muted-foreground" />
+                  {uploadPreview ? (
+                    <img
+                      src={uploadPreview}
+                      alt=""
+                      className="size-10 rounded-md object-contain"
+                    />
+                  ) : (
+                    <IconPhotoPlus className="size-6 text-muted-foreground" />
+                  )}
                   <span>{uploading ? labels.uploading : labels.upload}</span>
                   {labels.uploadHint && (
                     <span className="text-xs text-muted-foreground">
@@ -778,6 +811,7 @@ export function ResourceIconPicker({
                   if (file) void upload(file);
                 }}
               />
+              {uploadExtra}
               {uploadedImagesError && (
                 <div
                   role="alert"

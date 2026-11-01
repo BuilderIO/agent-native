@@ -3,6 +3,7 @@ import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolkitI18nCatalog } from "../i18n.js";
@@ -80,6 +81,7 @@ describe("AccessRequestApprovalPage", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -251,6 +253,20 @@ describe("AccessRequestApprovalPage", () => {
 
     act(() => button("Switch account")?.click());
     expect(mocks.signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an error if switching accounts cannot clear local data", async () => {
+    const notify = vi.spyOn(toast, "error").mockImplementation(() => "error");
+    mocks.signOut.mockRejectedValueOnce(new Error("synthetic cleanup failure"));
+    mocks.query = { isError: true, error: actionError(404) };
+    render();
+
+    await act(async () => {
+      button("Switch account")?.click();
+      await Promise.resolve();
+    });
+
+    expect(notify).toHaveBeenCalledWith("Log out failed");
   });
 
   it("asks a signed-out visitor to sign in", () => {

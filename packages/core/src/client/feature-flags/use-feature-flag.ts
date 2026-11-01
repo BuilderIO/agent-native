@@ -36,13 +36,32 @@ export type FeatureFlagState =
  * Like `useFeatureFlag`, but reports whether the answer has arrived so a
  * surface can hold a skeleton instead of flashing its flag-off UI first.
  */
-export function useFeatureFlagState(key: string): FeatureFlagState {
-  const { status } = useSession();
+export function useFeatureFlagState(
+  key: string,
+  options?: { freshOnMount?: boolean },
+): FeatureFlagState {
+  const { status, session } = useSession();
   const apiDisabled = Boolean(agentNativeApiDisabledReason());
+  const scope = JSON.stringify([
+    session?.authUserId ?? session?.userId ?? session?.email ?? null,
+    session?.orgId ?? null,
+    key,
+  ]);
   const query = useActionQuery<EvaluatedFeatureFlags>(
     "get-feature-flags" as never,
     undefined,
-    { enabled: status === "authenticated", batchFirstFetch: true },
+    {
+      enabled: status === "authenticated",
+      // A caller that asks for fresh flags is deciding something on them, so
+      // only the ordinary read shares a batch on its first fetch.
+      ...(options?.freshOnMount
+        ? {
+            staleTime: 0,
+            refetchOnMount: "always" as const,
+            queryKeyScope: ["fresh-on-mount", scope],
+          }
+        : { batchFirstFetch: true }),
+    },
   );
   if (RETIRED_ENABLED_FLAG_KEYS.has(key)) {
     return { status: "ready", enabled: true };
@@ -52,6 +71,10 @@ export function useFeatureFlagState(key: string): FeatureFlagState {
   if (status !== "authenticated") {
     return { status: "unavailable", enabled: false };
   }
+  if (options?.freshOnMount && query.isError)
+    return { status: "unavailable", enabled: false };
+  if (options?.freshOnMount && !query.isFetchedAfterMount)
+    return { status: "loading", enabled: false };
   if (query.data !== undefined) {
     return {
       status: "ready",

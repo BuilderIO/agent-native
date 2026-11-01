@@ -116,11 +116,20 @@ describe("IntegrationDetailPage", () => {
     );
   }
 
-  async function render(id: string, context = OWNER) {
+  async function render(
+    id: string,
+    context = OWNER,
+    extensionContent?: ReactNode,
+  ) {
     await act(async () => {
       root.render(
         <Providers>
-          <IntegrationDetailPage id={id} appName="Clips" context={context} />
+          <IntegrationDetailPage
+            id={id}
+            appName="Clips"
+            context={context}
+            extensionContent={extensionContent}
+          />
         </Providers>,
       );
     });
@@ -238,6 +247,23 @@ describe("IntegrationDetailPage", () => {
     expect(
       container.querySelector('[id="documentation"] a')?.getAttribute("href"),
     ).toBe("https://developers.figma.com/docs/figma-mcp-server/");
+  });
+
+  it("renders optional app settings within the shared integration page", async () => {
+    await render(
+      "notion",
+      OWNER,
+      <section data-testid="app-integration-settings">
+        Workspace settings
+      </section>,
+    );
+
+    expect(
+      container.querySelector('[data-testid="app-integration-settings"]')
+        ?.textContent,
+    ).toBe("Workspace settings");
+    expect(container.querySelector("#connection")).not.toBeNull();
+    expect(container.querySelector("#information")).not.toBeNull();
   });
 
   it("asks the agent when a prompt is clicked", async () => {

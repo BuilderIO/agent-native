@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-
-import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
@@ -1078,6 +1075,32 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("clears all rejected text across completed tools when requested", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Rejected earlier text" } },
+      {
+        seq: 1,
+        event: {
+          type: "tool_start",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      { seq: 2, event: { type: "tool_done", tool: "query", result: "1" } },
+      { seq: 3, event: { type: "text", text: "Rejected later text" } },
+      { seq: 4, event: { type: "clear", allText: true } },
+      { seq: 5, event: { type: "text", text: "Corrected answer" } },
+    ];
+    expect(buildAssistantMessage(events, "run-clear-all")?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "query",
+        result: "1",
+      }),
+      { type: "text", text: "Corrected answer" },
+    ]);
+  });
+
   it("ignores a trailing clear so a rebuild cannot wipe the transcript", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "Here is the answer" } },
@@ -1352,6 +1375,119 @@ describe("buildAssistantMessage", () => {
       }),
     ]);
   });
+
+  it("reconstructs private approval only from a server grant id", () => {
+    const askId = "agent-tool-approval-11111111-2222-4333-8444-555555555555";
+    const events = [
+      {
+        seq: 0,
+        event: {
+          type: "tool_start" as const,
+          id: "private-call",
+          tool: "send-email",
+          input: {},
+          executionStepId: "model-step:input-derived",
+          inputFingerprint: "input-derived-fingerprint",
+          omitFromPersistedHistory: true as const,
+        },
+      },
+      {
+        seq: 1,
+        event: {
+          type: "approval_required" as const,
+          tool: "send-email",
+          toolCallId: "private-call",
+          input: {},
+          approvalKey: "[Private approval unavailable]",
+          askId,
+          omitFromPersistedHistory: true as const,
+        },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_done" as const,
+          id: "private-call",
+          tool: "send-email",
+          input: {},
+          executionStepId: "model-step:input-derived",
+          inputFingerprint: "input-derived-fingerprint",
+          result: "[Private content omitted]",
+          approvalPause: true,
+          omitFromPersistedHistory: true as const,
+        },
+      },
+    ];
+    const resumed = buildAssistantMessage(events, "run-private-approval");
+    expect(resumed?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        approval: { approvalKey: askId, askId },
+      }),
+    ]);
+    expect(JSON.stringify(resumed)).not.toContain("model-step:input-derived");
+    expect(JSON.stringify(resumed)).not.toContain("input-derived-fingerprint");
+    const missingId = buildAssistantMessage(
+      events.map((item) =>
+        item.seq === 1
+          ? { ...item, event: { ...item.event, askId: undefined } }
+          : item,
+      ),
+      "run-private-approval-no-id",
+    );
+    expect(missingId?.content).toEqual([
+      expect.objectContaining({ type: "tool-call" }),
+    ]);
+    expect(missingId?.content[0]).not.toHaveProperty("approval");
+  });
+
+  it.each([
+    { boundary: "start", startPrivate: true, donePrivate: false },
+    { boundary: "completion", startPrivate: false, donePrivate: true },
+  ])(
+    "removes identity metadata when $boundary marks a tool private",
+    ({ startPrivate, donePrivate }) => {
+      const message = buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: "call-1",
+              tool: "private-write",
+              input: { secret: "private-input-sentinel" },
+              executionStepId: "model-step:input-derived",
+              inputFingerprint: "input-derived-fingerprint",
+              ...(startPrivate
+                ? { omitFromPersistedHistory: true as const }
+                : {}),
+            },
+          },
+          {
+            seq: 1,
+            event: {
+              type: "tool_done",
+              id: "call-1",
+              tool: "private-write",
+              input: { secret: "private-input-sentinel" },
+              result: "private result",
+              executionStepId: "model-step:input-derived",
+              inputFingerprint: "input-derived-fingerprint",
+              ...(donePrivate
+                ? { omitFromPersistedHistory: true as const }
+                : {}),
+            },
+          },
+        ],
+        "run-private-completion",
+      );
+      const stored = JSON.stringify(message);
+      expect(stored).not.toContain("private result");
+      expect(stored).not.toContain("private-input-sentinel");
+      expect(stored).not.toContain("model-step:input-derived");
+      expect(stored).not.toContain("input-derived-fingerprint");
+    },
+  );
 
   it("reconstructs the approval pause from legacy journals", () => {
     const message = buildAssistantMessage(
@@ -7147,72 +7283,8 @@ describe("upsertUserMessage", () => {
   });
 });
 
-describe("live-client twins", () => {
-  const sourceOf = (relativePath: string): string =>
-    readFileSync(new URL(relativePath, import.meta.url), "utf8");
-
-  // Compared token by token, without a trailing comma before a closer:
-  // `pnpm mutation:changed` reprints an instrumented file in a different
-  // layout than its twin, but literal text has to match exactly.
-  const functionBody = (source: string, name: string): string => {
-    const start = source.indexOf(`function ${name}(`);
-    expect(start, `${name} not found`).toBeGreaterThan(-1);
-    const scanner = ts.createScanner(
-      ts.ScriptTarget.Latest,
-      true,
-      ts.LanguageVariant.Standard,
-      source.slice(source.indexOf("{", start)),
-    );
-    const tokens: string[] = [];
-    let depth = 0;
-    for (
-      let kind = scanner.scan();
-      kind !== ts.SyntaxKind.EndOfFileToken;
-      kind = scanner.scan()
-    ) {
-      if (kind === ts.SyntaxKind.OpenBraceToken) depth++;
-      else if (kind === ts.SyntaxKind.CloseBraceToken && --depth === 0) {
-        return tokens
-          .slice(1)
-          .filter((token, index, all) => {
-            const next = all[index + 1];
-            return !(
-              token === "," &&
-              next !== undefined &&
-              ")]}".includes(next)
-            );
-          })
-          .join(" ");
-      }
-      tokens.push(scanner.getTokenText());
-    }
-    throw new Error(`unterminated body for ${name}`);
-  };
-
-  it("tells apart twins whose string literals differ only in whitespace", () => {
-    const layout = `function f() {\n  return [\n    "draft message",\n  ];\n}`;
-    expect(functionBody(layout, "f")).toBe(
-      functionBody(`function f() { return ["draft message"]; }`, "f"),
-    );
-    expect(functionBody(layout, "f")).not.toBe(
-      functionBody(`function f() { return ["draftmessage"]; }`, "f"),
-    );
-  });
-
-  it("keeps clearAssistantDraftContent identical to the live client copy", () => {
-    expect(
-      functionBody(
-        sourceOf("./thread-data-builder.ts"),
-        "clearAssistantDraftContent",
-      ),
-    ).toBe(
-      functionBody(
-        sourceOf("../client/sse-event-processor.ts"),
-        "clearAssistantDraftContent",
-      ),
-    );
-  });
-
+// oracle-change: source-twin checks moved intact to the dedicated source-only spec; behavioral folding coverage remains here.
+describe("live-client marker", () => {
   it("keeps the interrupted-tool-result marker identical to the live client copy", async () => {
     const [{ INTERRUPTED_TOOL_RESULT }, { INTERRUPTED_TOOL_RESULT_MARKER }] =
       await Promise.all([

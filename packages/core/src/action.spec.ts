@@ -42,6 +42,7 @@ import {
   actionsToEngineTools,
   createPlanModeActionRegistry,
 } from "./agent/production-agent.js";
+import * as actionAuditRecord from "./audit/record.js";
 import {
   derivedTool,
   plainJsonSnapshot,
@@ -111,6 +112,70 @@ describe("the public action entry", () => {
 });
 
 describe("defineAction", () => {
+  it.each([false, true])(
+    "omits audit content when invocation privacy changes during execution (throws=%s)",
+    async (throws) => {
+      const body = "synthetic-late-private-audit-sentinel";
+      let privateTurn = false;
+      const audit = vi
+        .spyOn(actionAuditRecord, "recordActionAudit")
+        .mockResolvedValue(undefined);
+      const action = defineAction({
+        description: "Run a nested operation",
+        parameters: { note: { type: "string" } },
+        audit: {
+          enabled: true,
+          target: () => ({ id: body }),
+          summary: () => body,
+        },
+        run: async () => {
+          privateTurn = true;
+          if (throws) throw new Error(body);
+          return body;
+        },
+      });
+      const context: ActionRunContext = {
+        actionName: "nested-operation",
+        get omitFromPersistedHistory() {
+          return privateTurn ? true : undefined;
+        },
+      };
+      try {
+        if (throws)
+          await expect(action.run({ note: body }, context)).rejects.toThrow(
+            body,
+          );
+        else expect(await action.run({ note: body }, context)).toBe(body);
+        expect(audit).toHaveBeenCalledOnce();
+        expect(JSON.stringify(audit.mock.calls)).not.toContain(body);
+        expect(audit.mock.calls[0]?.[0].config).toMatchObject({
+          recordInputs: false,
+        });
+        expect(audit.mock.calls[0]?.[0].config?.summary).toBeUndefined();
+        expect(audit.mock.calls[0]?.[0].config?.target).toBeUndefined();
+      } finally {
+        audit.mockRestore();
+      }
+    },
+  );
+
+  it("exposes private chat-history persistence as an opt-in", () => {
+    const ordinary = defineAction({
+      description: "ordinary result",
+      parameters: {},
+      run: async () => "ok",
+    });
+    const privateAction = defineAction({
+      description: "private result",
+      parameters: {},
+      persistInChatHistory: false,
+      run: async () => "ok",
+    });
+
+    expect(ordinary.persistInChatHistory).toBeUndefined();
+    expect(privateAction.persistInChatHistory).toBe(false);
+  });
+
   it("infers readOnly=true for GET actions", () => {
     const action = defineAction({
       description: "read things",
