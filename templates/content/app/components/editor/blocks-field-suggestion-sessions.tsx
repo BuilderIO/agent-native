@@ -92,6 +92,8 @@ type FieldSession = {
   ended: boolean;
   /** The last save failed, so the next failure stays quiet while typing. */
   failed: boolean;
+  /** A save is under way. */
+  saving: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   /** Saves run one at a time, in order. */
   queue: Promise<unknown>;
@@ -343,6 +345,7 @@ export function useBlocksFieldSuggestions({
     async (session: FieldSession, autosave: boolean): Promise<boolean> => {
       const draft = session.draft;
       session.dirty = false;
+      session.saving = true;
       const savedNow: ResourceSuggestion[] = [];
       const record = (
         created: {
@@ -522,6 +525,7 @@ export function useBlocksFieldSuggestions({
         }
         return false;
       } finally {
+        session.saving = false;
         if (savedNow.length > 0) onSavedRef.current(savedNow);
         bump();
       }
@@ -590,12 +594,25 @@ export function useBlocksFieldSuggestions({
     const onVisibilityChange = () => {
       if (window.document.visibilityState === "hidden") saveNow();
     };
+    // As the body's draft does, a tab's unsaved or saving draft asks before
+    // the browser leaves the page, since a refusal then has nowhere to show.
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      const unsaved = [...sessionsRef.current.values()].some(
+        (session) =>
+          session.dirty || session.saving || session.unresolved !== null,
+      );
+      if (!unsaved) return;
+      saveNow();
+      event.preventDefault();
+    };
     window.addEventListener("blur", saveNow);
     window.addEventListener("pagehide", saveNow);
+    window.addEventListener("beforeunload", onBeforeUnload);
     window.document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("blur", saveNow);
       window.removeEventListener("pagehide", saveNow);
+      window.removeEventListener("beforeunload", onBeforeUnload);
       window.document.removeEventListener(
         "visibilitychange",
         onVisibilityChange,
@@ -621,6 +638,7 @@ export function useBlocksFieldSuggestions({
         dirty: false,
         ended: false,
         failed: false,
+        saving: false,
         timer: null,
         queue: Promise.resolve(),
         unresolved: null,

@@ -386,6 +386,30 @@ describe("useBlocksFieldSuggestions", () => {
     expect(latest.provider.leaving).toBe(false);
   });
 
+  it("asks before the browser leaves while a tab's draft isn't saved", async () => {
+    await render(true, []);
+    const leave = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    await draftInTab();
+
+    let asked = false;
+    await act(async () => {
+      asked = leave();
+      await Promise.resolve();
+    });
+    expect(asked).toBe(true);
+    // It saves the draft at once rather than waiting for its autosave.
+    expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await latest.flushAll();
+    });
+    expect(leave()).toBe(false);
+  });
+
   it("decides on the newest revision of a tab suggestion someone else amended", async () => {
     mocks.decideSuggestion.mockResolvedValue({});
     await render(true, []);
