@@ -4,9 +4,14 @@ import {
   type ActivityNotificationResult,
 } from "../server/activity-notifications.js";
 import { getAppProductionUrl } from "../server/app-url.js";
-import { emailStrong, renderEmail } from "../server/email-template.js";
+import {
+  emailStrong,
+  escapeEmailHtml,
+  renderEmail,
+} from "../server/email-template.js";
 import { sendEmail } from "../server/email.js";
 import { filterRecipientsByResourceAccess } from "../sharing/recipients.js";
+import { commentExcerpt } from "./plain-text.js";
 import {
   getReviewableResource,
   resolveReviewableResourceAccess,
@@ -15,8 +20,8 @@ import {
   claimReviewNotificationDelivery,
   filterUnmutedReviewThreadRecipients,
   finishReviewNotificationDelivery,
+  listReviewThreadParticipantEmails,
   markReviewCommentNotificationCompleted,
-  queryReviewComments,
   releaseReviewNotificationDelivery,
   reviewCommentNotificationCompleted,
 } from "./store.js";
@@ -25,14 +30,6 @@ import type { ReviewComment } from "./types.js";
 export const REVIEW_NOTIFICATION_PREFS_KEY = "activity-notification-prefs";
 
 const LOG_LABEL = "[review] comment notification";
-const EXCERPT_LIMIT = 240;
-
-function excerpt(body: string): string {
-  const collapsed = body.replace(/\s+/g, " ").trim();
-  return collapsed.length > EXCERPT_LIMIT
-    ? `${collapsed.slice(0, EXCERPT_LIMIT - 1)}…`
-    : collapsed;
-}
 
 async function resourceUrl(comment: ReviewComment): Promise<string> {
   const registration = getReviewableResource(comment.resourceType);
@@ -50,18 +47,13 @@ function resourceLabel(comment: ReviewComment): string {
 async function threadParticipants(comment: ReviewComment): Promise<string[]> {
   // Scope is already established by the action that inserted the comment;
   // participants are read unscoped so a viewer's narrower scope cannot hide a
-  // person who is genuinely in the thread.
-  const comments = await queryReviewComments({
+  // person who is genuinely in the thread. The lookup is by thread, so a busy
+  // resource's other threads can't push this thread's people out of a page.
+  return listReviewThreadParticipantEmails({
     resourceType: comment.resourceType,
     resourceId: comment.resourceId,
-    scope: { userEmail: null, orgId: null },
-    bypassScope: true,
-    includeResolved: true,
+    threadId: comment.threadId,
   });
-  return comments
-    .filter((entry) => entry.threadId === comment.threadId)
-    .map((entry) => entry.authorEmail)
-    .filter((email): email is string => Boolean(email));
 }
 
 export type ReviewNotificationResult = ActivityNotificationResult;
@@ -156,7 +148,11 @@ async function deliverReviewCommentEmails(
           : isReply
             ? "New reply in a review thread"
             : "New review comment",
-        paragraphs: [lead, `"${excerpt(comment.body)}"`],
+        // Paragraphs are HTML; the excerpt is the commenter's own text.
+        paragraphs: [
+          lead,
+          `"${escapeEmailHtml(commentExcerpt(comment.body))}"`,
+        ],
         cta: { label: "Open review", url },
         footer:
           "You received this because you own, were mentioned in, or participated in this review thread.",

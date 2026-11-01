@@ -400,6 +400,10 @@ const messages = {
       "डेक को एडिटर में खोलता है। जिनके पास एक्सेस है वे इस लिंक का उपयोग कर सकते हैं।",
     presentationLink: "प्रेज़ेंटेशन लिंक",
     presentationLinkDescription: "डेक को प्रेज़ेंटेशन मोड में खोलता है",
+    copyEditorLink: "एडिटर लिंक कॉपी करें",
+    copyPresentationLink: "प्रेज़ेंटेशन लिंक कॉपी करें",
+    linkCopied: "लिंक कॉपी किया गया",
+    linkCopyFailed: "लिंक कॉपी नहीं हो सका।",
     present: "प्रस्तुत करें",
     presentInTab: "इसी टैब में",
     presentFullScreen: "फ़ुल स्क्रीन",
@@ -500,6 +504,9 @@ const messages = {
   },
   share: {
     createFailed: "साझा लिंक नहीं बन सका",
+    snapshotLinks: "स्नैपशॉट लिंक",
+    revokeLink: "रद्द करें",
+    revokeFailed: "साझा लिंक रद्द नहीं किया जा सका",
     title: "प्रस्तुति साझा करें",
     cloudUpgradeDescription:
       "प्रस्तुतियों को सार्वजनिक रूप से साझा करने के लिए, क्लाउड डेटाबेस कनेक्ट करें ताकि आपकी स्लाइड कहीं से भी एक्सेस की जा सकें।",

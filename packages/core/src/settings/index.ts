@@ -7,6 +7,7 @@ export {
   listSettingsByPrefix,
   getSettingsEmitter,
   type StoreWriteOptions,
+  type StoreMutationOptions,
 } from "./store.js";
 
 export {
@@ -20,6 +21,7 @@ export { readSetting, writeSetting, removeSetting } from "./script-helpers.js";
 export {
   getUserSetting,
   mutateUserSetting,
+  publishUserSettingChange,
   putUserSetting,
   deleteUserSetting,
 } from "./user-settings.js";

@@ -63,6 +63,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 
 const {
   createProviderQuotaIdentity,
+  createProviderRequestDedupeKey,
   executeWithProviderQuota,
   ensureCooldownTable,
   resetProviderQuotaStateForTests,
@@ -77,6 +78,32 @@ describe("provider API quota governor", () => {
     resetProviderQuotaStateForTests();
     vi.unstubAllEnvs();
     vi.stubEnv("AGENT_NATIVE_PROVIDER_API_PERSIST_COOLDOWNS", "1");
+  });
+
+  it("separates in-flight request identities by effective byte cap", () => {
+    const request = {
+      method: "GET",
+      url: "https://api.example.test/records",
+      headers: { accept: "application/json" },
+    };
+    const small = createProviderRequestDedupeKey({
+      ...request,
+      maxBytes: 1_000,
+    });
+    const large = createProviderRequestDedupeKey({
+      ...request,
+      maxBytes: 8_000_000,
+    });
+    const sameCap = createProviderRequestDedupeKey({
+      ...request,
+      maxBytes: 1_000,
+    });
+    const noCap = createProviderRequestDedupeKey(request);
+
+    expect(small).toBeDefined();
+    expect(sameCap).toBe(small);
+    expect(large).not.toBe(small);
+    expect(noCap).not.toBe(small);
   });
 
   it("persists long Retry-After cooldowns and reuses them after memory reset", async () => {

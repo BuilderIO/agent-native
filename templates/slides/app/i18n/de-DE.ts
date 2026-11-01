@@ -414,6 +414,10 @@ const messages = {
       "Öffnet das Deck im Editor. Alle mit Zugriff können diesen Link verwenden.",
     presentationLink: "Präsentationslink",
     presentationLinkDescription: "Öffnet das Deck im Präsentationsmodus",
+    copyEditorLink: "Editor-Link kopieren",
+    copyPresentationLink: "Präsentationslink kopieren",
+    linkCopied: "Link kopiert",
+    linkCopyFailed: "Der Link konnte nicht kopiert werden.",
     present: "Präsentieren",
     presentInTab: "In diesem Tab",
     presentFullScreen: "Vollbild",
@@ -523,6 +527,9 @@ const messages = {
   },
   share: {
     createFailed: "Freigabelink konnte nicht erstellt werden",
+    snapshotLinks: "Snapshot-Links",
+    revokeLink: "Widerrufen",
+    revokeFailed: "Freigabelink konnte nicht widerrufen werden",
     title: "Präsentation teilen",
     cloudUpgradeDescription:
       "Um Präsentationen öffentlich zu teilen, verbinde eine Cloud-Datenbank, damit deine Folien überall verfügbar sind.",

@@ -418,6 +418,10 @@ const messages = {
       "Ouvre le deck dans l’éditeur. Toute personne ayant accès peut utiliser ce lien.",
     presentationLink: "Lien de présentation",
     presentationLinkDescription: "Ouvre le deck en mode présentation",
+    copyEditorLink: "Copier le lien de l'éditeur",
+    copyPresentationLink: "Copier le lien de présentation",
+    linkCopied: "Lien copié",
+    linkCopyFailed: "Impossible de copier le lien.",
     present: "Présenter",
     presentInTab: "Dans cet onglet",
     presentFullScreen: "Plein écran",
@@ -530,6 +534,9 @@ const messages = {
   },
   share: {
     createFailed: "Impossible de créer le lien de partage",
+    snapshotLinks: "Liens d'instantané",
+    revokeLink: "Révoquer",
+    revokeFailed: "Impossible de révoquer le lien de partage",
     title: "Partager la présentation",
     cloudUpgradeDescription:
       "Pour partager des présentations publiquement, connectez une base de données cloud afin que vos diapositives soient accessibles partout.",

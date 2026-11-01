@@ -2316,6 +2316,8 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     locator: any,
     label: string,
     multiline: boolean,
+    // Comment boxes send on Enter, so they start a new line with Shift+Enter.
+    newlineKey = "Enter",
   ) => {
     await locator.waitFor({ state: "visible", timeout: 10_000 });
     await locator.focus();
@@ -2369,7 +2371,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       );
     }
     if (multiline) {
-      await locator.press("Enter");
+      await locator.press(newlineKey);
       await locator.pressSequentially("lineX");
       await locator.press("Backspace");
       await locator.pressSequentially("2");
@@ -2828,7 +2830,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     if (!(await composingEscape(comment, "comment composer"))) {
       await addComment.click();
     }
-    await exerciseControl(comment, "comment composer", true);
+    await exerciseControl(comment, "comment composer", true, "Shift+Enter");
     await comment.press("Escape");
     await addComment.click();
     const rootComposer = page.getByPlaceholder("Add a comment...");
@@ -2854,7 +2856,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       await replyButton.click();
       await reply.waitFor({ state: "visible", timeout: 5000 });
     }
-    await exerciseControl(reply, "comment reply", true);
+    await exerciseControl(reply, "comment reply", true, "Shift+Enter");
     await reply.press("Escape");
     await rootComment.hover();
     await page.getByRole("button", { name: "Edit comment" }).click();
@@ -2863,7 +2865,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       await rootComment.hover();
       await page.getByRole("button", { name: "Edit comment" }).click();
     }
-    await exerciseControl(editComment, "comment edit", true);
+    await exerciseControl(editComment, "comment edit", true, "Shift+Enter");
     await editComment.press("Escape");
     const [pinTarget] = await listTargets(page, slideTwo);
     if (!pinTarget)
@@ -2875,7 +2877,12 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       await page.mouse.click(pinTarget.point.x, pinTarget.point.y);
       await pinComment.waitFor({ state: "visible", timeout: 5000 });
     }
-    await exerciseControl(pinComment, "pinned comment composer", true);
+    await exerciseControl(
+      pinComment,
+      "pinned comment composer",
+      true,
+      "Shift+Enter",
+    );
     await pinComment.press("Escape");
     await page.getByRole("button", { name: "More" }).click();
     await page.getByRole("menuitem", { name: /^Comments/ }).click();

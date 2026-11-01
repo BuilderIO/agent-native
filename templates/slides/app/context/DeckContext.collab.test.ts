@@ -146,10 +146,14 @@ function sharedDeckServer(
   return { fetchMock, deck: () => row.deck };
 }
 
+/** Each open client's copy of the module, so settle() can wait on every one. */
+const openModules: DeckContextModule[] = [];
+
 /** A separate copy of the module, so each client keeps its own save queue. */
 async function openClient() {
   vi.resetModules();
   const mod = (await import("./DeckContext")) as DeckContextModule;
+  openModules.push(mod);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
   });
@@ -178,10 +182,25 @@ function requireDeck(deck: Deck | undefined): Deck {
   return deck;
 }
 
+// A fixed wait ends before a save that is slow under CI load reaches the
+// server, and the late save then lands inside the next test. Keep waiting
+// while any client still has a save pending, bounded so tests that end in a
+// conflict do not stall. Each client is its own copy of the module, so
+// importing it here would only see the last client opened.
 async function settle(ms = 900) {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, ms));
   });
+  for (
+    let waited = 0;
+    waited < 4_000 &&
+    openModules.some((mod) => mod.hasUnsavedDeckChanges(initialDeck.id));
+    waited += 25
+  ) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    });
+  }
 }
 
 const initialDeck: Deck = {
@@ -206,6 +225,7 @@ describe("two people editing one deck", () => {
 
   afterEach(() => {
     cleanup();
+    openModules.length = 0;
     window.history.pushState({}, "", "/");
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

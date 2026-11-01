@@ -133,7 +133,6 @@ export function DatabaseGalleryView({
                   properties={properties}
                   databaseDocumentId={databaseDocumentId}
                   canEdit={canEdit}
-                  rowIndex={index}
                   canReorder={rowsAreManuallyOrdered}
                   canMoveUp={rowsAreManuallyOrdered && index > 0}
                   canMoveDown={
@@ -204,7 +203,6 @@ function DatabaseGroupedGallerySection({
               properties={properties}
               databaseDocumentId={databaseDocumentId}
               canEdit={canEdit}
-              rowIndex={index}
               canReorder={false}
               canMoveUp={false}
               canMoveDown={false}
@@ -232,7 +230,6 @@ function DatabaseGalleryCard({
   properties,
   databaseDocumentId,
   canEdit,
-  rowIndex,
   canReorder,
   canMoveUp,
   canMoveDown,
@@ -245,7 +242,6 @@ function DatabaseGalleryCard({
   properties: DocumentProperty[];
   databaseDocumentId: string;
   canEdit: boolean;
-  rowIndex: number;
   canReorder: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -310,7 +306,6 @@ function DatabaseGalleryCard({
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
-            rowIndex={rowIndex}
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}

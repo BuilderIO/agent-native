@@ -395,6 +395,10 @@ const messages = {
       "在编辑器中打开幻灯片。有访问权限的人都可以使用此链接。",
     presentationLink: "演示链接",
     presentationLinkDescription: "在演示模式中打开幻灯片",
+    copyEditorLink: "复制编辑器链接",
+    copyPresentationLink: "复制演示链接",
+    linkCopied: "链接已复制",
+    linkCopyFailed: "无法复制链接。",
     present: "演示",
     presentInTab: "在此标签页中",
     presentFullScreen: "全屏",
@@ -489,6 +493,9 @@ const messages = {
   },
   share: {
     createFailed: "无法创建共享链接",
+    snapshotLinks: "快照链接",
+    revokeLink: "撤销",
+    revokeFailed: "无法撤销共享链接",
     title: "共享演示文稿",
     cloudUpgradeDescription:
       "要公开共享演示文稿，请连接云数据库，让幻灯片可从任何位置访问。",

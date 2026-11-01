@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const actionMocks = vi.hoisted(() => ({ callAction: vi.fn() }));
@@ -90,6 +91,7 @@ describe("CommandMenu", () => {
     document.body.innerHTML = "";
     window.history.replaceState(null, "", "/");
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   function renderMenu() {
@@ -269,6 +271,30 @@ describe("CommandMenu", () => {
     for (const term of SIGN_OUT_SEARCH_TERMS) {
       search(term);
       expect(document.body.textContent).toContain("Log out");
+    }
+  });
+
+  it("reports a failed sign-out from the command menu", async () => {
+    const { registerSignOutCleanup } =
+      await import("@agent-native/core/client/sign-out");
+    const unregister = registerSignOutCleanup(async () => {
+      throw new Error("synthetic cleanup failure");
+    });
+    const notify = vi.spyOn(toast, "error").mockImplementation(() => "error");
+    try {
+      renderMenu();
+      search("logout");
+      const item = [
+        ...document.querySelectorAll<HTMLElement>("[cmdk-item]"),
+      ].find((element) => element.textContent?.includes("Log out"));
+      expect(item).toBeTruthy();
+      await act(async () => {
+        item!.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(notify).toHaveBeenCalledOnce();
+    } finally {
+      unregister();
     }
   });
 

@@ -60,6 +60,8 @@ registerIdentityColumns([
 
 registerShareableResource({
   type: "dashboard",
+  // Only SQL dashboards offer Share, and get-sql-dashboard is the MCP tool.
+  agentRead: { actions: ["get-sql-dashboard"] },
   resourceTable: schema.dashboards,
   sharesTable: schema.dashboardShares,
   displayName: "Dashboard",
@@ -113,6 +115,7 @@ registerShareableResource({
 
 registerShareableResource({
   type: "analysis",
+  agentRead: { actions: ["get-analysis"] },
   resourceTable: schema.analyses,
   sharesTable: schema.analysisShares,
   displayName: "Analysis",

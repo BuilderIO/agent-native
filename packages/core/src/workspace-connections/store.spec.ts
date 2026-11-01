@@ -1722,6 +1722,95 @@ describe("workspace connection store", () => {
     expect(resolved.reason).toMatch(/needs_reauth/);
   });
 
+  it("accepts a connected Gmail app grant without the provider-wide scope superset", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const {
+      resolveWorkspaceConnectionForApp,
+      listWorkspaceConnectionsForApp,
+      upsertWorkspaceConnection,
+      upsertWorkspaceConnectionGrant,
+    } = await import("./store.js");
+    const requestContext = {
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    };
+    const scopes = [
+      "openid",
+      "email",
+      "https://www.googleapis.com/auth/gmail.modify",
+    ];
+
+    await runWithRequestContext(requestContext, async () => {
+      await upsertWorkspaceConnection({
+        id: "mail-test-app-gmail-modify",
+        provider: "gmail",
+        label: "Mail Gmail",
+        accountId: "alice@example.com",
+        status: "connected",
+        scopes,
+        config: { credentialMode: "oauth" },
+        allowedApps: ["mail-test-app"],
+      });
+      await upsertWorkspaceConnectionGrant({
+        connectionId: "mail-test-app-gmail-modify",
+        appId: "mail-test-app",
+        scopes,
+        config: { credentialMode: "oauth" },
+      });
+    });
+
+    const [listed] = await runWithRequestContext(requestContext, () =>
+      listWorkspaceConnectionsForApp({
+        appId: "mail-test-app",
+        provider: "gmail",
+      }),
+    );
+    expect(listed).toMatchObject({
+      id: "mail-test-app-gmail-modify",
+      status: "connected",
+      explicitGrant: { scopes },
+    });
+
+    const resolved = await runWithRequestContext(requestContext, () =>
+      resolveWorkspaceConnectionForApp({
+        appId: "mail-test-app",
+        provider: "gmail",
+        connectionId: "mail-test-app-gmail-modify",
+        requireConnected: true,
+      }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: true,
+      connection: {
+        id: "mail-test-app-gmail-modify",
+        status: "connected",
+      },
+      appAccess: { available: true },
+    });
+
+    const missingCapability = await runWithRequestContext(requestContext, () =>
+      resolveWorkspaceConnectionForApp({
+        appId: "mail-test-app",
+        provider: "gmail",
+        connectionId: "mail-test-app-gmail-modify",
+        requireConnected: true,
+        requiredScopeSets: [
+          ["https://www.googleapis.com/auth/contacts.readonly"],
+        ],
+      }),
+    );
+
+    expect(missingCapability).toMatchObject({
+      available: false,
+      connection: {
+        id: "mail-test-app-gmail-modify",
+        status: "needs_reauth",
+      },
+    });
+  });
+
   it("builds a reusable provider catalog for one app", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
@@ -1780,6 +1869,43 @@ describe("workspace connection store", () => {
     });
     expect(JSON.stringify(catalog)).not.toContain("xox");
   });
+
+  it.each([
+    ["notion", "connected"],
+    ["gmail", "needs_reauth"],
+  ])(
+    "derives %s readiness from the provider's actual scope contract",
+    async (provider, status) => {
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      const {
+        upsertWorkspaceConnection,
+        upsertWorkspaceConnectionGrant,
+        listWorkspaceConnectionsForApp,
+      } = await import("./store.js");
+      const connections = await runWithRequestContext(
+        { userEmail: "owner@example.test", orgId: "org-1" },
+        async () => {
+          await upsertWorkspaceConnection({
+            id: "scopeless-test",
+            provider,
+            label: "Synthetic account",
+            status: "connected",
+            scopes: [],
+            config: { credentialMode: "oauth" },
+          });
+          await upsertWorkspaceConnectionGrant({
+            connectionId: "scopeless-test",
+            appId: "content",
+            scopes: [],
+          });
+          return listWorkspaceConnectionsForApp({ appId: "content", provider });
+        },
+      );
+      expect(connections).toHaveLength(1);
+      expect(connections[0]?.status).toBe(status);
+    },
+  );
 
   it("revokes workspace connection grants without changing legacy allowed apps", async () => {
     const { runWithRequestContext } =

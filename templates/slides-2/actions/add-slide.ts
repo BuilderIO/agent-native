@@ -45,6 +45,7 @@ import {
   createLayoutFitRevision,
   hashSlideContent,
 } from "../shared/slide-fit.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import { getDeckUrl } from "./_app-url.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
@@ -287,7 +288,7 @@ export default defineAction({
       const row = rows[0];
       let parsedDeck: unknown;
       try {
-        parsedDeck = JSON.parse(row.data);
+        parsedDeck = withUniqueSlideIds(deckId, JSON.parse(row.data));
       } catch {
         fail("Deck data is not valid JSON.", {
           errorCode: "invalid_deck_data",

@@ -1,4 +1,8 @@
 import {
+  isComposingKey,
+  isCommentSendKey,
+} from "@agent-native/toolkit/app/review";
+import {
   forwardRef,
   useEffect,
   useLayoutEffect,
@@ -38,7 +42,6 @@ interface CommentComposerProps {
   disabled?: boolean;
   rows?: number;
   className?: string;
-  submitOnEnter?: boolean;
   "aria-label"?: string;
 }
 
@@ -93,7 +96,6 @@ export const CommentComposer = forwardRef<
     disabled = false,
     rows = 2,
     className,
-    submitOnEnter = false,
     "aria-label": ariaLabel,
   },
   ref,
@@ -227,6 +229,9 @@ export const CommentComposer = forwardRef<
   const menuOpen = query !== null && filtered.length > 0;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // While an input method is composing, its keys (Escape to cancel, arrows
+    // to pick a candidate, Enter to confirm) belong to it.
+    if (isComposingKey(event)) return;
     if (menuOpen) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -254,11 +259,7 @@ export const CommentComposer = forwardRef<
 
     if (applyMarkdownShortcut(event)) return;
 
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      (submitOnEnter || event.metaKey || event.ctrlKey)
-    ) {
+    if (isCommentSendKey(event)) {
       event.preventDefault();
       onSubmit();
       return;
@@ -307,6 +308,11 @@ export const CommentComposer = forwardRef<
           portalled={false}
           className="w-80 max-w-[calc(100vw-2rem)] p-1"
           onOpenAutoFocus={(event) => event.preventDefault()}
+          // The popover hears Escape on the document before the textarea does.
+          // An input method's Escape cancels its candidate, so the menu stays.
+          onEscapeKeyDown={(event) => {
+            if (isComposingKey(event)) event.preventDefault();
+          }}
         >
           <div role="listbox">
             {filtered.map((member, index) => (

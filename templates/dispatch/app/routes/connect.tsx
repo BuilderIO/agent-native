@@ -1,3 +1,4 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import ConnectRoute, {
   meta,
 } from "@agent-native/dispatch/routes/pages/connect";
@@ -8,7 +9,10 @@ async function requireConnectAppsFlag(request: Request): Promise<void> {
   try {
     const cookie = request.headers.get("cookie");
     response = await fetch(
-      new URL("/_agent-native/actions/get-feature-flags", request.url),
+      new URL(
+        agentNativePath("/_agent-native/actions/get-feature-flags"),
+        request.url,
+      ),
       cookie ? { headers: { cookie } } : {},
     );
   } catch {

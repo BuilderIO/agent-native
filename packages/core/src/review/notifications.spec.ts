@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   notifyActivity: vi.fn(),
   sendEmail: vi.fn(),
-  queryReviewComments: vi.fn(),
+  listReviewThreadParticipantEmails: vi.fn(),
   getReviewableResource: vi.fn(),
   resolveReviewableResourceAccess: vi.fn(),
   filterRecipientsByResourceAccess: vi.fn(),
@@ -34,13 +34,19 @@ vi.mock("../server/app-url.js", () => ({
   getAppProductionUrl: () => "https://app.test",
 }));
 
-vi.mock("../server/email-template.js", () => ({
-  emailStrong: (value: string) => value,
-  renderEmail: (args: { heading: string; paragraphs: string[] }) => ({
-    html: `<h1>${args.heading}</h1>`,
-    text: [args.heading, ...args.paragraphs].join("\n"),
-  }),
-}));
+vi.mock("../server/email-template.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../server/email-template.js")
+  >("../server/email-template.js");
+  return {
+    emailStrong: (value: string) => value,
+    escapeEmailHtml: actual.escapeEmailHtml,
+    renderEmail: (args: { heading: string; paragraphs: string[] }) => ({
+      html: `<h1>${args.heading}</h1>`,
+      text: [args.heading, ...args.paragraphs].join("\n"),
+    }),
+  };
+});
 
 vi.mock("../server/email.js", () => ({
   sendEmail: (...args: unknown[]) => mocks.sendEmail(...args),
@@ -66,8 +72,8 @@ vi.mock("./store.js", () => ({
     mocks.markReviewCommentNotificationCompleted(...args),
   filterUnmutedReviewThreadRecipients: (...args: unknown[]) =>
     mocks.filterUnmutedReviewThreadRecipients(...args),
-  queryReviewComments: (...args: unknown[]) =>
-    mocks.queryReviewComments(...args),
+  listReviewThreadParticipantEmails: (...args: unknown[]) =>
+    mocks.listReviewThreadParticipantEmails(...args),
 }));
 
 import {
@@ -122,7 +128,7 @@ beforeEach(() => {
     status: "claimed",
     token: "claim-1",
   });
-  mocks.queryReviewComments.mockResolvedValue([]);
+  mocks.listReviewThreadParticipantEmails.mockResolvedValue([]);
   mocks.filterUnmutedReviewThreadRecipients.mockImplementation(
     async (_threadId: string, recipients: string[]) => recipients,
   );
@@ -227,8 +233,8 @@ describe("notifyReviewComment", () => {
     mocks.filterUnmutedReviewThreadRecipients.mockResolvedValue([
       "participant@example.com",
     ]);
-    mocks.queryReviewComments.mockResolvedValue([
-      { threadId: "t1", authorEmail: "participant@example.com" },
+    mocks.listReviewThreadParticipantEmails.mockResolvedValue([
+      "participant@example.com",
     ]);
     await notifyReviewComment(
       comment({
@@ -266,17 +272,21 @@ describe("notifyReviewComment", () => {
     expect(args.candidates).toEqual(["owner@example.com", "dana@example.com"]);
     expect(args.actorEmail).toBe("reviewer@example.com");
     expect(args.preferenceKey).toBe(REVIEW_NOTIFICATION_PREFS_KEY);
-    expect(mocks.queryReviewComments).not.toHaveBeenCalled();
+    expect(mocks.listReviewThreadParticipantEmails).not.toHaveBeenCalled();
   });
 
-  it("adds thread participants on a reply", async () => {
-    mocks.queryReviewComments.mockResolvedValue([
-      { threadId: "t1", authorEmail: "first@example.com" },
-      { threadId: "other", authorEmail: "unrelated@example.com" },
+  it("adds thread participants on a reply, looked up by thread", async () => {
+    mocks.listReviewThreadParticipantEmails.mockResolvedValue([
+      "first@example.com",
     ]);
 
     await notifyReviewComment(comment({ parentCommentId: "c0" }));
 
+    expect(mocks.listReviewThreadParticipantEmails).toHaveBeenCalledWith({
+      resourceType: "design",
+      resourceId: "design_1",
+      threadId: "t1",
+    });
     expect(notifyArgs().candidates).toEqual([
       "owner@example.com",
       "first@example.com",
@@ -296,6 +306,17 @@ describe("notifyReviewComment", () => {
     const email = mocks.sendEmail.mock.calls[0][0] as { text: string };
     expect(email.text).toContain("The spacing here is off");
     expect(mocks.getReviewableResource).toHaveBeenCalledWith("design");
+  });
+
+  it("escapes the quoted comment, since email paragraphs are HTML", async () => {
+    await notifyReviewComment(
+      comment({ body: "Ship if x<y & <img src=x onerror=alert(1)" }),
+    );
+    await notifyArgs().send("owner@example.com");
+
+    const email = mocks.sendEmail.mock.calls[0][0] as { text: string };
+    expect(email.text).toContain("x&lt;y &amp; &lt;img src=x");
+    expect(email.text).not.toContain("<img");
   });
 
   it("drops recipients who can no longer open the resource", async () => {

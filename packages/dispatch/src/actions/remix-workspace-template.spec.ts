@@ -8,6 +8,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../server/lib/app-creation-store.js", () => ({
+  builderManagedCreationResult: (url: string) => ({
+    mode: "builder-managed",
+    url,
+    message: "Apps in this workspace are built in Builder.",
+  }),
   isLocalAppCreationRuntime: mocks.isLocalAppCreationRuntime,
   scaffoldWorkspaceAppFromTemplate: mocks.scaffoldWorkspaceAppFromTemplate,
   startWorkspaceAppCreation: mocks.startWorkspaceAppCreation,
@@ -27,6 +32,20 @@ describe("remix-workspace-template action", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("links a Builder-linked workspace to Builder instead of scaffolding", async () => {
+    vi.stubEnv("BUILDER_WORKSPACE_PROJECT_ID", "ws-123");
+    vi.stubEnv("BUILDER_APP_HOST", "https://builder.io");
+
+    const result = await action.run({ templateId: "mail" } as never);
+
+    expect(result).toMatchObject({
+      mode: "builder-managed",
+      url: "https://builder.io/app/workspaces/ws-123",
+    });
+    expect(mocks.scaffoldWorkspaceAppFromTemplate).not.toHaveBeenCalled();
+    expect(mocks.startWorkspaceAppCreation).not.toHaveBeenCalled();
   });
 
   it("scaffolds the curated source template in local app-creation runtime", async () => {

@@ -409,6 +409,10 @@ const messages = {
       "デッキをエディターで開きます。アクセス権を持つ人はこのリンクを使用できます。",
     presentationLink: "プレゼンテーションリンク",
     presentationLinkDescription: "デッキをプレゼンテーションモードで開きます",
+    copyEditorLink: "エディターのリンクをコピー",
+    copyPresentationLink: "プレゼンテーションのリンクをコピー",
+    linkCopied: "リンクをコピーしました",
+    linkCopyFailed: "リンクをコピーできませんでした。",
     present: "発表",
     presentInTab: "このタブで",
     presentFullScreen: "全画面表示",
@@ -515,6 +519,9 @@ const messages = {
   },
   share: {
     createFailed: "共有リンクを作成できませんでした",
+    snapshotLinks: "スナップショットのリンク",
+    revokeLink: "取り消す",
+    revokeFailed: "共有リンクを取り消せませんでした",
     title: "プレゼンテーションを共有",
     cloudUpgradeDescription:
       "プレゼンテーションを公開共有するには、クラウドデータベースを接続して、どこからでもスライドにアクセスできるようにしてください。",

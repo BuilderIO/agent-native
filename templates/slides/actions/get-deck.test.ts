@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
+const mockAccessFilter = vi.fn((...args: unknown[]) => ({
+  accessRole: args[3],
+}));
 const mockCurrentRequestUserIsOrgAdmin = vi.fn();
 const mockNotifyClients = vi.fn();
 let currentOrgId = "org-a";
@@ -69,6 +72,7 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
+  accessFilter: (...args: unknown[]) => mockAccessFilter(...args),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -101,6 +105,7 @@ vi.mock("../server/db/index.js", () => ({
       updatedAt: "ua_col",
       slideCount: "slide_count_col",
     },
+    deckShares: "deck_shares",
   },
 }));
 
@@ -171,11 +176,176 @@ beforeEach(() => {
   }));
 });
 
-describe("get-deck", () => {
-  it("classifies its duplicate-ID repair as a write", () => {
-    expect(action.readOnly).toBe(false);
-    expect(action.mcpAnnotations?.readOnlyHint).toBe(false);
+type DeckSlideIds = { slides: Array<{ id: string }> };
+
+function readSlideIds(result: unknown): string[] {
+  return (result as DeckSlideIds).slides.map((slide) => slide.id);
+}
+
+function storeDuplicateSlideDeck(): string {
+  if (!currentResource) throw new Error("beforeEach stores a deck");
+  currentResource.data = JSON.stringify({
+    title: "Quarterly Review",
+    slides: [
+      { id: "duplicate", content: "<h1>First</h1>" },
+      { id: "duplicate", content: "<h1>Second</h1>" },
+    ],
   });
+  return currentResource.data;
+}
+
+describe("get-deck", () => {
+  it("is classified read-only so read-scoped MCP grants can call it", () => {
+    // oracle-change: only the app's own UI saves the duplicate-ID repair now, so the read is read-only for every outside caller.
+    expect(action.readOnly).toBe(true);
+    // oracle-change: same reclassification, surfaced to MCP clients.
+    expect(action.mcpAnnotations?.readOnlyHint).toBe(true);
+  });
+
+  it.each([
+    "mcp",
+    "tool",
+    "a2a",
+    "webmcp",
+    "cli",
+    "automation",
+    "http",
+    "mcp-widget",
+    "mcp-widget-write",
+  ] as const)(
+    "never saves a duplicate-ID repair for a %s caller, even an owner",
+    async (caller) => {
+      const originalData = storeDuplicateSlideDeck();
+      if (!currentResource) throw new Error("beforeEach stores a deck");
+      currentResource.slideCount = null;
+
+      const result = await action.run(
+        { id: "deck-1", compact: "false" },
+        { caller },
+      );
+
+      expect(new Set(readSlideIds(result)).size).toBe(2);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockNotifyClients).not.toHaveBeenCalled();
+      expect(currentResource.data).toBe(originalData);
+    },
+  );
+
+  it("never saves a duplicate-ID repair for a frontend claim with a bearer credential", async () => {
+    const originalData = storeDuplicateSlideDeck();
+
+    const result = await action.run(
+      { id: "deck-1", compact: "false" },
+      {
+        caller: "frontend",
+        requestHeaders: new Headers({ authorization: "Bearer test-token" }),
+      },
+    );
+
+    expect(new Set(readSlideIds(result)).size).toBe(2);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(currentResource?.data).toBe(originalData);
+  });
+
+  it("does not backfill list columns from a repair it did not save", async () => {
+    currentAccessRole = "viewer";
+    storeDuplicateSlideDeck();
+    if (!currentResource) throw new Error("beforeEach stores a deck");
+    currentResource.slideCount = null;
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("saves the repair with an editor access filter", async () => {
+    storeDuplicateSlideDeck();
+
+    await action.run({ id: "deck-1" }, { caller: "frontend" });
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockAccessFilter).toHaveBeenCalledWith(
+      expect.anything(),
+      "deck_shares",
+      undefined,
+      "editor",
+    );
+  });
+
+  it("does not save the repair when the role drops before the lock is held", async () => {
+    storeDuplicateSlideDeck();
+    mockResolveAccess
+      .mockImplementationOnce(async () => ({
+        role: "editor",
+        resource: currentResource,
+      }))
+      .mockImplementationOnce(async () => ({
+        role: "viewer",
+        resource: currentResource,
+      }));
+
+    const ids = readSlideIds(
+      await action.run({ id: "deck-1" }, { caller: "frontend" }),
+    );
+
+    expect(new Set(ids).size).toBe(2);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("names the slides whose repaired IDs are not saved yet", async () => {
+    storeDuplicateSlideDeck();
+
+    const outside = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "mcp" },
+    )) as { slideIdRepairPending?: { slideIds: string[]; note: string } };
+    const ids = readSlideIds(outside);
+
+    expect(ids[0]).toBe("duplicate");
+    expect(outside.slideIdRepairPending?.slideIds).toEqual([ids[1]]);
+    expect(outside.slideIdRepairPending?.note).toContain("slide not found");
+
+    const app = await action.run({ id: "deck-1" }, { caller: "frontend" });
+    expect(app).not.toHaveProperty("slideIdRepairPending");
+  });
+
+  it("returns the same replacement IDs an editor's next app load saves", async () => {
+    storeDuplicateSlideDeck();
+
+    const outsideIds = readSlideIds(
+      await action.run({ id: "deck-1", compact: "false" }, { caller: "mcp" }),
+    );
+    const repeatIds = readSlideIds(
+      await action.run({ id: "deck-1", compact: "false" }, { caller: "mcp" }),
+    );
+    expect(mockUpdate).not.toHaveBeenCalled();
+
+    const appIds = readSlideIds(
+      await action.run({ id: "deck-1" }, { caller: "frontend" }),
+    );
+    const saved = JSON.parse(currentResource?.data ?? "null") as DeckSlideIds;
+
+    expect(repeatIds).toEqual(outsideIds);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(saved.slides.map((slide) => slide.id)).toEqual(outsideIds);
+    expect(appIds).toEqual(outsideIds);
+  });
+
+  it.each(["viewer", "commenter"] as const)(
+    "does not save a duplicate-ID repair for a %s in the app",
+    async (role) => {
+      currentAccessRole = role;
+      storeDuplicateSlideDeck();
+
+      const ids = readSlideIds(
+        await action.run({ id: "deck-1" }, { caller: "frontend" }),
+      );
+
+      expect(ids[0]).not.toBe(ids[1]);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockNotifyClients).not.toHaveBeenCalled();
+    },
+  );
 
   it("does not persist duplicate-ID repair in a directory widget read", async () => {
     currentResource!.designSystemId = "ds-1";
@@ -1102,6 +1272,15 @@ describe("get-deck", () => {
         { left: "ua_col", right: "2026-05-02T00:00:00.000Z" },
       ],
     });
+  });
+
+  it("leaves list columns unwritten for an outside agent's read", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.slideCount = null;
+
+    await action.run({ id: "deck-1" }, { caller: "mcp" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it("does not write list columns a deck already has", async () => {
