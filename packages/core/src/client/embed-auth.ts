@@ -29,6 +29,7 @@ import {
   resolveExternalEmbedTargetAppBasePath,
   WorkspaceAppMountResolutionError,
 } from "./api-path.js";
+import { bearerTransport, markFetchTransport } from "./fetch-transport.js";
 
 let installed = false;
 const memoryTokens = new Map<string, string>();
@@ -914,7 +915,10 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
   if (installed) return;
   if (typeof win.fetch !== "function") return;
-  const originalFetch = win.fetch.bind(win);
+  // Kept by identity, as the transport of requests sent without a token;
+  // calls go through the bound copy.
+  const pageFetch = Reflect.get(win, "fetch") as typeof fetch;
+  const originalFetch = pageFetch.bind(win);
   const patchedFetch = (async (
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -981,6 +985,12 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     }
     return response;
   }) as typeof fetch;
+  // A request carries the embed token when one is stored, and goes out as
+  // the page's own otherwise.
+  markFetchTransport(patchedFetch, () => {
+    const token = getEmbedAuthToken();
+    return token ? bearerTransport(token) : pageFetch;
+  });
   try {
     win.fetch = patchedFetch;
   } catch {

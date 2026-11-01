@@ -264,6 +264,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{
             __html: startupPageReadScript(
               agentNativePath("/_agent-native/actions/get-page-open-read"),
+              appBasePath(),
             ),
           }}
         />

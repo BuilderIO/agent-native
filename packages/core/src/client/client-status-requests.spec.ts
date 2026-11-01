@@ -12,6 +12,7 @@ import {
   invalidateClientStatusRequests,
   SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
+import { markPassThroughFetch } from "./fetch-transport.js";
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -73,12 +74,14 @@ describe("client status requests", () => {
   beforeEach(() => {
     invalidateClientStatusRequests();
     delete window.__agentNativeSessionBootstrap;
+    delete window.__agentNativeSessionBootstrapFetch;
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
   afterEach(() => {
     delete window.__agentNativeSessionBootstrap;
+    delete window.__agentNativeSessionBootstrapFetch;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -337,6 +340,7 @@ describe("client status requests", () => {
       jsonResponse({ error: "unexpected fetch" }),
     );
     vi.stubGlobal("fetch", fetch);
+    window.__agentNativeSessionBootstrapFetch = fetch;
     window.__agentNativeSessionBootstrap = Promise.resolve({
       state: "available",
       value: { userId: "user-1", email: "user@example.com" },
@@ -355,16 +359,18 @@ describe("client status requests", () => {
       jsonResponse({ error: "unexpected fetch" }),
     );
     vi.stubGlobal("fetch", pageFetch);
+    window.__agentNativeSessionBootstrapFetch = pageFetch;
     window.__agentNativeSessionBootstrap = Promise.resolve({
       state: "available",
       value: { userId: "user-1", email: "user@example.com" },
     });
     // Analytics takes the shell's read first, then session replay wraps fetch
-    // before the session store asks.
+    // before the session store asks. Its wrapper sends requests on unchanged.
     await fetchAuthSessionStatus();
     const wrapped = vi.fn((...args: Parameters<typeof fetch>) =>
       pageFetch(...args),
     );
+    markPassThroughFetch(wrapped, pageFetch);
     vi.stubGlobal("fetch", wrapped);
 
     await expect(fetchAuthSessionStatus()).resolves.toEqual({

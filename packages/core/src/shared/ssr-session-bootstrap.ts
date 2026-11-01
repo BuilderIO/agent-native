@@ -19,6 +19,14 @@ export const SESSION_INVALIDATION_STORAGE_KEY =
 export const SESSION_BOOTSTRAP_INVALIDATION_GLOBAL =
   "__agentNativeSessionBootstrapInvalidation";
 
+/**
+ * The `fetch` the early session read went out on. Its answer is for callers
+ * on the same transport: a page that later signs requests another way (the
+ * embed runtime's bearer token, cookies omitted) reads for itself.
+ */
+export const SESSION_BOOTSTRAP_FETCH_GLOBAL =
+  "__agentNativeSessionBootstrapFetch";
+
 /** The current invalidation marker, or "" when none is stored or readable. */
 export function readSessionInvalidationMarker(): string {
   try {
@@ -49,6 +57,7 @@ declare global {
   interface Window {
     [SESSION_NAVIGATION_FLAG]?: string;
     [SESSION_BOOTSTRAP_INVALIDATION_GLOBAL]?: string;
+    [SESSION_BOOTSTRAP_FETCH_GLOBAL]?: typeof fetch;
   }
 }
 
@@ -152,6 +161,7 @@ export function getSsrSessionBootstrapScriptBody(
   };
   if (controller) requestInit.signal = controller.signal;
   ${recordSessionInvalidationMarkerScript()}
+  window[${JSON.stringify(SESSION_BOOTSTRAP_FETCH_GLOBAL)}] = fetch;
   window.__agentNativeSessionBootstrap = fetch(${safeJsonForHtml(sessionPath)}, requestInit).then(function (response) {
     if (!response.ok) return { state: "unavailable", status: response.status };
     return response.json().then(function (value) {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { fetchTransport } from "./fetch-transport.js";
 import {
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
@@ -200,6 +201,15 @@ describe("session replay console/network capture", () => {
     ];
     recordMock.mockReset();
     recordMock.addCustomEvent.mockReset();
+  });
+
+  it("wraps fetch as a pass-through, so reads cached by transport still share answers", async () => {
+    const { fetchMock, windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    await startCapture();
+
+    expect(windowStub.fetch).not.toBe(fetchMock);
+    expect(fetchTransport(windowStub.fetch as typeof fetch)).toBe(fetchMock);
   });
 
   it("captures console methods with level mapping, source, and scrubbed url", async () => {

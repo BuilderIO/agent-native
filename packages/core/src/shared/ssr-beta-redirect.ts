@@ -11,6 +11,7 @@ import {
 } from "./environment-lanes.js";
 import {
   recordSessionInvalidationMarkerScript,
+  SESSION_BOOTSTRAP_FETCH_GLOBAL,
   SESSION_NAVIGATION_FLAG,
   SESSION_NAVIGATION_RELEASED_EVENT,
   SESSION_NAVIGATION_STALL_MS,
@@ -116,7 +117,10 @@ export function getSsrBetaRedirectScriptBody(
       }, function () {
         return { state: 'unavailable' };
       });
-      if (sharesAppRead) window.__agentNativeSessionBootstrap = read;
+      if (sharesAppRead) {
+        window[${JSON.stringify(SESSION_BOOTSTRAP_FETCH_GLOBAL)}] = window.fetch;
+        window.__agentNativeSessionBootstrap = read;
+      }
     }
     return read.then(function (result) {
       if (result && result.state === 'available') return result.value;

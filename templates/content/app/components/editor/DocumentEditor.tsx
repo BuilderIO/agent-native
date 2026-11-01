@@ -3274,6 +3274,7 @@ function PageEditorSessionBody({
     host === "page"
       ? `${normalizeDocumentTitle(localTitle, t("sidebar.untitled"))} — Content`
       : null,
+    documentFresh,
   );
 
   const [databaseExportContext, setDatabaseExportContext] =

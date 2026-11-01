@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // session invalidation, before anything in this tab listens for it. The app
 // code then arrives inside the head reads' freshness window. Nothing A's
 // cookies read may be shown: not the session, the page, the draft, or the
-// collection the page opens.
+// collection the page opens, or the page's title in the browser tab.
 
 const SESSION_PATH = "/_agent-native/auth/session";
 const PAGE_READ_URL = "/_agent-native/actions/get-page-open-read";
@@ -154,6 +154,7 @@ describe("an account switch in another tab while the app code downloads", () => 
   });
 
   afterEach(() => {
+    delete (window.document as { title?: string }).title;
     const mounted = root;
     if (mounted) act(() => mounted.unmount());
     container.remove();
@@ -204,6 +205,19 @@ describe("an account switch in another tab while the app code downloads", () => 
       usePageOpenDocument,
       usePreviewDocumentDraft,
     } = await import("./use-documents");
+    const { usePageTabTitle } = await import("./use-page-tab-title");
+
+    // Every title the browser tab is given.
+    const tabTitles: string[] = [];
+    let tabTitle = "Content";
+    Object.defineProperty(window.document, "title", {
+      configurable: true,
+      get: () => tabTitle,
+      set: (value: string) => {
+        tabTitle = value;
+        tabTitles.push(value);
+      },
+    });
 
     const queryClient = new QueryClient();
     const cached: string[] = [];
@@ -215,8 +229,14 @@ describe("an account switch in another tab while the app code downloads", () => 
     const shown: Shown[] = [];
     function Page() {
       const { session } = useSession();
-      const { query } = usePageOpenDocument("doc-1", {});
+      const { query, fetchedForThisOpen } = usePageOpenDocument("doc-1", {});
       const drafts = usePreviewDocumentDraft("doc-1");
+      const pageTitle = (query.data as Document | undefined)?.title;
+      // As the editor names the tab: once its read is accepted for this session.
+      usePageTabTitle(
+        pageTitle === undefined ? null : `${pageTitle} — Content`,
+        !query.isError && fetchedForThisOpen,
+      );
       shown.push({
         account: session?.userId,
         title: (query.data as Document | undefined)?.title,
@@ -255,6 +275,8 @@ describe("an account switch in another tab while the app code downloads", () => 
     expect(server.sessionReads).toEqual(["a", "b"]);
     expect(shown.some((entry) => entry.account === "a")).toBe(false);
     expect(cached.join("\n")).not.toContain("a's");
+    expect(tabTitles.join("\n")).not.toContain("a's");
+    expect(tabTitle).toBe("b's page — Content");
     // The page and its draft come from one fresh read made as B.
     // Every page read since the switch went out as B.
     const pageReads = server.calls.filter(

@@ -124,6 +124,30 @@ describe("getSsrSessionBootstrapScriptBody", () => {
     expect(recordedWhenSent).toEqual(["signed-in-earlier"]);
   });
 
+  it("records the fetch the read goes out on, so only a caller on it takes the answer", () => {
+    const windowObject: { __agentNativeSessionBootstrapFetch?: unknown } = {};
+    const fetch = vi.fn(() => new Promise(() => {}));
+    new Function(
+      "window",
+      "document",
+      "AbortController",
+      "setTimeout",
+      "clearTimeout",
+      "fetch",
+      getSsrSessionBootstrapScriptBody("/session", "an_hint"),
+    )(
+      windowObject,
+      { cookie: "an_hint=1" },
+      undefined,
+      () => 1,
+      vi.fn(),
+      fetch,
+    );
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(windowObject.__agentNativeSessionBootstrapFetch).toBe(fetch);
+  });
+
   it("does not schedule or fetch without the session hint", () => {
     let scheduled = false;
     const fetch = vi.fn();

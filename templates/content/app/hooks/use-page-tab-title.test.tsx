@@ -9,10 +9,17 @@ import { usePageTabTitle } from "./use-page-tab-title";
 
 // With the session hint, the app mounts hidden while the session is read, so
 // the page's editor can mount before the session confirms whose page it is.
-// The browser tab is not hidden: it names the page only once the app shows.
+// The browser tab is not hidden: it names the page only once the app shows,
+// and only once the page's read is accepted for the session that answered.
 
-function TabTitle({ title }: { title: string | null }) {
-  usePageTabTitle(title);
+function TabTitle({
+  title,
+  accepted,
+}: {
+  title: string | null;
+  accepted: boolean;
+}) {
+  usePageTabTitle(title, accepted);
   return null;
 }
 
@@ -35,11 +42,11 @@ describe("the page's browser tab title", () => {
     container.remove();
   });
 
-  function render(preloading: boolean, title: string | null) {
+  function render(preloading: boolean, title: string | null, accepted = true) {
     act(() =>
       root.render(
         <SessionPreloadContext.Provider value={preloading}>
-          <TabTitle title={title} />
+          <TabTitle title={title} accepted={accepted} />
         </SessionPreloadContext.Provider>,
       ),
     );
@@ -54,6 +61,19 @@ describe("the page's browser tab title", () => {
   it("is set once the session lets the same tree show", () => {
     render(true, "Salary review — Content");
     render(false, "Salary review — Content");
+
+    expect(window.document.title).toBe("Salary review — Content");
+  });
+
+  it("is not set while the page's read is not accepted for this session", () => {
+    render(false, "Salary review — Content", false);
+
+    expect(window.document.title).toBe("Content");
+  });
+
+  it("is set once the page's read is accepted for this session", () => {
+    render(false, "Salary review — Content", false);
+    render(false, "Salary review — Content", true);
 
     expect(window.document.title).toBe("Salary review — Content");
   });
