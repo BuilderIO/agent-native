@@ -823,6 +823,9 @@ mod macos {
         // poll, so speech heard only there must still count.
         // A reset since the last poll discarded the audio `had_voice` judged.
         let (had_voice, polled) = if reset_since_poll {
+            if let Some(vad) = mic_voice_activity.as_mut() {
+                vad.reset();
+            }
             (false, 0)
         } else {
             (had_voice, last_raw_len)
