@@ -117,18 +117,18 @@ function renderBar(
 
 function button(text: string) {
   const match = [...document.querySelectorAll<HTMLElement>("button")].find(
-    (candidate) => candidate.textContent?.trim() === text,
+    (candidate) => candidate.textContent.trim() === text,
   );
-  expect(match, `button "${text}"`).toBeDefined();
-  return match!;
+  if (!match) throw new Error(`No button "${text}"`);
+  return match;
 }
 
 function menuItem(text: string) {
   const match = [
     ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-  ].find((candidate) => candidate.textContent?.trim() === text);
-  expect(match, `menu item "${text}"`).toBeDefined();
-  return match!;
+  ].find((candidate) => candidate.textContent.trim() === text);
+  if (!match) throw new Error(`No menu item "${text}"`);
+  return match;
 }
 
 describe("filter chips on one option property", () => {

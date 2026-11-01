@@ -109,12 +109,12 @@ export function foldDatabaseFilterChips(
       continue;
     }
     const chipIndex = chipIndexByKey.get(filter.key);
-    if (chipIndex === undefined) {
+    const chip = chipIndex === undefined ? undefined : result[chipIndex];
+    if (chipIndex === undefined || !chip) {
       chipIndexByKey.set(filter.key, result.length);
       result.push(filter);
       continue;
     }
-    const chip = result[chipIndex];
     result[chipIndex] = {
       ...chip,
       value: databaseFilterEncodeSelectedValues(
