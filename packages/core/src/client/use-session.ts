@@ -11,7 +11,11 @@ import {
   SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
-import { recordSessionIdentity } from "./session-identity.js";
+import {
+  announceSessionInvalidated,
+  recordSessionIdentity,
+  SESSION_INVALIDATION_STORAGE_KEY,
+} from "./session-identity.js";
 
 export type { AuthSession };
 
@@ -107,7 +111,6 @@ const SESSION_CACHE_TTL_MS = SESSION_RESULT_LIFETIME_MS;
 const SESSION_RETRY_BUDGET_MS = 30_000;
 const SESSION_RETRY_BASE_DELAY_MS = 500;
 const SESSION_RETRY_MAX_DELAY_MS = 5_000;
-const SESSION_INVALIDATION_STORAGE_KEY = "agent-native:session-invalidated";
 const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 let cachedSession: ClientAuthSession | null | undefined;
 let cachedSessionAt = 0;
@@ -357,6 +360,7 @@ function installSessionInvalidationListeners(): void {
  */
 export function notifySessionInvalidated(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
+  announceSessionInvalidated();
   installSessionInvalidationListeners();
   const reread = invalidateSessionCache();
   try {

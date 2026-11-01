@@ -42,6 +42,7 @@ vi.mock("./document-save-rebase", () => ({
   saveDocumentWithRebase: vi.fn(),
 }));
 vi.mock("@tanstack/react-query", () => ({
+  isCancelledError: () => false,
   useQueryClient: () => state.queryClient,
 }));
 vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));

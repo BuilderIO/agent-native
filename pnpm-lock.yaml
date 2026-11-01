@@ -2911,6 +2911,9 @@ importers:
       express:
         specifier: ^5.2.1
         version: 5.2.1
+      fake-indexeddb:
+        specifier: ^6.2.5
+        version: 6.2.5
       fast-check:
         specifier: ^4.10.2
         version: 4.10.2

@@ -5,6 +5,7 @@ const {
   callAction,
   hasSessionHint,
   pageReads,
+  collabReads,
   readOnlyWidget,
   writeWidget,
 } = vi.hoisted(() => ({
@@ -12,6 +13,7 @@ const {
   callAction: vi.fn(),
   hasSessionHint: vi.fn(() => true),
   pageReads: vi.fn(),
+  collabReads: vi.fn(),
   readOnlyWidget: { value: false },
   writeWidget: { value: false },
 }));
@@ -33,6 +35,9 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
   isMcpDirectoryWidgetReadOnlyEmbed: () => readOnlyWidget.value,
   isMcpDirectoryWidgetWriteEmbed: () => writeWidget.value,
+}));
+vi.mock("@agent-native/core/client/collab/prefetch", () => ({
+  prefetchCollabState: collabReads,
 }));
 vi.mock("@/hooks/use-documents", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
@@ -246,6 +251,7 @@ describe("startLoadReads", () => {
     callAction.mockReturnValue(new Promise(() => {}));
     hasSessionHint.mockReturnValue(true);
     pageReads.mockReset();
+    collabReads.mockReset();
     const stored = JSON.stringify({ scope: "[]", documentId: "last-page" });
     vi.stubGlobal("localStorage", {
       getItem: (key: string) =>
@@ -274,6 +280,8 @@ describe("startLoadReads", () => {
       { databaseId: "db-1", databaseDocumentId: null },
       { beforeSession: true },
     );
+    // Its collab state too, beside the page read rather than after mount.
+    expect(collabReads).toHaveBeenCalledWith("NXqMwg3WOBAQ");
     expect(landings()).toBe(0);
   });
 
@@ -290,6 +298,7 @@ describe("startLoadReads", () => {
       { databaseId: null, databaseDocumentId: null },
       { beforeSession: true },
     );
+    expect(collabReads).toHaveBeenCalledWith("last-page");
     expect(landings()).toBe(1);
   });
 
@@ -303,6 +312,7 @@ describe("startLoadReads", () => {
     }
 
     expect(pageReads).not.toHaveBeenCalled();
+    expect(collabReads).not.toHaveBeenCalled();
     expect(landings()).toBe(0);
   });
 });

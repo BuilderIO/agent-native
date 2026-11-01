@@ -4,8 +4,8 @@ import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { Document } from "@shared/api";
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { isCancelledError, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -75,11 +75,30 @@ function draftWrittenOnPage(
   );
 }
 
+// Only a journal known to be empty lets an editor show before its draft is
+// checked; an unreadable one waits for the check, which reports the failure.
+function journalHoldsNoEntry(
+  scope: Parameters<typeof readPageDraftJournal>[0],
+): boolean {
+  try {
+    return readPageDraftJournal(scope) === null;
+  } catch {
+    // coercion-ok: unreadable is not "empty"; the journal effect reports it.
+    return false;
+  }
+}
+
 export function PageDraftRecovery({
   document,
+  documentFresh = true,
   children,
 }: {
   document: Document;
+  /**
+   * Whether `document` comes from this open's read. A page drawn from its
+   * cached read decides nothing about drafts until that read returns.
+   */
+  documentFresh?: boolean;
   children: ReactNode;
 }) {
   const t = useT();
@@ -169,6 +188,17 @@ export function PageDraftRecovery({
     : null;
   const draftLivenessKnown =
     draftKey === null || scopeLiveWriters?.draftKey === draftKey;
+  // Journal entries this page leaves alone: those of editors known to be
+  // open, this page's own included before its writer lock is seen. Both the
+  // journal and the SQL draft checks skip the same entries, or each would
+  // leave an entry to the other.
+  const journalSkippedWriterIds = useMemo(
+    () =>
+      liveEditorSessionId
+        ? new Set([...(skippedWriterIds ?? []), liveEditorSessionId])
+        : skippedWriterIds,
+    [liveEditorSessionId, skippedWriterIds],
+  );
   const draftOpenElsewhere = Boolean(
     draft?.editorSessionId && skippedWriterIds?.has(draft.editorSessionId),
   );
@@ -177,6 +207,42 @@ export function PageDraftRecovery({
   const scopeVerified = scopeKey !== null && verifiedScopeKey === scopeKey;
   const editorReleased =
     scopeVerified && releasedScopeKey === scopeKey && !draft;
+  // Drafts are settled against this open's reads of the page and its draft.
+  const decisionsReady = scopeVerified && documentFresh;
+  // A visited page shows its editor while those reads run when nothing here
+  // can need recovering: its last draft read found none, and this browser's
+  // journal holds no entry for it, not even an open editor's. Decided once
+  // per page and account. A draft the reads then find is handled as it is
+  // before any editor shows.
+  const openedBeforeDraftReadRef = useRef<{
+    scopeKey: string;
+    open: boolean;
+  } | null>(null);
+  if (
+    session &&
+    scopeKey &&
+    openedBeforeDraftReadRef.current?.scopeKey !== scopeKey
+  ) {
+    openedBeforeDraftReadRef.current = {
+      scopeKey,
+      open:
+        !skipDraftRecovery &&
+        !skipCreationDraftRecovery &&
+        !creationPending &&
+        !documentBodyHydrationIsPending(document) &&
+        drafts.data?.draft === null &&
+        drafts.data.editable !== false &&
+        journalHoldsNoEntry({
+          accountId: session.email.trim().toLowerCase(),
+          orgId: session.orgId ?? null,
+          documentId: document.id,
+        }),
+    };
+  }
+  const openedBeforeDraftRead =
+    scopeKey !== null &&
+    openedBeforeDraftReadRef.current?.scopeKey === scopeKey &&
+    openedBeforeDraftReadRef.current.open;
 
   useEffect(() => {
     setVerifiedScopeKey(null);
@@ -189,11 +255,19 @@ export function PageDraftRecovery({
     )
       return;
     let cancelled = false;
-    void ensurePreviewDocumentDraftRead(
-      queryClient,
-      document.id,
-      document.createdAt,
-    )
+    // A visited page mounts this with its editor, so this check can start
+    // before the page-open draft read, which replaces the read in flight. A
+    // read cancelled that way is read again, not reported as failed.
+    const readDraft = (retries: number): Promise<void> =>
+      ensurePreviewDocumentDraftRead(
+        queryClient,
+        document.id,
+        document.createdAt,
+      ).catch((error: unknown) => {
+        if (cancelled || retries === 0 || !isCancelledError(error)) throw error;
+        return readDraft(retries - 1);
+      });
+    void readDraft(2)
       .then(() => {
         if (!cancelled) setVerifiedScopeKey(scopeKey);
       })
@@ -224,7 +298,7 @@ export function PageDraftRecovery({
     if (journalState === "promoting" || editorReleased) return;
     if (
       !drafts.data ||
-      !scopeVerified ||
+      !decisionsReady ||
       creationPending ||
       documentBodyHydrationIsPending(document)
     )
@@ -238,7 +312,7 @@ export function PageDraftRecovery({
     };
     let entry;
     try {
-      entry = readPageDraftJournal(scope, skippedWriterIds);
+      entry = readPageDraftJournal(scope, journalSkippedWriterIds);
     } catch {
       setJournalState("failed");
       return;
@@ -546,15 +620,16 @@ export function PageDraftRecovery({
   }, [
     bodyWritesThroughLiveCopy,
     creationPending,
+    decisionsReady,
     document,
     draft,
     drafts.data,
     editorReleased,
     journalRevision,
+    journalSkippedWriterIds,
     journalState,
     scopeKey,
     scopeLiveWriters,
-    scopeVerified,
     session?.email,
     session?.orgId,
   ]);
@@ -562,11 +637,11 @@ export function PageDraftRecovery({
   useEffect(() => {
     if (
       drafts.data?.draft === null &&
-      scopeVerified &&
+      decisionsReady &&
       journalState === "ready"
     )
       setReleasedScopeKey(scopeKey);
-  }, [drafts.data, journalState, scopeKey, scopeVerified]);
+  }, [decisionsReady, drafts.data, journalState, scopeKey]);
 
   async function settleDraft(restore: boolean) {
     if (!draft || busy) return;
@@ -753,7 +828,7 @@ export function PageDraftRecovery({
       failure ||
       journalState === "checking" ||
       journalState === "promoting" ||
-      !scopeVerified
+      !decisionsReady
     )
       return;
     const attempt = `${draft.version}:${document.updatedAt}`;
@@ -762,12 +837,12 @@ export function PageDraftRecovery({
     void resolveConflict("use_saved");
   }, [
     busy,
+    decisionsReady,
     document.updatedAt,
     draft,
     failure,
     hasEditIdentity,
     journalState,
-    scopeVerified,
   ]);
   useEffect(() => {
     if (
@@ -779,7 +854,7 @@ export function PageDraftRecovery({
       failure ||
       journalState === "checking" ||
       journalState === "promoting" ||
-      !scopeVerified ||
+      !decisionsReady ||
       documentBodyHydrationIsPending(document)
     )
       return;
@@ -803,7 +878,7 @@ export function PageDraftRecovery({
             orgId: session.orgId ?? null,
             documentId: document.id,
           },
-          skippedWriterIds,
+          journalSkippedWriterIds,
         );
         if (
           journal?.snapshot.title === draft.title &&
@@ -820,17 +895,17 @@ export function PageDraftRecovery({
   }, [
     bodyWritesThroughLiveCopy,
     busy,
+    decisionsReady,
     document,
     draft,
     draftLivenessKnown,
     draftOpenElsewhere,
     failure,
     hasEditIdentity,
+    journalSkippedWriterIds,
     journalState,
-    scopeVerified,
     session?.email,
     session?.orgId,
-    skippedWriterIds,
   ]);
 
   // Keep the editor at one tree position so a notice never remounts it.
@@ -866,6 +941,10 @@ export function PageDraftRecovery({
         retrying={drafts.isFetching}
       />
     );
+  // A closed editor's journal entry found since is filed like any other,
+  // with the editor out of the way.
+  if (openedBeforeDraftRead && !draft && journalState !== "promoting")
+    return withNotice(null);
   if (
     !drafts.data ||
     !scopeVerified ||

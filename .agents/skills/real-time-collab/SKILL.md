@@ -221,6 +221,43 @@ const { ydoc, awareness, activeUsers, agentActive, agentPresent } =
   });
 ```
 
+#### Opening from a saved copy
+
+Pass `localCopy: { onEditsDisplaced }` to keep each doc's acknowledged state
+in IndexedDB, per account. A doc opened again is ready from that copy at once
+(`fromLocalCopy: true`, `isSynced: false`), and the hook asks the server only
+for what the copy lacks. The server answers with its state vector; if it does
+not cover the copy, or its answer cannot be read or applied, the copy is
+thrown away and the doc reopens from the server (the hook's `ydoc` changes). Copies are cleared on sign-out and when a
+different account uses the browser, and are bounded (least recently opened go
+first). Storage that cannot be used just means no copy.
+
+The doc takes edits from the copy straight away, but sends them only once the
+server's vector covers the copy. Typing the server's state leaves out (the
+copy was thrown away, the server deleted the block it went into, or the doc is
+gone) is passed to `onEditsDisplaced` as `{ state, reason }`, where `state` is
+the whole doc as it stood with the typing. None of it is sent, then or by the
+next open. Keep it where the user can find it (Content files it in Version
+History), and never apply it back to the doc: the server's deletions stand.
+Server actions file under whoever is signed in, so keep it for the account and
+org that typed it: stop when the editor closes or the session changes.
+`subscribeSessionInvalidation(listener)` from `@agent-native/core/client/hooks`
+hears a sign-out or organization switch, in this tab or another, as it starts.
+
+A copy is a cache of the server's doc, never a second source: it is saved only
+while none of the tab's edits are unacknowledged, so it never holds text the
+server lacks. Treat `fromLocalCopy` as "drawn, not yet caught up": don't seed
+an empty doc or decide anything about the stored body from it.
+
+To start that read with the page instead of after the editor mounts, call
+`prefetchCollabState(docId)` from
+`@agent-native/core/client/collab/prefetch` (it doesn't load the collab
+client). The hook takes the answer over when it opens the same doc within a few
+seconds, for the account the copy belongs to. A read made before the tab's
+session is known belongs to the first session read; it is dropped once the
+session changes, or a sign-out or organization switch starts in this tab or
+another.
+
 ### 4. Add TipTap extensions
 
 ```ts
@@ -259,7 +296,7 @@ optimizeDeps: {
 
 | Route | Purpose |
 | ----- | ------- |
-| `GET /_agent-native/collab/:docId/state` | Fetch full Y.Doc state (accepts `?stateVector=` for diff) |
+| `GET /_agent-native/collab/:docId/state` | Fetch full Y.Doc state (accepts `?stateVector=` for diff, and then also returns the server's `stateVector`) |
 | `POST /_agent-native/collab/:docId/update` | Apply client Yjs update |
 | `POST /_agent-native/collab/:docId/text` | Apply full text (diff-based) |
 | `POST /_agent-native/collab/:docId/search-replace` | Surgical find/replace in Y.XmlFragment |

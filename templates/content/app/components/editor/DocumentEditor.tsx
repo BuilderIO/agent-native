@@ -7,12 +7,14 @@ import {
   emailToName,
   type CollabUpdateAck,
   type CollabUser,
+  type DisplacedCollabEdits,
 } from "@agent-native/core/client/collab";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   actionErrorMessage,
   callAction,
   setClientAppState,
+  subscribeSessionInvalidation,
   tryCallActionKeepalive,
   useAvatarUrl,
   useDbSync,
@@ -245,6 +247,10 @@ import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import { directoryWidgetEditability } from "./directory-widget-editability";
 import { isPageCommentThread } from "./discussion-panel";
+import {
+  displacedTypingMarkdown,
+  keepDisplacedTyping,
+} from "./displaced-typing";
 import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
 import {
   DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
@@ -1679,10 +1685,22 @@ export function PageEditorSurface({
     authoritativeSuccess,
   });
   loadFailureRef.current = loadFailure;
+  // A visited page is drawn from its cached read at once, and the read in
+  // flight catches it up. Only pages whose body lives in the collab doc: their
+  // editor takes edits once that doc, or this browser's saved copy of it, has
+  // text, and seeds an empty doc only from a fresh read.
+  const canOpenFromCache =
+    !!document &&
+    shouldUseLiveDocumentCollaboration({
+      isLocalFileDocument: document.source?.mode === "local-files",
+      isGitHubSourceDocument: document.source?.mode === "github",
+      mcpDirectoryWidgetReadOnly: document.mcpDirectoryWidgetReadOnly === true,
+    });
   const loadState = documentEditorLoadState({
     documentId,
     admittedDocumentId: admittedDocumentIdRef.current,
     hasDocument: Boolean(document),
+    canOpenFromCache,
     isDocumentCreationConfirmed: creationAwaitingFirstRead,
     isDocumentCreationPending: creationPending,
     isFetchedAfterMount: fetchedForThisOpen,
@@ -1828,6 +1846,7 @@ export function PageEditorSurface({
         databaseDocumentId,
       })}
       document={document}
+      documentFresh={fetchedForThisOpen}
     >
       {editor}
     </PageDraftRecovery>
@@ -1853,10 +1872,27 @@ function DocumentCommentDraftProvider({
   );
 }
 
+/**
+ * Whether a collab doc's body holds any text. Read from the doc itself, before
+ * an editor projects it; markup and attributes are not text.
+ */
+export function collabDocHasText(
+  ydoc: { getXmlFragment(name: string): { toString(): string } } | null,
+): boolean {
+  if (!ydoc) return false;
+  return /\S/.test(
+    ydoc
+      .getXmlFragment("default")
+      .toString()
+      .replace(/<[^>]*>/g, ""),
+  );
+}
+
 export function documentEditorLoadState({
   documentId,
   admittedDocumentId,
   hasDocument,
+  canOpenFromCache = false,
   isDocumentCreationConfirmed = false,
   isDocumentCreationPending,
   isFetchedAfterMount,
@@ -1870,6 +1906,12 @@ export function documentEditorLoadState({
   documentId: string;
   admittedDocumentId: string | null;
   hasDocument: boolean;
+  /**
+   * The cached document may be drawn before this open's read returns. Its
+   * editor never seeds the collab doc from it (see `PageEditorSessionBody`),
+   * and its body saves carry the cached revision, which the server checks.
+   */
+  canOpenFromCache?: boolean;
   isDocumentCreationConfirmed?: boolean;
   isDocumentCreationPending: boolean;
   isFetchedAfterMount: boolean;
@@ -1933,7 +1975,10 @@ export function documentEditorLoadState({
       admittedDocumentId: activeAdmittedDocumentId,
     };
   }
-  if (hasDocument && isFetchedAfterMount && !isFetching) {
+  if (
+    hasDocument &&
+    (canOpenFromCache || (isFetchedAfterMount && !isFetching))
+  ) {
     return {
       view: "editor" as const,
       admittedDocumentId: documentId,
@@ -3562,7 +3607,9 @@ function PageEditorSessionBody({
   useEffect(() => {
     const hydrationContext = document.bodyHydration;
     const hydration = hydrationContext?.hydration;
+    // A cached read's hydration status can be one the server has moved past.
     if (
+      !documentFresh ||
       !canEdit ||
       !hydrationContext?.sourceId ||
       !hydration ||
@@ -3603,6 +3650,7 @@ function PageEditorSessionBody({
   }, [
     canEdit,
     document.bodyHydration,
+    documentFresh,
     documentId,
     processBuilderBodies.mutate,
   ]);
@@ -3843,10 +3891,22 @@ function PageEditorSessionBody({
     },
     [liveCopyWritePath],
   );
+  // Defined once the recovery draft queue exists, below.
+  const keepDisplacedTypingRef = useRef<(edits: DisplacedCollabEdits) => void>(
+    () => {},
+  );
+  const collabLocalCopy = useMemo(
+    () => ({
+      onEditsDisplaced: (edits: DisplacedCollabEdits) =>
+        keepDisplacedTypingRef.current(edits),
+    }),
+    [],
+  );
   const {
     ydoc,
     awareness,
     isSynced: collabSynced,
+    fromLocalCopy: collabFromLocalCopy,
     requestSync: requestCollabSync,
     flushUpdates: flushCollabUpdates,
     durableUpdatesFailed: collabDurableUpdatesFailed,
@@ -3860,6 +3920,7 @@ function PageEditorSessionBody({
     activityResource: { resourceType: "document", resourceId: documentId },
     requestSource: TAB_ID,
     user: currentUser,
+    localCopy: collabLocalCopy,
     durableUpdates: bodyWritesThroughLiveCopy,
     requireLiveCopyOutcome: bodyWritesThroughLiveCopy,
     ...(bodyWritesThroughLiveCopy
@@ -3891,6 +3952,15 @@ function PageEditorSessionBody({
       : null;
   const collabInitializationFailed =
     collabEnabled && collabInitialization.status === "error";
+  // The editor takes the collab doc once the server's state is in it and the
+  // page's read is fresh, or earlier once the doc already has text: from the
+  // server, or from this browser's saved copy before the server answers. An
+  // empty doc waits for the fresh read, so a cached body never seeds it.
+  // The text is read only until the doc is synced and the read fresh.
+  const collabReady =
+    (collabSynced || collabFromLocalCopy) &&
+    ((collabSynced && (documentFresh || creationStarted)) ||
+      collabDocHasText(ydoc));
   const canEditWithoutCollaboration =
     (creationAwaitingFirstRead || holdCollaborationForCreationSave) &&
     !collabSynced;
@@ -3902,7 +3972,7 @@ function PageEditorSessionBody({
     (!isLocalFileDocument || localSourceAccess === "available") &&
     (isLocalFileDocument ||
       mcpDirectoryWidgetReadOnly ||
-      collabSynced ||
+      collabReady ||
       canEditWithoutCollaboration) &&
     (!collabInitializationFailed || canEditWithoutCollaboration);
   const canImportPages =
@@ -3923,7 +3993,7 @@ function PageEditorSessionBody({
     collabEnabled &&
     canEdit &&
     !bodyHydrationPending &&
-    collabSynced &&
+    collabReady &&
     collabInitialization.status === "ready" &&
     !collabInitializationFailed;
   const awaitingLiveCopy = documentBodyAwaitsLiveCopy({
@@ -5119,6 +5189,116 @@ function PageEditorSessionBody({
     },
     [retainRecoveryDraft],
   );
+  // Typing on a page opened from its saved copy that the server's answer
+  // left out: the copy was rebuilt on the server, or the block it went into
+  // was deleted there. The server's doc stays as it is. The journal keeps the
+  // typing at once, and it then goes to History as a draft found on open
+  // would, waiting its turn for the page's draft slot; if that keeps
+  // failing, the next open files the journal entry. The draft actions file
+  // under whoever is signed in, so filing stops once this editor closes or
+  // the tab's account or org changes, and the entry waits for that account.
+  const sessionScopeRef = useRef<{
+    email: string;
+    orgId: string | null;
+  } | null>(null);
+  // Each session read vouches for the account and org again.
+  useEffect(() => {
+    sessionScopeRef.current = session?.email
+      ? { email: session.email, orgId: session.orgId ?? null }
+      : null;
+  }, [session]);
+  const displacedFilingsRef = useRef(new Set<AbortController>());
+  useEffect(() => {
+    const filings = displacedFilingsRef.current;
+    // A session change in progress vouches for nothing until it is read.
+    const stop = () => {
+      sessionScopeRef.current = null;
+      for (const filing of filings) filing.abort();
+      filings.clear();
+    };
+    const unsubscribe = subscribeSessionInvalidation(stop);
+    return () => {
+      unsubscribe();
+      stop();
+    };
+  }, [session?.email, session?.orgId]);
+  keepDisplacedTypingRef.current = (edits) => {
+    const content = displacedTypingMarkdown(edits.state);
+    if (content === null) return;
+    const title = localTitleRef.current;
+    // No base timestamp, so recovery never restores the draft over the page.
+    const base = { ...lastSavedContentRef.current, updatedAt: null };
+    const scope = journalScope();
+    const editorSessionId = editorSessionIdRef.current;
+    if (!scope || !editorSessionId) {
+      toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+      return;
+    }
+    const filing = new AbortController();
+    displacedFilingsRef.current.add(filing);
+    void keepDisplacedTyping({
+      scope: {
+        accountId: scope.accountId,
+        orgId: scope.orgId,
+        documentId: scope.documentId,
+      },
+      editorSessionId,
+      title,
+      content,
+      onJournalError: (error) =>
+        console.error(
+          "Could not keep typing the server's copy left out",
+          error,
+        ),
+      onFilingError: (error) =>
+        console.error("Could not save displaced typing to History", error),
+      filing: {
+        owned: () =>
+          editorSessionActiveRef.current &&
+          editorSessionIdRef.current === editorSessionId &&
+          sessionScopeRef.current?.email === scope.accountId &&
+          sessionScopeRef.current.orgId === scope.orgId,
+        signal: filing.signal,
+        // Held and resolved in one job, so the editor's own draft waits.
+        exclusive: (job) =>
+          enqueueDocumentSave(recoveryDraftRetentionQueueRef, job),
+        slot: {
+          // Read afresh after each await: the retention queue moves it.
+          current: () => recoveryDraftRef.current,
+          retain: () =>
+            retainRecoveryDraft(
+              title,
+              content,
+              "conflict",
+              editorSessionId,
+              editorEditGenerationRef.current,
+              base,
+            ),
+          clear: (version) => {
+            if (recoveryDraftRef.current?.version === version)
+              recoveryDraftRef.current = null;
+          },
+        },
+        resolve: (draft, expectedDocumentUpdatedAt) =>
+          resolvePreviewDocumentDraft.mutateAsync({
+            choice: "use_saved",
+            documentId,
+            expectedDraftVersion: draft.version,
+            expectedDraftTitle: draft.title,
+            expectedDraftContent: draft.content,
+            expectedDocumentUpdatedAt,
+          }),
+        documentUpdatedAt: () => documentUpdatedAtRef.current,
+      },
+    }).then((outcome) => {
+      displacedFilingsRef.current.delete(filing);
+      if (outcome === "filed") {
+        toast.success(t("editor.previewDraftSavedToHistory"));
+      } else if (outcome === "lost") {
+        toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+      }
+    });
+  };
   const syncRecoveryDraftTitle = useCallback(
     (title: string) => {
       const sync = async () => {
@@ -10827,7 +11007,7 @@ function PageEditorSessionBody({
                                 bodyIsLiveCopy={bodyWritesThroughLiveCopy}
                                 replacesStoredBody={replacesStoredBody}
                                 collabSynced={
-                                  collabEditorEnabled ? collabSynced : true
+                                  collabEditorEnabled ? collabReady : true
                                 }
                                 awareness={
                                   collabEditorEnabled ? awareness : null
@@ -10954,7 +11134,7 @@ function PageEditorSessionBody({
                     collabEnabled &&
                     canEdit &&
                     !canEditWithoutCollaboration &&
-                    !collabSynced ? (
+                    !collabReady ? (
                       <div
                         className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
                         role="status"
