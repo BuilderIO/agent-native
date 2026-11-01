@@ -227,8 +227,8 @@ Pass `localCopy: { onEditsDisplaced }` to keep each doc's acknowledged state
 in IndexedDB, per account. A doc opened again is ready from that copy at once
 (`fromLocalCopy: true`, `isSynced: false`), and the hook asks the server only
 for what the copy lacks. The server answers with its state vector; if it does
-not cover the copy, the copy is thrown away and the doc reopens from the
-server (the hook's `ydoc` changes). Copies are cleared on sign-out and when a
+not cover the copy, or its answer cannot be read or applied, the copy is
+thrown away and the doc reopens from the server (the hook's `ydoc` changes). Copies are cleared on sign-out and when a
 different account uses the browser, and are bounded (least recently opened go
 first). Storage that cannot be used just means no copy.
 

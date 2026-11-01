@@ -53,6 +53,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
+  isCancelledError: () => false,
   useQueryClient: () => ({ refetchQueries: state.refetch }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));

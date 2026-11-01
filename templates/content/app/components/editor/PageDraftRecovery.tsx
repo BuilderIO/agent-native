@@ -4,7 +4,7 @@ import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { Document } from "@shared/api";
-import { useQueryClient } from "@tanstack/react-query";
+import { isCancelledError, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -255,11 +255,19 @@ export function PageDraftRecovery({
     )
       return;
     let cancelled = false;
-    void ensurePreviewDocumentDraftRead(
-      queryClient,
-      document.id,
-      document.createdAt,
-    )
+    // A visited page mounts this with its editor, so this check can start
+    // before the page-open draft read, which replaces the read in flight. A
+    // read cancelled that way is read again, not reported as failed.
+    const readDraft = (retries: number): Promise<void> =>
+      ensurePreviewDocumentDraftRead(
+        queryClient,
+        document.id,
+        document.createdAt,
+      ).catch((error: unknown) => {
+        if (cancelled || retries === 0 || !isCancelledError(error)) throw error;
+        return readDraft(retries - 1);
+      });
+    void readDraft(2)
       .then(() => {
         if (!cancelled) setVerifiedScopeKey(scopeKey);
       })

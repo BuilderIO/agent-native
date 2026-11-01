@@ -248,6 +248,7 @@ import { directoryWidgetEditability } from "./directory-widget-editability";
 import { isPageCommentThread } from "./discussion-panel";
 import {
   displacedTypingMarkdown,
+  fileDisplacedTypingInHistory,
   journalDisplacedTyping,
   type JournaledDisplacedTyping,
 } from "./displaced-typing";
@@ -5194,7 +5195,8 @@ function PageEditorSessionBody({
   // left out: the copy was rebuilt on the server, or the block it went into
   // was deleted there. The server's doc stays as it is. The journal keeps the
   // typing at once, and it then goes to History as a draft found on open
-  // would; if that fails, the next open files the journal entry.
+  // would, waiting its turn for the page's draft slot; if that keeps
+  // failing, the next open files the journal entry.
   keepDisplacedTypingRef.current = (edits) => {
     const content = displacedTypingMarkdown(edits.state);
     if (content === null) return;
@@ -5222,45 +5224,42 @@ function PageEditorSessionBody({
         );
       }
     }
-    // Read afresh after each await: the retention queue moves it.
-    const retainedDraft = () => recoveryDraftRef.current;
     const editorSessionId = editorSessionIdRef.current;
-    const fileInHistory = async () => {
-      // This editor's own recovery draft would be replaced.
-      if (!editorSessionId || retainedDraft()) return false;
-      await queueRecoveryDraftRetention(
-        title,
+    const fileInHistory = async () =>
+      !!editorSessionId &&
+      fileDisplacedTypingInHistory({
         content,
-        "conflict",
-        editorSessionId,
-        editorEditGenerationRef.current,
-        base,
-      );
-      const draft = retainedDraft();
-      if (draft?.content !== content) return false;
-      let expectedDocumentUpdatedAt = documentUpdatedAtRef.current;
-      for (
-        let attempt = 0;
-        attempt < 2 && expectedDocumentUpdatedAt;
-        attempt++
-      ) {
-        const result = await resolvePreviewDocumentDraft.mutateAsync({
-          choice: "use_saved",
-          documentId,
-          expectedDraftVersion: draft.version,
-          expectedDraftTitle: draft.title,
-          expectedDraftContent: draft.content,
-          expectedDocumentUpdatedAt,
-        });
-        if (result.status === "resolved") {
-          if (retainedDraft()?.version === draft.version)
-            recoveryDraftRef.current = null;
-          return true;
-        }
-        expectedDocumentUpdatedAt = result.document?.updatedAt ?? null;
-      }
-      return false;
-    };
+        // Held and resolved in one job, so the editor's own draft waits.
+        exclusive: (job) =>
+          enqueueDocumentSave(recoveryDraftRetentionQueueRef, job),
+        slot: {
+          // Read afresh after each await: the retention queue moves it.
+          current: () => recoveryDraftRef.current,
+          retain: () =>
+            retainRecoveryDraft(
+              title,
+              content,
+              "conflict",
+              editorSessionId,
+              editorEditGenerationRef.current,
+              base,
+            ),
+          clear: (version) => {
+            if (recoveryDraftRef.current?.version === version)
+              recoveryDraftRef.current = null;
+          },
+        },
+        resolve: (draft, expectedDocumentUpdatedAt) =>
+          resolvePreviewDocumentDraft.mutateAsync({
+            choice: "use_saved",
+            documentId,
+            expectedDraftVersion: draft.version,
+            expectedDraftTitle: draft.title,
+            expectedDraftContent: draft.content,
+            expectedDocumentUpdatedAt,
+          }),
+        documentUpdatedAt: () => documentUpdatedAtRef.current,
+      });
     void fileInHistory()
       .catch((error: unknown) => {
         console.error("Could not save displaced typing to History", error);

@@ -36,6 +36,80 @@ export function displacedTypingMarkdown(state: Uint8Array): string | null {
   }
 }
 
+export interface DisplacedTypingDraft {
+  version: number;
+  title: string;
+  content: string;
+}
+
+const FILING_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
+
+/**
+ * Files displaced typing in History the way a draft found on open is filed:
+ * held as the editor's recovery draft, then resolved keeping the saved page.
+ * The page has one draft slot per account. Each try runs as one job on the
+ * editor's draft queue (`exclusive`), so the editor's own draft cannot take
+ * the slot between the hold and the resolve. While its draft already holds
+ * the slot, this waits and tries again; the journal entry covers the time in
+ * between.
+ */
+export async function fileDisplacedTypingInHistory(input: {
+  content: string;
+  slot: {
+    current: () => DisplacedTypingDraft | null;
+    retain: () => Promise<void>;
+    clear: (version: number) => void;
+  };
+  resolve: (
+    draft: DisplacedTypingDraft,
+    expectedDocumentUpdatedAt: string,
+  ) => Promise<{
+    status: string;
+    document?: { updatedAt?: string | null } | null;
+  }>;
+  documentUpdatedAt: () => string | null;
+  exclusive?: <T>(job: () => Promise<T>) => Promise<T>;
+  retryDelaysMs?: readonly number[];
+  wait?: (ms: number) => Promise<void>;
+}): Promise<boolean> {
+  const {
+    content,
+    slot,
+    exclusive = (job) => job(),
+    retryDelaysMs = FILING_RETRY_DELAYS_MS,
+    wait = (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+  } = input;
+  const fileOnce = async () => {
+    let draft = slot.current();
+    if (draft && draft.content !== content) return false;
+    if (!draft) {
+      await slot.retain();
+      draft = slot.current();
+      if (draft?.content !== content) return false;
+    }
+    let expectedDocumentUpdatedAt = input.documentUpdatedAt();
+    for (let attempt = 0; attempt < 2 && expectedDocumentUpdatedAt; attempt++) {
+      const result = await input.resolve(draft, expectedDocumentUpdatedAt);
+      if (result.status === "resolved") {
+        slot.clear(draft.version);
+        return true;
+      }
+      expectedDocumentUpdatedAt = result.document?.updatedAt ?? null;
+    }
+    return false;
+  };
+  for (const delay of retryDelaysMs) {
+    try {
+      if (await exclusive(fileOnce)) return true;
+    } catch {
+      // coercion-ok: a failed try is tried again after the delay; the last
+      // try's failure reaches the caller.
+    }
+    await wait(delay);
+  }
+  return exclusive(fileOnce);
+}
+
 export interface JournaledDisplacedTyping {
   scope: PageDraftJournalScope;
   snapshot: PageDraftJournalSnapshot;

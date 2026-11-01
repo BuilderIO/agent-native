@@ -1337,13 +1337,8 @@ class CollabDocConnection {
             : Y.encodeStateVectorFromUpdate(update);
       if (serverVector) Y.decodeStateVector(serverVector);
     } catch (error) {
-      this.forgetLocalCopy();
-      this.awaitingServerState = false;
-      this.markInitializationFailed("invalid-payload");
-      return {
-        status: "failed",
-        error: error instanceof Error ? error : new Error(String(error)),
-      };
+      // An answer that cannot be read cannot vouch for the copy either.
+      return this.supersedeForUnreadableState(error);
     }
     // A server from before diffs carried its vector: ask for the whole state.
     if (!serverVector) {
@@ -1366,13 +1361,11 @@ class CollabDocConnection {
     try {
       Y.applyUpdate(this.ydoc, update, "remote");
     } catch (error) {
-      this.forgetLocalCopy();
-      this.awaitingServerState = false;
-      this.markInitializationFailed("invalid-payload");
-      return {
-        status: "failed",
-        error: error instanceof Error ? error : new Error(String(error)),
-      };
+      // A failed apply can leave part of the server's state in the doc, so
+      // the typing goes over as it stood before.
+      if (withTyping) this.handOffDisplacedTyping(withTyping, "superseded");
+      this.typingBaseline = null;
+      return this.supersedeForUnreadableState(error);
     }
     if (withTyping && typed.some((item) => item.deleted)) {
       this.handOffDisplacedTyping(withTyping, "deleted");
@@ -1389,6 +1382,20 @@ class CollabDocConnection {
     // What was typed on the copy waited for this.
     void this.flushPendingUpdates();
     return { status: "synced" };
+  }
+
+  /**
+   * The server answered, but not with state this doc can take: the copy is
+   * given up as when the server does not hold it, and the new connection
+   * reads the server's state from scratch, failing there as any doc would.
+   */
+  private supersedeForUnreadableState(
+    error: unknown,
+  ): CollaborativeDocSyncResult {
+    this.supersede(
+      `The server's state for collab doc ${this.docId} could not be read over the saved copy (${error instanceof Error ? error.message : String(error)}); opening the server's copy instead.`,
+    );
+    return { status: "unavailable" };
   }
 
   /** The saved copy stays open and takes edits; the server is asked again. */

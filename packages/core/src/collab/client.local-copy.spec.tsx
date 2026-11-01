@@ -42,7 +42,9 @@ type StateResponse =
   | "server-error"
   | "not-found"
   | "forbidden"
-  | "no-vector";
+  | "no-vector"
+  | "unreadable"
+  | "unappliable";
 
 function toBase64(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes));
@@ -210,6 +212,19 @@ describe("collab local copies", () => {
           }
           if (response === "server-error") {
             return new Response("{}", { status: 500 });
+          }
+          if (response === "unreadable") {
+            return new Response(JSON.stringify({ docId: DOC, state: "" }));
+          }
+          if (response === "unappliable") {
+            // A vector that covers the copy, over state Yjs cannot read.
+            return new Response(
+              JSON.stringify({
+                docId: DOC,
+                state: toBase64(Uint8Array.from([255, 255, 255, 255, 1])),
+                stateVector: toBase64(Y.encodeStateVector(server)),
+              }),
+            );
           }
           const vector = new URL(url, "http://test").searchParams.get(
             "stateVector",
@@ -519,6 +534,45 @@ describe("collab local copies", () => {
     expect(server.getText("content").toString()).toBe("fresh");
     expect(displaced).toHaveLength(1);
   });
+
+  it.each(["unreadable", "unappliable"] as const)(
+    "hands over typing when the server's answer is %s, and sends none of it",
+    async (response) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await visit({ durableUpdates: true });
+      stateResponses.push(response);
+
+      const release = holdStateResponses();
+      mount({ durableUpdates: true });
+      await advance(0);
+      act(() => {
+        current().ydoc!.getText("content").insert(5, " typed");
+      });
+      release();
+      await advance(10);
+
+      expect(displaced.map((edits) => edits.reason)).toEqual(["superseded"]);
+      expect(textOf(displaced[0]!.state)).toBe("hello typed");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("could not be read over the saved copy"),
+      );
+      // The new connection reads the server's state and sends nothing stale,
+      // now or when the page hides.
+      await advance(3_000);
+      expect(text()).toBe("hello");
+      expect(current().isSynced).toBe(true);
+      act(() => {
+        window.dispatchEvent(new Event("pagehide"));
+      });
+      await advance(3_000);
+      expect(server.getText("content").toString()).toBe("hello");
+      await leave();
+      mount({ durableUpdates: true });
+      await advance(3_000);
+      expect(server.getText("content").toString()).toBe("hello");
+      expect(displaced).toHaveLength(1);
+    },
+  );
 
   it("hands over typing on a page the server no longer has", async () => {
     await visit();
