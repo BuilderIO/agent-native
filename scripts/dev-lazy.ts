@@ -1594,10 +1594,10 @@ function killChildProcessTree(
   if (!child?.pid) return;
   try {
     if (process.platform === "win32") {
-      execSync(
-        `taskkill /pid ${child.pid} /T ${signal === "SIGKILL" ? "/F" : ""}`,
-        { stdio: "ignore" },
-      );
+      // Console processes ignore taskkill's polite close, and the fallback
+      // below would stop only the cmd.exe wrapper and orphan pnpm and Vite,
+      // so stop the whole tree by force.
+      execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: "ignore" });
       return;
     }
     process.kill(-child.pid, signal);

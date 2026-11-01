@@ -51,6 +51,20 @@ describe("bare pnpm spawn guard", () => {
     assert.deepEqual(flagged(source, "all"), [2, 4]);
   });
 
+  it("follows let bindings and later assignments", () => {
+    const source = [
+      "let pnpm: PnpmCommand;",
+      "pnpm = pnpmCommand(args);",
+      'spawnSync(pnpm.command, pnpm.args, { encoding: "utf8" });',
+      'let bin = "node";',
+      'if (usePnpm) bin = "pnpm";',
+      "spawn(bin, args);",
+      "spawn(pnpm.command, pnpm.args, { shell: pnpm.shell });",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [3, 6]);
+  });
+
   it("follows spawners imported under another name", () => {
     const source = [
       'import { spawn as launch, execFileSync as run } from "node:child_process";',
@@ -82,9 +96,15 @@ describe("bare pnpm spawn guard", () => {
       'spawn("pnpm", args, { shell: false });',
       'spawn("pnpm", args, { shell: false as const });',
       'spawn("pnpm", args, { ...options, shell: windows });',
+      "const noShell = false;",
+      'spawn("pnpm", args, { shell: noShell });',
+      "const shell = undefined;",
+      'spawnSync("pnpm", args, { shell });',
+      'const useShell = process.platform === "win32";',
+      'spawn("pnpm", args, { shell: useShell });',
     ].join("\n");
 
-    assert.deepEqual(flagged(source, "all"), [1, 2]);
+    assert.deepEqual(flagged(source, "all"), [1, 2, 5, 7]);
   });
 
   it("ignores other commands and shells that exec always uses", () => {

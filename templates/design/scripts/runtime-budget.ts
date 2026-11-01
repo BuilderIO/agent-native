@@ -75,8 +75,15 @@ function seedDesign(url: string): string {
     "Runtime budget",
   ];
   // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
-  // shell. Quote each argument there so the title stays one argument.
+  // shell. Quote each argument there so the title stays one argument. cmd.exe
+  // still expands %NAME% inside quotes and can't escape a quote, so refuse those.
   const windows = process.platform === "win32";
+  const unsafe = windows ? args.find((arg) => /["%]/.test(arg)) : undefined;
+  if (unsafe !== undefined) {
+    throw new Error(
+      `cmd.exe would change ${JSON.stringify(unsafe)}: pass a --base-url without a quote or percent sign on Windows.`,
+    );
+  }
   const output = execFileSync(
     windows ? ["pnpm", ...args].map((arg) => `"${arg}"`).join(" ") : "pnpm",
     windows ? [] : args,

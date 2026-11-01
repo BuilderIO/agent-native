@@ -15,7 +15,8 @@
  * through scripts/lib/pnpm-command.ts; elsewhere, pass
  * `shell: process.platform === "win32"` (or run the joined command line with
  * `shell: true` on Windows, as the helper does); `shell: false` counts as no
- * shell. Spawners imported from child_process under another name are checked
+ * shell, and so does a variable that is only ever `false`. Spawners imported
+ * from child_process under another name are checked
  * too, and so is `pnpm.command` from a `pnpmCommand(...)` result passed without
  * its `shell`. It also flags a new
  * `"pnpm.cmd"`-style literal, which only exists to spawn the shim without a
@@ -152,18 +153,28 @@ function spawnerAliases(sourceFile: ts.SourceFile) {
   return aliases;
 }
 
-/** `const name = <initializer>` declarations in the file, by name. */
-function constInitializers(sourceFile: ts.SourceFile) {
-  const found = new Map<string, ts.Expression>();
+/**
+ * Every value the file gives each variable name: its initializer and any
+ * later `name = <value>` assignment, for `const`, `let` and `var` alike.
+ */
+function variableValues(sourceFile: ts.SourceFile) {
+  const found = new Map<string, ts.Expression[]>();
+  const add = (name: string, value: ts.Expression) => {
+    found.set(name, [...(found.get(name) ?? []), value]);
+  };
   const visit = (node: ts.Node) => {
     if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
-      node.initializer &&
-      ts.isVariableDeclarationList(node.parent) &&
-      node.parent.flags & ts.NodeFlags.Const
+      node.initializer
     ) {
-      found.set(node.name.text, node.initializer);
+      add(node.name.text, node.initializer);
+    } else if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left)
+    ) {
+      add(node.left.text, node.right);
     }
     ts.forEachChild(node, visit);
   };
@@ -224,7 +235,7 @@ export function findBarePnpmSpawns(
     kind,
   );
   const lines = source.split(/\r?\n/);
-  const consts = constInitializers(sourceFile);
+  const values = variableValues(sourceFile);
   const returns = functionReturns(sourceFile);
   const aliases = spawnerAliases(sourceFile);
   const findings: BareSpawnFinding[] = [];
@@ -250,23 +261,23 @@ export function findBarePnpmSpawns(
         namesPnpm(inner.whenTrue, seen) || namesPnpm(inner.whenFalse, seen)
       );
     }
-    // `pnpm.command` where `const pnpm = pnpmCommand(...)`: the helper's
-    // Windows command line, which needs its `shell` alongside it.
+    // `pnpm.command` where `pnpm = pnpmCommand(...)`: the helper's Windows
+    // command line, which needs its `shell` alongside it.
     if (ts.isPropertyAccessExpression(inner) && inner.name.text === "command") {
-      let target = unwrap(inner.expression);
-      if (ts.isIdentifier(target)) {
-        const initializer = consts.get(target.text);
-        if (initializer) target = unwrap(initializer);
-      }
-      return (
-        ts.isCallExpression(target) && calleeName(target) === "pnpmCommand"
-      );
+      const target = unwrap(inner.expression);
+      const candidates = ts.isIdentifier(target)
+        ? (values.get(target.text) ?? [])
+        : [target];
+      return candidates.some((candidate) => {
+        const call = unwrap(candidate);
+        return ts.isCallExpression(call) && calleeName(call) === "pnpmCommand";
+      });
     }
     if (ts.isIdentifier(inner) && !seen.has(inner.text)) {
-      const initializer = consts.get(inner.text);
-      if (!initializer) return false;
       seen.add(inner.text);
-      return namesPnpm(initializer, seen);
+      return (values.get(inner.text) ?? []).some((value) =>
+        namesPnpm(value, seen),
+      );
     }
     if (
       ts.isCallExpression(inner) &&
@@ -282,29 +293,46 @@ export function findBarePnpmSpawns(
     return false;
   };
 
-  const setsShell = (call: ts.CallExpression): boolean =>
-    call.arguments.slice(1).some((argument) => {
-      let options = unwrap(argument);
-      if (ts.isIdentifier(options)) {
-        const initializer = consts.get(options.text);
-        if (!initializer) return false;
-        options = unwrap(initializer);
+  // `false`, `null` or `undefined`, directly or through a variable that only
+  // ever holds one of them.
+  const isNoShell = (
+    node: ts.Expression,
+    seen = new Set<string>(),
+  ): boolean => {
+    const inner = unwrap(node);
+    if (
+      inner.kind === ts.SyntaxKind.FalseKeyword ||
+      inner.kind === ts.SyntaxKind.NullKeyword
+    ) {
+      return true;
+    }
+    if (!ts.isIdentifier(inner) || seen.has(inner.text)) return false;
+    seen.add(inner.text);
+    const assigned = values.get(inner.text) ?? [];
+    if (assigned.length === 0) return inner.text === "undefined";
+    return assigned.every((value) => isNoShell(value, seen));
+  };
+
+  const enablesShell = (options: ts.Expression): boolean =>
+    ts.isObjectLiteralExpression(options) &&
+    options.properties.some((property) => {
+      if (ts.isShorthandPropertyAssignment(property)) {
+        return property.name.text === "shell" && !isNoShell(property.name);
       }
       return (
-        ts.isObjectLiteralExpression(options) &&
-        options.properties.some(
-          (property) =>
-            (ts.isPropertyAssignment(property) ||
-              ts.isShorthandPropertyAssignment(property)) &&
-            property.name !== undefined &&
-            (ts.isIdentifier(property.name) ||
-              ts.isStringLiteral(property.name)) &&
-            property.name.text === "shell" &&
-            !(
-              ts.isPropertyAssignment(property) &&
-              unwrap(property.initializer).kind === ts.SyntaxKind.FalseKeyword
-            ),
-        )
+        ts.isPropertyAssignment(property) &&
+        (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) &&
+        property.name.text === "shell" &&
+        !isNoShell(property.initializer)
+      );
+    });
+
+  const setsShell = (call: ts.CallExpression): boolean =>
+    call.arguments.slice(1).some((argument) => {
+      const options = unwrap(argument);
+      if (!ts.isIdentifier(options)) return enablesShell(options);
+      return (values.get(options.text) ?? []).some((value) =>
+        enablesShell(unwrap(value)),
       );
     });
 
