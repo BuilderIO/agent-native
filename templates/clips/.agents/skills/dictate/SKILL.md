@@ -114,7 +114,8 @@ chosen engine and dictation is on, with progress under Settings > Dictation >
 Transcription engine, and Apple Speech handles dictation until it has loaded.
 A dictation never waits for the model: if it isn't loaded, warmed up and free
 when the key goes down, that dictation runs on Apple Speech while Parakeet
-reloads in the background.
+reloads in the background. After a failed download or load, a dictation tries
+it again by itself at most every 10 minutes; Retry in Settings tries at once.
 Meetings use Parakeet too when it is the chosen engine and downloaded, and
 Whisper otherwise. Only one of the two models is ever loaded: while a meeting
 transcribes on one, anything that needs the other (a dictation, which runs on

@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::AppHandle;
@@ -38,6 +39,12 @@ static DOWNLOADED_BYTES: AtomicU64 = AtomicU64::new(0);
 static CANCEL_DOWNLOAD: AtomicBool = AtomicBool::new(false);
 static PREPARING: AtomicBool = AtomicBool::new(false);
 static LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static AUTO_RETRY: Mutex<AutoRetry> = Mutex::new(AutoRetry { last: None });
+
+/// How often a dictation that finds Parakeet failed may try it again by
+/// itself. Retry in Settings is never held back.
+const AUTO_RETRY_EVERY: Duration = Duration::from_secs(10 * 60);
 
 /// What a dictation start gets back when Parakeet can't take it right now,
 /// followed by `:` and an [`Unavailable`] reason. The frontend matches the
@@ -51,7 +58,7 @@ const STATUS_CHANGED: &str = "parakeet:model-status-changed";
 /// How long a meeting start waits for a Parakeet load already under way
 /// before asking the slot itself.
 #[cfg(target_os = "macos")]
-const MEETING_LOAD_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+const MEETING_LOAD_WAIT: Duration = Duration::from_secs(30);
 
 /// Why a dictation can't run on Parakeet right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,8 +79,30 @@ pub(crate) enum Unavailable {
     /// Whisper, which can't be swapped out under them, and Parakeet reloads at
     /// the first dictation after they end.
     Busy,
-    /// The last download or load failed; Settings shows why and offers Retry.
+    /// The last download or load failed. Settings shows why and offers Retry,
+    /// and a dictation tries again by itself at most once per
+    /// [`AUTO_RETRY_EVERY`].
     Failed,
+}
+
+/// When a dictation last tried a failed Parakeet again by itself.
+#[derive(Default)]
+struct AutoRetry {
+    last: Option<Instant>,
+}
+
+impl AutoRetry {
+    /// Whether a retry may start at `now`, which then counts as the last one.
+    fn claim(&mut self, now: Instant) -> bool {
+        if self
+            .last
+            .is_some_and(|last| now.saturating_duration_since(last) < AUTO_RETRY_EVERY)
+        {
+            return false;
+        }
+        self.last = Some(now);
+        true
+    }
 }
 
 impl Unavailable {
@@ -89,13 +118,18 @@ impl Unavailable {
     }
 
     /// Whether a dictation that met this should start a prepare. One already
-    /// running, a busy copy that comes back by itself, and a failure the user
-    /// retries from Settings don't.
-    fn starts_prepare(self) -> bool {
-        matches!(
-            self,
-            Unavailable::Missing | Unavailable::Loading | Unavailable::Unloaded | Unavailable::Held
-        )
+    /// running and a busy copy that comes back by itself don't, and a failure
+    /// is tried again only as often as `retry` allows, so one that keeps
+    /// failing doesn't reload, or download again, at every dictation.
+    fn starts_prepare(self, retry: &mut AutoRetry, now: Instant) -> bool {
+        match self {
+            Unavailable::Missing
+            | Unavailable::Loading
+            | Unavailable::Unloaded
+            | Unavailable::Held => true,
+            Unavailable::Failed => retry.claim(now),
+            Unavailable::Downloading | Unavailable::Busy => false,
+        }
     }
 }
 
@@ -209,10 +243,24 @@ pub(crate) fn dictation_lease(
         reason.as_str(),
         refused.as_str()
     );
-    if reason.starts_prepare() {
+    let prepare = reason.starts_prepare(
+        &mut AUTO_RETRY
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        Instant::now(),
+    );
+    if prepare {
+        if reason == Unavailable::Failed {
+            eprintln!("[parakeet] trying the failed model again in the background");
+        }
         if let Err(error) = start_prepare(app.clone(), reason == Unavailable::Held) {
             eprintln!("[parakeet] prepare failed to start: {error}");
         }
+    } else if reason == Unavailable::Failed {
+        eprintln!(
+            "[parakeet] tried again by itself under {} minutes ago; Retry in Settings tries now",
+            AUTO_RETRY_EVERY.as_secs() / 60
+        );
     }
     Err(format!("{NOT_READY}:{}", reason.as_str()))
 }
@@ -225,9 +273,9 @@ pub(crate) async fn meeting_lease(
     app: &AppHandle,
 ) -> Result<crate::transcribe_engine::RunLease<'static>, String> {
     let path = model_path(app)?;
-    let asked = std::time::Instant::now();
+    let asked = Instant::now();
     while PREPARING.load(Ordering::SeqCst) && asked.elapsed() < MEETING_LOAD_WAIT {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     let (lease, loaded) = tauri::async_runtime::spawn_blocking(move || {
         crate::transcribe_engine::LOCAL_MODEL.lease_for_run(&path)
@@ -409,7 +457,7 @@ pub async fn parakeet_model_release(app: AppHandle) -> Result<(), String> {
 #[cfg(target_os = "macos")]
 async fn prepare(app: &AppHandle) -> Result<(), String> {
     let path = ensure_downloaded(app).await?;
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let load_path = path.clone();
     let loaded = tauri::async_runtime::spawn_blocking(move || load_and_warm_up(&load_path))
         .await
@@ -641,7 +689,7 @@ mod tests {
             Unavailable::Failed,
         ]
         .into_iter()
-        .filter(|reason| reason.starts_prepare())
+        .filter(|reason| reason.starts_prepare(&mut AutoRetry::default(), Instant::now()))
         .collect();
         assert_eq!(
             recovering,
@@ -649,9 +697,25 @@ mod tests {
                 Unavailable::Missing,
                 Unavailable::Loading,
                 Unavailable::Unloaded,
-                Unavailable::Held
+                Unavailable::Held,
+                Unavailable::Failed,
             ]
         );
+    }
+
+    #[test]
+    fn a_failed_parakeet_is_tried_again_by_itself_at_most_every_ten_minutes() {
+        let mut retry = AutoRetry::default();
+        let first = Instant::now();
+        let after = |seconds: u64| first + Duration::from_secs(seconds);
+        assert!(Unavailable::Failed.starts_prepare(&mut retry, first));
+        assert!(!Unavailable::Failed.starts_prepare(&mut retry, after(1)));
+        assert!(!Unavailable::Failed.starts_prepare(&mut retry, after(9 * 60 + 59)));
+        // Other reasons never wait on it, and don't count as a retry.
+        assert!(Unavailable::Unloaded.starts_prepare(&mut retry, after(5 * 60)));
+        assert!(Unavailable::Failed.starts_prepare(&mut retry, after(10 * 60)));
+        assert!(!Unavailable::Failed.starts_prepare(&mut retry, after(15 * 60)));
+        assert!(Unavailable::Failed.starts_prepare(&mut retry, after(20 * 60)));
     }
 
     #[test]
