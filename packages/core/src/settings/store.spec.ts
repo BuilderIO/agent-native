@@ -226,7 +226,7 @@ describe("settings store", () => {
 
   it("moves a legacy user setting inside the same transaction", async () => {
     const { mutateUserSetting, getUserSetting, publishUserSettingChange } =
-      await import("./user-settings.js");
+      await import("./index.js");
     const { getSettingsEmitter } = await import("./store.js");
     const events: unknown[] = [];
     const listener = (event: unknown) => events.push(event);

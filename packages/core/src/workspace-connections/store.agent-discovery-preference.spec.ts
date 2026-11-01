@@ -43,7 +43,7 @@ vi.mock("./lifecycle.js", () => ({
 }));
 
 const { setWorkspaceConnectionAgentDiscoveryPreference } =
-  await import("./store.js");
+  await import("./index.js");
 
 describe("setWorkspaceConnectionAgentDiscoveryPreference", () => {
   beforeEach(() => {
