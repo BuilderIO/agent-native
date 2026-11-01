@@ -248,12 +248,27 @@ function hasUnsupportedJsxProps(raw: string): boolean {
   );
 }
 
+// A toggle whose title is page text (a `notionToggleSummary` first child)
+// says so with `markdown="1"`, as kramdown marks HTML whose content is
+// Markdown: its summary is inline Markdown. A toggle without it keeps its
+// title in the `summary` attribute, written as plain text.
+const TOGGLE_MARKDOWN_TITLE_ATTR = 'markdown="1"';
+const TOGGLE_MARKDOWN_TITLE_PATTERN = /\bmarkdown\s*=\s*"1"/;
+
+function toggleTitleNode(inline: PMNode[]): PMNode {
+  return inline.length
+    ? { type: "notionToggleSummary", content: inline }
+    : { type: "notionToggleSummary" };
+}
+
 function blockAttrSuffix(opts: {
   toggle?: boolean;
+  markdown?: boolean;
   color?: string | null;
 }): string {
   const parts: string[] = [];
   if (opts.toggle) parts.push('toggle="true"');
+  if (opts.markdown) parts.push(TOGGLE_MARKDOWN_TITLE_ATTR);
   if (isColor(opts.color)) parts.push(`color="${opts.color}"`);
   return parts.length ? ` {${parts.join(" ")}}` : "";
 }
@@ -300,27 +315,32 @@ function splitBlockAttrs(
 ): {
   text: string;
   toggle: boolean;
+  markdown: boolean;
   color: string | null;
 } {
+  const plain = { text: line, toggle: false, markdown: false, color: null };
   const m = matchBlockAttrSuffix(line);
-  if (!m) return { text: line, toggle: false, color: null };
+  if (!m) return plain;
   const body = m.body;
   if (oddTrailingBackslashes(m.text) || oddTrailingBackslashes(body)) {
-    return { text: line, toggle: false, color: null };
+    return plain;
   }
   const toggle = /\btoggle\s*=\s*"true"/.test(body);
+  // Only a toggle heading's text can be its Markdown title.
+  const markdown = toggle && TOGGLE_MARKDOWN_TITLE_PATTERN.test(body);
   const colorMatch = body.match(/\bcolor\s*=\s*"([^"]*)"/);
   const color = colorMatch && isColor(colorMatch[1]) ? colorMatch[1] : null;
   if (toggle && !allowToggle)
     reportLoss("dropped-attribute", '{toggle="true"}');
-  const rest = body
+  let rest = body
     .replace(/\btoggle\s*=\s*"true"/, "")
-    .replace(/\bcolor\s*=\s*"[^"]*"/, "")
-    .trim();
+    .replace(/\bcolor\s*=\s*"[^"]*"/, "");
+  if (markdown) rest = rest.replace(TOGGLE_MARKDOWN_TITLE_PATTERN, "");
+  rest = rest.trim();
   if ((colorMatch && !color) || ((toggle || color) && rest))
     reportLoss("dropped-attribute", `{${body}}`);
-  if (!toggle && !color) return { text: line, toggle: false, color: null };
-  return { text: m.text, toggle, color };
+  if (!toggle && !color) return plain;
+  return { text: m.text, toggle, markdown, color };
 }
 
 function markOf(node: PMNode, type: string): PMMark | undefined {
@@ -1637,13 +1657,14 @@ function serializeQuote(node: PMNode, ind: number): string[] {
 
 function serializeToggle(node: PMNode, ind: number): string[] {
   // A Toggle's title is its first child, written as inline Markdown like a
-  // paragraph. A Toggle saved before titles were page text keeps its title
-  // in `summary`, written as it was stored.
+  // paragraph, on the summary's one line, and marked `markdown="1"`. A
+  // Toggle saved before titles were page text keeps its title in `summary`,
+  // written as it was stored.
   const title =
     node.content?.[0]?.type === "notionToggleSummary" ? node.content[0] : null;
   const body = title ? node.content!.slice(1) : node.content || [];
   const summary = title
-    ? serializeInline(title.content)
+    ? serializeInline(title.content).replace(/\r?\n/g, " ")
     : (node.attrs?.summary as string) || "";
   const headingLevel = Number(node.attrs?.headingLevel) || 0;
   const color = node.attrs?.color;
@@ -1654,12 +1675,15 @@ function serializeToggle(node: PMNode, ind: number): string[] {
         "#".repeat(headingLevel) +
         " " +
         (title ? summary : escapeTrailingBackslashRun(summary)) +
-        blockAttrSuffix({ toggle: true, color }),
+        blockAttrSuffix({ toggle: true, markdown: !!title, color }),
     );
     pushAll(out, serializeBlocks(body, ind + 1));
     return out;
   }
-  const attrStr = serializeAttrs([["color", isColor(color) ? color : null]]);
+  const attrStr = serializeAttrs([
+    ["markdown", title ? "1" : null],
+    ["color", isColor(color) ? color : null],
+  ]);
   const openAttr = node.attrs?.open === true ? " open" : "";
   out.push(indentStr(ind) + `<details${attrStr}${openAttr}>`);
   out.push(indentStr(ind) + `<summary>${summary}</summary>`);
@@ -2776,19 +2800,24 @@ function parseSingleBlock(
   const headingMatch = dedent.match(/^(#{1,6})\s+(.*)$/);
   if (headingMatch) {
     const level = headingMatch[1].length;
-    const { text, toggle, color } = splitBlockAttrs(headingMatch[2], true);
+    const { text, toggle, markdown, color } = splitBlockAttrs(
+      headingMatch[2],
+      true,
+    );
     if (toggle) {
       const childRes = parseBlockSequence(lines, start + 1, indent + 1);
       const node: PMNode = {
         type: "notionToggle",
         attrs: {
-          summary: unescapeTrailingBackslashRun(text),
+          summary: markdown ? "" : unescapeTrailingBackslashRun(text),
           headingLevel: level,
           open: false,
           color: isColor(color) ? color : null,
           indent: 0,
         },
-        content: childRes.nodes,
+        content: markdown
+          ? [toggleTitleNode(parseInline(text)), ...childRes.nodes]
+          : childRes.nodes,
       };
       return { nodes: [withIndentAttr(node)], end: childRes.end };
     }
@@ -3261,6 +3290,9 @@ function parseContainer(
     // HTML reads any value of `open` as open, and the editor writes it bare.
     if (attrs.open !== undefined && !["", "open", "true"].includes(attrs.open))
       reportLoss("dropped-attribute", `<details open="${attrs.open}">`);
+    const markdown = attrs.markdown === "1";
+    if (attrs.markdown !== undefined && !markdown)
+      reportLoss("dropped-attribute", `<details markdown="${attrs.markdown}">`);
     let summary = "";
     let bodyStart = childStart;
     const summaryLine = lines[childStart]?.slice(indent) ?? "";
@@ -3269,16 +3301,19 @@ function parseContainer(
       summary = sm[1];
       bodyStart = childStart + 1;
     }
+    const body = parseDetailsBody(lines, bodyStart, closeIdx, indent);
     const node: PMNode = {
       type: "notionToggle",
       attrs: {
-        summary,
+        summary: markdown ? "" : summary,
         headingLevel: null,
         open: attrs.open !== undefined || /(?:^|\s)open(?:\s|>)/.test(openLine),
         color: isColor(attrs.color) ? attrs.color : null,
         indent: 0,
       },
-      content: parseDetailsBody(lines, bodyStart, closeIdx, indent),
+      content: markdown
+        ? [toggleTitleNode(parseInline(summary)), ...body]
+        : body,
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
@@ -3349,7 +3384,7 @@ function parseContainer(
   );
 }
 
-const DETAILS_ATTRS = new Set(["color", "open"]);
+const DETAILS_ATTRS = new Set(["color", "open", "markdown"]);
 const CALLOUT_ATTRS = new Set(["icon", "color"]);
 const SYNCED_ATTRS = new Set(["url", "notice"]);
 

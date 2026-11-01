@@ -22,6 +22,7 @@ import {
   normalizeIndentAttr,
   parseAttrsJson,
   safeExternalPageUrl,
+  toggleTitleNode,
 } from "./extensions/NotionExtensions";
 import { isEmptyCell } from "./extensions/TablePresentation";
 import {
@@ -296,11 +297,70 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
   },
   notionToggle: (node, document) => {
     const open = !!node.attrs.open;
-    const empty = node.childCount === 0;
+    const title = toggleTitleNode(node);
+    const empty = node.childCount === (title ? 1 : 0);
     const indent = normalizeIndentAttr(node.attrs.indent);
     const content = nodeViewContent(document, {
       class: "content-toggle__content",
     });
+    const chevronIcon = () =>
+      icon(document, 18, open ? "M6 9l6 6l6 -6" : "M9 6l6 6l-6 6");
+    const emptyBodyPlaceholder =
+      open && empty
+        ? h(
+            document,
+            "div",
+            {
+              class:
+                "content-toggle__body-placeholder content-toggle__body-placeholder--empty-node",
+              contenteditable: "false",
+            },
+            EMPTY_TOGGLE_BODY_PLACEHOLDER,
+          )
+        : null;
+    if (title) {
+      const toggle = nodeViewWrapper(
+        document,
+        "div",
+        {
+          class: [
+            "content-toggle",
+            "content-toggle--titled",
+            open && "content-toggle--open",
+            empty && "content-toggle--body-empty",
+            title.content.size === 0 && "content-toggle--title-empty",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          "data-color": node.attrs.color || null,
+          "data-heading-level": node.attrs.headingLevel || null,
+          "data-nfm-indent": indent ? String(indent) : null,
+          draggable: "true",
+          "data-drag-handle": "",
+        },
+        // The editor's titled Toggle opens from this button; a read-only
+        // body draws it, as it draws a page reference's, without the action.
+        h(
+          document,
+          "button",
+          {
+            type: "button",
+            class: "content-toggle__chevron",
+            contenteditable: "false",
+            disabled: "",
+            tabindex: "-1",
+            "aria-expanded": open ? "true" : "false",
+          },
+          chevronIcon(),
+        ),
+        content.dom,
+        emptyBodyPlaceholder,
+      );
+      return {
+        dom: reactNodeView(document, node, toggle),
+        contentDOM: content.contentDOM,
+      };
+    }
     const toggle = nodeViewWrapper(
       document,
       "div",
@@ -326,7 +386,7 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
           document,
           "span",
           { class: "content-toggle__chevron", contenteditable: "false" },
-          icon(document, 18, open ? "M6 9l6 6l6 -6" : "M9 6l6 6l-6 6"),
+          chevronIcon(),
         ),
         h(
           document,
@@ -343,18 +403,7 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
             ? "content-toggle__body"
             : "content-toggle__body content-toggle__body--collapsed",
         },
-        open && empty
-          ? h(
-              document,
-              "div",
-              {
-                class:
-                  "content-toggle__body-placeholder content-toggle__body-placeholder--empty-node",
-                contenteditable: "false",
-              },
-              EMPTY_TOGGLE_BODY_PLACEHOLDER,
-            )
-          : null,
+        emptyBodyPlaceholder,
         content.dom,
       ),
     );

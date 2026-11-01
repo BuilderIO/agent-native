@@ -124,6 +124,22 @@ function serializeInnerMarkdown(editor: any, node: any): string {
   return editor.storage.markdown.serializer.serialize(node).trimEnd();
 }
 
+/** A Toggle title's inline Markdown, on the one line a `<summary>` reads. */
+function serializeTitleMarkdown(editor: any, title: ProseMirrorNode): string {
+  const { schema } = title.type;
+  const paragraph = schema.nodes.paragraph;
+  if (!editor?.storage?.markdown?.serializer || !paragraph) {
+    return escapeHtml(title.textContent);
+  }
+  return serializeInnerMarkdown(
+    editor,
+    schema.topNodeType.create(null, paragraph.create(null, title.content)),
+  )
+    .trim()
+    .replace(/\\\r?\n/g, "<br>")
+    .replace(/\r?\n/g, " ");
+}
+
 function serializeContainerTag(
   tagName: string,
   attrs: Record<string, string | number | boolean | null | undefined>,
@@ -198,9 +214,10 @@ export const EMPTY_TOGGLE_BODY_PLACEHOLDER =
   "Empty toggle. Click or drop blocks inside.";
 
 // A Toggle's title is page text, as in Notion: the toggle's first child, so
-// it can be selected, commented on, suggested and formatted like a paragraph.
-// Toggles saved before this keep their title in the `summary` attribute and
-// have no title child.
+// it can be selected, commented on and formatted like a paragraph. A
+// suggestion leaves it as it is, as it left the `summary` title. Toggles saved
+// before this keep their title in the `summary` attribute and have no title
+// child.
 export const TOGGLE_TITLE_NODE = "notionToggleSummary";
 
 /** The Toggle's title node, or null for a Toggle that keeps its title in `summary`. */
@@ -1183,7 +1200,11 @@ export const NotionToggle = Node.create<NotionToggleOptions>({
     return {
       markdown: {
         serialize: function (_state: any, node: any) {
+          const editor = (this as any).editor;
+          const title = toggleTitleNode(node);
           const attrs: Record<string, string> = {};
+          // A title that is page text is written as Markdown; see nfm.ts.
+          if (title) attrs.markdown = "1";
           if (node.attrs.color) attrs.color = String(node.attrs.color);
           if (node.attrs.headingLevel) {
             attrs["data-heading-level"] = String(node.attrs.headingLevel);
@@ -1191,18 +1212,19 @@ export const NotionToggle = Node.create<NotionToggleOptions>({
           if (node.attrs.open) attrs.open = "";
           const indent = normalizeIndentAttr(node.attrs.indent);
           const prefix = "\t".repeat(indent);
-          const title = toggleTitleNode(node);
           const body = title
             ? node.copy(node.content.cut(title.nodeSize))
             : node;
-          const inner = serializeInnerMarkdown((this as any).editor, body);
+          const inner = serializeInnerMarkdown(editor, body);
           const openTag = `<details${serializeTagAttributes(attrs)}>`;
           _state.write(`${prefix}${openTag}`);
           _state.ensureNewLine();
           _state.write(
-            `${prefix}<summary>${escapeHtml(
-              title ? title.textContent : node.attrs.summary || "",
-            )}</summary>`,
+            `${prefix}<summary>${
+              title
+                ? serializeTitleMarkdown(editor, title)
+                : escapeHtml(node.attrs.summary || "")
+            }</summary>`,
           );
           if (inner.trim()) {
             _state.ensureNewLine();
@@ -1227,12 +1249,12 @@ const TITLE_BLOCK_MARKERS = [
   /^(?:---|—-|___\s|\*\*\*\s)$/,
 ];
 
-/** The changed positions of the old document that held a titled Toggle. */
-function titledTogglesTouchedBy(
+/** The Toggles of the old document that the changes touched, by position. */
+function togglesTouchedBy(
   transactions: readonly Transaction[],
   oldDoc: ProseMirrorNode,
-): number[] {
-  const found = new Set<number>();
+): Map<number, ProseMirrorNode> {
+  const found = new Map<number, ProseMirrorNode>();
   const mapping = new Mapping();
   for (const transaction of transactions) {
     for (const stepMap of transaction.mapping.maps) {
@@ -1242,16 +1264,51 @@ function titledTogglesTouchedBy(
           back.map(start, -1),
           back.map(end, 1),
           (node, pos) => {
-            if (node.type.name === "notionToggle" && toggleTitleNode(node)) {
-              found.add(pos);
-            }
+            if (node.type.name === "notionToggle") found.set(pos, node);
           },
         );
       });
       mapping.appendMap(stepMap);
     }
   }
-  return [...found];
+  return found;
+}
+
+/**
+ * Where an old document's position is after the changes, or null when the
+ * token right after it was deleted.
+ */
+function mapKept(
+  transactions: readonly Transaction[],
+  pos: number,
+  assoc: -1 | 1,
+): number | null {
+  let mapped = pos;
+  for (const transaction of transactions) {
+    const result = transaction.mapping.mapResult(mapped, assoc);
+    if (result.deletedAfter) return null;
+    mapped = result.pos;
+  }
+  return mapped;
+}
+
+/**
+ * Where an old Toggle is after the changes. An edit can delete its start,
+ * such as one from the block above into its title, and leave the rest of it,
+ * which then ends where it ended.
+ */
+function toggleAfterChanges(
+  transactions: readonly Transaction[],
+  pos: number,
+  toggle: ProseMirrorNode,
+  doc: ProseMirrorNode,
+): number | null {
+  const start = mapKept(transactions, pos, 1);
+  if (start !== null) return start;
+  const end = mapKept(transactions, pos + toggle.nodeSize - 1, -1);
+  if (end === null) return null;
+  const $end = doc.resolve(end);
+  return $end.depth > 0 ? $end.before() : null;
 }
 
 export const NotionToggleSummary = Node.create<NotionToggleOptions>({
@@ -1323,30 +1380,36 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
           if (!editor.isEditable || !transactions.some(isEdit)) return null;
           const titleType = newState.schema.nodes[TOGGLE_TITLE_NODE];
           if (!titleType) return null;
-          const untitled: number[] = [];
-          for (const pos of titledTogglesTouchedBy(
-            transactions,
-            oldState.doc,
-          )) {
-            let mapped = pos;
-            let deleted = false;
-            for (const transaction of transactions) {
-              const result = transaction.mapping.mapResult(mapped, 1);
-              deleted ||= result.deletedAfter;
-              mapped = result.pos;
-            }
-            const toggle = newState.doc.nodeAt(mapped);
+          const touched = togglesTouchedBy(transactions, oldState.doc);
+          // A Toggle that kept its title in `summary` and still starts where
+          // it did stays that way, even when a titled one's end joined it.
+          const keptUntitled = new Set<number>();
+          for (const [pos, toggle] of touched) {
+            if (toggleTitleNode(toggle)) continue;
+            const start = mapKept(transactions, pos, 1);
+            if (start !== null) keptUntitled.add(start);
+          }
+          const untitled = new Set<number>();
+          for (const [pos, toggle] of touched) {
+            if (!toggleTitleNode(toggle)) continue;
+            const mapped = toggleAfterChanges(
+              transactions,
+              pos,
+              toggle,
+              newState.doc,
+            );
+            if (mapped === null || keptUntitled.has(mapped)) continue;
+            const after = newState.doc.nodeAt(mapped);
             if (
-              !deleted &&
-              toggle?.type.name === "notionToggle" &&
-              !toggleTitleNode(toggle)
+              after?.type.name === "notionToggle" &&
+              !toggleTitleNode(after)
             ) {
-              untitled.push(mapped);
+              untitled.add(mapped);
             }
           }
-          if (untitled.length === 0) return null;
+          if (untitled.size === 0) return null;
           const tr = newState.tr;
-          for (const pos of untitled.sort((left, right) => right - left)) {
+          for (const pos of [...untitled].sort((left, right) => right - left)) {
             tr.insert(pos + 1, titleType.create());
           }
           return tr;

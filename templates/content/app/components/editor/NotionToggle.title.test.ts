@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
-import { Editor } from "@tiptap/core";
+import { Editor, type Extensions } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import {
   prosemirrorJSONToYXmlFragment,
   yDocToProsemirrorJSON,
   ySyncPluginKey,
 } from "@tiptap/y-tiptap";
+import { Markdown } from "tiptap-markdown";
 import { afterEach, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
@@ -17,12 +18,19 @@ import {
 
 const editors: Editor[] = [];
 
-function createEditor(content: Record<string, unknown>[]) {
+function createEditor(
+  content: Record<string, unknown>[],
+  extensions: Extensions = [],
+) {
   const element = document.createElement("div");
   document.body.append(element);
   const editor = new Editor({
     element,
-    extensions: [StarterKit.configure({ trailingNode: false }), NotionToggle],
+    extensions: [
+      StarterKit.configure({ trailingNode: false }),
+      NotionToggle,
+      ...extensions,
+    ],
     content: { type: "doc", content },
   });
   editors.push(editor);
@@ -36,22 +44,37 @@ function paragraph(text?: string): Record<string, unknown> {
 }
 
 function titled(
-  title: string,
+  title: string | Record<string, unknown>[],
+  open: boolean,
+  body: Record<string, unknown>[] = [],
+): Record<string, unknown> {
+  const inline =
+    typeof title === "string"
+      ? title
+        ? [{ type: "text", text: title }]
+        : []
+      : title;
+  return {
+    type: "notionToggle",
+    attrs: { summary: "", color: null, headingLevel: null, open, indent: 0 },
+    content: [
+      inline.length
+        ? { type: "notionToggleSummary", content: inline }
+        : { type: "notionToggleSummary" },
+      ...body,
+    ],
+  };
+}
+
+function untitled(
+  summary: string,
   open: boolean,
   body: Record<string, unknown>[] = [],
 ): Record<string, unknown> {
   return {
     type: "notionToggle",
-    attrs: { summary: "", color: null, headingLevel: null, open, indent: 0 },
-    content: [
-      title
-        ? {
-            type: "notionToggleSummary",
-            content: [{ type: "text", text: title }],
-          }
-        : { type: "notionToggleSummary" },
-      ...body,
-    ],
+    attrs: { summary, color: null, headingLevel: null, open, indent: 0 },
+    content: body,
   };
 }
 
@@ -208,6 +231,60 @@ describe("a Toggle's title as page text", () => {
         paragraph("Body"),
       ]),
     ]);
+  });
+
+  it("gives a Toggle an empty title when a deletion from the block above takes its title's start", () => {
+    const editor = createEditor([
+      paragraph("Intro"),
+      titled("Title", true, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+    // From "In|tro" to "Ti|tle": the Toggle's start goes with it.
+    editor.view.dispatch(editor.state.tr.delete(3, 11));
+
+    expect(editor.getJSON().content).toEqual([
+      paragraph("Intle"),
+      titled("", true, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+  });
+
+  it("leaves a Toggle that keeps its title in summary untitled when a titled one's end joins it", () => {
+    const editor = createEditor([
+      untitled("Old title", true, [paragraph("A")]),
+      titled("Title", true, [paragraph("Body")]),
+    ]);
+    // From "|A" in the first Toggle to "B|ody" in the second.
+    editor.view.dispatch(editor.state.tr.delete(2, 15));
+
+    expect(editor.getJSON().content).toEqual([
+      untitled("Old title", true, [paragraph("ody")]),
+    ]);
+  });
+
+  it("copies a title as marked inline Markdown", () => {
+    const editor = createEditor(
+      [
+        titled(
+          [
+            { type: "text", text: "Plan", marks: [{ type: "bold" }] },
+            { type: "text", text: " for " },
+            { type: "text", text: "today", marks: [{ type: "code" }] },
+          ],
+          true,
+          [paragraph("Body")],
+        ),
+      ],
+      [Markdown.configure({ html: true })],
+    );
+    const markdown = (
+      editor.storage as unknown as {
+        markdown: { getMarkdown: () => string };
+      }
+    ).markdown.getMarkdown();
+
+    expect(markdown).toContain('markdown="1"');
+    expect(markdown).toContain("<summary>**Plan** for `today`</summary>");
   });
 
   it("leaves another tab's change to the title to that tab", () => {

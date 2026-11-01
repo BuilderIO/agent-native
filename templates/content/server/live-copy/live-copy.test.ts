@@ -7,7 +7,11 @@ import { getDbExec, withDbExec, type DbExec } from "@agent-native/core/db";
 import { serializeIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
-import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
+import {
+  initProseMirrorDoc,
+  updateYFragment,
+  yXmlFragmentToProseMirrorRootNode,
+} from "@tiptap/y-tiptap";
 import { and, asc, desc, eq } from "drizzle-orm";
 import {
   afterAll,
@@ -1493,6 +1497,48 @@ describe("edit-document on a switched page", () => {
       collab.applyUpdate(id, await editorUpdate(id, markdownBlocks(body))),
     );
   }
+
+  it("keeps a toggle's rich title through an agent's edit to another block", async () => {
+    const toggle = [
+      '<details markdown="1">',
+      "<summary>**Plan** for today</summary>",
+      "\tBody",
+      "</details>",
+    ].join("\n");
+    await switchedPage("rich-title", `${toggle}\nHello there\nSecond`);
+    const loaded = await page("rich-title");
+    await typeInTab("rich-title", `${toggle}\nHello there\nSecond B`);
+
+    const result = await agentEdit("rich-title", loaded, [
+      { find: "there", replace: "world" },
+    ]);
+
+    expect(result.receipt.outcome).toBe("applied");
+    expect((await page("rich-title")).content).toBe(
+      `${toggle}\nHello world\nSecond B`,
+    );
+    const live = await collab.readLiveCopy(
+      binding.contentLiveCopy,
+      "rich-title",
+    );
+    if (live.kind !== "live") throw new Error(`rich-title is ${live.kind}`);
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, live.state);
+    const root = yXmlFragmentToProseMirrorRootNode(
+      doc.getXmlFragment("default"),
+      editorSchema,
+    );
+    doc.destroy();
+    const toggleNode = root.firstChild!;
+    expect(toggleNode.attrs.summary).toBe("");
+    expect(toggleNode.firstChild!.toJSON()).toEqual({
+      type: "notionToggleSummary",
+      content: [
+        { type: "text", text: "Plan", marks: [{ type: "bold" }] },
+        { type: "text", text: " for today" },
+      ],
+    });
+  });
 
   it("commits an agent's edit through the live copy, so the page stays switched", async () => {
     await switchedPage("agent-edit", "Hello there");
