@@ -7907,6 +7907,62 @@ describe("mountWebMcpActionRoutes", () => {
     });
   });
 
+  it("lets the browser revalidate the manifest instead of downloading it again", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const manifestHandler = (actions: Record<string, any>) => {
+      const mounted: Array<{ path: string; handler: any }> = [];
+      mountWebMcpActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        actions,
+        { getOwnerFromEvent: vi.fn(async () => "owner@example.com") },
+      );
+      return mounted.find(
+        ({ path }) => path === "/_agent-native/webmcp/manifest",
+      )?.handler;
+    };
+    const action = (description: string) =>
+      ({
+        tool: { description, parameters: { type: "object" } },
+        run: vi.fn(),
+        http: false,
+        readOnly: true,
+      }) as any;
+    const handler = manifestHandler({ "list-clips": action("List clips") });
+
+    const first: any = { _method: "GET", _headers: {} };
+    const body = await handler(first);
+    const etag = first._responseHeaders?.etag;
+    expect(body).toEqual([expect.objectContaining({ name: "list-clips" })]);
+    expect(etag).toMatch(/^"[\w-]+"$/);
+    expect(first._responseHeaders?.["cache-control"]).toBe("private, no-cache");
+
+    const revalidation: any = {
+      _method: "GET",
+      _headers: { "if-none-match": `W/"stale", ${etag}` },
+    };
+    await expect(handler(revalidation)).resolves.toBeNull();
+    expect(revalidation._status).toBe(304);
+    expect(revalidation._responseHeaders?.etag).toBe(etag);
+
+    const stale: any = {
+      _method: "GET",
+      _headers: { "if-none-match": '"stale"' },
+    };
+    await expect(handler(stale)).resolves.toEqual(body);
+    expect(stale._status).toBeUndefined();
+
+    const other: any = { _method: "GET", _headers: {} };
+    await manifestHandler({
+      "list-clips": action("List clips"),
+      "get-clip": action("Get a clip"),
+    })(other);
+    expect(other._responseHeaders?.etag).not.toBe(etag);
+  });
+
   it("evaluates needsApproval against schema-validated args, not raw JSON", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const { z } = await import("zod");

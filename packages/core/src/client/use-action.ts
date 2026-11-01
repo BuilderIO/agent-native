@@ -65,7 +65,10 @@ import {
 } from "./embed-auth.js";
 import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
-import { currentSessionIdentity } from "./session-identity.js";
+import {
+  currentSessionIdentity,
+  onSessionIdentityPublished,
+} from "./session-identity.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
 export { actionErrorCode };
@@ -264,11 +267,65 @@ const UI_CAPABILITY_MINT_TIMEOUT_MS = 10_000;
 let uiCapabilityRequest: Promise<void> | undefined;
 let uiCapability: { identity: string | null | undefined; at: number } | null =
   null;
+// The account and org of the last published session. The remembered
+// capability is tied to it, so a reload in another org doesn't reuse it.
+let publishedSessionScope: string | null | undefined;
+
+// The capability is a cookie the browser keeps across reloads, so the tab
+// remembers when it minted one and a reload inside the reuse window skips the
+// mint. A cookie that went away anyway costs one retry: the server answers
+// `ui_capability_required` and the write re-mints.
+function uiCapabilityStorageKey(): string {
+  return `agent-native:ui-capability:${agentNativePath("/_agent-native/ui-capability")}`;
+}
+
+function identityFingerprint(identity: string): string {
+  const scope = publishedSessionScope ?? identity;
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < scope.length; index += 1) {
+    hash ^= scope.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function readRememberedUiCapability(identity: string): number | undefined {
+  try {
+    const raw = globalThis.sessionStorage.getItem(uiCapabilityStorageKey());
+    if (!raw) return undefined;
+    const remembered = JSON.parse(raw) as { identity?: unknown; at?: unknown };
+    return remembered.identity === identityFingerprint(identity) &&
+      typeof remembered.at === "number"
+      ? remembered.at
+      : undefined;
+  } catch {
+    // coercion-ok: storage that can't be read means nothing is remembered,
+    // and the next write mints as it would have on a first load.
+    return undefined;
+  }
+}
+
+function rememberUiCapability(identity: string, at: number): void {
+  try {
+    globalThis.sessionStorage.setItem(
+      uiCapabilityStorageKey(),
+      JSON.stringify({ identity: identityFingerprint(identity), at }),
+    );
+  } catch {
+    // coercion-ok: storage that is full, blocked or missing (outside a browser)
+    // only costs the mint after a reload; the in-memory capability still applies.
+  }
+}
 
 function hasFreshUiCapability(): boolean {
+  const identity = currentSessionIdentity();
+  if (uiCapability === null && typeof identity === "string") {
+    const at = readRememberedUiCapability(identity);
+    if (at !== undefined) uiCapability = { identity, at };
+  }
   return (
     uiCapability !== null &&
-    uiCapability.identity === currentSessionIdentity() &&
+    uiCapability.identity === identity &&
     Date.now() - uiCapability.at < UI_CAPABILITY_REUSE_MS
   );
 }
@@ -276,6 +333,11 @@ function hasFreshUiCapability(): boolean {
 /** Drop the remembered capability so the next call that needs one mints it. */
 export function forgetUiActionCapability(): void {
   uiCapability = null;
+  try {
+    globalThis.sessionStorage.removeItem(uiCapabilityStorageKey());
+  } catch {
+    // coercion-ok: storage that can't be reached holds nothing to forget.
+  }
 }
 
 // The mint is shared by concurrent callers, so one caller's abort rejects only
@@ -303,6 +365,9 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
         throw new Error("Could not establish the browser UI capability.");
       }
       uiCapability = { identity, at: Date.now() };
+      if (typeof identity === "string") {
+        rememberUiCapability(identity, uiCapability.at);
+      }
     });
     return Promise.race([response, timedOut]).finally(() => {
       clearTimeout(timer);
@@ -319,6 +384,52 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       .finally(() => signal.removeEventListener("abort", onAbort));
   });
 }
+
+// A page that sends action writes as soon as it opens (a Content document) can
+// ask for the mint early, so it overlaps the page's reads instead of holding
+// its first write. Other pages mint on their first write, as before, so a
+// visit that never writes doesn't make the request.
+let uiCapabilityWanted = false;
+
+function mintWantedUiCapability(): void {
+  if (
+    !uiCapabilityWanted ||
+    typeof window === "undefined" ||
+    agentNativeApiDisabledReason() ||
+    isEmbedAuthActive() ||
+    typeof currentSessionIdentity() !== "string" ||
+    hasFreshUiCapability()
+  ) {
+    return;
+  }
+  ensureUiActionCapability().catch(() => {
+    // The first write that needs the capability mints it again.
+  });
+}
+
+/**
+ * Mint the UI write capability now, or as soon as a signed-in session is
+ * known, for a page that is about to send action writes. Pages that don't call
+ * this mint on their first write.
+ */
+export function prepareUiActionCapability(): void {
+  uiCapabilityWanted = true;
+  mintWantedUiCapability();
+}
+
+onSessionIdentityPublished((scope) => {
+  const previous = publishedSessionScope;
+  publishedSessionScope = scope;
+  // A capability minted for a session that signed out, or for another account
+  // or org, isn't this session's to reuse.
+  if (
+    scope === null ||
+    (previous !== undefined && previous !== null && previous !== scope)
+  ) {
+    forgetUiActionCapability();
+  }
+  mintWantedUiCapability();
+});
 
 /**
  * Every write from the signed-in app carries the UI capability, so an action
