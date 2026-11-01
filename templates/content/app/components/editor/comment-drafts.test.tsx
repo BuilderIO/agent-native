@@ -219,6 +219,26 @@ describe("comment drafts", () => {
     expect(draft().draft).not.toHaveProperty("retry");
   });
 
+  it("gives a newer draft the key of a submission that may have saved", async () => {
+    const retry = { payload: '{"content":"Clip note"}', operationId: "op-a" };
+    const draft = () => {
+      if (!currentDraft) throw new Error("No draft rendered");
+      return currentDraft;
+    };
+    render({});
+    await act(async () => draft().setText("Clip note"));
+    await act(async () => draft().beginSubmission("op-a"));
+    await act(async () => draft().setText("Clip"));
+    await act(async () => draft().restoreSubmittedDraft("op-a", retry));
+    await act(async () => draft().finishSubmission("op-a"));
+    expect(draft().draft).toMatchObject({ text: "Clip", retry });
+
+    await act(async () => root?.unmount());
+    root = null;
+    render({});
+    expect(draft().draft).toMatchObject({ text: "Clip", retry });
+  });
+
   it("retains the submitted mentions across remount and replaces them on resubmit", () => {
     render({});
     act(() => currentDraft!.setText("Hello @Reviewer"));

@@ -389,7 +389,21 @@ function CommentDraftStore({
     CommentDraftContextValue["restoreSubmittedDraft"]
   >((key, operationId, retry) => {
     const submitted = submittedDrafts.get(operationId);
-    if (!submitted || draftsRef.current.has(key)) return false;
+    if (!submitted) return false;
+    if (draftsRef.current.has(key)) {
+      // The newer draft stays, but takes the uncertain submission with it:
+      // typing the same comment again must reuse its key, not save a copy.
+      if (retry) {
+        setDrafts((current) => {
+          const newer = current.get(key);
+          if (!newer || newer.retry) return current;
+          const next = new Map(current);
+          next.set(key, { ...newer, retry: { ...retry } });
+          return next;
+        });
+      }
+      return false;
+    }
     const { retry: _submittedRetry, ...draft } = submitted;
     setDrafts((current) => {
       if (current.has(key)) return current;
