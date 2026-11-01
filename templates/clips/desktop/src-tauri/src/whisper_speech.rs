@@ -454,9 +454,13 @@ mod macos {
         }
 
         fn reset_timeline(&self, offset: Duration) {
-            if let Ok(mut buf) = self.buf.lock() {
-                buf.clear();
-            }
+            // The generation moves while the buffer's lock is held, so a
+            // reader holding that lock sees a buffer and generation that agree.
+            let mut buf = self
+                .buf
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            buf.clear();
             let now = Instant::now();
             if let Ok(mut timeline) = self.timeline.lock() {
                 timeline.stream_start = timeline_start_for_offset(now, offset);
@@ -806,15 +810,18 @@ mod macos {
             }
         }
 
-        let raw = stream.buf.lock().map(|b| b.clone()).unwrap_or_default();
+        let (raw, reset_since_poll) = stream
+            .buf
+            .lock()
+            .map(|b| {
+                let generation = stream.reset_generation.load(Ordering::SeqCst);
+                (b.clone(), generation != seen_reset_generation)
+            })
+            .unwrap_or_default();
         let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
         // Stopping delivers the capture's last buffers after the loop's final
         // poll, so speech heard only there must still count.
-        let polled = if stream.reset_generation.load(Ordering::SeqCst) == seen_reset_generation {
-            last_raw_len
-        } else {
-            0
-        };
+        let polled = if reset_since_poll { 0 } else { last_raw_len };
         let had_voice = had_voice
             || unpolled_voice(
                 &raw,
