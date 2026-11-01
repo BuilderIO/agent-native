@@ -384,7 +384,7 @@ function BuilderConnectIncludedServices({ appId }: { appId?: string }) {
         defaultValue: "Included free",
       })}
       creditsLabel={t("agentChat.onboarding.builderMonthlyCredits", {
-        defaultValue: "60 monthly Agent Credits",
+        defaultValue: "15 free credits a day, up to 60 a month",
       })}
       loadingLabel={t("agentChat.common.loading")}
       testId="builder-included-services"
