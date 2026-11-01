@@ -531,7 +531,7 @@ describe("notifyPlanCommentRecipients side effects", () => {
     });
     const args = renderEmailMock.mock.calls[0]?.[0] as { paragraphs: string[] };
     expect(args.paragraphs[1].length).toBeLessThan(400);
-    expect(args.paragraphs[1]).toContain("...");
+    expect(args.paragraphs[1]).toContain("…");
   });
 
   it("never emails the owner about their own comment via notify path", async () => {

@@ -1,0 +1,15 @@
+export const nativeCapabilities = [
+  "capture.screen@1",
+  "capture.audio@1",
+  "capture.camera@1",
+  "speech.transcribe@1",
+  "dictation.insert@1",
+  "meetings.detect@1",
+  "calendar.read@1",
+  "screen.memory@1",
+  "hotkeys@1",
+  "menubar@1",
+  "surfaces@1",
+  "notifications@1",
+  "background@1",
+] as const;

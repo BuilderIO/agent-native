@@ -4422,12 +4422,40 @@ function createAuthGuardFn(
     if (session) {
       const method = getMethod(event);
       if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
-        const workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
+        let workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
           path: p,
           method,
           email: session.email,
-          orgId: session.orgId,
+          ...(session.orgId === undefined ? {} : { orgId: session.orgId }),
         });
+        if (
+          workspaceAppAccess === false &&
+          !session.orgId &&
+          session.emailVerified === true &&
+          !hasExplicitPersonalOrgScope(event) &&
+          getAppConfig().access.orgCreation === "closed"
+        ) {
+          const { isBootstrapAdmin } =
+            await import("../org/signup-admission.js");
+          if (isBootstrapAdmin(session.email)) {
+            const orgs = await getDbExec().execute({
+              sql: "SELECT id FROM organizations LIMIT 1",
+              args: [],
+            });
+            if (orgs.rows.length === 0) {
+              const { getOrgContext } = await import("../org/context.js");
+              const org = await getOrgContext(event);
+              if (org.orgId) {
+                workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
+                  path: p,
+                  method,
+                  email: session.email,
+                  orgId: org.orgId,
+                });
+              }
+            }
+          }
+        }
         if (isWorkspaceAppAccessUnavailable(workspaceAppAccess)) {
           setResponseStatus(event, 503);
           return workspaceAppAccessUnavailableBody(workspaceAppAccess);

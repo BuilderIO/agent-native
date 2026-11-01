@@ -223,7 +223,6 @@ export function DatabaseListView({
                   properties={properties}
                   databaseDocumentId={databaseDocumentId}
                   canEdit={canEdit}
-                  rowIndex={index}
                   canReorder={rowsAreManuallyOrdered}
                   canMoveUp={rowsAreManuallyOrdered && index > 0}
                   canMoveDown={
@@ -298,7 +297,6 @@ function DatabaseGroupedListSection({
               properties={properties}
               databaseDocumentId={databaseDocumentId}
               canEdit={canEdit}
-              rowIndex={index}
               canReorder={false}
               canMoveUp={false}
               canMoveDown={false}
@@ -328,7 +326,6 @@ function DatabaseListRow({
   properties,
   databaseDocumentId,
   canEdit,
-  rowIndex,
   canReorder,
   canMoveUp,
   canMoveDown,
@@ -343,7 +340,6 @@ function DatabaseListRow({
   properties: DocumentProperty[];
   databaseDocumentId: string;
   canEdit: boolean;
-  rowIndex: number;
   canReorder: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -356,7 +352,6 @@ function DatabaseListRow({
     <RowActionsCell
       item={item}
       databaseDocumentId={databaseDocumentId}
-      rowIndex={rowIndex}
       canReorder={canReorder}
       canMoveUp={canMoveUp}
       canMoveDown={canMoveDown}

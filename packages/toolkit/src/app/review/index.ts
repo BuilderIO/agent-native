@@ -1,3 +1,4 @@
+export * from "./CommentBody.js";
 export * from "./InlineMarkdown.js";
 export * from "./review-agent.js";
 export * from "./ReviewAgentMark.js";

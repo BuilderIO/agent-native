@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const adhocAnalysisSkill = readFileSync(
   new URL("../../.agents/skills/adhoc-analysis/SKILL.md", import.meta.url),
@@ -964,6 +964,12 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard dbt fallback disclosure", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T19:00:00.000Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
   const dbtNotFound = {
     name: "query-dbt-semantic-metric",
     isError: false,
@@ -7012,7 +7018,7 @@ describe("realDataFinalGuard", () => {
         userText: "Compare active accounts and activation rate last month.",
         draftText:
           "Active accounts returned 10 partial rows. The activation rate was 42%.",
-        runStartedAt: todayUtc.getTime(),
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         toolCalls: [
           {
             toolCallId: "dbt-active-accounts",
@@ -7078,7 +7084,7 @@ describe("realDataFinalGuard", () => {
         userText: "Compare active accounts and activation rate last month.",
         draftText:
           "Active accounts returned 10 partial rows. The activation rate was 42%.",
-        runStartedAt: todayUtc.getTime(),
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         toolCalls: [
           {
             toolCallId: "dbt-active-accounts",

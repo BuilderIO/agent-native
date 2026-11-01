@@ -54,7 +54,11 @@ export type PriorTurnToolCallJournalRead =
       priorToolResults: PriorTurnToolResultSummary[];
       priorToolCallSequence: PriorTurnToolCallSequenceEntry[];
     }
-  | { status: "unreadable"; error: string };
+  | {
+      status: "unreadable";
+      error: string;
+      code?: "private_history_unrecoverable";
+    };
 
 export interface PriorTurnToolCallJournalOptions {
   /** Recover outcomes committed before a reaper successor could persist tool_done. */
@@ -451,6 +455,50 @@ export async function loadPriorTurnToolCallJournal(
       `[tool-call-journal] per-turn ledger read failed for thread ${threadId}: ${error}`,
     );
     return { status: "unreadable", error };
+  }
+  const privateStarts = new Map<string, string>();
+  const privatePauses = new Set<string>();
+  for (const event of priorEvents) {
+    if (event.omitFromPersistedHistory !== true) continue;
+    if (event.type === "tool_start") {
+      if (
+        !event.id ||
+        privateStarts.has(event.id) ||
+        privatePauses.has(event.id)
+      ) {
+        return {
+          status: "unreadable",
+          code: "private_history_unrecoverable",
+          error:
+            "Private tool history cannot be safely resumed. Start a new turn.",
+        };
+      }
+      privateStarts.set(event.id, event.tool);
+    } else if (event.type === "tool_done") {
+      if (
+        !event.id ||
+        privateStarts.get(event.id) !== event.tool ||
+        privatePauses.has(event.id) ||
+        event.approvalPause !== true ||
+        event.completedSideEffect !== false
+      ) {
+        return {
+          status: "unreadable",
+          code: "private_history_unrecoverable",
+          error:
+            "Private tool history cannot be safely resumed. Start a new turn.",
+        };
+      }
+      privateStarts.delete(event.id);
+      privatePauses.add(event.id);
+    }
+  }
+  if (privateStarts.size > 0) {
+    return {
+      status: "unreadable",
+      code: "private_history_unrecoverable",
+      error: "Private tool history cannot be safely resumed. Start a new turn.",
+    };
   }
   if (options.recoverCompletedExecutionSteps) {
     try {

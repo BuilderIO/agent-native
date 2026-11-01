@@ -13,6 +13,7 @@ import {
   createDataTableWidgetResult,
   dataChartWidgetSchema,
   dataChartWidgetResultSchema,
+  isDataChartWidget,
   dataInsightsWidgetResultSchema,
   dataWidgetResultSchema,
   normalizeDataWidgetResult,
@@ -102,6 +103,309 @@ describe("data widget helpers", () => {
 
     expect(result.chartSeries.contentHeight).toBe(400);
     expect(dataChartWidgetResultSchema.parse(result)).toEqual(result);
+  });
+
+  it("accepts number charts with exactly one finite measure", () => {
+    const chartSeries = {
+      type: "number" as const,
+      xKey: "period",
+      series: [{ key: "revenue", label: "Revenue" }],
+      data: [{ period: "Current quarter", revenue: 1234.5 }],
+    };
+
+    expect(dataChartWidgetSchema.safeParse(chartSeries).success).toBe(true);
+    expect(createDataChartWidgetResult({ chartSeries }).chartSeries).toEqual(
+      chartSeries,
+    );
+
+    for (const invalidChart of [
+      {
+        ...chartSeries,
+        series: [...chartSeries.series, { key: "cost", label: "Cost" }],
+      },
+      {
+        ...chartSeries,
+        data: [
+          ...chartSeries.data,
+          { period: "Previous quarter", revenue: 900 },
+        ],
+      },
+      {
+        ...chartSeries,
+        data: [{ period: "Current quarter", revenue: Number.NaN }],
+      },
+    ]) {
+      expect(() =>
+        createDataChartWidgetResult({ chartSeries: invalidChart as never }),
+      ).toThrow("Invalid data-chart widget payload");
+    }
+  });
+
+  it("accepts pie and donut charts with one labeled non-negative series", () => {
+    const chart = {
+      xKey: "category",
+      series: [{ key: "value", label: "Value" }],
+      data: [
+        { category: "alpha", value: 1 },
+        { category: "beta", value: 2 },
+        { category: "gamma", value: 3 },
+      ],
+    };
+
+    for (const type of ["pie", "donut"] as const) {
+      const chartSeries = { ...chart, type };
+      expect(createDataChartWidgetResult({ chartSeries }).chartSeries).toEqual(
+        chartSeries,
+      );
+      expect(
+        dataChartWidgetResultSchema.safeParse({
+          widget: DATA_CHART_WIDGET,
+          chartSeries,
+        }).success,
+      ).toBe(true);
+    }
+
+    for (const invalidChart of [
+      {
+        ...chart,
+        type: "pie",
+        series: [...chart.series, { key: "other", label: "Other" }],
+      },
+      { ...chart, type: "pie", data: [{ category: " ", value: 1 }] },
+      { ...chart, type: "pie", data: [{ category: "alpha", value: -1 }] },
+      {
+        ...chart,
+        type: "donut",
+        data: [
+          { category: "alpha", value: 0 },
+          { category: "beta", value: 0 },
+        ],
+      },
+    ]) {
+      expect(() =>
+        createDataChartWidgetResult({ chartSeries: invalidChart as never }),
+      ).toThrow("Invalid data-chart widget payload");
+    }
+  });
+
+  it("accepts numeric scatter points with an optional category color field", () => {
+    const chartSeries = {
+      type: "scatter" as const,
+      xKey: "series_one",
+      xAxisTitle: "series_one",
+      yAxisTitle: "Sum of series_two",
+      colorByKey: "category",
+      series: [{ key: "series_two", label: "Sum of series_two" }],
+      data: [
+        { category: "alpha", series_one: 1, series_two: 2 },
+        { category: "beta", series_one: 2, series_two: 1 },
+        { category: "gamma", series_one: 3, series_two: 2 },
+      ],
+    };
+
+    expect(dataChartWidgetSchema.safeParse(chartSeries).success).toBe(true);
+    expect(createDataChartWidgetResult({ chartSeries }).chartSeries).toEqual(
+      chartSeries,
+    );
+    expect(
+      dataChartWidgetResultSchema.safeParse(
+        createDataChartWidgetResult({ chartSeries }),
+      ).success,
+    ).toBe(true);
+
+    for (const invalidChart of [
+      {
+        ...chartSeries,
+        data: [{ ...chartSeries.data[0], series_one: "east" }],
+      },
+      { ...chartSeries, data: [{ ...chartSeries.data[0], series_two: null }] },
+      { ...chartSeries, colorByKey: "series_one" },
+      { ...chartSeries, colorByKey: "series_two" },
+      { ...chartSeries, data: [{ ...chartSeries.data[0], category: " " }] },
+      { ...chartSeries, data: [] },
+    ]) {
+      expect(isDataChartWidget(invalidChart)).toBe(false);
+      expect(
+        dataChartWidgetResultSchema.safeParse({
+          widget: DATA_CHART_WIDGET,
+          chartSeries: invalidChart,
+        }).success,
+      ).toBe(false);
+      expect(() =>
+        createDataChartWidgetResult({ chartSeries: invalidChart as never }),
+      ).toThrow("Invalid data-chart widget payload");
+    }
+  });
+
+  it("accepts unique numeric histogram values with non-negative counts", () => {
+    const chartSeries = {
+      type: "histogram" as const,
+      xKey: "value",
+      xAxisTitle: "value",
+      yAxisTitle: "Count of Records",
+      series: [{ key: "count", label: "Count of Records" }],
+      data: [
+        { value: 1, count: 1 },
+        { value: 2, count: 1 },
+        { value: 3, count: 1 },
+      ],
+    };
+
+    expect(isDataChartWidget(chartSeries)).toBe(true);
+    expect(
+      dataChartWidgetResultSchema.safeParse(
+        createDataChartWidgetResult({ chartSeries }),
+      ).success,
+    ).toBe(true);
+
+    for (const invalidChart of [
+      { ...chartSeries, layout: "horizontal" },
+      { ...chartSeries, stacking: "stacked" },
+      { ...chartSeries, colorByKey: "value" },
+      {
+        ...chartSeries,
+        data: [
+          { value: 1, count: 1 },
+          { value: 1, count: 2 },
+        ],
+      },
+      { ...chartSeries, data: [{ value: "1", count: 1 }] },
+      { ...chartSeries, data: [{ value: 1, count: -1 }] },
+      {
+        ...chartSeries,
+        series: [...chartSeries.series, { key: "other", label: "Other" }],
+      },
+    ]) {
+      expect(isDataChartWidget(invalidChart)).toBe(false);
+      expect(
+        dataChartWidgetResultSchema.safeParse({
+          widget: DATA_CHART_WIDGET,
+          chartSeries: invalidChart,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("preserves stacked bars and areas and rejects invalid stacked data", () => {
+    const chartSeries = {
+      type: "bar" as const,
+      layout: "horizontal" as const,
+      stacking: "stacked" as const,
+      title: "Synthetic regional mix",
+      xKey: "region",
+      xAxisTitle: "Value",
+      yAxisTitle: "Region",
+      series: [
+        { key: "core", label: "Core" },
+        { key: "support", label: "Support" },
+      ],
+      data: [
+        { region: "North", core: 4, support: 3 },
+        { region: "South", core: 2, support: 5 },
+      ],
+    };
+    const result = createDataChartWidgetResult({ chartSeries });
+
+    expect(dataChartWidgetResultSchema.parse(result)).toEqual(result);
+    expect(normalizeDataWidgetResult(result)).toMatchObject({
+      chartSeries: {
+        stacking: "stacked",
+        series: [
+          { key: "core", label: "Core" },
+          { key: "support", label: "Support" },
+        ],
+        data: chartSeries.data,
+      },
+    });
+
+    const vertical = createDataChartWidgetResult({
+      chartSeries: { ...chartSeries, layout: "vertical" },
+    });
+    expect(dataChartWidgetResultSchema.parse(vertical)).toEqual(vertical);
+
+    const percentChart = {
+      ...chartSeries,
+      layout: "vertical" as const,
+      stacking: "percent" as const,
+      data: [
+        { region: "alpha", core: 1, support: 3 },
+        { region: "beta", core: 2, support: 1 },
+        { region: "gamma", core: 3, support: 2 },
+      ],
+    };
+    const percentResult = createDataChartWidgetResult({
+      chartSeries: percentChart,
+    });
+    expect(dataChartWidgetResultSchema.parse(percentResult)).toEqual(
+      percentResult,
+    );
+    expect(percentResult.chartSeries.data).toEqual(percentChart.data);
+    const percentBarResult = createDataChartWidgetResult({
+      chartSeries: { ...percentChart, layout: "horizontal" },
+    });
+    expect(dataChartWidgetResultSchema.parse(percentBarResult)).toEqual(
+      percentBarResult,
+    );
+
+    const stackedAreaChart = {
+      type: "area" as const,
+      stacking: "stacked" as const,
+      xKey: "region",
+      series: chartSeries.series,
+      data: percentChart.data,
+    };
+    const stackedAreaResult = createDataChartWidgetResult({
+      chartSeries: stackedAreaChart,
+    });
+    expect(dataChartWidgetResultSchema.parse(stackedAreaResult)).toEqual(
+      stackedAreaResult,
+    );
+    const percentAreaResult = createDataChartWidgetResult({
+      chartSeries: { ...stackedAreaChart, stacking: "percent" },
+    });
+    expect(dataChartWidgetResultSchema.parse(percentAreaResult)).toEqual(
+      percentAreaResult,
+    );
+
+    for (const invalidChart of [
+      { ...chartSeries, type: "line" },
+      { ...chartSeries, layout: undefined },
+      { ...chartSeries, layout: "radial" },
+      { ...percentChart, type: "line" },
+      { ...stackedAreaChart, layout: "horizontal" },
+      {
+        ...percentChart,
+        data: [{ region: "alpha", core: 0, support: 0 }],
+      },
+      {
+        ...percentChart,
+        data: [{ region: "alpha", core: 1, support: null }],
+      },
+      {
+        ...percentChart,
+        data: [{ region: "alpha", core: -1, support: 3 }],
+      },
+      {
+        ...chartSeries,
+        data: [
+          {
+            region: "North",
+            core: Number.MAX_VALUE,
+            support: Number.MAX_VALUE,
+          },
+        ],
+      },
+    ]) {
+      expect(
+        dataChartWidgetResultSchema.safeParse({
+          widget: DATA_CHART_WIDGET,
+          chartSeries: invalidChart,
+        }).success,
+      ).toBe(false);
+      expect(() =>
+        createDataChartWidgetResult({ chartSeries: invalidChart as never }),
+      ).toThrow("Invalid data-chart widget payload");
+    }
   });
 
   it("keeps chart schemas composable for consumers", () => {
