@@ -35,7 +35,7 @@ import type { ContentSidebarSections } from "@shared/content-personal-navigation
 import type { ContentRecentResult } from "@shared/content-personal-navigation";
 import { applyContentPersonalNavigationPatch } from "@shared/content-personal-navigation-patch";
 import { buildListRowExcerpt } from "@shared/og-description";
-import type { QueryClient } from "@tanstack/react-query";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import {
   hashKey,
   isCancelledError,
@@ -76,10 +76,12 @@ import {
   pageOpenReadOwner,
   seedPageOpenCollection,
   type PageOpenReadAnswer,
+  type PageOpenReadOwner,
 } from "../lib/page-open-collection";
 import {
   adoptPageOpenRead,
   claimPageOpenRead,
+  invalidatePageOpenReadOnLanding,
   isAwaitingSession,
   releasePageOpenRead,
   spoilPageOpenReads,
@@ -1007,6 +1009,21 @@ export function startPageOpenDocumentReads(
       ? readFromStartupPageRead(startupRead, () => sendPageRead(signal))
       : sendPageRead(signal));
   let documentTaken = false;
+  let owner: PageOpenReadOwner | undefined;
+  // An answer older than a change sync made to its key since the server read
+  // it lands, and is then read again by whatever watches the key. A fetch
+  // cancelled or replaced meanwhile lands nothing, so it marks nothing.
+  const landsChanged = (
+    key: QueryKey,
+    syncCursor: string | undefined,
+    fetchSignal: AbortSignal,
+  ): void => {
+    if (!owner || fetchSignal.aborted) return;
+    owner.answeredAt(syncCursor);
+    if (owner.invalidatedWhileOut(key)) {
+      invalidatePageOpenReadOnLanding(queryClient, key);
+    }
+  };
   const documentReadStarted = startPageOpenRead(
     queryClient,
     documentId,
@@ -1021,25 +1038,27 @@ export function startPageOpenDocumentReads(
           );
         }
         documentTaken = true;
-        const owner = pageOpenReadOwner(
+        const readOwner = pageOpenReadOwner(
           queryClient,
           queryKey,
           signal,
           identity,
           startedAt,
         );
+        owner = readOwner;
         return readPage(signal)
           .then(({ document, collection, syncCursor }) => {
+            landsChanged(queryKey, syncCursor, signal);
             if (collection) {
               seedPageOpenCollection(queryClient, documentId, collection, {
-                owner,
+                owner: readOwner,
                 syncCursor,
               });
             }
             const { previewDraft: _previewDraft, ...page } = document;
             return page;
           })
-          .finally(owner.finished);
+          .finally(readOwner.finished);
       },
       retry: false,
     },
@@ -1063,7 +1082,13 @@ export function startPageOpenDocumentReads(
           // A server without the combined answer, or a page read that failed,
           // leaves the draft to its own request.
           return readPage().then(
-            (read) => read.document.previewDraft ?? draftRead.queryFn(context),
+            (read) => {
+              if (read.document.previewDraft === undefined) {
+                return draftRead.queryFn(context);
+              }
+              landsChanged(draftRead.queryKey, read.syncCursor, context.signal);
+              return read.document.previewDraft;
+            },
             () => draftRead.queryFn(context),
           );
         },

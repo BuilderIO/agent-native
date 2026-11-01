@@ -76,9 +76,10 @@ export function openingDatabaseQueryKey(documentId: string) {
 // A read the document head sent went out before this tab could watch for
 // changes. Its watch starts from the change feed's cursor its answer names:
 // what sync invalidated after that cursor, before the watch began, is played
-// into the watch when the answer lands (`answeredAt`). A part it finds already
-// marked invalidated may have changed after the request left too, so that
-// part is treated as changed while it was out.
+// into the watch when the answer lands (`answeredAt`, once per read, for the
+// page and draft as well as the collection). A key it finds already marked
+// invalidated may have changed after the request left too, so that key is
+// treated as changed while it was out.
 export type PageOpenReadOwner = {
   startedAt: number;
   identity: SessionReadIdentity;
@@ -150,11 +151,13 @@ export function pageOpenReadOwner(
   const watches = invalidationWatches(queryClient);
   const watch: InvalidationWatch = { filters: [], queryHashes: new Set() };
   watches.add(watch);
+  let answered = false;
   return {
     startedAt,
     identity,
     answeredAt: (syncCursor) => {
-      if (watchedSinceSent) return;
+      if (watchedSinceSent || answered) return;
+      answered = true;
       // Unknown, as when the log no longer reaches back that far: every
       // part counts as changed.
       const replayed = syncInvalidationsAfter(queryClient, syncCursor) ?? [{}];

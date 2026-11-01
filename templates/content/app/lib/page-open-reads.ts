@@ -341,6 +341,43 @@ export function adoptPageOpenRead(
   return adoption;
 }
 
+// This read's answer is known to predate a change to its key: one sync made
+// after the server read but before anything here watched the key, or while
+// the fetch was out (which the fetch's success would otherwise clear). The
+// read is spoiled, and once its answer lands the query is marked invalidated,
+// so whatever watches the key reads it again.
+export function invalidatePageOpenReadOnLanding(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+) {
+  const queryHash = hashKey(queryKey);
+  const read = openReads(queryClient).get(queryHash);
+  if (read) read.invalidated = true;
+  const queryCache = queryClient.getQueryCache();
+  const unsubscribe = queryCache.subscribe((event) => {
+    if (event.query.queryHash !== queryHash) return;
+    if (event.type === "removed") {
+      unsubscribe();
+      return;
+    }
+    if (event.type !== "updated") return;
+    const { action } = event;
+    if (action.type === "success" && action.manual !== true) {
+      unsubscribe();
+      queueMicrotask(
+        () => void queryClient.invalidateQueries({ queryKey, exact: true }),
+      );
+    } else if (
+      action.type === "error" ||
+      action.type === "fetch" ||
+      (action.type === "setState" && action.state.fetchStatus === "idle")
+    ) {
+      // Failed, cancelled or replaced: this answer never lands.
+      unsubscribe();
+    }
+  });
+}
+
 // This tab is changing the page, so no read already under way for it can be
 // shown as the page's current state.
 export function spoilPageOpenReads(
