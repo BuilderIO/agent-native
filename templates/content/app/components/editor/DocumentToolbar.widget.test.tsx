@@ -26,6 +26,17 @@ vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
   >()),
   trackEvent: vi.fn(),
 }));
+// Background reads wait until the page is 3 s old; a fresh test worker may
+// not be.
+vi.mock(
+  "@agent-native/core/client/use-after-paint",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/use-after-paint")
+    >()),
+    useAfterStartup: () => true,
+  }),
+);
 vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/mcp-app-host")

@@ -1,6 +1,7 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
+import { useAfterStartup } from "@agent-native/core/client/use-after-paint";
 import type {
   CreateNotionPageRequest,
   Document,
@@ -10,7 +11,11 @@ import type {
   NotionSearchResponse,
   ResolveDocumentSyncConflictRequest,
 } from "@shared/api";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -134,7 +139,36 @@ export function documentSyncRefetchIntervalMs(
   return autoSync ? 2_000 : 30_000;
 }
 
-export function useDocumentSyncStatus(documentId: string | null) {
+// The app's default staleTime (see core's create-query-client): an answer
+// fresh enough not to be read again when a caller mounts is fresh enough to
+// act on.
+const SYNC_STATUS_TRUSTED_FOR_MS = 30_000;
+
+/**
+ * Whether a sync status answer can be acted on. Linking, pulling or pushing on
+ * an old answer can overwrite local edits, and the status loads late, so an
+ * answer cached by an earlier visit doesn't count. One does once a read since
+ * the caller mounted has succeeded, or while it's still inside the app's
+ * fresh window, and never once the latest read has failed.
+ */
+export function isDocumentSyncStatusCurrent(
+  result: Pick<
+    UseQueryResult<DocumentSyncStatus>,
+    "status" | "isFetchedAfterMount" | "dataUpdatedAt"
+  >,
+  now = Date.now(),
+): boolean {
+  return (
+    result.status === "success" &&
+    (result.isFetchedAfterMount ||
+      now - result.dataUpdatedAt < SYNC_STATUS_TRUSTED_FOR_MS)
+  );
+}
+
+export function useDocumentSyncStatus(
+  documentId: string | null,
+  options: { now?: boolean } = {},
+) {
   const queryClient = useQueryClient();
   const lastObservedSyncedAtRef = useRef<string | null>(null);
   const normalizedDocumentId = documentId?.trim() || null;
@@ -142,6 +176,10 @@ export function useDocumentSyncStatus(documentId: string | null) {
     `notion-auto-sync:${normalizedDocumentId ?? ""}`,
     false,
   );
+  // The status only feeds the sync bar and conflict banner, and the call
+  // is a write, so it waits for the page load to settle unless a caller
+  // is showing it now.
+  const startupSettled = useAfterStartup();
   const query = useQuery<DocumentSyncStatus>({
     queryKey: normalizedDocumentId
       ? documentSyncStatusQueryKey(normalizedDocumentId)
@@ -153,7 +191,7 @@ export function useDocumentSyncStatus(documentId: string | null) {
         autoSync,
       });
     },
-    enabled: !!normalizedDocumentId,
+    enabled: !!normalizedDocumentId && (startupSettled || !!options.now),
     refetchInterval: (query) =>
       documentSyncRefetchIntervalMs(query.state.data, autoSync),
   });
