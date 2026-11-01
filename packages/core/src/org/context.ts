@@ -736,6 +736,12 @@ export async function resolveOrgScopeForEmail(
   if (getRequestContext()?.orgScope === "personal") {
     return { status: "personal" };
   }
+  return resolveMembershipOrgScope(email);
+}
+
+export async function resolveMembershipOrgScope(
+  email: string,
+): Promise<OrgScopeResolution> {
   const idsPromise = requestMemberOrgIds(email, async () => {
     const rows = await queryOrgMembers({
       sql: `SELECT org_id FROM org_members

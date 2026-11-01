@@ -29,6 +29,7 @@ import {
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  personalRunProviderKeyOrgId,
 } from "./personal-provider-key-policy.js";
 export {
   isHostedWorkspaceRuntime,
@@ -2383,13 +2384,69 @@ export interface ResolvedSecretDetail {
   scopeId?: string;
 }
 
+async function readOrgScopedSecret(
+  key: string,
+  orgId: string,
+  email: string,
+): Promise<ResolvedSecretDetail | null> {
+  const traceLookup = shouldTraceCredentialResolve();
+  const { readAppSecret } = await import("../secrets/storage.js");
+  const [orgRead, workspaceRead] = await Promise.allSettled([
+    readAppSecret({ key, scope: "org", scopeId: orgId }),
+    readAppSecret({ key, scope: "workspace", scopeId: orgId }),
+  ]);
+  const unwrap = <T>(settled: PromiseSettledResult<T>): T => {
+    if (settled.status === "rejected") throw settled.reason;
+    return settled.value;
+  };
+
+  const orgSecret = unwrap(orgRead);
+  if (orgSecret?.value) {
+    if (traceLookup) {
+      console.log(
+        `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=org hit=true`,
+      );
+    }
+    return {
+      value: orgSecret.value,
+      lookupFailed: false,
+      source: "org",
+      scopeId: orgId,
+    };
+  }
+
+  const workspaceSecret = unwrap(workspaceRead);
+  if (workspaceSecret?.value) {
+    if (traceLookup) {
+      console.log(
+        `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=workspace hit=true`,
+      );
+    }
+    return {
+      value: workspaceSecret.value,
+      lookupFailed: false,
+      source: "workspace",
+      scopeId: orgId,
+    };
+  }
+  return null;
+}
+
 export async function resolveSecretDetailed(
   key: string,
-  options: { skipUserScope?: boolean } = {},
+  options: {
+    skipUserScope?: boolean;
+    /** Provenance of the API key that will be sent to the endpoint `key` names. */
+    endpointForCredential?: { scope: string; scopeId?: string };
+  } = {},
 ): Promise<ResolvedSecretDetail> {
   const traceLookup = shouldTraceCredentialResolve();
   const email = getRequestUserEmail();
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
+  const fallbackOrgId = personalRunProviderKeyOrgId(
+    key,
+    options.endpointForCredential,
+  );
   let lookupFailed = false;
   let cause: unknown;
   if (email) {
@@ -2399,7 +2456,9 @@ export async function resolveSecretDetailed(
       // both personal rows (user and pre-org solo workspace), never delete.
       const personalRestricted =
         isPersonalProviderPolicyKey(key) &&
-        (await isPersonalProviderKeyUseRestricted({ email }));
+        (await isPersonalProviderKeyUseRestricted(
+          fallbackOrgId ? { email, orgId: fallbackOrgId } : { email },
+        ));
 
       let personalReadError: AppSecretDecryptionError | undefined;
       let userSecret: ReadSecretResult | null = null;
@@ -2463,44 +2522,8 @@ export async function resolveSecretDetailed(
       }
 
       if (orgId) {
-        const [orgRead, workspaceRead] = await Promise.allSettled([
-          readAppSecret({ key, scope: "org", scopeId: orgId }),
-          readAppSecret({ key, scope: "workspace", scopeId: orgId }),
-        ]);
-        const unwrap = <T>(settled: PromiseSettledResult<T>): T => {
-          if (settled.status === "rejected") throw settled.reason;
-          return settled.value;
-        };
-
-        const orgSecret = unwrap(orgRead);
-        if (orgSecret?.value) {
-          if (traceLookup) {
-            console.log(
-              `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=org hit=true`,
-            );
-          }
-          return {
-            value: orgSecret.value,
-            lookupFailed: false,
-            source: "org",
-            scopeId: orgId,
-          };
-        }
-
-        const workspaceSecret = unwrap(workspaceRead);
-        if (workspaceSecret?.value) {
-          if (traceLookup) {
-            console.log(
-              `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=workspace hit=true`,
-            );
-          }
-          return {
-            value: workspaceSecret.value,
-            lookupFailed: false,
-            source: "workspace",
-            scopeId: orgId,
-          };
-        }
+        const fromOrg = await readOrgScopedSecret(key, orgId, email);
+        if (fromOrg) return fromOrg;
       }
       if (personalReadError) {
         return { value: null, lookupFailed: true, cause: personalReadError };
@@ -2609,6 +2632,17 @@ export async function resolveSecretDetailed(
       console.log(
         `[resolve-secret] key=${key} email=${email} orgId=${getRequestOrgId() ?? "(none)"} scope=${envFallback ? "env-fallback" : "none"} hit=${!!envFallback}`,
       );
+    }
+    // An endpoint for the org's key takes the org's row over the deployment's,
+    // so that key never reaches the deployment's gateway.
+    const isEndpointLookup = options.endpointForCredential !== undefined;
+    if (fallbackOrgId && !lookupFailed && (!envFallback || isEndpointLookup)) {
+      try {
+        const fromOrg = await readOrgScopedSecret(key, fallbackOrgId, email);
+        if (fromOrg) return fromOrg;
+      } catch (err) {
+        return { value: null, lookupFailed: true, cause: err };
+      }
     }
     return {
       value: envFallback,

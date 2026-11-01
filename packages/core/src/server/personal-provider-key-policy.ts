@@ -53,6 +53,36 @@ export function isPersonalProviderPolicyKey(key: string): boolean {
   return PERSONAL_PROVIDER_POLICY_KEYS.has(key);
 }
 
+const PROVIDER_ENDPOINT_KEYS: ReadonlySet<string> = new Set([
+  OPENAI_BASE_URL_ENV_VAR,
+  OLLAMA_BASE_URL_ENV_VAR,
+]);
+
+export function personalRunProviderKeyOrgId(
+  key: string,
+  sentKeyProvenance?: { scope: string; scopeId?: string },
+): string | undefined {
+  const decision = getRequestContext()?.providerKeyOrg;
+  const email = getRequestUserEmail()?.trim().toLowerCase();
+  if (
+    !decision ||
+    !email ||
+    decision.userEmail.trim().toLowerCase() !== email ||
+    getRequestOrgId() ||
+    !isPersonalProviderPolicyKey(key) ||
+    (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key)
+  ) {
+    return undefined;
+  }
+  const { orgId } = decision;
+  if (!PROVIDER_ENDPOINT_KEYS.has(key)) return orgId;
+  const fromOrg =
+    (sentKeyProvenance?.scope === "org" ||
+      sentKeyProvenance?.scope === "workspace") &&
+    sentKeyProvenance.scopeId === orgId;
+  return fromOrg ? orgId : undefined;
+}
+
 export function listPersonalProviderPolicyKeys(): string[] {
   return [...PERSONAL_PROVIDER_POLICY_KEYS];
 }

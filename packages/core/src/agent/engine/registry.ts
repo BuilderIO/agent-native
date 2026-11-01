@@ -744,9 +744,14 @@ const AI_SDK_PROVIDER_DEFAULT_BASE_URLS: Readonly<Record<string, string>> = {
 async function resolveProviderBaseUrl(
   envVar: string,
   deploymentEndpointAllowed: boolean,
+  credential?: CredentialProvenance,
 ): Promise<ResolvedProviderBaseUrl | undefined> {
   const isOllama = envVar === OLLAMA_BASE_URL_ENV_VAR;
-  const resolved = await resolveSecretDetailed(envVar);
+  // raw-sql-ok: envVar names a provider endpoint secret, never SQL.
+  const resolved = await resolveSecretDetailed(
+    envVar,
+    credential ? { endpointForCredential: credential } : {},
+  );
   const raw = resolved.value;
   const deployValue = canUseDeployCredentialFallbackForRequest(envVar)
     ? readDeployCredentialEnv(envVar)
@@ -1098,9 +1103,11 @@ async function engineCreateConfigForEntry(
             ? OPENAI_BASE_URL_ENV_VAR
             : undefined;
       if (envVar) {
+        // raw-sql-ok: envVar names a provider endpoint secret, never SQL.
         resolvedEndpoint = await resolveProviderBaseUrl(
           envVar,
           usesDeploymentKey,
+          matchingApiKeyProvenance,
         );
       }
       if (resolvedEndpoint) safeExtra.baseUrl = resolvedEndpoint.baseUrl;
