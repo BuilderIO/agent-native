@@ -251,9 +251,10 @@ function hasUnsupportedJsxProps(raw: string): boolean {
 // A toggle whose title is page text (a `notionToggleSummary` first child)
 // says so with `markdown="1"`, as kramdown marks HTML whose content is
 // Markdown: its summary is inline Markdown. A toggle without it keeps its
-// title in the `summary` attribute, written as plain text.
+// title in the `summary` attribute, written as plain text. The marker is its
+// own attribute, so `data-markdown="1"` isn't it.
 const TOGGLE_MARKDOWN_TITLE_ATTR = 'markdown="1"';
-const TOGGLE_MARKDOWN_TITLE_PATTERN = /\bmarkdown\s*=\s*"1"/;
+const TOGGLE_MARKDOWN_TITLE_PATTERN = /(?:^|\s)markdown\s*=\s*"1"/;
 
 function toggleTitleNode(inline: PMNode[]): PMNode {
   return inline.length

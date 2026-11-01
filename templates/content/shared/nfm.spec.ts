@@ -1279,6 +1279,18 @@ describe("bug fixes — reliability sweep", () => {
       ]);
     });
 
+    it("reads a toggle heading's `data-markdown` as another attribute, not the marker", () => {
+      const { doc, losses } = parseNfmWithLosses(
+        '## **Plan** {toggle="true" data-markdown="1"}',
+      );
+      expect(losses.map((loss) => loss.kind)).toContain("dropped-attribute");
+      expect(doc.content).toEqual([
+        expect.objectContaining({
+          attrs: expect.objectContaining({ summary: "**Plan**" }),
+        }),
+      ]);
+    });
+
     it("writes a title's line break on the summary's one line", () => {
       const doc: any = {
         type: "doc",
