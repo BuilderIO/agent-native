@@ -1,27 +1,48 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { sessionFromFirstRead } = vi.hoisted(() => ({
-  sessionFromFirstRead: vi.fn(() => true),
-}));
+const session = vi.hoisted(() => {
+  type Answer = "pending" | "first-read" | "replaced";
+  const listeners = new Set<() => void>();
+  let answer: Answer = "first-read";
+  return {
+    listeners,
+    get: () => answer,
+    // Like the session store: listeners hear the change in the same task.
+    set(next: Answer) {
+      answer = next;
+      for (const listener of [...listeners]) listener();
+    },
+    reset(next: Answer) {
+      answer = next;
+      listeners.clear();
+    },
+  };
+});
 
 vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/use-session")
   >()),
-  isSessionFromFirstRead: sessionFromFirstRead,
+  firstSessionReadAnswer: () => session.get(),
+  subscribeFirstSessionReadAnswer: (listener: () => void) => {
+    session.listeners.add(listener);
+    return () => session.listeners.delete(listener);
+  },
 }));
 
 import { contentActionInvalidatePredicate } from "../hooks/content-action-refresh";
 import {
   adoptPageOpenRead,
   claimPageOpenRead,
+  isAwaitingSession,
   isPageOpenRead,
   PAGE_OPEN_READ_TTL_MS,
   releasePageOpenRead,
   retirePageOpenReads,
   spoilPageOpenReads,
   startPageOpenRead,
+  whenReadsBeforeSessionKept,
 } from "./page-open-reads";
 
 const queryKey = ["action", "get-document", { id: "doc-1" }] as const;
@@ -41,8 +62,7 @@ describe("page open reads", () => {
 
   beforeEach(() => {
     queryClient = new QueryClient();
-    sessionFromFirstRead.mockReset();
-    sessionFromFirstRead.mockReturnValue(true);
+    session.reset("first-read");
   });
 
   afterEach(() => {
@@ -332,6 +352,8 @@ describe("page open reads", () => {
     ] as const;
     const laterKey = ["action", "get-document", { id: "doc-2" }] as const;
 
+    beforeEach(() => session.reset("pending"));
+
     async function startLandedBeforeSession() {
       const pageRead = vi.fn().mockResolvedValue({ id: "doc-1", by: "a" });
       const draftRead = vi.fn().mockResolvedValue({ draft: "a's draft" });
@@ -353,15 +375,100 @@ describe("page open reads", () => {
       return { pageRead, draftRead };
     }
 
+    function mount(
+      key: typeof queryKey | typeof draftKey,
+      queryFn: () => unknown,
+    ) {
+      return new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn,
+        staleTime: Infinity,
+      }).subscribe(() => {});
+    }
+
     it("is adopted when the session is the answer to the load's own session read", async () => {
       await startLandedBeforeSession();
+      session.set("first-read");
 
       expect(adoptPageOpenRead(queryClient, queryKey)).toBe("fresh");
       expect(adoptPageOpenRead(queryClient, draftKey)).toBe("fresh");
     });
 
-    it("is dropped with every other one when a later session read answered", async () => {
+    it("is adopted while the session read is still out, and held until it answers", async () => {
+      const { pageRead } = await startLandedBeforeSession();
+
+      const claim = claimPageOpenRead(queryClient, queryKey);
+
+      expect(claim.adoption).toBe("fresh");
+      expect(isAwaitingSession(claim.read)).toBe(true);
+      const unsubscribe = mount(queryKey, pageRead);
+      if (!claim.read) throw new Error("expected the load's read to be claimed");
+      releasePageOpenRead(queryClient, queryKey, claim.read);
+
+      session.set("first-read");
+
+      expect(isAwaitingSession(claim.read)).toBe(false);
+      expect(queryClient.getQueryData(queryKey)).toEqual({
+        id: "doc-1",
+        by: "a",
+      });
+      expect(pageRead).toHaveBeenCalledTimes(1);
+      unsubscribe();
+    });
+
+    it("joins a read still in flight while the session read is out", () => {
+      const page = deferred<unknown>();
+      startPageOpenRead(
+        queryClient,
+        "doc-1",
+        { queryKey, queryFn: () => page.promise },
+        { beforeSession: true },
+      );
+
+      const claim = claimPageOpenRead(queryClient, queryKey);
+
+      expect(claim.adoption).toBe("pending");
+      expect(isAwaitingSession(claim.read)).toBe(true);
+    });
+
+    it("is dropped and read again under the new session when another read answers after the claim", async () => {
+      const { pageRead, draftRead } = await startLandedBeforeSession();
+      const claim = claimPageOpenRead(queryClient, queryKey);
+      const unsubscribePage = mount(queryKey, () =>
+        Promise.resolve({ id: "doc-1", by: "b" }),
+      );
+      const unsubscribeDraft = mount(draftKey, () =>
+        Promise.resolve({ draft: "b's draft" }),
+      );
+      if (!claim.read) throw new Error("expected the load's read to be claimed");
+      releasePageOpenRead(queryClient, queryKey, claim.read);
+
+      session.set("replaced");
+
+      // Gone in the same task, before anything behind the session gate shows.
+      expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+      expect(queryClient.getQueryData(draftKey)).toBeUndefined();
+      expect(isAwaitingSession(claim.read)).toBe(false);
+      await vi.waitFor(() =>
+        expect(queryClient.getQueryData(queryKey)).toEqual({
+          id: "doc-1",
+          by: "b",
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(queryClient.getQueryData(draftKey)).toEqual({
+          draft: "b's draft",
+        }),
+      );
+      expect(pageRead).toHaveBeenCalledTimes(1);
+      expect(draftRead).toHaveBeenCalledTimes(1);
+      unsubscribePage();
+      unsubscribeDraft();
+    });
+
+    it("is dropped with every other one when a later session read answered before the claim", async () => {
       await startLandedBeforeSession();
+      session.set("replaced");
       startPageOpenRead(queryClient, "doc-2", {
         queryKey: laterKey,
         queryFn: vi.fn().mockResolvedValue({ id: "doc-2" }),
@@ -369,7 +476,6 @@ describe("page open reads", () => {
       await vi.waitFor(() =>
         expect(queryClient.getQueryData(laterKey)).toBeTruthy(),
       );
-      sessionFromFirstRead.mockReturnValue(false);
 
       expect(adoptPageOpenRead(queryClient, queryKey)).toBe("none");
 
@@ -379,19 +485,50 @@ describe("page open reads", () => {
       expect(adoptPageOpenRead(queryClient, laterKey)).toBe("fresh");
     });
 
-    it("is read again by a component already showing it", async () => {
-      const { draftRead } = await startLandedBeforeSession();
-      const unsubscribe = new QueryObserver(queryClient, {
-        queryKey: draftKey,
-        queryFn: () => draftRead(),
-        staleTime: Infinity,
-      }).subscribe(() => {});
-      sessionFromFirstRead.mockReturnValue(false);
+    it("cancels a read still in flight when another session read answers", async () => {
+      const page = deferred<unknown>();
+      startPageOpenRead(
+        queryClient,
+        "doc-1",
+        { queryKey, queryFn: () => page.promise },
+        { beforeSession: true },
+      );
 
-      claimPageOpenRead(queryClient, queryKey);
+      session.set("replaced");
+      page.resolve({ id: "doc-1", by: "a" });
+      await Promise.resolve();
 
-      await vi.waitFor(() => expect(draftRead).toHaveBeenCalledTimes(2));
-      unsubscribe();
+      expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+      expect(isPageOpenRead(queryClient, queryKey)).toBe(false);
+    });
+
+    it("is not held when the session answered before it was sent", async () => {
+      session.set("first-read");
+      startPageOpenRead(
+        queryClient,
+        "doc-1",
+        { queryKey, queryFn: vi.fn().mockResolvedValue({ id: "doc-1" }) },
+        { beforeSession: true },
+      );
+
+      expect(
+        isAwaitingSession(claimPageOpenRead(queryClient, queryKey).read),
+      ).toBe(false);
+    });
+
+    it("runs work that waits on the session only when the load's own read keeps the reads", () => {
+      const kept = vi.fn();
+      whenReadsBeforeSessionKept(queryClient, kept);
+      expect(kept).not.toHaveBeenCalled();
+      session.set("first-read");
+      expect(kept).toHaveBeenCalledTimes(1);
+
+      session.reset("pending");
+      const other = new QueryClient();
+      const dropped = vi.fn();
+      whenReadsBeforeSessionKept(other, dropped);
+      session.set("replaced");
+      expect(dropped).not.toHaveBeenCalled();
     });
   });
 });

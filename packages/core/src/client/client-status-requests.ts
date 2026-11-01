@@ -125,8 +125,14 @@ function headersCacheScope(headers: HeadersInit | undefined): string {
 function statusRequestKey(
   url: string,
   options?: ClientStatusRequestOptions,
+  sessionRead = false,
 ): string {
-  const fetcher = options?.fetch ?? globalThis.fetch;
+  // Session reads that bring no fetch of their own share one answer however
+  // the page wraps `fetch` meanwhile: the first of them takes the inline
+  // bootstrap read, and a later one keyed by a wrapper installed since would
+  // miss its cached answer and read the session a second time.
+  const fetcher =
+    options?.fetch ?? (sessionRead ? undefined : globalThis.fetch);
   const fetcherToken =
     typeof fetcher === "function" ? requestSourceToken(fetcher) : null;
   return JSON.stringify([
@@ -214,7 +220,11 @@ async function fetchClientStatus<T>(
   installInvalidationListeners();
   const url = options?.url ?? agentNativePath(path);
   const canonicalUrl = statusCacheKey(url);
-  const key = statusRequestKey(canonicalUrl, options);
+  const key = statusRequestKey(
+    canonicalUrl,
+    options,
+    path === SESSION_STATUS_PATH,
+  );
   pruneExpiredStatusCache(Date.now());
   const cached = cache.get(key);
   if (!options?.fresh && cached && cached.expiresAt > Date.now()) {

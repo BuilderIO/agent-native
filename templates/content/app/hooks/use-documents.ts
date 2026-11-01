@@ -6,6 +6,10 @@ import {
 } from "@agent-native/core/client/hooks";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  firstSessionReadAnswer,
+  subscribeFirstSessionReadAnswer,
+} from "@agent-native/core/client/use-session";
 import { serializeIconValue } from "@agent-native/core/icons";
 import type {
   ContentDatabaseItemsPageResponse,
@@ -38,7 +42,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
@@ -70,9 +74,11 @@ import {
 import {
   adoptPageOpenRead,
   claimPageOpenRead,
+  isAwaitingSession,
   releasePageOpenRead,
   spoilPageOpenReads,
   startPageOpenRead,
+  whenReadsBeforeSessionKept,
   type PageOpenRead,
   type PageOpenReadAdoption,
 } from "../lib/page-open-reads";
@@ -869,7 +875,9 @@ export function useDocument(
 // The page editor's read of its document. When a read started for this page
 // open has already landed, it counts as fetched for this mount instead of
 // being discarded and read again. Only the first mount can adopt; a later
-// document switch reads fresh.
+// document switch reads fresh. A read sent before the session was known is
+// adopted too, but counts as fetched only once the load's own session read
+// has answered for it: until then it may be another account's page.
 export function usePageOpenDocument(
   documentId: string,
   context: DocumentQueryContext,
@@ -891,6 +899,14 @@ export function usePageOpenDocument(
   }
   const claim = claimRef.current;
   const { adoption } = claim;
+  // Re-renders when the session answers; the held read is kept or dropped
+  // (and read again) before this runs.
+  useSyncExternalStore(
+    subscribeFirstSessionReadAnswer,
+    firstSessionReadAnswer,
+    firstSessionReadAnswer,
+  );
+  const awaitingSession = isAwaitingSession(claim.read);
   const cachedDocument = queryClient.getQueryData<Document>(queryKey);
   const query = useDocument(documentId, context, {
     enabled: !(
@@ -910,7 +926,8 @@ export function usePageOpenDocument(
   }, [claim, queryClient]);
   return {
     query,
-    fetchedForThisOpen: query.isFetchedAfterMount || adoption === "fresh",
+    fetchedForThisOpen:
+      !awaitingSession && (query.isFetchedAfterMount || adoption === "fresh"),
     // The open's own reads, draft included, already started elsewhere.
     readsStartedEarly: adoption !== "none",
   };
@@ -992,10 +1009,16 @@ export function startPageOpenDocumentReads(
     );
   }
   // The review reads are not tracked as this open's reads, so one sent before
-  // the session could not be dropped if another account answers it.
-  if (!beforeSession && cached?.source?.mode !== "local-files") {
-    startPageOpenReviewReads(queryClient, documentId);
-  }
+  // the session could not be dropped if another account answers it: they
+  // start once the load's own session read keeps the page read.
+  const startReviewReads = () => {
+    const known = queryClient.getQueryData<Document>(queryKey) ?? cached;
+    if (known?.source?.mode !== "local-files") {
+      startPageOpenReviewReads(queryClient, documentId);
+    }
+  };
+  if (beforeSession) whenReadsBeforeSessionKept(queryClient, startReviewReads);
+  else startReviewReads();
 }
 
 // Open comments and suggestions hold the review margin open beside the page,

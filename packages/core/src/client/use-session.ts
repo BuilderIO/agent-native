@@ -120,6 +120,9 @@ let sessionGeneration = 0;
 // replaces it for the life of the document.
 let firstSessionReadUnsent = true;
 let cachedSessionFromFirstRead = false;
+// Set once a retry or a reset replaces the first read, answered or not.
+let firstSessionReadReplaced = false;
+const firstSessionReadAnswerListeners = new Set<() => void>();
 let sessionInvalidationListenersInstalled = false;
 let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
 let signingOut = false;
@@ -261,15 +264,18 @@ function notifyParentAuthState(
 }
 
 function resetSessionCache(): void {
+  const before = firstSessionReadAnswer();
   sessionGeneration += 1;
   firstSessionReadUnsent = false;
   cachedSessionFromFirstRead = false;
+  firstSessionReadReplaced = true;
   cachedSession = undefined;
   cachedSessionAt = 0;
   cachedEvidence = undefined;
   sessionRequest = undefined;
   clearTimeout(staleSessionRecheck);
   staleSessionRecheck = undefined;
+  if (before !== "replaced") notifyFirstSessionReadAnswer();
 }
 
 function notifySessionSubscribers(): Promise<void> {
@@ -381,7 +387,50 @@ export function isSigningOut(): boolean {
  * invalidation answers instead, another tab may have changed the cookies.
  */
 export function isSessionFromFirstRead(): boolean {
-  return cachedSession !== undefined && cachedSessionFromFirstRead;
+  return firstSessionReadAnswer() === "first-read";
+}
+
+/**
+ * Where the page load's first session read stands: `"pending"` until it
+ * answers, `"first-read"` while the session this tab holds is its answer, and
+ * `"replaced"` once a retry or an invalidation took its place, whether or not
+ * it had answered. A request sent before the session was known can be shown
+ * only under `"first-read"`; under `"pending"` it waits.
+ */
+export type FirstSessionReadAnswer = "pending" | "first-read" | "replaced";
+
+export function firstSessionReadAnswer(): FirstSessionReadAnswer {
+  if (cachedSession !== undefined && cachedSessionFromFirstRead) {
+    return "first-read";
+  }
+  return firstSessionReadReplaced ? "replaced" : "pending";
+}
+
+/**
+ * Calls `listener` each time {@link firstSessionReadAnswer} changes, in the
+ * same task as the change and before any `useSession` consumer re-renders, so
+ * a request made for another account can be dropped before the app is shown.
+ */
+export function subscribeFirstSessionReadAnswer(
+  listener: () => void,
+): () => void {
+  firstSessionReadAnswerListeners.add(listener);
+  return () => {
+    firstSessionReadAnswerListeners.delete(listener);
+  };
+}
+
+function notifyFirstSessionReadAnswer(): void {
+  for (const listener of [...firstSessionReadAnswerListeners]) {
+    try {
+      listener();
+    } catch (error) {
+      // A listener's failure is its own; the session read still answers.
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
+  }
 }
 
 const UNAUTHORIZED_RECHECK_MIN_INTERVAL_MS = 5_000;
@@ -469,15 +518,20 @@ function fetchSharedSession(): Promise<SessionRead> {
         data.error === "Not authenticated"
           ? null
           : (data as AuthSessionResponse & ClientAuthSession);
+      const answerBefore = firstSessionReadAnswer();
       cachedSession = session;
       cachedSessionAt = Date.now();
       cachedSessionFromFirstRead = firstRead;
+      if (!firstRead) firstSessionReadReplaced = true;
       cachedEvidence = session
         ? "signed_in"
         : result.state === "unavailable"
           ? "http_401"
           : "signed_out_body";
       publishSessionIdentity(session);
+      if (firstSessionReadAnswer() !== answerBefore) {
+        notifyFirstSessionReadAnswer();
+      }
       return { state: "resolved", session };
     } catch {
       return { state: "unreadable" };

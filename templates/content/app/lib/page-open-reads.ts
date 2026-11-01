@@ -1,4 +1,7 @@
-import { isSessionFromFirstRead } from "@agent-native/core/client/use-session";
+import {
+  firstSessionReadAnswer,
+  subscribeFirstSessionReadAnswer,
+} from "@agent-native/core/client/use-session";
 import {
   hashKey,
   type FetchQueryOptions,
@@ -25,13 +28,78 @@ export type PageOpenRead = {
   // leaves the older cached body behind with a fresh timestamp.
   landed: boolean;
   // Sent before the session was known, with whatever account the cookies
-  // named then.
+  // named then. Cleared once the load's first session read answers for it.
   beforeSession: boolean;
 };
 
 export type PageOpenReadAdoption = "fresh" | "pending" | "none";
 
 const readsByClient = new WeakMap<QueryClient, Map<string, PageOpenRead>>();
+
+// Reads sent before the session was known, claimed or not, until the load's
+// first session read answers: they are kept when it does, and dropped when a
+// retry or an invalidation answers instead. Each waits on the answer, so the
+// claim does not have to.
+type HeldForSession = {
+  reads: Map<string, { queryKey: QueryKey; read: PageOpenRead }>;
+  whenKept: Array<() => void>;
+  unsubscribe: () => void;
+};
+const heldByClient = new WeakMap<QueryClient, HeldForSession>();
+
+function holdForSession(queryClient: QueryClient): HeldForSession {
+  let held = heldByClient.get(queryClient);
+  if (!held) {
+    const created: HeldForSession = {
+      reads: new Map(),
+      whenKept: [],
+      unsubscribe: subscribeFirstSessionReadAnswer(() =>
+        settleHeldReads(queryClient),
+      ),
+    };
+    heldByClient.set(queryClient, created);
+    held = created;
+  }
+  return held;
+}
+
+// Runs before the app behind the session gate is shown: the session store
+// calls it in the task that answers, ahead of its own subscribers.
+function settleHeldReads(queryClient: QueryClient) {
+  const answer = firstSessionReadAnswer();
+  if (answer === "pending") return;
+  const held = heldByClient.get(queryClient);
+  if (!held) return;
+  heldByClient.delete(queryClient);
+  held.unsubscribe();
+  if (answer === "first-read") {
+    for (const { read } of held.reads.values()) read.beforeSession = false;
+    for (const kept of held.whenKept) kept();
+    return;
+  }
+  dropReadsBeforeSession(queryClient, held);
+}
+
+// Runs `callback` once the load's first session read keeps the reads sent
+// before it, and never if another read answers instead. Once the session is
+// known, a read sent now is like any other, so it runs at once.
+export function whenReadsBeforeSessionKept(
+  queryClient: QueryClient,
+  callback: () => void,
+) {
+  if (firstSessionReadAnswer() === "pending") {
+    holdForSession(queryClient).whenKept.push(callback);
+  } else {
+    callback();
+  }
+}
+
+// Whether this read went out before the session was known and the load's
+// first session read has not answered yet. It may hold another account's
+// page, so nothing may be shown from it until that read answers.
+export function isAwaitingSession(read: PageOpenRead | null) {
+  return read?.beforeSession === true && firstSessionReadAnswer() === "pending";
+}
 
 function openReads(queryClient: QueryClient) {
   let reads = readsByClient.get(queryClient);
@@ -86,13 +154,24 @@ export function startPageOpenRead<TData>(
   if (query?.state.isInvalidated) {
     query.setState({ ...query.state, isInvalidated: false });
   }
-  reads.set(queryHash, {
+  // Once the session has answered, a read sent now carries the cookies
+  // that answer belongs to, like any other read.
+  const heldForSession =
+    beforeSession && firstSessionReadAnswer() === "pending";
+  const read: PageOpenRead = {
     documentId,
     startedAt: Date.now(),
     invalidated: false,
     landed: false,
-    beforeSession,
-  });
+    beforeSession: heldForSession,
+  };
+  reads.set(queryHash, read);
+  if (heldForSession) {
+    holdForSession(queryClient).reads.set(queryHash, {
+      queryKey: options.queryKey,
+      read,
+    });
+  }
   void queryClient.prefetchQuery({ ...options, staleTime: 0 });
   return true;
 }
@@ -112,8 +191,12 @@ export function claimPageOpenRead(
   const queryHash = hashKey(queryKey);
   const read = reads.get(queryHash);
   if (!read) return { adoption: "none", read: null };
-  if (read.beforeSession && !isSessionFromFirstRead()) {
-    dropReadsBeforeSession(queryClient);
+  // Settled reads were already kept or dropped; one still held is adopted,
+  // and the session's answer decides it before anything shows it.
+  if (read.beforeSession && firstSessionReadAnswer() === "replaced") {
+    settleHeldReads(queryClient);
+    reads.delete(queryHash);
+    void queryClient.resetQueries({ queryKey, exact: true });
     return { adoption: "none", read: null };
   }
   const query = queryClient.getQueryCache().get(queryHash);
@@ -145,16 +228,15 @@ export function claimPageOpenRead(
 
 // The session that answered is not the one the load asked alongside these
 // reads, so they may hold another account's page or draft. None of them is
-// shown, and a component already showing one reads it again.
-function dropReadsBeforeSession(queryClient: QueryClient) {
+// shown, and a component already holding one reads it again.
+function dropReadsBeforeSession(
+  queryClient: QueryClient,
+  held: HeldForSession,
+) {
   const reads = openReads(queryClient);
-  for (const [queryHash, read] of reads) {
-    if (!read.beforeSession) continue;
-    reads.delete(queryHash);
-    const query = queryClient.getQueryCache().get(queryHash);
-    if (query) {
-      void queryClient.resetQueries({ queryKey: query.queryKey, exact: true });
-    }
+  for (const [queryHash, { queryKey, read }] of held.reads) {
+    if (reads.get(queryHash) === read) reads.delete(queryHash);
+    void queryClient.resetQueries({ queryKey, exact: true });
   }
 }
 

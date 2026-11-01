@@ -1142,6 +1142,116 @@ describe("isSessionFromFirstRead", () => {
   });
 });
 
+describe("firstSessionReadAnswer", () => {
+  async function mountProbe(
+    module: Awaited<ReturnType<typeof freshSessionModule>>,
+  ) {
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("is pending until the page load's own read answers, then tells listeners once", async () => {
+    const module = await freshSessionModule();
+    let answer!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))),
+    );
+    const heard: string[] = [];
+    module.subscribeFirstSessionReadAnswer(() =>
+      heard.push(module.firstSessionReadAnswer()),
+    );
+
+    await mountProbe(module);
+    expect(module.firstSessionReadAnswer()).toBe("pending");
+
+    await act(async () => {
+      answer(jsonResponse({ userId: "user-a", email: "a@x.test" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(module.firstSessionReadAnswer()).toBe("first-read");
+    expect(heard).toEqual(["first-read"]);
+  });
+
+  it("tells listeners the read was replaced as soon as an invalidation lands", async () => {
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    const heard: string[] = [];
+    module.subscribeFirstSessionReadAnswer(() =>
+      heard.push(module.firstSessionReadAnswer()),
+    );
+    await mountProbe(module);
+
+    void module.notifySessionInvalidated();
+
+    expect(heard).toEqual(["replaced"]);
+    expect(module.firstSessionReadAnswer()).toBe("replaced");
+  });
+
+  it("stays replaced when a retry answers, without telling listeners twice", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "user-b", email: "b@x.test" }),
+        ),
+    );
+    const heard: string[] = [];
+    module.subscribeFirstSessionReadAnswer(() =>
+      heard.push(module.firstSessionReadAnswer()),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(module.firstSessionReadAnswer()).toBe("replaced");
+    expect(heard).toEqual(["replaced"]);
+  });
+
+  it("answers before any session consumer sees the new session", async () => {
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ userId: "user-a", email: "a@x.test" })),
+    );
+    const seen: string[] = [];
+    function Probe() {
+      const { session } = module.useSession();
+      seen.push(`${module.firstSessionReadAnswer()}:${session?.email ?? "-"}`);
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(seen).not.toContain("pending:a@x.test");
+    expect(seen.at(-1)).toBe("first-read:a@x.test");
+  });
+});
+
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,

@@ -350,6 +350,31 @@ describe("client status requests", () => {
     expect(window.__agentNativeSessionBootstrap).toBeUndefined();
   });
 
+  it("answers later session reads from the static shell's read after the page wraps fetch", async () => {
+    const pageFetch = vi.fn(async () =>
+      jsonResponse({ error: "unexpected fetch" }),
+    );
+    vi.stubGlobal("fetch", pageFetch);
+    window.__agentNativeSessionBootstrap = Promise.resolve({
+      state: "available",
+      value: { userId: "user-1", email: "user@example.com" },
+    });
+    // Analytics takes the shell's read first, then session replay wraps fetch
+    // before the session store asks.
+    await fetchAuthSessionStatus();
+    const wrapped = vi.fn((...args: Parameters<typeof fetch>) =>
+      pageFetch(...args),
+    );
+    vi.stubGlobal("fetch", wrapped);
+
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "user-1", email: "user@example.com" },
+    });
+    expect(pageFetch).not.toHaveBeenCalled();
+    expect(wrapped).not.toHaveBeenCalled();
+  });
+
   it("discards an unconsumed session bootstrap when session status is invalidated", async () => {
     const fetch = vi.fn(async () =>
       jsonResponse({ userId: "current-user", email: "current@example.com" }),
