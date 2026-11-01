@@ -277,6 +277,9 @@ describe("Content view dashboard", () => {
         published: "2026-09-01",
         signups: 2,
         source_signups: 1,
+        pageviews: 5,
+        clicks: null,
+        impressions: null,
       },
       {
         title: "Post two",
@@ -285,26 +288,62 @@ describe("Content view dashboard", () => {
         published: daysAgo(0),
         signups: null,
         source_signups: null,
+        pageviews: null,
+        clicks: null,
+        impressions: null,
       },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
-  it("rejects a custom date scaffold wider than the supported range", () => {
-    const panel = contentView().panels.find(
-      (panel) => panel.id === "signups-per-day",
-    )!;
+  it("counts an article's search clicks and impressions, not other pages in search", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
+        ('c1', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(4)}', 'search_console_clicks', 3, 'search_console', 'r3', '${daysAgo(2)}'),
+        ('c2', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(4)}', 'search_console_impressions', 40, 'search_console', 'r3', '${daysAgo(2)}');
+    `);
     expect(
-      interpolateDashboardPanelSql(
-        panel.sql,
-        {
-          timeRange: "custom",
-          timeRangeStart: "2000-01-01",
-          timeRangeEnd: "2026-10-20",
-        },
-        panel,
+      (await runPanel("articles")).find((row) => row.title === "Post one"),
+    ).toEqual(
+      expect.objectContaining({ pageviews: 5, clicks: 3, impressions: 40 }),
+    );
+
+    // Search Console reports two to three days late, so its newest days stay
+    // blank instead of reading as zero clicks.
+    const days = await runPanel("pageviews-per-day");
+    expect(days).toHaveLength(28);
+    expect(days[days.length - 1]).toEqual({
+      date: await yesterday("YYYY-MM-DD"),
+      pageviews: null,
+      search_clicks: null,
+    });
+    expect(
+      days.filter(
+        (row) => row.pageviews !== null || row.search_clicks !== null,
       ),
-    ).toBe("SELECT __invalid_custom_date_range__");
+    ).toEqual([
+      { date: daysAgo(4), pageviews: null, search_clicks: 3 },
+      { date: daysAgo(3), pageviews: 5, search_clicks: null },
+      { date: daysAgo(2), pageviews: 0, search_clicks: null },
+    ]);
+    expect(bigQuery.query).not.toHaveBeenCalled();
+  });
+
+  it("rejects a custom date scaffold wider than the supported range", () => {
+    for (const id of ["signups-per-day", "pageviews-per-day"]) {
+      const panel = contentView().panels.find((panel) => panel.id === id)!;
+      expect(
+        interpolateDashboardPanelSql(
+          panel.sql,
+          {
+            timeRange: "custom",
+            timeRangeStart: "2000-01-01",
+            timeRangeEnd: "2026-10-20",
+          },
+          panel,
+        ),
+      ).toBe("SELECT __invalid_custom_date_range__");
+    }
   });
 
   it("keeps a day with no signups as null through yesterday", async () => {
@@ -334,7 +373,13 @@ describe("Content view dashboard", () => {
     `);
     const all = await runPanel("articles", "all");
     expect(all.find((row) => row.title === "Post one")?.signups).toBe(12);
+    expect(all.find((row) => row.title === "Post one")?.pageviews).toBe(105);
     expect(all.some((row) => row.title === "Other org post")).toBe(false);
+    expect(
+      (await runPanel("pageviews-per-day", "all")).find(
+        (row) => row.date === daysAgo(3),
+      )?.pageviews,
+    ).toBe(5);
 
     expect(await runPanel("signups-by-author")).toEqual([
       { author: "Ada", signups: 2 },
@@ -357,18 +402,28 @@ describe("Content view dashboard", () => {
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
       SELECT 'day' || days_ago, 'org:org_a', 'alice@example.test', 'org_a', 'a1', to_char(CURRENT_DATE - days_ago, 'YYYY-MM-DD'), 'signups_first_touch', value, 'signups', 'r0', '2026-09-01'
       FROM (VALUES (8, 50), (7, 3), (0, 100)) AS days (days_ago, value);
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'view' || days_ago, 'org:org_a', 'alice@example.test', 'org_a', 'a1', to_char(CURRENT_DATE - days_ago, 'YYYY-MM-DD'), 'ga4_pageviews', value, 'ga4', 'r0', '2026-09-01'
+      FROM (VALUES (8, 50), (7, 3), (0, 100)) AS days (days_ago, value);
     `);
     // Last 7 days is the seven days through yesterday: the 3 from seven days
-    // ago and the 2 from three days ago, not the day before or today.
+    // ago and the 2 from three days ago, not the day before or today. Pageviews
+    // add the 3 to the 5 and 0 already collected three and two days ago.
     const days = await runPanel("signups-per-day", "7d");
     expect(days).toHaveLength(7);
     expect(days.reduce((sum, row) => sum + Number(row.signups ?? 0), 0)).toBe(
       5,
     );
+    const traffic = await runPanel("pageviews-per-day", "7d");
+    expect(traffic).toHaveLength(7);
     expect(
-      (await runPanel("articles", "7d")).find((row) => row.title === "Post one")
-        ?.signups,
-    ).toBe(5);
+      traffic.reduce((sum, row) => sum + Number(row.pageviews ?? 0), 0),
+    ).toBe(8);
+    const article = (await runPanel("articles", "7d")).find(
+      (row) => row.title === "Post one",
+    );
+    expect(article?.signups).toBe(5);
+    expect(article?.pageviews).toBe(8);
     expect(await runPanel("signups-by-author", "7d")).toEqual([
       { author: "Ada", signups: 5 },
     ]);
