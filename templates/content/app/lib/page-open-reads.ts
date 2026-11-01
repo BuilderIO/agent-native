@@ -451,7 +451,11 @@ export function retirePageOpenReads(
 ) {
   const reads = openReads(queryClient);
   for (const [queryHash, read] of reads) {
-    if (read.documentId !== keepDocumentId) reads.delete(queryHash);
+    if (read.documentId === keepDocumentId) continue;
+    reads.delete(queryHash);
+    // Spoiled too: an answer landing after the page was left seeds no
+    // collection parts that a later open would take as its own read.
+    read.invalidated = true;
   }
   // A retired read is never handed to a component, so it is watched as if it
   // had been: dropped if its session turns out not to be this tab's, and no

@@ -83,6 +83,8 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
   };
 });
 
+import { sessionReadIdentity } from "@agent-native/core/client/use-session";
+
 import {
   activeDatabaseConstraintCount,
   activeDatabaseView,
@@ -95,10 +97,12 @@ import { useContentDatabase } from "../hooks/use-content-database";
 import {
   addressDatabaseViewId,
   openingDatabaseQueryKey,
+  pageOpenReadOwner,
   seedPageOpenCollection,
   type PageOpenReadAnswer,
   type PageOpenReadOwner,
 } from "./page-open-collection";
+import { retirePageOpenReads, startPageOpenRead } from "./page-open-reads";
 
 // The owner of a page-open read sent as the current session.
 function owner(fields: Partial<PageOpenReadOwner> = {}): PageOpenReadOwner {
@@ -244,6 +248,36 @@ describe("a collection page's reads in its page-open read", () => {
     });
 
     expect(queryClient.getQueryCache().getAll()).toEqual([]);
+  });
+
+  it("are not seeded from an answer that lands after the page was left", async () => {
+    const pageKey = ["action", "get-page-open-read", { id: "page-1" }];
+    let readOwner: PageOpenReadOwner | undefined;
+    startPageOpenRead(queryClient, "page-1", {
+      queryKey: pageKey,
+      queryFn: ({ signal }) => {
+        readOwner = pageOpenReadOwner(
+          queryClient,
+          pageKey,
+          signal,
+          sessionReadIdentity(),
+        );
+        return new Promise(() => {});
+      },
+    });
+    await vi.waitFor(() => expect(readOwner).toBeDefined());
+    if (!readOwner) throw new Error("the page read was never sent");
+
+    retirePageOpenReads(queryClient, "page-2");
+    seedPageOpenCollection(queryClient, "page-1", collection, {
+      owner: readOwner,
+    });
+
+    expect(queryClient.getQueryData(rowsKey)).toBeUndefined();
+    expect(queryClient.getQueryData(personalViewKey)).toBeUndefined();
+    expect(
+      queryClient.getQueryData(openingDatabaseQueryKey("page-1")),
+    ).toBeUndefined();
   });
 
   describe("the table that refreshes on every mount", () => {
