@@ -331,8 +331,9 @@ describe("page open document reads", () => {
     startPageOpenDocumentReads(queryClient, "doc-1");
 
     await vi.waitFor(() => expect(readsOfPage()).toBe(1));
+    // The widget's ticket may call get-document but not get-page-open-read.
     expect(server.calls).toEqual([
-      { name: "get-page-open-read", params: { id: "doc-1" } },
+      { name: "get-document", params: { id: "doc-1" } },
     ]);
   });
 

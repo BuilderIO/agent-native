@@ -958,16 +958,28 @@ export function startPageOpenDocumentReads(
   // sends its own request rather than replaying this one.
   let pageRead: Promise<PageOpenReadAnswer> | null = null;
   const databaseViewId = beforeSession ? loadDatabaseViewId() : null;
-  const sendPageRead = () =>
-    callAction<PageOpenReadAnswer>(
-      "get-page-open-read",
-      {
-        ...documentReadParams(documentId, context),
-        ...(databaseViewId ? { databaseViewId } : {}),
-        ...(readsDraft ? { includePreviewDraft: true } : {}),
-      },
-      { method: "GET" },
-    );
+  // A chat widget's ticket may call only the reads its connector lists, and
+  // get-page-open-read isn't one of them, so a widget reads the page alone.
+  const widgetHost = widgetBridgeActive || isOpenAiMcpAppHost();
+  const sendPageRead = (): Promise<PageOpenReadAnswer> =>
+    widgetHost
+      ? callAction<PageOpenReadAnswer["document"]>(
+          "get-document",
+          {
+            ...documentReadParams(documentId, context),
+            ...(readsDraft ? { includePreviewDraft: true } : {}),
+          },
+          { method: "GET" },
+        ).then((document) => ({ document }))
+      : callAction<PageOpenReadAnswer>(
+          "get-page-open-read",
+          {
+            ...documentReadParams(documentId, context),
+            ...(databaseViewId ? { databaseViewId } : {}),
+            ...(readsDraft ? { includePreviewDraft: true } : {}),
+          },
+          { method: "GET" },
+        );
   // The load's head script may already have sent this read; a failed one is
   // sent again here, so its error comes from the app's own request.
   const startupRead = beforeSession
