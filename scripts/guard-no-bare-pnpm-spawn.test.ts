@@ -51,6 +51,19 @@ describe("bare pnpm spawn guard", () => {
     assert.deepEqual(flagged(source, "all"), [2, 4]);
   });
 
+  it("follows fallbacks and destructured helper results", () => {
+    const source = [
+      'spawn(process.env.PNPM_BIN ?? "pnpm", args);',
+      'spawnSync(customBin || "pnpm", args);',
+      'execFile(usePnpm && "pnpm", args, () => {});',
+      "const { command } = pnpmCommand(args);",
+      "spawn(command, args);",
+      'spawn(process.env.NODE_BIN ?? "node", args);',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [1, 2, 3, 5]);
+  });
+
   it("follows let bindings and later assignments", () => {
     const source = [
       "let pnpm: PnpmCommand;",
@@ -84,27 +97,33 @@ describe("bare pnpm spawn guard", () => {
       'spawn("pnpm", args, { shell: process.platform === "win32" });',
       "const options = { cwd, shell: true };",
       'spawnSync("pnpm", args, options);',
+      'const windows = process.platform === "win32";',
       'spawn(windows ? "pnpm run build" : "pnpm", windows ? [] : args, { shell: windows });',
       'spawn("pnpm.cmd", args, { shell: true });',
+      'spawn("pnpm", args, { shell: "win32" === os.platform() });',
+      "const { command, args: pnpmArgs, shell } = pnpmCommand(args);",
+      "spawn(command, pnpmArgs, { shell });",
     ].join("\n");
 
     assert.deepEqual(flagged(source, "all"), []);
   });
 
-  it("treats shell: false as no shell", () => {
+  it("counts a shell it can't show is on as no shell", () => {
     const source = [
       'spawn("pnpm", args, { shell: false });',
       'spawn("pnpm", args, { shell: false as const });',
-      'spawn("pnpm", args, { ...options, shell: windows });',
       "const noShell = false;",
       'spawn("pnpm", args, { shell: noShell });',
       "const shell = undefined;",
       'spawnSync("pnpm", args, { shell });',
+      'spawn("pnpm", args, { shell: process.platform !== "win32" });',
+      'spawn("pnpm", args, { shell: options.shell });',
+      'spawn("pnpm", args, { shell: isWindows });',
       'const useShell = process.platform === "win32";',
-      'spawn("pnpm", args, { shell: useShell });',
+      'spawn("pnpm", args, { ...options, shell: useShell });',
     ].join("\n");
 
-    assert.deepEqual(flagged(source, "all"), [1, 2, 5, 7]);
+    assert.deepEqual(flagged(source, "all"), [1, 2, 4, 6, 7, 8, 9]);
   });
 
   it("reads same-named variables in other scopes conservatively", () => {

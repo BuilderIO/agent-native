@@ -11,17 +11,20 @@
  *
  * This guard scans lines ADDED on this branch (via scripts/lib/changed-lines.mjs)
  * and flags a `spawn`, `spawnSync`, `execFile` or `execFileSync` call that
- * starts pnpm (or pnpx) with no `shell` option. Root scripts start pnpm
+ * starts pnpm (or pnpx) without a shell on Windows. Root scripts start pnpm
  * through scripts/lib/pnpm-command.ts; elsewhere, pass
  * `shell: process.platform === "win32"` (or run the joined command line with
- * `shell: true` on Windows, as the helper does); `shell: false` counts as no
- * shell. Variables are matched by name, not scope, so the guard reads them
- * conservatively: `shell: name` counts as no shell if any variable of that name
- * holds `false`, and an options object counts only if every one sets a shell.
- * A spread after `shell` that might override it also counts as no shell.
- * Spawners imported from child_process under another name are checked
- * too, and so is `pnpm.command` from a `pnpmCommand(...)` result passed without
- * its `shell`. It also flags a new
+ * `shell: true` on Windows, as the helper does).
+ *
+ * The command is found on a best-effort basis: through literals, ternaries,
+ * `??`/`||`/`&&` fallbacks, variables, destructuring, a local zero-argument
+ * function, and `.command` of a `pnpmCommand(...)` result. The shell has to be
+ * shown to be on: `true`, a shell path, `process.platform === "win32"`, the
+ * helper's `.shell`, or a variable whose every value is one of those.
+ * Variables are matched by name, not scope, which that rule keeps on the safe
+ * side. Properties and spreads are read in order, so a later one wins, and a
+ * spread the guard can't read counts as no shell. Spawners imported from
+ * child_process under another name are checked too. It also flags a new
  * `"pnpm.cmd"`-style literal, which only exists to spawn the shim without a
  * shell. `exec` and `execSync` always use a shell, so they are not checked.
  *
@@ -61,6 +64,11 @@ const SPAWNERS = new Set(["spawn", "spawnSync", "execFile", "execFileSync"]);
 const PNPM = /^pnp[mx](?:\.cmd)?$/i;
 const CMD_SHIM = /^pnp[mx]\.cmd$/i;
 const CHILD_PROCESS = /^(?:node:)?child_process$/;
+const LOGICAL_OPERATORS = new Set([
+  ts.SyntaxKind.QuestionQuestionToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.AmpersandAmpersandToken,
+]);
 
 export interface BareSpawnFinding {
   file: string;
@@ -91,6 +99,23 @@ function literalValue(node: ts.Expression): string | null {
     return inner.text;
   }
   return null;
+}
+
+/** `process.platform`, `os.platform()` or `platform()`. */
+function isPlatform(node: ts.Expression): boolean {
+  const inner = unwrap(node);
+  if (ts.isPropertyAccessExpression(inner)) {
+    return (
+      inner.name.text === "platform" &&
+      ts.isIdentifier(inner.expression) &&
+      inner.expression.text === "process"
+    );
+  }
+  return (
+    ts.isCallExpression(inner) &&
+    inner.arguments.length === 0 &&
+    calleeName(inner) === "platform"
+  );
 }
 
 function calleeName(call: ts.CallExpression): string | null {
@@ -173,6 +198,29 @@ function variableValues(sourceFile: ts.SourceFile) {
     ) {
       add(node.name.text, node.initializer);
     } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name) &&
+      node.initializer
+    ) {
+      // `const { command } = pnpmCommand(args)` gives `command` the value
+      // `pnpmCommand(args).command`.
+      for (const element of node.name.elements) {
+        const key = element.propertyName ?? element.name;
+        if (
+          ts.isIdentifier(element.name) &&
+          !element.dotDotDotToken &&
+          ts.isIdentifier(key)
+        ) {
+          add(
+            element.name.text,
+            ts.factory.createPropertyAccessExpression(
+              node.initializer,
+              key.text,
+            ),
+          );
+        }
+      }
+    } else if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
       ts.isIdentifier(node.left)
@@ -252,6 +300,18 @@ export function findBarePnpmSpawns(
     return SPAWNERS.has(resolved) ? resolved : null;
   };
 
+  // A `pnpmCommand(...)` call, directly or through a variable.
+  const fromPnpmCommand = (node: ts.Expression): boolean => {
+    const target = unwrap(node);
+    const candidates = ts.isIdentifier(target)
+      ? (values.get(target.text) ?? [])
+      : [target];
+    return candidates.some((candidate) => {
+      const call = unwrap(candidate);
+      return ts.isCallExpression(call) && calleeName(call) === "pnpmCommand";
+    });
+  };
+
   const namesPnpm = (
     node: ts.Expression,
     seen = new Set<string>(),
@@ -264,17 +324,17 @@ export function findBarePnpmSpawns(
         namesPnpm(inner.whenTrue, seen) || namesPnpm(inner.whenFalse, seen)
       );
     }
+    // `process.env.PNPM_BIN ?? "pnpm"` and the like can pick either side.
+    if (
+      ts.isBinaryExpression(inner) &&
+      LOGICAL_OPERATORS.has(inner.operatorToken.kind)
+    ) {
+      return namesPnpm(inner.left, seen) || namesPnpm(inner.right, seen);
+    }
     // `pnpm.command` where `pnpm = pnpmCommand(...)`: the helper's Windows
     // command line, which needs its `shell` alongside it.
     if (ts.isPropertyAccessExpression(inner) && inner.name.text === "command") {
-      const target = unwrap(inner.expression);
-      const candidates = ts.isIdentifier(target)
-        ? (values.get(target.text) ?? [])
-        : [target];
-      return candidates.some((candidate) => {
-        const call = unwrap(candidate);
-        return ts.isCallExpression(call) && calleeName(call) === "pnpmCommand";
-      });
+      return fromPnpmCommand(inner.expression);
     }
     if (ts.isIdentifier(inner) && !seen.has(inner.text)) {
       seen.add(inner.text);
@@ -296,24 +356,36 @@ export function findBarePnpmSpawns(
     return false;
   };
 
-  // `false`, `null` or `undefined`, directly or through a variable. Same-named
-  // variables in other scopes share one entry, so any such value counts.
-  const isNoShell = (
+  // A `shell` value that is on when it runs on Windows. Anything the guard
+  // can't show is on counts as off. A variable needs every value of its name
+  // to be on, since same-named variables in other scopes share one entry.
+  const isShellOn = (
     node: ts.Expression,
     seen = new Set<string>(),
   ): boolean => {
     const inner = unwrap(node);
-    if (
-      inner.kind === ts.SyntaxKind.FalseKeyword ||
-      inner.kind === ts.SyntaxKind.NullKeyword
-    ) {
-      return true;
+    if (inner.kind === ts.SyntaxKind.TrueKeyword) return true;
+    const literal = literalValue(inner);
+    if (literal !== null) return literal !== "";
+    if (ts.isBinaryExpression(inner)) {
+      const equals =
+        inner.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        inner.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken;
+      return (
+        equals &&
+        ((isPlatform(inner.left) && literalValue(inner.right) === "win32") ||
+          (isPlatform(inner.right) && literalValue(inner.left) === "win32"))
+      );
+    }
+    if (ts.isPropertyAccessExpression(inner) && inner.name.text === "shell") {
+      return fromPnpmCommand(inner.expression);
     }
     if (!ts.isIdentifier(inner) || seen.has(inner.text)) return false;
     seen.add(inner.text);
     const assigned = values.get(inner.text) ?? [];
-    if (assigned.length === 0) return inner.text === "undefined";
-    return assigned.some((value) => isNoShell(value, seen));
+    return (
+      assigned.length > 0 && assigned.every((value) => isShellOn(value, seen))
+    );
   };
 
   const shellValue = (
@@ -356,7 +428,7 @@ export function findBarePnpmSpawns(
         continue;
       }
       const value = shellValue(property);
-      if (value !== undefined) setting = isNoShell(value) ? "off" : "on";
+      if (value !== undefined) setting = isShellOn(value) ? "on" : "off";
     }
     return setting;
   };
