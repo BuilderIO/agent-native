@@ -10,6 +10,7 @@ import {
   getAppProductionUrl,
   platformWaitUntil,
   readBodyWithSizeLimit,
+  runInBackground,
   runWithRequestContext,
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
@@ -832,18 +833,22 @@ async function isCommentOnRecording(
 /**
  * Sends a new comment's emails after Clips answers, so the reader never waits
  * on them: each send may take up to a minute, longer than Content waits for
- * an answer. Without the platform's waitUntil the function may be frozen as
- * soon as it answers, so the emails go out first.
+ * an answer. Without the platform's waitUntil they get only a moment before
+ * the answer, so a function frozen once it answers can lose them; the comment
+ * is saved either way, and an email that fails is logged, never sent again.
  */
 async function notifyAfterAnswer(
   saved: SavedRecordingComment,
   event: H3Event,
 ): Promise<void> {
   if (saved.repeated) return;
-  const sending = saved.notify();
-  const waitUntil = platformWaitUntil(event.req);
-  if (waitUntil) waitUntil(sending);
-  else await sending;
+  const sending = saved.notify().catch((error: unknown) => {
+    console.error(
+      `[clips] emails for comment ${saved.id} failed after it was saved`,
+      error instanceof Error ? error.message : error,
+    );
+  });
+  await runInBackground(sending, platformWaitUntil(event.req));
 }
 
 async function writeComment(

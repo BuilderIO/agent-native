@@ -1673,25 +1673,46 @@ describe("video comments through a doc", () => {
       expect(await storedComments()).toHaveLength(1);
     });
 
-    it("sends the emails before answering where the platform can't keep them running", async () => {
-      let sent!: () => void;
-      state.notification = new Promise<null>((resolve) => {
-        sent = () => resolve(null);
-      });
-      let answered = false;
-      const answer = writeComment(
+    it("answers within a moment where the platform can't keep the emails running", async () => {
+      // Emails that never finish, on a runtime with no waitUntil.
+      state.notification = new Promise(() => {});
+      const result = await writeComment(
         "rec-upload",
         await token({ scope: SCOPES.comment }),
         add,
         keyed(),
-      ).then((result) => {
-        answered = true;
-        return result;
+      );
+      expect(result.status).toBe(200);
+      expect(state.notified).toHaveLength(1);
+      expect(await storedComments()).toHaveLength(1);
+    });
+
+    it("answers with the saved comment when its emails fail", async () => {
+      let fail!: (error: Error) => void;
+      state.notification = new Promise<null>((_, reject) => {
+        fail = reject;
       });
-      await vi.waitFor(() => expect(state.notified).toHaveLength(1));
-      expect(answered).toBe(false);
-      sent();
-      expect((await answer).status).toBe(200);
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const answer = writeComment(
+          "rec-upload",
+          await token({ scope: SCOPES.comment }),
+          add,
+          keyed(),
+        );
+        await vi.waitFor(() => expect(state.notified).toHaveLength(1));
+        fail(new Error("Email service down"));
+        expect((await answer).status).toBe(200);
+        expect(await storedComments()).toHaveLength(1);
+        await vi.waitFor(() =>
+          expect(errors).toHaveBeenCalledWith(
+            expect.stringContaining("failed after it was saved"),
+            "Email service down",
+          ),
+        );
+      } finally {
+        errors.mockRestore();
+      }
     });
 
     it("saves every comment sent with no key, as before keys", async () => {
