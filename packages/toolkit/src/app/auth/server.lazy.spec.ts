@@ -86,10 +86,36 @@ describe("Toolkit auth plugin's lazy sign-in renderer", () => {
     expect(signInHtml()).toContain('data-agent-native-auth-fallback="true"');
   });
 
-  it("loads for a page whose path only starts like the API's", async () => {
+  it("does not load the renderers for other reads of server routes", async () => {
+    const { onRequest, signInHtml } = await installPlugin();
+
+    await onRequest(request("POST", "/mcp", { accept: "*/*" }));
+    await onRequest(request("GET", "/mcp/connect", { accept: "*/*" }));
+    await onRequest(
+      request("GET", "/.well-known/oauth-protected-resource", {
+        accept: "application/json",
+      }),
+    );
+    await onRequest(request("GET", "/assets/app-3f9a.js", { accept: "*/*" }));
+
+    expect(signInHtml()).toContain('data-agent-native-auth-fallback="true"');
+  });
+
+  it("loads for a browser opening the MCP connect page", async () => {
+    const { onRequest, signInHtml } = await installPlugin();
+
+    await onRequest(
+      request("GET", "/mcp/connect", { "sec-fetch-dest": "document" }),
+    );
+
+    expect(signInHtml()).toContain('id="login-form"');
+  });
+
+  it("loads for a page whose path only starts like a server route's", async () => {
     const { onRequest, signInHtml } = await installPlugin();
 
     await onRequest(request("GET", "/apis", { accept: "*/*" }));
+    await onRequest(request("GET", "/assets-guide", { accept: "*/*" }));
 
     expect(signInHtml()).toContain('id="login-form"');
   });
