@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  abortedByEither,
   PAGE_OPEN_READ_TTL_MS,
   readFromStartupPageRead,
   STARTUP_PAGE_READ_WAIT_MS,
@@ -11,7 +12,7 @@ import {
   type StartupPageReadAnswer,
 } from "./page-open-reads";
 
-const ACTION_URL = "/_agent-native/actions/get-document";
+const ACTION_URL = "/_agent-native/actions/get-page-open-read";
 
 function runHeadScript() {
   // The script runs as an inline <script> in the document head.
@@ -43,8 +44,10 @@ describe("the load's page read from the document head", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends the page and draft read with the page's own context", async () => {
-    openLoad("/page/doc-1?databaseId=db-1&databaseDocumentId=dbdoc-1");
+  it("sends the page read with the page's own context and view", async () => {
+    openLoad(
+      "/page/doc-1?databaseId=db-1&databaseDocumentId=dbdoc-1&databaseViewId=%20board%20",
+    );
 
     runHeadScript();
 
@@ -56,6 +59,7 @@ describe("the load's page read from the document head", () => {
       id: "doc-1",
       databaseId: "db-1",
       databaseDocumentId: "dbdoc-1",
+      databaseViewId: "board",
       includePreviewDraft: "true",
     });
     expect(init).toMatchObject({
@@ -71,6 +75,17 @@ describe("the load's page read from the document head", () => {
       ok: true,
       value: { id: "doc-1", title: "Harbor survey" },
     });
+  });
+
+  it("sends the view an exact viewId names ahead of the remembered one", () => {
+    openLoad("/page/doc-1?databaseId=db-1&viewId=list&databaseViewId=board");
+
+    runHeadScript();
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(
+      new URL(url, "http://localhost").searchParams.get("databaseViewId"),
+    ).toBe("list");
   });
 
   it("is taken once, so a later open of the page reads it fresh", () => {
@@ -387,5 +402,44 @@ describe("the app's page from the head script's read", () => {
     head.answer({ ok: false });
     await settled;
     expect(ownRead).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the signal that stops the app's own page read", () => {
+  const any = Object.getOwnPropertyDescriptor(AbortSignal, "any");
+
+  // Safari before 17.4 has no AbortSignal.any.
+  beforeEach(() => {
+    Object.defineProperty(AbortSignal, "any", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    if (any) Object.defineProperty(AbortSignal, "any", any);
+  });
+
+  it("is aborted by either signal, with the reason it was given", () => {
+    const query = new AbortController();
+    const own = new AbortController();
+    const first = abortedByEither(query.signal, own.signal);
+    expect(first.aborted).toBe(false);
+    own.abort("head won");
+    expect(first.aborted).toBe(true);
+    expect(first.reason).toBe("head won");
+
+    const other = new AbortController();
+    const second = abortedByEither(other.signal, new AbortController().signal);
+    other.abort("query cancelled");
+    expect(second.reason).toBe("query cancelled");
+  });
+
+  it("is aborted at once when either signal already is", () => {
+    const query = new AbortController();
+    query.abort("gone");
+    const signal = abortedByEither(query.signal, new AbortController().signal);
+    expect(signal.aborted).toBe(true);
+    expect(signal.reason).toBe("gone");
   });
 });

@@ -46,6 +46,7 @@ import {
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
+import { addressDatabaseViewId } from "@/lib/page-open-collection";
 import { retirePageOpenReads } from "@/lib/page-open-reads";
 import {
   readPageIconRowHint,
@@ -187,10 +188,15 @@ export function Layout({ children }: LayoutProps) {
   useEffect(() => {
     if (!showPendingDocumentSkeleton || !pendingDocumentId) return;
     const search = new URLSearchParams(pendingSearch);
-    startPageOpenDocumentReads(queryClient, pendingDocumentId, {
-      databaseId: search.get("databaseId"),
-      databaseDocumentId: search.get("databaseDocumentId"),
-    });
+    startPageOpenDocumentReads(
+      queryClient,
+      pendingDocumentId,
+      {
+        databaseId: search.get("databaseId"),
+        databaseDocumentId: search.get("databaseDocumentId"),
+      },
+      { databaseViewId: addressDatabaseViewId(pendingSearch) },
+    );
   }, [
     pendingDocumentId,
     pendingSearch,

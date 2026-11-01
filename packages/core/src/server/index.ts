@@ -277,6 +277,7 @@ export {
   prepareTransactionalChange,
   getVersion,
   getChangesSince,
+  getCurrentPollBaseline,
   getPollEmitter,
   canSeeChangeForUser,
   POLL_CHANGE_EVENT,

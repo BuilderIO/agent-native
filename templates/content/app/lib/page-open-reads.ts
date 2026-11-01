@@ -219,18 +219,65 @@ function openReads(queryClient: QueryClient) {
   return reads;
 }
 
+type PageOpenReadStart = { identity?: SessionReadIdentity; startedAt?: number };
+
 // Returns whether it started a read; one made for this open already counts.
 export function startPageOpenRead<TData>(
   queryClient: QueryClient,
   documentId: string,
   options: FetchQueryOptions<TData, Error, TData, QueryKey>,
+  start: PageOpenReadStart = {},
+): boolean {
+  if (!beginPageOpenRead(queryClient, documentId, options.queryKey, start)) {
+    return false;
+  }
+  void queryClient.prefetchQuery({ ...options, staleTime: 0 });
+  return true;
+}
+
+/**
+ * Puts an answer this open already holds in the cache as a read made for the
+ * open, such as a part another read brought along. It is dated from the
+ * request that read it, not from now, so it is never fresher than that
+ * request's own answer. Like any page-open read it is held to the identity it
+ * was read as. Returns whether it did.
+ */
+export function seedPageOpenRead<TData>(
+  queryClient: QueryClient,
+  documentId: string,
+  queryKey: QueryKey,
+  data: TData,
+  start: PageOpenReadStart & { startedAt: number },
+): boolean {
+  // Unlike a fetch, a seed writes at once, so it is checked before it does.
+  const identity = start.identity ?? sessionReadIdentity();
+  if (sessionReadIdentityStatus(identity) === "stale") return false;
+  if (
+    !beginPageOpenRead(queryClient, documentId, queryKey, {
+      ...start,
+      identity,
+    })
+  ) {
+    return false;
+  }
+  queryClient.setQueryData(queryKey, data, { updatedAt: start.startedAt });
+  // A cache write is not a fetch's success, so mark it landed here.
+  const read = openReads(queryClient).get(hashKey(queryKey));
+  if (read) read.landed = true;
+  return true;
+}
+
+function beginPageOpenRead(
+  queryClient: QueryClient,
+  documentId: string,
+  queryKey: QueryKey,
   {
     identity = sessionReadIdentity(),
     startedAt = Date.now(),
-  }: { identity?: SessionReadIdentity; startedAt?: number } = {},
+  }: PageOpenReadStart,
 ): boolean {
   const reads = openReads(queryClient);
-  const queryHash = hashKey(options.queryKey);
+  const queryHash = hashKey(queryKey);
   const current = reads.get(queryHash);
   if (
     current &&
@@ -239,13 +286,11 @@ export function startPageOpenRead<TData>(
   ) {
     return false;
   }
-  const query = queryClient
-    .getQueryCache()
-    .find({ queryKey: options.queryKey, exact: true });
+  const query = queryClient.getQueryCache().find({ queryKey, exact: true });
   // A fetch already in flight may predate this open, or be a spoiled earlier
   // read; the new read must not join it. Cancelling reverts the query at once.
   if (query && query.state.fetchStatus !== "idle") {
-    void queryClient.cancelQueries({ queryKey: options.queryKey, exact: true });
+    void queryClient.cancelQueries({ queryKey, exact: true });
   }
   // An already-invalidated query dispatches no further invalidate events, so
   // clear the flag before this read replaces its data; otherwise a change that
@@ -262,16 +307,21 @@ export function startPageOpenRead<TData>(
     readAgain: "no",
   };
   reads.set(queryHash, read);
-  watchReads(queryClient).reads.set(read, {
-    queryKey: options.queryKey,
-    handedOver: false,
-  });
-  void queryClient.prefetchQuery({ ...options, staleTime: 0 });
+  watchReads(queryClient).reads.set(read, { queryKey, handedOver: false });
   return true;
 }
 
 export function isPageOpenRead(queryClient: QueryClient, queryKey: QueryKey) {
   return openReads(queryClient).has(hashKey(queryKey));
+}
+
+// The read this open made for the key, while it is tracked. Its `invalidated`
+// flag records a change that spoiled it after it started.
+export function trackedPageOpenRead(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+): PageOpenRead | null {
+  return openReads(queryClient).get(hashKey(queryKey)) ?? null;
 }
 
 // Claims the read made for this open. A claimed read stays tracked until
@@ -347,6 +397,43 @@ export function adoptPageOpenRead(
   return adoption;
 }
 
+// This read's answer is known to predate a change to its key: one sync made
+// after the server read but before anything here watched the key, or while
+// the fetch was out (which the fetch's success would otherwise clear). The
+// read is spoiled, and once its answer lands the query is marked invalidated,
+// so whatever watches the key reads it again.
+export function invalidatePageOpenReadOnLanding(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+) {
+  const queryHash = hashKey(queryKey);
+  const read = openReads(queryClient).get(queryHash);
+  if (read) read.invalidated = true;
+  const queryCache = queryClient.getQueryCache();
+  const unsubscribe = queryCache.subscribe((event) => {
+    if (event.query.queryHash !== queryHash) return;
+    if (event.type === "removed") {
+      unsubscribe();
+      return;
+    }
+    if (event.type !== "updated") return;
+    const { action } = event;
+    if (action.type === "success" && action.manual !== true) {
+      unsubscribe();
+      queueMicrotask(
+        () => void queryClient.invalidateQueries({ queryKey, exact: true }),
+      );
+    } else if (
+      action.type === "error" ||
+      action.type === "fetch" ||
+      (action.type === "setState" && action.state.fetchStatus === "idle")
+    ) {
+      // Failed, cancelled or replaced: this answer never lands.
+      unsubscribe();
+    }
+  });
+}
+
 // This tab is changing the page, so no read already under way for it can be
 // shown as the page's current state.
 export function spoilPageOpenReads(
@@ -364,7 +451,11 @@ export function retirePageOpenReads(
 ) {
   const reads = openReads(queryClient);
   for (const [queryHash, read] of reads) {
-    if (read.documentId !== keepDocumentId) reads.delete(queryHash);
+    if (read.documentId === keepDocumentId) continue;
+    reads.delete(queryHash);
+    // Spoiled too: an answer landing after the page was left seeds no
+    // collection parts that a later open would take as its own read.
+    read.invalidated = true;
   }
   // A retired read is never handed to a component, so it is watched as if it
   // had been: dropped if its session turns out not to be this tab's, and no
@@ -465,7 +556,7 @@ export function startupPageReadScript(
   // could never be the app's: the script leaves it to the app.
   return `(function(){try{if(window.top!==window)return;if(new URL(${JSON.stringify(
     actionUrl,
-  )},location.href).origin!==location.origin)return;var h=document.cookie.split(";").some(function(e){e=e.trim();var s=e.indexOf("=");if(s<1||e.slice(s+1)!=="1")return false;var n=e.slice(0,s);return n==="an_session_hint"||(n.indexOf("an_session_")===0&&n.slice(-5)==="_hint")});if(!h)return;var l=location.pathname,b=${JSON.stringify(basePath)};if(b&&l.indexOf(b+"/")===0)l=l.slice(b.length);var m=/^\\/page\\/([^/]+)\\/?$/.exec(l);if(!m)return;var q=new URLSearchParams(location.search),e=q.get("embedded");if(e==="1"||e==="true")return;var id=decodeURIComponent(m[1]),d=q.get("databaseId"),dd=q.get("databaseDocumentId"),p=new URLSearchParams();p.set("id",id);if(d)p.set("databaseId",d);if(dd)p.set("databaseDocumentId",dd);p.set("includePreviewDraft","true");var c=typeof AbortController==="function"?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},${STARTUP_PAGE_READ_TIMEOUT_MS}),i={credentials:"same-origin",cache:"no-store",headers:${JSON.stringify(headers)}};if(c)i.signal=c.signal;var f=function(){return{ok:false}};window[${JSON.stringify(
+  )},location.href).origin!==location.origin)return;var h=document.cookie.split(";").some(function(e){e=e.trim();var s=e.indexOf("=");if(s<1||e.slice(s+1)!=="1")return false;var n=e.slice(0,s);return n==="an_session_hint"||(n.indexOf("an_session_")===0&&n.slice(-5)==="_hint")});if(!h)return;var l=location.pathname,b=${JSON.stringify(basePath)};if(b&&l.indexOf(b+"/")===0)l=l.slice(b.length);var m=/^\\/page\\/([^/]+)\\/?$/.exec(l);if(!m)return;var q=new URLSearchParams(location.search),e=q.get("embedded");if(e==="1"||e==="true")return;var id=decodeURIComponent(m[1]),d=q.get("databaseId"),dd=q.get("databaseDocumentId"),p=new URLSearchParams();p.set("id",id);if(d)p.set("databaseId",d);if(dd)p.set("databaseDocumentId",dd);var v=(q.get("viewId")||"").trim()||(q.get("databaseViewId")||"").trim();if(v)p.set("databaseViewId",v);p.set("includePreviewDraft","true");var c=typeof AbortController==="function"?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},${STARTUP_PAGE_READ_TIMEOUT_MS}),i={credentials:"same-origin",cache:"no-store",headers:${JSON.stringify(headers)}};if(c)i.signal=c.signal;var f=function(){return{ok:false}};window[${JSON.stringify(
     STARTUP_PAGE_READ_GLOBAL,
   )}]={id:id,databaseId:d,databaseDocumentId:dd,startedAt:Date.now(),transport:${fetchTransportScript(
     "fetch",
@@ -517,6 +608,22 @@ export function takeStartupPageRead(
       sessionReadIdentityStatus(identity) === "stale" ? { ok: false } : answer,
     ),
   };
+}
+
+// Aborted once either signal is. Not `AbortSignal.any`, which Safari lacks
+// before 17.4: there it would throw before the app's own page read went out.
+export function abortedByEither(a: AbortSignal, b: AbortSignal): AbortSignal {
+  const either = new AbortController();
+  for (const signal of [a, b]) {
+    if (signal.aborted) {
+      either.abort(signal.reason);
+      break;
+    }
+    signal.addEventListener("abort", () => either.abort(signal.reason), {
+      once: true,
+    });
+  }
+  return either.signal;
 }
 
 // The page from the head script's read, or from the app's own read when the
