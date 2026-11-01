@@ -14,6 +14,8 @@ export interface FusionAppBannerProps {
   statusMessage?: string;
   /** The app was built before, so a non-ready app is waking, not building. */
   built?: boolean;
+  /** Checking the app takes edit access; viewers see the saved status. */
+  canSync?: boolean;
 }
 
 /** Canvas notice while a Builder app is building or failed to build. */
@@ -22,6 +24,7 @@ export function FusionAppBanner({
   status,
   statusMessage,
   built = false,
+  canSync = true,
 }: FusionAppBannerProps) {
   const syncMutation = useActionMutation("sync-builder-app");
   const syncMutateRef = useRef(syncMutation.mutate);
@@ -42,17 +45,17 @@ export function FusionAppBanner({
   // A container saved as ready may have gone to sleep since: check it once
   // on open. One that is starting is then polled until it is up.
   useEffect(() => {
-    runSync();
-  }, [runSync]);
+    if (canSync) runSync();
+  }, [canSync, runSync]);
   useEffect(() => {
-    if (status !== "building") return;
+    if (!canSync || status !== "building") return;
     runSync();
     const interval = window.setInterval(() => {
       if (document.hidden) return;
       runSync();
     }, SYNC_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  }, [runSync, status]);
+  }, [canSync, runSync, status]);
 
   if (status === "building") {
     return (

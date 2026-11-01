@@ -678,6 +678,7 @@ export function renderEditorCanvasArea({
                 status={fusionApp.status}
                 statusMessage={fusionApp.statusMessage}
                 built={Boolean(fusionApp.previewUrl)}
+                canSync={canEditDesign}
               />
             )}
             {pendingVisualEditPublicationFailed ? (
