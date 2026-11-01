@@ -967,14 +967,14 @@ export function startPageOpenDocumentReads(
   // the page back on its own. Each read takes that answer once: a refetch
   // through either key sends its own request rather than replaying this one.
   let pageRead: Promise<PageOpenDocumentRead> | null = null;
-  const sendPageRead = () =>
+  const sendPageRead = (signal?: AbortSignal) =>
     callAction<PageOpenDocumentRead>(
       "get-document",
       {
         ...documentReadParams(documentId, context),
         ...(readsDraft ? { includePreviewDraft: true } : {}),
       },
-      { method: "GET" },
+      { method: "GET", ...(signal ? { signal } : {}) },
     );
   // The load's head script may already have sent this read; a failed or
   // stalled one is sent again here, so its error comes from the app's own
