@@ -903,6 +903,8 @@ describe("client application-state helpers", () => {
           try {
             await hold?.(String(url));
             const body = JSON.parse(String(init?.body));
+            if (init?.method === "PATCH")
+              return jsonResponse({ changed: true });
             return jsonResponse(
               String(url) === "/_agent-native/application-state"
                 ? {
@@ -987,6 +989,74 @@ describe("client application-state helpers", () => {
       await expect(second).resolves.toBe("b".repeat(30_000));
       release();
       await first;
+      expect(overBudget).toEqual([]);
+    });
+
+    function heldFetch(heldUrl: (url: string) => boolean) {
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const browser = browserLikeFetch((url) =>
+        heldUrl(url) ? held : Promise.resolve(),
+      );
+      return { ...browser, release };
+    }
+
+    it("leaves room for a keepalive compare-and-set in flight", async () => {
+      vi.resetModules();
+      const fresh = await import("./application-state.js");
+      const { fetchMock, overBudget, release } = heldFetch((url) =>
+        url.endsWith("/cas"),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const swap = fresh.compareAndSetClientAppState(
+        "cas",
+        null,
+        { text: "c".repeat(40_000) },
+        { keepalive: true },
+      );
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const batch = Promise.all([
+        fresh.writeClientAppState("a", "a".repeat(15_000), { keepalive: true }),
+        fresh.writeClientAppState("b", "b".repeat(15_000), { keepalive: true }),
+      ]);
+      await expect(batch).resolves.toEqual([
+        "a".repeat(15_000),
+        "b".repeat(15_000),
+      ]);
+      release();
+      await expect(swap).resolves.toBe(true);
+      expect(overBudget).toEqual([]);
+    });
+
+    it("sends a compare-and-set without keepalive when a batch in flight leaves no room", async () => {
+      vi.resetModules();
+      const fresh = await import("./application-state.js");
+      const { fetchMock, overBudget, release } = heldFetch(
+        (url) => url === "/_agent-native/application-state",
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const batch = Promise.all([
+        fresh.writeClientAppState("a", "a".repeat(15_000), { keepalive: true }),
+        fresh.writeClientAppState("b", "b".repeat(15_000), { keepalive: true }),
+      ]);
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const swap = fresh.compareAndSetClientAppState(
+        "cas",
+        null,
+        { text: "c".repeat(40_000) },
+        { keepalive: true },
+      );
+      await expect(swap).resolves.toBe(true);
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        method: "PATCH",
+        keepalive: false,
+      });
+      release();
+      await batch;
       expect(overBudget).toEqual([]);
     });
   });

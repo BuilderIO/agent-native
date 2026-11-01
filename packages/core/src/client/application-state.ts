@@ -136,8 +136,9 @@ let batchWritesUnsupported = false;
 
 // Browsers refuse a keepalive request once the keepalive bodies in flight
 // from the page pass 64 KiB, counted in encoded bytes. Keepalive requests
-// from this module claim their bytes until they finish, and a request that
-// doesn't fit goes without keepalive rather than fail.
+// from this module (writes, deletes and compare-and-sets) claim their bytes
+// until they finish, and a request that doesn't fit goes without keepalive
+// rather than fail.
 const KEEPALIVE_BYTE_BUDGET = 64 * 1024;
 const MAX_BATCH_WRITES = 100;
 let keepaliveBytesInFlight = 0;
@@ -756,13 +757,20 @@ export async function compareAndSetClientAppState(
 ): Promise<boolean> {
   assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
   return runClientAppStateMutation(key, async () => {
-    const response = await fetch(appStateUrl(key), {
-      method: "PATCH",
-      headers: buildHeaders(options.requestSource),
-      body: jsonBody({ expected, next }),
-      keepalive: options.keepalive,
-      signal: options.signal,
-    });
+    const body = jsonBody({ expected, next });
+    const keepalive = keepaliveRequest(options.keepalive, body);
+    let response: Response;
+    try {
+      response = await fetch(appStateUrl(key), {
+        method: "PATCH",
+        headers: buildHeaders(options.requestSource),
+        body,
+        ...keepalive.init,
+        signal: options.signal ?? null,
+      });
+    } finally {
+      keepalive.release();
+    }
     const result = await parseAppStateResponse<{ changed?: unknown }>(
       response,
       `Compare application state \"${key}\"`,
