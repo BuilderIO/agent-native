@@ -391,22 +391,40 @@ static PENDING_VOICE_START: Mutex<PendingVoiceStart> = Mutex::new(PendingVoiceSt
     held: None,
 });
 
-static LAST_VOICE_PRESS: Mutex<Option<Instant>> = Mutex::new(None);
+struct VoicePress {
+    at: Instant,
+    /// Whether a dictation run has already timed itself from this press.
+    claimed: bool,
+}
+
+static LAST_VOICE_PRESS: Mutex<Option<VoicePress>> = Mutex::new(None);
 
 /// Notes when a dictation key went down; the hold time and the dictation's
-/// press-to-first-sample timing both count from it.
+/// press-to-first-audio timing both count from it.
 fn note_voice_press() {
     if let Ok(mut pressed) = LAST_VOICE_PRESS.lock() {
-        *pressed = Some(Instant::now());
+        *pressed = Some(VoicePress {
+            at: Instant::now(),
+            claimed: false,
+        });
     }
 }
 
-pub(crate) fn last_voice_press() -> Option<Instant> {
-    LAST_VOICE_PRESS.lock().ok().and_then(|pressed| *pressed)
+/// The press that started the dictation now starting, once: a dictation
+/// started from the app, with no press of its own, gets `None` rather than
+/// an earlier run's press.
+pub(crate) fn claim_voice_press() -> Option<Instant> {
+    let mut pressed = LAST_VOICE_PRESS.lock().ok()?;
+    let press = pressed.as_mut().filter(|press| !press.claimed)?;
+    press.claimed = true;
+    Some(press.at)
 }
 
 fn held_since_press() -> Option<Duration> {
-    last_voice_press().map(|pressed| pressed.elapsed())
+    LAST_VOICE_PRESS
+        .lock()
+        .ok()
+        .and_then(|pressed| pressed.as_ref().map(|press| press.at.elapsed()))
 }
 
 /// `heldMs` is how long the key was down, measured here rather than from the

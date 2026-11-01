@@ -263,7 +263,7 @@ mod macos {
     use std::collections::HashSet;
     use std::ops::Range;
     use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+    use std::sync::{mpsc, Arc, Mutex, MutexGuard, OnceLock, PoisonError};
     use std::time::{Duration, Instant};
 
     use serde::Serialize;
@@ -579,6 +579,9 @@ mod macos {
     enum StreamWork {
         Live(Arc<LiveDictation>),
         Runs(RunLease<'static>),
+        /// Runs on a model still loading, handed over once it is ready. The
+        /// stream buffers what it hears meanwhile.
+        Pending(mpsc::Receiver<RunLease<'static>>),
     }
 
     impl WhisperStream {
@@ -601,7 +604,7 @@ mod macos {
                 engine,
                 live: match &work {
                     StreamWork::Live(live) => Some(live.clone()),
-                    StreamWork::Runs(_) => None,
+                    StreamWork::Runs(_) | StreamWork::Pending(_) => None,
                 },
                 speech_check,
                 last_pass: LastPass::default(),
@@ -627,6 +630,12 @@ mod macos {
                 match work {
                     StreamWork::Live(live) => live_worker(&worker_stream, &live),
                     StreamWork::Runs(lease) => worker(worker_stream, lease),
+                    // A start that failed drops the sender without a lease.
+                    StreamWork::Pending(lease) => {
+                        if let Ok(lease) = lease.recv() {
+                            worker(worker_stream, lease);
+                        }
+                    }
                 }
                 done.store(true, Ordering::SeqCst);
             });
@@ -1356,6 +1365,83 @@ mod macos {
         start()
     }
 
+    /// A Whisper dictation's mic, opened before its model is ready so the
+    /// first words are buffered while it loads. Dropped before the stream
+    /// joins a session, it closes the mic and ends the stream.
+    struct EarlyCapture {
+        mic: Arc<WhisperStream>,
+        cap: Option<MicCapture>,
+        lease: mpsc::Sender<RunLease<'static>>,
+    }
+
+    impl EarlyCapture {
+        fn start(
+            app: &AppHandle,
+            mic_device_id: Option<&str>,
+            mic_device_label: Option<&str>,
+            emit_partials: bool,
+            run_id: Option<u64>,
+        ) -> Result<Self, String> {
+            let (lease, pending) = mpsc::channel();
+            let mic = WhisperStream::new(
+                app.clone(),
+                "mic",
+                48000.0,
+                None,
+                StreamWork::Pending(pending),
+                LocalEngine::Whisper,
+                Some(Arc::new(SpeechCheck::for_dictation(app, "whisper"))),
+                Instant::now(),
+                emit_partials,
+                None,
+                run_id,
+            );
+            let mic_for_capture = mic.clone();
+            let cap = MicCapture::start(
+                app.clone(),
+                mic_device_id,
+                mic_device_label,
+                run_id,
+                Arc::new(move |samples: &[f32], sample_rate: f64| {
+                    mic_for_capture.set_src_rate(sample_rate);
+                    mic_for_capture.push(samples);
+                }),
+            );
+            match cap {
+                Ok(cap) => Ok(Self {
+                    mic,
+                    cap: Some(cap),
+                    lease,
+                }),
+                Err(e) => {
+                    mic.stop();
+                    Err(format!("mic capture failed: {e}"))
+                }
+            }
+        }
+
+        /// Hands the loaded model to the stream's worker, which transcribes
+        /// from the first buffered sample.
+        fn begin(&self, lease: RunLease<'static>) -> Result<(), String> {
+            self.lease
+                .send(lease)
+                .map_err(|_| "the transcription worker ended before its model was ready".to_owned())
+        }
+
+        fn into_capture(mut self) -> Option<MicCapture> {
+            self.cap.take()
+        }
+    }
+
+    impl Drop for EarlyCapture {
+        fn drop(&mut self) {
+            if let Some(cap) = self.cap.take() {
+                drop(cap);
+                self.mic.stop();
+            }
+        }
+    }
+
     pub async fn start(
         app: AppHandle,
         language: Option<String>,
@@ -1399,6 +1485,20 @@ mod macos {
         let pill_error = |e: String| {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
             e
+        };
+        // The model file is on disk by now, so this waits only on loading it.
+        let captures_early =
+            engine == LocalEngine::Whisper && owner == SessionOwner::Dictation && !capture_system;
+        let early = if captures_early {
+            Some(EarlyCapture::start(
+                &app,
+                mic_device_id.as_deref(),
+                mic_device_label.as_deref(),
+                emit_partials,
+                run_id,
+            )?)
+        } else {
+            None
         };
         // A Parakeet dictation only ever starts on a warmed-up model nothing
         // else holds, taken without waiting; otherwise it is turned away
@@ -1447,30 +1547,38 @@ mod macos {
         let _ = language;
         let lang: Option<String> = None;
 
-        let speech_check = (owner == SessionOwner::Dictation).then(|| {
-            Arc::new(SpeechCheck::for_dictation(
-                &app,
-                match engine {
-                    LocalEngine::Whisper => "whisper",
-                    LocalEngine::Parakeet => "parakeet",
-                },
-            ))
-        });
         let session_start = Instant::now();
         let echo_guard = capture_system.then(|| Arc::new(EchoGuard::new()));
-        let mic_stream = WhisperStream::new(
-            app.clone(),
-            "mic",
-            48000.0,
-            lang.clone(),
-            mic_work,
-            engine,
-            speech_check,
-            session_start,
-            emit_partials,
-            echo_guard.clone(),
-            run_id,
-        );
+        let mic_stream = if let Some(early) = &early {
+            let StreamWork::Runs(lease) = mic_work else {
+                return Err("an early mic capture only transcribes on a Whisper model".into());
+            };
+            early.begin(lease)?;
+            early.mic.clone()
+        } else {
+            let speech_check = (owner == SessionOwner::Dictation).then(|| {
+                Arc::new(SpeechCheck::for_dictation(
+                    &app,
+                    match engine {
+                        LocalEngine::Whisper => "whisper",
+                        LocalEngine::Parakeet => "parakeet",
+                    },
+                ))
+            });
+            WhisperStream::new(
+                app.clone(),
+                "mic",
+                48000.0,
+                lang.clone(),
+                mic_work,
+                engine,
+                speech_check,
+                session_start,
+                emit_partials,
+                echo_guard.clone(),
+                run_id,
+            )
+        };
         let sys_stream = sys_lease.map(|lease| {
             WhisperStream::new(
                 app.clone(),
@@ -1585,6 +1693,9 @@ mod macos {
         }
 
         let capture_result = start_native_capture_without_authority_lock(capture_authority, || {
+            if let Some(early) = early {
+                return Ok((early.into_capture(), None));
+            }
             let combined_cap = if shared_audio.is_none()
                 && should_use_combined_sck_capture(owner, supports_sck_microphone_capture())
             {

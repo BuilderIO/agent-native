@@ -247,7 +247,7 @@ mod macos {
             Self::start(
                 path,
                 engine,
-                crate::shortcuts::last_voice_press(),
+                crate::shortcuts::claim_voice_press(),
                 Box::new(move || download_in_background(&app)),
             )
         }
@@ -339,15 +339,8 @@ mod macos {
                     failure: Some(failure),
                 });
             let voice = outcome.voice();
-            let first_sample = self.shared.first_sample_at.get().copied();
-            let since = |from: Option<Instant>, to: Option<Instant>| match (from, to) {
-                (Some(from), Some(to)) => {
-                    to.saturating_duration_since(from).as_millis().to_string()
-                }
-                _ => "none".to_owned(),
-            };
             eprintln!(
-                "[vad] {} dictation: voice={}{} scored_ms={} speech_ms={} verdict_ms={} press_to_first_sample_ms={} start_to_first_sample_ms={}",
+                "[vad] {} dictation: voice={}{} scored_ms={} speech_ms={} verdict_ms={}",
                 self.engine,
                 voice.as_str(),
                 outcome
@@ -358,8 +351,6 @@ mod macos {
                 outcome.tally.frames * FRAME_MS,
                 outcome.tally.speech_frames * FRAME_MS,
                 asked.elapsed().as_millis(),
-                since(self.pressed_at, first_sample),
-                since(Some(self.started_at), first_sample),
             );
             let at = |frame: u64| Duration::from_millis(frame * FRAME_MS);
             Verdict {
@@ -387,6 +378,21 @@ mod macos {
     impl Drop for SpeechCheck {
         fn drop(&mut self) {
             self.close();
+            // Each dictation run has one check, so this is one line per run.
+            let first_audio = self.shared.first_sample_at.get().copied();
+            let until_first_audio = |from: Option<Instant>| match (from, first_audio) {
+                (Some(from), Some(first_audio)) => first_audio
+                    .saturating_duration_since(from)
+                    .as_millis()
+                    .to_string(),
+                _ => "none".to_owned(),
+            };
+            eprintln!(
+                "[dictation] {} press_to_first_audio_ms={} start_to_first_audio_ms={}",
+                self.engine,
+                until_first_audio(self.pressed_at),
+                until_first_audio(Some(self.started_at)),
+            );
         }
     }
 
