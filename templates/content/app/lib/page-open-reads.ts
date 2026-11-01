@@ -366,6 +366,17 @@ export function retirePageOpenReads(
   for (const [queryHash, read] of reads) {
     if (read.documentId !== keepDocumentId) reads.delete(queryHash);
   }
+  // A retired read is never handed to a component, so it is watched as if it
+  // had been: dropped if its session turns out not to be this tab's, and no
+  // longer watched once it is.
+  const watchedReads = watchedByClient.get(queryClient)?.reads;
+  for (const [read, entry] of watchedReads ?? []) {
+    if (read.documentId === keepDocumentId) continue;
+    entry.handedOver = true;
+    if (sessionReadIdentityStatus(read.identity) === "current") {
+      watchedReads?.delete(read);
+    }
+  }
   cancelWaitingWork(
     queryClient,
     (work) => work.documentId !== null && work.documentId !== keepDocumentId,
