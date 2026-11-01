@@ -193,6 +193,7 @@ import {
   signupAttributionFromCookieHeader,
   type SignupAttributionContext,
 } from "./attribution.js";
+import { getAuthGuardPath } from "./auth-guard-path.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import {
   markBearerCredentialRefused,
@@ -467,8 +468,14 @@ export interface AuthOptions {
   workspaceAppPublicPaths?: string[];
   workspaceAppProtectedPaths?: string[];
   loginHtml?: string;
-  renderSignInPage?: (props: AuthPageProps) => string;
-  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string;
+  /**
+   * Server-render the sign-in page. Returning `undefined` serves core's
+   * fallback markup, which the auth client script replaces in the browser.
+   */
+  renderSignInPage?: (props: AuthPageProps) => string | undefined;
+  renderResetPasswordPage?: (
+    props: ResetPasswordPageProps,
+  ) => string | undefined;
   rootAuth?: boolean;
   googleOnly?: boolean;
   mountGoogleOAuthRoutes?: boolean;
@@ -3959,24 +3966,6 @@ function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
 
   const accept = getHeader(event, "accept")?.toLowerCase();
   return !accept || accept.includes("text/html") || accept.includes("*/*");
-}
-
-export function getAuthGuardPath(event: H3Event): string | null {
-  const rawUrl = event.node?.req?.url;
-  if (rawUrl !== undefined) {
-    const rawPath = rawUrl.split("?")[0]!;
-    // Encoded separators are opaque route-parameter data; URL parsing must
-    // not change the path's structure before any public-route decision.
-    if (
-      !rawPath.startsWith("/") ||
-      rawPath.startsWith("//") ||
-      rawPath.includes("\\") ||
-      new URL(`http://agent-native.invalid${rawPath}`).pathname !== rawPath
-    ) {
-      return null;
-    }
-  }
-  return stripAppBasePath(canonicalFrameworkPathname(event.url.pathname));
 }
 
 function isBrowserNavigationRequest(event: H3Event): boolean {
