@@ -11,7 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const SESSION_PATH = "/_agent-native/auth/session";
-const PAGE_READ_URL = "/_agent-native/actions/get-document";
+const PAGE_READ_URL = "/_agent-native/actions/get-page-open-read";
 
 const server = vi.hoisted(() => ({
   account: "a",
@@ -37,13 +37,16 @@ vi.mock("@agent-native/core/client/hooks", () => {
     if (name === "get-preview-document-draft") {
       return Promise.resolve({ editable: true, draft: null });
     }
-    if (name !== "get-document") return Promise.resolve([]);
     const page = { id: params.id, title: "a's page", canEdit: true };
-    return Promise.resolve(
-      params.includePreviewDraft
-        ? { ...page, previewDraft: { editable: true, draft: null } }
-        : page,
-    );
+    if (name === "get-page-open-read") {
+      return Promise.resolve({
+        document: params.includePreviewDraft
+          ? { ...page, previewDraft: { editable: true, draft: null } }
+          : page,
+      });
+    }
+    if (name === "get-document") return Promise.resolve(page);
+    return Promise.resolve([]);
   };
   return {
     callAction,
@@ -85,10 +88,12 @@ async function serverFetch(input: RequestInfo | URL): Promise<Response> {
   }
   if (url.includes(PAGE_READ_URL)) {
     return json({
-      id: "doc-1",
-      title: "a's page",
-      canEdit: true,
-      previewDraft: { editable: true, draft: null },
+      document: {
+        id: "doc-1",
+        title: "a's page",
+        canEdit: true,
+        previewDraft: { editable: true, draft: null },
+      },
     });
   }
   return json({});
@@ -231,7 +236,7 @@ describe("a page open waiting on the session", () => {
 
     expect(server.sessionReads[server.sessionReads.length - 1]).toBe("a");
     await vi.waitFor(() => expect(lastShown()).toBe(true));
-    expect(server.calls).toContain("get-document");
+    expect(server.calls).toContain("get-page-open-read");
     queryClient.clear();
   });
 

@@ -106,7 +106,7 @@ describe("a page the head read before sync's changes to it", () => {
       databaseId: null,
       databaseDocumentId: null,
       startedAt: Date.now() - 500,
-      fetch: globalThis.fetch,
+      transport: globalThis.fetch,
       answer,
     };
   });
