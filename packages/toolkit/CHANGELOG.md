@@ -1,5 +1,22 @@
 # @agent-native/toolkit
 
+## 0.222.3
+
+### Patch Changes
+
+- 92d54bb: Scrub inputs show and commit at most two decimals when a field sets no `precision`, so float noise from the browser no longer reaches the field. `VisualColorPicker` takes `textColor` to draw its swatch as a bold "A" over a bar in the picked color, and its menu caret is a Tabler chevron.
+- 92d54bb: `FontSizeField` from the design tweaks entry is a compact font size combobox: type a size and press Enter, pick one from a caller-provided type scale (with optional named sizes listed first), or step through the scale with the arrow keys. An optional `scrubIcon` adds a drag handle that previews and commits like the inspector's scrub fields, and `allowRelativeExpressions` reports a typed `Mixed+2` on a mixed selection as `meta.relativeExpression`.
+- 92d54bb: `@agent-native/core/server` reads Google's public font catalog with `readGoogleFontCatalog`, listing every family with the weights and italics it ships, most popular first. The toolkit font picker searches that whole library, previews each family in its own face, and loads any catalog family on the canvas through `ensureGoogleFontStylesheets`.
+- Release all public npm packages with a patch version bump.
+- 8cdee8a: In Safari, the More actions toggle on an agent reply closes on a second click, and Copy request ID copies again.
+- 2428fde: `ReviewAuthorAvatar` is now the one avatar for a person on every review surface, and the `@` picker's `ReviewMentionAvatar` uses it too. It shows their photo when they have one and otherwise their initials ("EA") on a color that stays the same for that person, from the `--review-avatar-1` to `--review-avatar-6` tokens when an app defines them and a dark gray when it does not. It gains a 16px size (one letter) and a `decorative` prop, an agent shows its brand mark, and `reviewInitials` is exported. Initials now skip words that have no letter in them.
+- 2428fde: Review comments can carry their own menu: the new `ReviewCommentMenu` (Edit, Delete) goes in `ReviewCommentItem`'s new `menu` slot, which replaces the reply clock time (a comment now shows only its age). The card's resolve, close and More actions buttons show tooltips, `ReviewThreadMenu` drops its "Reply in thread" item, and `ReviewCommentComposer` reports the text after an `@` through `onMentionQueryChange` (and again with an empty query when it unmounts) so a host can search its people list server-side. While the host's `mentionOptionsLoading` is true and nothing in the list matches yet, the picker stays hidden instead of saying no one was found, and when `mentionOptionsFailed` is true it says the people could not be loaded (`mentionFailedLabel`) instead.
+- 95841d4: Show a back arrow beside "Back to <app>" in Settings instead of an empty gap.
+- 92d54bb: `ShareButton` takes an `anchor` element for `hideTrigger`, so a share popover opened from a menu can sit beside the item it shares instead of the window corner. `normalizeCanvasHotkeyKey` from the canvas interactions entry reads a shortcut's letter from its physical key, so Option chords on macOS still match.
+- d795784: A sheet opened from inside a dialog now opens above it instead of behind it, and a popover inside a dialog or sheet scrolls with the mouse wheel instead of only by dragging its scrollbar.
+- Updated dependencies
+  - @agent-native/agentkit@0.222.3
+
 ## 0.222.2
 
 ### Patch Changes
@@ -1525,11 +1542,5 @@
 ### Minor Changes
 
 - f07ec04: Localize the Core agent-chat interface and Toolkit composer across every supported locale, provide built-in Core translations with app-level catalog overrides, and guard the complete chat surface against new raw visible strings.
-
-## 0.14.3
-
-### Patch Changes
-
-- 89f194f: Fix toolkit canvas interaction and collaboration UI behavior.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

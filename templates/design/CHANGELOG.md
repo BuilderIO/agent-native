@@ -5,8 +5,20 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-29
 
+### Improved
+
+- A person looks the same everywhere in comments: their photo when they have one, otherwise their initials on their own color, on the thread card, the @ list, the pins and the Threads list.
+- Comment cards give every comment its own menu with Edit and Delete, show just how long ago it was posted, and name the buttons in the top corner when you hover them.
+- Import is one button that opens your files, and pasting a Figma link into the home prompt offers to import it.
+- The comment card menu no longer has "Reply in thread"; mention an agent with @ to ask it something.
+- The font menu lists the full Google Fonts library with each font previewed in its own face, and font size offers a type scale.
+- The home prompt now starts a design without a mode switch
+
 ### Fixed
 
+- Accounts with no profile photo now show initials in comments instead of a generic silhouette icon.
+- Deleting a comment thread now deletes its replies too, and the thread menu says "Delete thread". You can delete a thread you started while it holds only your own replies, and editors can always delete it.
+- Typing @ in a comment now finds anyone in your organization, not only the first few people alphabetically.
 - Design ChatGPT tools describe parameters without referring to unavailable actions.
 
 ## 2026-10-28
