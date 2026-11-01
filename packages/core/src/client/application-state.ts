@@ -59,7 +59,7 @@ function requestSourceHeader(requestSource?: string): Record<string, string> {
   };
 }
 
-// This page load's writes are numbered in the order they're sent, so the
+// This page load's writes are numbered in the order they're made, so the
 // server can skip one that lands after a newer write to its row (see
 // AppStateWriteOrder in the store). The tab id outlives a reload and the count
 // doesn't, so the writer is a fresh id per page load.
@@ -123,6 +123,28 @@ function runClientAppStateMutation<T>(
   return mutation;
 }
 
+// Compare-and-sets and writes with an abort signal keep their own requests.
+// A write queued behind one never goes ahead of it when the page hides (see
+// flushOnPageHide): the server doesn't order compare-and-sets, and a signalled
+// write may yet be aborted. Counts these per key until they settle.
+const unsettledBarriers = new Map<string, number>();
+
+function runBarrierMutation<T>(
+  key: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const id = requestKey(key);
+  unsettledBarriers.set(id, (unsettledBarriers.get(id) ?? 0) + 1);
+  const mutation = runClientAppStateMutation(key, operation);
+  const settle = () => {
+    const left = (unsettledBarriers.get(id) ?? 1) - 1;
+    if (left > 0) unsettledBarriers.set(id, left);
+    else unsettledBarriers.delete(id);
+  };
+  mutation.then(settle, settle);
+  return mutation;
+}
+
 interface Replacement {
   method: "PUT" | "DELETE";
   body?: string | undefined;
@@ -137,8 +159,8 @@ interface QueuedReplacement {
   sent: boolean;
   /** Whether the request on the wire actually carries keepalive. */
   sentKeepalive: boolean;
-  /** This write's number in the page's order, given when it's first sent. */
-  seq?: number | undefined;
+  /** This write's number in the page's order, given when it's made. */
+  seq: number;
   pending?: Promise<void> | undefined;
   result: Promise<unknown>;
   running?: Promise<unknown>;
@@ -243,6 +265,7 @@ function replaceClientAppState(
     started: false,
     sent: false,
     sentKeepalive: false,
+    seq: nextWriteSeq(),
   } as QueuedReplacement;
   entry.result = runClientAppStateMutation(key, () => startReplacement(entry));
   entry.pending = pendingMutations.get(id);
@@ -317,7 +340,9 @@ function flushOnPageHide(): void {
   // It's numbered after the earlier one, so the server skips the earlier one
   // if it lands last. A delete keeps waiting: the server keeps no record of
   // one, so the earlier write landing after it would bring the row back.
+  // Nothing goes ahead of a compare-and-set or a signalled write.
   for (const entry of [...queuedReplacements.values()]) {
+    if (unsettledBarriers.has(requestKey(entry.key))) continue;
     if (entry.replacement.keepalive && entry.replacement.method === "PUT") {
       // Its caller hears how it went through entry.result, once the earlier
       // write settles.
@@ -332,10 +357,7 @@ function flushReplacements(): void {
   replacementFlushTimer = undefined;
   const entries = unsentReplacements;
   unsentReplacements = [];
-  for (const entry of entries) {
-    entry.sent = true;
-    entry.seq ??= nextWriteSeq();
-  }
+  for (const entry of entries) entry.sent = true;
   const plain = entries.filter((entry) => !wantsKeepalive(entry.replacement));
   for (let i = 0; i < plain.length; i += MAX_BATCH_WRITES) {
     sendChunk(plain.slice(i, i + MAX_BATCH_WRITES), false);
@@ -392,9 +414,7 @@ function batchItem({
   const source = requestSourceHeader(requestSource)["X-Request-Source"];
   return `{"key":${JSON.stringify(key)}${
     method === "DELETE" ? `,"delete":true` : `,"value":${body}`
-  }${source ? `,"requestSource":${JSON.stringify(source)}` : ""}${
-    seq === undefined ? "" : `,"seq":${seq}`
-  }}`;
+  }${source ? `,"requestSource":${JSON.stringify(source)}` : ""},"seq":${seq}}`;
 }
 
 async function sendBatch(
@@ -520,7 +540,7 @@ async function sendReplacement(
 ): Promise<unknown> {
   const { key } = entry;
   const { method, body, requestSource, keepalive: asked } = entry.replacement;
-  const order = writeOrderHeaders((entry.seq ??= nextWriteSeq()));
+  const order = writeOrderHeaders(entry.seq);
   const keepalive = keepaliveRequest(
     wantKeepalive ? true : asked === undefined ? undefined : false,
     body,
@@ -756,8 +776,10 @@ export async function writeClientAppState<T = unknown>(
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
   assertAgentNativeApiEnabled(`write application state "${key}"`);
+  // Numbered now, in the order it was made, like a queued write.
+  const seq = options.signal ? nextWriteSeq() : 0;
   const write = options.signal
-    ? runClientAppStateMutation(key, async () => {
+    ? runBarrierMutation(key, async () => {
         const body = jsonBody(value);
         const keepalive = keepaliveRequest(options.keepalive, body);
         let response: Response;
@@ -766,7 +788,7 @@ export async function writeClientAppState<T = unknown>(
             method: "PUT",
             headers: {
               ...buildHeaders(options.requestSource),
-              ...writeOrderHeaders(nextWriteSeq()),
+              ...writeOrderHeaders(seq),
             },
             body,
             ...keepalive.init,
@@ -797,7 +819,7 @@ export async function compareAndSetClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<boolean> {
   assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
-  return runClientAppStateMutation(key, async () => {
+  return runBarrierMutation(key, async () => {
     const body = jsonBody({ expected, next });
     const keepalive = keepaliveRequest(options.keepalive, body);
     let response: Response;
@@ -830,8 +852,9 @@ export async function deleteClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
   assertAgentNativeApiEnabled(`delete application state "${key}"`);
+  const seq = options.signal ? nextWriteSeq() : 0;
   const deletion = options.signal
-    ? runClientAppStateMutation(key, async () => {
+    ? runBarrierMutation(key, async () => {
         const keepalive = keepaliveRequest(options.keepalive, undefined);
         let response: Response;
         try {
@@ -841,7 +864,7 @@ export async function deleteClientAppState(
               "X-Agent-Native-CSRF": "1",
               ...(browserTabHeaders() ?? {}),
               ...requestSourceHeader(options.requestSource),
-              ...writeOrderHeaders(nextWriteSeq()),
+              ...writeOrderHeaders(seq),
             },
             ...keepalive.init,
             signal: options.signal ?? null,
