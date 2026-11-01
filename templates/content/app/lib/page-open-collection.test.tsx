@@ -184,7 +184,12 @@ describe("a collection page's reads in its page-open read", () => {
     );
 
     seedPageOpenCollection(queryClient, "page-1", collection, {
-      owner: { startedAt: Date.now() - 1_000, stillOwns: () => true },
+      owner: {
+        startedAt: Date.now() - 1_000,
+        stillOwns: () => true,
+        invalidatedWhileOut: () => false,
+        finished: () => {},
+      },
     });
 
     await vi.waitFor(() =>
@@ -199,7 +204,12 @@ describe("a collection page's reads in its page-open read", () => {
   it("leave a part read since this open's read started to that read", async () => {
     queryClient.setQueryData(personalViewKey, { databaseId: "db-1", own: 1 });
     seedPageOpenCollection(queryClient, "page-1", collection, {
-      owner: { startedAt: Date.now() - 1_000, stillOwns: () => true },
+      owner: {
+        startedAt: Date.now() - 1_000,
+        stillOwns: () => true,
+        invalidatedWhileOut: () => false,
+        finished: () => {},
+      },
     });
 
     await vi.waitFor(() =>
@@ -213,7 +223,12 @@ describe("a collection page's reads in its page-open read", () => {
 
   it("are not seeded once the read's owner is gone", () => {
     seedPageOpenCollection(queryClient, "page-1", collection, {
-      owner: { startedAt: Date.now(), stillOwns: () => false },
+      owner: {
+        startedAt: Date.now(),
+        stillOwns: () => false,
+        invalidatedWhileOut: () => false,
+        finished: () => {},
+      },
     });
 
     expect(queryClient.getQueryCache().getAll()).toEqual([]);

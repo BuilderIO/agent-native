@@ -1020,16 +1020,18 @@ export function startPageOpenDocumentReads(
           signal,
           startedAt,
         );
-        return readPage(signal).then(({ document, collection }) => {
-          if (collection) {
-            seedPageOpenCollection(queryClient, documentId, collection, {
-              beforeSession,
-              owner,
-            });
-          }
-          const { previewDraft: _previewDraft, ...page } = document;
-          return page;
-        });
+        return readPage(signal)
+          .then(({ document, collection }) => {
+            if (collection) {
+              seedPageOpenCollection(queryClient, documentId, collection, {
+                beforeSession,
+                owner,
+              });
+            }
+            const { previewDraft: _previewDraft, ...page } = document;
+            return page;
+          })
+          .finally(owner.finished);
       },
       retry: false,
     },

@@ -8,7 +8,10 @@ import type {
 import { OPENING_DATABASE_ROW_LIMIT } from "@shared/database-open-table-query";
 import {
   hashKey,
+  partialMatchKey,
   useQueryClient,
+  type InvalidateOptions,
+  type InvalidateQueryFilters,
   type QueryClient,
   type QueryKey,
 } from "@tanstack/react-query";
@@ -61,10 +64,59 @@ export function openingDatabaseQueryKey(documentId: string) {
 // An account or organization switch removes or rebinds all three, so a read
 // that answers afterwards belongs to an identity this tab no longer shows.
 // A read spoiled by a change while it was out is no one's current answer.
+// A change to one collection part alone leaves the page's answer standing,
+// but that part of it is older than the change.
 export type PageOpenReadOwner = {
   startedAt: number;
   stillOwns: () => boolean;
+  invalidatedWhileOut: (queryKey: QueryKey) => boolean;
+  // Called once the read has answered or failed; it stops watching.
+  finished: () => void;
 };
+
+// The invalidations asked of this client while a page-open read is out. The
+// query cache reports an invalidation only for a key it already holds, and a
+// collection part may not be cached yet, so the client's own requests are
+// recorded as well, by their filters.
+type InvalidationWatch = {
+  filters: InvalidateQueryFilters[];
+  queryHashes: Set<string>;
+};
+const watchesByClient = new WeakMap<QueryClient, Set<InvalidationWatch>>();
+
+function invalidationWatches(queryClient: QueryClient) {
+  const known = watchesByClient.get(queryClient);
+  if (known) return known;
+  const watches = new Set<InvalidationWatch>();
+  watchesByClient.set(queryClient, watches);
+  const invalidateQueries = queryClient.invalidateQueries.bind(queryClient);
+  queryClient.invalidateQueries = ((
+    filters?: InvalidateQueryFilters,
+    options?: InvalidateOptions,
+  ) => {
+    for (const watch of watches) watch.filters.push(filters ?? {});
+    return invalidateQueries(filters, options);
+  }) as QueryClient["invalidateQueries"];
+  // A query invalidated directly, not through the client.
+  queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.action.type !== "invalidate") return;
+    for (const watch of watches) watch.queryHashes.add(event.query.queryHash);
+  });
+  return watches;
+}
+
+// Whether an invalidation asked with `filters` reaches `queryKey`. Filters
+// that decide by the query itself (its type, staleness, a predicate) are
+// taken to reach it, since the query may not exist to ask.
+function invalidationReaches(
+  filters: InvalidateQueryFilters,
+  queryKey: QueryKey,
+) {
+  if (filters.queryKey === undefined) return true;
+  return filters.exact
+    ? hashKey(filters.queryKey) === hashKey(queryKey)
+    : partialMatchKey(queryKey, filters.queryKey);
+}
 
 export function pageOpenReadOwner(
   queryClient: QueryClient,
@@ -77,8 +129,17 @@ export function pageOpenReadOwner(
   const binding = currentActionQueryCacheBinding();
   const session = firstSessionReadAnswer();
   const read = trackedPageOpenRead(queryClient, queryKey);
+  const watches = invalidationWatches(queryClient);
+  const watch: InvalidationWatch = { filters: [], queryHashes: new Set() };
+  watches.add(watch);
   return {
     startedAt,
+    invalidatedWhileOut: (partKey) =>
+      watch.queryHashes.has(hashKey(partKey)) ||
+      watch.filters.some((filters) => invalidationReaches(filters, partKey)),
+    finished: () => {
+      watches.delete(watch);
+    },
     stillOwns: () =>
       !signal.aborted &&
       query !== undefined &&
@@ -98,9 +159,9 @@ export function pageOpenReadOwner(
  * looks for them, as reads made for this open. Read before the session was
  * known, they are held like the page read: dropped if another account's
  * session answers, and never seeded once one has. Nothing is seeded once the
- * read's owner is gone. A part being read now, or read since this open's read
- * started, is left to that read; one read earlier, say on a previous visit, is
- * replaced.
+ * read's owner is gone. A part being read now, read since this open's read
+ * started, or invalidated while it was out, is left to its own read; one read
+ * earlier, say on a previous visit, is replaced.
  */
 export function seedPageOpenCollection(
   queryClient: QueryClient,
@@ -143,6 +204,7 @@ export function seedPageOpenCollection(
     ]);
   }
   for (const [queryKey, value] of seeds) {
+    if (owner?.invalidatedWhileOut(queryKey)) continue;
     const query = queryClient.getQueryCache().find({ queryKey, exact: true });
     if (
       query &&
