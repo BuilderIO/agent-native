@@ -1467,36 +1467,22 @@ export function recordActionQueryBrowserPersist(
 }
 
 const UNBATCHED_REFETCHES_META_KEY = "actionUnbatchedRefetches";
-const BATCHED_FIRST_FETCH_META_KEY = "actionBatchedFirstFetch";
 
 /**
  * A first fetch is what the page is waiting on, so it goes alone. On
  * serverless a batch runs all its items on one database connection and
  * answers only when the slowest is done. Only a refetch of data already on
- * screen shares a batch, or a first fetch its readers so far all marked as
- * one nothing on first paint waits for (a reader that mounts after the fetch
- * starts doesn't see it). A query holds the options of whichever observer
- * rendered last, so opt-ins and opt-outs are read from every observer, not
- * from the query function that happens to run.
+ * screen shares a batch. A query holds the options of whichever observer
+ * rendered last, so an opt-out is read from every observer, not from the
+ * query function that happens to run.
  */
 function canBatchActionQueryFetch(query: Query | undefined): boolean {
-  if (!query) return false;
-  const observers = query.observers;
-  if (
-    observers.some(
+  return (
+    query?.state.data !== undefined &&
+    !query.observers.some(
       (observer) =>
         observer.options.meta?.[UNBATCHED_REFETCHES_META_KEY] === true,
     )
-  ) {
-    return false;
-  }
-  return (
-    query.state.data !== undefined ||
-    (observers.length > 0 &&
-      observers.every(
-        (observer) =>
-          observer.options.meta?.[BATCHED_FIRST_FETCH_META_KEY] === true,
-      ))
   );
 }
 
@@ -1526,12 +1512,6 @@ export function useActionQuery<
      * than waiting on the other reads in their batch.
      */
     batchRefetches?: boolean;
-    /**
-     * Set true for a read nothing on first paint waits for, such as a sidebar
-     * list or a status badge, so its first fetch shares a request with the
-     * other GETs in its tick instead of taking a request of its own.
-     */
-    batchFirstFetch?: boolean;
   },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
@@ -1545,7 +1525,6 @@ export function useActionQuery<
     batchRefetches,
     method = "GET",
     beforeSend,
-    batchFirstFetch,
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
@@ -1627,16 +1606,13 @@ export function useActionQuery<
         ? callerEnabled(query)
         : callerEnabled !== false;
     },
-    ...(resources || batchRefetches === false || batchFirstFetch
+    ...(resources || batchRefetches === false
       ? {
           meta: {
             ...restOptions.meta,
             ...(resources ? { [ACTION_RESOURCES_META_KEY]: resources } : {}),
             ...(batchRefetches === false
               ? { [UNBATCHED_REFETCHES_META_KEY]: true }
-              : {}),
-            ...(batchFirstFetch
-              ? { [BATCHED_FIRST_FETCH_META_KEY]: true }
               : {}),
           },
         }

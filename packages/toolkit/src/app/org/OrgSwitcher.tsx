@@ -500,7 +500,7 @@ export function OrgSwitcher({
   const profileQuery = useActionQuery<UserProfile>(
     "get-user-profile",
     undefined,
-    { enabled: !!email, batchFirstFetch: true },
+    { enabled: !!email },
   );
   const avatarUrl = useAvatarUrl(email);
   const [view, setView] = useState<MenuView>("main");
