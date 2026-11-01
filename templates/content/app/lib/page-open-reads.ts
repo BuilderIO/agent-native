@@ -32,11 +32,18 @@ export type PageOpenRead = {
   // Who the read was sent as. It is shown only while that is the session
   // this tab accepts (`sessionReadIdentityStatus` is "current").
   identity: SessionReadIdentity;
+  // A read dropped as not this session's is read again, and a component
+  // already holding it counts that read as its open's once a fetch's own
+  // success lands it. The query observer cannot tell: dropping the read resets
+  // the query's update count below where the observer started counting.
+  readAgain: "no" | "pending" | "landed";
 };
 
 export type PageOpenReadAdoption = "fresh" | "pending" | "none";
 
 const readsByClient = new WeakMap<QueryClient, Map<string, PageOpenRead>>();
+// Dropped reads whose page is being read again, by query hash.
+const droppedByClient = new WeakMap<QueryClient, Map<string, PageOpenRead>>();
 
 // Every read is checked against the session this tab accepts, claimed or
 // not, until it has been handed to its component under the session it was
@@ -103,6 +110,13 @@ function dropRead(
   const reads = openReads(queryClient);
   const queryHash = hashKey(queryKey);
   if (reads.get(queryHash) === read) reads.delete(queryHash);
+  read.readAgain = "pending";
+  let dropped = droppedByClient.get(queryClient);
+  if (!dropped) {
+    dropped = new Map();
+    droppedByClient.set(queryClient, dropped);
+  }
+  dropped.set(queryHash, read);
   void queryClient.resetQueries({ queryKey, exact: true });
 }
 
@@ -143,8 +157,10 @@ function openReads(queryClient: QueryClient) {
     reads = new Map();
     readsByClient.set(queryClient, reads);
     queryClient.getQueryCache().subscribe((event) => {
+      const dropped = droppedByClient.get(queryClient);
       if (event.type === "removed") {
         reads!.delete(event.query.queryHash);
+        dropped?.delete(event.query.queryHash);
         const watched = watchedByClient.get(queryClient)?.reads;
         for (const [read, { queryKey }] of watched ?? []) {
           if (hashKey(queryKey) === event.query.queryHash)
@@ -153,6 +169,15 @@ function openReads(queryClient: QueryClient) {
         return;
       }
       if (event.type !== "updated") return;
+      const droppedRead = dropped?.get(event.query.queryHash);
+      if (
+        droppedRead &&
+        event.action.type === "success" &&
+        event.action.manual !== true
+      ) {
+        droppedRead.readAgain = "landed";
+        dropped?.delete(event.query.queryHash);
+      }
       const read = reads!.get(event.query.queryHash);
       if (!read) return;
       if (event.action.type === "invalidate") read.invalidated = true;
@@ -204,6 +229,7 @@ export function startPageOpenRead<TData>(
     invalidated: false,
     landed: false,
     identity,
+    readAgain: "no",
   };
   reads.set(queryHash, read);
   watchReads(queryClient).reads.set(read, {

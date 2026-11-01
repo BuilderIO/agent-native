@@ -460,12 +460,16 @@ describe("page open reads", () => {
       expect(queryClient.getQueryData(queryKey)).toBeUndefined();
       expect(queryClient.getQueryData(draftKey)).toBeUndefined();
       expect(isAwaitingSession(claim.read)).toBe(false);
+      // The component holding it counts the page as read only once it is
+      // read again.
+      expect(claim.read.readAgain).toBe("pending");
       await vi.waitFor(() =>
         expect(queryClient.getQueryData(queryKey)).toEqual({
           id: "doc-1",
           by: "b",
         }),
       );
+      expect(claim.read.readAgain).toBe("landed");
       await vi.waitFor(() =>
         expect(queryClient.getQueryData(draftKey)).toEqual({
           draft: "b's draft",

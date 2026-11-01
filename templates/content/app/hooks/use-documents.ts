@@ -929,10 +929,14 @@ export function usePageOpenDocument(
       releasePageOpenRead(queryClient, claim.queryKey, claim.read);
     }
   }, [claim, queryClient]);
+  // A read dropped as not this session's counts once it has been read again.
+  const readAgain = claim.read?.readAgain ?? "no";
   return {
     query,
     fetchedForThisOpen:
-      !awaitingSession && (query.isFetchedAfterMount || adoption === "fresh"),
+      !awaitingSession &&
+      (query.isFetchedAfterMount ||
+        (readAgain === "no" ? adoption === "fresh" : readAgain === "landed")),
     // The open's own reads, draft included, already started elsewhere.
     readsStartedEarly: adoption !== "none",
   };
