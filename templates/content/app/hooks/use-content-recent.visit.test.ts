@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  QueryObserver,
+} from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -238,5 +242,56 @@ describe("useRecordContentVisit", () => {
     expect(invalidate).toHaveBeenLastCalledWith({
       queryKey: ["action", "get-content-recent"],
     });
+  });
+
+  it("reads Recent again when a refetch that started before the visit is still in flight", async () => {
+    const key = recentKey("org-1");
+    const args = key[2] as { scopeKey: string };
+    const before = [
+      entry("a", "2026-10-31T10:00:00.000Z"),
+      entry("b", "2026-10-30T10:00:00.000Z"),
+    ];
+    const after = [
+      entry("b", "2026-10-31T11:00:00.000Z"),
+      entry("a", "2026-10-31T10:00:00.000Z"),
+    ];
+    cache(key, before);
+    let answerStale: (() => void) | undefined;
+    const reads: string[] = [];
+    // The sidebar's list: the first refetch read the list before the visit
+    // was stored and answers late; any later read sees the visit.
+    const observer = new QueryObserver(queryClient, {
+      queryKey: key,
+      staleTime: Infinity,
+      queryFn: () => {
+        reads.push(reads.length === 0 ? "stale" : "fresh");
+        if (reads.length === 1) {
+          return new Promise((resolve) => {
+            answerStale = () =>
+              resolve({ scopeKey: args.scopeKey, entries: before });
+          });
+        }
+        return Promise.resolve({ scopeKey: args.scopeKey, entries: after });
+      },
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    void observer.refetch();
+    render("b");
+
+    answer("b", { recorded: true, visitedAt: "2026-10-31T11:00:00.000Z" });
+    expect(order(key)[0]).toEqual(["b", "2026-10-31T11:00:00.000Z"]);
+
+    if (!answerStale) throw new Error("the refetch didn't start");
+    answerStale();
+    await vi.waitFor(() =>
+      expect(queryClient.isFetching({ queryKey: key })).toBe(0),
+    );
+
+    expect(order(key)).toEqual([
+      ["b", "2026-10-31T11:00:00.000Z"],
+      ["a", "2026-10-31T10:00:00.000Z"],
+    ]);
+    expect(reads).toEqual(["stale", "fresh"]);
+    unsubscribe();
   });
 });

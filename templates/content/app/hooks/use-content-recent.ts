@@ -337,15 +337,23 @@ export function useContentVisitRecorder() {
     onSuccess: (result, target) => {
       // Reopening a page already in Recent only reorders the list, so it
       // skips the refetch; a first visit still reads the new entry. An
-      // answer without a visit time comes from an older server.
+      // answer without a visit time comes from an older server. A Recent
+      // read already in flight may predate the visit and would land with
+      // the old order, so then Recent is read again; invalidating cancels
+      // that read.
       const { visitedAt, accountKey } = result as {
         visitedAt?: unknown;
         accountKey?: unknown;
       };
+      const readInFlight =
+        queryClient.isFetching({
+          queryKey: ["action", "get-content-recent"],
+        }) > 0;
       if (
         typeof visitedAt !== "string" ||
         typeof accountKey !== "string" ||
-        !moveCachedRecentVisit(queryClient, target, visitedAt, accountKey)
+        !moveCachedRecentVisit(queryClient, target, visitedAt, accountKey) ||
+        readInFlight
       ) {
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-content-recent"],
