@@ -319,6 +319,41 @@ describe("useBlocksFieldSuggestions", () => {
     }
   });
 
+  it("waits longer between retries while a tab's saves keep failing", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createProposal.mockRejectedValue(new Error("Network down"));
+      await render(true, []);
+      await draftInTab();
+      const advance = async (ms: number) => {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(ms);
+        });
+      };
+
+      await advance(1000);
+      expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+      await advance(1999);
+      expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+      await advance(1);
+      expect(mocks.createProposal).toHaveBeenCalledTimes(2);
+
+      // Typing doesn't pull the next retry earlier.
+      await act(async () => {
+        latest.provider.change("notes", "Original notes, revised again.");
+      });
+      await advance(3999);
+      expect(mocks.createProposal).toHaveBeenCalledTimes(2);
+      await advance(1);
+      expect(mocks.createProposal).toHaveBeenCalledTimes(3);
+      expect(mocks.createProposal).toHaveBeenLastCalledWith(
+        expect.objectContaining({ baseRevision: "blocks-field:notes:3" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("marks a tab as deciding until a decision on its suggestions ends", async () => {
     let finish: ((value: unknown) => void) | undefined;
     mocks.decideSuggestion.mockImplementation(

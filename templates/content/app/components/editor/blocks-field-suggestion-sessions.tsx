@@ -30,7 +30,10 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import { SUGGESTION_AUTOSAVE_IDLE_MS } from "./suggestions/autosave-schedule";
+import {
+  nextSuggestionAutosaveRetryDelay,
+  SUGGESTION_AUTOSAVE_IDLE_MS,
+} from "./suggestions/autosave-schedule";
 import {
   createSuggestionDraftSession,
   forgetSuggestionProposalCreationIdempotencyKey,
@@ -57,8 +60,6 @@ import type { VisualEditorSuggestion } from "./VisualEditor";
 // saves it as suggestions on that field, which accepting writes into the
 // field alone. The page body keeps its own draft in DocumentEditor.
 
-/** A save that failed on the server, or never reached it, is tried again. */
-const RETRY_MS = 5000;
 const NO_TRANSITIONS: SuggestionPresentationTransitions = new Map();
 const NO_VISUALS: VisualEditorSuggestion[] = [];
 const NO_FIELDS: ReadonlySet<string> = new Set();
@@ -95,6 +96,13 @@ type FieldSession = {
   /** A save is under way. */
   saving: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  /**
+   * The timer is a failed save's retry. As with the body's draft, typing
+   * doesn't pull it earlier, or an outage becomes a request per pause.
+   */
+  retrying: boolean;
+  /** The retry's wait, which grows while saves keep failing. */
+  retryDelay: number;
   /** Saves run one at a time, in order. */
   queue: Promise<unknown>;
   /** A creation sent without an answer; it's sent again before anything else. */
@@ -325,10 +333,16 @@ export function useBlocksFieldSuggestions({
     (session: FieldSession, options: { autosave: boolean }) => Promise<boolean>
   >(() => Promise.resolve(true));
   const schedule = useCallback(
-    (session: FieldSession, delay = SUGGESTION_AUTOSAVE_IDLE_MS) => {
+    (
+      session: FieldSession,
+      delay = SUGGESTION_AUTOSAVE_IDLE_MS,
+      retrying = false,
+    ) => {
       if (session.timer) clearTimeout(session.timer);
+      session.retrying = retrying;
       session.timer = setTimeout(() => {
         session.timer = null;
+        session.retrying = false;
         void saveRef.current(session, { autosave: true });
       }, delay);
     },
@@ -496,6 +510,7 @@ export function useBlocksFieldSuggestions({
           session.unresolved = null;
         }
         session.failed = false;
+        session.retryDelay = 0;
         return true;
       } catch (error) {
         session.dirty = true;
@@ -516,7 +531,14 @@ export function useBlocksFieldSuggestions({
             toast.error(tRef.current("editor.suggestionFormattingUnsupported"));
           return false;
         }
-        if (autosave && !refused) schedule(session, RETRY_MS);
+        if (autosave && !refused) {
+          // A save that failed on the server, or never reached it, is tried
+          // again, less often the longer it keeps failing.
+          session.retryDelay = nextSuggestionAutosaveRetryDelay(
+            session.retryDelay,
+          );
+          schedule(session, session.retryDelay, true);
+        }
         if (!quiet) {
           toast.error(tRef.current("editor.suggestionCreateFailed"), {
             description:
@@ -543,6 +565,7 @@ export function useBlocksFieldSuggestions({
         clearTimeout(session.timer);
         session.timer = null;
       }
+      session.retrying = false;
       const run = session.queue.then(() => {
         // A session a decision replaced was saved before it; one that ended
         // with unsaved edits keeps saving them, retries included.
@@ -640,6 +663,8 @@ export function useBlocksFieldSuggestions({
         failed: false,
         saving: false,
         timer: null,
+        retrying: false,
+        retryDelay: 0,
         queue: Promise.resolve(),
         unresolved: null,
       });
@@ -654,7 +679,7 @@ export function useBlocksFieldSuggestions({
       if (!session || session.draft === markdown) return;
       session.draft = markdown;
       session.dirty = true;
-      schedule(session);
+      if (!session.retrying) schedule(session);
       bump();
     },
     [bump, schedule],
