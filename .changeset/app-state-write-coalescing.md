@@ -1,0 +1,5 @@
+---
+"@agent-native/core": patch
+---
+
+Application-state writes no longer send a request per call. Writes made in the same tick go out together on the next one, keepalive writes included (when the page hides, waiting writes go at once): a single write uses its key's route as before, and writes to several keys go as one `POST /_agent-native/application-state` with a `writes` list, which the server applies key by key and answers per key. While a write to a key is in flight, later writes to that key replace each other, so a burst sends the write in flight and the latest value, and every caller gets the latest's result. A write identical to the one in flight, with nothing queued behind it, joins it. Writes with an abort signal and compare-and-set calls keep their own requests and their order. When a server doesn't know the batch route (it answers 404 or 405, or a 200 that isn't a per-key answer), the client sends those writes one key at a time and stops batching for the tab. Reads still wait for the latest write.

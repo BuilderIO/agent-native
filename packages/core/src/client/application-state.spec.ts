@@ -505,4 +505,356 @@ describe("client application-state helpers", () => {
       "Application state keys may only contain",
     );
   });
+
+  it("sends writes to one key made in one tick as one request", async () => {
+    const fetchMock = vi.fn((_: RequestInfo | URL, init?: RequestInit) =>
+      Promise.resolve(jsonResponse(JSON.parse(String(init?.body)))),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const writes = [1, 2, 3].map((step) =>
+      writeClientAppState("navigation", { step }),
+    );
+
+    await expect(Promise.all(writes)).resolves.toEqual([
+      { step: 3 },
+      { step: 3 },
+      { step: 3 },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]).toEqual([
+      "/_agent-native/application-state/navigation",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ step: 3 }),
+      }),
+    ]);
+  });
+
+  it("sends a burst behind a write in flight as one more request", async () => {
+    const releases: Array<() => void> = [];
+    const fetchMock = vi.fn(
+      (_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          releases.push(() =>
+            resolve(jsonResponse(JSON.parse(String(init?.body)))),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = writeClientAppState("navigation", { step: 1 });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const burst = [2, 3, 4].map((step) =>
+      writeClientAppState("navigation", { step }),
+    );
+    releases[0]();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    releases[1]();
+
+    await expect(Promise.all([first, ...burst])).resolves.toEqual([
+      { step: 1 },
+      { step: 4 },
+      { step: 4 },
+      { step: 4 },
+    ]);
+    expect(fetchMock.mock.calls[1][1]?.body).toBe(JSON.stringify({ step: 4 }));
+  });
+
+  it("sends writes to several keys made in one tick as one batch", async () => {
+    vi.stubGlobal("window", {
+      sessionStorage: { getItem: () => "tab-1", setItem: () => {} },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        results: [
+          { ok: true, value: { view: "editor" } },
+          { ok: false, status: 403, error: "Forbidden" },
+          { ok: true, value: { ok: true } },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const navigation = writeClientAppState(
+      "navigation",
+      { view: "editor" },
+      { requestSource: "content-editor" },
+    );
+    const selection = writeClientAppState("content-selection", { id: "b1" });
+    const history = deleteClientAppState("content-history:doc-1");
+
+    await expect(navigation).resolves.toEqual({ view: "editor" });
+    await expect(selection).rejects.toMatchObject({
+      message: 'Write application state "content-selection" failed: Forbidden',
+      status: 403,
+    });
+    await expect(history).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("/_agent-native/application-state");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      writes: [
+        {
+          key: "navigation",
+          value: { view: "editor" },
+          requestSource: "content-editor",
+        },
+        { key: "content-selection", value: { id: "b1" } },
+        { key: "content-history:doc-1", delete: true },
+      ],
+    });
+  });
+
+  it("falls back to a request per key when the server has no batch route", async () => {
+    vi.resetModules();
+    const fresh = await import("./application-state.js");
+    const fetchMock = vi.fn((url: RequestInfo | URL, init?: RequestInit) =>
+      Promise.resolve(
+        String(url) === "/_agent-native/application-state"
+          ? new Response("Not found", { status: 404 })
+          : jsonResponse(init?.body ? JSON.parse(String(init.body)) : {}),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await Promise.all([
+      fresh.writeClientAppState("a", 1),
+      fresh.writeClientAppState("b", 2),
+    ]);
+    await Promise.all([
+      fresh.writeClientAppState("a", 3),
+      fresh.writeClientAppState("b", 4),
+    ]);
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      "/_agent-native/application-state",
+      "/_agent-native/application-state/a",
+      "/_agent-native/application-state/b",
+      "/_agent-native/application-state/a",
+      "/_agent-native/application-state/b",
+    ]);
+  });
+
+  it("falls back to a request per key when a page answers the batch", async () => {
+    vi.resetModules();
+    const fresh = await import("./application-state.js");
+    const fetchMock = vi.fn((url: RequestInfo | URL, init?: RequestInit) =>
+      Promise.resolve(
+        String(url) === "/_agent-native/application-state"
+          ? new Response("<!doctype html><html></html>", {
+              headers: { "Content-Type": "text/html" },
+            })
+          : jsonResponse(init?.body ? JSON.parse(String(init.body)) : {}),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      Promise.all([
+        fresh.writeClientAppState("a", 1),
+        fresh.writeClientAppState("b", 2),
+      ]),
+    ).resolves.toEqual([1, 2]);
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      "/_agent-native/application-state",
+      "/_agent-native/application-state/a",
+      "/_agent-native/application-state/b",
+    ]);
+  });
+
+  it("lets a read issued during a burst see the latest write", async () => {
+    let releaseFirst!: () => void;
+    const fetchMock = vi.fn((_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "GET") {
+        return Promise.resolve(
+          jsonResponse({ values: { navigation: { step: 3 } }, missing: [] }),
+        );
+      }
+      if (fetchMock.mock.calls.length === 1) {
+        return new Promise<Response>((resolve) => {
+          releaseFirst = () => resolve(jsonResponse({ step: 1 }));
+        });
+      }
+      return Promise.resolve(jsonResponse(JSON.parse(String(init?.body))));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    void writeClientAppState("navigation", { step: 1 });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    void writeClientAppState("navigation", { step: 2 });
+    const read = readClientAppState("navigation");
+    void writeClientAppState("navigation", { step: 3 });
+    releaseFirst();
+
+    await expect(read).resolves.toEqual({ step: 3 });
+    expect(
+      fetchMock.mock.calls.map(([, init]) => [init?.method, init?.body]),
+    ).toEqual([
+      ["PUT", JSON.stringify({ step: 1 })],
+      ["PUT", JSON.stringify({ step: 3 })],
+      ["GET", undefined],
+    ]);
+  });
+
+  it("joins a write identical to the one in flight", async () => {
+    let release!: () => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = () => resolve(jsonResponse({ ok: true }));
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = deleteClientAppState("content-history:doc-1");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const second = setClientAppState("content-history:doc-1", null);
+    release();
+    await Promise.all([first, second]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a write made after a compare-and-set behind it", async () => {
+    const releases: Array<() => void> = [];
+    const fetchMock = vi.fn(
+      (_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          releases.push(() =>
+            resolve(
+              jsonResponse(
+                init?.method === "PATCH"
+                  ? { changed: true }
+                  : JSON.parse(String(init?.body)),
+              ),
+            ),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = writeClientAppState("deferred", { step: 1 });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const queued = writeClientAppState("deferred", { step: 2 });
+    const compare = compareAndSetClientAppState(
+      "deferred",
+      { step: 2 },
+      { step: 3 },
+    );
+    const after = writeClientAppState("deferred", { step: 4 });
+    for (let sent = 1; sent <= 4; sent += 1) {
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(sent));
+      releases[sent - 1]();
+    }
+    await Promise.all([first, queued, compare, after]);
+
+    expect(
+      fetchMock.mock.calls.map(([, init]) => [init?.method, init?.body]),
+    ).toEqual([
+      ["PUT", JSON.stringify({ step: 1 })],
+      ["PUT", JSON.stringify({ step: 2 })],
+      ["PATCH", JSON.stringify({ expected: { step: 2 }, next: { step: 3 } })],
+      ["PUT", JSON.stringify({ step: 4 })],
+    ]);
+  });
+
+  it("sends a write with an abort signal on its own", async () => {
+    const releases: Array<() => void> = [];
+    const fetchMock = vi.fn(
+      (_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          releases.push(() =>
+            resolve(jsonResponse(JSON.parse(String(init?.body)))),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = writeClientAppState("selection", { step: 1 });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const queued = writeClientAppState("selection", { step: 2 });
+    const signalled = writeClientAppState(
+      "selection",
+      { step: 3 },
+      { signal: new AbortController().signal },
+    );
+    const after = writeClientAppState("selection", { step: 4 });
+    for (let sent = 1; sent <= 4; sent += 1) {
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(sent));
+      releases[sent - 1]();
+    }
+    await Promise.all([first, queued, signalled, after]);
+
+    expect(fetchMock.mock.calls.map(([, init]) => init?.body)).toEqual(
+      [1, 2, 3, 4].map((step) => JSON.stringify({ step })),
+    );
+  });
+
+  it("sends keepalive writes with the rest of their tick", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          results: [
+            { ok: true, value: 1 },
+            { ok: true, value: 2 },
+          ],
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const navigation = writeClientAppState("navigation", 1, {
+      keepalive: true,
+    });
+    const selection = writeClientAppState("selection", 2, { keepalive: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await Promise.all([navigation, selection]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]).toEqual([
+      "/_agent-native/application-state",
+      expect.objectContaining({ method: "POST", keepalive: true }),
+    ]);
+  });
+
+  it("sends the waiting writes at once when the page hides", async () => {
+    vi.resetModules();
+    const listeners: Record<string, () => void> = {};
+    const listen = (type: string, listener: () => void) => {
+      listeners[type] = listener;
+    };
+    vi.stubGlobal("window", {
+      location: { pathname: "/" },
+      addEventListener: listen,
+    });
+    vi.stubGlobal("document", {
+      visibilityState: "visible",
+      addEventListener: listen,
+    });
+    const fresh = await import("./application-state.js");
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          results: [
+            { ok: true, value: 1 },
+            { ok: true, value: 2 },
+          ],
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const waiting = fresh.writeClientAppState("selection", 1);
+    const leaving = fresh.writeClientAppState("draft", 2, { keepalive: true });
+    await Promise.resolve();
+    expect(fetchMock).not.toHaveBeenCalled();
+    listeners.pagehide?.();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]).toEqual([
+      "/_agent-native/application-state",
+      expect.objectContaining({ method: "POST", keepalive: true }),
+    ]);
+    await Promise.all([waiting, leaving]);
+  });
 });

@@ -67,6 +67,7 @@ import {
   deleteComposeDraft,
   deleteAllComposeDrafts,
   getStateMany,
+  putStateMany,
   APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
   type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
@@ -2803,6 +2804,7 @@ export function createBuilderProvisionHandler(
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
  *   GET    /_agent-native/application-state?keys=a,b,c  — batched read of many keys
+ *   POST   /_agent-native/application-state            — batched write of many keys
  *   GET    /_agent-native/application-state/:key        — read application state
  *   PUT    /_agent-native/application-state/:key        — write application state
  *   DELETE /_agent-native/application-state/:key        — delete application state
@@ -3307,6 +3309,7 @@ export function mountApplicationStateRoutes(
       withAnonymousOwner(event);
       if (key === "") {
         if (getMethod(event) === "GET") return getStateMany(event);
+        if (getMethod(event) === "POST") return putStateMany(event);
         return;
       }
       if (event.context) {

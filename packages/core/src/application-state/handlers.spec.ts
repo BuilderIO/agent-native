@@ -45,7 +45,9 @@ import {
   getState,
   getStateMany,
   MAX_APP_STATE_BATCH_KEYS,
+  MAX_APP_STATE_BATCH_WRITES,
   putState,
+  putStateMany,
   compareAndSetState,
   deleteState,
   listComposeDrafts,
@@ -346,6 +348,102 @@ describe("application-state handlers", () => {
 
       expect(result).toEqual({ view: "detail" });
       expect(mockAppStateGetManyEntries).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("putStateMany", () => {
+    it("applies each write as its own route would, scoped to the tab", async () => {
+      mockAppStatePut.mockResolvedValue(undefined);
+      mockAppStateDelete.mockResolvedValue(undefined);
+
+      const result = await putStateMany({
+        _headers: { "x-agent-native-browser-tab": "tab-a" },
+        _body: {
+          writes: [
+            {
+              key: "navigation",
+              value: { view: "editor" },
+              requestSource: "content-editor",
+            },
+            { key: "content-history:doc!1", delete: true },
+          ],
+        },
+      });
+
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "user@example.com",
+        "navigation:tab-a",
+        { view: "editor" },
+        { requestSource: "content-editor" },
+      );
+      expect(mockAppStateDelete).toHaveBeenCalledWith(
+        "user@example.com",
+        "content-history:doc1",
+        { requestSource: undefined },
+      );
+      expect(result).toEqual({
+        results: [
+          { ok: true, value: { view: "editor" } },
+          { ok: true, value: { ok: true } },
+        ],
+      });
+    });
+
+    it("answers a failing write on its own without failing the others", async () => {
+      mockAppStatePut
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Too large"), { statusCode: 413 }),
+        )
+        .mockResolvedValueOnce(undefined);
+
+      const result = await putStateMany({
+        _headers: {},
+        _body: {
+          writes: [
+            { key: "big", value: "x" },
+            { key: "small", value: null },
+          ],
+        },
+      });
+
+      expect(result).toEqual({
+        results: [
+          { ok: false, status: 413, error: "Too large" },
+          { ok: true, value: null },
+        ],
+      });
+    });
+
+    it("rejects a malformed or oversized batch before writing anything", async () => {
+      for (const body of [
+        {},
+        { writes: [] },
+        { writes: [{ key: "a" }] },
+        { writes: [{ value: 1 }] },
+        {
+          writes: Array.from(
+            { length: MAX_APP_STATE_BATCH_WRITES + 1 },
+            (_, i) => ({ key: `k${i}`, value: i }),
+          ),
+        },
+      ]) {
+        await expect(
+          putStateMany({ _headers: {}, _body: body }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+      }
+      expect(mockAppStatePut).not.toHaveBeenCalled();
+    });
+
+    it("requires a session like the single-key route", async () => {
+      vi.mocked(getSession).mockResolvedValue(null as any);
+
+      await expect(
+        putStateMany({
+          _headers: {},
+          _body: { writes: [{ key: "a", value: 1 }] },
+        }),
+      ).rejects.toMatchObject({ statusCode: 401 });
+      expect(mockAppStatePut).not.toHaveBeenCalled();
     });
   });
 
