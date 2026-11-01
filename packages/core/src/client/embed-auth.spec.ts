@@ -6,6 +6,7 @@ import {
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  FETCH_TRANSPORT_CHANGED_EVENT,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
 } from "../shared/embed-auth.js";
@@ -74,6 +75,33 @@ describe("embed auth client", () => {
 
     const reloadedModule = await loadEmbedAuth();
     expect(reloadedModule.getEmbedAuthToken()).toBe("signed-token");
+  });
+
+  it("tells the session each time the page's requests start carrying another embed token", async () => {
+    const heard = vi.fn();
+    window.addEventListener(FETCH_TRANSPORT_CHANGED_EVENT, heard);
+    try {
+      const auth = await loadEmbedAuth();
+      // No token yet: requests go out as the page's own.
+      auth.ensureEmbedAuthFetchInterceptor();
+      expect(heard).not.toHaveBeenCalled();
+
+      window.history.replaceState(
+        null,
+        "",
+        `/inbox?${EMBED_TOKEN_QUERY_PARAM}=token-b`,
+      );
+      expect(auth.getEmbedAuthToken()).toBe("token-b");
+      expect(auth.getEmbedAuthToken()).toBe("token-b");
+      expect(heard).toHaveBeenCalledTimes(1);
+
+      // Installed over a token already present: announced at install.
+      const reloaded = await loadEmbedAuth();
+      reloaded.ensureEmbedAuthFetchInterceptor();
+      expect(heard).toHaveBeenCalledTimes(2);
+    } finally {
+      window.removeEventListener(FETCH_TRANSPORT_CHANGED_EVENT, heard);
+    }
   });
 
   it("isolates embed tokens by workspace app mount and preserves same-app reloads", async () => {

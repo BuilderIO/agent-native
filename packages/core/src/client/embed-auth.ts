@@ -29,7 +29,12 @@ import {
   resolveExternalEmbedTargetAppBasePath,
   WorkspaceAppMountResolutionError,
 } from "./api-path.js";
-import { bearerTransport, markFetchTransport } from "./fetch-transport.js";
+import {
+  announceFetchTransportChange,
+  bearerTransport,
+  fetchTransport,
+  markFetchTransport,
+} from "./fetch-transport.js";
 
 let installed = false;
 const memoryTokens = new Map<string, string>();
@@ -291,7 +296,11 @@ function embedTokenTargetStorageKey(token: string): string | null {
 }
 
 function storeToken(token: string, win: Window, storageKey: string): void {
+  const changed = memoryTokens.get(storageKey) !== token;
   memoryTokens.set(storageKey, token);
+  // Requests through the interceptor now carry this token: a transport of
+  // their own.
+  if (changed && installed) announceFetchTransportChange();
   try {
     win.sessionStorage.setItem(storageKey, token);
   } catch {
@@ -1005,4 +1014,6 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     }
   }
   installed = true;
+  if (fetchTransport(patchedFetch) !== pageFetch)
+    announceFetchTransportChange();
 }

@@ -2,7 +2,7 @@
 
 import type { Document } from "@shared/api";
 import { QueryClient, useQuery } from "@tanstack/react-query";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const SESSION_PATH = "/_agent-native/auth/session";
 const PAGE_READ_URL = "/_agent-native/actions/get-document";
 const INVALIDATION_KEY = "agent-native:session-invalidated";
+const TRANSPORT_CHANGED_EVENT = "agent-native:fetch-transport-changed";
 
 const server = vi.hoisted(() => ({
   // The account the browser's cookies name when a request goes out.
@@ -129,7 +130,9 @@ type Switch =
   | "before the app code loads"
   | "while the session read is out"
   | "after the session read answered"
-  | "to B's embed token before the session read";
+  | "to B's embed token before the session read"
+  | "on a routine reread that discovers B"
+  | "to B's embed token with no session fetch";
 
 type Shown = {
   account: string | undefined;
@@ -238,6 +241,7 @@ describe("a page-open read sent as A is never used once the session is B's", () 
     const client = new QueryClient();
     queryClient = client;
     const shown: Shown[] = [];
+    const sessions: Array<string | undefined> = [];
     function Page() {
       const { session } = useSession();
       const { query, fetchedForThisOpen } = usePageOpenDocument("doc-1", {});
@@ -250,15 +254,34 @@ describe("a page-open read sent as A is never used once the session is B's", () 
       });
       return null;
     }
+    // On a routine reread the page opens only once the session is A's, while
+    // the reread is out. Kept outside the tree, which the cache gate remounts
+    // when the account changes.
+    const routineReread = change === "on a routine reread that discovers B";
+    let pageOpen = !routineReread;
+    let openPageNow = () => {};
+    function Shell() {
+      const { session } = useSession();
+      const [, rerender] = useState(0);
+      openPageNow = () => {
+        pageOpen = true;
+        rerender((count) => count + 1);
+      };
+      sessions.push(session?.userId);
+      return pageOpen ? <Page /> : null;
+    }
 
     // The page's reads start: the load's own, or the home page's prefetch of
     // the page it likely reopens, which runs in the tree mounted hidden
     // behind the session gate.
-    if (kind === "home-page prefetch") {
-      startPageOpenDocumentReads(client, "doc-1", {});
-    } else {
-      startPageOpenDocumentReads(client, "doc-1", {}, { fromLoad: true });
-    }
+    const startReads = () => {
+      if (kind === "home-page prefetch") {
+        startPageOpenDocumentReads(client, "doc-1", {});
+      } else {
+        startPageOpenDocumentReads(client, "doc-1", {}, { fromLoad: true });
+      }
+    };
+    if (!routineReread) startReads();
     // The embed token arrives: from here every request is sent as B.
     if (change === "to B's embed token before the session read") {
       vi.stubGlobal("fetch", server.bearerFetch);
@@ -271,7 +294,7 @@ describe("a page-open read sent as A is never used once the session is B's", () 
         <QueryClientProvider client={client}>
           <ActionQueryCacheGate>
             <RequireSession redirect={false}>
-              <Page />
+              <Shell />
             </RequireSession>
           </ActionQueryCacheGate>
         </QueryClientProvider>,
@@ -299,6 +322,46 @@ describe("a page-open read sent as A is never used once the session is B's", () 
       );
       await act(async () => signInElsewhereAsB());
     }
+    if (routineReread) {
+      await vi.waitFor(() => expect(sessions[sessions.length - 1]).toBe("a"));
+      // The cookies now name B, and nothing says so. The tab comes back into
+      // focus after A's answer has expired and reads the session again.
+      server.account = "b";
+      server.holdSessionAnswers = true;
+      const realNow = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(realNow + 60_000);
+      await act(async () => window.dispatchEvent(new Event("focus")));
+      clock.mockRestore();
+      expect(server.heldSessionAnswers).toHaveLength(1);
+      // The page's reads go out while that reread is out.
+      await act(async () => {
+        startReads();
+        openPageNow();
+        await tick();
+      });
+      await act(async () => {
+        server.holdSessionAnswers = false;
+        for (const release of server.heldSessionAnswers.splice(0)) release();
+        await tick();
+      });
+    }
+    if (change === "to B's embed token with no session fetch") {
+      await vi.waitFor(() =>
+        expect(shown[shown.length - 1]).toEqual({
+          account: "a",
+          title: "a's page",
+          draft: "a's draft",
+          fetched: true,
+        }),
+      );
+      // The embed runtime signs the page's requests from now on and says so;
+      // nothing asks for the session.
+      await act(async () => {
+        vi.stubGlobal("fetch", server.bearerFetch);
+        window.dispatchEvent(new Event(TRANSPORT_CHANGED_EVENT));
+        await tick();
+      });
+    }
 
     await vi.waitFor(() =>
       expect(shown[shown.length - 1]).toEqual({
@@ -317,6 +380,8 @@ describe("a page-open read sent as A is never used once the session is B's", () 
     "while the session read is out",
     "after the session read answered",
     "to B's embed token before the session read",
+    "on a routine reread that discovers B",
+    "to B's embed token with no session fetch",
   ];
   const cells = kinds.flatMap((kind) =>
     changes.map((change) => [kind, change] as const),
@@ -329,10 +394,14 @@ describe("a page-open read sent as A is never used once the session is B's", () 
     for (const entry of shown.filter((each) => each.account === "b")) {
       expect(`${entry.title} ${String(entry.draft)}`).not.toContain("a's");
     }
-    // A's page never counts as the page this open fetched under B.
+    // A's page never counts as the page this open fetched under B, nor B's
+    // under A.
     for (const entry of shown) {
       if (entry.fetched && entry.title === "a's page") {
         expect(entry.account).not.toBe("b");
+      }
+      if (entry.fetched && entry.title === "b's page") {
+        expect(entry.account).not.toBe("a");
       }
     }
     // Nothing A's is left where B's app reads.
