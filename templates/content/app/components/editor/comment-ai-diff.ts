@@ -1,3 +1,5 @@
+import { mostlyRewritten } from "@shared/suggestion-diff";
+
 export interface WordDiffSegment {
   kind: "same" | "removed" | "added";
   text: string;
@@ -37,7 +39,10 @@ export function wordDiff(before: string, after: string): WordDiffSegment[] {
   const midB = b.slice(start, endB);
   const segments: WordDiffSegment[] = [];
   push(segments, "same", b.slice(0, start).join(""));
-  if (midA.length * midB.length > MAX_TABLE_CELLS) {
+  if (
+    midA.length * midB.length > MAX_TABLE_CELLS ||
+    mostlyRewritten(before, after)
+  ) {
     push(segments, "removed", midA.join(""));
     push(segments, "added", midB.join(""));
   } else {

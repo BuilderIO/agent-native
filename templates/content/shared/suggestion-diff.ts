@@ -962,11 +962,21 @@ function commonWordCount(left: string[], right: string[]): number {
 }
 
 /**
- * One operation for the paragraph a line's word-sized operations rewrite, or
- * null when they leave most of it as it was. Split, a rewrite strikes and
- * inserts every few words, so neither version can be read. It counts as
- * rewritten when struck and inserted words outnumber the words kept, which is
- * what a reader of the split diff would mostly be reading.
+ * Whether a change strikes and inserts more words than it keeps. Diffed word
+ * by word, such a change strikes and inserts every few words, so neither
+ * version can be read; it reads as the old text struck and the new inserted.
+ */
+export function mostlyRewritten(before: string, after: string): boolean {
+  const words = visibleWords(before);
+  const rewritten = visibleWords(after);
+  if (words.length + rewritten.length > MAX_REWRITE_WORDS) return false;
+  const kept = commonWordCount(words, rewritten);
+  return words.length + rewritten.length - 2 * kept > kept;
+}
+
+/**
+ * One operation for the paragraph a line's word-sized operations mostly
+ * rewrite, or null when they leave most of it as it was.
  */
 function rewrittenParagraph(
   before: string,
@@ -985,22 +995,22 @@ function rewrittenParagraph(
   const lineStart = before.lastIndexOf("\n", from - 1) + 1;
   const lineStop = before.indexOf("\n", to);
   const lineTo = lineStop < 0 ? before.length : lineStop;
-  const words = visibleWords(before.slice(lineStart, lineTo));
-  const rewritten = visibleWords(
-    before.slice(lineStart, from) + inserted + before.slice(to, lineTo),
-  );
-  if (words.length + rewritten.length > MAX_REWRITE_WORDS) return null;
-  const kept = commonWordCount(words, rewritten);
-  if (words.length + rewritten.length - 2 * kept <= kept) return null;
+  if (
+    !mostlyRewritten(
+      before.slice(lineStart, lineTo),
+      before.slice(lineStart, from) + inserted + before.slice(to, lineTo),
+    )
+  )
+    return null;
   return operationForChange(before, from, to, inserted, 0);
 }
 
 /**
- * Joins the word-sized operations of each paragraph an agent mostly rewrote
- * into one. A light edit keeps its word-sized operations, so "fix this
- * throughout" stays one decision per occurrence.
+ * Joins the word-sized operations of each paragraph they mostly rewrite into
+ * one. A light edit keeps its word-sized operations, so "fix this throughout"
+ * stays one decision per occurrence.
  */
-function joinRewrittenParagraphs(
+export function joinRewrittenParagraphs(
   before: string,
   operations: MarkdownSuggestionOperation[],
 ): MarkdownSuggestionOperation[] {

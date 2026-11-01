@@ -1,6 +1,9 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { canonicalizeNfm } from "@shared/nfm";
-import { markdownSuggestionOperations } from "@shared/suggestion-diff";
+import {
+  joinRewrittenParagraphs,
+  markdownSuggestionOperations,
+} from "@shared/suggestion-diff";
 import {
   SuggestionFormattingMappingError,
   suggestionSourceAlignment,
@@ -171,9 +174,14 @@ function computePreciseSuggestionPresentationOperations(
   )
     return null;
   try {
-    const precise = markdownSuggestionOperations(
+    // Storing joins a paragraph an edit mostly rewrites into one change, so
+    // splitting it again here would draw it as word pieces after all.
+    const precise = joinRewrittenParagraphs(
       checked.before.markdown,
-      checked.after.markdown,
+      markdownSuggestionOperations(
+        checked.before.markdown,
+        checked.after.markdown,
+      ),
     );
     const changes = precise.map((span) => ({
       from: span.anchor.from,

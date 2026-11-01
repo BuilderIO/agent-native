@@ -322,6 +322,7 @@ import {
   PropertyCommentsContext,
   type PropertyCommentsValue,
 } from "./property-comments";
+import { useReviewMarginSlide } from "./review-margin-slide";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import {
   enqueueSuggestionDecision,
@@ -8397,6 +8398,16 @@ function PageEditorSessionBody({
     hasInlineCommentSpace,
     isDatabasePage: Boolean(document.database),
   });
+  const scrollContentRef = useRef<HTMLDivElement>(null);
+  const pageColumnRef = useRef<HTMLDivElement>(null);
+  useReviewMarginSlide(
+    {
+      scroller: scrollContainerRef,
+      content: scrollContentRef,
+      column: pageColumnRef,
+    },
+    reserveInlineReviewSpace,
+  );
   const hasOpenReview = hasOpenCommentThreads || hasOpenSuggestions;
   useEffect(() => {
     if (
@@ -10427,6 +10438,7 @@ function PageEditorSessionBody({
             onWheelCapture={cancelPaddingScrollRestore}
           >
             <div
+              ref={scrollContentRef}
               className={cn(
                 "relative flex min-h-full w-full min-w-0",
                 showDesktopInfoPanel ? "justify-center" : "flex-col",
@@ -10434,10 +10446,9 @@ function PageEditorSessionBody({
               data-document-scroll-content
             >
               <div
+                ref={pageColumnRef}
                 className={cn(
-                  // The page slides over as the review margin opens, rather
-                  // than jumping sideways under the reader's eye.
-                  "min-w-0 transition-[padding] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transition-none",
+                  "min-w-0",
                   showDesktopInfoPanel ? "flex-1" : "w-full",
                   reserveInlineReviewSpace && "pr-80",
                   !isDatabasePage &&

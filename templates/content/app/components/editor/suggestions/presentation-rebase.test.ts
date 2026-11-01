@@ -73,6 +73,47 @@ describe("precise suggestion presentation", () => {
       spans?.map((span) => [span.before.changedText, span.after.changedText]),
     ).toEqual([["So I save them", "With your own edits, I recommend"]]);
   });
+
+  it("draws a paragraph the edit mostly rewrites as one change", () => {
+    const source =
+      "Intro.\n\nIt turns out that a lot of people in town had the same problem, and the response was much bigger than expected.\n\nOutro.";
+    const from = source.indexOf("It turns");
+    const to = source.indexOf("\n\nOutro");
+    const spans = preciseSuggestionPresentationOperations(
+      edit(
+        source,
+        from,
+        to,
+        "Plenty of neighbors had the same problem, and the shelf grew.",
+      ),
+    );
+    expect(
+      spans?.map((span) => [span.before.changedText, span.after.changedText]),
+    ).toEqual([
+      [
+        "It turns out that a lot of people in town had the same problem, and the response was much bigger than expected",
+        "Plenty of neighbors had the same problem, and the shelf grew",
+      ],
+    ]);
+  });
+
+  it("keeps a light edit to a paragraph as word pieces", () => {
+    const source = "We shipped quickly, and the results were good overall.";
+    const spans = preciseSuggestionPresentationOperations(
+      edit(
+        source,
+        0,
+        source.length,
+        "They shipped quickly, and the results were great overall.",
+      ),
+    );
+    expect(
+      spans?.map((span) => [span.before.changedText, span.after.changedText]),
+    ).toEqual([
+      ["We", "They"],
+      ["good", "great"],
+    ]);
+  });
 });
 
 describe("committed suggestion presentation proof", () => {
