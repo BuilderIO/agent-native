@@ -8,6 +8,7 @@ import {
 } from "../agent/engine/credential-errors.js";
 import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
 import type { AgentChatRichEventEnvelope } from "../agent/types.js";
@@ -967,8 +968,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "gateway_not_enabled" ||
     code === "missing_api_key" ||
     code === "missing_credentials" ||
-    code === "invalid_request" ||
-    code === "invalid_request_error" ||
+    isRejectedRequestErrorCode(code) ||
     code === "request_too_large" ||
     code === "not_found_error" ||
     code === "model_not_found" ||

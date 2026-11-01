@@ -77,6 +77,15 @@ export function isCreditsLimitErrorCode(errorCode?: string): boolean {
   return code === "http_402" || code?.startsWith("credits-limit") === true;
 }
 
+/**
+ * The provider refused the request itself (a tool schema, an image source), so
+ * the model never ran and sending the same request again fails the same way.
+ */
+export function isRejectedRequestErrorCode(errorCode?: string): boolean {
+  const code = errorCode?.trim().toLowerCase();
+  return code === "invalid_request" || code === "invalid_request_error";
+}
+
 export function isBareProviderRejectionMessage(message: string): boolean {
   const trimmed = message.trim();
   return (
