@@ -1,6 +1,7 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
+import { useAfterStartup } from "@agent-native/core/client/use-after-paint";
 import type {
   CreateNotionPageRequest,
   Document,
@@ -142,6 +143,9 @@ export function useDocumentSyncStatus(documentId: string | null) {
     `notion-auto-sync:${normalizedDocumentId ?? ""}`,
     false,
   );
+  // The status only feeds the sync bar and conflict banner, and the call
+  // is a write, so it waits for the page load to settle.
+  const startupSettled = useAfterStartup();
   const query = useQuery<DocumentSyncStatus>({
     queryKey: normalizedDocumentId
       ? documentSyncStatusQueryKey(normalizedDocumentId)
@@ -153,7 +157,7 @@ export function useDocumentSyncStatus(documentId: string | null) {
         autoSync,
       });
     },
-    enabled: !!normalizedDocumentId,
+    enabled: !!normalizedDocumentId && startupSettled,
     refetchInterval: (query) =>
       documentSyncRefetchIntervalMs(query.state.data, autoSync),
   });

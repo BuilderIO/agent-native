@@ -4,7 +4,9 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
+import { scheduleAfterStartup } from "@agent-native/core/client/use-after-paint";
 import {
+  CONTENT_RECENT_LIMIT,
   contentRecentTargetKey,
   contentRecentVisitKey,
   type ContentRecentResult,
@@ -280,15 +282,63 @@ export function useRemoveContentRecent() {
   );
 }
 
+/**
+ * Moves a visited entry to the top of every cached Recent list that already
+ * shows it for the same view, as the server just did. Returns false when some
+ * cached list lacks it: that list needs the server's title and icon.
+ */
+export function moveCachedRecentVisitToTop(
+  queryClient: ReturnType<typeof useQueryClient>,
+  target: ContentRecentTarget,
+  visitedAt: string,
+): boolean {
+  const key = contentRecentTargetKey(target);
+  const visitKey = contentRecentVisitKey(target);
+  let complete = true;
+  for (const [
+    cachedKey,
+    data,
+  ] of queryClient.getQueriesData<ContentRecentQueryData>({
+    queryKey: ["action", "get-content-recent"],
+  })) {
+    if (!data) continue;
+    const entry = data.entries.find(
+      (candidate) => contentRecentTargetKey(candidate.target) === key,
+    );
+    if (!entry || contentRecentVisitKey(entry.target) !== visitKey) {
+      complete = false;
+      continue;
+    }
+    queryClient.setQueryData<ContentRecentQueryData>(cachedKey, {
+      ...data,
+      entries: [
+        { ...entry, visitedAt },
+        ...data.entries.filter((candidate) => candidate !== entry),
+      ].slice(0, CONTENT_RECENT_LIMIT),
+    });
+  }
+  return complete;
+}
+
 export function useContentVisitRecorder() {
   const queryClient = useQueryClient();
   const t = useT();
   const mutation = useActionMutation("record-content-visit", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-recent"],
-      });
+    onSuccess: (_result, target) => {
+      // Reopening a page already in Recent only reorders the list, so it
+      // skips the refetch; a first visit still reads the new entry.
+      if (
+        !moveCachedRecentVisitToTop(
+          queryClient,
+          target,
+          new Date().toISOString(),
+        )
+      ) {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-content-recent"],
+        });
+      }
     },
     onError: () => {
       toast.error(t("sidebar.failedSaveSidebarState"));
@@ -314,6 +364,10 @@ export function useRecordContentVisit(
     if (!enabled || !key) return;
     if (recordedKey.current === key || !targetRef.current) return;
     recordedKey.current = key;
-    record(targetRef.current);
+    const visited = targetRef.current;
+    // Nothing on the page being opened waits on Recent's order, so the write
+    // waits for the load to settle. It isn't cancelled when the page closes:
+    // a page opened and left still counts as visited.
+    scheduleAfterStartup(() => record(visited));
   }, [enabled, key, record]);
 }
