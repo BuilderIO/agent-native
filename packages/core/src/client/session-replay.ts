@@ -19,6 +19,7 @@ import {
 } from "./analytics-session.js";
 import { apiBaseUrl, appApiPath } from "./api-path.js";
 import { whenConsentAllows } from "./consent.js";
+import { markPassThroughFetch } from "./fetch-transport.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import {
   SESSION_REPLAY_BLOCK_ATTRIBUTE,
@@ -3432,6 +3433,8 @@ function installNetworkCapture(
       );
     };
     window.fetch = wrappedFetch as typeof window.fetch;
+    // Requests go out unchanged, so reads cached by transport see through it.
+    markPassThroughFetch(wrappedFetch as typeof window.fetch, originalFetch);
     restores.push(() => {
       if (window.fetch === (wrappedFetch as typeof window.fetch)) {
         window.fetch = originalFetch;

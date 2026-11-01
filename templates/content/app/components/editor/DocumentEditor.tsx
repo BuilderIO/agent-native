@@ -158,6 +158,7 @@ import {
   useOptimisticDocumentTitle,
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
+import { usePageTabTitle } from "@/hooks/use-page-tab-title";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -3269,20 +3270,12 @@ function PageEditorSessionBody({
     setAdditionalBlockContents({});
   }, [documentId]);
 
-  useEffect(() => {
-    if (host !== "page") return;
-    const nextTitle = `${normalizeDocumentTitle(
-      localTitle,
-      t("sidebar.untitled"),
-    )} — Content`;
-    const previousTitle = window.document.title;
-    window.document.title = nextTitle;
-    return () => {
-      if (window.document.title === nextTitle) {
-        window.document.title = previousTitle;
-      }
-    };
-  }, [host, localTitle, t]);
+  usePageTabTitle(
+    host === "page"
+      ? `${normalizeDocumentTitle(localTitle, t("sidebar.untitled"))} — Content`
+      : null,
+    documentFresh,
+  );
 
   const [databaseExportContext, setDatabaseExportContext] =
     useState<DatabaseExportContext | null>(null);

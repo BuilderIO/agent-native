@@ -7,10 +7,18 @@ import {
   isApiBaseUrl,
 } from "./api-path.js";
 import {
+  _resetBackendFetchForTests,
+  backendTransport,
+  ensureBackendFetchInterceptor,
   installBackendXhr,
   isBackendRequest,
   withBackendRequest,
 } from "./backend-fetch.js";
+import {
+  bearerTransport,
+  fetchTransport,
+  markFetchTransport,
+} from "./fetch-transport.js";
 
 const PAGE = "https://app.example.com/inbox";
 const API = "https://api.example.com";
@@ -175,5 +183,55 @@ describe("backend XHR", () => {
     hostCall.open("POST", "/api/import-design-file");
     expect(hostCall.opened).toEqual(["POST", "/api/import-design-file"]);
     expect(hostCall.withCredentials).toBe(false);
+  });
+});
+
+describe("backend fetch transport", () => {
+  afterEach(() => {
+    _resetBackendFetchForTests();
+    vi.unstubAllGlobals();
+  });
+
+  // The page's fetch signs each request with the embed token it holds then.
+  function stubPageFetch() {
+    const signing = { token: "token-a" };
+    const pageFetch = vi.fn(async () => new Response("{}")) as typeof fetch;
+    markFetchTransport(pageFetch, () => bearerTransport(signing.token));
+    const page = {
+      location: { pathname: "/inbox", href: PAGE },
+      __AGENT_NATIVE_CONFIG__: { apiBaseUrl: API },
+      fetch: pageFetch,
+    };
+    vi.stubGlobal("window", page);
+    return { page, pageFetch, signing };
+  }
+
+  it("is never the page's own transport, and follows a token change underneath", () => {
+    const { page, pageFetch, signing } = stubPageFetch();
+    ensureBackendFetchInterceptor();
+    expect(page.fetch).not.toBe(pageFetch);
+
+    const first = fetchTransport(page.fetch);
+    expect(first).not.toBe(fetchTransport(pageFetch));
+    expect(fetchTransport(page.fetch)).toBe(first);
+
+    signing.token = "token-b";
+    const second = fetchTransport(page.fetch);
+    expect(second).not.toBe(first);
+    expect(second).not.toBe(fetchTransport(pageFetch));
+    expect(fetchTransport(page.fetch)).toBe(second);
+  });
+
+  it("is one transport per transport underneath and server origin", () => {
+    const underneath = {};
+    expect(backendTransport(underneath, `${API}/app`)).toBe(
+      backendTransport(underneath, API),
+    );
+    expect(backendTransport(underneath, API)).not.toBe(
+      backendTransport(underneath, "https://other.example.com"),
+    );
+    expect(backendTransport(underneath, API)).not.toBe(
+      backendTransport({}, API),
+    );
   });
 });

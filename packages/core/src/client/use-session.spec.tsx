@@ -11,7 +11,9 @@ const analyticsMocks = vi.hoisted(() => ({
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
 
+import { EMBED_TOKEN_QUERY_PARAM } from "../shared/embed-auth.js";
 import { fetchAuthSessionStatus } from "./client-status-requests.js";
+import { FETCH_TRANSPORT_CHANGED_EVENT } from "./fetch-transport.js";
 import {
   navigateForSession,
   notifySessionInvalidated,
@@ -1059,6 +1061,7 @@ describe("one session read per page load", () => {
       jsonResponse({ error: "unexpected fetch" }),
     );
     vi.stubGlobal("fetch", fetchMock);
+    window.__agentNativeSessionBootstrapTransport = fetchMock;
     window.__agentNativeSessionBootstrap = Promise.resolve({
       state: "available",
       value: { userId: "user-9", email: "bootstrap@example.com" },
@@ -1139,6 +1142,603 @@ describe("isSessionFromFirstRead", () => {
     );
 
     expect(isSessionFromFirstRead()).toBe(false);
+  });
+});
+
+describe("firstSessionReadAnswer", () => {
+  async function mountProbe(
+    module: Awaited<ReturnType<typeof freshSessionModule>>,
+  ) {
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("is pending until the page load's own read answers, then tells listeners once", async () => {
+    const module = await freshSessionModule();
+    let answer!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))),
+    );
+    const heard: string[] = [];
+    module.subscribeFirstSessionReadAnswer(() =>
+      heard.push(module.firstSessionReadAnswer()),
+    );
+
+    await mountProbe(module);
+    expect(module.firstSessionReadAnswer()).toBe("pending");
+
+    await act(async () => {
+      answer(jsonResponse({ userId: "user-a", email: "a@x.test" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(module.firstSessionReadAnswer()).toBe("first-read");
+    expect(heard).toEqual(["first-read"]);
+  });
+
+  it("tells listeners the read was replaced as soon as an invalidation lands", async () => {
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    const heard: string[] = [];
+    module.subscribeFirstSessionReadAnswer(() =>
+      heard.push(module.firstSessionReadAnswer()),
+    );
+    await mountProbe(module);
+
+    void module.notifySessionInvalidated();
+
+    expect(heard).toEqual(["replaced"]);
+    expect(module.firstSessionReadAnswer()).toBe("replaced");
+  });
+
+  it("stays replaced when a retry answers, without telling listeners twice", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "user-b", email: "b@x.test" }),
+        ),
+    );
+    const heard: string[] = [];
+    module.subscribeFirstSessionReadAnswer(() =>
+      heard.push(module.firstSessionReadAnswer()),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(module.firstSessionReadAnswer()).toBe("replaced");
+    expect(heard).toEqual(["replaced"]);
+  });
+
+  it("answers before any session consumer sees the new session", async () => {
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ userId: "user-a", email: "a@x.test" })),
+    );
+    const seen: string[] = [];
+    function Probe() {
+      const { session } = module.useSession();
+      seen.push(`${module.firstSessionReadAnswer()}:${session?.email ?? "-"}`);
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(seen).not.toContain("pending:a@x.test");
+    expect(seen.at(-1)).toBe("first-read:a@x.test");
+  });
+});
+
+describe("sessionReadIdentityStatus", () => {
+  type SessionModule = Awaited<ReturnType<typeof freshSessionModule>>;
+
+  // A session endpoint that answers each read when told to.
+  function heldSessionReads() {
+    const pending: Array<(response: Response) => void> = [];
+    const fetcher = vi.fn(
+      () => new Promise<Response>((resolve) => pending.push(resolve)),
+    ) as unknown as typeof fetch;
+    async function answerAs(user: string) {
+      await act(async () => {
+        await vi.waitFor(() => expect(pending.length).toBeGreaterThan(0));
+        pending.shift()?.(
+          jsonResponse({ userId: user, email: `${user}@x.test` }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    return { fetcher, answerAs };
+  }
+
+  async function mountProbe(module: SessionModule) {
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("holds a read sent before the first answer until it, then keeps it for that account only", async () => {
+    const module = await freshSessionModule();
+    const reads = heldSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    const beforeAnswer = module.sessionReadIdentity();
+    const heard: string[] = [];
+    module.subscribeSessionReadIdentity(() =>
+      heard.push(module.sessionReadIdentityStatus(beforeAnswer)),
+    );
+
+    await mountProbe(module);
+    expect(module.sessionReadIdentityStatus(beforeAnswer)).toBe("pending");
+    await reads.answerAs("user-a");
+    expect(module.sessionReadIdentityStatus(beforeAnswer)).toBe("current");
+    expect(heard).toEqual(["current"]);
+
+    const afterAnswer = module.sessionReadIdentity();
+    await act(async () => {
+      void module.notifySessionInvalidated();
+    });
+    const duringReread = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(afterAnswer)).toBe("pending");
+    expect(module.sessionReadIdentityStatus(duringReread)).toBe("pending");
+    await reads.answerAs("user-b");
+
+    expect(module.sessionReadIdentityStatus(beforeAnswer)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(afterAnswer)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(duringReread)).toBe("current");
+  });
+
+  it("keeps a read current when the session is read again as the same account", async () => {
+    const module = await freshSessionModule();
+    const reads = heldSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    await mountProbe(module);
+    await reads.answerAs("user-a");
+    const read = module.sessionReadIdentity();
+
+    await act(async () => {
+      void module.notifySessionInvalidated();
+    });
+    await reads.answerAs("user-a");
+
+    expect(module.sessionReadIdentityStatus(read)).toBe("current");
+  });
+
+  it("drops a read sent over another transport than the session was read over", async () => {
+    const module = await freshSessionModule();
+    const cookieReads = heldSessionReads();
+    const bearerReads = heldSessionReads();
+    vi.stubGlobal("fetch", cookieReads.fetcher);
+    const overCookies = module.sessionReadIdentity();
+    const overBearer = module.sessionReadIdentity({
+      transport: bearerReads.fetcher,
+    });
+
+    vi.stubGlobal("fetch", bearerReads.fetcher);
+    await mountProbe(module);
+    await bearerReads.answerAs("user-b");
+
+    expect(module.sessionReadIdentityStatus(overCookies)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(overBearer)).toBe("current");
+  });
+
+  it("does not answer a session read over a bearer transport with the cookie session it accepted", async () => {
+    const module = await freshSessionModule();
+    const cookieReads = heldSessionReads();
+    const bearerReads = heldSessionReads();
+    vi.stubGlobal("fetch", cookieReads.fetcher);
+    let retry = () => {};
+    const shown: Array<string | undefined> = [];
+    function Probe() {
+      const result = module.useSession();
+      retry = result.retry;
+      shown.push(result.session?.userId);
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await cookieReads.answerAs("user-a");
+    const overCookies = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(overCookies)).toBe("current");
+
+    // An embed now signs the page's requests with B's bearer token, inside
+    // the cookie answer's lifetime. The next session read goes out as B.
+    vi.stubGlobal("fetch", bearerReads.fetcher);
+    const switchedAt = shown.length;
+    await act(async () => {
+      retry();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bearerReads.fetcher).toHaveBeenCalledTimes(1);
+    expect(module.sessionReadIdentityStatus(overCookies)).toBe("pending");
+    const overBearer = module.sessionReadIdentity();
+    await bearerReads.answerAs("user-b");
+
+    expect(shown.slice(switchedAt)).not.toContain("user-a");
+    expect(shown[shown.length - 1]).toBe("user-b");
+    expect(module.sessionReadIdentityStatus(overCookies)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(overBearer)).toBe("current");
+  });
+
+  // Focus after the answer's lifetime: the session is read again.
+  async function routineRecheck() {
+    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("keeps a read accepted, never heard otherwise, while a routine re-check names the same identity", async () => {
+    const module = await freshSessionModule();
+    const reads = heldSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    await mountProbe(module);
+    await reads.answerAs("user-a");
+    const read = module.sessionReadIdentity();
+    const heard: string[] = [];
+    module.subscribeSessionReadIdentity(() =>
+      heard.push(module.sessionReadIdentityStatus(read)),
+    );
+
+    await routineRecheck();
+    expect(reads.fetcher).toHaveBeenCalledTimes(2);
+    expect(module.sessionReadIdentityStatus(read)).toBe("current");
+    await reads.answerAs("user-a");
+
+    expect(module.sessionReadIdentityStatus(read)).toBe("current");
+    expect(heard.length).toBeGreaterThan(0);
+    expect(new Set(heard)).toEqual(new Set(["current"]));
+  });
+
+  it("holds a read sent while a routine re-check is out, and accepts it once the re-check names the same identity", async () => {
+    const module = await freshSessionModule();
+    const reads = heldSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    await mountProbe(module);
+    await reads.answerAs("user-a");
+
+    await routineRecheck();
+    const duringRecheck = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(duringRecheck)).toBe("pending");
+    await reads.answerAs("user-a");
+
+    expect(module.sessionReadIdentityStatus(duringRecheck)).toBe("current");
+  });
+
+  it("drops what it accepted and what was sent while it was out when a routine re-check names someone else", async () => {
+    const module = await freshSessionModule();
+    const reads = heldSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    await mountProbe(module);
+    await reads.answerAs("user-a");
+    const before = module.sessionReadIdentity();
+
+    await routineRecheck();
+    const duringRecheck = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(before)).toBe("current");
+    await reads.answerAs("user-b");
+    const after = module.sessionReadIdentity();
+
+    expect(module.sessionReadIdentityStatus(before)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(duringRecheck)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(after)).toBe("current");
+  });
+
+  // A session endpoint that answers as `state.user`, or never while `state.hang`.
+  function hangingSessionReads() {
+    const state = { hang: false, user: "user-a" };
+    const fetcher = vi.fn(() =>
+      state.hang
+        ? new Promise<Response>(() => {})
+        : Promise.resolve(
+            jsonResponse({
+              userId: state.user,
+              email: `${state.user}@x.test`,
+            }),
+          ),
+    );
+    return { state, fetcher };
+  }
+
+  // Timers and the monotonic clock run fake; Date.now stays the spec's own.
+  function fakeTimersKeepingDate() {
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "performance",
+      ],
+    });
+  }
+
+  it("answers what was sent while a routine re-check hung past the budget, keeping what it accepted", async () => {
+    const module = await freshSessionModule();
+    const reads = hangingSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    await mountProbe(module);
+    const accepted = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(accepted)).toBe("current");
+    const heard: string[] = [];
+    module.subscribeSessionReadIdentity(() =>
+      heard.push(module.sessionReadIdentityStatus(accepted)),
+    );
+
+    fakeTimersKeepingDate();
+    reads.state.hang = true;
+    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const during = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(during)).toBe("pending");
+
+    // Every read hangs until the budget is spent and the resolver gives up.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    const after = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(accepted)).toBe("current");
+    expect(module.sessionReadIdentityStatus(during)).toBe("pending");
+    expect(module.sessionReadIdentityStatus(after)).toBe("pending");
+
+    // The backend comes back; reads go on in the background, backing off, and
+    // one answers without a focus or any other session event.
+    reads.state.hang = false;
+    const callsBefore = reads.fetcher.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+
+    expect(reads.fetcher.mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(module.sessionReadIdentityStatus(during)).toBe("current");
+    expect(module.sessionReadIdentityStatus(after)).toBe("current");
+    expect(module.sessionReadIdentityStatus(accepted)).toBe("current");
+    expect(new Set(heard)).toEqual(new Set(["current"]));
+  });
+
+  it("ends an invalidation whose read hung past the budget in a fresh answer, never the old account", async () => {
+    const module = await freshSessionModule();
+    const reads = hangingSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    await mountProbe(module);
+    const accepted = module.sessionReadIdentity();
+
+    fakeTimersKeepingDate();
+    reads.state.hang = true;
+    await act(async () => {
+      void module.notifySessionInvalidated();
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    const during = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(accepted)).toBe("pending");
+    expect(module.sessionReadIdentityStatus(during)).toBe("pending");
+
+    // The server now answers for someone else.
+    reads.state.hang = false;
+    reads.state.user = "user-b";
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+
+    expect(module.sessionReadIdentityStatus(accepted)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(during)).toBe("current");
+  });
+
+  it("reads the session again over a new transport when one is announced, with no session read asked for", async () => {
+    const module = await freshSessionModule();
+    const cookieReads = heldSessionReads();
+    const bearerReads = heldSessionReads();
+    vi.stubGlobal("fetch", cookieReads.fetcher);
+    await mountProbe(module);
+    await cookieReads.answerAs("user-a");
+    const overCookies = module.sessionReadIdentity();
+
+    // The embed runtime takes over the page's fetch and says so.
+    vi.stubGlobal("fetch", bearerReads.fetcher);
+    await act(async () => {
+      window.dispatchEvent(new Event(FETCH_TRANSPORT_CHANGED_EVENT));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bearerReads.fetcher).toHaveBeenCalledTimes(1);
+    expect(module.sessionReadIdentityStatus(overCookies)).toBe("pending");
+    await bearerReads.answerAs("user-b");
+
+    expect(module.sessionReadIdentityStatus(overCookies)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(module.sessionReadIdentity())).toBe(
+      "current",
+    );
+  });
+
+  it("reads the session again when a request goes out over a transport nothing announced", async () => {
+    const module = await freshSessionModule();
+    const cookieReads = heldSessionReads();
+    const bearerReads = heldSessionReads();
+    vi.stubGlobal("fetch", cookieReads.fetcher);
+    await mountProbe(module);
+    await cookieReads.answerAs("user-a");
+
+    vi.stubGlobal("fetch", bearerReads.fetcher);
+    const overBearer = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(overBearer)).toBe("stale");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bearerReads.fetcher).toHaveBeenCalledTimes(1);
+    await bearerReads.answerAs("user-b");
+
+    expect(module.sessionReadIdentityStatus(module.sessionReadIdentity())).toBe(
+      "current",
+    );
+  });
+
+  it("hears an embed token change under the backend wrapper as a new transport", async () => {
+    const module = await freshSessionModule();
+    const embedAuth = await import("./embed-auth.js");
+    const backend = await import("./backend-fetch.js");
+    const transports = await import("./fetch-transport.js");
+    const config = window as Window & { __AGENT_NATIVE_CONFIG__?: unknown };
+    const reads = heldSessionReads();
+    sessionStorage.clear();
+    window.history.replaceState(null, "", "/page/doc-1");
+    config.__AGENT_NATIVE_CONFIG__ = { apiBaseUrl: "https://api.example.com" };
+    vi.stubGlobal("fetch", reads.fetcher);
+    try {
+      // The client bootstrap's order: embed auth, then the backend wrapper.
+      embedAuth.ensureEmbedAuthFetchInterceptor();
+      backend.ensureBackendFetchInterceptor();
+      expect(globalThis.fetch).not.toBe(reads.fetcher);
+      // No token: the backend wrapper's requests are its own transport, still
+      // the same one on every request.
+      const overServer = transports.fetchTransport(globalThis.fetch);
+      expect(overServer).not.toBe(reads.fetcher);
+      expect(transports.fetchTransport(globalThis.fetch)).toBe(overServer);
+      await mountProbe(module);
+      await reads.answerAs("user-a");
+      const overCookies = module.sessionReadIdentity();
+      expect(module.sessionReadIdentityStatus(overCookies)).toBe("current");
+
+      // A token arrives underneath the backend wrapper.
+      window.history.replaceState(
+        null,
+        "",
+        `/page/doc-1?${EMBED_TOKEN_QUERY_PARAM}=token-b`,
+      );
+      const withToken = transports.fetchTransport(globalThis.fetch);
+      expect(withToken).not.toBe(reads.fetcher);
+      expect(withToken).not.toBe(overServer);
+      expect(transports.fetchTransport(globalThis.fetch)).toBe(withToken);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(reads.fetcher).toHaveBeenCalledTimes(2);
+      expect(module.sessionReadIdentityStatus(overCookies)).toBe("pending");
+      await reads.answerAs("user-b");
+
+      expect(module.sessionReadIdentityStatus(overCookies)).toBe("stale");
+      expect(
+        module.sessionReadIdentityStatus(module.sessionReadIdentity()),
+      ).toBe("current");
+    } finally {
+      embedAuth._resetEmbedAuthForTests();
+      backend._resetBackendFetchForTests();
+      delete config.__AGENT_NATIVE_CONFIG__;
+      sessionStorage.clear();
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("drops a read the head sent with the first session read once that read is replaced", async () => {
+    const module = await freshSessionModule();
+    const reads = heldSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    const headRead = module.sessionReadIdentity({
+      sentWithFirstSessionRead: true,
+    });
+    await mountProbe(module);
+
+    await act(async () => {
+      void module.notifySessionInvalidated();
+    });
+    expect(module.sessionReadIdentityStatus(headRead)).toBe("stale");
+    await reads.answerAs("user-a");
+    await reads.answerAs("user-a");
+
+    expect(module.sessionReadIdentityStatus(headRead)).toBe("stale");
+  });
+});
+
+describe("a peer tab's invalidation broadcast before this tab listened", () => {
+  const KEY = "agent-native:session-invalidated";
+
+  afterEach(() => {
+    delete window.__agentNativeSessionBootstrap;
+    delete window.__agentNativeSessionBootstrapInvalidation;
+    delete window.__agentNativeSessionBootstrapTransport;
+    window.localStorage.removeItem(KEY);
+  });
+
+  // The head read the session as A and recorded the marker it saw; the app
+  // code then loads, with the marker as `storedNow` says.
+  async function loadAfterHeadRead(storedNow: string) {
+    window.localStorage.setItem(KEY, "signed-in-earlier");
+    window.__agentNativeSessionBootstrapInvalidation = "signed-in-earlier";
+    window.__agentNativeSessionBootstrap = Promise.resolve({
+      state: "available",
+      value: { userId: "user-a", email: "a@x.test" },
+    });
+    window.localStorage.setItem(KEY, storedNow);
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ userId: "user-b", email: "b@x.test" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.__agentNativeSessionBootstrapTransport = fetchMock;
+    const module = await freshSessionModule();
+    const heard: string[] = [];
+    module.subscribeFirstSessionReadAnswer(() =>
+      heard.push(module.firstSessionReadAnswer()),
+    );
+    function Gate() {
+      const { session, isLoading } = module.useSession();
+      return <>{isLoading ? "loading" : (session?.email ?? "signed-out")}</>;
+    }
+    await act(async () => {
+      root.render(<Gate />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return { module, fetchMock, heard };
+  }
+
+  it("replaces the head's session read and reads the session again", async () => {
+    const { module, fetchMock, heard } =
+      await loadAfterHeadRead("signed-in-as-b");
+
+    expect(heard[0]).toBe("replaced");
+    expect(module.firstSessionReadAnswer()).toBe("replaced");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toBe("b@x.test");
+  });
+
+  it("keeps the head's session read when no broadcast came in between", async () => {
+    const { module, fetchMock } = await loadAfterHeadRead("signed-in-earlier");
+
+    expect(module.firstSessionReadAnswer()).toBe("first-read");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(container.textContent).toBe("a@x.test");
   });
 });
 

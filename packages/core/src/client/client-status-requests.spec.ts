@@ -1,6 +1,11 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getSsrSessionBootstrapScriptBody } from "../shared/ssr-session-bootstrap.js";
+import {
+  _resetBackendFetchForTests,
+  ensureBackendFetchInterceptor,
+} from "./backend-fetch.js";
 import {
   expireClientStatusResult,
   fetchAgentEngineStatus,
@@ -12,6 +17,11 @@ import {
   invalidateClientStatusRequests,
   SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
+import {
+  bearerTransport,
+  markFetchTransport,
+  markPassThroughFetch,
+} from "./fetch-transport.js";
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -73,12 +83,14 @@ describe("client status requests", () => {
   beforeEach(() => {
     invalidateClientStatusRequests();
     delete window.__agentNativeSessionBootstrap;
+    delete window.__agentNativeSessionBootstrapTransport;
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
   afterEach(() => {
     delete window.__agentNativeSessionBootstrap;
+    delete window.__agentNativeSessionBootstrapTransport;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -337,6 +349,7 @@ describe("client status requests", () => {
       jsonResponse({ error: "unexpected fetch" }),
     );
     vi.stubGlobal("fetch", fetch);
+    window.__agentNativeSessionBootstrapTransport = fetch;
     window.__agentNativeSessionBootstrap = Promise.resolve({
       state: "available",
       value: { userId: "user-1", email: "user@example.com" },
@@ -348,6 +361,106 @@ describe("client status requests", () => {
     });
     expect(fetch).not.toHaveBeenCalled();
     expect(window.__agentNativeSessionBootstrap).toBeUndefined();
+  });
+
+  it("answers later session reads from the static shell's read after the page wraps fetch", async () => {
+    const pageFetch = vi.fn(async () =>
+      jsonResponse({ error: "unexpected fetch" }),
+    );
+    vi.stubGlobal("fetch", pageFetch);
+    window.__agentNativeSessionBootstrapTransport = pageFetch;
+    window.__agentNativeSessionBootstrap = Promise.resolve({
+      state: "available",
+      value: { userId: "user-1", email: "user@example.com" },
+    });
+    // Analytics takes the shell's read first, then session replay wraps fetch
+    // before the session store asks. Its wrapper sends requests on unchanged.
+    await fetchAuthSessionStatus();
+    const wrapped = vi.fn((...args: Parameters<typeof fetch>) =>
+      pageFetch(...args),
+    );
+    markPassThroughFetch(wrapped, pageFetch);
+    vi.stubGlobal("fetch", wrapped);
+
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "user-1", email: "user@example.com" },
+    });
+    expect(pageFetch).not.toHaveBeenCalled();
+    expect(wrapped).not.toHaveBeenCalled();
+  });
+
+  it("does not answer from the static shell's read once the token it was sent with has changed", async () => {
+    // The page's fetch is a wrapper that signs each request with the embed
+    // token it holds when the request is sent.
+    let token = "token-a";
+    const signed = vi.fn(async () => {
+      const user = token === "token-a" ? "user-a" : "user-b";
+      return jsonResponse({ userId: user, email: `${user}@example.com` });
+    });
+    markFetchTransport(signed, () => bearerTransport(token));
+    vi.stubGlobal("fetch", signed);
+    new Function(
+      "window",
+      "document",
+      "AbortController",
+      "setTimeout",
+      "clearTimeout",
+      "fetch",
+      getSsrSessionBootstrapScriptBody("/session", "an_hint"),
+    )(window, { cookie: "an_hint=1" }, undefined, () => 1, vi.fn(), signed);
+    expect(signed).toHaveBeenCalledOnce();
+
+    // The token changes before the app takes the shell's read.
+    token = "token-b";
+
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "user-b", email: "user-b@example.com" },
+    });
+    expect(signed).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not answer the app server's session read from the static shell's read", async () => {
+    // The shell reads the session from the page's own origin, with its
+    // cookies. The app server is on another origin, so once the backend
+    // wrapper is installed the app's read goes there, with that origin's.
+    const pageFetch = vi.fn(async () =>
+      jsonResponse({ userId: "user-a", email: "user-a@example.com" }),
+    );
+    vi.stubGlobal("fetch", pageFetch);
+    new Function(
+      "window",
+      "document",
+      "AbortController",
+      "setTimeout",
+      "clearTimeout",
+      "fetch",
+      getSsrSessionBootstrapScriptBody("/session", "an_hint"),
+    )(window, { cookie: "an_hint=1" }, undefined, () => 1, vi.fn(), pageFetch);
+    expect(pageFetch).toHaveBeenCalledOnce();
+
+    const config = window as Window & { __AGENT_NATIVE_CONFIG__?: unknown };
+    config.__AGENT_NATIVE_CONFIG__ = { apiBaseUrl: "https://api.example.com" };
+    try {
+      ensureBackendFetchInterceptor();
+      expect(globalThis.fetch).not.toBe(pageFetch);
+
+      await fetchAuthSessionStatus();
+      expect(pageFetch).toHaveBeenCalledTimes(2);
+      const [input, init] = pageFetch.mock.calls[1] as unknown as [
+        RequestInfo | URL,
+        RequestInit | undefined,
+      ];
+      const sentTo = input instanceof Request ? input.url : String(input);
+      expect(new URL(sentTo, window.location.href).origin).toBe(
+        "https://api.example.com",
+      );
+      expect(init?.credentials).toBe("include");
+    } finally {
+      _resetBackendFetchForTests();
+      delete config.__AGENT_NATIVE_CONFIG__;
+    }
   });
 
   it("discards an unconsumed session bootstrap when session status is invalidated", async () => {

@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
-import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
@@ -472,7 +475,9 @@ describe("embedApp", () => {
       pathname: "/deck/reports",
       search: "",
     };
+    const announced: string[] = [];
     const windowObject: Record<string, unknown> = {
+      dispatchEvent: (event: Event) => announced.push(event.type),
       location: locationObject,
       history: {
         state: null,
@@ -541,6 +546,8 @@ describe("embedApp", () => {
       },
     });
 
+    // The app reads its session again over the runtime's fetch.
+    expect(announced).toEqual([FETCH_TRANSPORT_CHANGED_EVENT]);
     const installedFetch = windowObject.fetch as (
       input: string,
     ) => Promise<Response>;

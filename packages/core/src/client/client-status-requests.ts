@@ -1,5 +1,10 @@
+import {
+  SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL,
+  SESSION_BOOTSTRAP_TRANSPORT_GLOBAL,
+} from "../shared/ssr-session-bootstrap.js";
 import { agentNativePath } from "./api-path.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
+import { fetchTransport } from "./fetch-transport.js";
 
 export type ClientStatusResult<T> =
   | { state: "available"; value: T }
@@ -48,6 +53,8 @@ const freshRequests = new WeakSet<object>();
 const requestControllers = new Map<string, AbortController>();
 const requestSourceTokens = new WeakMap<object, number>();
 let nextRequestSourceToken = 1;
+// When the server gave each result: a cached answer's age counts from here.
+const resultAnsweredAt = new WeakMap<object, number>();
 let invalidationListenersInstalled = false;
 // Endpoint statuses expire on focus and visibility; the session read only on
 // a full invalidation, so it has its own generation.
@@ -126,15 +133,75 @@ function statusRequestKey(
   url: string,
   options?: ClientStatusRequestOptions,
 ): string {
+  // Reads share an answer only over the same transport. A wrapper that adds
+  // other credentials, like an embed token, is another identity; one that
+  // passes requests on unchanged, like session replay's, is seen through.
   const fetcher = options?.fetch ?? globalThis.fetch;
   const fetcherToken =
-    typeof fetcher === "function" ? requestSourceToken(fetcher) : null;
+    typeof fetcher === "function"
+      ? requestSourceToken(fetchTransport(fetcher))
+      : null;
   return JSON.stringify([
     url,
     fetcherToken,
     options?.credentials ?? "same-origin",
     headersCacheScope(options?.headers),
   ]);
+}
+
+function forgetSessionBootstrap(): void {
+  delete window.__agentNativeSessionBootstrap;
+  delete window[SESSION_BOOTSTRAP_TRANSPORT_GLOBAL];
+  delete window[SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL];
+}
+
+/**
+ * The shell's session read, taken once, by the first caller on the transport
+ * it went out on. A caller on any other transport reads the session for
+ * itself and leaves the shell's read for one that matches, for as long as a
+ * cached session answer would last: an older answer is dropped, not taken.
+ */
+function takeSessionBootstrap(
+  options?: ClientStatusRequestOptions,
+): Promise<ClientStatusResult<unknown>> | undefined {
+  const bootstrap = window.__agentNativeSessionBootstrap;
+  if (!bootstrap) return undefined;
+  const answeredAt = window[SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL];
+  if (
+    typeof answeredAt === "number" &&
+    Date.now() - answeredAt >= SESSION_RESULT_LIFETIME_MS
+  ) {
+    forgetSessionBootstrap();
+    return undefined;
+  }
+  // Resolved when the head sent the read: a wrapper's mark may answer for
+  // other credentials by now.
+  const bootstrapTransport = window[SESSION_BOOTSTRAP_TRANSPORT_GLOBAL];
+  if (bootstrapTransport === undefined || bootstrapTransport === null) {
+    forgetSessionBootstrap();
+    return undefined;
+  }
+  const fetcher = options?.fetch ?? globalThis.fetch;
+  if (
+    typeof fetcher !== "function" ||
+    bootstrapTransport !== fetchTransport(fetcher)
+  ) {
+    return undefined;
+  }
+  forgetSessionBootstrap();
+  // Its age counts from when the head's read answered, which may be before it
+  // is taken.
+  return bootstrap.then((result) => {
+    const at = answeredAt ?? window[SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL];
+    delete window[SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL];
+    if (typeof at === "number") resultAnsweredAt.set(result, at);
+    return result;
+  });
+}
+
+/** When the server gave `result`, if this module read it. */
+export function statusResultAnsweredAt(result: object): number | undefined {
+  return resultAnsweredAt.get(result);
 }
 
 function pruneExpiredStatusCache(now: number): void {
@@ -248,9 +315,8 @@ async function fetchClientStatus<T>(
   });
   const bootstrappedSession =
     sessionRead && typeof window !== "undefined"
-      ? window.__agentNativeSessionBootstrap
+      ? takeSessionBootstrap(options)
       : undefined;
-  if (bootstrappedSession) delete window.__agentNativeSessionBootstrap;
   const transport =
     bootstrappedSession ??
     (options?.fetch ?? fetch)(url, {
@@ -275,6 +341,8 @@ async function fetchClientStatus<T>(
       if (supersededRequests.has(request)) {
         return fetchClientStatus<T>(path, { ...options, fresh: false });
       }
+      const answeredAt = resultAnsweredAt.get(result) ?? Date.now();
+      resultAnsweredAt.set(result, answeredAt);
       if (
         currentGeneration() === requestGeneration &&
         result.state === "available"
@@ -282,7 +350,7 @@ async function fetchClientStatus<T>(
         cache.set(key, {
           url: canonicalUrl,
           expiresAt:
-            Date.now() +
+            answeredAt +
             (sessionRead && isSignedInSession(result.value)
               ? SESSION_RESULT_LIFETIME_MS
               : path === AGENT_ENGINE_STATUS_PATH
@@ -316,7 +384,7 @@ export function invalidateClientStatusRequest(path: string): void {
   const url = agentNativePath(path);
   const canonicalUrl = statusCacheKey(url);
   if (path === SESSION_STATUS_PATH && typeof window !== "undefined") {
-    delete window.__agentNativeSessionBootstrap;
+    forgetSessionBootstrap();
   }
   for (const [key, entry] of cache) {
     if (entry.url === canonicalUrl) cache.delete(key);
@@ -346,9 +414,7 @@ export function expireClientStatusResult(path: string): void {
 export function invalidateClientStatusRequests(): void {
   statusGeneration += 1;
   sessionGeneration += 1;
-  if (typeof window !== "undefined") {
-    delete window.__agentNativeSessionBootstrap;
-  }
+  if (typeof window !== "undefined") forgetSessionBootstrap();
   cache.clear();
   // Callers already awaiting an aborted read get a new read, not a result
   // indistinguishable from an unreachable server.

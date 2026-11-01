@@ -1,7 +1,12 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 
 import type { AuthSession, AuthSessionResponse } from "../server/auth.js";
-import { navigateForSession as navigateForSessionOnce } from "../shared/ssr-session-bootstrap.js";
+import {
+  navigateForSession as navigateForSessionOnce,
+  readSessionInvalidationMarker,
+  SESSION_BOOTSTRAP_INVALIDATION_GLOBAL,
+  SESSION_INVALIDATION_STORAGE_KEY,
+} from "../shared/ssr-session-bootstrap.js";
 import { setSentryUser, trackEvent, trackSessionStatus } from "./analytics.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import {
@@ -9,7 +14,13 @@ import {
   fetchAuthSessionStatus,
   invalidateClientStatusRequest,
   SESSION_RESULT_LIFETIME_MS,
+  statusResultAnsweredAt,
 } from "./client-status-requests.js";
+import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  fetchTransport,
+  type FetchTransport,
+} from "./fetch-transport.js";
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 import { recordSessionIdentity } from "./session-identity.js";
 
@@ -107,19 +118,103 @@ const SESSION_CACHE_TTL_MS = SESSION_RESULT_LIFETIME_MS;
 const SESSION_RETRY_BUDGET_MS = 30_000;
 const SESSION_RETRY_BASE_DELAY_MS = 500;
 const SESSION_RETRY_MAX_DELAY_MS = 5_000;
-const SESSION_INVALIDATION_STORAGE_KEY = "agent-native:session-invalidated";
 const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 let cachedSession: ClientAuthSession | null | undefined;
 let cachedSessionAt = 0;
 let sessionRequest: Promise<SessionRead> | undefined;
+let sessionRequestTransport: FetchTransport | undefined;
 let trackedSessionIdentity: string | null | undefined;
 let trackedSessionAuthUserId: string | undefined;
-let sessionGeneration = 0;
 // The page load's own session read is the only one sent with the cookies a
 // request made before the session was known also carried. A retry or a reset
 // replaces it for the life of the document.
 let firstSessionReadUnsent = true;
 let cachedSessionFromFirstRead = false;
+// Set once a retry or a reset replaces the first read, answered or not.
+let firstSessionReadReplaced = false;
+const firstSessionReadAnswerListeners = new Set<() => void>();
+
+/*
+ * Whom a request was answered for
+ * ===============================
+ *
+ * The server answers each request for whoever its credentials named when it
+ * left: the account the cookies held, or the one a bearer token signs for. A
+ * response cannot say which, so every request is tagged when it is sent and
+ * its tag is judged against the session this tab accepts. Only an accepted
+ * request's answer may be shown.
+ *
+ * A tag is `{ generation, transport }`. A generation is one session read and
+ * the time it is out: the tab opens one for each session read it sends,
+ * except that a read joining one already out shares its generation, a retry
+ * shares the generation of the read it retries, and an explicit invalidation
+ * opens one at once, before its read goes out. The
+ * page load's first read is generation 0, and a request the document head
+ * sent beside it carries 0 too. Every other request carries the generation
+ * open when it is sent, and the transport it went out on (`fetch-transport`).
+ *
+ * The accepted identity is `{ scope, transport, generations }`: whom the last
+ * answer named, over which transport, and every generation whose read named
+ * that same identity. A request is then
+ *   - accepted ("current"): its generation is one of those, the identity is
+ *     confirmed, and it went out over the same transport;
+ *   - provisional ("pending"): its generation is the one open now and has not
+ *     answered, or the identity is unconfirmed after an invalidation and its
+ *     generation may still be confirmed again;
+ *   - stale ("stale"), and dropped: anything else. A stale request never
+ *     becomes current again.
+ *
+ * How each session event moves them:
+ *   - First answer, or the shell's bootstrap answer taken in its place: the
+ *     identity it names is accepted with generation 0.
+ *   - Routine re-read (focus, visibility, an expired answer): its generation
+ *     is provisional. The accepted identity stays confirmed, so what it
+ *     accepted stays shown. An answer naming the same identity adds the
+ *     generation, promoting what was sent while it was out. An answer naming
+ *     someone else replaces the identity under a fresh generation: what was
+ *     accepted before and what was sent while it was out are both stale.
+ *   - Retry, after an unreadable answer or a read out past the retry budget:
+ *     not an identity event. Nothing accepted changes, and the retry is the
+ *     read of the generation the failed one opened, so its answer decides for
+ *     what was sent while either was out. A hung read is abandoned and its
+ *     late answer is not taken. Before the first answer a retry opens its own
+ *     generation instead and replaces the first read, and a hung first read
+ *     is replaced at once, as an invalidation.
+ *   - Explicit invalidation (a peer tab's broadcast, a 401, a missed
+ *     broadcast): a new generation opens and the accepted
+ *     identity is unconfirmed, so everything waits. Its read was sent after
+ *     the change, so its answer decides for what was sent while it was out:
+ *     the same identity adds the generation and every accepted request is
+ *     current again; another identity replaces it with this generation.
+ *   - Transport change: an embed token arriving or the host runtime swapping
+ *     `fetch` dispatches FETCH_TRANSPORT_CHANGED_EVENT, and a request tagged
+ *     over a transport other than the accepted one is noticed when tagged.
+ *     Either one invalidates explicitly. The read that follows goes out over
+ *     the new transport, so its identity differs and replaces the old one.
+ *     The session read itself also refuses an answer, or a read in flight,
+ *     from another transport.
+ *   - Sign-out: an explicit invalidation whose answer names no one.
+ *
+ * A generation that has not answered always has a read out or scheduled:
+ * when the resolver gives up on its budget with one open, it keeps reading in
+ * the background, backing off, until one answers.
+ */
+type AcceptedSessionIdentity = {
+  scope: string;
+  transport: FetchTransport;
+  generations: Set<number>;
+};
+let acceptedIdentity: AcceptedSessionIdentity | undefined;
+let acceptedConfirmed = false;
+let sessionGeneration = 0;
+// Whether a session read has gone out in the open generation: the next one
+// opens another.
+let generationRead = false;
+// Bumped when a hung read is abandoned, so its late answer is not taken.
+let sessionReadAttempt = 0;
+let backgroundSessionRead: ReturnType<typeof setTimeout> | undefined;
+let backgroundSessionReads = 0;
+const sessionReadIdentityListeners = new Set<() => void>();
 let sessionInvalidationListenersInstalled = false;
 let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
 let signingOut = false;
@@ -261,15 +356,54 @@ function notifyParentAuthState(
 }
 
 function resetSessionCache(): void {
+  const before = firstSessionReadAnswer();
+  // An explicit invalidation: everything waits for the next answer.
   sessionGeneration += 1;
+  generationRead = false;
+  acceptedConfirmed = false;
   firstSessionReadUnsent = false;
   cachedSessionFromFirstRead = false;
+  firstSessionReadReplaced = true;
   cachedSession = undefined;
   cachedSessionAt = 0;
   cachedEvidence = undefined;
   sessionRequest = undefined;
+  sessionRequestTransport = undefined;
   clearTimeout(staleSessionRecheck);
   staleSessionRecheck = undefined;
+  if (before !== "replaced") notifyFirstSessionReadAnswer();
+  notifySessionReadIdentity();
+}
+
+// A read out past the retry budget is given up on without invalidating: what
+// is accepted stays accepted, and the next read joins the generation the hung
+// one opened, which is still waiting for an answer.
+function abandonSessionRead(): void {
+  sessionReadAttempt += 1;
+  sessionRequest = undefined;
+  sessionRequestTransport = undefined;
+}
+
+function sessionGenerationAnswered(): boolean {
+  return Boolean(
+    acceptedConfirmed && acceptedIdentity?.generations.has(sessionGeneration),
+  );
+}
+
+const BACKGROUND_SESSION_READ_MAX_DELAY_MS = 60_000;
+
+function scheduleBackgroundSessionRead(): void {
+  clearTimeout(backgroundSessionRead);
+  const delay = Math.min(
+    SESSION_RETRY_MAX_DELAY_MS * 2 ** backgroundSessionReads,
+    BACKGROUND_SESSION_READ_MAX_DELAY_MS,
+  );
+  backgroundSessionReads += 1;
+  backgroundSessionRead = setTimeout(() => {
+    backgroundSessionRead = undefined;
+    if (signingOut || activeResolveGeneration !== 0) return;
+    void resolveSession();
+  }, delay);
 }
 
 function notifySessionSubscribers(): Promise<void> {
@@ -289,8 +423,13 @@ function invalidateSessionCache(): Promise<void> {
   return notifySessionSubscribers();
 }
 
+// A routine re-check: its read opens a provisional generation, and what is
+// accepted stays shown while it is out (see "Whom a request was answered
+// for").
 function rereadSession(): void {
-  resetSessionCache();
+  cachedSessionAt = 0;
+  clearTimeout(staleSessionRecheck);
+  staleSessionRecheck = undefined;
   expireClientStatusResult(SESSION_STATUS_PATH);
   void notifySessionSubscribers();
 }
@@ -338,6 +477,11 @@ function installSessionInvalidationListeners(): void {
   sessionInvalidationListenersInstalled = true;
 
   window.addEventListener("focus", revalidateStaleSession);
+  // Checked after the change settles: a transport can change while one is
+  // being read.
+  window.addEventListener(FETCH_TRANSPORT_CHANGED_EVENT, () =>
+    queueMicrotask(recheckSessionTransport),
+  );
   window.addEventListener("storage", (event) => {
     if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
       void invalidateSessionCache();
@@ -349,6 +493,22 @@ function installSessionInvalidationListeners(): void {
       revalidateStaleSession();
     }
   });
+  // A peer tab's broadcast that landed before this listener existed was not
+  // heard, but it changed the stored marker. The early session read in the
+  // document head, and every read sent beside it, then went out with cookies
+  // that may name the account before the change: none of them is this tab's
+  // first read any more, and the session is read again.
+  if (
+    firstSessionReadAnswer() !== "replaced" &&
+    bootstrapInvalidationMissed()
+  ) {
+    void invalidateSessionCache();
+  }
+}
+
+function bootstrapInvalidationMissed(): boolean {
+  const recorded = window[SESSION_BOOTSTRAP_INVALIDATION_GLOBAL];
+  return recorded !== undefined && recorded !== readSessionInvalidationMarker();
 }
 
 /**
@@ -381,7 +541,160 @@ export function isSigningOut(): boolean {
  * invalidation answers instead, another tab may have changed the cookies.
  */
 export function isSessionFromFirstRead(): boolean {
-  return cachedSession !== undefined && cachedSessionFromFirstRead;
+  return firstSessionReadAnswer() === "first-read";
+}
+
+/**
+ * Where the page load's first session read stands: `"pending"` until it
+ * answers, `"first-read"` while the session this tab holds is its answer, and
+ * `"replaced"` once a retry or an invalidation took its place, whether or not
+ * it had answered. A request sent before the session was known can be shown
+ * only under `"first-read"`; under `"pending"` it waits.
+ */
+export type FirstSessionReadAnswer = "pending" | "first-read" | "replaced";
+
+export function firstSessionReadAnswer(): FirstSessionReadAnswer {
+  if (cachedSession !== undefined && cachedSessionFromFirstRead) {
+    return "first-read";
+  }
+  return firstSessionReadReplaced ? "replaced" : "pending";
+}
+
+/**
+ * Calls `listener` each time {@link firstSessionReadAnswer} changes, in the
+ * same task as the change and before any `useSession` consumer re-renders, so
+ * a request made for another account can be dropped before the app is shown.
+ */
+export function subscribeFirstSessionReadAnswer(
+  listener: () => void,
+): () => void {
+  firstSessionReadAnswerListeners.add(listener);
+  return () => {
+    firstSessionReadAnswerListeners.delete(listener);
+  };
+}
+
+function notifyFirstSessionReadAnswer(): void {
+  for (const listener of [...firstSessionReadAnswerListeners]) {
+    try {
+      listener();
+    } catch (error) {
+      // A listener's failure is its own; the session read still answers.
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
+  }
+}
+
+/**
+ * Who a request was sent as: the session generation open when it left, and the
+ * transport it went out on. See "Whom a request was answered for" above and
+ * {@link sessionReadIdentityStatus}.
+ */
+export type SessionReadIdentity = {
+  readonly generation: number;
+  readonly transport: FetchTransport;
+};
+
+export type SessionReadIdentityStatus = "pending" | "current" | "stale";
+
+function sessionScope(session: AuthSession | null): string {
+  return session
+    ? JSON.stringify([session.userId ?? session.email, session.orgId ?? null])
+    : "signed-out";
+}
+
+const NO_FETCH_TRANSPORT = {};
+
+function currentFetchTransport(): FetchTransport {
+  return typeof globalThis.fetch === "function"
+    ? fetchTransport(globalThis.fetch)
+    : NO_FETCH_TRANSPORT;
+}
+
+// Whether the session this tab accepts, or the read it has out, was read over
+// another transport than requests go out on now.
+function sessionTransportChanged(transport: FetchTransport): boolean {
+  return Boolean(
+    (acceptedConfirmed &&
+      acceptedIdentity &&
+      acceptedIdentity.transport !== transport) ||
+    (sessionRequest && sessionRequestTransport !== transport),
+  );
+}
+
+function recheckSessionTransport(): void {
+  if (sessionTransportChanged(currentFetchTransport())) {
+    void invalidateSessionCache();
+  }
+}
+
+/**
+ * The identity a request sent now goes out under: `transport` is the one it
+ * went out on, resolved as it was sent (the page fetch's now by default). A
+ * request the document head sent beside the shell's session read passes
+ * `sentWithFirstSessionRead`.
+ */
+export function sessionReadIdentity(
+  options: {
+    transport?: FetchTransport;
+    sentWithFirstSessionRead?: boolean;
+  } = {},
+): SessionReadIdentity {
+  const transport = options.transport ?? currentFetchTransport();
+  // Requests now go out over a transport the session was not read over, and
+  // nothing announced it: read the session again over this one.
+  if (sessionTransportChanged(currentFetchTransport())) {
+    queueMicrotask(recheckSessionTransport);
+  }
+  return {
+    generation: options.sentWithFirstSessionRead ? 0 : sessionGeneration,
+    transport,
+  };
+}
+
+/**
+ * Whether a request sent under `identity` was answered for the session this
+ * tab accepts now: `"current"` when it was sent as the same person over the
+ * same transport, `"stale"` when it was not, or can no longer be known to have
+ * been, and `"pending"` while the session read that decides it is out. Only a
+ * `"current"` answer may be shown.
+ */
+export function sessionReadIdentityStatus(
+  identity: SessionReadIdentity,
+): SessionReadIdentityStatus {
+  if (acceptedIdentity?.generations.has(identity.generation)) {
+    if (!acceptedConfirmed) return "pending";
+    return identity.transport === acceptedIdentity.transport
+      ? "current"
+      : "stale";
+  }
+  return identity.generation === sessionGeneration ? "pending" : "stale";
+}
+
+/**
+ * Calls `listener` each time the session this tab holds changes, in the same
+ * task as the change and before any `useSession` consumer re-renders, so a
+ * request whose identity has gone stale is dropped before anything shows it.
+ */
+export function subscribeSessionReadIdentity(listener: () => void): () => void {
+  sessionReadIdentityListeners.add(listener);
+  return () => {
+    sessionReadIdentityListeners.delete(listener);
+  };
+}
+
+function notifySessionReadIdentity(): void {
+  for (const listener of [...sessionReadIdentityListeners]) {
+    try {
+      listener();
+    } catch (error) {
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
+  }
 }
 
 const UNAUTHORIZED_RECHECK_MIN_INTERVAL_MS = 5_000;
@@ -434,6 +747,15 @@ function fetchSharedSession(): Promise<SessionRead> {
   if (agentNativeApiDisabledReason()) {
     return Promise.resolve({ state: "resolved", session: null });
   }
+  // The status read takes the shell's answer only over this same transport,
+  // so this is the transport the answer was read over either way.
+  const transport = currentFetchTransport();
+  // An answer read over another transport names whoever that transport's
+  // credentials did, not whom this caller's requests go out as: once an embed
+  // signs the page's requests with its bearer token they are B's, even while
+  // the cookie read said A. Neither that answer nor a read still out on that
+  // transport is reused; the session is read again over this one.
+  if (sessionTransportChanged(transport)) resetSessionCache();
   if (hasFreshSessionCache()) {
     return Promise.resolve({
       state: "resolved",
@@ -442,14 +764,26 @@ function fetchSharedSession(): Promise<SessionRead> {
   }
   if (sessionRequest) return sessionRequest;
 
+  // Each session read opens its own generation; the first in a generation
+  // opened by an invalidation, the load's first read, and a retry of a read
+  // that never answered once an identity is accepted use the one open.
+  if (generationRead && (!acceptedIdentity || sessionGenerationAnswered())) {
+    sessionGeneration += 1;
+    notifySessionReadIdentity();
+  }
+  generationRead = true;
   const requestGeneration = sessionGeneration;
+  const requestAttempt = sessionReadAttempt;
   const firstRead = firstSessionReadUnsent;
   firstSessionReadUnsent = false;
   let request: Promise<SessionRead>;
   const requestResult = (async (): Promise<SessionRead> => {
     try {
       const result = await fetchAuthSessionStatus();
-      if (requestGeneration !== sessionGeneration) {
+      if (
+        requestGeneration !== sessionGeneration ||
+        requestAttempt !== sessionReadAttempt
+      ) {
         return { state: "superseded" };
       }
       // Only the endpoint's own answer is definitive: a signed-out body or a
@@ -469,15 +803,46 @@ function fetchSharedSession(): Promise<SessionRead> {
         data.error === "Not authenticated"
           ? null
           : (data as AuthSessionResponse & ClientAuthSession);
+      const answerBefore = firstSessionReadAnswer();
+      const scope = sessionScope(session);
+      const sameIdentity =
+        acceptedIdentity?.scope === scope &&
+        acceptedIdentity.transport === transport;
+      // A routine re-check that names the identity already accepted keeps
+      // whatever was accepted, the first read's answer included.
+      const confirmsAccepted = sameIdentity && acceptedConfirmed;
+      if (acceptedIdentity && sameIdentity) {
+        acceptedIdentity.generations.add(requestGeneration);
+      } else {
+        if (acceptedConfirmed) {
+          // A routine re-check found someone else. What was sent while it was
+          // out went with cookies that may name either, so it is dropped
+          // with what was accepted before; the new identity starts afresh.
+          sessionGeneration += 1;
+        }
+        acceptedIdentity = {
+          scope,
+          transport,
+          generations: new Set([sessionGeneration]),
+        };
+      }
+      acceptedConfirmed = true;
       cachedSession = session;
-      cachedSessionAt = Date.now();
-      cachedSessionFromFirstRead = firstRead;
+      if (!confirmsAccepted) {
+        cachedSessionFromFirstRead = firstRead;
+        if (!firstRead) firstSessionReadReplaced = true;
+      }
+      cachedSessionAt = statusResultAnsweredAt(result) ?? Date.now();
       cachedEvidence = session
         ? "signed_in"
         : result.state === "unavailable"
           ? "http_401"
           : "signed_out_body";
       publishSessionIdentity(session);
+      if (firstSessionReadAnswer() !== answerBefore) {
+        notifyFirstSessionReadAnswer();
+      }
+      notifySessionReadIdentity();
       return { state: "resolved", session };
     } catch {
       return { state: "unreadable" };
@@ -488,6 +853,7 @@ function fetchSharedSession(): Promise<SessionRead> {
   });
 
   sessionRequest = request;
+  sessionRequestTransport = transport;
 
   return sessionRequest;
 }
@@ -502,6 +868,8 @@ async function resolveSession(): Promise<void> {
   if (signingOut) return;
   const generation = ++resolveGeneration;
   activeResolveGeneration = generation;
+  clearTimeout(backgroundSessionRead);
+  backgroundSessionRead = undefined;
   const isCurrent = () => generation === resolveGeneration && !signingOut;
   const startedAt = monotonicNow();
   let failures = 0;
@@ -519,7 +887,8 @@ async function resolveSession(): Promise<void> {
       let hung = false;
       if (raced === RETRY_BUDGET_EXCEEDED) {
         // Abandon the hung read so the next attempt is a fresh request.
-        resetSessionCache();
+        if (acceptedIdentity) abandonSessionRead();
+        else resetSessionCache();
         invalidateClientStatusRequest(SESSION_STATUS_PATH);
         hung = true;
         read = { state: "unreadable" };
@@ -528,6 +897,7 @@ async function resolveSession(): Promise<void> {
       }
 
       if (read.state === "resolved") {
+        backgroundSessionReads = 0;
         lastResolution = {
           evidence:
             cachedEvidence ?? (read.session ? "signed_in" : "signed_out_body"),
@@ -560,6 +930,10 @@ async function resolveSession(): Promise<void> {
         // background, so a backend that comes back recovers on its own.
         if (hung && !isDefinitive(snapshot)) {
           queueMicrotask(() => void resolveSession());
+        } else if (isDefinitive(snapshot) && !sessionGenerationAnswered()) {
+          // The page is shown and a generation is still waiting: requests
+          // sent in it stay pending until a read answers it.
+          scheduleBackgroundSessionRead();
         }
         return;
       }

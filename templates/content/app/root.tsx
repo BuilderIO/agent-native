@@ -1,5 +1,9 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appBasePath,
+  appPath,
+} from "@agent-native/core/client/api-path";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
@@ -65,6 +69,7 @@ import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
 import { registerContentDatabaseQueryDefaults } from "./lib/content-database-query-cache";
 import { startLoadReads } from "./lib/content-landing";
 import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
+import { startupPageReadScript } from "./lib/page-open-reads";
 import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
 
 import stylesheet from "./global.css?url";
@@ -252,6 +257,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
               CONTENT_STARTUP_SIDEBAR_SCRIPT +
               CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT +
               CONTENT_STARTUP_PAGE_HINTS_SCRIPT,
+          }}
+        />
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: startupPageReadScript(
+              agentNativePath("/_agent-native/actions/get-document"),
+              appBasePath(),
+            ),
           }}
         />
         <meta name="theme-color" content="#10B981" />

@@ -1,9 +1,65 @@
 import { safeJsonForHtml } from "./agent-readable-resource.js";
+import { fetchTransportScript } from "./embed-auth.js";
+
+export { fetchTransportScript };
 
 export const SSR_SESSION_BOOTSTRAP_MARKER =
   'data-agent-native-session-bootstrap="1"';
 
 export const SSR_SESSION_BOOTSTRAP_TIMEOUT_MS = 15_000;
+
+/**
+ * Written by a tab that changes the session (sign-in, sign-out, a reset), so
+ * every other tab hears a `storage` event and reads its session again.
+ */
+export const SESSION_INVALIDATION_STORAGE_KEY =
+  "agent-native:session-invalidated";
+
+/**
+ * The invalidation marker as it stood when the early session read went out.
+ * A tab that broadcast in between was not heard: nothing listened yet.
+ */
+export const SESSION_BOOTSTRAP_INVALIDATION_GLOBAL =
+  "__agentNativeSessionBootstrapInvalidation";
+
+/**
+ * The transport the early session read went out on (`fetchTransport`),
+ * resolved as it was sent. Its answer is for callers on the same transport: a
+ * page that later signs requests another way (the embed runtime's bearer
+ * token, cookies omitted) reads for itself.
+ */
+export const SESSION_BOOTSTRAP_TRANSPORT_GLOBAL =
+  "__agentNativeSessionBootstrapTransport";
+
+/**
+ * When the early session read answered. Held for a later caller, its answer
+ * lasts as long as any cached session answer does, and no longer.
+ */
+export const SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL =
+  "__agentNativeSessionBootstrapAnsweredAt";
+
+/** Records, inline, that the early session read has just answered. */
+export function recordSessionBootstrapAnswerScript(): string {
+  return `window[${JSON.stringify(SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL)}] = Date.now();`;
+}
+
+/** The current invalidation marker, or "" when none is stored or readable. */
+export function readSessionInvalidationMarker(): string {
+  try {
+    return window.localStorage.getItem(SESSION_INVALIDATION_STORAGE_KEY) ?? "";
+  } catch {
+    // coercion-ok: storage this page cannot read carries no broadcast either.
+    return "";
+  }
+}
+
+/**
+ * The same statement for the inline scripts that start the early session
+ * read, run just before the read is sent.
+ */
+export function recordSessionInvalidationMarkerScript(): string {
+  return `try { window[${JSON.stringify(SESSION_BOOTSTRAP_INVALIDATION_GLOBAL)}] = window.localStorage.getItem(${JSON.stringify(SESSION_INVALIDATION_STORAGE_KEY)}) || ""; } catch (error) { window[${JSON.stringify(SESSION_BOOTSTRAP_INVALIDATION_GLOBAL)}] = ""; }`;
+}
 
 /**
  * Claimed by the first session-driven navigation of a document: the sign-in
@@ -16,6 +72,9 @@ export const SESSION_NAVIGATION_FLAG = "__agentNativeNavigationStarted";
 declare global {
   interface Window {
     [SESSION_NAVIGATION_FLAG]?: string;
+    [SESSION_BOOTSTRAP_INVALIDATION_GLOBAL]?: string;
+    [SESSION_BOOTSTRAP_TRANSPORT_GLOBAL]?: unknown;
+    [SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL]?: number;
   }
 }
 
@@ -118,6 +177,8 @@ export function getSsrSessionBootstrapScriptBody(
     headers: { Accept: "application/json" }
   };
   if (controller) requestInit.signal = controller.signal;
+  ${recordSessionInvalidationMarkerScript()}
+  window[${JSON.stringify(SESSION_BOOTSTRAP_TRANSPORT_GLOBAL)}] = ${fetchTransportScript("fetch")};
   window.__agentNativeSessionBootstrap = fetch(${safeJsonForHtml(sessionPath)}, requestInit).then(function (response) {
     if (!response.ok) return { state: "unavailable", status: response.status };
     return response.json().then(function (value) {
@@ -129,6 +190,7 @@ export function getSsrSessionBootstrapScriptBody(
     return { state: "unavailable" };
   }).finally(function () {
     clearTimeout(timeoutId);
+    ${recordSessionBootstrapAnswerScript()}
   });
 })();`;
 }
