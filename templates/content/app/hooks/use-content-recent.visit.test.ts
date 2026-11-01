@@ -154,7 +154,9 @@ describe("useRecordContentVisit", () => {
     expect(mocks.scheduled).toHaveLength(1);
 
     render(null);
-    mocks.scheduled[0]();
+    const settle = mocks.scheduled[0];
+    if (!settle) throw new Error("the visit wasn't scheduled");
+    settle();
     expect(mocks.mutate).toHaveBeenCalledWith({ documentId: "a" });
   });
 
