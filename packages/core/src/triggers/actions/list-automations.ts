@@ -15,6 +15,10 @@ import {
   isValidCron,
   nextOccurrence,
 } from "../../jobs/cron.js";
+import {
+  isRecoveredFactoryJob,
+  jobBelongsToApp,
+} from "../../jobs/frontmatter.js";
 import { listLatestAutomationRuns } from "../../jobs/run-history.js";
 
 function nextRun(
@@ -215,7 +219,18 @@ export default defineAction({
           deliveryTenantId: meta.deliveryTenantId ?? null,
           canUpdate,
           effectiveRole,
-          capabilities,
+          capabilities: {
+            ...capabilities,
+            canOperate:
+              capabilities.canOperate &&
+              (jobBelongsToApp(meta, ctx?.appId) ||
+                isRecoveredFactoryJob(
+                  meta,
+                  resource.path,
+                  ctx?.appId,
+                  resource.owner,
+                )),
+          },
           sharing,
           creator,
         };

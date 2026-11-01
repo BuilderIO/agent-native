@@ -125,6 +125,7 @@ describe("AgentJobsTab organization automations", () => {
                 createdBy: "owner@example.com",
                 mcpTools: [],
                 canUpdate: true,
+                capabilities: { canEdit: true, canOperate: true, canDelete: true, canManageSharing: true },
               },
             ]
           : [],
@@ -159,6 +160,7 @@ describe("AgentJobsTab organization automations", () => {
                 nextRun: null,
                 createdBy: "owner@example.com",
                 canUpdate: true,
+                capabilities: { canEdit: true, canOperate: true, canDelete: true, canManageSharing: true },
               },
             ]
           : [],

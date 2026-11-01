@@ -269,4 +269,23 @@ describe("queueAutomationRunNow", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(startAutomationRunMock).not.toHaveBeenCalled();
   });
+
+  it("names the owning app when the job belongs to another app", async () => {
+    canQueueAutomationRunNowMock.mockResolvedValue(false);
+    resourceGetByPathMock.mockResolvedValue({
+      ...resourceAt("jobs/digest.md"),
+      content: `---\nappId: pr-review-reminders\n---\nSend the digest.\n`,
+    });
+
+    await expect(
+      queueAutomationRunNow({
+        ...organizationRun,
+        appId: "dispatch",
+        name: "digest",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: expect.stringContaining("pr-review-reminders"),
+    });
+  });
 });

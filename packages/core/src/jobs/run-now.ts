@@ -14,7 +14,11 @@ import {
   resourceGetByPath,
 } from "../resources/store.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
-import { parseJobResource } from "./frontmatter.js";
+import {
+  isRecoveredFactoryJob,
+  jobBelongsToApp,
+  parseJobResource,
+} from "./frontmatter.js";
 import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   listUnclaimedAutomationRuns,
@@ -182,6 +186,23 @@ export async function queueAutomationRunNow(
       input.additionalJobAppIds,
     ))
   ) {
+    const { meta } = parseJobResource(access.resource.content);
+    if (
+      !jobBelongsToApp(meta, input.appId, input.additionalJobAppIds) &&
+      !isRecoveredFactoryJob(
+        meta,
+        access.resource.path,
+        input.appId,
+        access.resource.owner,
+      )
+    ) {
+      throw Object.assign(
+        new Error(
+          `This automation belongs to the "${meta.appId?.trim() || "another"}" app. Run it from that app.`,
+        ),
+        { statusCode: 403 },
+      );
+    }
     throw Object.assign(
       new Error("Collaborate access is required to run this automation."),
       { statusCode: 403 },

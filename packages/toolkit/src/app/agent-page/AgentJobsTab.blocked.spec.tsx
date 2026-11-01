@@ -79,6 +79,7 @@ function blockedJob(lastStatus: string, lastError: string | null) {
     createdBy: "tmilazzo@builder.io",
     mcpTools: [],
     canUpdate: true,
+    capabilities: { canEdit: true, canOperate: true, canDelete: true, canManageSharing: true },
   };
 }
 
