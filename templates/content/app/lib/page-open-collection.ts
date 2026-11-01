@@ -158,7 +158,9 @@ export function pageOpenReadOwner(
       // Unknown, as when the log no longer reaches back that far: every
       // part counts as changed.
       const replayed = syncInvalidationsAfter(queryClient, syncCursor) ?? [{}];
-      watch.filters.push(...replayed.map(({ queryKey }) => ({ queryKey })));
+      watch.filters.push(
+        ...replayed.map(({ queryKey }) => (queryKey ? { queryKey } : {})),
+      );
     },
     invalidatedWhileOut: (partKey) =>
       watch.queryHashes.has(hashKey(partKey)) ||
@@ -200,7 +202,7 @@ export function seedPageOpenCollection(
   {
     owner,
     syncCursor,
-  }: { owner?: PageOpenReadOwner; syncCursor?: string } = {},
+  }: { owner?: PageOpenReadOwner; syncCursor?: string | undefined } = {},
 ) {
   if (owner && !owner.stillOwns()) return;
   owner?.answeredAt(syncCursor);

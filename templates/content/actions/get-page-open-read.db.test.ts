@@ -285,6 +285,20 @@ describe("get-page-open-read", () => {
     expect(board.collection?.rows).toBeUndefined();
   });
 
+  it("names where the change feed stood before it read, as the poll endpoint does", async () => {
+    const fixture = await seedCollection("cursor");
+    const { getCurrentPollBaseline } =
+      await import("@agent-native/core/server");
+    const before = await getCurrentPollBaseline();
+
+    const open = await openPage(OWNER, { id: fixture.documentId });
+
+    // Every change up to this cursor is in the answer; the page replays what
+    // sync invalidated after it.
+    expect(open.syncCursor).toBe(before.cursor);
+    expect(open.syncCursor).toMatch(/^\d+\./);
+  });
+
   it("reads only the page for a plain page or a row opened in its collection", async () => {
     const fixture = await seedCollection("row");
     const plain = await as(OWNER, (ctx) =>
