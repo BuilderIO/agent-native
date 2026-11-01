@@ -1277,6 +1277,23 @@ const rawLiterals = {
     restoreDatabaseNamed: "Restaurar {{title}}",
     trash: "Lixeira",
   },
+  publicDocument: {
+    chat: "Chat",
+    freeAndOpenSource: "Gratuito e de código aberto no GitHub",
+    pagePath: "Caminho da página",
+    privateDescription:
+      "Peça ao proprietário para compartilhá-lo com sua conta ou espaço de trabalho antes de abrir este link.",
+    privateTitle: "Este documento é privado",
+    signIn: "Entrar",
+    signUp: "Criar conta",
+    signUpFree: "Crie sua conta grátis",
+    subPages: "Subpáginas",
+    tryContentFree: "Experimente o Content grátis",
+    updated: "Atualizado em {{date}}",
+    writtenIn: "Escrito no Agent-Native Content.",
+    writtenInDescription:
+      "Escreva e publique suas próprias páginas, com um agente de IA que trabalha dentro dos seus documentos.",
+  },
 };
 
 const landing = {

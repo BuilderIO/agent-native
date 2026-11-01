@@ -1323,6 +1323,22 @@ const rawLiterals = {
     synced: "已同步",
     trash: "回收站",
   },
+  publicDocument: {
+    chat: "聊天",
+    freeAndOpenSource: "在 GitHub 上免费开源",
+    pagePath: "页面路径",
+    privateDescription: "打开此链接前，请让所有者将其共享给你的账户或工作区。",
+    privateTitle: "此文档为私密文档",
+    signIn: "登录",
+    signUp: "注册",
+    signUpFree: "免费注册",
+    subPages: "子页面",
+    tryContentFree: "免费试用 Content",
+    updated: "更新于 {{date}}",
+    writtenIn: "使用 Agent-Native Content 撰写。",
+    writtenInDescription:
+      "撰写并发布你自己的页面，AI 智能体就在你的文档中协助工作。",
+  },
 };
 
 const landing = {

@@ -1253,6 +1253,23 @@ const rawLiterals = {
     restoreDatabaseNamed: "{{title}} 복원",
     trash: "휴지통",
   },
+  publicDocument: {
+    chat: "채팅",
+    freeAndOpenSource: "무료 오픈 소스(GitHub)",
+    pagePath: "페이지 경로",
+    privateDescription:
+      "이 링크를 열기 전에 소유자에게 내 계정이나 워크스페이스와 공유해 달라고 요청하세요.",
+    privateTitle: "이 문서는 비공개입니다",
+    signIn: "로그인",
+    signUp: "가입하기",
+    signUpFree: "무료로 가입하기",
+    subPages: "하위 페이지",
+    tryContentFree: "Content 무료로 사용해 보기",
+    updated: "{{date}} 업데이트됨",
+    writtenIn: "Agent-Native Content로 작성되었습니다.",
+    writtenInDescription:
+      "문서 안에서 일하는 AI 에이전트와 함께 나만의 페이지를 작성하고 게시하세요.",
+  },
 };
 
 const landing = {
