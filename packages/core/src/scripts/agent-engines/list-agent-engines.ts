@@ -159,10 +159,19 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     }
     return pending;
   };
-  const [defaultSetting, defaultAuthority] = await Promise.all([
-    readDefaultAgentEngineSettingDetailed(),
-    resolveDefaultAgentEngineAuthority(),
-  ]);
+  const defaultAuthority = await resolveDefaultAgentEngineAuthority();
+  // An unresolved scope cannot say which default applies. Listing engines
+  // must still work, so the read is skipped and reported as "unresolved"
+  // instead of "none", which would claim no default is saved.
+  const scopeUnresolved =
+    !defaultAuthority.allowed &&
+    defaultAuthority.reason === "scope-unavailable";
+  const defaultSetting: {
+    value: Record<string, unknown> | null;
+    source: string;
+  } = scopeUnresolved
+    ? { value: null, source: "unresolved" }
+    : await readDefaultAgentEngineSettingDetailed();
   const current = defaultSetting.value
     ? (defaultSetting.value as { engine?: string; model?: string })
     : null;

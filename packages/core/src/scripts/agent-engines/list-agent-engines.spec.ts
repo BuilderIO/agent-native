@@ -106,6 +106,24 @@ describe("list-agent-engines", () => {
     });
   });
 
+  it("lists engines and reports an unresolved default when org scope is unknown", async () => {
+    vi.doMock("../../agent/default-agent-engine.js", () => ({
+      readDefaultAgentEngineSettingDetailed: vi.fn(async () => {
+        throw new Error("Organization scope could not be resolved.");
+      }),
+      resolveDefaultAgentEngineAuthority: vi.fn(async () => ({
+        allowed: false,
+        reason: "scope-unavailable",
+        message: "Organization scope could not be resolved.",
+      })),
+    }));
+    const { run } = await import("./list-agent-engines.js");
+    const result = JSON.parse(await run());
+    expect(result.defaultSource).toBe("unresolved");
+    expect(result.canUpdateDefault).toBe(false);
+    expect(result.engines.length).toBeGreaterThan(0);
+  });
+
   it("prefetches installed provider keys in one catalog batch", async () => {
     const { registerAgentEngine } = await import("../../agent/engine/index.js");
     const { runWithRequestContext } =
