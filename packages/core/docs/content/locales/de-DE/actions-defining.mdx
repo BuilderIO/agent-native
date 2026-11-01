@@ -127,7 +127,7 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
           type: "boolean | ((input) => boolean)",
           optional: true,
           description:
-            "Wenn true (oder wenn das Prädikat true zurückgibt), ist ein abgelehnter Schreibvorgang ein bekannter Fehler, den das Modell korrigieren und erneut versuchen kann, statt das Tool zu blockieren. Siehe Wiederholungssichere Schreibvorgänge unten.",
+            "Wenn true (oder wenn das Prädikat true zurückgibt), ist ein abgelehnter Schreibvorgang ein bekannter Fehler, den das Modell korrigieren und erneut versuchen kann, statt das Tool für den Rest der aktuellen Runde zu blockieren. Nur setzen, wenn die Action nach jedem Fehler sicher erneut ausgeführt werden kann. Für eine Ablehnung vor dem ersten Schreiben NoWriteError oder noWrite() bevorzugen. Siehe Wiederholungssichere Schreibvorgänge unten.",
         },
         {
           name: "agentTool",
@@ -447,9 +447,13 @@ Agent-Aufrufer sehen den Status nicht. Der Agent führt `run()` im Prozess aus, 
 
 ## Wiederholungssichere Schreibvorgänge {#retry-safe}
 
-Standardmäßig gilt: Wenn der eigene Handler einer schreibenden Action ablehnt – egal ob er wirft oder `fail()` aufruft –, protokolliert die Agent-Schleife ein unbekanntes Ergebnis und blockiert dieses Tool für den Rest des Threads. Das Modell sieht den Fehler, kann dieselbe Action aber nicht erneut aufrufen, um seine Argumente zu korrigieren.
+Für eine Ablehnung vor dem ersten Schreiben der Action, etwa eine Bearbeitung ohne Treffer, ein fehlendes Ziel oder eine 422-Validierungsablehnung, wirf `NoWriteError` oder rufe `noWrite()` von `defineActionErrors` auf. Die ganze Action muss nicht nach jedem Fehler sicher erneut ausführbar sein. Der Agent wiederholt den Aufruf dann mit korrigierten Argumenten, statt bei einem Schreiben mit unbekanntem Ergebnis zu stoppen. Wirf sie nur vor dem ersten Schreiben. Das Framework lehnt die Behauptung ab, wenn eine verschachtelte schreibende Action ihren Handler betreten hat, sieht aber die eigenen Schreibvorgänge des Handlers nicht. Die Autorregel ist der `NoWriteError`-Punkt in `.agents/skills/actions/SKILL.md`. Siehe [Fehlercodes deklarieren](#error-codes) für `noWrite()`.
 
-Setze `retrySafe: true` (oder ein Prädikat über die Eingabe), wenn eine erneute Ausführung nach einem Fehler keine Daten duplizieren oder beschädigen kann: Die Action validiert, bevor sie schreibt, oder sie setzt einen Endzustand, etwa Ersetzen per ID. Ein abgelehnter Aufruf bleibt dann ein bekannter Fehler. Das Modell erhält den Fehler, korrigiert seine Argumente und versucht es erneut.
+Reserviere `retrySafe` für Actions, die nach **jedem** Fehler sicher erneut ausgeführt werden können, nicht nur für Ablehnungen vor dem Schreiben.
+
+Standardmäßig gilt: Wenn der eigene Handler einer schreibenden Action ablehnt, egal ob er wirft oder `fail()` aufruft, protokolliert die Agent-Schleife ein unbekanntes Ergebnis und blockiert dieses Tool für den Rest der **aktuellen Runde**. Das Modell sieht den Fehler, kann dieselbe Action in dieser Runde aber nicht erneut aufrufen, um seine Argumente zu korrigieren. Die nächste Nachricht der Nutzerin oder des Nutzers führt das Tool wieder normal aus.
+
+Setze `retrySafe: true` (oder ein Prädikat über die Eingabe), wenn eine erneute Ausführung nach jedem Fehler keine Daten duplizieren oder beschädigen kann: Die Action validiert, bevor sie schreibt, oder sie setzt einen Endzustand, etwa Ersetzen per ID. Ein abgelehnter Aufruf bleibt dann ein bekannter Fehler. Das Modell erhält den Fehler, korrigiert seine Argumente und versucht es erneut.
 
 ```ts
 export default defineAction({
@@ -468,11 +472,12 @@ export default defineAction({
 });
 ```
 
-Setze es **nicht**, wenn die Action nach der Validierung etwas anhängt, sendet oder abrechnet. Vorher zu validieren reicht allein nicht, wenn ein späterer Schritt vor der Ablehnung schon gewirkt haben kann. Ein paar weitere Grenzen:
+Setze es **nicht**, wenn die Action nach der Validierung etwas anhängt, sendet oder abrechnet, außer bei Eingaben mit einem Idempotenzschlüssel, auf den die Action mit ihrem ersten Ergebnis antwortet. Vorher zu validieren reicht allein nicht, wenn ein späterer Schritt vor der Ablehnung schon gewirkt haben kann. Ein paar weitere Grenzen:
 
 - Es deckt **den eigenen Schreibvorgang dieser Action** ab. Sobald eine verschachtelte Action, die sie aufruft, ihren Handler betreten hat, protokolliert ein Fehler weiterhin ein unbekanntes Ergebnis.
-- Es hebt einen Thread, der bereits ein unbekanntes Ergebnis protokolliert hat, nicht wieder auf. Nachdem du `retrySafe` hinzugefügt hast, starte einen **neuen Thread**, damit die Änderung greift.
-- Ein Deadline-Ablauf oder Abbruch nach dem Aufruf der Action blockiert das Tool weiterhin. Nur der eigene zurückgegebene Fehler der Action gilt als bekannter, wiederholbarer Fehler.
+- Eine MCP-Freigabe überspringt die Warnung „bereits ausgeführt“ für einen Aufruf, den `retrySafe` abdeckt.
+- Ein Lauf, der sich von einem Absturz erholt, kann einen unterbrochenen wiederholungssicheren Aufruf selbst erneut ausführen.
+- Ein Deadline-Ablauf oder Abbruch nach dem Aufruf der Action blockiert das Tool weiterhin für den Rest der aktuellen Runde. Nur der eigene zurückgegebene Fehler der Action gilt als bekannter, wiederholbarer Fehler.
 
 ## Die Action-Oberfläche klein halten {#small-surface}
 

@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Document the retrySafe option on defineAction in the actions-defining docs.
+Document retrySafe on defineAction, including NoWriteError for pre-write refusals, turn-scoped unknown outcomes, and idempotency, MCP approval, and crash-recovery behavior.

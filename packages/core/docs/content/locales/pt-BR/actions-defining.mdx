@@ -128,7 +128,7 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
           type: "boolean | ((input) => boolean)",
           optional: true,
           description:
-            "Quando true (ou quando o predicado retorna true), uma escrita rejeitada é uma falha conhecida que o modelo pode corrigir e tentar de novo, em vez de bloquear a ferramenta. Veja Escritas seguras para retentativa abaixo.",
+            "Quando true (ou quando o predicado retorna true), uma escrita rejeitada é uma falha conhecida que o modelo pode corrigir e tentar de novo, em vez de bloquear a ferramenta pelo resto do turno atual. Reserve para actions seguras de executar de novo após qualquer erro. Para uma recusa antes da primeira escrita, prefira NoWriteError ou noWrite(). Veja Escritas seguras para retentativa abaixo.",
         },
         {
           name: "agentTool",
@@ -448,9 +448,13 @@ Chamadores do agente não veem o status. O agente executa `run()` em processo, e
 
 ## Escritas seguras para retentativa {#retry-safe}
 
-Por padrão, quando o próprio handler de uma action de escrita rejeita — seja lançando um erro ou chamando `fail()` —, o loop do agente registra um resultado desconhecido e bloqueia essa ferramenta pelo resto da thread. O modelo vê o erro, mas não consegue chamar a mesma action de novo para corrigir seus argumentos.
+Para uma recusa levantada antes da primeira escrita da action, como uma edição que não encontra nada, um destino ausente ou uma recusa de validação 422, lance `NoWriteError` ou chame `noWrite()` de `defineActionErrors`. A action inteira não precisa ser segura para executar de novo. O agente então tenta de novo com argumentos corrigidos, em vez de parar numa escrita cujo resultado é desconhecido. Lance só antes da primeira escrita. O framework rejeita a alegação quando uma action de escrita aninhada já entrou no handler, mas não vê as escritas do próprio handler. A regra para autores é o item `NoWriteError` em `.agents/skills/actions/SKILL.md`. Veja [Declarando códigos de erro](#error-codes) para `noWrite()`.
 
-Defina `retrySafe: true` (ou um predicado sobre a entrada) quando executar de novo após um erro não puder duplicar nem corromper dados: a action valida antes de escrever, ou define um estado final, como substituir por id. Assim, uma chamada rejeitada continua sendo uma falha conhecida. O modelo recebe o erro, corrige seus argumentos e tenta de novo.
+Reserve `retrySafe` para actions que sejam seguras de executar de novo após **qualquer** erro, não só uma recusa anterior à escrita.
+
+Por padrão, quando o próprio handler de uma action de escrita rejeita, seja lançando um erro ou chamando `fail()`, o loop do agente registra um resultado desconhecido e bloqueia essa ferramenta pelo resto do **turno atual**. O modelo vê o erro, mas não consegue chamar a mesma action de novo neste turno para corrigir seus argumentos. A próxima mensagem do usuário executa a ferramenta normalmente.
+
+Defina `retrySafe: true` (ou um predicado sobre a entrada) quando executar de novo após qualquer erro não puder duplicar nem corromper dados: a action valida antes de escrever, ou define um estado final, como substituir por id. Assim, uma chamada rejeitada continua sendo uma falha conhecida. O modelo recebe o erro, corrige seus argumentos e tenta de novo.
 
 ```ts
 export default defineAction({
@@ -469,11 +473,12 @@ export default defineAction({
 });
 ```
 
-**Não** defina quando a action acrescenta, envia ou cobra depois da validação. Validar primeiro não basta sozinho se uma etapa posterior já pode ter surtido efeito antes da rejeição. Mais alguns limites:
+**Não** defina quando a action acrescenta, envia ou cobra depois da validação, exceto para entradas que carregam uma chave de idempotência à qual a action responde com o primeiro resultado. Validar primeiro não basta sozinho se uma etapa posterior já pode ter surtido efeito antes da rejeição. Mais alguns limites:
 
 - Cobre **a própria escrita desta action**. Depois que uma action aninhada que ela chama entra no próprio handler, uma falha ainda registra um resultado desconhecido.
-- Não libera uma thread que já registrou um resultado desconhecido. Depois de adicionar `retrySafe`, inicie uma **nova thread** para a mudança valer.
-- Um prazo esgotado ou um abort depois que a action foi invocada ainda bloqueia a ferramenta. Só o erro retornado pela própria action é tratado como uma falha conhecida e passível de retentativa.
+- A aprovação MCP omite o aviso de «já executou» para uma chamada que `retrySafe` cobre.
+- Uma execução que se recupera de um crash pode executar de novo, por conta própria, uma chamada retry-safe interrompida.
+- Um prazo esgotado ou um abort depois que a action foi invocada ainda bloqueia a ferramenta pelo resto do turno atual. Só o erro retornado pela própria action é tratado como uma falha conhecida e passível de retentativa.
 
 ## Mantenha a superfície de actions pequena {#small-surface}
 

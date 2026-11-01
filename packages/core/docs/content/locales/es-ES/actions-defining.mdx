@@ -127,7 +127,7 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
           type: "boolean | ((input) => boolean)",
           optional: true,
           description:
-            "Cuando es true (o cuando el predicado devuelve true), una escritura rechazada es un fallo conocido que el modelo puede corregir y reintentar, en lugar de bloquear la herramienta. Consulta Escrituras seguras para reintentar más abajo.",
+            "Cuando es true (o cuando el predicado devuelve true), una escritura rechazada es un fallo conocido que el modelo puede corregir y reintentar, en lugar de bloquear la herramienta durante el resto del turno actual. Resérvalo para acciones que sean seguras de volver a ejecutar tras cualquier error. Para un rechazo anterior a la primera escritura, prefiere NoWriteError o noWrite(). Consulta Escrituras seguras para reintentar más abajo.",
         },
         {
           name: "agentTool",
@@ -447,9 +447,13 @@ Quien llama desde el agente no ve el estado. El agente ejecuta `run()` en proces
 
 ## Escrituras seguras para reintentar {#retry-safe}
 
-Por defecto, cuando el propio handler de una acción de escritura rechaza —ya sea lanzando o llamando a `fail()`—, el bucle del agente registra un resultado desconocido y bloquea esa herramienta durante el resto del hilo. El modelo ve el error, pero no puede volver a llamar a la misma acción para corregir sus argumentos.
+Para un rechazo planteado antes de la primera escritura de la acción, como una edición que no coincide con nada, un destino que falta o un rechazo de validación 422, lanza `NoWriteError` o llama a `noWrite()` de `defineActionErrors`. No hace falta que toda la acción sea segura de volver a ejecutar. El agente reintenta entonces con argumentos corregidos en lugar de detenerse ante una escritura de resultado desconocido. Lánzalo solo antes de la primera escritura. El framework rechaza la afirmación cuando una acción de escritura anidada ya entró en su handler, pero no puede ver las escrituras propias del handler. La regla para autores es el punto de `NoWriteError` en `.agents/skills/actions/SKILL.md`. Consulta [Declarar códigos de error](#error-codes) para `noWrite()`.
 
-Define `retrySafe: true` (o un predicado sobre la entrada) cuando volver a ejecutar tras un error no pueda duplicar ni corromper datos: la acción valida antes de escribir, o establece un estado final, como reemplazar por id. Así, una llamada rechazada sigue siendo un fallo conocido. El modelo recibe el error, corrige sus argumentos y reintenta.
+Reserva `retrySafe` para acciones que sean seguras de volver a ejecutar tras **cualquier** error, no solo un rechazo anterior a la escritura.
+
+Por defecto, cuando el propio handler de una acción de escritura rechaza, ya sea lanzando o llamando a `fail()`, el bucle del agente registra un resultado desconocido y bloquea esa herramienta durante el resto del **turno actual**. El modelo ve el error, pero no puede volver a llamar a la misma acción en este turno para corregir sus argumentos. El siguiente mensaje del usuario ejecuta la herramienta con normalidad.
+
+Define `retrySafe: true` (o un predicado sobre la entrada) cuando volver a ejecutar tras cualquier error no pueda duplicar ni corromper datos: la acción valida antes de escribir, o establece un estado final, como reemplazar por id. Así, una llamada rechazada sigue siendo un fallo conocido. El modelo recibe el error, corrige sus argumentos y reintenta.
 
 ```ts
 export default defineAction({
@@ -468,11 +472,12 @@ export default defineAction({
 });
 ```
 
-**No** lo definas cuando la acción añade, envía o cobra después de validar. Validar primero no basta por sí solo si un paso posterior ya puede haber surtido efecto antes del rechazo. Algunos límites más:
+**No** lo definas cuando la acción añade, envía o cobra después de validar, salvo en entradas que llevan una clave de idempotencia a la que la acción responde con su primer resultado. Validar primero no basta por sí solo si un paso posterior ya puede haber surtido efecto antes del rechazo. Algunos límites más:
 
 - Cubre **la propia escritura de esta acción**. Una vez que una acción anidada a la que llama ha entrado en su handler, un fallo sigue registrando un resultado desconocido.
-- No desbloquea un hilo que ya registró un resultado desconocido. Después de añadir `retrySafe`, inicia un **hilo nuevo** para que se aplique el cambio.
-- Un plazo agotado o una cancelación después de invocar la acción sigue bloqueando la herramienta. Solo el error que devuelve la propia acción se trata como un fallo conocido y reintentable.
+- La aprobación MCP omite la advertencia de «ya se ejecutó» para una llamada que cubre `retrySafe`.
+- Una ejecución que se recupera de un fallo puede volver a ejecutar por sí sola una llamada retry-safe interrumpida.
+- Un plazo agotado o una cancelación después de invocar la acción sigue bloqueando la herramienta durante el resto del turno actual. Solo el error que devuelve la propia acción se trata como un fallo conocido y reintentable.
 
 ## Mantén pequeña la superficie de acciones {#small-surface}
 

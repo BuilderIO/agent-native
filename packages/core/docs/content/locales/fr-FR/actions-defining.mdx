@@ -127,7 +127,7 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
           type: "boolean | ((input) => boolean)",
           optional: true,
           description:
-            "Lorsque true (ou lorsque le prédicat renvoie true), une écriture rejetée est un échec connu que le modèle peut corriger puis réessayer, au lieu de bloquer l’outil. Voir Écritures sûres à réessayer ci-dessous.",
+            "Lorsque true (ou lorsque le prédicat renvoie true), une écriture rejetée est un échec connu que le modèle peut corriger puis réessayer, au lieu de bloquer l’outil pour le reste du tour actuel. Réservez-le aux actions sûres à relancer après n’importe quelle erreur. Pour un refus avant la première écriture, préférez NoWriteError ou noWrite(). Voir Écritures sûres à réessayer ci-dessous.",
         },
         {
           name: "agentTool",
@@ -447,9 +447,13 @@ Les appelants agents ne voient pas le statut. L’agent exécute `run()` en proc
 
 ## Écritures sûres à réessayer {#retry-safe}
 
-Par défaut, lorsque le handler d’une action d’écriture rejette — qu’il lève une erreur ou appelle `fail()` —, la boucle de l’agent enregistre un résultat inconnu et bloque cet outil pour le reste du fil. Le modèle voit l’erreur, mais il ne peut pas rappeler la même action pour corriger ses arguments.
+Pour un refus levé avant la première écriture de l’action, comme une modification qui ne correspond à rien, une cible manquante ou un refus de validation 422, levez `NoWriteError` ou appelez `noWrite()` de `defineActionErrors`. Toute l’action n’a pas à être sûre à relancer. L’agent réessaie alors avec des arguments corrigés au lieu de s’arrêter sur une écriture dont le résultat est inconnu. Ne le levez qu’avant la première écriture. Le framework refuse l’affirmation lorsqu’une action d’écriture imbriquée est entrée dans son handler, mais il ne voit pas les écritures propres du handler. La règle d’auteur est le point `NoWriteError` de `.agents/skills/actions/SKILL.md`. Voir [Déclarer des codes d’erreur](#error-codes) pour `noWrite()`.
 
-Définissez `retrySafe: true` (ou un prédicat sur l’entrée) lorsque relancer après une erreur ne peut ni dupliquer ni corrompre de données : l’action valide avant d’écrire, ou elle fixe un état final, comme un remplacement par id. Un appel rejeté reste alors un échec connu. Le modèle reçoit l’erreur, corrige ses arguments et réessaie.
+Réservez `retrySafe` aux actions sûres à relancer après **n’importe quelle** erreur, pas seulement un refus avant écriture.
+
+Par défaut, lorsque le handler d’une action d’écriture rejette, qu’il lève une erreur ou appelle `fail()`, la boucle de l’agent enregistre un résultat inconnu et bloque cet outil pour le reste du **tour actuel**. Le modèle voit l’erreur, mais il ne peut pas rappeler la même action dans ce tour pour corriger ses arguments. Le message suivant de l’utilisateur exécute l’outil normalement.
+
+Définissez `retrySafe: true` (ou un prédicat sur l’entrée) lorsque relancer après n’importe quelle erreur ne peut ni dupliquer ni corrompre de données : l’action valide avant d’écrire, ou elle fixe un état final, comme un remplacement par id. Un appel rejeté reste alors un échec connu. Le modèle reçoit l’erreur, corrige ses arguments et réessaie.
 
 ```ts
 export default defineAction({
@@ -468,11 +472,12 @@ export default defineAction({
 });
 ```
 
-Ne le définissez **pas** lorsque l’action ajoute, envoie ou facture après la validation. Valider d’abord ne suffit pas à lui seul si une étape ultérieure a déjà pu prendre effet avant le rejet. Quelques autres limites :
+Ne le définissez **pas** lorsque l’action ajoute, envoie ou facture après la validation, sauf pour les entrées qui portent une clé d’idempotence à laquelle l’action répond avec son premier résultat. Valider d’abord ne suffit pas à lui seul si une étape ultérieure a déjà pu prendre effet avant le rejet. Quelques autres limites :
 
 - Il couvre **la propre écriture de cette action**. Dès qu’une action imbriquée qu’elle appelle est entrée dans son handler, un échec enregistre toujours un résultat inconnu.
-- Il ne débloque pas un fil qui a déjà enregistré un résultat inconnu. Après avoir ajouté `retrySafe`, démarrez un **nouveau fil** pour que le changement soit pris en compte.
-- Un dépassement de délai ou une annulation après l’invocation de l’action bloque toujours l’outil. Seule l’erreur renvoyée par l’action elle-même est traitée comme un échec connu et réessayable.
+- L’approbation MCP omet l’avertissement « déjà exécuté » pour un appel que `retrySafe` couvre.
+- Une exécution qui se remet d’un plantage peut relancer d’elle-même un appel retry-safe interrompu.
+- Un dépassement de délai ou une annulation après l’invocation de l’action bloque toujours l’outil pour le reste du tour actuel. Seule l’erreur renvoyée par l’action elle-même est traitée comme un échec connu et réessayable.
 
 ## Garder la surface d’actions restreinte {#small-surface}
 
