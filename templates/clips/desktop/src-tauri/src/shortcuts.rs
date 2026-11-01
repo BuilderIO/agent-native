@@ -537,6 +537,20 @@ fn record_pause_shortcuts() -> Vec<Shortcut> {
     }
 }
 
+/// Start or finish a step capture. macOS only, like step capture itself.
+#[cfg(target_os = "macos")]
+fn step_capture_shortcut() -> Option<Shortcut> {
+    Some(Shortcut::new(
+        Some(Modifiers::CONTROL | Modifiers::SHIFT),
+        Code::KeyS,
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn step_capture_shortcut() -> Option<Shortcut> {
+    None
+}
+
 fn matches_any(shortcut: &Shortcut, candidates: &[Shortcut]) -> bool {
     candidates.iter().any(|candidate| candidate == shortcut)
 }
@@ -562,6 +576,11 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     }
     if let Err(err) = gs.register(paste_last_dictation_shortcut()) {
         eprintln!("[clips-tray] failed to register paste-last-dictation shortcut: {err}");
+    }
+    if let Some(shortcut) = step_capture_shortcut() {
+        if let Err(err) = gs.register(shortcut) {
+            eprintln!("[clips-tray] failed to register step capture shortcut: {err}");
+        }
     }
 
     Ok(())
@@ -894,6 +913,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         let is_enter = shortcut.matches(Modifiers::empty(), Code::Enter);
         let is_numpad_enter = shortcut.matches(Modifiers::empty(), Code::NumpadEnter);
         let is_paste_last_dictation = *shortcut == paste_last_dictation_shortcut();
+        let is_step_capture = step_capture_shortcut() == Some(*shortcut);
         if is_escape || is_enter || is_numpad_enter {
             if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
                 return;
@@ -934,6 +954,19 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                 return;
             }
             crate::clips::hide_popover(app);
+            return;
+        }
+        if is_step_capture {
+            if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                return;
+            }
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(err) = crate::step_capture::toggle_from_tray(app.clone()).await {
+                    eprintln!("[clips-tray] step capture (shortcut) failed: {err}");
+                }
+                crate::tray::rebuild_tray_menu(&app);
+            });
             return;
         }
         if is_paste_last_dictation {
