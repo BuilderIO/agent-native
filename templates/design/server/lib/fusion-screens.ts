@@ -262,7 +262,7 @@ export async function upsertFusionScreens(args: {
             )
             .limit(1);
           const raced = rows[0] as (typeof rows)[number] | undefined;
-          if (raced) {
+          if (raced && isAppScreenFile(raced)) {
             if (raced.content.trim() !== url) {
               await tx
                 .update(schema.designFiles)
@@ -270,6 +270,12 @@ export async function upsertFusionScreens(args: {
                 .where(eq(schema.designFiles.id, raced.id));
             }
             return raced;
+          }
+          // A user's own file that took the name meanwhile is never adopted:
+          // the screen gets a fresh name instead.
+          if (raced) {
+            usedFilenames.add(raced.filename);
+            filename = uniqueFilename(path, usedFilenames);
           }
           await tx.insert(schema.designFiles).values({
             id: fileId,

@@ -332,4 +332,38 @@ describe("fusion screen designs.data mutation", () => {
       expect.objectContaining({ fileId: "raced-home", filename: "home.html" }),
     ]);
   });
+
+  it("never overwrites a user's file that took the screen's name meanwhile", async () => {
+    state.db.select
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      }))
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [
+              {
+                id: "user-home",
+                filename: "home.html",
+                content: "<!doctype html><h1>Mine</h1>",
+              },
+            ]),
+          })),
+        })),
+      }));
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+    });
+
+    expect(state.db.update).not.toHaveBeenCalled();
+    expect(state.insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: "home-2.html" }),
+    );
+    expect(result.screens).toEqual([
+      expect.objectContaining({ filename: "home-2.html" }),
+    ]);
+  });
 });
