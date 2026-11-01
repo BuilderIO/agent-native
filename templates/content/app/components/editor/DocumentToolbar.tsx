@@ -109,6 +109,7 @@ import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
+  isDocumentSyncStatusCurrent,
   useNotionConnection,
   useDocumentSyncStatus,
   useLinkDocumentToNotion,
@@ -1044,6 +1045,8 @@ export function DocumentToolbar({
     isError: syncStatusFailed,
     isFetching: syncStatusFetching,
     isFetchedAfterMount: syncStatusReadSinceMount,
+    status: syncStatusState,
+    dataUpdatedAt: syncStatusAnsweredAt,
     refetch: refetchSyncStatus,
   } = useDocumentSyncStatus(notionStatusApplies ? documentId : null, {
     now: pageActionsOpened,
@@ -1120,12 +1123,16 @@ export function DocumentToolbar({
   // an unlinked one, so the Notion item waits instead of offering a link. A
   // failed read counts as waiting too, even with an earlier answer cached:
   // linking a page that's already linked pulls Notion over local edits. So
-  // does an answer cached before this toolbar showed the page, since the
-  // status now loads late: it waits for a read made since.
+  // does an old answer cached by an earlier visit (see
+  // isDocumentSyncStatusCurrent).
   const notionStatusPending =
     isConnected &&
     notionStatusApplies &&
-    (!syncStatus || syncStatusFailed || !syncStatusReadSinceMount);
+    !isDocumentSyncStatusCurrent({
+      status: syncStatusState,
+      isFetchedAfterMount: syncStatusReadSinceMount,
+      dataUpdatedAt: syncStatusAnsweredAt,
+    });
   const notionStatusChecking = notionStatusPending && syncStatusFetching;
   // A read that fails while the Notion popover is open closes it, so its link
   // form can't act on the stale answer (and it doesn't reopen on a retry).

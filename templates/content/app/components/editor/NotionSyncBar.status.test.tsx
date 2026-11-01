@@ -136,9 +136,12 @@ describe("NotionSyncBar's link form", () => {
     await renderBar();
 
     expect(statusQueryStates()).toEqual(["error"]);
+    // The connection loads on its own; the bar's controls follow it.
+    await vi.waitFor(() =>
+      expect(buttonLabels()).toContain("editor.toolbar.disconnect"),
+    );
     expect(buttonLabels()).not.toContain("editor.toolbar.linkPage");
     expect(container.querySelector("input")).toBeNull();
-    expect(buttonLabels()).toContain("editor.toolbar.disconnect");
   });
 
   it("offers the link form once the status says the page isn't linked", async () => {
@@ -180,15 +183,19 @@ describe("NotionSyncBar's link form", () => {
     expect(container.querySelector("input")).not.toBeNull();
   });
   it("offers no link form from an answer cached before it showed the page, until a new read answers", async () => {
-    // An earlier visit left "unlinked" cached; the page has been linked since.
-    queryClient.setQueryData(documentSyncStatusQueryKey("notion-fixture"), {
-      connected: true,
-      pageId: null,
-      hasConflict: false,
-    });
+    // An earlier visit left "unlinked" cached a minute ago; the page has been
+    // linked since.
+    queryClient.setQueryData(
+      documentSyncStatusQueryKey("notion-fixture"),
+      { connected: true, pageId: null, hasConflict: false },
+      { updatedAt: Date.now() - 60_000 },
+    );
     mocks.hold = true;
     await renderBar();
     await vi.waitFor(() => expect(mocks.release).not.toBeNull());
+    await vi.waitFor(() =>
+      expect(buttonLabels()).toContain("editor.toolbar.disconnect"),
+    );
 
     expect(buttonLabels()).not.toContain("editor.toolbar.linkPage");
     expect(container.querySelector("input")).toBeNull();

@@ -302,12 +302,13 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
   });
 
   it("doesn't offer the link from an answer cached before it showed the page, until a new read answers", async () => {
-    // An earlier visit left "unlinked" cached; the page has been linked since.
-    queryClient.setQueryData(documentSyncStatusQueryKey("notion-fixture"), {
-      connected: true,
-      pageId: null,
-      hasConflict: false,
-    });
+    // An earlier visit left "unlinked" cached a minute ago; the page has been
+    // linked since.
+    queryClient.setQueryData(
+      documentSyncStatusQueryKey("notion-fixture"),
+      { connected: true, pageId: null, hasConflict: false },
+      { updatedAt: Date.now() - 60_000 },
+    );
     await renderToolbar();
     await openPageActions();
 
@@ -330,6 +331,25 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
     await vi.waitFor(() => expect(notionItem()?.disabled).toBe(false));
     expect(notionItem()?.textContent.trim()).toBe("editor.toolbar.notionSync");
     expect(document.body.textContent).not.toContain(
+      "editor.toolbar.linkToNotion",
+    );
+  });
+
+  it("offers the link at once from a fresh cached answer, which the app's staleTime doesn't read again", async () => {
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+    });
+    queryClient.setQueryData(documentSyncStatusQueryKey("notion-fixture"), {
+      connected: true,
+      pageId: null,
+      hasConflict: false,
+    });
+    await renderToolbar();
+    await openPageActions();
+
+    expect(statusRequests()).toEqual([]);
+    expect(notionItem()?.disabled).toBe(false);
+    expect(notionItem()?.textContent.trim()).toBe(
       "editor.toolbar.linkToNotion",
     );
   });

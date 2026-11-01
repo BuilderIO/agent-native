@@ -11,7 +11,11 @@ import type {
   NotionSearchResponse,
   ResolveDocumentSyncConflictRequest,
 } from "@shared/api";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -133,6 +137,32 @@ export function documentSyncRefetchIntervalMs(
 ): number {
   if (data && (!data.connected || !data.pageId)) return UNLINKED_SYNC_POLL_MS;
   return autoSync ? 2_000 : 30_000;
+}
+
+// The app's default staleTime (see core's create-query-client): an answer
+// fresh enough not to be read again when a caller mounts is fresh enough to
+// act on.
+const SYNC_STATUS_TRUSTED_FOR_MS = 30_000;
+
+/**
+ * Whether a sync status answer can be acted on. Linking, pulling or pushing on
+ * an old answer can overwrite local edits, and the status loads late, so an
+ * answer cached by an earlier visit doesn't count. One does once a read since
+ * the caller mounted has succeeded, or while it's still inside the app's
+ * fresh window, and never once the latest read has failed.
+ */
+export function isDocumentSyncStatusCurrent(
+  result: Pick<
+    UseQueryResult<DocumentSyncStatus>,
+    "status" | "isFetchedAfterMount" | "dataUpdatedAt"
+  >,
+  now = Date.now(),
+): boolean {
+  return (
+    result.status === "success" &&
+    (result.isFetchedAfterMount ||
+      now - result.dataUpdatedAt < SYNC_STATUS_TRUSTED_FOR_MS)
+  );
 }
 
 export function useDocumentSyncStatus(

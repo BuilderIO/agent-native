@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   invalidateDocumentQueries,
+  isDocumentSyncStatusCurrent,
   useDisconnectNotion,
   useDocumentSyncStatus,
   useLinkDocumentToNotion,
@@ -37,15 +38,20 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
   const { data: connection } = useNotionConnection();
   const {
     data: syncStatus,
-    isError: syncStatusFailed,
     isFetchedAfterMount: syncStatusReadSinceMount,
+    status: syncStatusState,
+    dataUpdatedAt: syncStatusAnsweredAt,
     isLoading: syncLoading,
   } = useDocumentSyncStatus(documentId);
-  // The last answer counts only once a read since the bar showed the page
-  // has succeeded, and only while the latest read did: the page may have been
-  // linked since an older answer or a failed refetch.
-  const knownStatus =
-    syncStatusFailed || !syncStatusReadSinceMount ? undefined : syncStatus;
+  // The last answer counts only while it's current: the page may have been
+  // linked since an old cached answer or a failed refetch.
+  const knownStatus = isDocumentSyncStatusCurrent({
+    status: syncStatusState,
+    isFetchedAfterMount: syncStatusReadSinceMount,
+    dataUpdatedAt: syncStatusAnsweredAt,
+  })
+    ? syncStatus
+    : undefined;
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);
