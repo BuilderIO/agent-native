@@ -14,6 +14,8 @@ export interface ShellInstallEvent extends ShellExtendableEvent {
 
 export interface ShellMessageEvent extends ShellExtendableEvent {
   readonly data: unknown;
+  /** The page that sent the message. */
+  readonly source: { readonly id: string } | null;
 }
 
 export interface ShellRegistration {
@@ -26,7 +28,14 @@ export interface ShellWorkerScope {
   readonly location: { readonly origin: string };
   readonly caches: CacheStorage;
   readonly registration: ShellRegistration;
-  readonly clients: { claim(): Promise<void> };
+  readonly clients: {
+    claim(): Promise<void>;
+    matchAll(options: {
+      type: "window";
+      includeUncontrolled: boolean;
+    }): Promise<readonly { readonly id: string }[]>;
+  };
+  readonly navigator: { readonly languages: readonly string[] };
   fetch(input: Request | string, init?: RequestInit): Promise<Response>;
   skipWaiting(): Promise<void>;
   addEventListener(

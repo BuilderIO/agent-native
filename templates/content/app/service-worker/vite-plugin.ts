@@ -138,11 +138,16 @@ export async function writeShellWorker(
  */
 export function contentShellWorkerPlugin(): Plugin {
   let root = process.cwd();
+  let mode = process.env[SHELL_WORKER_ENV];
   return {
     name: "content-shell-worker",
     apply: "build",
     configResolved(config) {
       root = config.root;
+      // The page reads the switch from `import.meta.env`, which includes
+      // `.env` files; Vite's resolved env is the same source.
+      const value: unknown = config.env[SHELL_WORKER_ENV];
+      if (typeof value === "string") mode = value;
     },
     buildApp: {
       order: "post",
@@ -154,7 +159,7 @@ export function contentShellWorkerPlugin(): Plugin {
         if (!client?.isBuilt) return;
         await writeShellWorker(
           path.resolve(root, client.config.build.outDir),
-          process.env[SHELL_WORKER_ENV],
+          mode,
         );
       },
     },

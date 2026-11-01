@@ -5,7 +5,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ReactRouterManifest } from "./shell-manifest";
-import { createShellBuildFile, writeShellWorker } from "./vite-plugin";
+import {
+  contentShellWorkerPlugin,
+  createShellBuildFile,
+  writeShellWorker,
+} from "./vite-plugin";
 
 const MANIFEST: ReactRouterManifest = {
   version: "ec4917e9",
@@ -110,5 +114,31 @@ describe("writing the worker", () => {
     expect(fs.existsSync(path.join(dir, "assets/sw-build-ec4917e9.json"))).toBe(
       false,
     );
+  }, 60_000);
+});
+
+describe("the plugin", () => {
+  it("reads the off switch from Vite's env, .env files included, as the page does", async () => {
+    const dir = clientBuild();
+    const plugin = contentShellWorkerPlugin();
+    const configResolved = plugin.configResolved as unknown as (config: {
+      root: string;
+      env: Record<string, string>;
+    }) => void;
+    configResolved({ root: dir, env: { VITE_CONTENT_SERVICE_WORKER: "off" } });
+    const buildApp = plugin.buildApp as unknown as {
+      handler(builder: unknown): Promise<void>;
+    };
+    await buildApp.handler({
+      environments: {
+        client: {
+          name: "client",
+          isBuilt: true,
+          config: { build: { outDir: "." } },
+        },
+      },
+    });
+    const script = fs.readFileSync(path.join(dir, "sw.js"), "utf8");
+    expect(script).not.toContain("content-shell:adopt");
   }, 60_000);
 });

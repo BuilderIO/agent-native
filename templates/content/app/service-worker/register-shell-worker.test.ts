@@ -18,6 +18,8 @@ const ROUTES = {
   root: { id: "root", path: "" },
 };
 
+const BUILD_VERSION = "abcd1234";
+
 function registration(scriptURL: string) {
   const postMessage = vi.fn();
   return {
@@ -48,10 +50,11 @@ function fakeWindow(options: FakeWindowOptions = {}) {
   const active = registration(`${url.origin}/sw.js`);
   const caches = new MemoryCacheStorage();
   const listen = vi.fn();
+  const controller = options.controller
+    ? { scriptURL: `${url.origin}/sw.js`, postMessage: vi.fn() }
+    : null;
   const container = {
-    controller: options.controller
-      ? { scriptURL: `${url.origin}/sw.js` }
-      : null,
+    controller,
     register: vi.fn(async () => active),
     getRegistration: vi.fn(async () =>
       options.registered === false ? undefined : active,
@@ -70,13 +73,32 @@ function fakeWindow(options: FakeWindowOptions = {}) {
       serviceWorker: container,
       userAgent: options.userAgent ?? "Mozilla/5.0 Chrome/140",
     },
-    document: { readyState: "complete", addEventListener: listen },
+    document: {
+      readyState: "complete",
+      visibilityState: "visible",
+      addEventListener: listen,
+    },
     addEventListener: vi.fn(),
     caches: caches.asCacheStorage(),
-    __reactRouterManifest: { routes: ROUTES },
+    __reactRouterManifest: { version: BUILD_VERSION, routes: ROUTES },
   } as Record<string, unknown>;
   win.top = options.framed ? {} : win;
-  return { win: win as unknown as Window, container, active, caches, listen };
+  return {
+    win: win as unknown as Window,
+    container,
+    controller,
+    active,
+    caches,
+    listen,
+  };
+}
+
+/** The page's visibilitychange listener. */
+function visibilityListener(listen: ReturnType<typeof vi.fn>) {
+  const call = listen.mock.calls.find(([type]) => type === "visibilitychange");
+  const listener: unknown = call?.[1];
+  if (typeof listener !== "function") throw new Error("no listener");
+  return listener as () => void;
 }
 
 beforeEach(() => {
@@ -107,6 +129,7 @@ describe("registering", () => {
       expect(active.postMessage).toHaveBeenCalledWith({
         type: "content-shell:adopt",
         url: "https://content.agent-native.com/page/abc",
+        version: BUILD_VERSION,
       }),
     );
     expect(container.register).toHaveBeenCalledWith("/sw.js", {
@@ -131,6 +154,25 @@ describe("registering", () => {
     );
     expect(container.register).not.toHaveBeenCalled();
     expect(active.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("tells the worker that served it which build it runs, and again when shown after a while", async () => {
+    const { win, controller, active, listen } = fakeWindow({
+      controller: true,
+    });
+    installContentShellWorker(win, { production: true });
+    const running = { type: "content-shell:running", version: BUILD_VERSION };
+    await vi.waitFor(() =>
+      expect(controller?.postMessage).toHaveBeenCalledWith(running),
+    );
+
+    const shown = visibilityListener(listen);
+    shown();
+    expect(controller?.postMessage).toHaveBeenCalledTimes(1);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 60_000);
+    shown();
+    expect(controller?.postMessage).toHaveBeenCalledTimes(2);
+    expect(active.update).toHaveBeenCalledTimes(1);
   });
 
   it("doesn't bring back a worker that removed itself while serving the page", async () => {

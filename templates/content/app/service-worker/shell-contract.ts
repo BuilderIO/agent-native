@@ -24,7 +24,11 @@ export const SHELL_CACHE_NAMES = {
   state: `${SHELL_CACHE_PREFIX}${SHELL_CACHE_VERSION}-state`,
 } as const;
 
+// A page the worker didn't serve asks it to cache the page's shell.
 export const SHELL_ADOPT_MESSAGE = "content-shell:adopt";
+// A page tells the worker which build it runs, so that build's files stay
+// while the tab is open.
+export const SHELL_RUNNING_MESSAGE = "content-shell:running";
 
 // Same rule as core's IMMUTABLE_ASSET_PATH_PATTERN: only files whose name
 // carries a content hash, so a cached copy can never go stale.

@@ -5,6 +5,7 @@ import {
 
 import {
   SHELL_ADOPT_MESSAGE,
+  SHELL_RUNNING_MESSAGE,
   SHELL_WORKER_OFF,
   SHELL_WORKER_SCOPE,
   SHELL_WORKER_URL,
@@ -23,7 +24,8 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const EXTERNAL_EMBED_WINDOW_KEY = "__AGENT_NATIVE_EXTERNAL_EMBED";
 
 type ShellWindow = Window & {
-  __reactRouterManifest?: Pick<ReactRouterManifest, "routes">;
+  __reactRouterManifest?: Pick<ReactRouterManifest, "routes"> &
+    Partial<Pick<ReactRouterManifest, "version">>;
   [EXTERNAL_EMBED_WINDOW_KEY]?: unknown;
 };
 
@@ -73,8 +75,24 @@ export async function removeContentShellWorker(win: Window): Promise<void> {
   if ("caches" in win) await deleteShellCaches(win.caches);
 }
 
+function shellController(win: Window): ServiceWorker | undefined {
+  const { controller } = win.navigator.serviceWorker;
+  return controller &&
+    new URL(controller.scriptURL).pathname === SHELL_WORKER_URL
+    ? controller
+    : undefined;
+}
+
+/** Tell the worker which build this tab runs, so it keeps that build's files while the tab is open. */
+function reportBuild(win: ShellWindow): void {
+  const version = win.__reactRouterManifest?.version;
+  if (version) {
+    shellController(win)?.postMessage({ type: SHELL_RUNNING_MESSAGE, version });
+  }
+}
+
 function keepWorkerFresh(
-  win: Window,
+  win: ShellWindow,
   registration: ServiceWorkerRegistration,
 ): void {
   let checkedAt = Date.now();
@@ -82,26 +100,25 @@ function keepWorkerFresh(
     if (win.document.visibilityState !== "visible") return;
     if (Date.now() - checkedAt < UPDATE_CHECK_INTERVAL_MS) return;
     checkedAt = Date.now();
+    reportBuild(win);
     registration.update().catch((error: unknown) => {
       console.warn("[content-shell] worker update check failed", error);
     });
   });
 }
 
-async function registerShellWorker(win: Window): Promise<void> {
+async function registerShellWorker(win: ShellWindow): Promise<void> {
   const container = win.navigator.serviceWorker;
   try {
-    const { controller } = container;
-    if (
-      controller &&
-      new URL(controller.scriptURL).pathname === SHELL_WORKER_URL
-    ) {
+    if (shellController(win)) {
       // The worker served this page, and the browser checks /sw.js for
       // updates on every navigation. Registering again would undo a worker
       // that removed itself meanwhile (a deploy without it): Chrome revives a
       // registration that still controls a page when the page registers.
       const registration = await container.getRegistration(win.location.href);
-      if (registration) keepWorkerFresh(win, registration);
+      if (!registration) return;
+      reportBuild(win);
+      keepWorkerFresh(win, registration);
       return;
     }
     const registration = await container.register(SHELL_WORKER_URL, {
@@ -116,6 +133,7 @@ async function registerShellWorker(win: Window): Promise<void> {
       ready.active?.postMessage({
         type: SHELL_ADOPT_MESSAGE,
         url: win.location.href,
+        version: win.__reactRouterManifest?.version,
       });
     }
   } catch (error) {

@@ -2,7 +2,7 @@
  * Entry of Content's app-shell service worker. The build bundles this file on
  * its own into `/sw.js`; the logic lives in `shell-worker-core.ts`.
  */
-import { SHELL_ADOPT_MESSAGE } from "./shell-contract";
+import { SHELL_ADOPT_MESSAGE, SHELL_RUNNING_MESSAGE } from "./shell-contract";
 import { createShellWorker, shellStaticRoutes } from "./shell-worker-core";
 import { workerScope } from "./worker-scope";
 
@@ -14,6 +14,14 @@ const worker = createShellWorker({
   fetch: (input, init) => scope.fetch(input, init),
   now: () => Date.now(),
   unregister: () => scope.registration.unregister(),
+  clientIds: async () =>
+    (
+      await scope.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      })
+    ).map((client) => client.id),
+  languages: () => scope.navigator.languages,
 });
 
 scope.addEventListener("install", (event) => {
@@ -46,12 +54,29 @@ scope.addEventListener("activate", (event) => {
 scope.addEventListener("fetch", (event) => worker.handleFetch(event));
 
 scope.addEventListener("message", (event) => {
-  const data = event.data as { type?: unknown; url?: unknown } | null;
+  const data = event.data as {
+    type?: unknown;
+    url?: unknown;
+    version?: unknown;
+  } | null;
+  const clientId = event.source?.id;
+  const client =
+    clientId && typeof data?.version === "string"
+      ? { id: clientId, version: data.version }
+      : undefined;
+  if (data?.type === SHELL_RUNNING_MESSAGE && client) {
+    event.waitUntil(
+      worker.noteClient(client.id, client.version).catch((error: unknown) => {
+        console.warn("[content-shell] could not note the tab's build", error);
+      }),
+    );
+    return;
+  }
   if (data?.type !== SHELL_ADOPT_MESSAGE || typeof data.url !== "string") {
     return;
   }
   event.waitUntil(
-    worker.adopt(data.url).catch((error: unknown) => {
+    worker.adopt(data.url, client).catch((error: unknown) => {
       console.warn("[content-shell] could not cache the shell", error);
     }),
   );

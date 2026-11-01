@@ -28,7 +28,8 @@ interface Build {
   html: (marker?: string) => string;
 }
 
-function makeBuild(letter: string): Build {
+/** A build; `shared` adds files another build also boots. */
+function makeBuild(letter: string, shared: string[] = []): Build {
   const hash = letter.repeat(8);
   const upper = letter.toUpperCase().repeat(8);
   const page = `/assets/page-${upper}.js`;
@@ -36,6 +37,7 @@ function makeBuild(letter: string): Build {
     `/assets/entry.client-${upper}.js`,
     page,
     `/assets/global-${upper}.css`,
+    ...shared,
   ];
   return {
     version: hash,
@@ -73,6 +75,19 @@ function asset(path: string) {
 
 function hang(): Promise<Response> {
   return new Promise(() => {});
+}
+
+function offline(): Promise<Response> {
+  return Promise.reject(new TypeError("offline"));
+}
+
+/** A promise the spec resolves when it chooses. */
+function gate() {
+  let open = () => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { opened, open: () => open() };
 }
 
 class Server {
@@ -116,6 +131,9 @@ let now: number;
 let unregister: Mock<() => Promise<boolean>>;
 let fetchCalls: ReturnType<typeof tableFetch>["calls"];
 let worker: ReturnType<typeof createShellWorker>;
+/** Client ids of the browser's open tabs. */
+let openTabs: string[];
+let languages: string[];
 
 function startWorker() {
   const table = tableFetch(ORIGIN, server.routes);
@@ -126,6 +144,8 @@ function startWorker() {
     fetch: table.fetch,
     now: () => now,
     unregister,
+    clientIds: async () => openTabs,
+    languages: () => languages,
   });
 }
 
@@ -136,8 +156,18 @@ async function navigate(path: string) {
   return { call, response, text: await response?.text() };
 }
 
+async function visitAndSettle(path: string) {
+  const visit = await navigate(path);
+  await visit.call.settled();
+  return visit.text;
+}
+
 async function cachePaths(name: string) {
   return (await storage.open(name)).paths();
+}
+
+function buildFiles(build: Build) {
+  return [`/assets/manifest-${build.version}.js`, ...build.boot, ...build.lazy];
 }
 
 beforeEach(() => {
@@ -145,6 +175,8 @@ beforeEach(() => {
   server = new Server();
   now = 1_000_000;
   unregister = vi.fn(async () => true);
+  openTabs = [];
+  languages = ["en-US", "en"];
   startWorker();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -193,14 +225,14 @@ describe("requests the worker leaves alone", () => {
 describe("app navigations", () => {
   const a = makeBuild("a");
 
-  it("caches the shell and its boot files on the first visit", async () => {
+  it("caches the shell and the build's files on the first visit", async () => {
     server.deploy(a);
     const first = await navigate("/page/a");
     expect(first.text).toBe(a.html());
     await first.call.settled();
 
     expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toEqual(
-      [`/assets/manifest-${a.version}.js`, ...a.boot].sort(),
+      buildFiles(a).sort(),
     );
     expect(await worker.readState()).toMatchObject({ current: a.version });
   });
@@ -222,15 +254,16 @@ describe("app navigations", () => {
     expect(await cachePaths(SHELL_CACHE_NAMES.pages)).toHaveLength(1);
   });
 
-  it("stops sharing a route's shell once two URLs answer differently", async () => {
+  it("keeps a shell per URL once two URLs of a route answer differently", async () => {
     server.deploy(a);
-    await (await navigate("/page/a")).call.settled();
+    await visitAndSettle("/page/a");
     server.routes.set("/page/c", () => htmlResponse(a.html("only-c")));
-    await (await navigate("/page/c")).call.settled();
+    await visitAndSettle("/page/c");
 
-    server.routes.set("/page/a", () => htmlResponse(a.html("fresh-a")));
-    server.routes.set("/page/c", hang);
-    expect((await navigate("/page/a")).text).toBe(a.html("fresh-a"));
+    // The first URL keeps the copy it shared, so it still opens offline.
+    server.routes.set("/page/a", offline);
+    server.routes.set("/page/c", offline);
+    expect((await navigate("/page/a")).text).toBe(a.html());
     expect((await navigate("/page/c")).text).toBe(a.html("only-c"));
   });
 
@@ -280,12 +313,6 @@ describe("deploys", () => {
   const a = makeBuild("a");
   const b = makeBuild("b");
   const c = makeBuild("c");
-
-  async function visitAndSettle(path: string) {
-    const visit = await navigate(path);
-    await visit.call.settled();
-    return visit.text;
-  }
 
   it("switches to a new build on the navigation after it is fully cached", async () => {
     server.deploy(a);
@@ -379,23 +406,76 @@ describe("deploys", () => {
   it("keeps the files of the two newest builds, lazy chunks included", async () => {
     server.deploy(a);
     await visitAndSettle("/page/a");
-    // A lazy chunk the old build loaded at runtime.
-    const lazy = fetchEvent(workerRequest(`${ORIGIN}${a.lazy[0]}`));
-    worker.handleFetch(lazy.event);
-    await lazy.responded;
-    await lazy.settled();
-
     server.deploy(b);
     await visitAndSettle("/page/a");
-    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toContain(a.lazy[0]);
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toEqual(
+      expect.arrayContaining([...buildFiles(a), ...buildFiles(b)]),
+    );
 
+    // No open tab runs build a, so the next deploy drops it.
     server.deploy(c);
     await visitAndSettle("/page/a");
     const assets = await cachePaths(SHELL_CACHE_NAMES.assets);
-    expect(assets).toEqual(expect.arrayContaining([...b.boot, ...c.boot]));
-    expect(assets.some((path) => path.includes("AAAAAAAA"))).toBe(false);
+    expect(assets).toEqual([...buildFiles(b), ...buildFiles(c)].sort());
     const pages = await cachePaths(SHELL_CACHE_NAMES.pages);
     expect(pages.some((path) => path.includes(a.version))).toBe(false);
+  });
+
+  it("keeps an older build's files while an open tab still runs it", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+    openTabs = ["tab-on-a"];
+    await worker.noteClient("tab-on-a", a.version);
+
+    server.deploy(b);
+    await visitAndSettle("/page/a");
+    server.deploy(c);
+    await visitAndSettle("/page/a");
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toEqual(
+      expect.arrayContaining(buildFiles(a)),
+    );
+    // Only the two newest builds keep shells to answer navigations with.
+    const pages = await cachePaths(SHELL_CACHE_NAMES.pages);
+    expect(pages.some((path) => path.includes(a.version))).toBe(false);
+
+    // The tab closed, so the next deploy drops the build.
+    openTabs = [];
+    const d = makeBuild("d");
+    server.deploy(d);
+    await visitAndSettle("/page/a");
+    const assets = await cachePaths(SHELL_CACHE_NAMES.assets);
+    expect(assets.some((path) => path.includes("AAAAAAAA"))).toBe(false);
+  });
+
+  it("stops keeping a tab's build a day after the tab last reported it", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+    openTabs = ["tab-on-a"];
+    await worker.noteClient("tab-on-a", a.version);
+    server.deploy(b);
+    await visitAndSettle("/page/a");
+
+    now += 24 * 60 * 60_000 + 1;
+    server.deploy(c);
+    await visitAndSettle("/page/a");
+    const assets = await cachePaths(SHELL_CACHE_NAMES.assets);
+    expect(assets.some((path) => path.includes("AAAAAAAA"))).toBe(false);
+  });
+
+  it("re-downloads a kept build's missing files before switching back to it", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+    server.deploy(b);
+    await visitAndSettle("/page/a");
+    // The browser dropped one of build a's files.
+    await (
+      await storage.open(SHELL_CACHE_NAMES.assets)
+    ).delete(`${ORIGIN}${a.page}`);
+
+    server.html = a.html();
+    await visitAndSettle("/page/a");
+    expect((await worker.readState()).current).toBe(a.version);
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toContain(a.page);
   });
 
   it.each([
@@ -471,6 +551,192 @@ describe("deploys", () => {
   });
 });
 
+describe("downloads that overlap", () => {
+  const a = makeBuild("a");
+  const b = makeBuild("b");
+  const c = makeBuild("c");
+
+  async function downloadStarted(path: string) {
+    await vi.waitFor(() =>
+      expect(fetchCalls.map((call) => call.url)).toContain(path),
+    );
+  }
+
+  it("never makes a build current after a newer one overtook its download", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+
+    server.deploy(b);
+    const slow = gate();
+    server.routes.set(b.page, async () => {
+      await slow.opened;
+      return asset(b.page);
+    });
+    const first = await navigate("/page/a");
+    await downloadStarted(b.page);
+
+    // Build c deploys and installs while b's download is still running.
+    server.deploy(c);
+    await visitAndSettle("/page/a");
+    expect((await worker.readState()).current).toBe(c.version);
+
+    slow.open();
+    await first.call.settled();
+    expect((await worker.readState()).current).toBe(c.version);
+    const assets = await cachePaths(SHELL_CACHE_NAMES.assets);
+    expect(assets).toEqual(expect.arrayContaining(buildFiles(c)));
+    expect(assets.some((path) => path.includes("BBBBBBBB"))).toBe(false);
+  });
+
+  it("deletes what failed downloads stored, but not files a kept build shares", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+    const kept = await cachePaths(SHELL_CACHE_NAMES.assets);
+
+    // Three deploys in a row, each missing one boot file.
+    for (const letter of ["b", "c", "d"]) {
+      const broken = makeBuild(letter, [a.page]);
+      server.deploy(broken);
+      server.routes.delete(broken.page);
+      await visitAndSettle("/page/a");
+      expect((await worker.readState()).current).toBe(a.version);
+    }
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toEqual(kept);
+  });
+
+  it("waits for the downloads still running when one fails before cleaning up", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+    const kept = await cachePaths(SHELL_CACHE_NAMES.assets);
+
+    server.deploy(b);
+    server.routes.delete(b.page);
+    const css = `/assets/global-BBBBBBBB.css`;
+    const slow = gate();
+    server.routes.set(css, async () => {
+      await slow.opened;
+      return asset(css);
+    });
+    const visit = await navigate("/page/a");
+    await downloadStarted(b.page);
+    await downloadStarted(css);
+    // Long enough for a cleanup that didn't wait to have finished.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    slow.open();
+    await visit.call.settled();
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toEqual(kept);
+  });
+});
+
+describe("lazy chunks", () => {
+  const a = makeBuild("a");
+  const b = makeBuild("b");
+
+  it("downloads the rest of the current build behind the page", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+    // Chrome answers /assets/* from this cache without running the worker,
+    // so a chunk the worker didn't download is never kept.
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toEqual(
+      expect.arrayContaining(a.lazy),
+    );
+
+    // A tab still on build a can load them after the deploy removed them.
+    server.deploy(b);
+    for (const path of buildFiles(a)) server.routes.delete(path);
+    await visitAndSettle("/page/a");
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toEqual(
+      expect.arrayContaining([...buildFiles(a), ...buildFiles(b)]),
+    );
+  });
+
+  it("picks up the download on a later navigation when it didn't finish", async () => {
+    server.deploy(a);
+    const [lazy = ""] = a.lazy;
+    server.routes.set(lazy, () => new Response("busy", { status: 503 }));
+    await visitAndSettle("/page/a");
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).not.toContain(lazy);
+
+    server.routes.set(lazy, () => asset(lazy));
+    await visitAndSettle("/page/a");
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toContain(lazy);
+  });
+});
+
+describe("storage failures", () => {
+  const a = makeBuild("a");
+  const broken = () => new DOMException("Cache read failed", "UnknownError");
+
+  beforeEach(async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+    // A fresh worker, as after the browser restarted it.
+    startWorker();
+  });
+
+  it("loads the page from the network when the cache can't be read", async () => {
+    vi.spyOn(storage, "open").mockRejectedValue(broken());
+    server.html = a.html("<p>network</p>");
+    expect((await navigate("/page/a")).text).toBe(a.html("<p>network</p>"));
+  });
+
+  it("reads the cache again after one read failed", async () => {
+    vi.spyOn(storage, "open").mockRejectedValueOnce(broken());
+    await navigate("/page/a");
+    server.routes.set("/page/a", hang);
+    expect((await navigate("/page/a")).text).toBe(a.html());
+  });
+
+  it("fetches a file from the network when the cache can't be read", async () => {
+    const [lazy = ""] = a.lazy;
+    vi.spyOn(storage, "open").mockRejectedValue(broken());
+    const load = fetchEvent(workerRequest(`${ORIGIN}${lazy}`));
+    worker.handleFetch(load.event);
+    expect(await (await load.responded)?.text()).toBe(`/* ${lazy} */`);
+  });
+});
+
+describe("when the server stops letting a page be shared", () => {
+  const a = makeBuild("a");
+
+  it("stops answering from the kept shell, until the server shares it again", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+
+    // SSR caching turned off: every page answers no-store. The kept shell
+    // answers once more, and the check behind it retires it.
+    server.htmlHeaders = { "cache-control": "no-store" };
+    server.html = a.html("<p>unshared</p>");
+    expect(await visitAndSettle("/page/a")).toBe(a.html());
+    expect(await cachePaths(SHELL_CACHE_NAMES.pages)).toEqual([]);
+    expect(await visitAndSettle("/page/a")).toBe(a.html("<p>unshared</p>"));
+
+    server.htmlHeaders = {};
+    server.html = a.html("<p>shared</p>");
+    await visitAndSettle("/page/a");
+    server.routes.set("/page/a", hang);
+    expect((await navigate("/page/a")).text).toBe(a.html("<p>shared</p>"));
+  });
+});
+
+describe("languages", () => {
+  const a = makeBuild("a");
+
+  it("keeps a shell per browser language, as the server renders one", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+
+    languages = ["fr-FR", "fr"];
+    server.html = a.html("<p>fr</p>");
+    expect(await visitAndSettle("/page/a")).toBe(a.html("<p>fr</p>"));
+
+    server.routes.set("/page/a", hang);
+    expect((await navigate("/page/a")).text).toBe(a.html("<p>fr</p>"));
+    languages = ["en-US", "en"];
+    expect((await navigate("/page/a")).text).toBe(a.html());
+  });
+});
+
 describe("how long a kept shell answers first", () => {
   const a = makeBuild("a");
   // max-age=600 plus stale-while-revalidate=604800, from PUBLIC_HTML.
@@ -495,6 +761,21 @@ describe("how long a kept shell answers first", () => {
     // The network's copy is kept, so the next reload is local again.
     server.routes.set("/page/a", hang);
     expect((await navigate("/page/a")).text).toBe(a.html("<p>fresh</p>"));
+  });
+
+  it.each([
+    ["the age a CDN reports", { age: "604800" }],
+    [
+      "the time since the server rendered it",
+      { date: new Date(1_000_000 - 604_800_000).toUTCString() },
+    ],
+  ])("counts %s toward that window", async (_label, headers) => {
+    // Stored a week after the server rendered it, so 600 seconds remain.
+    server.htmlHeaders = headers;
+    await (await navigate("/page/a")).call.settled();
+    server.html = a.html("<p>fresher</p>");
+    now += 601_000;
+    expect((await navigate("/page/a")).text).toBe(a.html("<p>fresher</p>"));
   });
 
   it("still answers from the old kept shell offline", async () => {
@@ -640,6 +921,18 @@ describe("removing the worker", () => {
     expect((await load.responded)?.status).toBe(200);
     await load.settled();
     expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toEqual([]);
+  });
+
+  it("removes itself when /sw.js answers with the app's HTML instead", async () => {
+    server.deploy(makeBuild("a"));
+    await (await navigate("/page/a")).call.settled();
+    // A host whose catch-all route renders unknown paths.
+    server.routes.set("/sw.js", () =>
+      htmlResponse("<!DOCTYPE html><p>Page not found</p>"),
+    );
+    now += 2 * 60 * 60_000;
+    await worker.checkWorkerShipped();
+    expect(unregister).toHaveBeenCalledTimes(1);
   });
 
   it("asks at most once an hour and bypasses caches", async () => {
