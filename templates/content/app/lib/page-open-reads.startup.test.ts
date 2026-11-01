@@ -191,6 +191,18 @@ describe("the load's page read from the document head", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("is not sent when the app's server is on another origin, which the app reads with its own cookies", () => {
+    openLoad("/page/doc-1");
+    new Function(
+      startupPageReadScript(
+        "https://api.example.test/_agent-native/actions/get-document",
+      ),
+    )();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(takeStartupPageRead("doc-1", {})).toBeNull();
+  });
+
   it("is not sent for a load that is not a page", () => {
     openLoad("/home");
     runHeadScript();
