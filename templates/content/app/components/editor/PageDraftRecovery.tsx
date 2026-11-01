@@ -75,11 +75,30 @@ function draftWrittenOnPage(
   );
 }
 
+// Only a journal known to be empty lets an editor show before its draft is
+// checked; an unreadable one waits for the check, which reports the failure.
+function journalHoldsNoEntry(
+  scope: Parameters<typeof readPageDraftJournal>[0],
+): boolean {
+  try {
+    return readPageDraftJournal(scope) === null;
+  } catch {
+    // coercion-ok: unreadable is not "empty"; the journal effect reports it.
+    return false;
+  }
+}
+
 export function PageDraftRecovery({
   document,
+  documentFresh = true,
   children,
 }: {
   document: Document;
+  /**
+   * Whether `document` comes from this open's read. A page drawn from its
+   * cached read decides nothing about drafts until that read returns.
+   */
+  documentFresh?: boolean;
   children: ReactNode;
 }) {
   const t = useT();
@@ -177,6 +196,42 @@ export function PageDraftRecovery({
   const scopeVerified = scopeKey !== null && verifiedScopeKey === scopeKey;
   const editorReleased =
     scopeVerified && releasedScopeKey === scopeKey && !draft;
+  // Drafts are settled against this open's reads of the page and its draft.
+  const decisionsReady = scopeVerified && documentFresh;
+  // A visited page shows its editor while those reads run when nothing here
+  // can need recovering: its last draft read found none, and this browser's
+  // journal holds no entry for it, not even an open editor's. Decided once
+  // per page and account. A draft the reads then find is handled as it is
+  // before any editor shows.
+  const openedBeforeDraftReadRef = useRef<{
+    scopeKey: string;
+    open: boolean;
+  } | null>(null);
+  if (
+    session &&
+    scopeKey &&
+    openedBeforeDraftReadRef.current?.scopeKey !== scopeKey
+  ) {
+    openedBeforeDraftReadRef.current = {
+      scopeKey,
+      open:
+        !skipDraftRecovery &&
+        !skipCreationDraftRecovery &&
+        !creationPending &&
+        !documentBodyHydrationIsPending(document) &&
+        drafts.data?.draft === null &&
+        drafts.data.editable !== false &&
+        journalHoldsNoEntry({
+          accountId: session.email.trim().toLowerCase(),
+          orgId: session.orgId ?? null,
+          documentId: document.id,
+        }),
+    };
+  }
+  const openedBeforeDraftRead =
+    scopeKey !== null &&
+    openedBeforeDraftReadRef.current?.scopeKey === scopeKey &&
+    openedBeforeDraftReadRef.current.open;
 
   useEffect(() => {
     setVerifiedScopeKey(null);
@@ -224,7 +279,7 @@ export function PageDraftRecovery({
     if (journalState === "promoting" || editorReleased) return;
     if (
       !drafts.data ||
-      !scopeVerified ||
+      !decisionsReady ||
       creationPending ||
       documentBodyHydrationIsPending(document)
     )
@@ -238,7 +293,11 @@ export function PageDraftRecovery({
     };
     let entry;
     try {
-      entry = readPageDraftJournal(scope, skippedWriterIds);
+      // The journal was empty when the editor showed; entries since are an
+      // open editor's own, which it settles.
+      entry = openedBeforeDraftRead
+        ? null
+        : readPageDraftJournal(scope, skippedWriterIds);
     } catch {
       setJournalState("failed");
       return;
@@ -546,15 +605,16 @@ export function PageDraftRecovery({
   }, [
     bodyWritesThroughLiveCopy,
     creationPending,
+    decisionsReady,
     document,
     draft,
     drafts.data,
     editorReleased,
     journalRevision,
     journalState,
+    openedBeforeDraftRead,
     scopeKey,
     scopeLiveWriters,
-    scopeVerified,
     session?.email,
     session?.orgId,
   ]);
@@ -562,11 +622,11 @@ export function PageDraftRecovery({
   useEffect(() => {
     if (
       drafts.data?.draft === null &&
-      scopeVerified &&
+      decisionsReady &&
       journalState === "ready"
     )
       setReleasedScopeKey(scopeKey);
-  }, [drafts.data, journalState, scopeKey, scopeVerified]);
+  }, [decisionsReady, drafts.data, journalState, scopeKey]);
 
   async function settleDraft(restore: boolean) {
     if (!draft || busy) return;
@@ -753,7 +813,7 @@ export function PageDraftRecovery({
       failure ||
       journalState === "checking" ||
       journalState === "promoting" ||
-      !scopeVerified
+      !decisionsReady
     )
       return;
     const attempt = `${draft.version}:${document.updatedAt}`;
@@ -762,12 +822,12 @@ export function PageDraftRecovery({
     void resolveConflict("use_saved");
   }, [
     busy,
+    decisionsReady,
     document.updatedAt,
     draft,
     failure,
     hasEditIdentity,
     journalState,
-    scopeVerified,
   ]);
   useEffect(() => {
     if (
@@ -779,7 +839,7 @@ export function PageDraftRecovery({
       failure ||
       journalState === "checking" ||
       journalState === "promoting" ||
-      !scopeVerified ||
+      !decisionsReady ||
       documentBodyHydrationIsPending(document)
     )
       return;
@@ -820,6 +880,7 @@ export function PageDraftRecovery({
   }, [
     bodyWritesThroughLiveCopy,
     busy,
+    decisionsReady,
     document,
     draft,
     draftLivenessKnown,
@@ -827,7 +888,6 @@ export function PageDraftRecovery({
     failure,
     hasEditIdentity,
     journalState,
-    scopeVerified,
     session?.email,
     session?.orgId,
     skippedWriterIds,
@@ -866,6 +926,7 @@ export function PageDraftRecovery({
         retrying={drafts.isFetching}
       />
     );
+  if (openedBeforeDraftRead && !draft) return withNotice(null);
   if (
     !drafts.data ||
     !scopeVerified ||

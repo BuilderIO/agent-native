@@ -44,7 +44,10 @@ vi.mock("./ydoc-manager.js", () => ({
   applyPatchOps: vi.fn(),
   getJson: vi.fn().mockResolvedValue(null),
   getState: vi.fn().mockResolvedValue(new Uint8Array([0, 0])),
-  getIncUpdate: vi.fn().mockResolvedValue(new Uint8Array([0, 0])),
+  getIncUpdateWithStateVector: vi.fn().mockResolvedValue({
+    update: new Uint8Array([0, 0]),
+    stateVector: new Uint8Array([1, 7, 3]),
+  }),
 }));
 
 vi.mock("./storage.js", () => ({
@@ -81,7 +84,7 @@ describe("getCollabState cache policy", () => {
     async (query) => {
       const ev = event({ docId: "doc-1" });
       ev._query = query;
-      expect(await getCollabState(ev)).toEqual({
+      expect(await getCollabState(ev)).toMatchObject({
         docId: "doc-1",
         state: "AAA=",
       });
@@ -101,14 +104,16 @@ describe("getCollabState cache policy", () => {
       reason: "yjs",
     });
     for (const failure of [malformed, new Error("database unavailable")]) {
-      vi.mocked(manager.getIncUpdate).mockRejectedValueOnce(failure);
+      vi.mocked(manager.getIncUpdateWithStateVector).mockRejectedValueOnce(
+        failure,
+      );
       const ev = event({ docId: "doc-1" });
       ev._query = { stateVector: "AAA=" };
       await expect(getCollabState(ev)).rejects.toBe(failure);
       expect(ev._status).toBe(200);
     }
 
-    vi.mocked(manager.getIncUpdate).mockClear();
+    vi.mocked(manager.getIncUpdateWithStateVector).mockClear();
     // Base64 for a vector that announces five entries and holds none.
     for (const stateVector of ["BQ==", "not base64", ""]) {
       const bad = event({ docId: "doc-1" });
@@ -118,7 +123,23 @@ describe("getCollabState cache policy", () => {
       });
       expect(bad._status).toBe(400);
     }
-    expect(manager.getIncUpdate).not.toHaveBeenCalled();
+    expect(manager.getIncUpdateWithStateVector).not.toHaveBeenCalled();
+  });
+
+  it("sends the server's state vector with a diff, and only with one", async () => {
+    const diff = event({ docId: "doc-1" });
+    diff._query = { stateVector: "AA==" };
+    expect(await getCollabState(diff)).toEqual({
+      docId: "doc-1",
+      state: "AAA=",
+      stateVector: "AQcD",
+    });
+
+    const whole = event({ docId: "doc-1" });
+    expect(await getCollabState(whole)).toEqual({
+      docId: "doc-1",
+      state: "AAA=",
+    });
   });
 
   it("includes a server activity cursor with the initial state", async () => {

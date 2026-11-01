@@ -1422,17 +1422,36 @@ export async function getIncUpdate(
   docId: string,
   clientStateVector: Uint8Array,
 ): Promise<Uint8Array> {
+  return (await getIncUpdateWithStateVector(docId, clientStateVector)).update;
+}
+
+/**
+ * What a client at `clientStateVector` lacks, with the server's own vector, so
+ * the client can check the server holds everything it already has: a saved
+ * local copy the server's doc does not cover would bring back text the
+ * server no longer has.
+ */
+export async function getIncUpdateWithStateVector(
+  docId: string,
+  clientStateVector: Uint8Array,
+): Promise<{ update: Uint8Array; stateVector: Uint8Array }> {
   const target = await readTarget(docId);
   if (target.kind === "doc") {
-    return Y.encodeStateAsUpdate(target.doc, clientStateVector);
+    return {
+      update: Y.encodeStateAsUpdate(target.doc, clientStateVector),
+      stateVector: Y.encodeStateVector(target.doc),
+    };
   }
   const { state, catchUp } = await liveCopyStateForRead(target.binding, docId);
   // Diffing against the client's vector would decode the copy on this
   // thread. A client at the same vector lacks at most deletions; any other
   // gets the whole state, which Yjs applies idempotently.
-  return sameBytes(clientStateVector, catchUp.stateVector)
-    ? catchUp.deletions.slice()
-    : state.slice();
+  return {
+    update: sameBytes(clientStateVector, catchUp.stateVector)
+      ? catchUp.deletions.slice()
+      : state.slice(),
+    stateVector: catchUp.stateVector.slice(),
+  };
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

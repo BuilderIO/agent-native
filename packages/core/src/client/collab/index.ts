@@ -12,6 +12,7 @@ export {
   type CollaborativeDocSyncResult,
   type CollabUpdateAck,
 } from "../../collab/client.js";
+export { prefetchCollabState } from "../../collab/state-prefetch.js";
 export { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
 export {
   usePresence,

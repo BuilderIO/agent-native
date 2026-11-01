@@ -1679,10 +1679,22 @@ export function PageEditorSurface({
     authoritativeSuccess,
   });
   loadFailureRef.current = loadFailure;
+  // A visited page is drawn from its cached read at once, and the read in
+  // flight catches it up. Only pages whose body lives in the collab doc: their
+  // editor takes edits once that doc, or this browser's saved copy of it, has
+  // text, and seeds an empty doc only from a fresh read.
+  const canOpenFromCache =
+    !!document &&
+    shouldUseLiveDocumentCollaboration({
+      isLocalFileDocument: document.source?.mode === "local-files",
+      isGitHubSourceDocument: document.source?.mode === "github",
+      mcpDirectoryWidgetReadOnly: document.mcpDirectoryWidgetReadOnly === true,
+    });
   const loadState = documentEditorLoadState({
     documentId,
     admittedDocumentId: admittedDocumentIdRef.current,
     hasDocument: Boolean(document),
+    canOpenFromCache,
     isDocumentCreationConfirmed: creationAwaitingFirstRead,
     isDocumentCreationPending: creationPending,
     isFetchedAfterMount: fetchedForThisOpen,
@@ -1828,6 +1840,7 @@ export function PageEditorSurface({
         databaseDocumentId,
       })}
       document={document}
+      documentFresh={fetchedForThisOpen}
     >
       {editor}
     </PageDraftRecovery>
@@ -1853,10 +1866,27 @@ function DocumentCommentDraftProvider({
   );
 }
 
+/**
+ * Whether a collab doc's body holds any text. Read from the doc itself, before
+ * an editor projects it; markup and attributes are not text.
+ */
+export function collabDocHasText(
+  ydoc: { getXmlFragment(name: string): { toString(): string } } | null,
+): boolean {
+  if (!ydoc) return false;
+  return /\S/.test(
+    ydoc
+      .getXmlFragment("default")
+      .toString()
+      .replace(/<[^>]*>/g, ""),
+  );
+}
+
 export function documentEditorLoadState({
   documentId,
   admittedDocumentId,
   hasDocument,
+  canOpenFromCache = false,
   isDocumentCreationConfirmed = false,
   isDocumentCreationPending,
   isFetchedAfterMount,
@@ -1870,6 +1900,12 @@ export function documentEditorLoadState({
   documentId: string;
   admittedDocumentId: string | null;
   hasDocument: boolean;
+  /**
+   * The cached document may be drawn before this open's read returns. Its
+   * editor never seeds the collab doc from it (see `PageEditorSessionBody`),
+   * and its body saves carry the cached revision, which the server checks.
+   */
+  canOpenFromCache?: boolean;
   isDocumentCreationConfirmed?: boolean;
   isDocumentCreationPending: boolean;
   isFetchedAfterMount: boolean;
@@ -1933,7 +1969,10 @@ export function documentEditorLoadState({
       admittedDocumentId: activeAdmittedDocumentId,
     };
   }
-  if (hasDocument && isFetchedAfterMount && !isFetching) {
+  if (
+    hasDocument &&
+    (canOpenFromCache || (isFetchedAfterMount && !isFetching))
+  ) {
     return {
       view: "editor" as const,
       admittedDocumentId: documentId,
@@ -3562,7 +3601,9 @@ function PageEditorSessionBody({
   useEffect(() => {
     const hydrationContext = document.bodyHydration;
     const hydration = hydrationContext?.hydration;
+    // A cached read's hydration status can be one the server has moved past.
     if (
+      !documentFresh ||
       !canEdit ||
       !hydrationContext?.sourceId ||
       !hydration ||
@@ -3603,6 +3644,7 @@ function PageEditorSessionBody({
   }, [
     canEdit,
     document.bodyHydration,
+    documentFresh,
     documentId,
     processBuilderBodies.mutate,
   ]);
@@ -3847,6 +3889,7 @@ function PageEditorSessionBody({
     ydoc,
     awareness,
     isSynced: collabSynced,
+    fromLocalCopy: collabFromLocalCopy,
     requestSync: requestCollabSync,
     flushUpdates: flushCollabUpdates,
     durableUpdatesFailed: collabDurableUpdatesFailed,
@@ -3860,6 +3903,7 @@ function PageEditorSessionBody({
     activityResource: { resourceType: "document", resourceId: documentId },
     requestSource: TAB_ID,
     user: currentUser,
+    localCopy: true,
     durableUpdates: bodyWritesThroughLiveCopy,
     requireLiveCopyOutcome: bodyWritesThroughLiveCopy,
     ...(bodyWritesThroughLiveCopy
@@ -3891,6 +3935,15 @@ function PageEditorSessionBody({
       : null;
   const collabInitializationFailed =
     collabEnabled && collabInitialization.status === "error";
+  // The editor takes the collab doc once the server's state is in it and the
+  // page's read is fresh, or earlier once the doc already has text: from the
+  // server, or from this browser's saved copy before the server answers. An
+  // empty doc waits for the fresh read, so a cached body never seeds it.
+  // The text is read only until the doc is synced and the read fresh.
+  const collabReady =
+    (collabSynced || collabFromLocalCopy) &&
+    ((collabSynced && (documentFresh || creationStarted)) ||
+      collabDocHasText(ydoc));
   const canEditWithoutCollaboration =
     (creationAwaitingFirstRead || holdCollaborationForCreationSave) &&
     !collabSynced;
@@ -3902,7 +3955,7 @@ function PageEditorSessionBody({
     (!isLocalFileDocument || localSourceAccess === "available") &&
     (isLocalFileDocument ||
       mcpDirectoryWidgetReadOnly ||
-      collabSynced ||
+      collabReady ||
       canEditWithoutCollaboration) &&
     (!collabInitializationFailed || canEditWithoutCollaboration);
   const canImportPages =
@@ -3923,7 +3976,7 @@ function PageEditorSessionBody({
     collabEnabled &&
     canEdit &&
     !bodyHydrationPending &&
-    collabSynced &&
+    collabReady &&
     collabInitialization.status === "ready" &&
     !collabInitializationFailed;
   const awaitingLiveCopy = documentBodyAwaitsLiveCopy({
@@ -10827,7 +10880,7 @@ function PageEditorSessionBody({
                                 bodyIsLiveCopy={bodyWritesThroughLiveCopy}
                                 replacesStoredBody={replacesStoredBody}
                                 collabSynced={
-                                  collabEditorEnabled ? collabSynced : true
+                                  collabEditorEnabled ? collabReady : true
                                 }
                                 awareness={
                                   collabEditorEnabled ? awareness : null
@@ -10954,7 +11007,7 @@ function PageEditorSessionBody({
                     collabEnabled &&
                     canEdit &&
                     !canEditWithoutCollaboration &&
-                    !collabSynced ? (
+                    !collabReady ? (
                       <div
                         className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
                         role="status"

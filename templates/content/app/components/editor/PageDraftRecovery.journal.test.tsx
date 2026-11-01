@@ -747,11 +747,13 @@ describe("Page browser journal recovery", () => {
     expect(state.entries).toEqual([]);
   });
 
-  it("does not inspect local drafts before the current session passes access", async () => {
+  it("does not replay local drafts before the current session passes access", async () => {
     state.entries = [entry("first", "Local")];
     state.verify.mockRejectedValue(new Error("access denied"));
     await act(async () => render());
-    expect(state.read).not.toHaveBeenCalled();
+    // Read only to learn whether the editor may show before the draft check
+    // (the scope alone, no live writers to skip): with an entry it may not.
+    expect(state.read.mock.calls.every((args) => args.length === 1)).toBe(true);
     expect(state.rebase).not.toHaveBeenCalled();
     expect(container.querySelector("textarea")).toBeNull();
   });

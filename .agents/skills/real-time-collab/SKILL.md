@@ -221,6 +221,28 @@ const { ydoc, awareness, activeUsers, agentActive, agentPresent } =
   });
 ```
 
+#### Opening from a saved copy
+
+Pass `localCopy: true` to keep each doc's acknowledged state in IndexedDB, per
+account. A doc opened again is ready from that copy at once
+(`fromLocalCopy: true`, `isSynced: false`), and the hook asks the server only
+for what the copy lacks. The server answers with its state vector; if it does
+not cover the copy, the copy is thrown away and the doc reopens from the
+server (the hook's `ydoc` changes). Copies are cleared on sign-out and when a
+different account uses the browser, and are bounded (least recently opened go
+first). Storage that cannot be used just means no copy.
+
+A copy is a cache of the server's doc, never a second source: it is saved only
+while none of the tab's edits are unacknowledged, so it never holds text the
+server lacks. Treat `fromLocalCopy` as "drawn, not yet caught up": don't seed
+an empty doc or decide anything about the stored body from it.
+
+To start that read with the page instead of after the editor mounts, call
+`prefetchCollabState(docId)` from
+`@agent-native/core/client/collab/prefetch` (it doesn't load the collab
+client). The hook takes the answer over when it opens the same doc within a few
+seconds, for the account the copy belongs to.
+
 ### 4. Add TipTap extensions
 
 ```ts
@@ -259,7 +281,7 @@ optimizeDeps: {
 
 | Route | Purpose |
 | ----- | ------- |
-| `GET /_agent-native/collab/:docId/state` | Fetch full Y.Doc state (accepts `?stateVector=` for diff) |
+| `GET /_agent-native/collab/:docId/state` | Fetch full Y.Doc state (accepts `?stateVector=` for diff, and then also returns the server's `stateVector`) |
 | `POST /_agent-native/collab/:docId/update` | Apply client Yjs update |
 | `POST /_agent-native/collab/:docId/text` | Apply full text (diff-based) |
 | `POST /_agent-native/collab/:docId/search-replace` | Surgical find/replace in Y.XmlFragment |
