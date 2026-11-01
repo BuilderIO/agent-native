@@ -6,7 +6,7 @@ import {
   databaseFilterChipToReopen,
   foldDatabaseFilterChips,
 } from "./filter-chips";
-import type { DatabaseFilter } from "./types";
+import type { DatabaseFilter, DatabaseFilterMode } from "./types";
 
 function property(
   id: string,
@@ -53,6 +53,24 @@ function chip(
   return { key, label: key, operator, value };
 }
 
+const statusRows = ["active", "done", "dropped", null].map((status, index) => ({
+  document: { id: `row-${index}`, title: `Row ${index}` },
+  properties: [property("status", "status", status)],
+})) as unknown as Parameters<typeof applyContentDatabaseTableQuery>[0];
+
+// The rows a set of chips shows, by title.
+function matchingRows(
+  filters: DatabaseFilter[],
+  filterMode: DatabaseFilterMode,
+) {
+  return applyContentDatabaseTableQuery(statusRows, properties, {
+    search: "",
+    filters,
+    sorts: [],
+    filterMode,
+  }).map((item) => item.document.title);
+}
+
 describe("databaseFilterChipToReopen", () => {
   it("reopens a status chip, whose second value never means more on a chip of its own", () => {
     const filters = [
@@ -73,6 +91,29 @@ describe("databaseFilterChipToReopen", () => {
         properties,
       ),
     ).toBe(0);
+  });
+
+  it("loses nothing by reopening a status chip, since a row holds one status", () => {
+    // What a second chip would have meant instead: two "is" chips under All
+    // match no row, and two "is not" chips under Any match every row.
+    expect(
+      matchingRows(
+        [
+          chip("status", "contains", "done"),
+          chip("status", "contains", "dropped"),
+        ],
+        "and",
+      ),
+    ).toEqual([]);
+    expect(
+      matchingRows(
+        [
+          chip("status", "does_not_equal", "done"),
+          chip("status", "does_not_equal", "dropped"),
+        ],
+        "or",
+      ),
+    ).toEqual(["Row 0", "Row 1", "Row 2", "Row 3"]);
   });
 
   it("reopens a multi-select chip only when another value means the same there", () => {
@@ -193,25 +234,14 @@ describe("foldDatabaseFilterChips", () => {
   });
 
   it("matches the same rows before and after folding", () => {
-    const rows = ["active", "done", "dropped", null].map((status, index) => ({
-      document: { id: `row-${index}`, title: `Row ${index}` },
-      properties: [property("status", "status", status)],
-    })) as unknown as Parameters<typeof applyContentDatabaseTableQuery>[0];
     const filters = [
       chip("status", "does_not_equal", "done"),
       chip("status", "does_not_equal", "dropped"),
     ];
-    const titles = (query: DatabaseFilter[]) =>
-      applyContentDatabaseTableQuery(rows, properties, {
-        search: "",
-        filters: query,
-        sorts: [],
-        filterMode: "and",
-      }).map((item) => item.document.title);
 
-    expect(titles(foldDatabaseFilterChips(filters, "and", properties))).toEqual(
-      titles(filters),
-    );
-    expect(titles(filters)).toEqual(["Row 0", "Row 3"]);
+    expect(
+      matchingRows(foldDatabaseFilterChips(filters, "and", properties), "and"),
+    ).toEqual(matchingRows(filters, "and"));
+    expect(matchingRows(filters, "and")).toEqual(["Row 0", "Row 3"]);
   });
 });
