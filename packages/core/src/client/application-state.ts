@@ -185,6 +185,10 @@ let replacementFlushTimer: ReturnType<typeof setTimeout> | undefined;
 // Set once a server shows it has no batch route; every write then takes its
 // own route again until the page reloads.
 let batchWritesUnsupported = false;
+// Set once the batch route has answered this page. Until then, writes sent as
+// the page hides take their own routes: falling back from a server without
+// the batch route needs the page to live on and send them again.
+let batchRouteConfirmed = false;
 
 // Keepalive requests from this module (writes, deletes and compare-and-sets)
 // hold their bytes of the page's keepalive allowance until they finish. They
@@ -386,7 +390,11 @@ function flushReplacements(): void {
 }
 
 function sendChunk(chunk: QueuedReplacement[], keepalive: boolean): void {
-  if (chunk.length === 1 || batchWritesUnsupported) {
+  if (
+    chunk.length === 1 ||
+    batchWritesUnsupported ||
+    (pageIsHiding() && !batchRouteConfirmed)
+  ) {
     for (const entry of chunk) sendEach(entry, keepalive);
   } else {
     void sendBatch(chunk, keepalive);
@@ -448,6 +456,9 @@ async function sendBatch(
   // From here the route may have written: an answer that can't be read or
   // doesn't make sense is an error for every caller, never a reason to send
   // the writes again over whatever has changed since.
+  if (responseHeader(response, APP_STATE_BATCH_ROUTE_HEADER) === "1") {
+    batchRouteConfirmed = true;
+  }
   let results: BatchWriteResult[];
   try {
     if (batchRouteAbsent(response)) {

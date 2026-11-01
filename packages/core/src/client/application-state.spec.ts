@@ -941,45 +941,98 @@ describe("client application-state helpers", () => {
     ]);
   });
 
-  it("sends the waiting writes at once when the page hides", async () => {
-    vi.resetModules();
-    const listeners: Record<string, () => void> = {};
-    const listen = (type: string, listener: () => void) => {
-      listeners[type] = listener;
-    };
-    vi.stubGlobal("window", {
-      location: { pathname: "/" },
-      addEventListener: listen,
-    });
-    vi.stubGlobal("document", {
-      visibilityState: "visible",
-      addEventListener: listen,
-    });
-    const fresh = await import("./application-state.js");
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(
-        jsonResponse({
-          results: [
-            { ok: true, value: 1 },
-            { ok: true, value: 2 },
-          ],
-        }),
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+  describe("writes waiting when the page hides", () => {
+    async function hidablePage() {
+      vi.resetModules();
+      const listeners: Record<string, () => void> = {};
+      const listen = (type: string, listener: () => void) => {
+        listeners[type] = listener;
+      };
+      vi.stubGlobal("window", {
+        location: { pathname: "/" },
+        addEventListener: listen,
+      });
+      vi.stubGlobal("document", {
+        visibilityState: "visible",
+        addEventListener: listen,
+      });
+      const fresh = await import("./application-state.js");
+      const fetchMock = vi.fn((url: RequestInfo | URL, init?: RequestInit) =>
+        Promise.resolve(
+          String(url) === "/_agent-native/application-state"
+            ? jsonResponse(
+                {
+                  results: JSON.parse(String(init?.body)).writes.map(
+                    (write: { value: unknown }) => ({
+                      ok: true,
+                      value: write.value,
+                    }),
+                  ),
+                },
+                {
+                  headers: {
+                    "Content-Type": "application/json",
+                    "X-Agent-Native-App-State-Batch": "1",
+                  },
+                },
+              )
+            : jsonResponse(JSON.parse(String(init?.body))),
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      return { fresh, fetchMock, hide: () => listeners.pagehide?.() };
+    }
 
-    const waiting = fresh.writeClientAppState("selection", 1);
-    const leaving = fresh.writeClientAppState("draft", 2, { keepalive: true });
-    await Promise.resolve();
-    expect(fetchMock).not.toHaveBeenCalled();
-    listeners.pagehide?.();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]).toEqual([
-      "/_agent-native/application-state",
-      expect.objectContaining({ method: "POST", keepalive: true }),
-    ]);
-    await Promise.all([waiting, leaving]);
+    it("go at once, one key at a time until the batch route has answered", async () => {
+      const { fresh, fetchMock, hide } = await hidablePage();
+
+      const waiting = fresh.writeClientAppState("selection", 1);
+      const leaving = fresh.writeClientAppState("draft", 2, {
+        keepalive: true,
+      });
+      await Promise.resolve();
+      expect(fetchMock).not.toHaveBeenCalled();
+      hide();
+
+      // Falling back from a server without the batch route would need the
+      // page to live on, so each write takes its own route.
+      expect(fetchMock.mock.calls).toEqual([
+        [
+          "/_agent-native/application-state/selection",
+          expect.objectContaining({ method: "PUT", keepalive: true }),
+        ],
+        [
+          "/_agent-native/application-state/draft",
+          expect.objectContaining({ method: "PUT", keepalive: true }),
+        ],
+      ]);
+      await Promise.all([waiting, leaving]);
+    });
+
+    it("go at once as one batch once the batch route has answered", async () => {
+      const { fresh, fetchMock, hide } = await hidablePage();
+      await Promise.all([
+        fresh.writeClientAppState("selection", 0),
+        fresh.writeClientAppState("draft", 1),
+      ]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const waiting = fresh.writeClientAppState("selection", 1);
+      const leaving = fresh.writeClientAppState("draft", 2, {
+        keepalive: true,
+      });
+      await Promise.resolve();
+      hide();
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]).toEqual([
+        "/_agent-native/application-state",
+        expect.objectContaining({ method: "POST", keepalive: true }),
+      ]);
+      await expect(Promise.all([waiting, leaving])).resolves.toEqual([1, 2]);
+    });
   });
+
   describe("keepalive budget", () => {
     // Browsers refuse a keepalive request once the keepalive bodies in flight
     // pass 64 KiB, counted in encoded bytes. Application state keeps room in
