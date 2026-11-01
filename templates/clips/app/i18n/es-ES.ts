@@ -319,29 +319,33 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clips eliminados permanentemente",
     clipsDeleteFailed: "{{count}} clips no se pudieron eliminar",
     deletedMediaPending:
-      "Grabación eliminada. Sus archivos multimedia aún se están eliminando.",
+      "Eliminado de Clips; aún no se ha confirmado la eliminación del almacenamiento",
     deletedMediaBlocked:
-      "Grabación eliminada, pero no se pudieron eliminar sus archivos multimedia.",
+      "Eliminado de Clips; no se pudo confirmar la eliminación del almacenamiento",
     deletedMediaRetained:
       "Grabación eliminada. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
     clipsDeletedMediaPending:
-      "Grabaciones eliminadas: {{count}}. Los archivos multimedia aún se están eliminando.",
+      "Grabaciones eliminadas de Clips: {{count}}; aún no se ha confirmado la eliminación del almacenamiento",
     clipsDeletedMediaBlocked:
-      "Grabaciones eliminadas: {{count}}. No se pudieron eliminar los archivos multimedia.",
+      "Grabaciones eliminadas de Clips: {{count}}; no se pudo confirmar la eliminación del almacenamiento",
     clipsDeletedMediaRetained:
       "Grabaciones eliminadas: {{count}}. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
+    deletedMediaFinalizing: "Eliminado de Clips; finalizando la limpieza",
+    clipsDeletedMediaFinalizing:
+      "Grabaciones eliminadas de Clips: {{count}}; finalizando la limpieza",
+    mediaCleanupFinalizing: "Finalizando la limpieza de la grabación eliminada",
     mediaCleanupListLabel: "Eliminación de archivos multimedia",
     mediaCleanupPending:
-      "Eliminando archivos multimedia de grabaciones eliminadas",
+      "Eliminado de Clips; aún no se ha confirmado la eliminación del almacenamiento",
     mediaCleanupBlocked:
-      "No se pudieron eliminar los archivos multimedia de grabaciones eliminadas",
+      "No se pudo confirmar la eliminación del almacenamiento",
     mediaCleanupReconnect:
       "Vuelve a conectar el almacenamiento para eliminar los archivos multimedia de grabaciones eliminadas",
     mediaCleanupRetained:
       "Los archivos multimedia compartidos de grabaciones eliminadas se conservan mientras otras grabaciones los usen",
     mediaCleanupRemoved: "Archivos multimedia eliminados",
     mediaCleanupStillBlocked:
-      "Todavía no se pudieron eliminar los archivos multimedia",
+      "Todavía no se pudo confirmar la eliminación del almacenamiento",
     mediaCleanupRetryFailed:
       "No se pudo reintentar la eliminación de archivos multimedia",
     mediaCleanupLoadFailed:

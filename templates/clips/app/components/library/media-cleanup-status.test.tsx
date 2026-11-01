@@ -55,7 +55,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), info: vi.fn(), warning: vi.fn(), error: vi.fn() },
 }));
 
 const record = (
@@ -75,10 +75,10 @@ const record = (
   updatedAt: "2026-10-28T10:05:00.000Z",
 });
 
-const BLOCKED_TITLE = "Media files from deleted recordings couldn't be removed";
+const UNCONFIRMED_TITLE = "Storage removal could not be confirmed";
 const RECONNECT =
   "Reconnect storage to remove media files from deleted recordings";
-const PENDING_TITLE = "Removing media files from deleted recordings";
+const PENDING_TITLE = "Removed from Clips; storage removal not yet confirmed";
 const RETAINED_TITLE =
   "Shared media files from deleted recordings are kept while other recordings use them";
 
@@ -121,28 +121,57 @@ describe("MediaCleanupStatus", () => {
   });
 
   it("keeps a blocked cleanup after a retry the server still reports blocked", async () => {
-    mocks.query.data = { cleanups: [record("blocked")] };
-    mocks.retry.mockResolvedValue({
-      status: "blocked",
-      pending: 0,
-      blocked: 1,
-      deleted: 0,
-      retained: 0,
-    });
+    mocks.query.data = { cleanups: [record("blocked", "retry_exhausted")] };
+    mocks.retry.mockResolvedValue(record("blocked", "retry_exhausted"));
     render();
-    expect(container.textContent).toContain(BLOCKED_TITLE);
+    expect(container.textContent).toContain(UNCONFIRMED_TITLE);
 
     await act(async () => retryButton(container)?.click());
 
     expect(mocks.retry).toHaveBeenCalledWith({ id: "rec-blocked" });
-    expect(toast.warning).toHaveBeenCalledWith(
-      "Media files still couldn't be removed",
+    expect(toast.info).toHaveBeenCalledWith(
+      "Storage removal still could not be confirmed",
     );
+    expect(toast.warning).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ["action", "list-recording-media-cleanups"],
     });
-    expect(container.textContent).toContain(BLOCKED_TITLE);
+    expect(container.textContent).toContain(UNCONFIRMED_TITLE);
+  });
+
+  it("asks to reconnect when a retry is still missing storage credentials", async () => {
+    mocks.query.data = {
+      cleanups: [record("blocked", "credential_unavailable")],
+    };
+    mocks.retry.mockResolvedValue(record("blocked", "credential_unavailable"));
+    render();
+
+    await act(async () => retryButton(container)?.click());
+
+    expect(toast.warning).toHaveBeenCalledWith(RECONNECT);
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
+  it("keeps confirmed storage distinct while allowance finalization needs a retry", async () => {
+    const finalizing = {
+      ...record("blocked", "accounting_unavailable"),
+      blocked: 0,
+      deleted: 2,
+    };
+    mocks.query.data = { cleanups: [finalizing] };
+    mocks.retry.mockResolvedValue(finalizing);
+    render();
+
+    expect(container.textContent).toBe(
+      "Finalizing cleanup for the removed recordingRetry",
+    );
+    expect(container.querySelector(".text-destructive")).toBeNull();
+    await act(async () => retryButton(container)?.click());
+    expect(toast.info).toHaveBeenCalledWith(
+      "Finalizing cleanup for the removed recording",
+    );
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it("retries blocked cleanups one at a time and acknowledges the click at once", async () => {
@@ -162,7 +191,7 @@ describe("MediaCleanupStatus", () => {
     await act(async () => retryButton(container)?.click());
 
     expect(container.textContent).toContain(PENDING_TITLE);
-    expect(container.textContent).not.toContain(BLOCKED_TITLE);
+    expect(container.textContent).not.toContain(UNCONFIRMED_TITLE);
     expect(mocks.retry).toHaveBeenCalledTimes(1);
     expect(mocks.retry).toHaveBeenLastCalledWith({ id: "cleanup-1" });
 
@@ -193,14 +222,32 @@ describe("MediaCleanupStatus", () => {
   });
 
   it.each([
-    ["credential_unavailable", RECONNECT],
-    ["credential_space_mismatch", RECONNECT],
-    ["provider_rejected", BLOCKED_TITLE],
-  ])("asks to reconnect only for credential failures (%s)", (reason, title) => {
-    mocks.query.data = { cleanups: [record("blocked", reason)] };
+    ["credential_unavailable", RECONNECT, true],
+    ["credential_space_mismatch", RECONNECT, true],
+    ["retry_exhausted", UNCONFIRMED_TITLE, false],
+    ["delete_unconfirmed", UNCONFIRMED_TITLE, false],
+    ["accounting_unavailable", UNCONFIRMED_TITLE, false],
+    [null, UNCONFIRMED_TITLE, false],
+  ])(
+    "flags only missing credentials as a failure (%s)",
+    (reason, title, alarming) => {
+      mocks.query.data = { cleanups: [record("blocked", reason)] };
+      render();
+
+      expect(container.textContent).toBe(`${title}Retry`);
+      expect(container.querySelector(".text-destructive") !== null).toBe(
+        alarming,
+      );
+    },
+  );
+
+  it("shows cleanup still waiting on storage as removed from Clips only", () => {
+    mocks.query.data = { cleanups: [record("pending")] };
     render();
 
-    expect(container.textContent).toBe(`${title}Retry`);
+    expect(container.textContent).toContain(PENDING_TITLE);
+    expect(retryButton(container)).toBeUndefined();
+    expect(container.querySelector(".text-destructive")).toBeNull();
   });
 
   it.each([
@@ -228,6 +275,15 @@ describe("MediaCleanupStatus", () => {
 
     expect(interval([record("pending"), record("blocked")])).toBe(10_000);
     expect(interval([record("blocked")])).toBe(60_000);
+    expect(
+      interval([
+        {
+          ...record("blocked", "accounting_unavailable"),
+          blocked: 0,
+          deleted: 2,
+        },
+      ]),
+    ).toBe(60_000);
     expect(interval([record("retained_shared")])).toBe(60_000);
     expect(interval([record("complete")])).toBe(false);
   });
