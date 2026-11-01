@@ -99,7 +99,7 @@ svg {
 }
 
 .popup-page {
-  width: 320px;
+  width: 360px;
   background: var(--bg);
 }
 
@@ -137,9 +137,9 @@ svg {
 .desktop-header {
   position: relative;
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
   column-gap: 8px;
-  min-height: 36px;
+  min-height: 58px;
   padding: 0 14px;
 }
 
@@ -153,11 +153,9 @@ svg {
 }
 
 .header-feedback {
-  grid-column: 1;
-  position: static;
-  justify-self: start;
-  height: 28px;
-  padding: 0 9px;
+  align-self: flex-start;
+  height: 30px;
+  padding: 0 8px;
   font-size: 12px;
   font-weight: 500;
 }
@@ -479,16 +477,17 @@ svg {
 }
 
 .toggle-on {
-  background: #16a34a;
-  color: #ffffff;
+  background: var(--brand);
+  color: var(--bg);
 }
 
 .toggle-on::after {
+  background: var(--bg);
   transform: translateX(14px);
 }
 
 .toggle-on:hover {
-  background: #15803d;
+  background: var(--brand-hover);
 }
 
 .toggle-off {
@@ -707,6 +706,7 @@ svg {
 }
 
 .bottom-row {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -725,7 +725,7 @@ svg {
   border-radius: var(--radius-sm);
   color: var(--fg);
   text-align: left;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   transition:
     background 120ms,
@@ -755,9 +755,9 @@ svg {
 .feedback-popover-content {
   position: absolute;
   z-index: 50;
-  top: calc(100% + 8px);
-  left: 0;
-  width: 300px;
+  bottom: calc(100% - 4px);
+  left: 14px;
+  width: min(300px, calc(100% - 28px));
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--bg);

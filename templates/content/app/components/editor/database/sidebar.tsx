@@ -15,7 +15,6 @@ import type {
 import {
   IconChevronDown,
   IconChevronRight,
-  IconDatabase,
   IconFileText,
   IconFolder,
   IconFolderOpen,
@@ -1374,14 +1373,12 @@ function DatabaseSidebarRow({
                 </Tooltip>
                 <DropdownMenuContent align="start" className="w-44">
                   <DropdownMenuItem onSelect={() => onCreateChildPage?.(item)}>
-                    <IconFileText className="me-2 size-4" />
                     {t("sidebar.page")}
                   </DropdownMenuItem>
                   {onCreateChildDatabase ? (
                     <DropdownMenuItem
                       onSelect={() => onCreateChildDatabase(item)}
                     >
-                      <IconDatabase className="me-2 size-4" />
                       {t("sidebar.database")}
                     </DropdownMenuItem>
                   ) : null}

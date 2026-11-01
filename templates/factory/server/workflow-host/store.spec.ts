@@ -33,6 +33,7 @@ async function migratedClient(): Promise<PGliteClient> {
 const RESET_TABLES = [
   "factory_workflows",
   "factory_workflow_versions",
+  "factory_workflow_drafts",
   "factory_workflow_runs",
   "factory_workflow_steps",
   "factory_workflow_item_state",
@@ -158,6 +159,7 @@ describe("Drizzle workflow store", () => {
         )
       ).map((row) => row.table_name);
       expect(tables).toEqual([
+        "factory_workflow_drafts",
         "factory_workflow_item_events",
         "factory_workflow_item_state",
         "factory_workflow_receipts",
@@ -256,6 +258,37 @@ describe("Drizzle workflow store", () => {
       });
     });
 
+    it("adds the draft table in migration 36 without touching a workflow that predates it, and can run twice", async () => {
+      const { workflow } = await seeded();
+      const migration = factoryMigrations.find(
+        (candidate) => candidate.version === 36,
+      );
+      expect(migration?.name).toBe("factory-workflow-drafts");
+      expect(typeof migration?.sql).toBe("string");
+      await store.saveWorkflowDraft(SCOPE, {
+        workflowId: workflow.id,
+        ownerEmail: OWNER,
+        baseVersion: 1,
+        graphJson: '{"nodes":[],"edges":[]}',
+      });
+
+      await client.exec(migration?.sql as string);
+
+      expect(
+        (await store.getWorkflowDraft(SCOPE, workflow.id, OWNER))?.graphJson,
+      ).toBe('{"nodes":[],"edges":[]}');
+      expect(
+        await rows(
+          `SELECT indexname FROM pg_indexes
+           WHERE tablename = 'factory_workflow_drafts' ORDER BY indexname`,
+        ),
+      ).toEqual([
+        { indexname: "factory_workflow_drafts_pkey" },
+        { indexname: "factory_workflow_drafts_workflow_idx" },
+      ]);
+      expect((await store.getWorkflow(SCOPE, workflow.id))?.version).toBe(1);
+    });
+
     it("keeps old factory items readable with an empty payload", async () => {
       await client.exec(
         `INSERT INTO factory_items
@@ -343,6 +376,32 @@ describe("Drizzle workflow store", () => {
         `UPDATE factory_workflow_versions SET graph_json = '{"nodes":[]}'`,
       );
       await expectCorrupt(store.getWorkflow(SCOPE, workflow.id));
+    });
+
+    it("throws instead of returning a draft that is no longer a graph object", async () => {
+      const { workflow } = await seeded();
+      const draft = {
+        workflowId: workflow.id,
+        ownerEmail: OWNER,
+        baseVersion: 1,
+        graphJson: '{"nodes":[],"edges":[]}',
+      };
+      for (const stored of ["not json {", '{"nodes":[]}', "[]"]) {
+        await store.saveWorkflowDraft(SCOPE, draft);
+        await client.query(
+          `UPDATE factory_workflow_drafts SET graph_json = $1`,
+          [stored],
+        );
+        await expectCorrupt(store.getWorkflowDraft(SCOPE, workflow.id, OWNER));
+        // Present but unreadable is not absent: it still counts as a draft.
+        expect(await store.hasWorkflowDraft(SCOPE, workflow.id, OWNER)).toBe(
+          true,
+        );
+      }
+      await store.saveWorkflowDraft(SCOPE, draft);
+      expect(
+        (await store.getWorkflowDraft(SCOPE, workflow.id, OWNER))?.graphJson,
+      ).toBe(draft.graphJson);
     });
 
     it("tells a missing current version from a missing workflow", async () => {

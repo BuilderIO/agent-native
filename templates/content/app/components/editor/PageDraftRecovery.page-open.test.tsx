@@ -139,6 +139,7 @@ const page = {
   content: "Saved body",
   updatedAt: "v2",
   revision: "saved-body-revision",
+  contentHash: "sha256:saved-body",
   canEdit: true,
 } as Document;
 
@@ -297,6 +298,7 @@ describe("Page draft recovery on a page open", () => {
         title: "Saved",
         content: "Unsaved words",
         baseDocumentUpdatedAt: "v2",
+        baseContentHash: "sha256:saved-body",
         loadedContentWasEmpty: 0,
         deferredReason: "conflict",
         editorSessionId: "tab:other",

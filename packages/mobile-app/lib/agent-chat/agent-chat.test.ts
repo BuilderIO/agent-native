@@ -60,6 +60,25 @@ describe("applyWireEvent", () => {
     expect(state.messages[0]!.parts).toEqual([{ type: "text", text: "Hello" }]);
   });
 
+  it("drops a cleared draft back to the last finished tool", () => {
+    const state = run([
+      { type: "text", text: "Checking." },
+      { type: "tool_start", id: "tool-1", tool: "search", input: { q: "a" } },
+      { type: "tool_done", id: "tool-1", tool: "search", result: "ok" },
+      { type: "thinking", text: "Drafting." },
+      { type: "text", text: "Answer A." },
+      { type: "clear" },
+      { type: "text", text: "Answer B." },
+    ]);
+    expect(
+      state.messages[0]?.parts.map((part) =>
+        part.type === "text" || part.type === "reasoning"
+          ? `${part.type}:${part.text}`
+          : part.type,
+      ),
+    ).toEqual(["text:Checking.", "tool-call", "text:Answer B."]);
+  });
+
   it("keeps reasoning and text in separate parts", () => {
     const state = run([
       { type: "thinking", text: "hmm" },
@@ -81,6 +100,21 @@ describe("applyWireEvent", () => {
       { type: "text", text: "ac", partId: "p1" },
       { type: "text", text: "b", partId: "p2" },
     ]);
+  });
+
+  it("keeps reasoning resumed after text below that text", () => {
+    const state = run([
+      { type: "reasoning", text: "First.", partId: "reply" },
+      { type: "text", text: "Answer.", partId: "reply" },
+      { type: "reasoning", text: "Second.", partId: "reply" },
+    ]);
+    expect(
+      state.messages[0]?.parts.map((part) =>
+        part.type === "text" || part.type === "reasoning"
+          ? `${part.type}:${part.text}`
+          : part.type,
+      ),
+    ).toEqual(["reasoning:First.", "text:Answer.", "reasoning:Second."]);
   });
 
   it("tracks tool lifecycle from start to done", () => {

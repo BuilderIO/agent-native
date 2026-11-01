@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.221.0",
+  "version": "0.222.2",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -244,6 +244,13 @@
       "import": "./dist/design-tweaks/index.js",
       "default": "./dist/design-tweaks/index.js"
     },
+    "./design-tweaks/google-fonts": {
+      "types": "./dist/design-tweaks/google-fonts.d.ts",
+      "browser": "./dist/design-tweaks/google-fonts.js",
+      "development": "./dist/design-tweaks/google-fonts.js",
+      "import": "./dist/design-tweaks/google-fonts.js",
+      "default": "./dist/design-tweaks/google-fonts.js"
+    },
     "./design-system": {
       "types": "./dist/design-system/index.d.ts",
       "browser": "./dist/design-system/index.js",
@@ -472,6 +479,13 @@
       "development": "./dist/app/onboarding/first-run-builder-credits-flag.js",
       "import": "./dist/app/onboarding/first-run-builder-credits-flag.js",
       "default": "./dist/app/onboarding/first-run-builder-credits-flag.js"
+    },
+    "./app/generation": {
+      "types": "./dist/app/generation/index.d.ts",
+      "browser": "./dist/app/generation/index.js",
+      "development": "./dist/app/generation/index.js",
+      "import": "./dist/app/generation/index.js",
+      "default": "./dist/app/generation/index.js"
     },
     "./app/progress": {
       "types": "./dist/app/progress/index.d.ts",
@@ -736,7 +750,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.221.0",
+    "@agent-native/core": ">=0.223.0-0",
     "@excalidraw/excalidraw": ">=0.18",
     "@excalidraw/mermaid-to-excalidraw": ">=2",
     "@tanstack/react-query": "^5.99.2",

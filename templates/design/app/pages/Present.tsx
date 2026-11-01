@@ -50,6 +50,7 @@ import {
   ReviewCanvasPins,
   type ReviewFocusRequest,
 } from "@/components/visual-editor/ReviewCanvasPins";
+import { prettyScreenName } from "@/lib/screen-names";
 
 import { withLocalRuntimes } from "../components/design/design-canvas/local-runtime";
 import {
@@ -205,6 +206,15 @@ export default function Present() {
         threadId: thread.root.threadId,
       });
     },
+    [files],
+  );
+  // The shared file shape here carries no URL, so no screen gets a route.
+  const reviewScreens = useMemo(
+    () =>
+      files.map((file) => ({
+        id: file.id,
+        name: prettyScreenName(file.filename),
+      })),
     [files],
   );
 
@@ -388,14 +398,9 @@ export default function Present() {
               <ReviewCommentsPanel
                 designId={id}
                 canComment={canPost}
-                canResolve={canResolve}
                 currentTargetId={activeFile?.id ?? null}
                 currentUserEmail={session?.email}
-                canDeleteComment={(comment) =>
-                  canResolve ||
-                  ("canDelete" in comment && comment.canDelete === true) ||
-                  comment.authorEmail === session?.email
-                }
+                screens={reviewScreens}
                 signInHref={signInHref}
                 onSelectThread={handleReviewThreadSelect}
                 className="min-h-0 flex-1"

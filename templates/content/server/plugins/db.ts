@@ -1653,6 +1653,11 @@ export const runContentMigrations = runMigrations(
           FOR EACH STATEMENT
           EXECUTE FUNCTION content_property_value_tombstone()`,
     },
+    {
+      version: 134,
+      name: "content-preview-draft-base-content-hash",
+      sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_content_hash TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

@@ -195,6 +195,11 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/workspace-connections/actions/list-workspace-user-groups",
   },
   {
+    name: "list-workspace-connection-scopes",
+    specifier:
+      "@agent-native/core/workspace-connections/actions/list-workspace-connection-scopes",
+  },
+  {
     name: "upsert-workspace-user-group",
     specifier:
       "@agent-native/core/workspace-connections/actions/upsert-workspace-user-group",
@@ -494,7 +499,7 @@ function scanActionFiles(actionsDir: string): string[] {
       const reexportsDefaultAction =
         /export\s*\{\s*default\s*\}\s*from\s*["'][^"']+["']/.test(content);
       const exportsActionFactory =
-        /export\s+default\s+(?:create[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
+        /export\s+default\s+(?:(?:create|define)[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
           content,
         );
       if (

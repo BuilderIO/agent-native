@@ -463,6 +463,7 @@ export function useEditorModes({
       clearPendingOverviewLayerSelectionTimer,
       overviewScreens,
       runEditorViewTransition,
+      setVectorEditingState,
     ],
   );
   const responsiveInteractActive =
@@ -1080,16 +1081,20 @@ export function useEditorModes({
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
           return true;
         }
-        setVectorEditingState({
-          screenId: owner.fileId,
-          nodeId,
-          layerId: owner.node.id,
-          path: editable.path,
-          selectedAnchorIndex: null,
-          sourceOffset: editable.sourceOffset,
-          sourceMapping: editable.sourceMapping,
-          primitiveSource: null,
-        });
+        if (
+          !setVectorEditingState({
+            screenId: owner.fileId,
+            nodeId,
+            layerId: owner.node.id,
+            path: editable.path,
+            selectedAnchorIndex: null,
+            sourceOffset: editable.sourceOffset,
+            sourceMapping: editable.sourceMapping,
+            primitiveSource: null,
+          })
+        ) {
+          return false;
+        }
         return true;
       }
 
@@ -1102,16 +1107,20 @@ export function useEditorModes({
         toast.error(t("designEditor.toasts.vectorEditUnsupported"));
         return true;
       }
-      setVectorEditingState({
-        screenId: owner.fileId,
-        nodeId,
-        layerId: owner.node.id,
-        path: source.path,
-        selectedAnchorIndex: null,
-        sourceOffset: { x: 0, y: 0 },
-        sourceMapping: null,
-        primitiveSource: { geometry: source.geometry, fill: source.fill },
-      });
+      if (
+        !setVectorEditingState({
+          screenId: owner.fileId,
+          nodeId,
+          layerId: owner.node.id,
+          path: source.path,
+          selectedAnchorIndex: null,
+          sourceOffset: { x: 0, y: 0 },
+          sourceMapping: null,
+          primitiveSource: { geometry: source.geometry, fill: source.fill },
+        })
+      ) {
+        return false;
+      }
       return true;
     },
     [
@@ -1119,41 +1128,41 @@ export function useEditorModes({
       canvasFrameGeometryById,
       getOverviewFrameIframe,
       overviewScreens,
+      setVectorEditingState,
       t,
     ],
   );
-  const handleEnterHotkey = useCallback(
-    () =>
-      runEnterHotkey({
-        SINGLE_MODE_TEXT_TAGS,
-        activeFile,
-        activeFileId,
-        boardFileId,
-        codeLayerOwnerByNodeIdRef,
-        enterVectorEditForSelection,
-        getProjectionContentForScreen,
-        overviewSelectedScreenIds,
-        selectedElement,
-        selectCodeLayerNodesForHotkey,
-        selectedLayerIdsState,
-        setActiveFileId,
-        setSelectedLayerIdsState,
-        viewMode,
-      }),
-    [
+  const handleEnterHotkey = useCallback(() => {
+    if (!activeFile) return;
+    return runEnterHotkey({
       SINGLE_MODE_TEXT_TAGS,
-      activeFile?.id,
+      activeFile,
       activeFileId,
       boardFileId,
+      codeLayerOwnerByNodeIdRef,
       enterVectorEditForSelection,
       getProjectionContentForScreen,
       overviewSelectedScreenIds,
       selectedElement,
       selectCodeLayerNodesForHotkey,
       selectedLayerIdsState,
+      setActiveFileId,
+      setSelectedLayerIdsState,
       viewMode,
-    ],
-  );
+    });
+  }, [
+    SINGLE_MODE_TEXT_TAGS,
+    activeFile?.id,
+    activeFileId,
+    boardFileId,
+    enterVectorEditForSelection,
+    getProjectionContentForScreen,
+    overviewSelectedScreenIds,
+    selectedElement,
+    selectCodeLayerNodesForHotkey,
+    selectedLayerIdsState,
+    viewMode,
+  ]);
 
   useEffect(() => {
     const getPreviewIframe = () =>

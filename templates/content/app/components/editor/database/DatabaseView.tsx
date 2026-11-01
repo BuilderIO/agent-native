@@ -113,7 +113,6 @@ import {
   IconDots,
   IconExternalLink,
   IconEye,
-  IconEyeOff,
   IconFilter,
   IconFileText,
   IconFolder,
@@ -126,7 +125,6 @@ import {
   IconMinus,
   IconPlus,
   IconPlugConnected,
-  IconPalette,
   IconPencil,
   IconRefresh,
   IconSearch,
@@ -138,17 +136,20 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  memo,
   useEffect,
   useCallback,
   useId,
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -260,6 +261,8 @@ import {
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useStableCallback } from "@/hooks/use-stable-callback";
+import { useStableRecord } from "@/hooks/use-stable-record";
 import { messagesByLocale } from "@/i18n-data";
 import { readPageShapeHint, rememberPageShape } from "@/lib/page-startup-hints";
 import { startupAnchor } from "@/lib/startup-timing";
@@ -331,6 +334,11 @@ import {
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
 import { DatabaseCellComments } from "./database-cell-comments";
 import {
+  createConstraintMenus,
+  useConstraintMenusState,
+  type ConstraintMenus,
+} from "./database-constraint-menus";
+import {
   DatabaseItemCommentsContext,
   DatabaseRowCommentCount,
   type OpenDatabaseItemComments,
@@ -338,7 +346,6 @@ import {
 import {
   DatabaseColumnPresentation,
   ColumnPresentationMenuItems,
-  useDatabaseColumnPresentation,
 } from "./DatabaseColumnPresentation";
 import type { DatabaseExportContext } from "./DatabaseExportDialog";
 import {
@@ -393,6 +400,10 @@ export interface DatabaseViewProps {
 
 const CONTENT_DATABASE_PAGE_SIZE = 100;
 const CONTENT_DATABASE_MAX_ITEM_LIMIT = 5_000;
+// Table rows are memoized, and their grids read the column order through
+// context; a fresh `{}` or `[]` each render would re-render them all.
+const NO_COLUMN_WRAP_OVERRIDES: Record<string, boolean> = {};
+const NO_COLUMN_ORDER: string[] = [];
 
 export function createDatabaseViewSaveQueue() {
   let previous: Promise<unknown> = Promise.resolve();
@@ -1196,16 +1207,8 @@ function DatabaseTable({
   const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
-  const [inlineAddFilterOpen, setInlineAddFilterOpen] = useState(false);
   const [toolbarFilterOpen, setToolbarFilterOpen] = useState(false);
-  const [inlineFilterOpenIndex, setInlineFilterOpenIndex] = useState<
-    number | null
-  >(null);
-  const [inlineAdvancedFilterOpen, setInlineAdvancedFilterOpen] =
-    useState(false);
-  const [inlineSortOpenIndex, setInlineSortOpenIndex] = useState<number | null>(
-    null,
-  );
+  const [constraintMenus] = useState(createConstraintMenus);
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
 
   const [builderReviewSourceId, setBuilderReviewSourceId] = useState<
@@ -1322,9 +1325,16 @@ function DatabaseTable({
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
   );
+  // Every view edit rebuilds the view, so keying this on the view itself would
+  // hand each memoized table row a new property list on every filter, sort or
+  // wrap change.
+  const propertyOrderKey = (activeView.propertyOrderIds ?? []).join("\n");
   const orderedProperties = useMemo(
-    () => orderDatabasePropertiesForView(properties, activeView),
-    [properties, activeView],
+    () =>
+      orderDatabasePropertiesForView(properties, {
+        propertyOrderIds: propertyOrderKey.split("\n"),
+      }),
+    [properties, propertyOrderKey],
   );
   const sorts = activeView.sorts;
   const filters = activeView.filters;
@@ -1333,7 +1343,11 @@ function DatabaseTable({
   const workspaceCreationPropertyValues = isWorkspaceCatalog
     ? databasePropertyValuesForNewItem(filters, properties, filterMode)
     : undefined;
-  const columnWidths = activeView.columnWidths;
+  // Rebuilt with the view as well, and every memoized table row reads them.
+  const columnWidths = useStableRecord(activeView.columnWidths);
+  const columnWrapOverrides = useStableRecord(
+    activeView.columnWrapOverrides ?? NO_COLUMN_WRAP_OVERRIDES,
+  );
   const databaseGroupProperty = useMemo(
     () => databaseViewGroupingProperty(activeView, orderedProperties),
     [activeView, orderedProperties],
@@ -1380,13 +1394,25 @@ function DatabaseTable({
     documentId: string | null;
     visibleItems: ContentDatabaseItem[];
   }>({ documentId: null, visibleItems: [] });
-  const tableProperties = useMemo(
+  // Whether a Property shows can depend on the rows, but every refetch brings
+  // a new `items` array. Keep the list's identity while the same Properties
+  // show, or each live write would redraw every memoized table row.
+  const tablePropertyIds = useMemo(
     () =>
-      orderedProperties.filter((property) =>
-        isDatabasePropertyVisibleInView(property, items, activeView),
-      ),
+      orderedProperties
+        .filter((property) =>
+          isDatabasePropertyVisibleInView(property, items, activeView),
+        )
+        .map((property) => property.definition.id)
+        .join("\n"),
     [orderedProperties, items, activeView],
   );
+  const tableProperties = useMemo(() => {
+    const visibleIds = new Set(tablePropertyIds.split("\n"));
+    return orderedProperties.filter((property) =>
+      visibleIds.has(property.definition.id),
+    );
+  }, [orderedProperties, tablePropertyIds]);
   const hiddenProperties = useMemo(
     () =>
       orderedProperties.filter(
@@ -2012,44 +2038,43 @@ function DatabaseTable({
   }
 
   // Opens the row with its Comments showing, from a count or a cell marker.
-  const previewItemComments: OpenDatabaseItemComments = (
-    item,
-    threadId,
-    propertyId,
-  ) => {
-    if (openWorkspaceFiles(item)) return;
-    seedDatabaseItemDocumentCaches(queryClient, item);
-    prioritizeBuilderBodyHydrationForItem(item);
-    if (activeView.openPagesIn === "full_page") {
-      const path = databaseItemPagePath(
-        item.document.id,
-        databaseId,
-        document.id,
-      );
-      const link = threadId
-        ? `${path}&comment=${encodeURIComponent(threadId)}`
-        : propertyId
-          ? `${path}&commentProperty=${encodeURIComponent(propertyId)}`
-          : path;
-      runPreviewTransition(() => void navigate(link));
-      return;
-    }
-    const intent: PageCommentIntent = {
-      key: ++previewCommentIntentSequenceRef.current,
-      documentId: item.document.id,
-      threadId,
-      propertyId,
-    };
-    if (item.document.id === previewDocumentId) {
-      setPreviewCommentIntent(intent);
-      return;
-    }
-    runPreviewTransition(() => {
-      previewSessionRef.current = null;
-      setPreviewCommentIntent(intent);
-      setPreviewDocumentIdState(item.document.id);
-    });
-  };
+  // Every table cell reads this through context, so it keeps one identity.
+  const previewItemComments: OpenDatabaseItemComments = useStableCallback(
+    (item, threadId, propertyId) => {
+      if (openWorkspaceFiles(item)) return;
+      seedDatabaseItemDocumentCaches(queryClient, item);
+      prioritizeBuilderBodyHydrationForItem(item);
+      if (activeView.openPagesIn === "full_page") {
+        const path = databaseItemPagePath(
+          item.document.id,
+          databaseId,
+          document.id,
+        );
+        const link = threadId
+          ? `${path}&comment=${encodeURIComponent(threadId)}`
+          : propertyId
+            ? `${path}&commentProperty=${encodeURIComponent(propertyId)}`
+            : path;
+        runPreviewTransition(() => void navigate(link));
+        return;
+      }
+      const intent: PageCommentIntent = {
+        key: ++previewCommentIntentSequenceRef.current,
+        documentId: item.document.id,
+        threadId,
+        ...(propertyId ? { propertyId } : {}),
+      };
+      if (item.document.id === previewDocumentId) {
+        setPreviewCommentIntent(intent);
+        return;
+      }
+      runPreviewTransition(() => {
+        previewSessionRef.current = null;
+        setPreviewCommentIntent(intent);
+        setPreviewDocumentIdState(item.document.id);
+      });
+    },
+  );
 
   function handleDeletedPreviewItem(item: ContentDatabaseItem) {
     const previewState = previewStateRef.current;
@@ -3345,8 +3370,10 @@ function DatabaseTable({
                   createDatabaseFilterForField(key, label, orderedProperties),
                 ]);
                 setInlineFilterControlsOpen(true);
-                setInlineAddFilterOpen(false);
-                setInlineFilterOpenIndex(filters.length);
+                constraintMenus.set({
+                  addFilter: false,
+                  filterIndex: filters.length,
+                });
                 setToolbarFilterOpen(false);
               }}
               onAddAdvancedFilter={(key, label) => {
@@ -3361,8 +3388,7 @@ function DatabaseTable({
                   ),
                 ]);
                 setInlineFilterControlsOpen(true);
-                setInlineAddFilterOpen(false);
-                setInlineAdvancedFilterOpen(true);
+                constraintMenus.set({ addFilter: false, advancedFilter: true });
                 setToolbarFilterOpen(false);
               }}
             />
@@ -3480,7 +3506,8 @@ function DatabaseTable({
       </div>
 
       {!canEditWidgetRows ? (
-        <DatabaseActiveConstraintsBar
+        <DatabaseActiveConstraintsBarWithMenus
+          menus={constraintMenus}
           documentId={document.id}
           items={items}
           searchQuery={searchQuery}
@@ -3490,32 +3517,25 @@ function DatabaseTable({
           properties={properties}
           constraintCount={visibleConstraintCount}
           forceShow={inlineFilterControlsOpen}
-          addFilterOpen={inlineAddFilterOpen}
-          openSortIndex={inlineSortOpenIndex}
-          openFilterIndex={inlineFilterOpenIndex}
-          advancedFilterOpen={inlineAdvancedFilterOpen}
           hasPersonalQueryChanges={personalQueryDirty}
           savePending={updateView.isPending}
           onAddFilterOpenChange={(open) => {
-            setInlineAddFilterOpen(open);
+            constraintMenus.set({ addFilter: open });
             if (open) setInlineFilterControlsOpen(true);
           }}
-          onSortOpenIndexChange={setInlineSortOpenIndex}
-          onFilterOpenIndexChange={setInlineFilterOpenIndex}
-          onAdvancedFilterOpenChange={setInlineAdvancedFilterOpen}
           onClearSearch={() => {
             setSearchQuery("");
             setSearchOpen(false);
           }}
           onRemoveSort={(index) => {
             setActiveSorts(sorts.filter((_, sortIndex) => sortIndex !== index));
-            setInlineSortOpenIndex(null);
+            constraintMenus.set({ sortIndex: null });
           }}
           onRemoveFilter={(index) => {
             setActiveFilters(
               filters.filter((_, filterIndex) => filterIndex !== index),
             );
-            setInlineFilterOpenIndex(null);
+            constraintMenus.set({ filterIndex: null });
           }}
           onFiltersChange={setActiveFilters}
           onSortsChange={setActiveSorts}
@@ -3527,10 +3547,7 @@ function DatabaseTable({
             setActiveSorts([]);
             setActiveFilters([]);
             setInlineFilterControlsOpen(false);
-            setInlineAddFilterOpen(false);
-            setInlineFilterOpenIndex(null);
-            setInlineAdvancedFilterOpen(false);
-            setInlineSortOpenIndex(null);
+            constraintMenus.closeAll();
           }}
           onResetPersonalChanges={resetPersonalQueryChanges}
           onSaveForEveryone={() => void savePersonalQueryForEveryone()}
@@ -3812,7 +3829,7 @@ function DatabaseTable({
         >
           <DatabaseTableView
             startupAnchored={renderMode === "page"}
-            columnOrderIds={activeView.tableColumnOrderIds ?? []}
+            columnOrderIds={activeView.tableColumnOrderIds ?? NO_COLUMN_ORDER}
             databaseId={databaseId}
             databaseSystemRole={data?.database.systemRole}
             newRowLabel={newDatabaseRowLabel}
@@ -3845,7 +3862,7 @@ function DatabaseTable({
               )
             }
             onEffectiveFrozenColumnsChange={setEffectiveFrozenColumnIds}
-            columnWrapOverrides={activeView.columnWrapOverrides ?? {}}
+            columnWrapOverrides={columnWrapOverrides}
             frozenThroughColumnId={activeView.frozenThroughColumnId}
             onWrapColumn={(id, wrapped) =>
               updateActiveView((view) => ({
@@ -5526,7 +5543,6 @@ function DatabaseItemPreview({
                         void duplicatePreviewRow();
                       }}
                     >
-                      <IconCopy className="me-2 size-4" />
                       {dbText("duplicateRow")}
                     </DropdownMenuItem>
                   ) : null}
@@ -5541,7 +5557,6 @@ function DatabaseItemPreview({
                         );
                       }}
                     >
-                      <IconStarOff className="me-2 size-4" />
                       {sidebarText("removeFromFavorites")}
                     </DropdownMenuItem>
                   ) : null}
@@ -5739,6 +5754,10 @@ function DatabaseTableView({
     selectedItemIds.length > 0,
   );
   const { gutterWidth } = selectionGutter;
+  const tableLayout = useMemo(
+    () => ({ frozenThroughColumnId, viewportWidth, gutterWidth }),
+    [frozenThroughColumnId, viewportWidth, gutterWidth],
+  );
   const observedFrozenIds = databaseFrozenColumnIds(
     { frozenThroughColumnId },
     databaseTableColumnIds(
@@ -6091,6 +6110,18 @@ function DatabaseTableView({
     }
   }
 
+  // Rows are memoized, so a chip toggle or a one-row refetch redraws only
+  // the rows whose props changed. Handlers recreated here each render would
+  // redraw every row; pass rows these instead.
+  const onRowDragHandlePointerDown = useStableCallback(startRowDrag);
+  const onRowToggleCheckbox = useStableCallback(toggleCheckboxCell);
+  const onRowToggleSelected = useStableCallback(onToggleRowSelection);
+  const onRowPreview = useStableCallback(onPreview);
+  const onRowDeletedPreview = useStableCallback(onDeletedPreviewItem);
+  const onRowTitleEditStarted = useStableCallback(onTitleFocusHandled);
+  const onRowOpenPage = useStableCallback(onOpenPage);
+  const onRowUpdateWidgetTitle = useStableCallback(onUpdateWidgetRowTitle);
+
   async function removeSelectedRows(selectedSnapshot: ContentDatabaseItem[]) {
     if (selectedSnapshot.length === 0) return;
     setConfirmRemoveSelectedOpen(false);
@@ -6256,7 +6287,6 @@ function DatabaseTableView({
                     onGroupByChange(groupByPropertyId === id ? null : id)
                   }
                 >
-                  <IconList className="mr-2 size-4 text-muted-foreground" />
                   <span className="flex-1">{dbText("group")}</span>
                   {groupByPropertyId === id ? (
                     <IconCheck className="size-4" />
@@ -6295,9 +6325,7 @@ function DatabaseTableView({
         },
       }}
     >
-      <DatabaseTableLayout.Provider
-        value={{ frozenThroughColumnId, viewportWidth, gutterWidth }}
-      >
+      <DatabaseTableLayout.Provider value={tableLayout}>
         <DatabaseTableColumnOrder.Provider value={columnOrderIds}>
           <div
             {...(startupAnchored ? startupAnchor("database-table") : {})}
@@ -6520,9 +6548,10 @@ function DatabaseTableView({
                               canEdit={canEdit}
                               canEditRows={canEditRows}
                               sources={sources}
-                              onUpdateWidgetRowTitle={onUpdateWidgetRowTitle}
+                              onUpdateWidgetRowTitle={onRowUpdateWidgetTitle}
                               selectedIdSet={selectedIdSet}
                               wrapCells={wrapCells}
+                              columnWrapOverrides={columnWrapOverrides}
                               rowDensity={rowDensity}
                               isCreating={isCreating}
                               newRowLabel={newRowLabel}
@@ -6533,15 +6562,15 @@ function DatabaseTableView({
                                 group.id,
                               )}
                               onCreateRow={onCreateGroupedRow}
-                              onTitleFocusHandled={onTitleFocusHandled}
+                              onTitleFocusHandled={onRowTitleEditStarted}
                               onCollapsedChange={(collapsed) =>
                                 onGroupCollapsedChange(group.id, collapsed)
                               }
-                              onToggleCheckbox={toggleCheckboxCell}
-                              onToggleRowSelection={onToggleRowSelection}
-                              onPreview={onPreview}
-                              onDeletedPreviewItem={onDeletedPreviewItem}
-                              onOpenPage={onOpenPage}
+                              onToggleCheckbox={onRowToggleCheckbox}
+                              onToggleRowSelection={onRowToggleSelected}
+                              onPreview={onRowPreview}
+                              onDeletedPreviewItem={onRowDeletedPreview}
+                              onOpenPage={onRowOpenPage}
                             />
                           ))
                         : items.map((item, index) => (
@@ -6553,7 +6582,6 @@ function DatabaseTableView({
                               properties={properties}
                               columnWidths={columnWidths}
                               canEdit={canEdit}
-                              rowIndex={index}
                               canReorder={rowsAreManuallyOrdered}
                               canDragRow={rowDraggingEnabled}
                               canMoveUp={rowsAreManuallyOrdered && index > 0}
@@ -6571,26 +6599,22 @@ function DatabaseTableView({
                               startEditingTitle={
                                 focusedTitleDocumentId === item.document.id
                               }
-                              onDragHandlePointerDown={(event) =>
-                                startRowDrag(item.id, event)
+                              onDragHandlePointerDown={
+                                onRowDragHandlePointerDown
                               }
-                              onToggleCheckbox={(property) =>
-                                void toggleCheckboxCell(item, property)
-                              }
+                              onToggleCheckbox={onRowToggleCheckbox}
                               wrapCells={wrapCells}
+                              columnWrapOverrides={columnWrapOverrides}
                               rowDensity={rowDensity}
-                              onToggleSelected={() =>
-                                onToggleRowSelection(item.id)
-                              }
-                              onPreviewItem={onPreview}
-                              onDeletedPreviewItem={onDeletedPreviewItem}
-                              onTitleEditStarted={onTitleFocusHandled}
-                              onPreview={() => onPreview(item)}
-                              onOpenPage={() => onOpenPage(item)}
+                              onToggleSelected={onRowToggleSelected}
+                              onPreview={onRowPreview}
+                              onDeletedPreviewItem={onRowDeletedPreview}
+                              onTitleEditStarted={onRowTitleEditStarted}
+                              onOpenPage={onRowOpenPage}
                               onUpdateWidgetRowTitle={
                                 canEditRows &&
                                 !databaseItemIsSourceBacked(item, sources)
-                                  ? onUpdateWidgetRowTitle
+                                  ? onRowUpdateWidgetTitle
                                   : undefined
                               }
                             />
@@ -6719,6 +6743,36 @@ export function databaseConstraintsBarIsVisible(args: {
     args.constraintCount > 0 ||
     args.filterCount > 0 ||
     args.hasPersonalQueryChanges
+  );
+}
+
+function DatabaseActiveConstraintsBarWithMenus({
+  menus,
+  ...props
+}: Omit<
+  ComponentProps<typeof DatabaseActiveConstraintsBar>,
+  | "addFilterOpen"
+  | "advancedFilterOpen"
+  | "openFilterIndex"
+  | "openSortIndex"
+  | "onAdvancedFilterOpenChange"
+  | "onFilterOpenIndexChange"
+  | "onSortOpenIndexChange"
+> & { menus: ConstraintMenus }) {
+  const open = useConstraintMenusState(menus);
+  return (
+    <DatabaseActiveConstraintsBar
+      {...props}
+      addFilterOpen={open.addFilter}
+      advancedFilterOpen={open.advancedFilter}
+      openFilterIndex={open.filterIndex}
+      openSortIndex={open.sortIndex}
+      onAdvancedFilterOpenChange={(advancedFilter) =>
+        menus.set({ advancedFilter })
+      }
+      onFilterOpenIndexChange={(filterIndex) => menus.set({ filterIndex })}
+      onSortOpenIndexChange={(sortIndex) => menus.set({ sortIndex })}
+    />
   );
 }
 
@@ -6868,7 +6922,6 @@ export function DatabaseActiveConstraintsBar({
                           onSaveForEveryone();
                         }}
                       >
-                        <IconCheck className="mr-2 size-4 text-muted-foreground" />
                         {dbText("saveForEveryone")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -7047,7 +7100,7 @@ function DatabaseInlineSortControl({
         >
           <div className="flex items-center gap-0.5">
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="h-8 min-w-0 flex-1 rounded px-1.5 text-xs [&>svg:last-child]:hidden">
+              <DropdownMenuSubTrigger className="min-w-0 flex-1 [&>svg:last-child]:hidden">
                 <SortFieldIcon sort={sort} properties={properties} />
                 <span className="min-w-0 flex-1 truncate">{sort.label}</span>
                 <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
@@ -7061,7 +7114,7 @@ function DatabaseInlineSortControl({
             </DropdownMenuSub>
 
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="h-8 min-w-0 flex-1 rounded px-1.5 text-xs [&>svg:last-child]:hidden">
+              <DropdownMenuSubTrigger className="min-w-0 flex-1 [&>svg:last-child]:hidden">
                 <span className="min-w-0 flex-1 truncate">
                   {databaseSortDirectionLabel(sort.direction)}
                 </span>
@@ -7100,7 +7153,6 @@ function DatabaseInlineSortControl({
           <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="[&>svg:last-child]:hidden">
-              <IconPlus className="mr-2 size-4 text-muted-foreground" />
               <span className="flex-1">{dbText("addSort")}</span>
             </DropdownMenuSubTrigger>
             <DatabasePropertyPickerSubContent
@@ -7117,13 +7169,44 @@ function DatabaseInlineSortControl({
               onRemove();
             }}
           >
-            <IconTrash className="mr-2 size-4 text-muted-foreground" />
             {dbText("deleteSort")}
           </DropdownMenuItem>
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+// Adding a filter opens the new chip's menu while the add menu is still
+// animating closed. The new chip can shift that menu under the pointer, which
+// focuses it; that focus shouldn't close the chip's menu.
+function ignoreFocusInClosingMenu(event: Event) {
+  if (
+    event.target instanceof Element &&
+    event.target.closest('[role="menu"][data-state="closed"]')
+  ) {
+    event.preventDefault();
+  }
+}
+
+// Adding a filter opens the new chip's menu, which takes focus. Closing, the
+// add menu would return focus to its own button, and the chip's menu closes
+// when focus leaves it.
+function useAddFilterMenuFocus(
+  onAddFilter: (key: "name" | (string & {}), label: string) => void,
+) {
+  const filterAdded = useRef(false);
+  return {
+    onAddFilter: (key: "name" | (string & {}), label: string) => {
+      filterAdded.current = true;
+      onAddFilter(key, label);
+    },
+    onCloseAutoFocus: (event: Event) => {
+      if (!filterAdded.current) return;
+      filterAdded.current = false;
+      event.preventDefault();
+    },
+  };
 }
 
 export function DatabaseAddFilterButton({
@@ -7145,6 +7228,7 @@ export function DatabaseAddFilterButton({
     properties,
     filters.filter(isActiveFilter),
   );
+  const addFilterFocus = useAddFilterMenuFocus(onAddFilter);
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -7159,14 +7243,18 @@ export function DatabaseAddFilterButton({
           {dbText("filter")}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64">
+      <DropdownMenuContent
+        align="start"
+        className="w-64"
+        onCloseAutoFocus={addFilterFocus.onCloseAutoFocus}
+      >
         <div onKeyDown={(event) => event.stopPropagation()}>
           <DatabasePropertyPickerMenuItems
             properties={properties}
             includeName
             placeholder={dbText("filterBy")}
             closeOnSelect
-            onSelect={onAddFilter}
+            onSelect={addFilterFocus.onAddFilter}
           />
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -7178,7 +7266,6 @@ export function DatabaseAddFilterButton({
               );
             }}
           >
-            <IconPlus className="mr-2 size-4 text-muted-foreground" />
             {dbText("addAdvancedFilter")}
           </DropdownMenuItem>
         </div>
@@ -7416,8 +7503,7 @@ function DatabaseAdvancedFilterGroupControl({
 
           <DropdownMenuSeparator className="my-1" />
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="h-9 rounded px-2 text-xs text-muted-foreground [&>svg:last-child]:hidden">
-              <IconPlus className="mr-2 size-4 text-muted-foreground" />
+            <DropdownMenuSubTrigger className="text-muted-foreground [&>svg:last-child]:hidden">
               <span className="flex-1">{dbText("addFilterRule")}</span>
               <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
             </DropdownMenuSubTrigger>
@@ -7428,7 +7514,6 @@ function DatabaseAdvancedFilterGroupControl({
                   addAdvancedRule(addRuleCandidate.key, addRuleCandidate.label);
                 }}
               >
-                <IconPlus className="mr-2 size-4 text-muted-foreground" />
                 {dbText("addFilterRule")}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -7440,13 +7525,12 @@ function DatabaseAdvancedFilterGroupControl({
                   );
                 }}
               >
-                <IconPlus className="mr-2 size-4 text-muted-foreground" />
                 {dbText("addFilterGroup")}
               </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuItem
-            className="h-9 rounded px-2 text-xs text-muted-foreground"
+            className="text-muted-foreground"
             onSelect={(event) => {
               event.preventDefault();
               onFiltersChange(
@@ -7455,7 +7539,6 @@ function DatabaseAdvancedFilterGroupControl({
               onOpenChange(false);
             }}
           >
-            <IconTrash className="mr-2 size-4 text-muted-foreground" />
             {dbText("deleteFilter")}
           </DropdownMenuItem>
         </div>
@@ -7635,7 +7718,6 @@ function DatabaseAdvancedFilterRuleRow({
                   onRemove();
                 }}
               >
-                <IconX className="mr-2 size-4 text-muted-foreground" />
                 Remove
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -7780,7 +7862,6 @@ function DatabaseAdvancedNestedFilterGroup({
                 );
               }}
             >
-              <IconPlus className="mr-2 size-4 text-muted-foreground" />
               {dbText("addFilterRule")}
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -7803,7 +7884,6 @@ function DatabaseAdvancedNestedFilterGroup({
               onRemoveGroup();
             }}
           >
-            <IconX className="mr-2 size-4 text-muted-foreground" />
             Remove
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -7860,8 +7940,14 @@ function DatabaseInlineFilterControl({
   const filterIsComplete =
     !contentDatabaseFilterOperatorNeedsValue(filter.operator) ||
     filter.value.trim().length > 0;
+  const outsideClickShield = useMenuOutsideClickShield(open, onOpenChange);
+  // Not modal, nor are the menus inside it: a modal menu restyles <body> to
+  // block pointer events and lock scrolling, which forces a style pass over
+  // every table cell each time a chip opens or closes. The shield blocks the
+  // page instead.
   return (
-    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+    <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
+      {outsideClickShield.shield}
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
@@ -7888,13 +7974,18 @@ function DatabaseInlineFilterControl({
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[260px] p-0">
+      <DropdownMenuContent
+        align="start"
+        className="w-[260px] p-0"
+        {...outsideClickShield.contentProps}
+        onFocusOutside={ignoreFocusInClosingMenu}
+      >
         <div
           className="grid gap-1 p-1"
           onKeyDown={(event) => event.stopPropagation()}
         >
           <div className="flex items-center gap-0.5">
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -7921,7 +8012,7 @@ function DatabaseInlineFilterControl({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -7962,7 +8053,7 @@ function DatabaseInlineFilterControl({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -7981,7 +8072,6 @@ function DatabaseInlineFilterControl({
                     );
                   }}
                 >
-                  <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
                   {dbText("moveFilterUp")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -7995,7 +8085,6 @@ function DatabaseInlineFilterControl({
                     );
                   }}
                 >
-                  <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
                   {dbText("moveFilterDown")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -8005,7 +8094,6 @@ function DatabaseInlineFilterControl({
                     onRemove();
                   }}
                 >
-                  <IconX className="mr-2 size-4 text-muted-foreground" />
                   Remove
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -8026,6 +8114,52 @@ function DatabaseInlineFilterControl({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+// Covers the page under an open non-modal menu so the click that dismisses it
+// doesn't also open the cell beneath, as a modal menu's blocking would. The
+// shield sits just under the menu layer (z-[290]), above everything else.
+// Spread `contentProps` onto the menu's content.
+function useMenuOutsideClickShield(
+  open: boolean,
+  onOpenChange: (open: boolean) => void,
+) {
+  const dismissedByShield = useRef(false);
+  const shield = open
+    ? createPortal(
+        <div
+          aria-hidden="true"
+          data-menu-outside-click-shield=""
+          className="fixed inset-0 z-[289]"
+          onClick={() => {
+            dismissedByShield.current = true;
+            onOpenChange(false);
+          }}
+        />,
+        document.body,
+      )
+    : null;
+  const contentProps = {
+    // The menu would close on pointerdown, removing the shield before the
+    // click lands, so the click would reach whatever is underneath.
+    onPointerDownOutside: (event: Event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.hasAttribute("data-menu-outside-click-shield")
+      ) {
+        event.preventDefault();
+      }
+    },
+    // Leave focus where the click put it, as an outside click on a non-modal
+    // menu does. In WebKit, moving focus off the chip when it reopens restyles
+    // much of the page.
+    onCloseAutoFocus: (event: Event) => {
+      if (!dismissedByShield.current) return;
+      dismissedByShield.current = false;
+      event.preventDefault();
+    },
+  };
+  return { shield, contentProps };
 }
 
 function databaseToolbarIconButtonClass(active = false) {
@@ -11735,8 +11869,6 @@ function DatabaseOpenPagesInSetting({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 p-1">
         {DATABASE_OPEN_PAGES_IN.map((option) => {
-          const Icon =
-            option === "full_page" ? IconExternalLink : IconLayoutGrid;
           return (
             <DropdownMenuItem
               key={option}
@@ -11746,7 +11878,6 @@ function DatabaseOpenPagesInSetting({
                 onChange(option);
               }}
             >
-              <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium">
                   {databaseOpenPagesInLabel(option)}
@@ -13063,7 +13194,6 @@ function DatabaseCalendarCard({
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
-            rowIndex={0}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -13341,7 +13471,6 @@ function DatabaseBoardView({
                       onHideEmptyGroupsChange(!hideEmptyGroups);
                     }}
                   >
-                    <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
                     <span className="flex-1">{dbText("hideEmptyGroups")}</span>
                     {hideEmptyGroups ? (
                       <IconCheck className="size-4 text-muted-foreground" />
@@ -13362,7 +13491,6 @@ function DatabaseBoardView({
                       );
                     }}
                   >
-                    <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
                     {dbText("collapseAllGroups")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -13375,7 +13503,6 @@ function DatabaseBoardView({
                       );
                     }}
                   >
-                    <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
                     {dbText("expandAllGroups")}
                   </DropdownMenuItem>
                 </>
@@ -13654,7 +13781,6 @@ function DatabaseBoardColumnHeader({
             <DropdownMenuSeparator />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={disabled}>
-                <IconPalette className="mr-2 size-4 text-muted-foreground" />
                 Color
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-44">
@@ -13684,7 +13810,6 @@ function DatabaseBoardColumnHeader({
               className="text-destructive focus:text-destructive"
               onSelect={() => void onRemove(group)}
             >
-              <IconTrash className="mr-2 size-4" />
               {dbText("deleteGroup")}
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -13786,7 +13911,6 @@ function DatabaseBoardCard({
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
-            rowIndex={0}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -16142,13 +16266,9 @@ function DatabaseViewTabs({
                     {dbText("renameView")}
                   </DropdownMenuItem>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <ViewIcon className="mr-2 size-4 text-muted-foreground" />
-                      Layout
-                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubTrigger>Layout</DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-48">
                       {DATABASE_VIEW_TYPES.map((type) => {
-                        const LayoutIcon = databaseViewIcon(type);
                         return (
                           <DropdownMenuItem
                             key={type}
@@ -16163,7 +16283,6 @@ function DatabaseViewTabs({
                               );
                             }}
                           >
-                            <LayoutIcon className="mr-2 size-4 text-muted-foreground" />
                             <span className="min-w-0 flex-1">
                               {databaseViewDefaultName(type)}
                             </span>
@@ -16183,7 +16302,6 @@ function DatabaseViewTabs({
                       );
                     }}
                   >
-                    <IconCopy className="mr-2 size-4 text-muted-foreground" />
                     {dbText("duplicateView")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -16197,7 +16315,6 @@ function DatabaseViewTabs({
                       );
                     }}
                   >
-                    <IconTrash className="mr-2 size-4" />
                     {dbText("deleteView")}
                   </DropdownMenuItem>
                 </>
@@ -17341,10 +17458,7 @@ function ColumnHeaderMenuContent({
         {label}
       </DropdownMenuLabel>
       <DropdownMenuSub>
-        <DropdownMenuSubTrigger>
-          <IconFilter className="mr-2 size-4 text-muted-foreground" />
-          {dbText("filter")}
-        </DropdownMenuSubTrigger>
+        <DropdownMenuSubTrigger>{dbText("filter")}</DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
           {quickFilters.map((quickFilter) => (
             <DropdownMenuItem
@@ -17382,10 +17496,7 @@ function ColumnHeaderMenuContent({
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuSub>
-        <DropdownMenuSubTrigger>
-          <IconArrowsSort className="mr-2 size-4 text-muted-foreground" />
-          {dbText("sort")}
-        </DropdownMenuSubTrigger>
+        <DropdownMenuSubTrigger>{dbText("sort")}</DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
           {(["asc", "desc"] as const).map((direction) => (
             <DropdownMenuItem
@@ -17437,7 +17548,6 @@ function ColumnHeaderMenuContent({
           disabled={hideDisabled}
           onSelect={() => void onHide()}
         >
-          <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
           {dbText("hideInView")}
         </DropdownMenuItem>
       ) : null}
@@ -18066,7 +18176,6 @@ function SortMenu({
                 >
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger className="min-w-0">
-                      <SortFieldIcon sort={sort} properties={properties} />
                       <span className="min-w-0 flex-1 truncate">
                         {sort.label}
                       </span>
@@ -18189,6 +18298,7 @@ export function FilterMenu({
     properties,
     activeFilters,
   );
+  const addFilterFocus = useAddFilterMenuFocus(onAddFilter);
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -18206,14 +18316,18 @@ export function FilterMenu({
           <IconFilter className="size-3.5" />
         </ContentTableToolbarButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent
+        align="end"
+        className="w-64"
+        onCloseAutoFocus={addFilterFocus.onCloseAutoFocus}
+      >
         <div onKeyDown={(event) => event.stopPropagation()}>
           <DatabasePropertyPickerMenuItems
             properties={properties}
             includeName
             placeholder={dbText("filterBy")}
             closeOnSelect
-            onSelect={onAddFilter}
+            onSelect={addFilterFocus.onAddFilter}
           />
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -18225,7 +18339,6 @@ export function FilterMenu({
               );
             }}
           >
-            <IconPlus className="mr-2 size-4 text-muted-foreground" />
             {dbText("addAdvancedFilter")}
           </DropdownMenuItem>
         </div>
@@ -18428,13 +18541,11 @@ function DatabaseFilterValueControl({
           <div className="max-h-60 overflow-auto py-0.5">
             {showClearValue ? (
               <DropdownMenuItem
-                className="text-xs"
                 onSelect={(event) => {
                   event.preventDefault();
                   onValueChange("");
                 }}
               >
-                <IconX className="mr-2 size-4 text-muted-foreground" />
                 {dbText("clearValue")}
               </DropdownMenuItem>
             ) : null}
@@ -18446,7 +18557,6 @@ function DatabaseFilterValueControl({
             {filteredOptions.map((option) => (
               <DropdownMenuItem
                 key={option.id}
-                className="text-xs"
                 onSelect={(event) => {
                   event.preventDefault();
                   chooseFilterOption(option);
@@ -18473,13 +18583,11 @@ function DatabaseFilterValueControl({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={configureProperty.isPending}
-                  className="text-xs"
                   onSelect={(event) => {
                     event.preventDefault();
                     void createFilterOption();
                   }}
                 >
-                  <IconPlus className="mr-2 size-4 text-muted-foreground" />
                   Create &ldquo;{optionQuery.trim()}&rdquo;
                 </DropdownMenuItem>
               </>
@@ -19324,6 +19432,7 @@ function DatabaseGroupedTableSection({
   onUpdateWidgetRowTitle,
   selectedIdSet,
   wrapCells,
+  columnWrapOverrides,
   rowDensity,
   isCreating,
   newRowLabel,
@@ -19354,6 +19463,7 @@ function DatabaseGroupedTableSection({
   ) => Promise<void>;
   selectedIdSet: Set<string>;
   wrapCells: boolean;
+  columnWrapOverrides: Record<string, boolean>;
   rowDensity: DatabaseRowDensity;
   isCreating: boolean;
   newRowLabel: string;
@@ -19393,7 +19503,6 @@ function DatabaseGroupedTableSection({
               properties={properties}
               columnWidths={columnWidths}
               canEdit={canEdit}
-              rowIndex={index}
               canReorder={false}
               canDragRow={false}
               canMoveUp={false}
@@ -19403,17 +19512,14 @@ function DatabaseGroupedTableSection({
               isDropTarget={false}
               startEditingTitle={focusedTitleDocumentId === item.document.id}
               wrapCells={wrapCells}
+              columnWrapOverrides={columnWrapOverrides}
               rowDensity={rowDensity}
-              onDragHandlePointerDown={() => undefined}
-              onToggleCheckbox={(property) =>
-                void onToggleCheckbox(item, property)
-              }
-              onToggleSelected={() => onToggleRowSelection(item.id)}
-              onPreviewItem={onPreview}
+              onToggleCheckbox={onToggleCheckbox}
+              onToggleSelected={onToggleRowSelection}
+              onPreview={onPreview}
               onDeletedPreviewItem={onDeletedPreviewItem}
               onTitleEditStarted={onTitleFocusHandled}
-              onPreview={() => onPreview(item)}
-              onOpenPage={() => onOpenPage(item)}
+              onOpenPage={onOpenPage}
               onUpdateWidgetRowTitle={
                 canEditRows &&
                 item.rowRevision &&
@@ -19476,14 +19582,17 @@ export function databaseItemPropertyForColumn(
   };
 }
 
-function DatabaseTableRow({
+// Memoized: a table redraws on every chip toggle and live-write refetch, and
+// unchanged rows keep their `item` identity through query structural sharing.
+// Pass only stable handlers and values; one per-render closure or object here
+// redraws every row again.
+const DatabaseTableRow = memo(function DatabaseTableRow({
   item,
   properties,
   columnWidths,
   databaseDocumentId,
   workspaceCatalog,
   canEdit,
-  rowIndex,
   canReorder,
   canDragRow,
   canMoveUp,
@@ -19493,15 +19602,15 @@ function DatabaseTableRow({
   isDropTarget,
   startEditingTitle,
   wrapCells,
+  columnWrapOverrides,
   rowDensity,
   onDragHandlePointerDown,
   onToggleCheckbox,
   onToggleSelected,
-  onPreviewItem,
+  onPreview,
   onDeletedPreviewItem,
   onTitleEditStarted,
   onUpdateWidgetRowTitle,
-  onPreview,
   onOpenPage,
 }: {
   item: ContentDatabaseItem;
@@ -19510,7 +19619,6 @@ function DatabaseTableRow({
   databaseDocumentId: string;
   workspaceCatalog: boolean;
   canEdit: boolean;
-  rowIndex: number;
   canReorder: boolean;
   canDragRow: boolean;
   canMoveUp: boolean;
@@ -19520,24 +19628,25 @@ function DatabaseTableRow({
   isDropTarget: boolean;
   startEditingTitle: boolean;
   wrapCells: boolean;
+  columnWrapOverrides: Record<string, boolean>;
   rowDensity: DatabaseRowDensity;
-  onDragHandlePointerDown: (event: ReactPointerEvent) => void;
-  onToggleCheckbox: (property: DocumentProperty) => void;
-  onToggleSelected: () => void;
-  onPreviewItem: (item: ContentDatabaseItem) => void;
+  onDragHandlePointerDown?: (itemId: string, event: ReactPointerEvent) => void;
+  onToggleCheckbox: (
+    item: ContentDatabaseItem,
+    property: DocumentProperty,
+  ) => Promise<void>;
+  onToggleSelected: (itemId: string) => void;
+  onPreview: (item: ContentDatabaseItem) => void;
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
   onTitleEditStarted: () => void;
   onUpdateWidgetRowTitle?: (
     item: ContentDatabaseItem,
     title: string,
   ) => Promise<void>;
-  onPreview: () => void;
-  onOpenPage: () => void;
+  onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
-  const presentation = useDatabaseColumnPresentation();
-  const longPress = useContentTableLongPress(onToggleSelected);
-  const columnWrap = (id: string) =>
-    presentation?.columnWrapOverrides[id] ?? wrapCells;
+  const longPress = useContentTableLongPress(() => onToggleSelected(item.id));
+  const columnWrap = (id: string) => columnWrapOverrides[id] ?? wrapCells;
   return (
     <DatabaseTableGrid
       {...longPress}
@@ -19562,14 +19671,14 @@ function DatabaseTableRow({
             checked={selected}
             quietUntilHover
             label={`${selected ? "Deselect" : "Select"} ${item.document.title || "Untitled"}`}
-            onToggle={onToggleSelected}
+            onToggle={() => onToggleSelected(item.id)}
           />
-          {canDragRow ? (
+          {canDragRow && onDragHandlePointerDown ? (
             <button
               type="button"
               aria-label={`Drag ${item.document.title || "Untitled"}`}
               className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-accent active:cursor-grabbing group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onPointerDown={onDragHandlePointerDown}
+              onPointerDown={(event) => onDragHandlePointerDown(item.id, event)}
             >
               <IconGripVertical className="size-3.5" />
             </button>
@@ -19589,7 +19698,7 @@ function DatabaseTableRow({
           wrapCells={columnWrap("name")}
           rowDensity={rowDensity}
           onTitleEditStarted={onTitleEditStarted}
-          onPreview={onPreview}
+          onPreview={() => onPreview(item)}
         />
       }
       propertyCells={properties.map((property) => {
@@ -19635,7 +19744,7 @@ function DatabaseTableRow({
                   itemProperty.definition.name
                 }`}
                 className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onToggleCheckbox(itemProperty)}
+                onClick={() => void onToggleCheckbox(item, itemProperty)}
               >
                 {value}
               </button>
@@ -19670,19 +19779,18 @@ function DatabaseTableRow({
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
-            rowIndex={rowIndex}
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}
-            onPreviewItem={onPreviewItem}
+            onPreviewItem={onPreview}
             onDeletedPreviewItem={onDeletedPreviewItem}
-            onOpenPage={onOpenPage}
+            onOpenPage={() => onOpenPage(item)}
           />
         ) : null
       }
     />
   );
-}
+});
 
 export function RowActionsCell({
   item,
@@ -19693,7 +19801,6 @@ export function RowActionsCell({
 }: {
   item: ContentDatabaseItem;
   databaseDocumentId: string;
-  rowIndex: number;
   canReorder: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -19808,7 +19915,6 @@ export function RowActionsCell({
               onOpenPage();
             }}
           >
-            <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
             {dbText("openPage")}
           </DropdownMenuItem>
           {canDuplicateRow ? (
@@ -19819,7 +19925,6 @@ export function RowActionsCell({
                 void duplicateRow();
               }}
             >
-              <IconCopy className="mr-2 size-4 text-muted-foreground" />
               {dbText("duplicateRow")}
             </DropdownMenuItem>
           ) : null}
@@ -19834,7 +19939,6 @@ export function RowActionsCell({
                 void removeRowOrDeleteWorkspace();
               }}
             >
-              <IconStarOff className="mr-2 size-4 text-muted-foreground" />
               {sidebarText("removeFromFavorites")}
             </DropdownMenuItem>
           ) : canRemoveFromDatabase || canDeleteWorkspace ? (
@@ -19846,7 +19950,6 @@ export function RowActionsCell({
                 setConfirmDeleteOpen(true);
               }}
             >
-              <IconTrash className="mr-2 size-4" />
               {canDeleteWorkspace
                 ? "Delete workspace"
                 : dbText("removeFromDatabase")}

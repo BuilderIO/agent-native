@@ -27,8 +27,14 @@ vi.mock("./run-store.js", () => ({
 const { runAgentLoop, AGENT_INTERNAL_CONTINUE_PROMPT } =
   await import("./production-agent.js");
 import { actionArgumentsHash } from "../action-arguments-identity.js";
-import { defineAction, fail, NoWriteError } from "../action.js";
+import {
+  ActionInputValidationError,
+  defineAction,
+  fail,
+  NoWriteError,
+} from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { attachmentFailureToError } from "../private-blob/attachment-errors.js";
 import type {
   AgentEngine,
   EngineEvent,
@@ -141,6 +147,39 @@ beforeEach(() => {
 });
 
 describe("a write rejected before it wrote", () => {
+  it("runs the corrected import after a file path that is not an upload reference", async () => {
+    const imported: string[] = [];
+    const importFile = defineAction({
+      description: "Import an uploaded file.",
+      schema: z.object({ filePath: z.string() }),
+      run: async ({ filePath }) => {
+        if (filePath !== "attachment:v1:example") {
+          throw attachmentFailureToError({
+            status: "malformed",
+            reason: "unrecognized_scheme",
+          });
+        }
+        imported.push(filePath);
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+
+    const events = await runCalls({ "import-file": importFile }, [
+      { name: "import-file", input: { filePath: "deck.pdf" } },
+      { name: "import-file", input: { filePath: "attachment:v1:example" } },
+    ]);
+
+    expect(imported).toEqual(["attachment:v1:example"]);
+    expectNoUnknownStop(events);
+    expect(events.some((event) => event.type === "error")).toBe(false);
+    const [rejected] = toolDones(events);
+    expect(rejected).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+    });
+    expect(rejected?.result).toContain("reference listed for the attachment");
+  });
+
   it("runs the corrected retry after a NoWriteError", async () => {
     const written: string[] = [];
     const events = await runCalls({ patch: patchAction(written) }, [
@@ -214,8 +253,37 @@ describe("a write rejected before it wrote", () => {
       isError: true,
       completedSideEffect: false,
       errorClass: "input_invalid",
+      invalidPaths: ["tweaks.0.type"],
     });
+    expect(toolDones(events)[1]).not.toHaveProperty("invalidPaths");
     expectNoUnknownStop(events);
+  });
+
+  it("names the failing fields of input the handler rejects", async () => {
+    const action = defineAction({
+      description: "Save tweaks.",
+      schema: z.object({
+        tweaks: z.array(z.object({ type: z.string() })),
+      }),
+      run: async () => {
+        throw new ActionInputValidationError(
+          "Invalid action parameters — tweaks.2.type is not a known tweak.",
+          ["tweaks.2.type"],
+        );
+      },
+    }) as unknown as ActionEntry;
+    const events = await runCalls({ save: action }, [
+      {
+        name: "save",
+        input: { tweaks: [{ type: "a" }, { type: "b" }, { type: "c" }] },
+      },
+    ]);
+
+    expect(toolDones(events)[0]).toMatchObject({
+      isError: true,
+      errorClass: "input_invalid",
+      invalidPaths: ["tweaks.2.type"],
+    });
   });
 
   it("treats an MCP tool's isError result as a known failure", async () => {

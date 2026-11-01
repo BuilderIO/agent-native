@@ -1315,6 +1315,22 @@ describe("public campaign frontend", () => {
     },
   );
 
+  it("CodeBlock clears its copied-state timer on unmount", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(copyText).mockResolvedValue(true);
+      const view = renderCampaign(<CodeBlock code="echo hi" lang="text" />);
+      await act(async () => {
+        fireEvent.click(view.getByRole("button", { name: "Copy code" }));
+      });
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      view.unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   const filterItems: UseCaseIndexItem[] = [
     {
       ...indexItem,

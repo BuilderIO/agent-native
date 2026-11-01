@@ -1442,10 +1442,8 @@ export function useEditorContentAndComponents({
         serverAccepted?: boolean;
       } = {},
     ) => {
-      if (
-        options.persist !== false &&
-        !canApplyContentEdit(activeFile?.id ?? "active")
-      ) {
+      if (!activeFile) return { status: "refused" as const };
+      if (options.persist !== false && !canApplyContentEdit(activeFile.id)) {
         return { status: "refused" as const };
       }
       const result = runApplyLocalContentUpdate(
@@ -1483,9 +1481,8 @@ export function useEditorContentAndComponents({
           sourceBaseContent:
             options.sourceBaseContent ??
             sourceBaseForPublication(
-              activeFile?.id ?? "",
-              options.historyBeforeContent ??
-                getScreenContent(activeFile?.id ?? ""),
+              activeFile.id,
+              options.historyBeforeContent ?? getScreenContent(activeFile.id),
             ),
         },
       );
@@ -1532,14 +1529,18 @@ export function useEditorContentAndComponents({
         historyBeforeContent?: string;
         sourceBaseContent?: string;
         identityMigrationSourceContent?: string;
+        deferWhenLinkedMutationPending?: boolean;
         shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
         serverAccepted?: boolean;
       } = {},
     ) => {
+      if (!activeFile) return { status: "refused" as const };
       if (options.persist !== false && !canApplyContentEdit(fileId)) {
-        return { status: "refused" as const };
+        return options.deferWhenLinkedMutationPending
+          ? { status: "deferred" as const }
+          : { status: "refused" as const };
       }
       const result = runApplyFileContentUpdate(
         {
@@ -1738,77 +1739,28 @@ export function useEditorContentAndComponents({
     };
   }
 
-  useEffect(
-    () =>
-      runMotionAutosave({
-        activeCanvasSourceType,
-        activeCodeLayerProjection: motionPreviewProjection,
-        activeContent,
-        activeFile,
-        applyFileContentUpdate,
-        applyMotionEdit,
-        clearMotionAutosaveTimer,
-        getScreenContent,
-        id,
-        lastLocalContentRef,
-        lastScheduledMotionAutosaveFileVersionRef,
-        lastScheduledMotionAutosaveRevisionRef,
-        latestActiveContentRef,
-        motionAutosaveFailedRevisionRef,
-        motionAutosaveFlushRef,
-        motionAutosavePending,
-        motionAutosaveRevision,
-        motionAutosaveRevisionRef,
-        motionAutosaveTimerRef,
-        motionDefaultEase,
-        motionDurationMs,
-        motionPlaybackMode,
-        motionTimelineId,
-        motionTimelineFilePath,
-        motionTracks,
-        motionAnimationStyles,
-        motionNativeStyles,
-        motionAudioClips,
-        motionEasingVariables,
-        motionProofTargetNodeIds,
-        motionTextDocument,
-        motionTracksDirty,
-        motionSourceVersionHashRef,
-        motionSourceVersionCapturedRef,
-        motionSourceConflictRef,
-        motionFileActivationEpochRef,
-        previousMotionFileIdRef,
-        queryClient,
-        removeMotionTimeline,
-        removeMotionTimelineMutation,
-        setMotionHydrationFingerprint,
-        setMotionTimelineId,
-        setMotionTracksDirty,
-        requestLocalhostWrite: (opts) =>
-          requestLocalhostWriteRef.current?.(opts) ?? "not-editable",
-        writeMotionAvailable,
-        sourceWriteUnavailableMessage:
-          motionSourceReadUnavailableReason ??
-          t("designEditor.motion.sourceWriteUnavailable"),
-        unresolvedStylesheetsMessage: t(
-          "designEditor.motion.unresolvedStylesheets",
-        ),
-        motionSourceConflictMessage: t("designEditor.motion.sourceConflict"),
-        motionReloadFromSourceLabel: t("designEditor.motion.reloadFromSource"),
-      }),
-    [
-      activeFile?.id,
-      activeFile?.updatedAt,
-      activeContent,
+  useEffect(() => {
+    if (!activeFile) return;
+    return runMotionAutosave({
       activeCanvasSourceType,
-      motionPreviewProjection,
+      activeCodeLayerProjection: motionPreviewProjection,
+      activeContent,
+      activeFile,
       applyFileContentUpdate,
       applyMotionEdit,
       clearMotionAutosaveTimer,
       getScreenContent,
       id,
-      motionAutosaveRevision,
+      lastLocalContentRef,
+      lastScheduledMotionAutosaveFileVersionRef,
+      lastScheduledMotionAutosaveRevisionRef,
+      latestActiveContentRef,
+      motionAutosaveFailedRevisionRef,
+      motionAutosaveFlushRef,
       motionAutosavePending,
+      motionAutosaveRevision,
+      motionAutosaveRevisionRef,
+      motionAutosaveTimerRef,
       motionDefaultEase,
       motionDurationMs,
       motionPlaybackMode,
@@ -1822,18 +1774,66 @@ export function useEditorContentAndComponents({
       motionProofTargetNodeIds,
       motionTextDocument,
       motionTracksDirty,
-      motionSourceReadUnavailableReason,
       motionSourceVersionHashRef,
       motionSourceVersionCapturedRef,
       motionSourceConflictRef,
-      writeMotionAvailable,
+      motionFileActivationEpochRef,
+      previousMotionFileIdRef,
       queryClient,
-      t,
       removeMotionTimeline,
-      removeMotionTimelineMutation.isPending,
-      requestLocalhostWriteRef,
-    ],
-  );
+      removeMotionTimelineMutation,
+      setMotionHydrationFingerprint,
+      setMotionTimelineId,
+      setMotionTracksDirty,
+      requestLocalhostWrite: (opts) =>
+        requestLocalhostWriteRef.current?.(opts) ?? "not-editable",
+      writeMotionAvailable,
+      sourceWriteUnavailableMessage:
+        motionSourceReadUnavailableReason ??
+        t("designEditor.motion.sourceWriteUnavailable"),
+      unresolvedStylesheetsMessage: t(
+        "designEditor.motion.unresolvedStylesheets",
+      ),
+      motionSourceConflictMessage: t("designEditor.motion.sourceConflict"),
+      motionReloadFromSourceLabel: t("designEditor.motion.reloadFromSource"),
+    });
+  }, [
+    activeFile?.id,
+    activeFile?.updatedAt,
+    activeContent,
+    activeCanvasSourceType,
+    motionPreviewProjection,
+    applyFileContentUpdate,
+    applyMotionEdit,
+    clearMotionAutosaveTimer,
+    getScreenContent,
+    id,
+    motionAutosaveRevision,
+    motionAutosavePending,
+    motionDefaultEase,
+    motionDurationMs,
+    motionPlaybackMode,
+    motionTimelineId,
+    motionTimelineFilePath,
+    motionTracks,
+    motionAnimationStyles,
+    motionNativeStyles,
+    motionAudioClips,
+    motionEasingVariables,
+    motionProofTargetNodeIds,
+    motionTextDocument,
+    motionTracksDirty,
+    motionSourceReadUnavailableReason,
+    motionSourceVersionHashRef,
+    motionSourceVersionCapturedRef,
+    motionSourceConflictRef,
+    writeMotionAvailable,
+    queryClient,
+    t,
+    removeMotionTimeline,
+    removeMotionTimelineMutation.isPending,
+    requestLocalhostWriteRef,
+  ]);
 
   const handleComponentPropApplied = useMemo(
     () =>
@@ -1966,29 +1966,28 @@ export function useEditorContentAndComponents({
     t,
   ]);
 
-  const handleDetachInstanceMenuAction = useCallback(
-    () =>
-      runDetachInstanceMenuAction({
-        activeContent,
-        activeFile,
-        activeFileId,
-        detachComponentInstanceMutation,
-        handleComponentPropApplied,
-        id,
-        selectedComponentNodeId: selectedInstanceActionNodeId,
-        t,
-      }),
-    [
-      activeFileId,
+  const handleDetachInstanceMenuAction = useCallback(() => {
+    if (!activeFile) return;
+    return runDetachInstanceMenuAction({
       activeContent,
-      activeFile?.updatedAt,
+      activeFile,
+      activeFileId,
       detachComponentInstanceMutation,
       handleComponentPropApplied,
       id,
-      selectedInstanceActionNodeId,
+      selectedComponentNodeId: selectedInstanceActionNodeId,
       t,
-    ],
-  );
+    });
+  }, [
+    activeFileId,
+    activeContent,
+    activeFile?.updatedAt,
+    detachComponentInstanceMutation,
+    handleComponentPropApplied,
+    id,
+    selectedInstanceActionNodeId,
+    t,
+  ]);
 
   const handleSwapInstanceMenuAction = useCallback(() => {
     if (!id || !selectedInstanceActionNodeId) return;

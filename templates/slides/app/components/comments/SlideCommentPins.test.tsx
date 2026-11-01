@@ -46,8 +46,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     })[key] ?? key,
 }));
 
-vi.mock("@agent-native/toolkit/app/review", () => ({
-  InlineMarkdown: ({ content }: { content: string }) => <span>{content}</span>,
+vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/review")
+  >()),
+  CommentBody: ({ body }: { body: string }) => <span>{body}</span>,
 }));
 
 vi.mock("@/components/ui/avatar", () => ({
@@ -205,11 +208,7 @@ describe("SlideCommentPins", () => {
     fireEvent.click(plane, { clientX: 300, clientY: 150 });
     const input = screen.getByPlaceholderText("Add a comment...");
     fireEvent.change(input, { target: { value: "candidate" } });
-    fireEvent.keyDown(input, {
-      key: "Enter",
-      ctrlKey: true,
-      isComposing: true,
-    });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
     fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
 
     expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();
@@ -375,6 +374,46 @@ describe("SlideCommentPins", () => {
     fireEvent.click(marker);
     expect(screen.getAllByText("Check this image").length).toBeGreaterThan(0);
     expect(onSelectThread).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("names a marker with its comment's words, not its Markdown", async () => {
+    renderWithCanvas({
+      comments: [
+        {
+          threadId: "thread-1",
+          quotedText: null,
+          anchor: { x: 25, y: 30 },
+          resolved: false,
+          comments: [
+            {
+              id: "comment-1",
+              deck_id: "deck-1",
+              slide_id: "slide-1",
+              thread_id: "thread-1",
+              parent_id: null,
+              content:
+                "**Bigger** title for @[Sam Lee](mailto:sam@example.com)\n\n- and `step-2`",
+              quoted_text: null,
+              anchor: { x: 25, y: 30 },
+              author_email: "writer@example.com",
+              author_name: "Writer",
+              resolved: false,
+              created_at: "2026-08-27T00:00:00.000Z",
+              updated_at: "2026-08-27T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    });
+
+    const label = await waitFor(() => {
+      const value = document
+        .querySelector("[data-slide-comment-marker]")
+        ?.getAttribute("aria-label");
+      expect(value).toBeTruthy();
+      return value;
+    });
+    expect(label).toBe("Bigger title for @Sam Lee - and step-2");
   });
 
   it("positions fallback text highlights relative to the canvas", async () => {

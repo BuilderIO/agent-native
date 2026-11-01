@@ -11,6 +11,7 @@ import {
   clearAgentChatContext,
   drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
+  getAgentChatSubmitTarget,
   isAgentChatSubmitCancelled,
   listAgentChatContext,
   removeAgentChatContextItem,
@@ -119,6 +120,9 @@ const assistantChatMockState = vi.hoisted(() => ({
   referenceDeliveries: [] as Array<{ threadId: string; context: string }>,
   onThreadRestoreNotFound: undefined as (() => void) | undefined,
   onRetryModelList: undefined as (() => void) | undefined,
+  onModelChange: undefined as
+    | ((model: string, engine: string) => void)
+    | undefined,
   onSlashCommand: undefined as ((command: string) => void) | undefined,
   onForkedThread: undefined as ((threadId: string) => void) | undefined,
   onGenerateTitle: undefined as
@@ -299,6 +303,7 @@ function stubCatalog(
   configuredKeys: string[],
   builderConfigured = false,
   appDefault: { model: string; engine?: string } = { model: "gpt-5-6-luna" },
+  currentEngineName: string | null = null,
 ) {
   invalidateClientStatusRequests();
   const modelEngines = Object.fromEntries(
@@ -331,7 +336,9 @@ function stubCatalog(
       builderConnected: builderConfigured,
     }),
     modelEngines,
-    currentModelEngine: null,
+    currentModelEngine: currentEngineName
+      ? modelEngines[currentEngineName]
+      : null,
     defaultModel: appDefault.model,
     defaultEngine: appDefault.engine,
     loadLiveGroups: async () => null,
@@ -472,6 +479,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
         onRetryModelList?: () => void;
+        onModelChange?: (model: string, engine: string) => void;
         onSlashCommand?: (command: string) => void;
         onForkedThread?: (threadId: string) => void;
         onGenerateTitle?: typeof assistantChatMockState.onGenerateTitle;
@@ -482,6 +490,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
       assistantChatMockState.onThreadRestoreNotFound =
         props.onThreadRestoreNotFound;
       assistantChatMockState.onRetryModelList = props.onRetryModelList;
+      assistantChatMockState.onModelChange = props.onModelChange;
       assistantChatMockState.onSlashCommand = props.onSlashCommand;
       assistantChatMockState.onForkedThread = props.onForkedThread;
       assistantChatMockState.onGenerateTitle = props.onGenerateTitle;
@@ -552,6 +561,9 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           }
           data-disabled-placeholder={props.composerDisabledPlaceholder}
           data-composer-active={props.isActiveComposer ? "true" : "false"}
+          data-composer-autofocus={
+            props.composerAutoFocus === false ? "false" : "true"
+          }
           data-reference-target={props.isReferenceTarget ? "true" : "false"}
           data-new-thread={props.isNewThread ? "true" : "false"}
           data-thread-state-loading={
@@ -592,6 +604,7 @@ function resetThreadMocks() {
   assistantChatMockState.referenceDeliveries = [];
   assistantChatMockState.onThreadRestoreNotFound = undefined;
   assistantChatMockState.onRetryModelList = undefined;
+  assistantChatMockState.onModelChange = undefined;
   assistantChatMockState.onSlashCommand = undefined;
   assistantChatMockState.onForkedThread = undefined;
   assistantChatMockState.onGenerateTitle = undefined;
@@ -4412,6 +4425,10 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       submitMessageId: "guided-answer-submit",
       tabId: "generation-thread",
     });
+    expect(getAgentChatSubmitTarget("guided-answer-submit")).toEqual({
+      tabId: "generation-thread",
+      threadId: "generation-thread",
+    });
     expect(threadMocks.switchThread).not.toHaveBeenCalled();
     window.removeEventListener("agentNative.chatSubmitTarget", onTarget);
   });
@@ -4601,6 +4618,49 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(view.modelOf()).toBe("claude-sonnet-5-5");
     expect(view.engineOf()).toBe("anthropic");
     await view.cleanup();
+  });
+
+  it("prefers the active engine default only when opted in and keeps an explicit choice", async () => {
+    const storageKey = "engine-default-test";
+    stubCatalog(
+      [
+        {
+          name: "anthropic",
+          label: "Anthropic",
+          defaultModel: "claude-sonnet-5-5",
+          supportedModels: ["claude-haiku-5-5", "claude-sonnet-5-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      ["ANTHROPIC_API_KEY"],
+      false,
+      { model: "legacy-default", engine: "legacy" },
+      "anthropic",
+    );
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const localRoot = createRoot(el);
+    await act(async () => {
+      localRoot.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          preferEngineDefaultModel
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const selected = () =>
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-selected-model");
+    expect(selected()).toBe("claude-sonnet-5-5");
+    await act(async () => {
+      assistantChatMockState.onModelChange?.("claude-haiku-5-5", "anthropic");
+    });
+    expect(selected()).toBe("claude-haiku-5-5");
+    await act(async () => localRoot.unmount());
+    el.remove();
   });
 
   it("offers a provider's own key next to Builder.io", async () => {
@@ -5994,6 +6054,60 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(tabs.map((tab) => tab.id)).toEqual(["thread-b"]);
+  });
+
+  describe("composer focus on thread swaps", () => {
+    const storageKey = "scope-focus-test";
+    const sceneThreads = () => {
+      const baseThread = threadMocks.threads[0];
+      threadMocks.threads = [
+        { ...baseThread, id: "thread-a" },
+        { ...baseThread, id: "thread-b" },
+      ];
+      threadMocks.activeThreadId = "thread-a";
+      for (const designId of ["design-a", "design-b"]) {
+        window.localStorage.setItem(
+          openTabsStorageKey(storageKey, { type: "design", id: designId }),
+          JSON.stringify(["thread-a", "thread-b"]),
+        );
+      }
+    };
+    const renderScope = async (designId: string) => {
+      await act(async () => {
+        root.render(
+          <MultiTabAssistantChat
+            storageKey={storageKey}
+            scope={{ type: "design", id: designId }}
+          />,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    };
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      });
+
+    it("leaves focus alone when a scope change swaps the active thread", async () => {
+      sceneThreads();
+      await renderScope("design-a");
+      await settle();
+      chatHandleMocks.focusComposer.mockClear();
+
+      threadMocks.activeThreadId = "thread-b";
+      await renderScope("design-b");
+      await settle();
+
+      expect(chatHandleMocks.focusComposer).not.toHaveBeenCalled();
+      expect(
+        container
+          .querySelector(
+            '[data-testid="assistant-chat"][data-composer-active="true"]',
+          )
+          ?.getAttribute("data-composer-autofocus"),
+      ).toBe("false");
+    });
   });
 
   it("renders resource context as a normal composer context item", async () => {

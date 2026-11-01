@@ -60,6 +60,7 @@ const {
 } = await import("./index.js");
 const { getRequestRunContext, runWithRequestContext } =
   await import("../../server/request-context.js");
+const { stopBackgroundJobs } = await import("../../server/background-jobs.js");
 
 const OWNER = "alice@example.com";
 
@@ -161,6 +162,45 @@ describe("driveSandboxExecution", () => {
     });
     expect(execute).toHaveBeenCalledTimes(1);
     expect(fireInternalDispatch).not.toHaveBeenCalled();
+  });
+
+  it("lets a closing server wait for an in-process execution to save its result", async () => {
+    let finish!: () => void;
+    const execute = vi.fn(
+      () =>
+        new Promise<{
+          stdout: string;
+          stderr: string;
+          exitCode: number;
+          timedOut: boolean;
+          bridgeToolsUsed: string[];
+        }>((resolve) => {
+          finish = () =>
+            resolve({
+              stdout: "done",
+              stderr: "",
+              exitCode: 0,
+              timedOut: false,
+              bridgeToolsUsed: [],
+            });
+        }),
+    );
+    registerSandboxExecutionRunner({ execute }, { replace: true });
+    const row = await makeExecution();
+    await driveSandboxExecution(row.id);
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+
+    let stopped = false;
+    const stopping = stopBackgroundJobs().then(() => {
+      stopped = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stopped).toBe(false);
+
+    finish();
+    await stopping;
+    const updated = await getSandboxExecutionInternal(row.id);
+    expect(updated!.status).toBe("succeeded");
   });
 });
 

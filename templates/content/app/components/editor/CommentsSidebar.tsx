@@ -133,6 +133,14 @@ import {
 } from "./property-comments";
 export { getAiCommentSource } from "./CommentEntry";
 import {
+  clipMarginThreadId,
+  optimisticClipCommentId,
+  seekClip,
+  useClipStackFronts,
+} from "./clip-embed/clip-comments";
+import { msToClock } from "./clip-embed/scrubber-position";
+import { useClipCommentWrites } from "./clip-embed/use-clip-comment-writes";
+import {
   CommentAiConversation,
   CommentAiRequestStatus,
   isCommentAiWorkingOn,
@@ -407,14 +415,25 @@ function threadTabHidden(
   return !!editor && inHiddenBlockFieldPanel(editor);
 }
 
+/** What a new comment sits beside: its text's highlight, or its Clip. */
+function pendingCommentMark(
+  container: ParentNode,
+  clipRecordingId: string | null,
+): HTMLElement | null {
+  return container.querySelector<HTMLElement>(
+    clipRecordingId
+      ? `[data-clip-embed="${cssEscape(clipRecordingId)}"]`
+      : ".comment-highlight--pending",
+  );
+}
+
 export function findPendingCommentPosition(
   scrollContainer: HTMLElement | null,
   layoutContainer: HTMLElement | null,
+  clipRecordingId: string | null = null,
 ): CommentThreadPosition | null {
   if (!scrollContainer) return null;
-  const pending = scrollContainer.querySelector(
-    ".comment-highlight--pending",
-  ) as HTMLElement | null;
+  const pending = pendingCommentMark(scrollContainer, clipRecordingId);
   if (!pending) return null;
   return anchorPosition(
     pending.getBoundingClientRect().top,
@@ -919,6 +938,8 @@ export type PendingCommentSelection = {
   property?: CommentPropertyTarget;
   /** The Collection whose Property it is. */
   databaseId?: string | null;
+  /** Set when the comment starts a thread at a moment of a Clip's video. */
+  clip?: { recordingId: string; videoTimestampMs: number };
 };
 
 type PendingCommentDraft = PendingCommentSelection & {
@@ -1179,6 +1200,10 @@ export function CommentsSidebar({
     currentUserOrgId,
   );
   const createComment = useCreateComment({ email: currentUserEmail });
+  const clipWrites = useClipCommentWrites(documentId, {
+    email: currentUserEmail,
+    name: currentUserName,
+  });
   const deleteComment = useDeleteComment();
   const resolveComment = useResolveComment();
   const queryClient = useQueryClient();
@@ -1504,6 +1529,13 @@ export function CommentsSidebar({
   const commentStacks = useMemo(
     () => (stacksEnabled ? groupCommentStacks(openThreads, threadBlocks) : []),
     [openThreads, stacksEnabled, threadBlocks],
+  );
+  // A folded Clip stack follows its video: it shows the thread the playhead
+  // last passed.
+  const clipStackFronts = useClipStackFronts(
+    documentId,
+    commentStacks,
+    (stack) => commentStackFront(stack.threads, stackTouches).threadId,
   );
   const openThreadIds = useMemo(
     () => openThreads.map((thread) => thread.threadId).join(","),
@@ -2007,6 +2039,25 @@ export function CommentsSidebar({
     };
   }, [pendingFocus, presentation]);
 
+  // A Clip's thread is saved in Clips; the margin knows it by an id that
+  // also names the Clip.
+  const startClipThread = async (
+    clip: { recordingId: string; videoTimestampMs: number },
+    content: string,
+    operationId: string,
+  ) => {
+    const saved = await clipWrites.startThread({
+      recordingId: clip.recordingId,
+      content,
+      videoTimestampMs: clip.videoTimestampMs,
+      operationId,
+    });
+    return {
+      id: saved.id,
+      threadId: clipMarginThreadId(clip.recordingId, saved.threadId),
+    };
+  };
+
   const handlePendingSubmit = async (
     agent?: CommentAiSelection,
   ): Promise<{
@@ -2025,39 +2076,49 @@ export function CommentsSidebar({
       return null;
     const id = pendingComment.id;
     const clientOperationId = crypto.randomUUID();
+    const clip = pendingComment.clip;
     pendingDraft.beginSubmission(clientOperationId);
     onPendingChange(id, () => ({ submitting: true }));
     setPendingHandoff({ id, operationId: clientOperationId });
-    touchThread(`optimistic-${clientOperationId}`);
+    touchThread(
+      clip
+        ? clipMarginThreadId(
+            clip.recordingId,
+            optimisticClipCommentId(clientOperationId),
+          )
+        : `optimistic-${clientOperationId}`,
+    );
     try {
-      const result = await createComment.mutateAsync({
-        clientOperationId,
-        documentId,
-        content: pendingText.trim(),
-        ...(pendingComment.property
-          ? {
-              propertyId: pendingComment.property.propertyId,
-              databaseId: pendingComment.databaseId ?? undefined,
-            }
-          : pendingComment.block
-            ? {
-                blockId: pendingComment.block.blockId,
-                blockType: pendingComment.block.blockType,
-                ...(pendingComment.fieldId
-                  ? { fieldId: pendingComment.fieldId }
-                  : {}),
-              }
-            : {
-                quotedText: pendingComment.quotedText,
-                anchorPrefix: pendingComment.anchor?.prefix,
-                anchorSuffix: pendingComment.anchor?.suffix,
-                anchorStartOffset: pendingComment.anchor?.startOffset,
-                ...(pendingComment.fieldId
-                  ? { fieldId: pendingComment.fieldId }
-                  : {}),
-              }),
-        mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
-      });
+      const result = clip
+        ? await startClipThread(clip, pendingText.trim(), clientOperationId)
+        : await createComment.mutateAsync({
+            clientOperationId,
+            documentId,
+            content: pendingText.trim(),
+            ...(pendingComment.property
+              ? {
+                  propertyId: pendingComment.property.propertyId,
+                  databaseId: pendingComment.databaseId ?? undefined,
+                }
+              : pendingComment.block
+                ? {
+                    blockId: pendingComment.block.blockId,
+                    blockType: pendingComment.block.blockType,
+                    ...(pendingComment.fieldId
+                      ? { fieldId: pendingComment.fieldId }
+                      : {}),
+                  }
+                : {
+                    quotedText: pendingComment.quotedText,
+                    anchorPrefix: pendingComment.anchor?.prefix,
+                    anchorSuffix: pendingComment.anchor?.suffix,
+                    anchorStartOffset: pendingComment.anchor?.startOffset,
+                    ...(pendingComment.fieldId
+                      ? { fieldId: pendingComment.fieldId }
+                      : {}),
+                  }),
+            mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
+          });
       pendingDraft.finishSubmission(clientOperationId);
       setPendingHandoff(null);
       // The new thread is its stack's front. Selecting it leaves its stack
@@ -2070,7 +2131,12 @@ export function CommentsSidebar({
       return { id: result.id, threadId: result.threadId };
     } catch (error) {
       const isCurrentPendingComment = pendingCommentRef.current?.id === id;
-      if (!isAmbiguousCommentCreateError(error) && isCurrentPendingComment) {
+      // A text comment Content may have saved stays as a card it reconciles;
+      // a Clip comment has no such card, so its text comes back on any failure.
+      if (
+        (clip || !isAmbiguousCommentCreateError(error)) &&
+        isCurrentPendingComment
+      ) {
         pendingDraft.restoreSubmittedDraft(clientOperationId);
         setPendingHandoff(null);
       }
@@ -2185,7 +2251,7 @@ export function CommentsSidebar({
     )
       return null;
     const thread = threads?.find((t) => t.threadId === threadId);
-    if (!thread || thread.resolved) return null;
+    if (!thread || thread.resolved || !threadCanComment(thread)) return null;
     const payload = JSON.stringify({
       documentId,
       threadId,
@@ -2197,14 +2263,21 @@ export function CommentsSidebar({
       replyDrafts.retryOperationId(threadId, payload) ?? crypto.randomUUID();
     replyDrafts.beginSubmission(threadId, clientOperationId);
     try {
-      const created = await createComment.mutateAsync({
-        clientOperationId,
-        documentId,
-        content: replyText.trim(),
-        threadId,
-        parentId: thread?.comments[0]?.id,
-        mentions: mentionsJsonFor(replyText, replyMentions, agent),
-      });
+      const created = thread.clip
+        ? await clipWrites.reply({
+            recordingId: thread.clip.recordingId,
+            threadId: thread.clip.threadId,
+            content: replyText.trim(),
+            operationId: clientOperationId,
+          })
+        : await createComment.mutateAsync({
+            clientOperationId,
+            documentId,
+            content: replyText.trim(),
+            threadId,
+            parentId: thread.comments[0]?.id,
+            mentions: mentionsJsonFor(replyText, replyMentions, agent),
+          });
       replyDrafts.clearRetry(threadId, clientOperationId);
       if (!holdDraft) replyDrafts.finishSubmission(clientOperationId);
       return { id: created.id, operationId: clientOperationId };
@@ -2323,6 +2396,7 @@ export function CommentsSidebar({
   const pendingCommentId = displayedPendingComment?.id;
   const pendingFieldId = displayedPendingComment?.fieldId ?? null;
   const pendingOnProperty = !!displayedPendingComment?.property;
+  const pendingClipId = displayedPendingComment?.clip?.recordingId ?? null;
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
     const blocks =
@@ -2334,7 +2408,7 @@ export function CommentsSidebar({
     if (stacksEnabled && container && pendingCommentId) {
       const highlight = pendingOnProperty
         ? null
-        : container.querySelector(".comment-highlight--pending");
+        : pendingCommentMark(container, pendingClipId);
       const block =
         highlight && !inHiddenBlockFieldPanel(highlight)
           ? commentBlockKey(highlight)
@@ -2353,7 +2427,7 @@ export function CommentsSidebar({
     const layoutContainer = alignToAnchors ? sidebarRef.current : null;
     const nextPendingPosition =
       hasPendingComment && alignToAnchors
-        ? findPendingCommentPosition(container, layoutContainer)
+        ? findPendingCommentPosition(container, layoutContainer, pendingClipId)
         : null;
     setPendingPosition((prev) =>
       prev?.documentTop === nextPendingPosition?.documentTop &&
@@ -2430,6 +2504,7 @@ export function CommentsSidebar({
     measuredThreads,
     openThreadIds,
     openThreads,
+    pendingClipId,
     pendingCommentId,
     pendingFieldId,
     pendingOnProperty,
@@ -2487,6 +2562,7 @@ export function CommentsSidebar({
             "hidden",
             "data-comment-thread",
             "data-comment-block-threads",
+            "data-clip-comment-threads",
           ],
         });
       }
@@ -2498,7 +2574,11 @@ export function CommentsSidebar({
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ["data-comment-thread", "data-comment-block-threads"],
+        attributeFilter: [
+          "data-comment-thread",
+          "data-comment-block-threads",
+          "data-clip-comment-threads",
+        ],
       });
     }
     const resizeObserver =
@@ -2722,6 +2802,17 @@ export function CommentsSidebar({
   // Resolving the open thread closes its card; staying selected would keep it
   // in the margin with no highlight to sit by. In an open stack the next
   // thread opens in its place, so the stack stays open for the rest.
+  // Clips decides who comments on a Clip and who resolves its threads.
+  const threadCanComment = (thread: CommentThread) =>
+    canComment && (!thread.clip || thread.clip.canComment);
+  const threadCanResolve = (thread: CommentThread) =>
+    thread.clip ? canComment && thread.clip.canResolve : canResolve;
+  // Opening a Clip's thread moves its video to the thread's moment.
+  const seekToThread = (thread: CommentThread) => {
+    if (!thread.clip) return;
+    seekClip(documentId, thread.clip.recordingId, thread.clip.videoTimestampMs);
+  };
+
   const closeResolvedThread = (threadId: string) => {
     const members = expandedStack?.threads ?? [];
     const index = members.findIndex((member) => member.threadId === threadId);
@@ -2736,7 +2827,10 @@ export function CommentsSidebar({
   };
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
     if (
-      !canResolve ||
+      !threadCanResolve(thread) ||
+      !thread.comments[0] ||
+      // Clips lists only open threads, so a resolved one is out of reach.
+      (thread.clip && !resolved) ||
       thread.comments.some(
         (comment) =>
           comment.mutation?.status === "pending" || comment.mutation?.ambiguous,
@@ -2752,11 +2846,18 @@ export function CommentsSidebar({
         : null;
     if (closed) closedResolvesRef.current.add(closed);
     try {
-      await resolveComment.mutateAsync({
-        id: thread.comments[0].id,
-        documentId,
-        resolved,
-      });
+      if (thread.clip) {
+        await clipWrites.resolveThread({
+          recordingId: thread.clip.recordingId,
+          threadId: thread.clip.threadId,
+        });
+      } else {
+        await resolveComment.mutateAsync({
+          id: thread.comments[0].id,
+          documentId,
+          resolved,
+        });
+      }
     } catch (error) {
       // A failed resolve reopens the thread, so its card opens again too,
       // unless the selection has moved or a new comment started since.
@@ -2794,7 +2895,10 @@ export function CommentsSidebar({
     stack: CommentStack<CommentThread>,
     layoutId: string,
   ) => {
-    const front = commentStackFront(stack.threads, stackTouches);
+    const passed = clipStackFronts.get(stack.key);
+    const front =
+      stack.threads.find((member) => member.threadId === passed) ??
+      commentStackFront(stack.threads, stackTouches);
     return (
       <CommentStackCard
         stackKey={stack.key}
@@ -2810,7 +2914,8 @@ export function CommentsSidebar({
         onOpen={() => {
           openStackOn(front.threadId);
           onActivateThread?.(front.threadId);
-          if (canComment) setReplyingThreadId(front.threadId);
+          seekToThread(front);
+          if (threadCanComment(front)) setReplyingThreadId(front.threadId);
         }}
         onHoverChange={(hovered) =>
           onHoveredThreadChange?.(hovered ? front.threadId : null)
@@ -2988,7 +3093,7 @@ export function CommentsSidebar({
         thread={thread}
         marginTop={marginTop}
         isActive={isActive}
-        canExpand={canComment}
+        canExpand={threadCanComment(thread) || !!thread.clip}
         isExpanded={replyingThreadId === thread.threadId}
         isSubmitting={
           isResolving(thread.threadId) || ambiguousCreate(thread.threadId)
@@ -3001,13 +3106,14 @@ export function CommentsSidebar({
           onHoveredThreadChange?.(hovered ? thread.threadId : null)
         }
         onExpand={() => {
+          seekToThread(thread);
           if (replyingThreadId === thread.threadId) return;
           onActivateThread?.(thread.threadId);
           scrollToCommentAnchor(
             scrollContainerRef?.current ?? null,
             threadPositions.get(thread.threadId)?.documentTop,
           );
-          if (canComment) setReplyingThreadId(thread.threadId);
+          if (threadCanComment(thread)) setReplyingThreadId(thread.threadId);
         }}
         onCollapse={() => {
           setReplyingThreadId(null);
@@ -3021,8 +3127,8 @@ export function CommentsSidebar({
           replyDrafts.setAiDraft(thread.threadId, aiDraft)
         }
         onHeightChange={handleThreadCardHeightChange}
-        canComment={canComment && !thread.resolved}
-        canResolve={canResolve}
+        canComment={threadCanComment(thread) && !thread.resolved}
+        canResolve={threadCanResolve(thread)}
         onSubmitReply={() => handleReply(thread.threadId)}
         onResolve={() =>
           thread.resolved ? handleReopen(thread) : handleResolve(thread)
@@ -3030,12 +3136,12 @@ export function CommentsSidebar({
         resolved={Boolean(thread.resolved)}
         surface={surface}
         onClose={onClose}
-        threadActions={renderThreadActions?.(thread)}
+        threadActions={thread.clip ? undefined : renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
         quote={
           threadQuotes.get(thread.threadId) ?? commentThreadQuote(thread, t)
         }
-        showQuote={inStack}
+        showQuote={inStack || !!thread.clip}
         propertyTarget={
           thread.property
             ? propertyThreadTarget(thread.property, documentProperties)
@@ -3053,7 +3159,9 @@ export function CommentsSidebar({
             comment={thread.comments.find((comment) => comment.id === id)!}
             documentId={documentId}
             currentUserEmail={currentUserEmail}
-            canComment={canComment}
+            // A Clip's comments are kept in Clips, so the page doesn't edit,
+            // delete, or react to them.
+            canComment={canComment && !thread.clip}
             headerActions={slots.headerActions}
             revealActions={slots.revealActions}
             replyAction={slots.replyAction}
@@ -3128,7 +3236,11 @@ export function CommentsSidebar({
             </>
           ) : undefined
         }
-        onAiSubmit={commentAi && !thread.field ? submitAi : undefined}
+        onAiSubmit={
+          commentAi && !thread.field && !thread.clip
+            ? (selection) => void submitAi(selection)
+            : undefined
+        }
         aiModelStorageKey={
           commentAi && !thread.field ? aiModelStorageKey : undefined
         }
@@ -3673,6 +3785,18 @@ export function CommentsSidebar({
                     )}
                   />
                 ) : null}
+                {displayedPendingComment.clip ? (
+                  <span
+                    className="mb-2 block border-s-2 border-border ps-2.5 text-sm tabular-nums text-muted-foreground"
+                    data-comment-quote
+                  >
+                    {t("clipEmbed.commentMoment", {
+                      time: msToClock(
+                        displayedPendingComment.clip.videoTimestampMs,
+                      ),
+                    })}
+                  </span>
+                ) : null}
                 {!pendingTargetValid && (
                   <p
                     role="alert"
@@ -3697,7 +3821,9 @@ export function CommentsSidebar({
                   }
                   onSubmit={() => void handlePendingSubmit()}
                   onAiSubmit={
-                    commentAi && !displayedPendingComment.fieldId
+                    commentAi &&
+                    !displayedPendingComment.fieldId &&
+                    !displayedPendingComment.clip
                       ? (selection) => void handlePendingAiSubmit(selection)
                       : undefined
                   }

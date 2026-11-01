@@ -36,6 +36,7 @@ import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import importAgentPack from "./import-agent-pack.js";
 import importAgent from "./import-agent.js";
+import inspectCommunityBuilderBackup from "./inspect-community-builder-backup.js";
 import inspectConnectAgentCard from "./inspect-connect-agent-card.js";
 import installCuratedCommunityApp from "./install-curated-community-app.js";
 import listAgentPack from "./list-agent-pack.js";
@@ -104,6 +105,7 @@ import updateVaultSecret from "./update-vault-secret.js";
 import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
 import updateWorkspaceResource from "./update-workspace-resource.js";
 import upsertDestination from "./upsert-destination.js";
+import verifyCuratedCommunityApp from "./verify-curated-community-app.js";
 import viewScreen from "./view-screen.js";
 
 export const dispatchActions: Record<string, ActionEntry> = {
@@ -173,6 +175,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-workspace-resources": listWorkspaceResources,
   "import-agent": importAgent,
   "inspect-connect-agent-card": inspectConnectAgentCard,
+  "inspect-community-builder-backup": inspectCommunityBuilderBackup,
   "import-agent-pack": importAgentPack,
   "install-curated-community-app": installCuratedCommunityApp,
   "list-agent-pack": listAgentPack,
@@ -212,5 +215,6 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "update-vault-secret": updateVaultSecret,
   "update-workspace-resource": updateWorkspaceResource,
   "upsert-destination": upsertDestination,
+  "verify-curated-community-app": verifyCuratedCommunityApp,
   "view-screen": viewScreen,
 };

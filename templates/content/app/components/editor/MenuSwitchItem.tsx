@@ -7,13 +7,11 @@ import { cn } from "@/lib/utils";
 export function MenuSwitchItem({
   checked,
   children,
-  icon,
   onToggle,
   switchTestId,
 }: {
   checked: boolean;
   children: ReactNode;
-  icon: ReactNode;
   onToggle: () => void;
   switchTestId?: string;
 }) {
@@ -33,7 +31,6 @@ export function MenuSwitchItem({
       }}
       role="menuitemcheckbox"
     >
-      {icon}
       {children}
       <span
         aria-hidden="true"

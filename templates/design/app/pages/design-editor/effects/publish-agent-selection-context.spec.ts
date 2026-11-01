@@ -60,6 +60,7 @@ function argsFor(overrides: Partial<Args> = {}): Args {
     persistedSelectionStateRef: { current: null },
     persistedSelectionWriteTimerRef: { current: null },
     responsiveEditScope: "base" as Args["responsiveEditScope"],
+    reviewThreadId: null,
     selectedElement: null,
     selectedScreenIds: [],
     selectedStateId: null,
@@ -342,6 +343,26 @@ describe("runPublishAgentSelectionContext application state write", () => {
       ["design-selection", "tab-123"],
     ]);
     expect(args.persistedSelectionStateRef.current).not.toBeNull();
+  });
+
+  it("publishes the open review thread, and null when none is open", () => {
+    runPublishAgentSelectionContext(argsFor({ reviewThreadId: "thread-9" }));
+    expect(publishedSelection().reviewThreadId).toBe("thread-9");
+    expect(writtenSelection().reviewThreadId).toBe("thread-9");
+
+    runPublishAgentSelectionContext(argsFor());
+    expect(publishedSelection().reviewThreadId).toBeNull();
+    expect(writtenSelection().reviewThreadId).toBeNull();
+  });
+
+  it("writes again right away when the open thread changes, not on the zoom debounce", () => {
+    const args = argsFor({ reviewThreadId: null });
+    runPublishAgentSelectionContext(args);
+    const afterFirst = vi.mocked(setClientAppState).mock.calls.length;
+
+    runPublishAgentSelectionContext({ ...args, reviewThreadId: "thread-9" });
+    expect(vi.mocked(setClientAppState).mock.calls.length).toBe(afterFirst * 2);
+    expect(writtenSelection().reviewThreadId).toBe("thread-9");
   });
 
   it("sends a bounded selection as keepalive so a write just before navigating away lands", () => {

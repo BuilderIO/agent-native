@@ -26,8 +26,8 @@ only when the available context leaves materially different choices.
 
 - Create the design if needed, then author complete email HTML with
   `create-file` (`fileType: "html"`) or `generate-design` (`devices: []`, a
-  600px-wide `canvasFrames` placement). Use optional `frameType: "hubspot-email"`
-  with `<meta name="agent-native:frame-type" content="hubspot-email">` in the
+  600px-wide `canvasFrames` placement). Put
+  `<meta name="agent-native:frame-type" content="hubspot-email">` in the
   head to retain email authoring defaults on future edits. Include the leading
   HubSpot header comment containing `templateType: email` and
   `isAvailableForNewContent: true` so new emails are selectable. The leading

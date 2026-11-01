@@ -21,6 +21,7 @@ import {
   computeSessionBypass,
   isContentEditorPath,
   isContentSuggestionReviewPath,
+  signedOutPublicViewHref,
 } from "./root";
 
 describe("Content editor session policy", () => {
@@ -70,5 +71,43 @@ describe("Content editor session policy", () => {
     expect(computeSessionBypass("/settings/agent")).toBe(false);
     expect(computeSessionBypass("/page/document-1/history")).toBe(false);
     expect(isContentEditorPath("/page")).toBe(false);
+  });
+});
+
+describe("Content signed-out public view", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/");
+    vi.mocked(appBasePath).mockReturnValue("/content");
+  });
+
+  it("sends a page's editor link to the page's public view", () => {
+    window.history.replaceState(null, "", "/content/page/FsXU0lX7Ime9#intro");
+    expect(signedOutPublicViewHref()).toBe("/content/p/FsXU0lX7Ime9#intro");
+
+    window.history.replaceState(
+      null,
+      "",
+      "/content/page/FsXU0lX7Ime9?databaseId=db-1&viewId=view-2#intro",
+    );
+    expect(signedOutPublicViewHref()).toBe(
+      "/content/p/FsXU0lX7Ime9?databaseId=db-1&viewId=view-2#intro",
+    );
+
+    vi.mocked(appBasePath).mockReturnValue("");
+    window.history.replaceState(null, "", "/page/FsXU0lX7Ime9/");
+    expect(signedOutPublicViewHref()).toBe("/p/FsXU0lX7Ime9");
+  });
+
+  it("leaves every other app URL to sign-in", () => {
+    for (const path of [
+      "/content",
+      "/content/settings/agent",
+      "/content/page/FsXU0lX7Ime9/history",
+      "/content/suggestions/FsXU0lX7Ime9",
+      "/content/p/FsXU0lX7Ime9",
+    ]) {
+      window.history.replaceState(null, "", path);
+      expect(signedOutPublicViewHref()).toBeNull();
+    }
   });
 });

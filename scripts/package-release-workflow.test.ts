@@ -67,6 +67,12 @@ const changesetsRequire = createRequire(
 const semver = changesetsRequire("semver") as {
   inc: (version: string, release: ReleaseBump) => string | null;
   satisfies: (version: string, range: string) => boolean;
+  minVersion: (range: string) => {
+    major: number;
+    minor: number;
+    patch: number;
+    version: string;
+  } | null;
 };
 
 const parseChangeset = (
@@ -1228,8 +1234,9 @@ esac
       const dispatchSnapshotPeer = fixtureManifest(
         "packages/dispatch/package.json",
       ).peerDependencies?.[core];
-      assert.equal(dispatchSnapshotPeer, dispatchPeer);
-      assert(semver.satisfies(String(snapshot), dispatchSnapshotPeer));
+      // oracle-change: snapshots now rewrite the peer alongside the workspace dev dependency.
+      assert.equal(dispatchSnapshotPeer, snapshot);
+      assert(semver.satisfies(String(snapshot), String(dispatchSnapshotPeer)));
       assert.equal(
         fixtureManifest("templates/community/range-fixture/package.json")
           .dependencies?.[core],
@@ -1319,20 +1326,15 @@ esac
       `Toolkit must accept the next fixed-group Core release, ${nextCoreRelease}`,
     );
 
-    for (const coreVersion of ["0.205.1", "0.220.0", "0.220.1"]) {
+    for (const coreVersion of ["0.205.1", "0.220.1", "0.221.1"]) {
       assert.equal(
         semver.satisfies(coreVersion, corePeerRange),
         false,
-        `Toolkit must not accept Core ${coreVersion} without the MCP approval client export`,
+        `Toolkit must not accept Core ${coreVersion} before the generation API requirement`,
       );
     }
 
-    for (const coreVersion of ["0.221.0", "0.221.1"]) {
-      assert.ok(
-        semver.satisfies(coreVersion, corePeerRange),
-        `Toolkit must accept Core ${coreVersion} with the MCP approval client export`,
-      );
-    }
+    assert.ok(semver.satisfies(corePackage.version, corePeerRange));
 
     assert.equal(
       toolkitPackage.peerDependenciesMeta?.["@agent-native/core"]?.optional,
@@ -1438,8 +1440,12 @@ esac
       (step) => step.run === "node scripts/guard-no-major-changeset.mjs",
     );
     assert.ok(install >= 0 && install < check && check < bumpPolicy);
+    assert.equal(steps[install].id, "setup");
     for (const index of [check, bumpPolicy]) {
       const condition = String(steps[index].if);
+      assert.match(condition, /!cancelled\(\)/);
+      assert.match(condition, /needs\.change-scope\.result == 'success'/);
+      assert.match(condition, /steps\.setup\.outcome == 'success'/);
       assert.match(
         condition,
         /needs\.change-scope\.outputs\.changeset == 'true'/,
@@ -1450,6 +1456,61 @@ esac
       (steps[check].env as Workflow).GITHUB_BASE_REF,
       "${{ github.base_ref }}",
     );
+  });
+
+  it("installs from the frozen lockfile without restoring the pnpm store", () => {
+    const action = parse(
+      readFileSync(".github/actions/setup-pnpm/action.yml", "utf8"),
+    ) as { runs: { steps: Workflow[] } };
+    const steps = action.runs.steps;
+    const setupNode = steps.find((step) =>
+      String(step.uses).startsWith("actions/setup-node@"),
+    );
+    assert(setupNode);
+    assert.equal((setupNode.with as Workflow).cache, undefined);
+    assert(
+      !steps.some((step) =>
+        String((step.with as Workflow | undefined)?.path).includes(
+          "pnpm/store",
+        ),
+      ),
+    );
+
+    const install = steps.find((step) => step.name === "Install dependencies");
+    assert(install);
+    assert.notEqual(install["continue-on-error"], true);
+    const dir = mkdtempSync(path.join(tmpdir(), "ci-pnpm-install-"));
+    try {
+      const pnpm = path.join(dir, "pnpm");
+      writeFileSync(
+        pnpm,
+        '#!/bin/bash\nprintf "%s\\n" "$*"\nexit "${TEST_EXIT:-0}"\n',
+      );
+      chmodSync(pnpm, 0o755);
+      for (const [mode, expected] of [
+        ["full", "install --frozen-lockfile"],
+        ["no-scripts", "install --frozen-lockfile --ignore-scripts"],
+      ]) {
+        const script = String(install.run).replaceAll(
+          "${{ inputs.install }}",
+          mode,
+        );
+        const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+        const success = spawnSync("bash", ["-e", "-c", script], {
+          env,
+          encoding: "utf8",
+        });
+        assert.equal(success.status, 0);
+        assert.equal(success.stdout.trim(), expected);
+        const failure = spawnSync("bash", ["-e", "-c", script], {
+          env: { ...env, TEST_EXIT: "9" },
+          encoding: "utf8",
+        });
+        assert.equal(failure.status, 9);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("consumes concurrent public changesets after stable publication", () => {
@@ -1738,15 +1799,25 @@ esac
       readFileSync("packages/dispatch/package.json", "utf8"),
     ) as { peerDependencies?: Record<string, string> };
     const corePeerRange = dispatch.peerDependencies?.["@agent-native/core"];
-    assert.equal(corePeerRange, ">=0.220.1-0 || >=0.221.0-0");
+    assert(corePeerRange);
+    const minimum = semver.minVersion(corePeerRange);
+    assert(minimum);
+    assert(semver.satisfies(minimum.version, ">=0.222.0-0"));
+    const tuple = `${minimum.major}.${minimum.minor}.${minimum.patch}`;
+    const core = JSON.parse(
+      readFileSync("packages/core/package.json", "utf8"),
+    ) as {
+      version: string;
+    };
     for (const version of [
-      "0.220.1-beta.0",
-      "0.220.1",
-      "0.221.0-beta.0",
-      "0.221.0",
+      `${tuple}-beta.0`,
+      `${tuple}-rc.0`,
+      tuple,
+      core.version,
     ]) {
       assert(semver.satisfies(version, corePeerRange), version);
     }
+    assert(!semver.satisfies("0.221.1", corePeerRange));
   });
 
   it("restores the shared Changesets config when a stable version run fails", async () => {
@@ -2412,13 +2483,11 @@ fi
       (forceMerge.env as Workflow).GH_TOKEN,
       "${{ steps.merge-token.outputs.token }}",
     );
-    assert.match(String(forceMerge.run), /branches\/main/);
-    assert.match(String(forceMerge.run), /current_main.*BASE_SHA/s);
-    assert.match(String(forceMerge.run), /repos\/\$REPO\/merges/);
-    assert.match(
-      String(forceMerge.run),
-      /actions\/workflows\/auto-merge-version-packages\.yml\/runs\?head_sha=\$folded_sha/,
-    );
+    // Main moves faster than validation finishes, so the validated head merges
+    // onto the current main instead of folding main in and restarting checks.
+    assert.doesNotMatch(String(forceMerge.run), /repos\/\$REPO\/merges/);
+    assert.doesNotMatch(String(forceMerge.run), /branches\/main/);
+    assert.match(String(forceMerge.run), /\.mergeable/);
     assert.match(String(forceMerge.run), /--match-head-commit "\$HEAD_SHA"/);
     assert.match(
       String(forceMerge.run),
@@ -2432,6 +2501,108 @@ fi
       String(forceMerge.run).indexOf("release-required-checks.ts verify") <
         String(forceMerge.run).indexOf("gh pr merge"),
     );
+  });
+
+  describe("force-merge step against a main that moved", () => {
+    const forceMergeRun = String(
+      (
+        ((autoMergeWorkflow.jobs as Workflow)["auto-merge"] as Workflow)
+          .steps as Workflow[]
+      ).find((step) => step.name === "Force-merge with admin bypass")?.run,
+    );
+
+    function runForceMerge(mergeableAnswers: string[]) {
+      const tempRoot = mkdtempSync(path.join(tmpdir(), "release-force-merge-"));
+      const binDirectory = path.join(tempRoot, "bin");
+      const callsPath = path.join(tempRoot, "calls.txt");
+      const mergeableCountPath = path.join(tempRoot, "mergeable-count.txt");
+      mkdirSync(binDirectory);
+      // `gh` answers the live PR read and records every other call; `node` and
+      // `sleep` stand in for the required-checks verifier and the poll delay.
+      writeFileSync(
+        path.join(binDirectory, "gh"),
+        `#!/bin/sh
+echo "$@" >> "$CALLS_FILE"
+case "$1" in
+  api)
+    case " $* " in
+      *" --jq .mergeable "*)
+        n=0
+        if [ -f "$MERGEABLE_COUNT_FILE" ]; then n=$(cat "$MERGEABLE_COUNT_FILE"); fi
+        n=$((n + 1))
+        printf '%s' "$n" > "$MERGEABLE_COUNT_FILE"
+        printf '%s\\n' "$(printf '%s' "$MERGEABLE_ANSWERS" | cut -d, -f"$n")"
+        ;;
+      *)
+        printf '%s' '{"state":"open","draft":false,"user":{"login":"builder-io-integration[bot]"},"head":{"ref":"changeset-release/main","sha":"head-sha","repo":{"full_name":"BuilderIO/agent-native"}},"base":{"ref":"main","sha":"old-base","repo":{"full_name":"BuilderIO/agent-native"}}}'
+        ;;
+    esac
+    ;;
+  pr) exit 0 ;;
+  *) exit 1 ;;
+esac
+`,
+      );
+      writeFileSync(path.join(binDirectory, "node"), "#!/bin/sh\nexit 0\n");
+      writeFileSync(path.join(binDirectory, "sleep"), "#!/bin/sh\nexit 0\n");
+      for (const name of ["gh", "node", "sleep"]) {
+        chmodSync(path.join(binDirectory, name), 0o755);
+      }
+      try {
+        const result = spawnSync("bash", ["-e", "-c", forceMergeRun], {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+            CALLS_FILE: callsPath,
+            MERGEABLE_COUNT_FILE: mergeableCountPath,
+            MERGEABLE_ANSWERS: mergeableAnswers.join(","),
+            REPO: "BuilderIO/agent-native",
+            PR_NUMBER: "8421",
+            BASE_SHA: "old-base",
+            HEAD_SHA: "head-sha",
+          },
+        });
+        const calls = readFileSync(callsPath, "utf8");
+        return { result, calls };
+      } finally {
+        rmSync(tempRoot, { recursive: true, force: true });
+      }
+    }
+
+    it("merges the validated head onto the current main and never folds main in", () => {
+      const { result, calls } = runForceMerge(["true"]);
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(
+        calls,
+        /pr merge 8421 --repo BuilderIO\/agent-native --admin --squash --match-head-commit head-sha/,
+      );
+      assert.doesNotMatch(calls, /\/merges/);
+    });
+
+    it("waits for GitHub to compute mergeability before merging", () => {
+      const { result, calls } = runForceMerge(["null", "null", "true"]);
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(calls, /--match-head-commit head-sha/);
+    });
+
+    it("refuses to merge a release PR that conflicts with main", () => {
+      const { result, calls } = runForceMerge(["false"]);
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /does not merge cleanly onto main/);
+      assert.doesNotMatch(calls, /pr merge/);
+    });
+
+    it("refuses to merge when GitHub never reports mergeability", () => {
+      const { result, calls } = runForceMerge(Array(12).fill("null"));
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /mergeable=null/);
+      assert.doesNotMatch(calls, /pr merge/);
+    });
   });
 
   it("waits until local runtime packages are fetchable before publishing dependents", async () => {

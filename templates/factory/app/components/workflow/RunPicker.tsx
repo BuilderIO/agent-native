@@ -24,7 +24,7 @@ import {
   succeededItemFailures,
 } from "./workflow-list-model";
 import { useWorkflowStrings } from "./workflow-strings";
-import { formatRunTime } from "./workflow-time";
+import { formatRunStart, formatRunTime } from "./workflow-time";
 import type { ListRunsResult, RunView } from "./workflow-types";
 
 const NO_RUN = "__none__";
@@ -149,9 +149,11 @@ function SelectedRunDetail({
   ]
     .filter(Boolean)
     .join(" · ");
+  const started = formatRunStart(run, locale);
   return (
     <>
       <span className="block">{summary}</span>
+      {started ? <span className="block">{started}</span> : null}
       {run.graphVersion !== currentVersion ? (
         <span className="block">
           {ws.runPicker.olderVersion(run.graphVersion, currentVersion)}
@@ -170,6 +172,7 @@ export function RunPicker({
   onSelect,
 }: RunPickerProps) {
   const ws = useWorkflowStrings();
+  const { locale } = useLocale();
 
   const runsQuery = useActionQuery<ListRunsResult>(
     "list-factory-workflow-runs",
@@ -237,7 +240,11 @@ export function RunPicker({
         ) : null}
         {unlisted ? <SelectItem value={runId}>{runId}</SelectItem> : null}
         {runs.map((run) => (
-          <SelectItem key={run.id} value={run.id}>
+          <SelectItem
+            key={run.id}
+            value={run.id}
+            title={formatRunStart(run, locale) ?? undefined}
+          >
             <RunLabel run={run} now={now} currentVersion={currentVersion} />
           </SelectItem>
         ))}

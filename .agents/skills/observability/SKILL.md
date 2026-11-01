@@ -103,7 +103,8 @@ true, so nobody has to ask the reporter for an example:
   event, its events, trace spans (failed tools carry a signature, see above),
   feedback and checkpoints; `list-agent-run-failures` finds candidates. Both are
   owner-scoped. Without Dispatch, `GET /_agent-native/observability/traces/:runId`
-  returns the same spans for the caller's own runs.
+  returns the same spans for the caller's own runs. To debug another user's run
+  from a run id, email, or object link, use the `debug-runs` skill.
 - **Alerts name examples.** The chat-health Slack alert lists the latest failed
   turns as `threadUrl (run id, code)`; if they cannot be read it says so.
 

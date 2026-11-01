@@ -26,7 +26,7 @@ import {
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface RecordPendingLiveTextEditArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   canEditDesign: boolean;
   canEditLiveScreens?: ReadonlySet<string>;
   cancelPendingStructureVerification: (
@@ -90,7 +90,8 @@ export function runRecordPendingLiveTextEdit(
 ) {
   if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
   const screen = files.find((file) => file.id === screenId);
-  const fallbackName = screen?.filename ?? screenId;
+  if (!screen) return;
+  const fallbackName = screen.filename;
   const sourceId =
     elementInfo?.sourceId ??
     (screenId === activeFile?.id ? selectedElement?.sourceId : null);

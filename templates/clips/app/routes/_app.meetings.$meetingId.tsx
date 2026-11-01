@@ -19,7 +19,6 @@ import {
   IconLoader2,
   IconNotes,
   IconPlus,
-  IconPlayerStop,
   IconRefresh,
   IconTrash,
   IconUsers,
@@ -1162,7 +1161,6 @@ export default function MeetingDetailRoute() {
                         setTimeout(() => setEndMeetingOpen(true), 0);
                       }}
                     >
-                      <IconPlayerStop className="mr-2 h-4 w-4" />
                       {t("meetingDetail.endMeeting")}
                     </DropdownMenuItem>
                   )}
@@ -1173,7 +1171,6 @@ export default function MeetingDetailRoute() {
                     }}
                     className="text-destructive focus:text-destructive"
                   >
-                    <IconTrash className="mr-2 h-4 w-4" />
                     {t("meetingDetail.removeMeeting")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>

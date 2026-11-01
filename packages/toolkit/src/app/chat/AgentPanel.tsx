@@ -602,9 +602,11 @@ export interface AgentPanelProps extends Omit<
   newCliTabLabel?: string;
   newUiTabLabel?: string;
   storageKey?: string;
+  preferEngineDefaultModel?: MultiTabAssistantChatProps["preferEngineDefaultModel"];
   restoreActiveThread?: boolean;
   scope?: import("@agent-native/core/client/agent-chat").ChatThreadScope | null;
   isolateHistoryByScope?: boolean;
+  composerAutoFocus?: MultiTabAssistantChatProps["composerAutoFocus"];
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   browserTabId?: string;
@@ -808,6 +810,7 @@ function AgentPanelInner({
   restoreActiveThread = true,
   scope,
   isolateHistoryByScope = false,
+  composerAutoFocus,
   showScopeBadge,
   browserTabId,
   threadUrlSync,
@@ -2273,6 +2276,7 @@ function AgentPanelInner({
               restoreActiveThread={restoreActiveThread}
               scope={scope}
               isolateHistoryByScope={isolateHistoryByScope}
+              composerAutoFocus={composerAutoFocus}
               showScopeBadge={showScopeBadge}
               browserTabId={browserTabId}
               threadUrlSync={threadUrlSync}

@@ -54,7 +54,7 @@ the user explicitly exports and imports them.
 
 ## Earlier screen time (lab)
 
-Behind the `clips.lookback-context` lab (`CLIPS_LOOKBACK_CONTEXT`, on by
+Behind the `clips.lookback-context` lab (`CLIPS_LOOKBACK_CONTEXT`, off by
 default). This only makes the option available: Rewind is off by default, and
 the per-device lookback duration starts at `0` / Off. The user must enable
 Rewind and choose a duration before earlier screen time is captured. When the

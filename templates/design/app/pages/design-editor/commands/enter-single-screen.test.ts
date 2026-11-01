@@ -81,4 +81,26 @@ describe("runEnterSingleScreen device", () => {
     expect(args.setMode).toHaveBeenCalledWith("interact");
     expect(args.setInteractDeviceName).not.toHaveBeenCalled();
   });
+
+  it("does not enter a screen while a vector edit is still pending", () => {
+    const args = makeArgs({
+      setVectorEditingState: vi.fn(() => false),
+    });
+
+    expect(runEnterSingleScreen(args, "mobile")).toBe(false);
+    expect(args.viewModeRef.current).toBe("overview");
+    expect(args.setActiveFileId).not.toHaveBeenCalled();
+    expect(args.clearPendingOverviewLayerSelectionTimer).not.toHaveBeenCalled();
+  });
+
+  it("does not change mode while a vector edit is pending on the active screen", () => {
+    const args = makeArgs({
+      setVectorEditingState: vi.fn(() => false),
+      viewModeRef: { current: "single" },
+    });
+
+    expect(runEnterSingleScreen(args)).toBe(false);
+    expect(args.setMode).not.toHaveBeenCalled();
+    expect(args.setScreenZoom).not.toHaveBeenCalled();
+  });
 });

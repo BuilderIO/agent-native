@@ -114,6 +114,37 @@ export async function lockPreviewDocumentDraftSettlement(input: {
   return readSettledPreviewDraftGeneration(input);
 }
 
+export async function fencePreviewDocumentDraftGeneration(input: {
+  db: ContentDb;
+  ownerEmail: string;
+  orgId: string;
+  documentId: string;
+  editorSessionId: string;
+  editGeneration: number;
+  now: string;
+}) {
+  await lockPreviewDocumentDraftSettlement(input);
+  // A chosen-away generation cannot write the source page while its recovery
+  // copy is pending. Settlement and draft cleanup still wait for that copy.
+  await input.db
+    .update(schema.documentPreviewDraftSettlements)
+    .set({
+      discardedGeneration: sql`GREATEST(COALESCE(${schema.documentPreviewDraftSettlements.discardedGeneration}, -1), ${input.editGeneration})`,
+      updatedAt: input.now,
+    })
+    .where(
+      and(
+        eq(schema.documentPreviewDraftSettlements.ownerEmail, input.ownerEmail),
+        eq(schema.documentPreviewDraftSettlements.orgId, input.orgId),
+        eq(schema.documentPreviewDraftSettlements.documentId, input.documentId),
+        eq(
+          schema.documentPreviewDraftSettlements.editorSessionId,
+          input.editorSessionId,
+        ),
+      ),
+    );
+}
+
 export async function settlePreviewDocumentDraft(input: {
   db: ContentDb;
   ownerEmail: string;

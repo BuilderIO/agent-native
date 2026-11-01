@@ -16,6 +16,10 @@ All notable user-facing changes to Slides 2 are documented here. Open it any tim
 
 ## 2026-10-22
 
+### Added
+
+- Outside assistants can clone a slide from existing context and open the copy in the Slides editor.
+
 ### Fixed
 
 - New decks and added slides open in the full Slides 2 app from their chat links.

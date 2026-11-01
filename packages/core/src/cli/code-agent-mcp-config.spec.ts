@@ -194,6 +194,34 @@ describe("code-agent MCP config", () => {
     ]);
   });
 
+  it("leaves workspace-connection servers out of CLI configs", () => {
+    const config: McpConfig = {
+      servers: {
+        healthy: {
+          type: "http",
+          url: "https://healthy.example/mcp",
+          headers: { Authorization: "Bearer healthy-placeholder" },
+        },
+        user_abc_hubspot: {
+          type: "http",
+          url: "https://mcp.hubspot.com",
+          workspaceConnection: {
+            provider: "hubspot",
+            connectionId: "hubspot-alice",
+            ownerEmail: "alice@example.com",
+            orgId: null,
+            appId: "crm",
+          },
+        },
+      },
+    };
+
+    expect(Object.keys(claudeMcpConfig(config, {})?.mcpServers ?? {})).toEqual([
+      "healthy",
+    ]);
+    expect(codexMcpConfigArgs(config, {}).join(" ")).not.toContain("hubspot");
+  });
+
   it("delivers nothing to Claude when no HTTP server is scoped in", () => {
     const environment = {
       MCP_SERVERS: JSON.stringify({

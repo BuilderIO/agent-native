@@ -400,6 +400,10 @@ class CollabDocConnection {
   private docMissing = false;
   private requestSource: string | undefined;
   private lastSetUser: CollabUser | null = null;
+  private pageHidden = false;
+  private presenceClear: Promise<Response> | null = null;
+  private signedOut = false;
+  private keepaliveSnapshots = new Set<readonly PendingCollabUpdate[]>();
   private userGeneration = 0;
 
   private pendingUpdates: PendingCollabUpdate[] = [];
@@ -407,7 +411,6 @@ class CollabDocConnection {
   private strictDeliveryVersion = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private updateInFlight = false;
-  private keepaliveInFlight = false;
   private updateErrors = 0;
   private updateBatchLimit = Infinity;
   private updateAbortController: AbortController | null = null;
@@ -538,6 +541,10 @@ class CollabDocConnection {
   remove(id: symbol): void {
     this.subscribers.delete(id);
     if (this.subscribers.size === 0) {
+      if (this.signedOut) {
+        this.dispose();
+        return;
+      }
       cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
       // A lingering connection may outlive its document (a deleted Screen).
       this.stopSync();
@@ -588,15 +595,9 @@ class CollabDocConnection {
       this.agentTimer = null;
     }
     this.awareness.off("change", this.handleAwarenessChange);
-    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
-    if (this.awareness.getLocalState()) {
-      void postAwarenessState(
-        this.baseUrl,
-        this.docId,
-        this.ydoc.clientID,
-        null,
-        true,
-      )
+    const clear = this.clearPresence();
+    if (clear) {
+      void clear
         .catch(() => {})
         .finally(() => {
           forgetAwarenessClientSequence(
@@ -621,28 +622,42 @@ class CollabDocConnection {
 
   async clearPresenceBeforeSignOut(): Promise<void> {
     if (this.disposed) return;
+    this.signedOut = true;
     this.stopSync();
-    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
-    if (!this.awareness.getLocalState()) return;
+    const clear = this.clearPresence();
     this.awareness.setLocalState(null);
-    try {
-      const response = await postAwarenessState(
+    if (collabConnectionRegistry.get(this.registryKey) === this) {
+      collabConnectionRegistry.delete(this.registryKey);
+    }
+    if (this.subscribers.size === 0) this.dispose();
+    if (!clear) return;
+    const response = await clear;
+    if (!response.ok) {
+      throw new Error(`Awareness clear returned HTTP ${response.status}`);
+    }
+  }
+
+  private clearPresence(): Promise<Response> | null {
+    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+    if (!this.presenceClear && this.awareness.getLocalState()) {
+      this.presenceClear = postAwarenessState(
         this.baseUrl,
         this.docId,
         this.ydoc.clientID,
         null,
         true,
       );
-      if (!response.ok) {
-        throw new Error(`Awareness clear returned HTTP ${response.status}`);
-      }
-    } finally {
-      forgetAwarenessClientSequence(
-        this.baseUrl,
-        this.docId,
-        this.ydoc.clientID,
-      );
     }
+    return this.presenceClear;
+  }
+
+  private get canPublishPresence(): boolean {
+    return (
+      !this.disposed &&
+      !this.signedOut &&
+      !this.pageHidden &&
+      this.presenceClear === null
+    );
   }
 
   private get effectivePollInterval(): number {
@@ -979,7 +994,7 @@ class CollabDocConnection {
       this.snapshot.isSynced &&
       origin === "local" &&
       this.syncActive &&
-      !this.disposed
+      this.canPublishPresence
     ) {
       scheduleAwarenessPush(
         this.baseUrl,
@@ -1187,7 +1202,18 @@ class CollabDocConnection {
   }
 
   private handlePageHide = (): void => {
-    this.flushPendingUpdates(true);
+    void this.flushPendingUpdates(true);
+    this.pageHidden = true;
+    void this.clearPresence()?.catch(() => {});
+  };
+
+  private handlePageShow = (): void => {
+    if (!this.pageHidden || this.disposed || this.signedOut) return;
+    this.pageHidden = false;
+    // BFCache must retain the doc's sequence/token until it is retired.
+    this.presenceClear = null;
+    this.publishVisibility(!isDocumentHidden());
+    this.pollNow();
   };
 
   // A tab that comes back online sends what it kept without waiting out the
@@ -1212,6 +1238,7 @@ class CollabDocConnection {
     if (typeof window !== "undefined") {
       window.addEventListener("pagehide", this.handlePageHide);
       window.addEventListener("online", this.handleOnline);
+      window.addEventListener("pageshow", this.handlePageShow);
     }
   }
 
@@ -1222,17 +1249,17 @@ class CollabDocConnection {
     if (typeof window !== "undefined") {
       window.removeEventListener("pagehide", this.handlePageHide);
       window.removeEventListener("online", this.handleOnline);
+      window.removeEventListener("pageshow", this.handlePageShow);
     }
   }
 
   private async flushPendingUpdates(keepalive = false): Promise<void> {
     if (
       this.snapshot.updatesRefused ||
-      (keepalive
-        ? this.keepaliveInFlight
-        : this.disposed ||
+      (!keepalive &&
+        (this.disposed ||
           this.updateInFlight ||
-          (this.updateErrors > 0 && this.flushTimer !== null))
+          (this.updateErrors > 0 && this.flushTimer !== null)))
     )
       return;
     if (this.flushTimer) {
@@ -1258,11 +1285,18 @@ class CollabDocConnection {
           ? ordinary
           : this.pendingUpdates
     ).slice(0, this.updateBatchLimit);
+    if (
+      keepalive &&
+      [...this.keepaliveSnapshots].some((snapshot) =>
+        toSend.every((item) => snapshot.includes(item)),
+      )
+    )
+      return;
+    if (keepalive) this.keepaliveSnapshots.add(toSend);
     const retiredKey = this.retiredUpdatesKey;
     const merged = Y.mergeUpdates(toSend.map((item) => item.update));
     const controller = new AbortController();
-    if (keepalive) this.keepaliveInFlight = true;
-    else {
+    if (!keepalive) {
       this.updateInFlight = true;
       this.updateAbortController = controller;
     }
@@ -1294,6 +1328,14 @@ class CollabDocConnection {
       // halves, and a refused single update stops this tab's updates.
       if (this.keepsUnsentUpdates && response.status === 413) {
         if (userGeneration !== this.userGeneration) return;
+        if (
+          !toSend.some(
+            (item) =>
+              this.pendingUpdates.includes(item) &&
+              !this.deliveredUpdates.has(item),
+          )
+        )
+          return;
         if (toSend.length > 1) {
           this.updateBatchLimit = Math.ceil(toSend.length / 2);
         } else {
@@ -1362,10 +1404,10 @@ class CollabDocConnection {
     } catch {
       if (userGeneration === this.userGeneration) this.updateErrors++;
     } finally {
+      if (keepalive) this.keepaliveSnapshots.delete(toSend);
       clearTimeout(timeout);
       let online = false;
-      if (keepalive) this.keepaliveInFlight = false;
-      else {
+      if (!keepalive) {
         this.updateInFlight = false;
         this.updateAbortController = null;
         online = this.onlineDuringUpdate;
@@ -1416,6 +1458,7 @@ class CollabDocConnection {
   private startSync(): void {
     if (
       this.syncActive ||
+      this.signedOut ||
       this.docMissing ||
       this.disposed ||
       this.subscribers.size === 0
@@ -1749,7 +1792,11 @@ class CollabDocConnection {
 
       if (!this.isPollCurrent(generation)) return;
       const localState = this.awareness.getLocalState();
-      if (localState && this.isPollCurrent(generation)) {
+      if (
+        localState &&
+        this.canPublishPresence &&
+        this.isPollCurrent(generation)
+      ) {
         try {
           const awarenessRes = await postAwarenessState(
             this.baseUrl,
@@ -1815,6 +1862,7 @@ class CollabDocConnection {
   }
 
   private publishVisibility(visible: boolean): void {
+    if (!this.canPublishPresence || !this.awareness.getLocalState()) return;
     this.awareness.setLocalStateField("visible", visible);
     const localState = this.awareness.getLocalState();
     if (!localState) return;

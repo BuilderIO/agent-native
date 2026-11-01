@@ -26,6 +26,7 @@ import type {
   A2AHandlerResult,
   A2ASourceContext,
   A2ASourceContextReference,
+  FilePart,
   Task,
 } from "../a2a/types.js";
 import {
@@ -384,6 +385,7 @@ function buildMessageIdempotencyKey(
   originatingTurnId: string | undefined,
   target: string,
   exactMessage: string,
+  files: FilePart["file"][],
 ): string | undefined {
   if (!originatingTurnId) return undefined;
   const digest = createHash("sha256")
@@ -392,6 +394,8 @@ function buildMessageIdempotencyKey(
         originatingTurnId,
         target,
         message: exactMessage,
+        // A retry that adds attachments is a different request, not a duplicate.
+        ...(files.length > 0 ? { files } : {}),
       }),
     )
     .digest("hex");
@@ -607,6 +611,34 @@ function parseManagedAgentConfirmations(
   return { confirmations };
 }
 
+export function parseCallAgentAttachments(
+  value: unknown,
+): { files: FilePart["file"][] } | { error: string } {
+  if (value === undefined) return { files: [] };
+  if (!Array.isArray(value)) {
+    return { error: "attachments must be an array of { url, name } objects." };
+  }
+  const files: FilePart["file"][] = [];
+  for (const item of value) {
+    const candidate =
+      item && typeof item === "object" && !Array.isArray(item)
+        ? (item as Record<string, unknown>)
+        : {};
+    const uri = stringifyValue(candidate.url).trim();
+    const name = stringifyValue(candidate.name).trim();
+    const mimeType = stringifyValue(candidate.contentType ?? "").trim();
+    // The receiver fetches this URL itself, so only a public https URL can work.
+    if (!name || !URL.canParse(uri) || new URL(uri).protocol !== "https:") {
+      return {
+        error:
+          "Each attachment needs a name and the https url listed for the uploaded file. Inline data and local paths cannot be sent to another app.",
+      };
+    }
+    files.push({ uri, name, ...(mimeType ? { mimeType } : {}) });
+  }
+  return { files };
+}
+
 interface ManagedAgentRunResult {
   responseText: string;
   continuationToken?: string;
@@ -788,6 +820,20 @@ export const tool: ActionTool = {
         description:
           "The message/question to send when starting a new task. Omit when taskId is provided.",
       },
+      attachments: {
+        type: "array",
+        description:
+          "Chat files to send: url, name, contentType exactly as in <chat-file-attachment> or <chat-image-attachment>.",
+        items: {
+          type: "object",
+          properties: {
+            url: { type: "string" },
+            name: { type: "string" },
+            contentType: { type: "string" },
+          },
+          required: ["url", "name"],
+        },
+      },
       taskId: {
         type: "string",
         description:
@@ -851,6 +897,12 @@ export async function run(
   }
   if (action && (!input || typeof input !== "object" || Array.isArray(input))) {
     return "Error: --input must be an object when --action is provided";
+  }
+  const parsedFiles = parseCallAgentAttachments(args.attachments);
+  if ("error" in parsedFiles) return `Error: ${parsedFiles.error}`;
+  const files = parsedFiles.files;
+  if (files.length > 0 && !message) {
+    return "Error: --attachments must be sent with --message";
   }
 
   if (selfAppId && agentIdOrName.toLowerCase() === selfAppId.toLowerCase()) {
@@ -957,7 +1009,7 @@ export async function run(
   );
   const idempotencyKey =
     message && !taskId
-      ? buildMessageIdempotencyKey(context?.turnId, agent.url, message)
+      ? buildMessageIdempotencyKey(context?.turnId, agent.url, message, files)
       : undefined;
 
   if (agent.kind?.provider === "anthropic-managed-agents" && action) {
@@ -1219,6 +1271,7 @@ export async function run(
           ...(taskId ? { taskId } : {}),
           onUpdate: onRemotePollUpdate,
           returnRecoverableArtifactsOnTimeout: false,
+          ...(files.length > 0 ? { files } : {}),
           ...(callTimeoutMs
             ? {
                 timeoutMs: callTimeoutMs,
@@ -1397,6 +1450,7 @@ export async function run(
       idempotencyKey,
       ...(taskId ? { taskId } : {}),
       returnRecoverableArtifactsOnTimeout: false,
+      ...(files.length > 0 ? { files } : {}),
     });
     const sanitized =
       formatDownstreamLlmCredentialFailure(agent.name, response) ?? response;

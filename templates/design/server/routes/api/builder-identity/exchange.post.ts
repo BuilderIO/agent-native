@@ -50,7 +50,7 @@ export default defineEventHandler(async (event) => {
     });
   }
   const spaceId = typeof body?.spaceId === "string" ? body.spaceId : undefined;
-  rememberDelegatedCredential({ ...identity, spaceId }, token);
+  await rememberDelegatedCredential({ ...identity, spaceId }, token);
   setCookie(
     event,
     BUILDER_IDENTITY_COOKIE,

@@ -15,11 +15,13 @@ import {
 } from "../identity.js";
 import { assertReviewableResourceAccess } from "../registry.js";
 import {
+  getLiveReviewAuthorsByThread,
   getReviewStatus,
   getReviewDiscussionStateForComments,
   getReviewThreadSummary,
   queryReviewComments,
 } from "../store.js";
+import { canDeleteReviewThread } from "../thread-delete.js";
 import type { ReviewResourceContext } from "../types.js";
 
 const schema = z.object({
@@ -100,6 +102,30 @@ export default defineAction({
       ),
     );
     const redactIdentity = shouldRedactReviewIdentity(actionCtx, access);
+    const isEditor = roleSatisfies(access.role, "editor");
+    const canComment = roleSatisfies(access.role, "commenter");
+    // Only a commenter's own threads can turn on who else wrote in them: an
+    // editor may delete any, and nobody else may delete one they did not start.
+    // So each first comment asked about here is the reader's own, and its
+    // author among the thread's authors changes nothing.
+    const authorsByThread =
+      canComment && !isEditor
+        ? await getLiveReviewAuthorsByThread(
+            comments
+              .filter(
+                (comment) =>
+                  !comment.parentCommentId &&
+                  canDeleteReviewThread({
+                    isEditor,
+                    actorEmail: actionCtx?.userEmail,
+                    rootAuthorEmail: comment.authorEmail,
+                    replyAuthorEmails: [],
+                  }),
+              )
+              .map((comment) => comment.threadId),
+            { resourceType: args.resourceType, resourceId: args.resourceId },
+          )
+        : new Map<string, Array<string | null>>();
     const commentsWithCapabilities = comments.map((comment) => ({
       ...comment,
       ...(comment.authorEmail
@@ -112,11 +138,23 @@ export default defineAction({
           }
         : {}),
       canDelete:
-        roleSatisfies(access.role, "commenter") &&
-        (roleSatisfies(access.role, "editor") ||
+        canComment &&
+        (isEditor ||
           Boolean(
             actionCtx?.userEmail && comment.authorEmail === actionCtx.userEmail,
           )),
+      ...(comment.parentCommentId
+        ? {}
+        : {
+            canDeleteThread:
+              canComment &&
+              canDeleteReviewThread({
+                isEditor,
+                actorEmail: actionCtx?.userEmail,
+                rootAuthorEmail: comment.authorEmail,
+                replyAuthorEmails: authorsByThread.get(comment.threadId) ?? [],
+              }),
+          }),
     }));
     return redactIdentity
       ? {

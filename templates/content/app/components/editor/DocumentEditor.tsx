@@ -162,6 +162,7 @@ import {
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
+import { documentContentHash } from "@/lib/document-content-hash";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { documentReadFailure } from "@/lib/document-read-failures";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
@@ -191,6 +192,7 @@ import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
 import { createAuthoredContentBase } from "./authored-content-base";
+import { commentRailThreads } from "./block-field-comment-threads";
 import {
   BlockFieldCommentsProvider,
   useBlockFieldComments,
@@ -215,6 +217,13 @@ import {
   isEffectivelyEmptyDocumentContent,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
+import {
+  clipCommentThreads,
+  useClipCommentFocus,
+  useClipCommentHost,
+  useClipCommentSources,
+  type ClipCommentHost,
+} from "./clip-embed/clip-comments";
 import { flushBeforeSave } from "./collab-flush-before-save";
 import { isCommentAiWorkingOn, useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
@@ -1269,7 +1278,10 @@ export function shouldAttestUnchangedEditorSave(args: {
     !args.hasUpdates &&
     !args.contentChanged &&
     !!args.editorSessionId &&
+    // Generation 0 is an editor that never edited the page: closing it has
+    // nothing to settle, and the write would claim the stored page as its own.
     args.editGeneration !== undefined &&
+    args.editGeneration > 0 &&
     !args.isLinkedLocalSource &&
     !args.isLocalFile
   );
@@ -4995,6 +5007,10 @@ function PageEditorSessionBody({
       contentBase: DocumentContentBase = lastSavedContentRef.current,
       supersedable = false,
     ) => {
+      // The hash is awaited, so take the base as it was when this draft was
+      // written; a save can move the watermark meanwhile.
+      const base = { ...contentBase };
+      const baseContentHash = await documentContentHash(base.content);
       const current = recoveryDraftRef.current;
       const result = await updatePreviewDocumentDraftRef.current({
         operation: "upsert",
@@ -5003,9 +5019,10 @@ function PageEditorSessionBody({
         draft: {
           title,
           content,
-          baseDocumentUpdatedAt: contentBase.updatedAt,
+          baseDocumentUpdatedAt: base.updatedAt,
+          baseContentHash,
           loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-            contentBase.content,
+            base.content,
           ),
           deferredReason,
           editorSessionId,
@@ -5024,7 +5041,7 @@ function PageEditorSessionBody({
           deferredReason,
           editorSessionId: result.draft.editorSessionId,
           editGeneration: result.draft.editGeneration,
-          contentBase: { ...contentBase },
+          contentBase: { ...base },
           supersedable,
         };
         return;
@@ -5042,7 +5059,7 @@ function PageEditorSessionBody({
           deferredReason,
           editorSessionId: result.draft.editorSessionId,
           editGeneration: result.draft.editGeneration,
-          contentBase: { ...contentBase },
+          contentBase: { ...base },
           supersedable,
         };
         return;
@@ -8150,9 +8167,10 @@ function PageEditorSessionBody({
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
     useState(true);
   const pendingCommentTargetId = pendingComment?.id ?? null;
-  // A comment on a Property or a whole block has no text to keep selected.
+  // A comment on a Property, a whole block, or a Clip has no text to keep
+  // selected.
   const pendingCommentQuotedText =
-    pendingComment?.property || pendingComment?.block
+    pendingComment?.property || pendingComment?.block || pendingComment?.clip
       ? null
       : (pendingComment?.quotedText ?? null);
   useLayoutEffect(() => {
@@ -8204,6 +8222,22 @@ function PageEditorSessionBody({
     isError: commentsError,
   } = useComments(
     !isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? documentId : null,
+  );
+  // The Clips placed in the page show their own comments, saved in Clips,
+  // in the margin beside the page's.
+  const clipCommentSources = useClipCommentSources(documentId);
+  const clipThreads = useMemo(
+    () =>
+      isLocalFileDocument || mcpDirectoryWidgetReadOnly
+        ? []
+        : clipCommentThreads(documentId, clipCommentSources, session?.email),
+    [
+      clipCommentSources,
+      documentId,
+      isLocalFileDocument,
+      mcpDirectoryWidgetReadOnly,
+      session?.email,
+    ],
   );
   // Every open thread counts, whatever it points at, as on the Collection row.
   const openCommentCount = useMemo(
@@ -8291,9 +8325,11 @@ function PageEditorSessionBody({
   // A comment on the whole page lives in Discussion, not the margin, so it
   // must not hold open an otherwise empty margin either.
   const hasOpenCommentThreads =
-    threads?.some(
+    clipThreads.length > 0 ||
+    (threads?.some(
       (thread) => !thread.resolved && !isPageCommentThread(thread),
-    ) ?? false;
+    ) ??
+      false);
   // A suggestion whose text is gone lives in the comments panel only, so it
   // must not hold open an otherwise empty margin.
   const hasOpenSuggestions =
@@ -8307,11 +8343,12 @@ function PageEditorSessionBody({
     fieldSuggestions.hasOpen;
   const hasSelectedCommentThread =
     !!selectedThreadId &&
-    (threads?.some(
-      (thread) =>
-        thread.threadId === selectedThreadId && !isPageCommentThread(thread),
-    ) ??
-      false);
+    (clipThreads.some((thread) => thread.threadId === selectedThreadId) ||
+      (threads?.some(
+        (thread) =>
+          thread.threadId === selectedThreadId && !isPageCommentThread(thread),
+      ) ??
+        false));
   const showInlineComments = documentEditorShowsInlineComments({
     showIndicators: showCommentIndicators,
     hasUtilityRailSpace: hasInlineCommentSpace,
@@ -8421,6 +8458,48 @@ function PageEditorSessionBody({
     },
     [setPendingComment],
   );
+  const clipCommentSourcesRef = useRef(clipCommentSources);
+  clipCommentSourcesRef.current = clipCommentSources;
+  // A Clip's Comment button starts a thread at the playhead's moment, saved
+  // in Clips; its markers open their threads here.
+  const clipCommentHost = useMemo<ClipCommentHost | null>(
+    () =>
+      isLocalFileDocument || mcpDirectoryWidgetReadOnly
+        ? null
+        : {
+            canCompose: canComment,
+            compose: (recordingId, ms) => {
+              const fieldId =
+                clipCommentSourcesRef.current.find(
+                  (source) => source.recordingId === recordingId,
+                )?.fieldId ?? null;
+              setPendingComment({
+                quotedText: "",
+                offsetTop: 0,
+                clip: { recordingId, videoTimestampMs: ms },
+                ...(fieldId ? { fieldId } : {}),
+              });
+              setCommentsBrowseOpen(false);
+              setUtilityPanel("comments");
+              setSelectedThreadId(null);
+              setHoveredThreadId(null);
+            },
+            openThread: (threadId) => activateCommentThread(threadId),
+          },
+    [
+      activateCommentThread,
+      canComment,
+      isLocalFileDocument,
+      mcpDirectoryWidgetReadOnly,
+      setPendingComment,
+    ],
+  );
+  useClipCommentHost(documentId, clipCommentHost);
+  useClipCommentFocus(
+    documentId,
+    pendingComment?.clip?.recordingId ?? null,
+    activeThreadId,
+  );
   const handleFieldBlockComment = useCallback(
     (fieldId: string, target: CommentBlockTarget, offsetTop: number) =>
       handleBlockComment(target, offsetTop, fieldId),
@@ -8475,6 +8554,10 @@ function PageEditorSessionBody({
     onActivateThread: !isLocalFileDocument ? activateCommentThread : undefined,
     scrollContainerRef,
   });
+  const clipRailThreads = useMemo(
+    () => commentRailThreads(clipThreads, blockFieldComments.openFieldId),
+    [blockFieldComments.openFieldId, clipThreads],
+  );
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
@@ -9060,6 +9143,7 @@ function PageEditorSessionBody({
       attributeFilter: [
         "data-comment-thread",
         "data-comment-block-threads",
+        "data-clip-comment-threads",
         "data-suggestion-id",
         "class",
       ],
@@ -9706,7 +9790,9 @@ function PageEditorSessionBody({
       threads={
         presentation === "history"
           ? documentEditorCommentThreads(threads)
-          : blockFieldComments.railThreads
+          : clipRailThreads.length
+            ? [...blockFieldComments.railThreads, ...clipRailThreads]
+            : blockFieldComments.railThreads
       }
       documentProperties={pageProperties}
       isLoading={commentsLoading}

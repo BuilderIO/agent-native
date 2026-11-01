@@ -7,6 +7,7 @@ import {
   type AgentThreadState,
 } from "@agent-native/agentkit/client";
 import type {
+  AgentMessage,
   AgentApprovalRequest,
   AgentConnectionRequest,
   AgentEvent,
@@ -441,6 +442,76 @@ describe("AgentMessageActions papercuts", () => {
     );
     // Run details replace the reply timestamp.
     expect(container.querySelector("time")).toBeNull();
+  });
+
+  it("copies attached filenames and links with the user message text", async () => {
+    const message: AgentMessage = {
+      id: "user-files",
+      role: "user",
+      status: "complete",
+      parts: [
+        { type: "text", text: "Review these files" },
+        {
+          type: "file",
+          name: "brief.pdf",
+          mediaType: "application/pdf",
+          url: "https://files.example/brief.pdf",
+        },
+        {
+          type: "file",
+          name: "notes.txt",
+          mediaType: "text/plain",
+          url: "https://files.example/notes.txt",
+        },
+      ],
+    };
+    const thread: AgentThreadState = {
+      ...createAgentThreadState("thread-copy-files"),
+      messages: [message],
+    };
+    const store = observableController(snapshotOf(thread));
+    const onCopyMessage = vi.fn(async () => false);
+    const writeText = vi.fn(async () => undefined);
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "clipboard",
+    );
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    try {
+      await render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId={thread.id}
+          onCopyMessage={onCopyMessage}
+        >
+          <AgentMessageActions value={message} threadId={thread.id} />
+        </AgentKitProvider>,
+      );
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('button[aria-label="Copy message"]')
+          ?.click();
+        await Promise.resolve();
+      });
+
+      const expectedCopyText =
+        "Review these files\n\nbrief.pdf\nhttps://files.example/brief.pdf\n\nnotes.txt\nhttps://files.example/notes.txt";
+      expect(onCopyMessage).toHaveBeenCalledWith({
+        message,
+        text: expectedCopyText,
+      });
+      expect(writeText).toHaveBeenCalledWith(expectedCopyText);
+    } finally {
+      if (clipboardDescriptor) {
+        Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, "clipboard");
+      }
+    }
   });
 });
 

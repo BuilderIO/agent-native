@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconFolder, IconPlus } from "@tabler/icons-react";
 import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -102,7 +101,6 @@ export function WorkspaceSourceMenu({
           {menuStart}
           {menuStart ? <DropdownMenuSeparator /> : null}
           <DropdownMenuItem onSelect={openWorkspaceDialog}>
-            <IconPlus className="me-2 size-4" />
             {t("sidebar.newWorkspace")}
           </DropdownMenuItem>
           {!menuStart ? <DropdownMenuSeparator /> : null}
@@ -111,7 +109,6 @@ export function WorkspaceSourceMenu({
               to="/local-files"
               state={{ workspacePropertyValues: propertyValues }}
             >
-              <IconFolder className="me-2 size-4" />
               {t("sidebar.localFolder")}
             </Link>
           </DropdownMenuItem>

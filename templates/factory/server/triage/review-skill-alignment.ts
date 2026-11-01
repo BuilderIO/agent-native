@@ -1,4 +1,4 @@
-export const FACTORY_ALIGNMENT_REVISION = 3;
+export const FACTORY_ALIGNMENT_REVISION = 5;
 
 const ALIGNMENT_START = "<!-- factory-skill-alignment:start -->";
 const ALIGNMENT_END = "<!-- factory-skill-alignment:end -->";
@@ -6,11 +6,20 @@ const ALIGNMENT_END = "<!-- factory-skill-alignment:end -->";
 const PR_ALIGNMENT = `## Current review-prs contract
 
 The repository's \`.agents/skills/review-prs/SKILL.md\` is authoritative.
-Before selecting work, ignore drafts and ordinary pull requests with a
-current-head, non-dismissed APPROVED review, including bot approvals; do not
-inspect or recap those excluded items. Eligible Liam PRs with only older-head
-approvals remain candidates so the current head can be approved. For every
-remaining PR, read the complete title,
+Ignore drafts, bot-authored pull requests, and PRs authored by the exact login
+\`steve8708\` completely. Verify the current BuilderIO organization membership
+for every other author before applying the existing-approval filter. Any fork
+PR assigned to a verified current BuilderIO member must stop
+completely under \`community-prs\`: do
+not review, reply, call the governance action, merge, or recap it. For every
+other confirmed external PR, call \`govern-factory-pull-request\` to record a
+manual disposition even if it already has a current-head approval; never
+approve it or use the manual external-scope or reply path. For verified
+internal authors, only an eligible current-head approval with no newer event
+can suppress duplicate code review; it does not remove the PR from the readiness
+pass or recap. Eligible Liam PRs with only older-head approvals remain
+candidates so the current head can be approved. For every remaining PR, read
+the complete title,
 body, links, changed-file diff (including generated and migration files), all
 review summaries/comments/replies, actual check conclusions, and ownership
 boundary. Verify current BuilderIO organization membership through GitHub's
@@ -20,7 +29,10 @@ bot label.
 Never approve external or unverified authors. The internal-author exception
 allows ordinary failed, pending, skipped, or unknown checks and ordinary
 unresolved feedback for a verified BuilderIO member; record those exact states
-and never call them clean. The ultra-scary gate always remains manual for auth,
+and never call them clean. Include the exact check and actionable-feedback
+states in every approval recap, even when ordinary gates are overridden, and
+distinguish approval from readiness. The ultra-scary gate always remains manual
+for auth,
 permissions, tenant isolation, secrets, destructive data loss or migrations,
 remote code execution, MCP iframe sandboxing, CSP, HTML sanitization, SSRF,
 payments, deployment, or unexplained dependency and infrastructure risk. Active

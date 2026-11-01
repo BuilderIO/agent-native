@@ -2,7 +2,7 @@ import { slackPlainText } from "@/components/factory/slack-mrkdwn";
 
 import type { ItemsStrings } from "../items-strings";
 import { formatUntil } from "./format";
-import type { ItemParking, NeedsYouReason } from "./read-types";
+import type { ItemParking, ItemRow, NeedsYouReason } from "./read-types";
 
 export type PhaseKey =
   | "needs_you"
@@ -77,11 +77,16 @@ export function needsYouText(
     .join(s.listSeparator);
 }
 
-/** Where the item is right now, in words: its parking, else the step of its last event. */
+/**
+ * Where the item is right now, in words: its parking, else the step of its
+ * last event. An item whose last event names no step (a person closed it) has
+ * nothing to say; only one with no event at all has not started.
+ */
 export function whereText(
   row: {
     parked: ItemParking | null;
     lastNode: { nodeId: string; nodeName: string | null } | null;
+    lastEvent: ItemRow["lastEvent"];
   },
   nowMs: number,
   s: ItemsStrings,
@@ -102,7 +107,7 @@ export function whereText(
   if (lastNode) {
     return s.where.atNode(lastNode.nodeName ?? lastNode.nodeId);
   }
-  return null;
+  return row.lastEvent === null ? s.where.notStarted : null;
 }
 
 export function sourceLabel(

@@ -1,5 +1,22 @@
 import { MCP_APP_WIDGET_EMBED_ATTRIBUTE } from "@agent-native/core/shared/mcp-app-widget-embed";
-import type { CSSProperties, ReactNode } from "react";
+import {
+  useRef,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ComponentType,
+  type ReactNode,
+} from "react";
+
+import { writeFirstPaintPromptDraft } from "../../app-shell/first-paint-prompt-draft.js";
+import type { HomeSuggestionClick } from "../../app-shell/home-suggestions.js";
+import { PromptHome } from "../../app-shell/PromptHome.js";
+import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
+import type { PromptComposerProps } from "../../composer/index.js";
+import type { TiptapComposerHandle } from "../../composer/TiptapComposer.js";
+import { Button } from "../../ui/button.js";
+import { AppSidebar, AppSidebarFooter } from "./AppSidebar.js";
+import { ClientOnly } from "./ClientOnly.js";
 
 const MUTED = "hsl(var(--muted, 240 5% 96.1%))";
 const SIDEBAR_MUTED =
@@ -18,6 +35,88 @@ export type AppShellSkeletonLayout =
   | "mail"
   | "prompt-library"
   | "welcome";
+
+export interface AppShellFirstPaintHome {
+  appId: string;
+  appName: string;
+  pageTitle: string;
+  headerHeight?: number;
+  headerActionWidths?: readonly number[];
+  promptTitle: string;
+  promptPlaceholder: string;
+  suggestedPromptsLabel: string;
+  sidebarItems: readonly {
+    label: string;
+    to: string;
+    icon: ComponentType<{ className?: string }>;
+  }[];
+  templatesLabel: string;
+  recentLabel: string;
+  browseAllLabel: string;
+  library?: ReactNode;
+  skipPromptLabel?: string;
+  suggestionRole?: string;
+  suggestionSeed?: number;
+  promptDraftScope?: string;
+  promptHandoffScope?: string;
+  onHomeSuggestionClick?: (click: HomeSuggestionClick) => void;
+  renderComposer: (
+    props: Pick<
+      PromptComposerProps,
+      | "ariaLabel"
+      | "composerRef"
+      | "initialText"
+      | "initialTextKey"
+      | "initialTextOverridesSavedDraft"
+      | "suppressInitialTextChange"
+      | "draftScope"
+      | "onSubmit"
+      | "onTextChange"
+      | "placeholder"
+    >,
+  ) => ReactNode;
+  suggestions: readonly {
+    id: string;
+    label: string;
+    prompt: string;
+    messageKey?: string;
+    labelMessageKey?: string;
+  }[];
+  loadSuggestionMessages?: (locale: string) => Promise<unknown>;
+  localizeMessages?: (messages: unknown) => Partial<AppShellFirstPaintHome>;
+}
+
+function readSuggestionMessage(
+  messages: unknown,
+  key: string | undefined,
+): string | undefined {
+  if (!key) return undefined;
+  let message: unknown = messages;
+  for (const part of key.split(".")) {
+    if (!message || typeof message !== "object") break;
+    message = (message as Record<string, unknown>)[part];
+  }
+  return typeof message === "string" ? message : undefined;
+}
+
+function localizeFirstPaintHome(
+  config: AppShellFirstPaintHome,
+  messages: unknown,
+): AppShellFirstPaintHome {
+  return {
+    ...config,
+    ...(config.localizeMessages?.(messages) ?? {}),
+    suggestions: config.suggestions.map((suggestion) => ({
+      ...suggestion,
+      label:
+        readSuggestionMessage(messages, suggestion.labelMessageKey) ??
+        suggestion.label,
+      prompt:
+        readSuggestionMessage(messages, suggestion.messageKey) ??
+        suggestion.prompt,
+    })),
+  };
+}
 
 function Block({
   style,
@@ -45,9 +144,26 @@ function Block({
 // hydrated width; everyone else keeps the 248px default.
 function Sidebar({
   width = "var(--chat-sidebar-width, 248px)",
+  firstPaintHome,
 }: {
   width?: number | string;
+  firstPaintHome?: AppShellFirstPaintHome;
 }) {
+  if (firstPaintHome) {
+    return (
+      <AppSidebar
+        appId={firstPaintHome.appId}
+        brandName={firstPaintHome.appName}
+        brandHref="/home"
+        items={firstPaintHome.sidebarItems.map((item, index) => ({
+          ...item,
+          active: index === 0,
+        }))}
+        footerContent={<FirstPaintSidebarFooter />}
+      />
+    );
+  }
+
   return (
     <aside
       data-agent-native-app-skeleton-sidebar="true"
@@ -77,35 +193,110 @@ function Sidebar({
   );
 }
 
-function Header({ titleWidth = 128 }: { titleWidth?: number }) {
+function FirstPaintSidebarFooter() {
+  return (
+    <>
+      <AppSidebarFooter
+        feedback={
+          <div className="flex h-7 items-center gap-2 px-2">
+            <Block style={{ width: 16, height: 16 }} />
+            <Block style={{ width: 92, height: 12 }} />
+          </div>
+        }
+        orgSwitcher={
+          <div className="flex min-w-0 flex-1 items-center gap-2 px-1 py-1.5">
+            <Block style={{ width: 28, height: 28, borderRadius: 999 }} />
+            <div className="grid min-w-0 flex-1 gap-1">
+              <Block style={{ width: 84, height: 12 }} />
+              <Block style={{ width: 66, height: 11 }} />
+            </div>
+          </div>
+        }
+        footerExtras={
+          <div className="flex items-center gap-1">
+            <Block style={{ width: 24, height: 24, borderRadius: 6 }} />
+          </div>
+        }
+      />
+    </>
+  );
+}
+
+function Header({
+  titleWidth = 128,
+  title,
+  height = 48,
+  actionWidths = [],
+}: {
+  titleWidth?: number;
+  title?: string;
+  height?: number;
+  actionWidths?: readonly number[];
+}) {
   return (
     <header
-      aria-hidden="true"
+      aria-hidden={title ? undefined : "true"}
       style={{
         display: "flex",
-        height: 48,
+        height,
         flexShrink: 0,
         alignItems: "center",
         gap: 12,
         padding: "0 16px",
       }}
     >
-      <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
-      <Block style={{ width: titleWidth, height: 14 }} />
+      {title ? (
+        <span className="text-base font-medium text-foreground">{title}</span>
+      ) : (
+        <>
+          <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
+          <Block style={{ width: titleWidth, height: 14 }} />
+        </>
+      )}
       <div style={{ flex: 1 }} />
-      <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
-      <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
+      {actionWidths.map((width, index) => (
+        <Block
+          key={`${width}-${index}`}
+          style={{ width, height: 32, borderRadius: width > 40 ? 8 : 6 }}
+        />
+      ))}
+      {!title && actionWidths.length === 0 ? (
+        <>
+          <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
+          <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
+        </>
+      ) : null}
     </header>
   );
 }
 
-function Frame({ children }: { children: ReactNode }) {
+function Frame({
+  children,
+  firstPaintHome,
+}: {
+  children: ReactNode;
+  firstPaintHome?: AppShellFirstPaintHome;
+}) {
   return (
     <div
       style={{ display: "flex", minWidth: 0, flex: 1, flexDirection: "column" }}
     >
-      <Header />
-      {children}
+      <Header
+        {...(firstPaintHome ? { title: firstPaintHome.pageTitle } : {})}
+        {...(firstPaintHome?.headerHeight !== undefined
+          ? { height: firstPaintHome.headerHeight }
+          : {})}
+        {...(firstPaintHome?.headerActionWidths !== undefined
+          ? { actionWidths: firstPaintHome.headerActionWidths }
+          : {})}
+      />
+      {firstPaintHome ? (
+        <main className="agent-native-app-main min-h-0 flex-1 overflow-y-auto">
+          {children}
+        </main>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -189,54 +380,226 @@ function AssistantNewChatLayout() {
   );
 }
 
-function PromptLibraryLayout() {
+function PromptLibraryLayout({
+  firstPaintHome,
+}: {
+  firstPaintHome?: AppShellFirstPaintHome;
+} = {}) {
   return (
     <>
-      <Sidebar />
-      <Frame>
-        <section
-          aria-hidden="true"
-          style={{
-            display: "flex",
-            width: "100%",
-            flex: 1,
-            flexDirection: "column",
-            gap: 24,
-            padding: 32,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <Block style={{ width: 92, height: 28, borderRadius: 14 }} />
-            <Block style={{ width: 80, height: 14 }} />
-            <div style={{ flex: 1 }} />
-            <Block style={{ width: 144, height: 32, borderRadius: 8 }} />
-          </div>
-          <div
+      <Sidebar {...(firstPaintHome ? { firstPaintHome } : {})} />
+      <Frame {...(firstPaintHome ? { firstPaintHome } : {})}>
+        {firstPaintHome ? (
+          <FirstPaintPromptLibrary config={firstPaintHome} />
+        ) : (
+          <section
+            aria-hidden="true"
             style={{
-              display: "grid",
+              display: "flex",
+              width: "100%",
               flex: 1,
-              alignContent: "start",
-              gap: 16,
+              flexDirection: "column",
+              gap: 24,
+              padding: 32,
             }}
-            data-agent-native-app-skeleton-gallery-grid="true"
           >
-            {Array.from({ length: 8 }, (_, index) => (
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <Block style={{ width: 92, height: 28, borderRadius: 14 }} />
+              <Block style={{ width: 80, height: 14 }} />
+              <div style={{ flex: 1 }} />
+              <Block style={{ width: 144, height: 32, borderRadius: 8 }} />
+            </div>
+            <div
+              style={{
+                display: "grid",
+                flex: 1,
+                alignContent: "start",
+                gap: 16,
+              }}
+              data-agent-native-app-skeleton-gallery-grid="true"
+            >
+              {Array.from({ length: 8 }, (_, index) => (
+                <div
+                  key={index}
+                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                >
+                  <Block
+                    style={{ width: "100%", height: 144, borderRadius: 12 }}
+                  />
+                  <Block
+                    style={{ width: `${56 + (index % 3) * 12}%`, height: 12 }}
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </Frame>
+    </>
+  );
+}
+
+function FirstPaintPromptLibrary({
+  config,
+}: {
+  config: AppShellFirstPaintHome;
+}) {
+  const composerRef = useRef<TiptapComposerHandle>(null);
+  const sourceRef = useRef<"composer" | "home_suggestion">("composer");
+  const expectedSuggestionTextRef = useRef<string | null>(null);
+  const submittedRef = useRef(false);
+  const [initialText, setInitialText] = useState<string>();
+  const [initialTextKey, setInitialTextKey] = useState<number>();
+  const suggestions = config.suggestions;
+
+  const composerElement = config.renderComposer({
+    ariaLabel: config.promptPlaceholder,
+    composerRef,
+    ...(initialText !== undefined ? { initialText } : {}),
+    ...(initialTextKey !== undefined ? { initialTextKey } : {}),
+    initialTextOverridesSavedDraft: true,
+    suppressInitialTextChange: true,
+    ...(config.promptDraftScope ? { draftScope: config.promptDraftScope } : {}),
+    placeholder: config.promptPlaceholder,
+    onTextChange: (text) => {
+      if (submittedRef.current) return;
+      if (
+        sourceRef.current === "home_suggestion" &&
+        expectedSuggestionTextRef.current !== text
+      ) {
+        sourceRef.current = "composer";
+        expectedSuggestionTextRef.current = null;
+      }
+      writeFirstPaintPromptDraft(config.appId, text, sourceRef.current, {
+        ...(config.promptHandoffScope
+          ? { scope: config.promptHandoffScope }
+          : {}),
+      });
+    },
+    onSubmit: (text, files) => {
+      if (!text.trim()) return;
+      submittedRef.current = true;
+      writeFirstPaintPromptDraft(config.appId, text, sourceRef.current, {
+        files,
+        submitted: true,
+        ...(config.promptHandoffScope
+          ? { scope: config.promptHandoffScope }
+          : {}),
+      });
+    },
+  });
+  // Tiptap's `useEditor` throws while server-rendering in production builds:
+  // the server bundle holds more than one React copy, so the hook reads a null
+  // dispatcher. The composer mounts on the client; the server render and the
+  // first client render both show the placeholder, so hydration still matches.
+  const composer = (
+    <ClientOnly
+      fallback={
+        <Block style={{ width: "100%", height: 112, borderRadius: 16 }} />
+      }
+    >
+      {composerElement}
+    </ClientOnly>
+  );
+  const suggestionBar = (
+    <AgentSuggestionBar
+      suggestions={suggestions}
+      ariaLabel={config.suggestedPromptsLabel}
+      homeTracking={{
+        appId: config.appId,
+        ...(config.suggestionRole !== undefined
+          ? { role: config.suggestionRole }
+          : {}),
+        ...(config.suggestionSeed !== undefined
+          ? { seed: config.suggestionSeed }
+          : {}),
+        shellHandoff: true,
+      }}
+      {...(config.onHomeSuggestionClick
+        ? { onHomeSuggestionClick: config.onHomeSuggestionClick }
+        : {})}
+      layout="single-line"
+      className="px-0 py-0"
+      onSelect={(suggestion) => {
+        if (submittedRef.current) return;
+        sourceRef.current = "home_suggestion";
+        const prompt = suggestion.prompt ?? suggestion.label;
+        expectedSuggestionTextRef.current = prompt;
+        setInitialText(prompt);
+        setInitialTextKey(Date.now());
+        writeFirstPaintPromptDraft(config.appId, prompt, "home_suggestion", {
+          suggestionId: suggestion.id,
+          ...(config.promptHandoffScope
+            ? { scope: config.promptHandoffScope }
+            : {}),
+        });
+        composerRef.current?.focus();
+      }}
+    />
+  );
+  const quickActions = config.skipPromptLabel ? (
+    <div className="flex w-full min-w-0 items-center justify-between gap-1">
+      <div className="min-w-0 flex-1">{suggestionBar}</div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        disabled
+        className="h-7 min-w-[85px] justify-center px-2 font-normal text-muted-foreground"
+      >
+        {config.skipPromptLabel}
+      </Button>
+    </div>
+  ) : (
+    suggestionBar
+  );
+
+  return (
+    <PromptHome
+      title={config.promptTitle}
+      composer={composer}
+      focusComposer={() => composerRef.current?.focus()}
+      quickActions={quickActions}
+    >
+      {config.library ?? (
+        <section
+          className="agent-prompt-home-library"
+          aria-label={config.templatesLabel}
+        >
+          <div className="flex min-h-10 items-center gap-4 border-b border-border bg-background py-2 text-sm">
+            <span className="border-b-2 border-foreground pb-2 font-medium text-foreground">
+              {config.templatesLabel}
+            </span>
+            <span className="pb-2 text-muted-foreground">
+              {config.recentLabel}
+            </span>
+            <div className="flex-1" />
+            <span className="pb-2 text-muted-foreground">
+              {config.browseAllLabel}
+            </span>
+          </div>
+          <div className="agent-template-library-grid" aria-busy="true">
+            {Array.from({ length: 4 }, (_, index) => (
               <div
                 key={index}
-                style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                className="agent-template-library-card group relative min-w-0"
+                aria-hidden="true"
               >
-                <Block
-                  style={{ width: "100%", height: 144, borderRadius: 12 }}
-                />
-                <Block
-                  style={{ width: `${56 + (index % 3) * 12}%`, height: 12 }}
-                />
+                <div className="agent-template-library-primary overflow-hidden rounded-xl border border-border bg-card">
+                  <div className="agent-template-library-preview bg-muted/30">
+                    <Block style={{ width: "100%", height: "100%" }} />
+                  </div>
+                  <div className="agent-template-library-caption">
+                    <Block style={{ width: "62%", height: 14 }} />
+                    <Block style={{ width: "86%", height: 12, marginTop: 8 }} />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
         </section>
-      </Frame>
-    </>
+      )}
+    </PromptHome>
   );
 }
 
@@ -1155,11 +1518,67 @@ export function AppShellSkeleton({
   ariaLabel = "Loading application",
   height = "var(--agent-native-viewport-height, 100vh)",
   layout,
+  firstPaintHome,
 }: {
   ariaLabel?: string;
   height?: CSSProperties["height"];
   layout?: AppShellSkeletonLayout;
+  firstPaintHome?: AppShellFirstPaintHome;
 }) {
+  const [localeMessages, setLocaleMessages] = useState<unknown>(null);
+  useEffect(() => {
+    const loadMessages = firstPaintHome?.loadSuggestionMessages;
+    if (!loadMessages) return;
+    let active = true;
+    let localeRequestGeneration = 0;
+    const applyLocale = () => {
+      const requestGeneration = ++localeRequestGeneration;
+      const locale = document.documentElement.dataset.locale ?? "en-US";
+      if (locale === "en-US") {
+        setLocaleMessages(null);
+        return;
+      }
+      void loadMessages(locale)
+        .then((messages) => {
+          if (
+            active &&
+            requestGeneration === localeRequestGeneration &&
+            messages &&
+            typeof messages === "object"
+          ) {
+            setLocaleMessages(messages);
+          }
+        })
+        .catch((error: unknown) => {
+          if (active && requestGeneration === localeRequestGeneration) {
+            console.error(
+              `[agent-native] Could not localize ${firstPaintHome.appId} home shell`,
+              error,
+            );
+          }
+        });
+    };
+
+    applyLocale();
+    const observer = new MutationObserver(applyLocale);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-locale"],
+    });
+    return () => {
+      active = false;
+      localeRequestGeneration += 1;
+      observer.disconnect();
+    };
+  }, [
+    firstPaintHome?.appId,
+    firstPaintHome?.loadSuggestionMessages,
+    firstPaintHome?.localizeMessages,
+  ]);
+  const localizedFirstPaintHome =
+    firstPaintHome && localeMessages
+      ? localizeFirstPaintHome(firstPaintHome, localeMessages)
+      : firstPaintHome;
   const layouts: Record<AppShellSkeletonLayout, ReactNode> = {
     assistant: <AssistantLayout />,
     "assistant-new": <AssistantNewChatLayout />,
@@ -1170,15 +1589,21 @@ export function AppShellSkeleton({
     launchpad: <LaunchpadLayout />,
     list: <ListLayout />,
     mail: <MailLayout />,
-    "prompt-library": <PromptLibraryLayout />,
+    "prompt-library": (
+      <PromptLibraryLayout
+        {...(localizedFirstPaintHome
+          ? { firstPaintHome: localizedFirstPaintHome }
+          : {})}
+      />
+    ),
     welcome: <WelcomeLayout />,
   };
   const content = layout ? layouts[layout] : null;
 
   return (
     <div
-      role="status"
-      aria-label={ariaLabel}
+      role={firstPaintHome ? undefined : "status"}
+      aria-label={firstPaintHome ? undefined : ariaLabel}
       data-agent-native-app-skeleton="true"
       data-agent-native-app-skeleton-layout={layout ?? "default"}
       style={{

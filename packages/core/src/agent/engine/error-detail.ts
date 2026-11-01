@@ -101,12 +101,27 @@ export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
   );
 }
 
+export function isGenericInternalServerErrorMessage(message: string): boolean {
+  return /^(?:http\s+)?500(?:\s+internal server error)?$|^internal server error$/i.test(
+    message.trim(),
+  );
+}
+
 export function canonicalizeBuilderGatewayErrorCode(
   code: string | undefined,
   message: string,
 ): string | undefined {
-  return (code === undefined || code === "provider_internal_error") &&
-    isBuilderGatewayInternalErrorMessage(message)
+  const normalizedCode = code?.trim().toLowerCase();
+  const genericInternalError = isGenericInternalServerErrorMessage(message);
+  const builderInternalError =
+    (code === undefined || code === "provider_internal_error") &&
+    isBuilderGatewayInternalErrorMessage(message);
+  return builderInternalError ||
+    (genericInternalError &&
+      (normalizedCode === undefined ||
+        normalizedCode === "provider_internal_error" ||
+        normalizedCode === "invalid_request" ||
+        normalizedCode === "invalid_request_error"))
     ? BUILDER_GATEWAY_INTERNAL_ERROR_CODE
     : code;
 }

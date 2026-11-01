@@ -553,6 +553,56 @@ CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
     sql: `CREATE INDEX IF NOT EXISTS design_screen_restore_claims_design_restored_idx
   ON design_screen_restore_claims (design_id, restored_file_id)`,
   },
+  {
+    version: 46,
+    name: "design-review-agent-requests",
+    sql: `CREATE TABLE IF NOT EXISTS design_review_agent_requests (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+    thread_id TEXT NOT NULL,
+    root_comment_id TEXT NOT NULL,
+    trigger_comment_id TEXT,
+    screen_id TEXT,
+    requester_email TEXT NOT NULL,
+    submitted_mode TEXT NOT NULL,
+    intent TEXT,
+    instructions TEXT NOT NULL DEFAULT '',
+    submitted_provider TEXT,
+    submitted_model TEXT,
+    submitted_engine TEXT,
+    status TEXT NOT NULL DEFAULT 'queued',
+    classification_thread_id TEXT,
+    classification_turn_id TEXT,
+    agent_thread_id TEXT,
+    agent_turn_id TEXT,
+    run_id TEXT,
+    model TEXT,
+    engine TEXT,
+    result_json TEXT,
+    error_code TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS design_review_agent_requests_active_thread_idx
+    ON design_review_agent_requests (design_id, thread_id)
+    WHERE status IN ('classifying', 'queued', 'running');
+  CREATE INDEX IF NOT EXISTS design_review_agent_requests_design_updated_idx
+    ON design_review_agent_requests (design_id, updated_at);
+  CREATE INDEX IF NOT EXISTS design_review_agent_requests_requester_idx
+    ON design_review_agent_requests (design_id, requester_email, created_at)`,
+  },
+  {
+    version: 47,
+    name: "design-first-output-experiment-claims",
+    sql: `CREATE TABLE IF NOT EXISTS design_first_output_experiment_claims (
+      user_id TEXT PRIMARY KEY,
+      variant TEXT NOT NULL,
+      output_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =
@@ -563,6 +613,14 @@ export const designLiveCollaborationOptInMigration = designMigrations.find(
 export const designBoardReplayScreenshotsMigration = designMigrations.find(
   (migration) => migration.version === 38,
 )!;
+const reviewAgentRequestsMigration = designMigrations.find(
+  (migration) => migration.name === "design-review-agent-requests",
+);
+if (!reviewAgentRequestsMigration) {
+  throw new Error("The design-review-agent-requests migration is not defined");
+}
+/** The request table's SQL, exported so specs build the same table and index. */
+export const designReviewAgentRequestsMigration = reviewAgentRequestsMigration;
 export const runDesignMigrations = runMigrations(designMigrations, {
   table: "design_migrations",
 });

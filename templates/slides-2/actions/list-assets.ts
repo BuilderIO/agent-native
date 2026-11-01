@@ -206,6 +206,7 @@ export default defineAction({
       let slideSource: string | undefined;
       if (slideScope) {
         const snapshot = readStoredSlideSource(
+          deckId,
           deckRow.data,
           slideScope.slideId,
         );

@@ -3,6 +3,7 @@ import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 import {
+  clearBuilderIdentitySession,
   getBuilderIdentitySession,
   isBuilderIdentityEnabled,
 } from "../lib/builder-identity.js";
@@ -10,14 +11,18 @@ import {
 registerAuthPublicPaths(["/api/session-replay-storyboard"]);
 
 export default createToolkitAuthPlugin({
-  // Hosted inside Builder: Builder is the identity provider (no Design-side
-  // accounts). See server/lib/builder-identity.ts.
+  // Hosted inside Builder: Builder vouches for its own users (no Design-side
+  // accounts for them). It is additive: a request without the signed identity
+  // cookie resolves through Design's normal sessions and sign-in, so enabling
+  // it on a shared deployment cannot lock anyone else out. See
+  // server/lib/builder-identity.ts.
   ...(isBuilderIdentityEnabled()
     ? {
-        getSession: getBuilderIdentitySession,
+        getAdditionalSession: getBuilderIdentitySession,
         // It reads only the signed identity cookie, so pages that take no
         // other credential, such as an MCP approval review, can use it too.
-        getBrowserSession: getBuilderIdentitySession,
+        getAdditionalBrowserSession: getBuilderIdentitySession,
+        clearAdditionalSession: clearBuilderIdentitySession,
         trustCustomEmailVerification: true,
       }
     : {}),

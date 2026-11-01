@@ -5,6 +5,7 @@ import {
   isTimeLimitStop,
   type AutoContinueRefusalCode,
 } from "../../agent/auto-continue.js";
+import { RUN_STREAM_ENDED_ERROR_CODE } from "../../agent/run-errors.js";
 import { isContinuationTerminalReason } from "../../agent/types.js";
 import {
   BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
@@ -41,6 +42,7 @@ export type RunOutcome = (typeof RUN_OUTCOMES)[number];
  * code is added here with its outcome or it does not type-check.
  */
 export const LEGACY_RUN_CODES = [
+  RUN_STREAM_ENDED_ERROR_CODE,
   "stream_ended",
   "action_not_started",
   "background_run_lost",
@@ -92,6 +94,7 @@ export const LEGACY_RUN_CODES = [
 export type LegacyRunCode = (typeof LEGACY_RUN_CODES)[number];
 
 const LEGACY_RUN_CODE_OUTCOMES = {
+  [RUN_STREAM_ENDED_ERROR_CODE]: "interrupted",
   stream_ended: "interrupted",
   action_not_started: "interrupted",
   background_run_lost: "interrupted",

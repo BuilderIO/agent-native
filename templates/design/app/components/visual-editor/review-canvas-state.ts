@@ -134,7 +134,7 @@ export function reviewRegionClipPath(region: ReviewVisibleRegion): string {
   return `polygon(${corners.map(([x, y]) => `${x}px ${y}px`).join(", ")})`;
 }
 
-const REVIEW_POPOVER_WIDTH_PX = 320;
+const REVIEW_POPOVER_WIDTH_PX = 360;
 const REVIEW_POPOVER_ANCHOR_GAP_PX = 12;
 const REVIEW_POPOVER_EDGE_MARGIN_PX = 8;
 // Popovers sit beside the 24px pin: one opening down starts 4px below the

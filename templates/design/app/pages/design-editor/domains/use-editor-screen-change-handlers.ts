@@ -353,8 +353,9 @@ export function useEditorScreenChangeHandlers({
         replacementElementInfo?: ElementInfo;
         replacementSnapshotHtml?: string;
       },
-    ) =>
-      runVisualStructureChange(
+    ) => {
+      if (!activeFile) return false;
+      return runVisualStructureChange(
         {
           activeCanvasSourceType,
           activeFile,
@@ -373,7 +374,8 @@ export function useEditorScreenChangeHandlers({
         placement,
         elementInfo,
         details,
-      ),
+      );
+    },
     [
       activeFile,
       activeCanvasSourceType,
@@ -438,6 +440,7 @@ export function useEditorScreenChangeHandlers({
         placement?: "before" | "after" | "inside";
       },
     ) => {
+      if (!activeFile) return false;
       if (isRunningAppSourceType(activeCanvasSourceType) && activeFile) {
         if (!canEditActiveVisualScreen) return false;
         recordPendingLiveStructureEdit(
@@ -520,8 +523,9 @@ export function useEditorScreenChangeHandlers({
         requirePersistedSourceAcceptance?: boolean;
         relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
-    ) =>
-      runScreenVisualStyleChange(
+    ) => {
+      if (!activeFile) return;
+      return runScreenVisualStyleChange(
         {
           activeBreakpointUpperBoundPx: activeBreakpointUpperBoundAtEvent(),
           activeBreakpointWidthStateRef,
@@ -542,7 +546,8 @@ export function useEditorScreenChangeHandlers({
         styles,
         elementInfo,
         metadata,
-      ),
+      );
+    },
     [
       activeBreakpointUpperBoundAtEvent,
       activeFile?.id,
@@ -638,15 +643,18 @@ export function useEditorScreenChangeHandlers({
           activeBreakpointUpperBoundAtEvent(),
         );
         if (nextContent === baseContent) return;
-        applyFileContentUpdate(screenId, nextContent, {
+        const publication = applyFileContentUpdate(screenId, nextContent, {
           refreshPreview: false,
           forcePreviewFullDocument: true,
         });
-        previewInteractionState(
-          Object.fromEntries(
-            Object.keys(styles).map((property) => [property, ""]),
-          ),
+        const clearPreview = Object.fromEntries(
+          Object.keys(styles).map((property) => [property, ""]),
         );
+        if (publication.status !== "accepted") {
+          previewInteractionState(clearPreview);
+          return;
+        }
+        previewInteractionState(clearPreview);
         return;
       }
       // A runtime style lands inline in every frame it reaches, so a
@@ -769,8 +777,9 @@ export function useEditorScreenChangeHandlers({
         replacementElementInfo?: ElementInfo;
         replacementSnapshotHtml?: string;
       },
-    ) =>
-      runScreenVisualStructureChange(
+    ) => {
+      if (!activeFile) return false;
+      return runScreenVisualStructureChange(
         {
           activeFile,
           applyLinkedComponentEdit,
@@ -793,7 +802,8 @@ export function useEditorScreenChangeHandlers({
         placement,
         elementInfo,
         details,
-      ),
+      );
+    },
     [
       activeFile?.id,
       applyFileContentUpdate,
@@ -828,8 +838,9 @@ export function useEditorScreenChangeHandlers({
         anchorRect?: { x: number; y: number; width: number; height: number };
         placement?: "before" | "after" | "inside";
       },
-    ) =>
-      runScreenVisualDuplicateChange(
+    ) => {
+      if (!activeFile) return false;
+      return runScreenVisualDuplicateChange(
         {
           activeFile,
           applyLinkedComponentEdit,
@@ -851,7 +862,8 @@ export function useEditorScreenChangeHandlers({
         cloneHtml,
         elementInfo,
         details,
-      ),
+      );
+    },
     [
       remapMotionTracksForClone,
       applyLinkedComponentEdit,
@@ -882,8 +894,9 @@ export function useEditorScreenChangeHandlers({
         routePath?: string;
         relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
-    ) =>
-      runScreenTextContentChange(
+    ) => {
+      if (!activeFile) return "refused";
+      return runScreenTextContentChange(
         {
           activeFile,
           applyFileContentUpdate,
@@ -910,7 +923,8 @@ export function useEditorScreenChangeHandlers({
         value,
         elementInfo,
         details,
-      ),
+      );
+    },
     [
       activeFile?.id,
       applyFileContentUpdate,

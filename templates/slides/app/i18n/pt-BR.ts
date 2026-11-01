@@ -136,7 +136,7 @@ const messages = {
     openChat: "Abrir chat",
     cloudAuthToken: "Token de autenticação",
     cloudSetupSteps: "Etapas de configuração",
-    cloudConnectedReloading: "Conectado com sucesso. Recarregando...",
+    cloudConnectedReloading: "Recarregando...",
     cloudConnectionFailed: "Falha na conexão",
     cloudTestConnect: "Testar e conectar",
     cloudServerlessPostgres: "Postgres serverless",
@@ -263,11 +263,11 @@ const messages = {
     media: "Imagem/vídeo…",
     mediaNeedsStorage:
       "Configure o armazenamento para enviar imagens e vídeos.",
-    transitions: "Transições",
-    transitionsMenu: "Opções de transição",
+    transitions: "Animações",
+    transitionsMenu: "Opções de animação",
     transitionsReadOnly: "Este deck é somente leitura.",
     transitionsNeedElement:
-      "Selecione um elemento para adicionar uma transição.",
+      "Selecione um elemento para adicionar uma animação.",
     transitionNone: "Nenhuma",
     transitionAppear: "Aparecer",
     transitionFade: "Esmaecer",
@@ -327,6 +327,10 @@ const messages = {
     usingDesignSystem: "Usando {{title}}",
     usingLinkedDesignSystem: "Usando um sistema de design vinculado",
     viewOnly: "Somente visualização",
+    requestEditAccess: "Solicitar acesso de edição",
+    editAccessRequested: "Solicitado",
+    editAccessRequestFailed:
+      "Não foi possível solicitar acesso de edição. Tente novamente.",
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Pode visualizar e adicionar comentários",
     slideSettings: "Configurações do slide",
@@ -406,10 +410,21 @@ const messages = {
       "Abre o deck no editor. Qualquer pessoa com acesso pode usar este link.",
     presentationLink: "Link da apresentação",
     presentationLinkDescription: "Abre o deck no modo apresentação",
+    copyEditorLink: "Copiar link do editor",
+    copyPresentationLink: "Copiar link da apresentação",
+    linkCopied: "Link copiado",
+    linkCopyFailed: "Não foi possível copiar o link.",
     present: "Apresentar",
     presentInTab: "Nesta guia",
     presentFullScreen: "Tela cheia",
     presentPresenterView: "Modo apresentador",
+    presentOptions: "Opções de apresentação",
+    presentFromBeginning: "Do início",
+    presentWithShortcut: "Apresentar ({{shortcut}})",
+    presentUnsaved:
+      "Não foi possível salvar suas alterações mais recentes. Elas serão apresentadas nesta guia.",
+    presentTabBlocked: "Permita pop-ups para apresentar em uma nova guia.",
+    deckTitle: "Título do deck",
     presentPresenterViewDescription:
       "Ver as notas do apresentador durante a apresentação",
     presenterViewBlocked: "Permita pop-ups para abrir o modo apresentador.",
@@ -439,6 +454,22 @@ const messages = {
       "Não foi possível resolver o conflito. Seu rascunho continua disponível neste dispositivo.",
     conflictKeepMine: "Manter meu texto",
     conflictUseLatest: "Usar o texto salvo",
+    conflictTitleSomeone: "Outra pessoa alterou o slide {{number}}",
+    conflictTitleAgent: "O agente alterou o slide {{number}}",
+    conflictNotesTitleSomeone:
+      "Outra pessoa alterou as anotações do orador do slide {{number}}",
+    conflictNotesTitleAgent:
+      "O agente alterou as anotações do orador do slide {{number}}",
+    conflictYourVersion: "Sua versão",
+    conflictTheirVersion: "Versão da outra pessoa",
+    conflictAgentVersion: "Versão do agente",
+    conflictKeepMyVersion: "Manter minha versão",
+    conflictKeepTheirVersion: "Manter a versão da outra pessoa",
+    conflictKeepAgentVersion: "Manter a versão do agente",
+    conflictSlideDeleted: "Slide excluído",
+    conflictNoNotes: "Sem anotações",
+    saveErrorDeckChanged: "Outra pessoa alterou esta apresentação",
+    saveErrorSlidesChanged: "Outra pessoa alterou slides desta apresentação",
     importBackup: "Importar backup",
     backupDownloaded: "Backup baixado",
     backupDownloadFailed: "Não foi possível baixar o backup",
@@ -479,9 +510,21 @@ const messages = {
       "Uma cópia desta apresentação foi criada no seu Google Drive.",
     googleSlidesGoTo: "Ir para o Google Slides",
     duplicateDeck: "Duplicar deck",
+    cancel: "Cancelar",
+    saveBeforeExportFailed:
+      "Não foi possível salvar suas alterações mais recentes. Tente exportar novamente.",
+    pptxMissingShapes_one:
+      "{{count}} forma não pôde ser exportada e está faltando no PPTX.",
+    pptxMissingShapes_many:
+      "{{count}} formas não puderam ser exportadas e estão faltando no PPTX.",
+    pptxMissingShapes_other:
+      "{{count}} formas não puderam ser exportadas e estão faltando no PPTX.",
   },
   share: {
     createFailed: "Não foi possível criar o link de compartilhamento",
+    snapshotLinks: "Links de snapshot",
+    revokeLink: "Revogar",
+    revokeFailed: "Não foi possível revogar o link de compartilhamento",
     title: "Compartilhar apresentação",
     cloudUpgradeDescription:
       "Para compartilhar apresentações publicamente, conecte um banco de dados em nuvem para que seus slides possam ser acessados de qualquer lugar.",
@@ -670,6 +713,13 @@ const messages = {
     strokeWeight: "Espessura",
     typography: "Tipografia",
     fontFamily: "Família da fonte",
+    fontPicker: {
+      search: "Buscar fontes",
+      inThisDeck: "Nesta apresentação",
+      allFonts: "Todas as fontes",
+      catalogUnavailable:
+        "Não foi possível carregar a biblioteca completa de fontes.",
+    },
     fontFamilies: {
       inherit: "Herdar",
       sansSerif: "Sem serifa",
@@ -688,6 +738,8 @@ const messages = {
     align: "Alinhamento",
     decreaseSize: "Diminuir tamanho da fonte",
     increaseSize: "Aumentar tamanho da fonte",
+    fontSizes: "Escala tipográfica",
+    deckSizes: "Apresentação",
     mixed: "Misto",
     textColor: "Cor do texto",
     primary: "Primary",
@@ -723,112 +775,126 @@ const messages = {
     insertColumnLeft: "Inserir coluna à esquerda",
     insertColumnRight: "Inserir coluna à direita",
     deleteColumn: "Excluir coluna",
+    tableMergedCellsUnavailable:
+      "Indisponível em tabelas com células mescladas",
+    tableColumnLayoutUnavailable:
+      "Indisponível para as larguras de coluna desta tabela",
   },
   animations: {
     appear: "Aparecer",
-    fade: "Fundido",
-    slideUp: "Deslizar arriba",
+    fade: "Esmaecer",
+    slideUp: "Deslizar para cima",
     zoom: "Zoom",
     elementFallback: "Elemento {{index}}",
-    title: "Transições",
-    close: "Fechar painel de transições",
-    emptyTitle: "Aún no hay animaciones.",
+    title: "Animações",
+    close: "Fechar painel de animações",
+    emptyTitle: "Ainda não há animações.",
     emptyDescription:
-      "Selecione um objeto no slide para adicionar uma transição.",
+      "Selecione um objeto no slide para adicionar uma animação.",
     selectObject: "Selecione um objeto para animar",
-    addTransition: "Adicionar transição",
+    addAnimation: "Adicionar animação",
+    alreadyAnimated: "Já animado",
     effect: "Efeito",
     onClick: "Ao clicar",
     withPrevious: "Com a anterior",
     trigger: "Início",
     byParagraph: "Por parágrafo",
-    expand: "Expandir transição",
-    collapse: "Recolher transição",
-    reorder: "Reordenar transição",
-    remove: "Remover transição",
+    expand: "Expandir animação",
+    collapse: "Recolher animação",
+    reorder: "Reordenar animação",
+    remove: "Remover animação",
     play: "Reproduzir",
-    clearAll: "Borrar todo",
+    clearAll: "Limpar tudo",
     elements: "Elementos",
-    autoFill: "Autorrellenar",
+    autoFill: "Preenchimento automático",
     issueStalePath: "Este objeto não está mais no slide.",
     issueMissingElement: "Não foi possível encontrar este objeto no slide.",
     issueDuplicate: "Esta animação se sobrepõe a outra no slide.",
     blocked:
       "Remova ou corrija a animação não resolvida para salvar ou reproduzir.",
     changeNotApplied: "Esta alteração não foi aplicada.",
-    noAnimatableElements:
-      "No se detectaron elementos animables en esta diapositiva.",
+    noAnimatableElements: "Nenhum elemento animável detectado neste slide.",
   },
   generateSlides: {
-    title: "Generar diapositivas con AI",
+    title: "Gerar slides com IA",
     description:
-      "Describe el tema de tu presentación y AI generará diapositivas para ti.",
+      "Descreva o tema da sua apresentação e a IA vai gerar slides para você.",
     topic: "Tema",
     topicPlaceholder:
-      "p. ej. Introducción a React Hooks, informe de ventas Q4, roadmap de producto 2025...",
-    slides: "Diapositivas",
-    slideCount_one: "{{count}} diapositiva",
-    slideCount_other: "{{count}} diapositivas",
-    slideCount_many: "{{count}} diapositivas",
+      "ex.: Introdução aos React Hooks, relatório de vendas do 4º tri, roadmap de produto 2025...",
+    slides: "Slides",
+    slideCount_one: "{{count}} slide",
+    slideCount_other: "{{count}} slides",
+    slideCount_many: "{{count}} slides",
     styleOptional: "Estilo (opcional)",
-    stylePlaceholder: "p. ej. minimalista, corporativo...",
-    generateImages: "Generar imágenes",
+    stylePlaceholder: "ex.: minimalista, corporativo...",
+    generateImages: "Gerar imagens",
     generateImagesDescription:
-      "AI generará imágenes para diapositivas visuales usando Gemini",
+      "A IA vai gerar imagens para slides visuais usando o Gemini",
     referenceImages:
-      "Imágenes de referencia (opcional, para coherencia de marca)",
+      "Imagens de referência (opcional, para manter a identidade da marca)",
     referenceImagesDescription:
-      "Sube imágenes para igualar su estilo visual en las imágenes generadas",
-    generating: "Generando diapositivas...",
-    generate: "Generar diapositivas",
+      "Envie imagens para reproduzir o estilo visual delas nas imagens geradas",
+    generating: "Gerando slides...",
+    generate: "Gerar slides",
   },
   deckResult: { saved: "Salvo" },
   history: {
-    unknownTime: "Hora desconocida",
-    justNow: "Ahora mismo",
-    minutesAgo: "hace {{count}} min",
-    hoursAgo: "hace {{count}} h",
-    daysAgo: "hace {{count}} d",
-    slideCount_one: "{{count}} diapositiva",
-    slideCount_other: "{{count}} diapositivas",
-    slideCount_many: "{{count}} diapositivas",
-    versionRestored: "Versión restaurada",
-    versionRestoredDescription: "El deck volvió a la instantánea seleccionada.",
-    restoreFailed: "Error al restaurar",
-    restoreFailedDescription: "No se pudo restaurar esta versión del deck.",
-    backToSavedVersions: "Volver a versiones guardadas",
-    savedVersions: "Versiones guardadas",
+    restoreDiscardTitle:
+      "Descartar as alterações não salvas e restaurar esta versão?",
+    restoreDiscardConfirm: "Descartar e restaurar",
+    cancel: "Cancelar",
+    restoreNoAccess:
+      "Você precisa de acesso de edição para restaurar esta versão.",
+    restoreVersionMissing: "Esta versão não está mais disponível.",
+    restoreDeckChanged:
+      "A apresentação mudou durante a restauração. Tente novamente.",
+    restoreOffline: "Você está offline. Reconecte e tente novamente.",
+    unknownTime: "Horário desconhecido",
+    justNow: "Agora mesmo",
+    minutesAgo: "há {{count}} min",
+    hoursAgo: "há {{count}} h",
+    daysAgo: "há {{count}} d",
+    slideCount_one: "{{count}} slide",
+    slideCount_other: "{{count}} slides",
+    slideCount_many: "{{count}} slides",
+    versionRestored: "Versão restaurada",
+    versionRestoredDescription: "O deck voltou para o snapshot selecionado.",
+    restoreFailed: "Falha ao restaurar",
+    restoreFailedDescription: "Não foi possível restaurar esta versão do deck.",
+    backToSavedVersions: "Voltar ao histórico",
+    savedVersions: "Histórico",
     description:
-      "Explora versiones guardadas del deck y restaura una instantánea anterior.",
-    untitled: "Sin título",
-    snapshotUnavailable: "Instantánea no disponible",
-    slideNumber: "Diapositiva {{number}}",
-    noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
-    restoreThisVersion: "Restaurar esta versión",
+      "Navegue pelo histórico do deck e restaure um snapshot anterior.",
+    untitled: "Sem título",
+    snapshotUnavailable: "Snapshot indisponível",
+    slideNumber: "Slide {{number}}",
+    noSlidesInSnapshot: "Nenhum slide neste snapshot.",
+    restoreThisVersion: "Restaurar esta versão",
     retry: "Tentar novamente",
-    noSavedVersions: "Aún no hay versiones guardadas",
+    noSavedVersions: "Ainda não há histórico",
     noSavedVersionsDescription:
-      "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+      "O histórico é salvo automaticamente antes das próximas edições do deck.",
     loadFailed: "Não foi possível carregar as versões salvas.",
     snapshotLoadFailed: "Não foi possível carregar esta versão salva.",
   },
   editorSidebar: {
-    selectSlide: "Seleccionar diapositiva {{number}}",
-    duplicateSlide: "Duplicar diapositiva",
+    selectSlide: "Selecionar slide {{number}}",
+    duplicateSlide: "Duplicar slide",
     duplicate: "Duplicar",
-    deleteSlide: "Eliminar diapositiva",
+    deleteSlide: "Excluir slide",
     slideDeleted: "Slide excluído",
-    delete: "Eliminar",
-    generatingSlide: "Generando diapositiva",
-    uploadFailed: "Error al subir",
-    uploadAttachedFileFailed: "No se pudo subir el archivo adjunto.",
+    delete: "Excluir",
+    generatingSlide: "Gerando slide",
+    uploadFailed: "Falha no envio",
+    uploadAttachedFileFailed: "Não foi possível enviar o arquivo anexado.",
     newSlideSaveFailed:
       "Não foi possível salvar o novo slide. Tente novamente.",
-    addSlides: "Añadir diapositivas",
-    addEmptySlide: "Añadir diapositiva vacía",
-    noAi: "sin AI",
-    duplicateCurrentSlide: "Duplicar diapositiva actual",
-    promptPlaceholder: "Describe las diapositivas que quieres...",
+    addSlides: "Adicionar slides",
+    addEmptySlide: "Adicionar slide vazio",
+    noAi: "sem IA",
+    duplicateCurrentSlide: "Duplicar slide atual",
+    promptPlaceholder: "Descreva os slides que você quer...",
     newSlide: "Novo slide",
     slidesHeading: "Slides",
     emptyTitle: "Nenhum slide ainda",
@@ -851,9 +917,9 @@ const messages = {
     upNext: "A seguir",
     endOfDeck: "Fim da apresentação",
     closePresenterView: "Fechar o modo apresentador",
-    noSlides: "No hay diapositivas para presentar",
-    previousSlide: "Diapositiva anterior",
-    nextSlide: "Siguiente diapositiva",
+    noSlides: "Nenhum slide para apresentar",
+    previousSlide: "Slide anterior",
+    nextSlide: "Próximo slide",
     voiceNavigation: "Navegação por voz",
     voiceNavigationNextCommand: "Próximo slide",
     voiceNavigationPreviousCommand: "Slide anterior",
@@ -863,9 +929,9 @@ const messages = {
       "A navegação por voz não está disponível neste navegador.",
     voiceNavigationError:
       "A navegação por voz parou. Verifique a permissão e a conexão do microfone e tente novamente.",
-    exitPresentation: "Salir de la presentación",
-    enterFullscreen: "Entrar en pantalla completa",
-    clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
+    exitPresentation: "Sair da apresentação",
+    enterFullscreen: "Entrar em tela cheia",
+    clickToEnterFullscreen: "Clique para entrar em tela cheia",
   },
   deckAccessPage: {
     errorCode: "Erro 403",
@@ -883,9 +949,17 @@ const messages = {
     switchAccount: "Trocar de conta",
   },
   deckEditor: {
-    lookingForDeck: "Buscando este deck",
-    joinTeamToOpen: "Únete a tu equipo para abrir este deck",
-    deckUnavailable: "Deck no disponible",
+    agentUpdatedSlides_one: "O agente atualizou {{count}} slide",
+    agentUpdatedSlides_other: "O agente atualizou {{count}} slides",
+    agentUpdatedSlides_many: "O agente atualizou {{count}} slides",
+    agentUndoConflictTitle: "Desfazer a alteração do agente?",
+    agentUndoConflictDescription:
+      "Você editou estes slides depois do agente. Desfazer também remove essas edições.",
+    agentUndoConfirm: "Desfazer mesmo assim",
+    agentUndoKeep: "Cancelar",
+    lookingForDeck: "Procurando este deck",
+    joinTeamToOpen: "Entre na sua equipe para abrir este deck",
+    deckUnavailable: "Deck indisponível",
     generationStalled: "A geração foi pausada após 5 minutos sem progresso",
     generationStalledDescription:
       "Suas lâminas salvas continuam aqui. Continue este deck no chat.",
@@ -893,11 +967,11 @@ const messages = {
     continueGenerationPrompt:
       "Continue gerando as lâminas deste deck. Primeiro, confira as lâminas existentes e o contexto de geração salvo. Mantenha as lâminas concluídas e adicione somente as que faltam.",
     checkingSharedAccess:
-      "Comprobando si esta presentación está compartida con tu cuenta.",
+      "Verificando se esta apresentação foi compartilhada com sua conta.",
     joinTeamDescription:
-      "Este enlace apunta a una presentación de equipo. Únete al equipo indicado arriba y el deck se abrirá aquí automáticamente.",
+      "Este link aponta para uma apresentação da equipe. Entre na equipe mostrada acima e o deck será aberto aqui automaticamente.",
     deckUnavailableDescription:
-      "Este deck puede haberse eliminado o tu cuenta no tiene acceso.",
+      "Este deck pode ter sido removido, ou sua conta não tem acesso a ele.",
     privateDeckTitle: "Este deck é privado",
     privateDeckDescription:
       "Peça acesso ao proprietário para abrir este deck. Ele será notificado quando você enviar a solicitação.",
@@ -927,7 +1001,8 @@ const messages = {
     accessRequestFailed: "Não foi possível solicitar acesso. Tente novamente.",
     accessApprovalTitle: "Acesso concedido",
     accessApprovalAlreadyTitle: "Acesso já concedido",
-    accessApprovalMessage: "{{email}} agora pode abrir este deck.",
+    accessApprovalEditorMessage: "{{email}} agora pode editar este deck.",
+    accessApprovalViewerMessage: "{{email}} agora pode visualizar este deck.",
     accessApprovalRequesterEmailed: "Enviamos um e-mail para avisar.",
     accessApprovalRequesterEmailFailed:
       "Não foi possível enviar um e-mail para {{email}}. Avise que já é possível abrir o deck.",
@@ -939,15 +1014,21 @@ const messages = {
       "Entre como proprietário ou administrador do deck para aprovar esta solicitação.",
     accessApprovalOpenDeck: "Abrir deck",
     accessApprovalSignIn: "Entrar",
-    accessApprovalLoading: "Concedendo acesso...",
+    accessApprovalReviewTitle: "Permitir acesso",
+    accessApprovalRequestedEdit: "{{email}} pediu para editar “{{title}}”.",
+    accessApprovalRequestedView: "{{email}} pediu para visualizar “{{title}}”.",
+    accessApprovalRoleLabel: "Função",
+    accessApprovalRoleViewer: "Leitor",
+    accessApprovalRoleEditor: "Editor",
+    accessApprovalAllow: "Permitir acesso",
     backToDecks: "Voltar aos decks",
     tryAgain: "Tentar novamente",
-    imageUploadFailed: "Error al subir imagen",
+    imageUploadFailed: "Falha no envio da imagem",
     imageUploadNeedsBuilder:
       "Conecte um armazenamento de objetos para enviar imagens: conecte o Builder.io (grátis) ou adicione suas próprias chaves de armazenamento compatíveis com S3 em Configurações → Envio de arquivos.",
-    imageAdded: "Imagen añadida",
-    imageUploadError: "Algo salió mal al subir esta imagen.",
-    exportFailed: "Error al exportar",
+    imageAdded: "Imagem adicionada",
+    imageUploadError: "Algo deu errado ao enviar esta imagem.",
+    exportFailed: "Falha na exportação",
     agentRunFailed:
       "A execução do agente falhou antes de criar qualquer slide. Confira os detalhes no chat e tente novamente.",
     generationFailed:
@@ -961,17 +1042,26 @@ const messages = {
     originalPrompt: "O que você pediu",
     backToHome: "Voltar para a página inicial",
     checkedDeckTryAgain: "Verifiquei a apresentação. Tentar novamente",
+    generationStillRunning:
+      "Este deck ainda está sendo gerado. Confira o progresso no chat.",
+    questionFlowTitle: "Defina o deck primeiro",
+    questionFlowDescription:
+      "Responda às escolhas que importam. Use Outro para uma direção personalizada ou deixe o agente decidir.",
     deckHasNoSlides: "Esta apresentação não contém slides.",
-    pdfRenderFailed: "No se pudo renderizar el PDF.",
-    buildingDeck: "Construyendo deck",
+    pdfRenderFailed: "Não foi possível gerar o PDF.",
+    buildingDeck: "Montando o deck",
     layoutOverflowWarning: "O layout transborda",
     layoutOverflowDetails: "Mostrar detalhes do transbordamento",
     layoutOverflowVertical: "Transbordamento vertical: {{pixels}} px",
     layoutOverflowHorizontal: "Transbordamento horizontal: {{pixels}} px",
     dismissLayoutWarning: "Dispensar aviso de layout",
-    slidesAdded_one: "{{count}} diapositiva añadida",
-    slidesAdded_other: "{{count}} diapositivas añadidas",
-    slidesAdded_many: "{{count}} diapositivas añadidas",
+    fixLayoutWithAi: "Corrigir com IA",
+    askingAgentToFixLayout: "Perguntando…",
+    shrinkTextToFit: "Reduzir texto para caber",
+    shrinkTextCannotFit: "O texto ainda ultrapassa o slide no menor tamanho",
+    slidesAdded_one: "{{count}} slide adicionado",
+    slidesAdded_other: "{{count}} slides adicionados",
+    slidesAdded_many: "{{count}} slides adicionados",
     unsavedChangesTitle: "Alterações não salvas",
     unsavedChangesDescription:
       "Se você sair ou recarregar agora, poderá perder alterações que ainda não foram salvas. Tem certeza de que deseja sair?",
@@ -979,6 +1069,8 @@ const messages = {
     leaveWithoutSaving: "Sair sem salvar",
     editorMarkupNotSaved:
       "Esta edição não foi salva porque adicionaria marcação do editor ao slide.",
+    slideDeletedElsewhere:
+      "Outra pessoa excluiu um slide que você estava editando.",
     historyStepConflict:
       "Esta etapa do histórico foi ignorada porque entra em conflito com a apresentação atual.",
     historyStepFailed:
@@ -1076,15 +1168,158 @@ const messages = {
     chooseAnotherFile: "Escolher outro arquivo",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "Criar um pitch de produto",
-      roadmap: "Criar um roadmap de produto",
-      explainer: "Explicar um tema em uma apresentação",
+    nextStepBar: {
+      ariaLabel: "Próximas etapas da sua primeira apresentação",
+      refineWithPrompt: "Refinar com uma instrução",
+      export: "Exportar",
+      shareLink: "Compartilhar link",
+      dismiss: "Dispensar",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "Crie uma apresentação de lançamento com o problema do cliente, os benefícios, o plano e um tom confiante e centrado no cliente.",
+        roadmap:
+          "Crie um roadmap trimestral com temas estratégicos, marcos, dependências e um tom executivo claro.",
+        opportunity:
+          "Crie um resumo de oportunidade com mercado, problemas dos clientes, solução, riscos e um tom decisivo.",
+        priorities:
+          "Crie uma apresentação de priorização com impacto, esforço, evidências, escolhas e um tom direto para decidir.",
+        metrics:
+          "Crie uma análise de métricas de produto com adoção, ativação, retenção, aprendizados e um tom analítico e franco.",
+        discovery:
+          "Crie um relatório de descoberta com temas de pesquisa, citações, necessidades e um tom empático baseado em evidências.",
+        vision:
+          "Crie uma apresentação de visão com futuro desejado, princípios, apostas de produto e um tom inspirador e prático.",
+        release:
+          "Crie uma revisão de lançamento com metas, resultados, feedback, pendências e um tom responsável e reflexivo.",
+      },
+      design: {
+        caseStudy:
+          "Crie um estudo de caso de design com briefing, processo, telas principais, resultados e um tom editorial acolhedor.",
+        system:
+          "Crie uma apresentação do sistema de design com cores, tipografia, componentes, exemplos e um tom visual preciso.",
+        critique:
+          "Crie uma crítica de design com objetivos, telas atuais, temas de feedback, próximos passos e um tom construtivo.",
+        research:
+          "Crie um relatório de pesquisa com contexto, padrões, citações, oportunidades e um tom empático.",
+        concepts:
+          "Crie uma exploração de conceitos com três direções visuais, telas de exemplo, escolhas e um tom descontraído.",
+        accessibility:
+          "Crie uma revisão de acessibilidade com barreiras, exemplos anotados, melhorias e um tom inclusivo e claro.",
+        brand:
+          "Crie uma apresentação de marca com público, referências visuais, cores, tipografia e um tom marcante.",
+        sprint:
+          "Crie um resumo do sprint de design com desafio, ideias, protótipo, descobertas e um tom otimista.",
+      },
+      developer: {
+        architecture:
+          "Crie uma apresentação de arquitetura com componentes, fluxo de dados, escolhas e um tom técnico preciso.",
+        api: "Crie um guia inicial da API com configuração, autenticação, exemplos, erros e um tom acessível a desenvolvedores.",
+        release:
+          "Crie um plano técnico de lançamento com escopo, marcos, dependências, implantação e um tom prático.",
+        incident:
+          "Crie uma revisão de incidente com impacto, cronologia, causa raiz, ações e um tom sem culpabilização.",
+        migration:
+          "Crie um plano de migração com estado atual, etapas, riscos, validação e um tom tranquilizador.",
+        security:
+          "Crie uma revisão de segurança com limites do sistema, ameaças, controles, lacunas e um tom técnico direto.",
+        demo: "Crie uma demonstração técnica com problema, arquitetura, fluxo ao vivo, resultados e um tom claro.",
+        metrics:
+          "Crie uma análise de métricas de engenharia com entregas, confiabilidade, tendências e um tom franco.",
+      },
+      marketing: {
+        campaign:
+          "Crie um lançamento de campanha com público, mensagem, canais, cronograma e um tom energético.",
+        story:
+          "Crie uma história de cliente com desafio, solução, resultados, evidências e um tom humano.",
+        content:
+          "Crie uma estratégia de conteúdo com necessidades do público, temas, formatos, calendário e um tom editorial.",
+        positioning:
+          "Crie um posicionamento de marca com público, categoria, promessa, evidências e um tom marcante.",
+        channels:
+          "Crie uma análise de canais com alcance, engajamento, conversão, aprendizados e um tom claro.",
+        messaging:
+          "Crie uma apresentação de mensagens de produto com público, benefícios, provas, exemplos e um tom persuasivo.",
+        event:
+          "Crie um plano de divulgação de evento com público, chamada, cronograma, canais e um tom acolhedor.",
+        competition:
+          "Crie uma análise competitiva com alternativas, pontos fortes, lacunas, oportunidades e um tom equilibrado.",
+      },
+      sales: {
+        pitch:
+          "Crie uma apresentação comercial com objetivos do cliente, solução, resultados, provas e um tom confiante.",
+        proposal:
+          "Crie uma proposta de solução com necessidades, abordagem, cronograma, investimento e um tom claro e centrado no cliente.",
+        quarterlyReview:
+          "Crie uma revisão trimestral com metas, resultados, adoção, próximos passos e um tom colaborativo.",
+        discovery:
+          "Crie um relatório de descoberta com prioridades, problemas, adequação e um tom atento.",
+        objections:
+          "Crie um guia para objeções com dúvidas comuns, evidências, respostas e um tom prestativo.",
+        demo: "Crie uma narrativa de demonstração com contexto do cliente, fluxos principais, resultados e um tom conciso e persuasivo.",
+        renewal:
+          "Crie uma apresentação de renovação com valor entregue, uso, oportunidades e um tom de parceria.",
+        enablement:
+          "Crie um material de capacitação comercial com compradores ideais, qualificação, argumentos e um tom prático.",
+      },
+      ops: {
+        weeklyReview:
+          "Crie uma revisão semanal de operações com metas, métricas, bloqueios, responsáveis e um tom calmo e direto.",
+        process:
+          "Crie uma apresentação de melhoria de processo com etapas atuais, atritos, fluxo futuro e um tom prático.",
+        capacity:
+          "Crie um plano de capacidade com demanda, disponibilidade da equipe, prioridades, cenários e um tom transparente.",
+        service:
+          "Crie uma revisão de serviço com volume, tempos de resposta, escalonamentos, correções e um tom responsável.",
+        vendor:
+          "Crie uma avaliação de fornecedores com requisitos, opções, custos, riscos e um tom equilibrado.",
+        metrics:
+          "Crie uma apresentação de painel operacional com métricas, tendências, exceções e um tom analítico e conciso.",
+        onboarding:
+          "Crie um fluxo de integração com etapas, transições, recursos, medidas de sucesso e um tom acolhedor.",
+        risk: "Crie uma revisão de riscos com probabilidade, impacto, mitigações, responsáveis e um tom ponderado.",
+      },
+      individual: {
+        project:
+          "Crie um plano de projeto pessoal com objetivo, marcos, recursos, riscos e um tom motivador.",
+        portfolio:
+          "Crie um portfólio pessoal com trabalhos escolhidos, processo, resultados e um tom editorial confiante.",
+        learning:
+          "Crie um roteiro de aprendizagem com habilidades, recursos, prática, marcos e um tom encorajador.",
+        event:
+          "Crie um plano de encontro com propósito, convidados, agenda, detalhes e um tom caloroso.",
+        budget:
+          "Crie uma revisão de orçamento pessoal com receitas, gastos, objetivos e um tom prático e tranquilo.",
+        travel:
+          "Crie um itinerário com destinos, destaques diários, logística e um tom visual convidativo.",
+        community:
+          "Crie uma apresentação de oficina comunitária com tema, atividades, aprendizados e um tom inclusivo.",
+        personalStory:
+          "Crie uma apresentação pessoal com trajetória, interesses, trabalho e um tom natural e conversacional.",
+      },
+      general: {
+        overview:
+          "Crie uma visão geral clara de um tema com contexto, ideias principais, exemplos e um tom acolhedor.",
+        fundraiser:
+          "Crie uma apresentação de arrecadação com missão, necessidade, impacto e um tom esperançoso.",
+        lesson:
+          "Crie uma aula curta com objetivos, conceitos principais, exemplos e um tom envolvente.",
+        research:
+          "Crie um relatório de pesquisa com pergunta, método, descobertas, implicações e um tom equilibrado.",
+        eventProposal:
+          "Crie uma proposta de evento com propósito, público, formato, orçamento e um tom convidativo.",
+        teamStrategy:
+          "Crie uma estratégia de equipe com prioridades, métricas, iniciativas e um tom focado.",
+        howTo:
+          "Crie um guia visual com etapas claras, exemplos úteis e um tom encorajador.",
+        portfolioIntro:
+          "Crie uma introdução de portfólio com projetos escolhidos, pontos fortes e um tom refinado.",
+      },
     },
     suggestedPrompts: "Prompts sugeridos",
     importMenu: {
       import: "Importar",
-      options: "Opções de importação",
       invalidPdf: "Escolha um arquivo PDF.",
       invalidPptx: "Escolha um arquivo PPTX.",
       invalidFile: "Escolha um arquivo PDF ou PPTX.",
@@ -1274,9 +1509,13 @@ const messages = {
     workspaceDefaultBadge: "Padrão do espaço de trabalho",
     setWorkspaceDefault: "Definir como padrão do espaço de trabalho",
     clearWorkspaceDefault: "Remover o padrão do espaço de trabalho",
+    renameDeck: "Renomear",
+    duplicateDeck: "Duplicar",
+    deleteDeck: "Excluir",
     workspaceDefaultSet: "Definido como padrão do espaço de trabalho",
     workspaceDefaultCleared: "Padrão do espaço de trabalho removido",
     duplicateFailed: "Não foi possível duplicar esse deck",
+    deleteFailed: "Não foi possível excluir esse deck",
     workspaceDefaultFailed:
       "Não foi possível atualizar o padrão do espaço de trabalho",
     workspaceDefaultConfirmTitle: "Definir como padrão do espaço de trabalho?",
@@ -1298,6 +1537,89 @@ const messages = {
     emptyTitle: "Ainda não há decks",
     createFirstDeck: "Crie seu primeiro deck",
     emptyDescription: "Crie belas apresentações com geração por IA.",
+
+    suggestionLabels: {
+      product: {
+        launch: "apresentação de lançamento",
+        roadmap: "roadmap trimestral",
+        opportunity: "resumo de oportunidade",
+        priorities: "apresentação de priorização",
+        metrics: "revisão de métricas",
+        discovery: "relatório de descoberta",
+        vision: "apresentação de visão",
+        release: "revisão de lançamento",
+      },
+      design: {
+        caseStudy: "estudo de caso",
+        system: "sistema de design",
+        critique: "crítica de design",
+        research: "relatório de pesquisa",
+        concepts: "exploração de conceitos",
+        accessibility: "revisão de acessibilidade",
+        brand: "apresentação de marca",
+        sprint: "resumo do sprint",
+      },
+      developer: {
+        architecture: "apresentação de arquitetura",
+        api: "guia inicial da API",
+        release: "plano técnico de lançamento",
+        incident: "revisão de incidente",
+        migration: "plano de migração",
+        security: "revisão de segurança",
+        demo: "demonstração técnica",
+        metrics: "revisão de métricas",
+      },
+      marketing: {
+        campaign: "lançamento de campanha",
+        story: "história de cliente",
+        content: "estratégia de conteúdo",
+        positioning: "posicionamento de marca",
+        channels: "análise de canais",
+        messaging: "mensagens de produto",
+        event: "plano de divulgação de evento",
+        competition: "análise competitiva",
+      },
+      sales: {
+        pitch: "apresentação comercial",
+        proposal: "proposta de solução",
+        quarterlyReview: "revisão trimestral",
+        discovery: "relatório de descoberta",
+        objections: "guia de objeções",
+        demo: "narrativa de demonstração",
+        renewal: "apresentação de renovação",
+        enablement: "material de capacitação comercial",
+      },
+      ops: {
+        weeklyReview: "revisão semanal de operações",
+        process: "melhoria de processos",
+        capacity: "plano de capacidade",
+        service: "revisão de serviço",
+        vendor: "avaliação de fornecedores",
+        metrics: "apresentação de painel operacional",
+        onboarding: "fluxo de integração",
+        risk: "revisão de riscos",
+      },
+      individual: {
+        project: "plano de projeto pessoal",
+        portfolio: "portfólio pessoal",
+        learning: "roteiro de aprendizagem",
+        event: "plano de encontro",
+        budget: "revisão de orçamento pessoal",
+        travel: "itinerário de viagem",
+        community: "apresentação de oficina comunitária",
+        personalStory: "apresentação pessoal",
+      },
+      general: {
+        overview: "visão geral do tema",
+        fundraiser: "apresentação de arrecadação",
+        lesson: "aula curta",
+        research: "relatório de pesquisa",
+        eventProposal: "proposta de evento",
+        teamStrategy: "estratégia de equipe",
+        howTo: "guia visual",
+        portfolioIntro: "introdução de portfólio",
+      },
+    },
   },
   agentChat: {
     setup: {

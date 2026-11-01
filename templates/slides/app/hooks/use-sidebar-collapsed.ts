@@ -1,11 +1,16 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
 import { TAB_ID } from "@/lib/tab-id";
 
 const KEY = "sidebarCollapsed";
-const URL = `/_agent-native/application-state/${KEY}`;
 const QUERY_KEY = ["app-state", KEY] as const;
+
+function stateUrl(): string {
+  return agentNativePath(`/_agent-native/application-state/${KEY}`);
+}
+
 export const SIDEBAR_COLLAPSED_STORAGE_KEY =
   "agent-native-slides-sidebar-collapsed";
 
@@ -52,7 +57,7 @@ export function useSidebarCollapsed() {
     initialData: readStoredCollapsed,
     queryFn: async () => {
       try {
-        const res = await fetch(URL);
+        const res = await fetch(stateUrl());
         if (!res.ok) return fallbackState();
         const text = await res.text();
         if (!text) return fallbackState();
@@ -83,7 +88,7 @@ export function useSidebarCollapsed() {
       const nextVal = typeof next === "function" ? next(prev) : next;
       writeStoredCollapsed(nextVal);
       qc.setQueryData<SidebarCollapsedState>(QUERY_KEY, { collapsed: nextVal });
-      fetch(URL, {
+      fetch(stateUrl(), {
         method: "PUT",
         keepalive: true,
         headers: {

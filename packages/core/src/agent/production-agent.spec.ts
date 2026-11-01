@@ -1,7 +1,6 @@
 import { createHash, randomFillSync } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
-import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -28,6 +27,11 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import {
+  resetAppConfigForTests,
+  setAppConfigLayer,
+} from "../app-config/store.js";
+import * as auditRecord from "../audit/record.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import * as dbClient from "../db/client.js";
 import type { TextAttachmentStorage } from "../file-upload/attachment-text.js";
@@ -48,8 +52,11 @@ import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
+import * as questionIntakeExperiment from "../observability/question-intake-experiment.js";
 import * as appRoles from "../org/app-roles.js";
+import { attachmentFailureToError } from "../private-blob/attachment-errors.js";
 import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
+import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import * as processRunFailure from "../server/agent-chat/process-run-failure.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
@@ -81,6 +88,7 @@ import type {
   EngineStreamOptions,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import { FOLLOW_UP_SUGGESTIONS_TOOL_NAME } from "./follow-up-suggestions.js";
 import { BUILDER_MODEL_CONFIG } from "./model-config.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
@@ -99,6 +107,7 @@ import {
   serializeDurableDispatchPayload,
   callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
+  chainServerDrivenContinuation,
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
@@ -118,6 +127,8 @@ import {
   isRetryableError,
   actionsToEngineTools,
   filterActionsByAllowedNames,
+  filterActionsByExcludedNames,
+  trackExperimentExposureAtDispatch,
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
   backgroundNoProgressTerminalEvent,
@@ -166,6 +177,7 @@ import {
 import type { ActiveRun } from "./run-manager.js";
 import * as runManager from "./run-manager.js";
 import * as runStore from "./run-store.js";
+import { buildAssistantMessage } from "./thread-data-builder.js";
 import { threadDataToEngineMessages } from "./thread-data-builder.js";
 import * as toolApprovalStore from "./tool-approval-store.js";
 import { classifyToolCallJournal } from "./tool-call-journal.js";
@@ -537,6 +549,359 @@ async function runToolCallSequence(
 
   return events;
 }
+
+describe("private action history persistence", () => {
+  it("does not invoke a private tool when its retained privacy marker fails", async () => {
+    const write = vi
+      .spyOn(runStore, "recordThreadPrivateRun")
+      .mockRejectedValue(new Error("fixture store unavailable"));
+    const run = vi.fn(async () => "private result");
+    const action = defineAction({
+      description: "Private read",
+      parameters: {},
+      readOnly: true,
+      persistInChatHistory: false,
+      run,
+    });
+    const actions = loadActionsFromStaticRegistry({
+      private_read: { default: action },
+    });
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream() {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call",
+              id: "private",
+              name: "private_read",
+              input: {},
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    try {
+      await expect(
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions,
+          send: () => {},
+          signal: new AbortController().signal,
+          threadId: "thread-private",
+          runId: "run-private",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "private_history_provenance_unavailable",
+      });
+      expect(write).toHaveBeenCalledWith("thread-private", "run-private");
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("marks a public sibling before a private call and preserves live inputs", async () => {
+    const secret = "parallel-private-sentinel";
+    const audit = vi
+      .spyOn(auditRecord, "recordActionAudit")
+      .mockResolvedValue(undefined);
+    const publicAction = defineAction({
+      description: "Public read",
+      parameters: { value: { type: "string" } },
+      readOnly: true,
+      audit: { enabled: true, summary: () => secret },
+      run: async () => secret,
+    });
+    const privateAction = defineAction({
+      description: "Private read",
+      parameters: { value: { type: "string" } },
+      readOnly: true,
+      persistInChatHistory: false,
+      run: async () => secret,
+    });
+    const actions = loadActionsFromStaticRegistry({
+      public_read: { default: publicAction },
+      private_read: { default: privateAction },
+    });
+    const events: AgentChatEvent[] = [];
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    let attempt = 0;
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream() {
+        if (attempt++ === 0) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "public",
+                name: "public_read",
+                input: { value: secret },
+              },
+              {
+                type: "tool-call",
+                id: "private",
+                name: "private_read",
+                input: { value: secret },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: secret }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages,
+        actions,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+      const starts = events.filter((event) => event.type === "tool_start");
+      expect(starts).toHaveLength(2);
+      expect(starts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            tool: "public_read",
+            input: { value: secret },
+            omitFromPersistedHistory: true,
+          }),
+          expect.objectContaining({
+            tool: "private_read",
+            input: { value: secret },
+            omitFromPersistedHistory: true,
+          }),
+        ]),
+      );
+      expect(
+        JSON.stringify(
+          events.map((event) =>
+            JSON.parse(runStore.persistedRunEventData(JSON.stringify(event))),
+          ),
+        ),
+      ).not.toContain(secret);
+      expect(audit).toHaveBeenCalled();
+      expect(JSON.stringify(audit.mock.calls)).not.toContain(secret);
+      const derivedParts = messages
+        .slice(1)
+        .flatMap((message) => message.content);
+      expect(
+        derivedParts
+          .filter((part) => JSON.stringify(part).includes(secret))
+          .every(
+            (part) =>
+              "omitFromPersistedHistory" in part &&
+              part.omitFromPersistedHistory === true,
+          ),
+      ).toBe(true);
+    } finally {
+      audit.mockRestore();
+    }
+  });
+
+  it("keeps a private result marked across an actual chunk continuation", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("./run-loop-with-resume.js");
+    const secret = "private-resume-sentinel";
+    const action = defineAction({
+      description: "Private read",
+      parameters: {},
+      readOnly: true,
+      persistInChatHistory: false,
+      run: async () => secret,
+    });
+    const actions = loadActionsFromStaticRegistry({
+      private_read: { default: action },
+    });
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    const events: AgentChatEvent[] = [];
+    const turn = new AbortController();
+    let chunk = new AbortController();
+    let boundary: string | null = null;
+    let calls = 0;
+    let resumedInput = "";
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(options) {
+        if (calls++ === 0) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "private",
+                name: "private_read",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else {
+          resumedInput = JSON.stringify(options.messages);
+          yield { type: "text-delta", text: `result: ${secret}` };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: `result: ${secret}` }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    const control = {
+      turnSignal: turn.signal,
+      get chunkSignal() {
+        return chunk.signal;
+      },
+      chunkBoundaryReason: () => boundary,
+      beginChunk: () => {
+        boundary = null;
+        chunk = new AbortController();
+        return chunk.signal;
+      },
+      flushEvents: async () => {},
+    };
+    await runAgentLoopDirectWithSoftTimeout(
+      {
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages,
+        actions,
+        signal: turn.signal,
+        send: (event) => {
+          events.push(event);
+          if (event.type === "tool_done" && boundary === null && calls === 1) {
+            boundary = "no_progress";
+            chunk.abort();
+          }
+        },
+      },
+      0,
+      undefined,
+      control,
+    );
+    expect(calls).toBe(2);
+    expect(resumedInput).toContain(secret);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: `result: ${secret}`,
+        omitFromPersistedHistory: true,
+      }),
+    );
+    expect(
+      JSON.stringify(
+        events.map((event) =>
+          JSON.parse(runStore.persistedRunEventData(JSON.stringify(event))),
+        ),
+      ),
+    ).not.toContain(secret);
+  });
+
+  it("keeps a private read and body-derived follow-up out of durable events and audits", async () => {
+    const body = "private-mail-body-sentinel";
+    const audit = vi
+      .spyOn(auditRecord, "recordActionAudit")
+      .mockResolvedValue(undefined);
+    const privateRead = defineAction({
+      description: "Read a private message",
+      parameters: { threadId: { type: "string" } },
+      persistInChatHistory: false,
+      audit: {
+        enabled: true,
+        target: () => ({ id: body }),
+        summary: () => body,
+      },
+      readOnly: true,
+      run: async () => body,
+    });
+    const draftSuggestion = defineAction({
+      description: "Create a draft suggestion",
+      parameters: { bodyText: { type: "string" } },
+      audit: {
+        enabled: true,
+        target: (args) => ({ id: args.bodyText }),
+        summary: (args, result) => `${args.bodyText}:${String(result)}`,
+      },
+      run: async (args: { bodyText: string }) => `Draft from ${args.bodyText}`,
+    });
+
+    try {
+      const events = await runToolCallSequence(
+        [
+          { name: "get-gmail-thread", input: { threadId: "thread-id" } },
+          {
+            name: "create-mail-draft-suggestion",
+            input: { bodyText: body },
+          },
+        ],
+        loadActionsFromStaticRegistry({
+          "get-gmail-thread": { default: privateRead },
+          "create-mail-draft-suggestion": { default: draftSuggestion },
+        }),
+      );
+
+      expect(JSON.stringify(events)).toContain(body);
+      const persistedEvents = events.map((event) =>
+        JSON.parse(runStore.persistedRunEventData(JSON.stringify(event))),
+      );
+      expect(JSON.stringify(persistedEvents)).not.toContain(body);
+      const snapshot = buildAssistantMessage(
+        events.map((event, seq) => ({ seq, event })),
+        "run-private-follow-up",
+      );
+      expect(JSON.stringify(snapshot)).not.toContain(body);
+      expect(events.filter((event) => event.type === "tool_done")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            tool: "get-gmail-thread",
+            omitFromPersistedHistory: true,
+          }),
+          expect.objectContaining({
+            tool: "create-mail-draft-suggestion",
+            omitFromPersistedHistory: true,
+          }),
+        ]),
+      );
+      expect(audit).toHaveBeenCalledTimes(2);
+      for (const [input] of audit.mock.calls) {
+        expect(JSON.stringify(input)).not.toContain(body);
+        expect(input.args).toEqual({});
+        expect(input).not.toHaveProperty("result");
+        expect(input.config).toMatchObject({
+          recordInputs: false,
+          target: undefined,
+          summary: undefined,
+        });
+      }
+    } finally {
+      audit.mockRestore();
+    }
+  });
+});
 
 describe("toolCallCacheKey", () => {
   it("deduplicates equivalent docs-search queries without merging distinct queries", () => {
@@ -4434,6 +4799,635 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  function authorizePublicThreadHistory() {
+    const access = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockImplementation(
+        async (_owner, threadId) =>
+          ({ id: threadId, threadData: "{}" }) as never,
+      );
+    const provenance = vi
+      .spyOn(runStore, "getThreadPrivateHistoryState")
+      .mockResolvedValue({
+        hasPrivateHistory: false,
+        projectionPending: false,
+        privateRunIds: [],
+      });
+    onTestFinished(() => {
+      access.mockRestore();
+      provenance.mockRestore();
+    });
+  }
+
+  it("protects follow-up history for a request-resolved private action", async () => {
+    const secret = "additional-private-action-sentinel";
+    const marker = vi
+      .spyOn(runStore, "recordThreadPrivateRun")
+      .mockResolvedValue();
+    const run = vi.fn(async () => secret);
+    const action = defineAction({
+      description: "Additional private read",
+      parameters: {},
+      persistInChatHistory: false,
+      readOnly: true,
+      run,
+    });
+    const additional = loadActionsFromStaticRegistry({
+      "private-extra": { default: action },
+    });
+    const resolveAdditionalActions = vi.fn(async () => additional);
+    const modelInputs: string[] = [];
+    let modelCall = 0;
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(opts) {
+        modelInputs.push(JSON.stringify(opts.messages));
+        if (modelCall++ === 0) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "extra-call",
+                name: "private-extra",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text",
+                text: modelCall === 2 ? `private summary ${secret}` : "done",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    let completed: ActiveRun | undefined;
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      resolveAdditionalActions,
+      prepareRequest: () => ({ followUpSuggestions: false }),
+      onRunComplete: (value) => {
+        completed = value;
+      },
+    });
+    const event = (body: object) =>
+      mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
+    try {
+      const first = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () =>
+          handler(
+            event({ message: "public question", threadId: "extra-thread" }),
+          ),
+      );
+      if (first instanceof ReadableStream) await new Response(first).text();
+      await vi.waitFor(() => expect(completed).toBeDefined());
+      if (!completed) throw new Error("missing completed run");
+      expect(run).toHaveBeenCalledOnce();
+      expect(marker).toHaveBeenCalledWith("extra-thread", completed.runId);
+      expect(marker.mock.invocationCallOrder[0]).toBeLessThan(
+        run.mock.invocationCallOrder[0],
+      );
+      const assistant = buildAssistantMessage(
+        completed.events,
+        completed.runId,
+      );
+      if (!assistant) throw new Error("missing projected assistant");
+      const snapshot = {
+        messages: [
+          {
+            message: {
+              id: "user",
+              role: "user",
+              content: [{ type: "text", text: "public question" }],
+            },
+          },
+          {
+            message: {
+              ...assistant,
+              metadata: { ...assistant.metadata, runId: completed.runId },
+            },
+          },
+        ],
+      };
+      const access = vi
+        .spyOn(chatThreadStore, "resolveThreadAccess")
+        .mockResolvedValue({
+          id: "extra-thread",
+          threadData: JSON.stringify(snapshot),
+        } as never);
+      const provenance = vi
+        .spyOn(runStore, "getThreadPrivateHistoryState")
+        .mockResolvedValue({
+          hasPrivateHistory: true,
+          projectionPending: false,
+          privateRunIds: [completed.runId],
+        });
+      try {
+        modelInputs.length = 0;
+        const second = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () =>
+            handler(
+              event({
+                message: "next prompt",
+                threadId: "extra-thread",
+                history: [{ role: "assistant", content: secret }],
+                structuredHistory: [
+                  {
+                    role: "assistant",
+                    content: [{ type: "text", text: secret }],
+                  },
+                ],
+              }),
+            ),
+        );
+        if (second instanceof ReadableStream) await new Response(second).text();
+        expect(modelInputs.length).toBeGreaterThan(0);
+        expect(modelInputs.join(" ")).not.toContain(secret);
+        expect(modelInputs.join(" ")).toContain("public question");
+        expect(resolveAdditionalActions).toHaveBeenCalledTimes(2);
+      } finally {
+        access.mockRestore();
+        provenance.mockRestore();
+      }
+    } finally {
+      marker.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+    }
+  });
+
+  it("uses trusted private-thread history for model input even when the client strips markers", async () => {
+    const secret = "private-prior-sentinel";
+    const snapshot = {
+      messages: [
+        {
+          message: {
+            id: "u1",
+            role: "user",
+            content: [{ type: "text", text: "public question" }],
+          },
+        },
+        {
+          message: {
+            id: "a1",
+            role: "assistant",
+            content: [{ type: "text", text: "public answer" }],
+          },
+        },
+        {
+          message: {
+            id: "a2",
+            role: "assistant",
+            metadata: { runId: "private-run" },
+            content: [{ type: "text", text: secret }],
+          },
+        },
+      ],
+    };
+    const access = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "private-thread",
+        threadData: JSON.stringify(snapshot),
+      } as never);
+    const provenance = vi
+      .spyOn(runStore, "getThreadPrivateHistoryState")
+      .mockResolvedValue({
+        hasPrivateHistory: true,
+        projectionPending: false,
+        privateRunIds: ["private-run"],
+      });
+    const inputs: string[] = [];
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(opts) {
+        inputs.push(JSON.stringify(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: () => ({ followUpSuggestions: false }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "new request",
+          threadId: "private-thread",
+          history: [{ role: "assistant", content: secret }],
+          structuredHistory: [
+            { role: "assistant", content: [{ type: "text", text: secret }] },
+          ],
+          loadedSkillSlugs: [secret],
+        }),
+      }),
+    );
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      expect(inputs.length).toBeGreaterThan(0);
+      expect(inputs.join("")).not.toContain(secret);
+      expect(inputs.join("")).toContain("public answer");
+      expect(inputs.join("")).toContain("new request");
+      expect(access.mock.invocationCallOrder[0]).toBeLessThan(
+        provenance.mock.invocationCallOrder[0],
+      );
+    } finally {
+      access.mockRestore();
+      provenance.mockRestore();
+    }
+  });
+
+  it("omits stripped private history from durable dispatch payloads", async () => {
+    const secret = "private-dispatch-sentinel";
+    vi.stubEnv("AGENT_CHAT_DURABLE_BACKGROUND", "1");
+    vi.stubEnv("A2A_SECRET", "fixture-a2a-secret");
+    const snapshot = {
+      messages: [
+        {
+          message: {
+            id: "u1",
+            role: "user",
+            content: [{ type: "text", text: "public question" }],
+          },
+        },
+        {
+          message: {
+            id: "a1",
+            role: "assistant",
+            content: [{ type: "text", text: "public answer" }],
+          },
+        },
+        {
+          message: {
+            id: "a2",
+            role: "assistant",
+            metadata: { runId: "private-run" },
+            content: [{ type: "text", text: secret }],
+          },
+        },
+      ],
+    };
+    const access = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "private-thread",
+        threadData: JSON.stringify(snapshot),
+      } as never);
+    const provenance = vi
+      .spyOn(runStore, "getThreadPrivateHistoryState")
+      .mockResolvedValue({
+        hasPrivateHistory: true,
+        projectionPending: false,
+        privateRunIds: ["private-run"],
+      });
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValue({
+      claimed: false,
+      activeRunId: "run-existing",
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "new request",
+          threadId: "private-thread",
+          history: [{ role: "assistant", content: secret }],
+          structuredHistory: [
+            { role: "assistant", content: [{ type: "text", text: secret }] },
+          ],
+          loadedSkillSlugs: [secret],
+        }),
+      }),
+    );
+    try {
+      await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      const payload = (mockTryClaimRunSlot.mock.calls[0] as any)[3]
+        .dispatchPayload as string;
+      expect(payload).not.toContain(secret);
+      expect(payload).toContain("public answer");
+      expect(payload).toContain("new request");
+    } finally {
+      access.mockRestore();
+      provenance.mockRestore();
+      vi.unstubAllEnvs();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+    }
+  });
+
+  it("rejects an incomplete private projection and never queries a foreign thread", async () => {
+    const access = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "private-thread",
+        threadData: JSON.stringify({ messages: [] }),
+      } as never);
+    const provenance = vi
+      .spyOn(runStore, "getThreadPrivateHistoryState")
+      .mockResolvedValue({
+        hasPrivateHistory: true,
+        projectionPending: true,
+        privateRunIds: ["private-run"],
+      });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const request = () =>
+      mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "new",
+            threadId: "private-thread",
+            history: [{ role: "assistant", content: "secret" }],
+          }),
+        }),
+      );
+    try {
+      const foreign = request();
+      expect(
+        await runWithRequestContext(
+          { userEmail: "alice@example.com", run: {} },
+          () => handler(foreign),
+        ),
+      ).toEqual({ error: "Thread not found" });
+      expect(provenance).not.toHaveBeenCalled();
+      const pending = request();
+      expect(
+        await runWithRequestContext(
+          { userEmail: "alice@example.com", run: {} },
+          () => handler(pending),
+        ),
+      ).toMatchObject({ code: "thread_history_unavailable", retryable: true });
+      expect(pending.res.status).toBe(409);
+    } finally {
+      access.mockRestore();
+      provenance.mockRestore();
+    }
+  });
+
+  it.each(["", "{bad-json", JSON.stringify({ messages: [] })])(
+    "fails closed when private history projection is absent or malformed (%s)",
+    async (threadData) => {
+      const access = vi
+        .spyOn(chatThreadStore, "resolveThreadAccess")
+        .mockResolvedValue({ id: "private-thread", threadData } as never);
+      const provenance = vi
+        .spyOn(runStore, "getThreadPrivateHistoryState")
+        .mockResolvedValue({
+          hasPrivateHistory: true,
+          projectionPending: false,
+          privateRunIds: ["private-run"],
+        });
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: engineWithUncalledStream(),
+        actions: {},
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "new",
+            threadId: "private-thread",
+            history: [{ role: "assistant", content: "secret" }],
+          }),
+        }),
+      );
+      try {
+        const response = await runWithRequestContext(
+          { userEmail: "alice@example.com", run: {} },
+          () => handler(event),
+        );
+        expect(event.res.status).toBe(409);
+        expect(response).toMatchObject({
+          code: "thread_history_unavailable",
+          retryable: true,
+        });
+      } finally {
+        access.mockRestore();
+        provenance.mockRestore();
+      }
+    },
+  );
+
+  it("honors a prepared request that disables follow-up suggestions", async () => {
+    const streamedToolNames: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedToolNames.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: () => ({ followUpSuggestions: false }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Answer without suggestions." }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "alice@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    expect(streamedToolNames).toHaveLength(1);
+    expect(streamedToolNames[0]).not.toContain(FOLLOW_UP_SUGGESTIONS_TOOL_NAME);
+  });
+
+  it("returns a typed retryable failure when an experiment assignment cannot be read", async () => {
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    const assignmentLookup = vi
+      .spyOn(
+        questionIntakeExperiment,
+        "resolveQuestionIntakeExperimentAssignment",
+      )
+      .mockRejectedValue(new Error("assignment store unavailable"));
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Build a dashboard" }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          authUserId: "better-auth-user-5",
+          run: {},
+        },
+        () => handler(event),
+      );
+
+      expect(event.res.status ?? event.node.res.statusCode).toBe(503);
+      expect(response).toMatchObject({
+        code: "question_intake_assignment_unavailable",
+        retryable: true,
+      });
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      assignmentLookup.mockRestore();
+      resetAppConfigForTests();
+    }
+  });
+
+  it("returns a non-retryable failure for an invalid stored experiment variant", async () => {
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    const assignmentLookup = vi
+      .spyOn(
+        questionIntakeExperiment,
+        "resolveQuestionIntakeExperimentAssignment",
+      )
+      .mockRejectedValue(
+        new questionIntakeExperiment.InvalidQuestionIntakeExperimentAssignmentError(
+          "design_no_questions",
+        ),
+      );
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Build a dashboard" }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          authUserId: "better-auth-user-5",
+          run: {},
+        },
+        () => handler(event),
+      );
+
+      expect(event.res.status ?? event.node.res.statusCode).toBe(500);
+      expect(response).toMatchObject({
+        code: "question_intake_assignment_invalid",
+        retryable: false,
+      });
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      assignmentLookup.mockRestore();
+      resetAppConfigForTests();
+    }
+  });
+
   it("waits for the durable queue receipt and replays it after a lost acknowledgement", async () => {
     const threadId = "thread-durable-admission";
     const messageId = "message-durable-admission";
@@ -5799,6 +6793,7 @@ describe("createProductionAgentHandler", () => {
   ])(
     "fails closed when an approved call input is %s",
     async (_reason, historyInput) => {
+      authorizePublicThreadHistory();
       const engine = engineWithUncalledStream();
       const runAction = vi.fn(async () => "sent");
       const resolveApproval = vi.spyOn(
@@ -5936,6 +6931,7 @@ describe("createProductionAgentHandler", () => {
   ])(
     "keeps approved replay with $label in the foreground when durable dispatch is enabled",
     async ({ input }) => {
+      authorizePublicThreadHistory();
       const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
       const previousA2ASecret = process.env.A2A_SECRET;
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
@@ -6058,7 +7054,464 @@ describe("createProductionAgentHandler", () => {
     },
   );
 
+  it("executes a private approved call only for the exact durable grant without replaying private history", async () => {
+    const secret = "private-approval-sentinel";
+    const input = { body: secret };
+    const liveApprovalKey = toolCallCacheKey("private-write", input);
+    const approvalId =
+      "agent-tool-approval-11111111-2222-4333-8444-555555555555";
+    const snapshot = {
+      messages: [
+        {
+          message: {
+            id: "u",
+            role: "user",
+            content: [{ type: "text", text: "public prompt" }],
+          },
+        },
+        {
+          message: {
+            id: "a",
+            role: "assistant",
+            metadata: { runId: "private-run" },
+            content: [{ type: "text", text: "[Private content omitted]" }],
+            omitFromPersistedHistory: true,
+          },
+        },
+      ],
+    };
+    const access = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "private-thread",
+        threadData: JSON.stringify(snapshot),
+      } as never);
+    const provenance = vi
+      .spyOn(runStore, "getThreadPrivateHistoryState")
+      .mockResolvedValue({
+        hasPrivateHistory: true,
+        projectionPending: false,
+        privateRunIds: ["private-run"],
+      });
+    const marker = vi
+      .spyOn(runStore, "recordThreadPrivateRun")
+      .mockResolvedValue();
+    const grant = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockImplementation(async (binding) =>
+        binding.approvalKeys[0] === liveApprovalKey &&
+        binding.approvalId === approvalId
+          ? "private-turn"
+          : null,
+      );
+    const consume = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const audit = vi
+      .spyOn(auditRecord, "recordActionAudit")
+      .mockResolvedValue(undefined);
+    const applicationState = await import("../application-state/store.js");
+    const contextDirectives =
+      await import("./context-xray/directives-store.js");
+    const putState = vi
+      .spyOn(applicationState, "appStatePut")
+      .mockResolvedValue();
+    const loadDirectives = vi
+      .spyOn(contextDirectives, "loadContextDirectives")
+      .mockResolvedValue(new Map());
+    const traces = await import("../observability/traces.js");
+    const traceConfig = await traces.getObservabilityConfig();
+    const configSpy = vi
+      .spyOn(traces, "getObservabilityConfig")
+      .mockResolvedValue({
+        ...traceConfig,
+        enabled: true,
+        capturePrompts: true,
+        captureToolArgs: true,
+        captureToolResults: true,
+        evalSampleRate: 0,
+        inferredSentimentEnabled: false,
+      });
+    const traceStore = await import("../observability/store.js");
+    const persistedTraces: unknown[] = [];
+    const spanSpy = vi
+      .spyOn(traceStore, "insertTraceSpan")
+      .mockImplementation(async (span) => {
+        persistedTraces.push(span);
+      });
+    const summarySpy = vi
+      .spyOn(traceStore, "upsertTraceSummary")
+      .mockImplementation(async (summary) => {
+        persistedTraces.push(summary);
+      });
+    const adoptSpy = vi
+      .spyOn(traceStore, "adoptTraceOrgForThread")
+      .mockResolvedValue(undefined);
+    const aborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const run = vi.fn(
+      async (_args: { body: string }) => `private output ${secret}`,
+    );
+    const modelInputs: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(opts) {
+        modelInputs.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const action = defineAction({
+      description: "Private write",
+      parameters: { body: { type: "string" } },
+      persistInChatHistory: false,
+      audit: { enabled: true },
+      needsApproval: true,
+      run,
+    });
+    let completed: ActiveRun | undefined;
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      durableBackgroundRuns: true,
+      onRunComplete: (value) => {
+        completed = value;
+      },
+      actions: loadActionsFromStaticRegistry({
+        "private-write": { default: action },
+      }),
+      prepareRequest: () => ({ followUpSuggestions: false }),
+    });
+    const request = (candidate: { body: string }) =>
+      mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Approved",
+            threadId: "private-thread",
+            turnId: "private-turn",
+            approvedToolCalls: [approvalId],
+            approvedToolCallAskIds: [approvalId],
+            structuredHistory: [
+              {
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    id: "call-private",
+                    name: "private-write",
+                    input: candidate,
+                    approvalKey: approvalId,
+                    approvalAskId: approvalId,
+                  },
+                ],
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "tool-result",
+                    toolCallId: "call-private",
+                    content: "Awaiting approval",
+                    approvalPause: true,
+                    approvalAskId: approvalId,
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+      );
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
+    try {
+      const rejected = request({ body: "modified" });
+      expect(
+        await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(rejected),
+        ),
+      ).toMatchObject({ code: "approved_tool_call_not_pending" });
+      expect(run).not.toHaveBeenCalled();
+      grant.mockResolvedValueOnce(null);
+      const refused = request(input);
+      expect(
+        await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(refused),
+        ),
+      ).toMatchObject({ code: "approved_tool_call_not_pending" });
+      expect(run).not.toHaveBeenCalled();
+      mockTryClaimRunSlot.mockClear();
+      const accepted = request(input);
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(accepted),
+      );
+      expect(response).toBeInstanceOf(ReadableStream);
+      const liveOutput =
+        response instanceof ReadableStream
+          ? await new Response(response).text()
+          : "";
+      expect(liveOutput).toContain(secret);
+      await vi.waitFor(() => expect(completed).toBeDefined());
+      expect(JSON.stringify(completed?.events)).not.toContain(secret);
+      expect(run).toHaveBeenCalledOnce();
+      expect(run.mock.calls[0]?.[0]).toEqual(input);
+      expect(consume).toHaveBeenCalledOnce();
+      expect(consume).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerEmail: "alice@example.com",
+          orgId: "acme",
+          threadId: "private-thread",
+          turnId: "private-turn",
+          toolName: "private-write",
+          argumentsHash: actionArgumentsHash(input),
+          approvalId,
+        }),
+      );
+      expect(modelInputs.length).toBeGreaterThan(0);
+      const currentParts = modelInputs.flatMap((messages) =>
+        messages.flatMap((message) => message.content),
+      );
+      const calls = currentParts.filter(
+        (part) => part.type === "tool-call" && part.id === "call-private",
+      );
+      const results = currentParts.filter(
+        (part) =>
+          part.type === "tool-result" && part.toolCallId === "call-private",
+      );
+      expect(calls).toEqual([
+        expect.objectContaining({ input, omitFromPersistedHistory: true }),
+      ]);
+      expect(results).toEqual([
+        expect.objectContaining({
+          content: `private output ${secret}`,
+          omitFromPersistedHistory: true,
+        }),
+      ]);
+      expect(audit).toHaveBeenCalled();
+      expect(JSON.stringify(audit.mock.calls)).not.toContain(secret);
+      await vi.waitFor(() => expect(persistedTraces.length).toBeGreaterThan(0));
+      expect(JSON.stringify(persistedTraces)).not.toContain(secret);
+      expect(
+        putState.mock.calls.filter(
+          ([, key]) => key === "context_xray:manifest",
+        ),
+      ).toHaveLength(0);
+      expect(JSON.stringify(putState.mock.calls)).not.toContain(secret);
+      expect(JSON.stringify(mockTryClaimRunSlot.mock.calls)).not.toContain(
+        secret,
+      );
+      expect(JSON.stringify(mockInsertRun.mock.calls)).not.toContain(secret);
+      expect(
+        (
+          mockTryClaimRunSlot.mock.calls[0] as unknown as [
+            unknown,
+            unknown,
+            unknown,
+            object,
+          ]
+        )[3],
+      ).not.toHaveProperty("dispatchPayload");
+      const successorSource = request(input);
+      const successorBody = (await successorSource.req
+        .clone()
+        .json()) as Record<string, unknown>;
+      successorSource.context.__agentChatBackgroundBody = successorBody;
+      const successorResponse = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(successorSource),
+      );
+      if (successorResponse instanceof ReadableStream)
+        await new Response(successorResponse).text();
+      expect(successorBody).not.toHaveProperty("approvedToolCalls");
+      expect(JSON.stringify(successorBody)).not.toContain(secret);
+    } finally {
+      access.mockRestore();
+      provenance.mockRestore();
+      marker.mockRestore();
+      grant.mockRestore();
+      consume.mockRestore();
+      aborted.mockRestore();
+      audit.mockRestore();
+      configSpy.mockRestore();
+      spanSpy.mockRestore();
+      summarySpy.mockRestore();
+      adoptSpy.mockRestore();
+      putState.mockRestore();
+      loadDirectives.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+    }
+  });
+
+  it("preserves a public approved result after earlier private history", async () => {
+    const input = { value: "public argument" };
+    const key = toolCallCacheKey("public-write", input);
+    const snapshot = {
+      messages: [
+        {
+          message: {
+            id: "private-message",
+            role: "assistant",
+            metadata: { runId: "private-run" },
+            omitFromPersistedHistory: true,
+            content: [],
+          },
+        },
+      ],
+    };
+    const access = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread",
+        threadData: JSON.stringify(snapshot),
+      } as never);
+    const provenance = vi
+      .spyOn(runStore, "getThreadPrivateHistoryState")
+      .mockResolvedValue({
+        hasPrivateHistory: true,
+        projectionPending: false,
+        privateRunIds: ["private-run"],
+      });
+    const marker = vi
+      .spyOn(runStore, "recordThreadPrivateRun")
+      .mockResolvedValue();
+    const grant = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn");
+    const consume = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const aborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const applicationState = await import("../application-state/store.js");
+    const contextDirectives =
+      await import("./context-xray/directives-store.js");
+    const putState = vi
+      .spyOn(applicationState, "appStatePut")
+      .mockResolvedValue();
+    const loadDirectives = vi
+      .spyOn(contextDirectives, "loadContextDirectives")
+      .mockResolvedValue(new Map());
+    const run = vi.fn(async () => "public result");
+    const seen: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(opts) {
+        seen.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const action = defineAction({
+      description: "Public write",
+      parameters: { value: { type: "string" } },
+      needsApproval: true,
+      run,
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: loadActionsFromStaticRegistry({
+        "public-write": { default: action },
+      }),
+      prepareRequest: () => ({ followUpSuggestions: false }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved",
+          threadId: "thread",
+          turnId: "turn",
+          approvedToolCalls: [key],
+          approvedToolCallAskIds: ["ask"],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call",
+                  name: "public-write",
+                  input,
+                  approvalKey: key,
+                  approvalAskId: "ask",
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call",
+                  content: "Awaiting approval",
+                  approvalPause: true,
+                  approvalAskId: "ask",
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream)
+        await new Response(response).text();
+      expect(run).toHaveBeenCalledOnce();
+      const parts = seen.flatMap((messages) =>
+        messages.flatMap((message) => message.content),
+      );
+      const result = parts.find(
+        (part) => part.type === "tool-result" && part.toolCallId === "call",
+      );
+      expect(result).toMatchObject({
+        type: "tool-result",
+        content: "public result",
+      });
+      expect(result).not.toHaveProperty("omitFromPersistedHistory");
+      expect(marker).not.toHaveBeenCalled();
+      await vi.waitFor(() =>
+        expect(
+          putState.mock.calls.some(
+            ([, key]) => key === "context_xray:manifest",
+          ),
+        ).toBe(true),
+      );
+    } finally {
+      access.mockRestore();
+      provenance.mockRestore();
+      marker.mockRestore();
+      grant.mockRestore();
+      consume.mockRestore();
+      aborted.mockRestore();
+      putState.mockRestore();
+      loadDirectives.mockRestore();
+    }
+  });
+
   it("continues the foreground model with the completed approved tool result", async () => {
+    authorizePublicThreadHistory();
     const approvalId = "ask-foreground-approval";
     const input = { to: "a@b.com" };
     const approvalKey = toolCallCacheKey("send-email", input);
@@ -6359,6 +7812,7 @@ describe("createProductionAgentHandler", () => {
   });
 
   it("executes an approved call in a durable background worker without continuing the outer model", async () => {
+    authorizePublicThreadHistory();
     const approvalId = "ask-background-approval";
     const input = { to: "a@b.com" };
     const approvalKey = toolCallCacheKey("send-email", input);
@@ -7594,6 +9048,105 @@ describe("createProductionAgentHandler", () => {
       }
       if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
       else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("does not replay a consumed queue promotion claim to a background worker", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const queuedMessage: {
+      id: string;
+      text: string;
+      promotionClaim?: { id: string; expiresAt: number };
+    } = {
+      id: "queued-background-replay",
+      text: "Run the queued prompt",
+      promotionClaim: {
+        id: "claim-background-replay",
+        expiresAt: Date.now() + 60_000,
+      },
+    };
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-background-replay",
+        threadData: JSON.stringify({ queuedMessages: [queuedMessage] }),
+      } as never);
+    const onRunPrepared = vi.fn(
+      async (details: { queuedMessageClaimId?: string }) => {
+        if (details.queuedMessageClaimId === queuedMessage.promotionClaim?.id) {
+          delete queuedMessage.promotionClaim;
+        }
+      },
+    );
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValue({
+      claimed: true,
+      activeRunId: null,
+    });
+    mockInsertRun.mockClear();
+    mockFireInternalDispatch.mockClear();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run the queued prompt",
+          threadId: "thread-background-replay",
+          queuedMessageId: "queued-background-replay",
+          queuedMessageClaimId: "claim-background-replay",
+        }),
+      }),
+    );
+
+    try {
+      await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(onRunPrepared).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queuedMessageId: "queued-background-replay",
+          queuedMessageClaimId: "claim-background-replay",
+        }),
+      );
+      expect(queuedMessage).not.toHaveProperty("promotionClaim");
+      const slotOptions = (mockTryClaimRunSlot.mock.calls[0] as any)[3];
+      expect(slotOptions.dispatchMode).toBe("background");
+      const dispatchPayload = JSON.parse(slotOptions.dispatchPayload);
+      expect(dispatchPayload.queuedMessageId).toBe("queued-background-replay");
+      expect(dispatchPayload).not.toHaveProperty("queuedMessageClaimId");
+      expect(mockInsertRun).not.toHaveBeenCalled();
+      const dispatchedBody = (mockFireInternalDispatch.mock.calls[0] as any)[0]
+        .body;
+      expect(dispatchedBody[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
+        payloadRef: true,
+      });
+      expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+      expect(mockFireInternalDispatch).toHaveBeenCalledOnce();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
     }
   });
 
@@ -8885,6 +10438,7 @@ describe("createProductionAgentHandler", () => {
   });
 
   it("limits each request to the action names returned by resolveActionSurface", async () => {
+    authorizePublicThreadHistory();
     const seenTools: string[][] = [];
     const seenScopes: unknown[] = [];
     const lifecycle: string[] = [];
@@ -9943,27 +11497,7 @@ describe("createProductionAgentHandler", () => {
     });
   });
 
-  it("terminalizes a preclaimed row when turn persistence fails", () => {
-    const source = readFileSync(
-      new URL("./production-agent.ts", import.meta.url),
-      "utf8",
-    );
-    const preparation = source.slice(
-      source.indexOf("if (options.onRunPrepared"),
-      source.indexOf("// ─── Durable-background dispatch decision"),
-    );
-
-    expect(preparation).toContain("await options.onRunPrepared");
-    expect(preparation).toContain("if (foregroundRunRowInserted)");
-    expect(preparation).toContain('updateRunStatusIfRunning(runId, "errored")');
-    expect(preparation).toContain(
-      'setRunTerminalReason(runId, "run_preparation_failed")',
-    );
-    expect(preparation).toMatch(
-      /setRunError\(\s*runId,\s*"run_preparation_failed",\s*error instanceof Error \? error\.message : String\(error\)/,
-    );
-    expect(preparation).toContain("throw error");
-  });
+  // oracle-change: the unchanged preparation source contract moved intact to the dedicated source-only spec.
 });
 
 describe("filterActionsByAllowedNames", () => {
@@ -10191,7 +11725,55 @@ describe("filterActionsByAllowedNames", () => {
   });
 });
 
+describe("filterActionsByExcludedNames", () => {
+  it("removes treatment-only tools before they reach the model or tool search", () => {
+    const actions = {
+      "show-design-questions": actionEntry({}),
+      "create-design": actionEntry({}),
+      "tool-search": actionEntry({}),
+    };
+
+    expect(
+      Object.keys(
+        filterActionsByExcludedNames(actions, ["show-design-questions"]),
+      ),
+    ).toEqual(["create-design", "tool-search"]);
+    expect(filterActionsByExcludedNames(actions, [])).toBe(actions);
+  });
+});
+
 describe("runAgentLoop", () => {
+  it("tracks experiment exposure only after a model dispatch is admitted", async () => {
+    let interruptResult: "none" | "pending" = "pending";
+    const trackExposure = vi.fn();
+    const guards = createRunSafeBoundaryGuards({
+      signal: new AbortController().signal,
+      flushEvents: async () => {},
+      interruptRequestedAtBoundary: async () => interruptResult,
+    });
+    const beforeModelDispatch = trackExperimentExposureAtDispatch(
+      guards.beforeModelDispatch,
+      trackExposure,
+    );
+    const dispatch = vi.fn(() => "started");
+
+    await expect(beforeModelDispatch(dispatch)).resolves.toEqual({
+      started: false,
+    });
+    expect(trackExposure).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+
+    interruptResult = "none";
+    await expect(beforeModelDispatch(dispatch)).resolves.toEqual({
+      started: true,
+      value: "started",
+    });
+    await beforeModelDispatch(dispatch);
+
+    expect(trackExposure).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
   it("defers a queued interrupt when the durable abort declines", async () => {
     const abort = vi.fn(async () => false);
     const defer = vi.fn(async () => true);
@@ -11021,7 +12603,7 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual({ type: "done" });
   });
 
-  it("bounds repeated partial action-input continuations", async () => {
+  it("preserves usage when partial action-input continuations exhaust the limit", async () => {
     const events: AgentChatEvent[] = [];
     const run = vi.fn(async () => "should not execute");
     let streamCalls = 0;
@@ -11037,8 +12619,9 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        opts.onModelDispatchStarted?.();
         yield {
           type: "tool-input-start",
           id: `tool-edit-${streamCalls}`,
@@ -11049,34 +12632,55 @@ describe("runAgentLoop", () => {
           id: `tool-edit-${streamCalls}`,
           text: '{"designId":"design-1"',
         };
+        yield {
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 2,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 1,
+        };
       },
     };
 
-    await runAgentLoopWithMainChatInternalContinuations({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: {
-        "edit-design": {
-          ...actionEntry({ readOnly: false }),
-          run,
+    await expect(
+      runAgentLoopWithMainChatInternalContinuations({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": {
+            ...actionEntry({ readOnly: false }),
+            run,
+          },
         },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+        maxContinuations: 3,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "run_budget_exhausted",
+      providerRetryable: false,
+      message: expect.stringContaining("continuation limit"),
+      usage: {
+        inputTokens: 30,
+        outputTokens: 6,
+        cacheReadTokens: 9,
+        cacheWriteTokens: 3,
+        model: "test-model",
+        usageReported: true,
       },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-      maxContinuations: 3,
     });
 
     expect(streamCalls).toBe(3);
     expect(run).not.toHaveBeenCalled();
-    expect(events.at(-1)).toEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "run_budget_exhausted",
-        recoverable: false,
-      }),
+    expect(events).toContainEqual({ type: "clear" });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
     );
   });
 
@@ -14961,11 +16565,12 @@ describe("runAgentLoop", () => {
 
     it("declines another POST after one that may have written, and stops an exact repeat", async () => {
       const executeRequest = vi.fn().mockResolvedValue(rejected);
-      const create = (email: string) => ({
-        provider: "hubspot",
+      // GitHub, not HubSpot: raw HubSpot writes are refused before any retry.
+      const create = (title: string) => ({
+        provider: "github",
         method: "POST",
-        path: "/crm/v3/objects/contacts",
-        body: { properties: { email } },
+        path: "/repos/acme/app/issues",
+        body: { title },
       });
 
       const events = await runToolCallSequence(
@@ -15002,10 +16607,10 @@ describe("runAgentLoop", () => {
     it("runs the write again when the user replies continue in a new turn", async () => {
       const executeRequest = vi.fn().mockResolvedValue(accepted);
       const input = {
-        provider: "hubspot",
+        provider: "github",
         method: "POST",
-        path: "/crm/v3/objects/contacts",
-        body: { properties: { email: "a@example.com" } },
+        path: "/repos/acme/app/issues",
+        body: { title: "a@example.com" },
       };
       const messages: EngineMessage[] = [
         { role: "user", content: [{ type: "text", text: "add the contact" }] },
@@ -15998,6 +17603,88 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it.each(["…", "…."])(
+    "normalizes truncated nested argument echoes ending in %s to the same breaker key",
+    (ending) => {
+      const prefix = "Invalid action parameters — Invalid input. ";
+      const error = (key: string) =>
+        `${prefix}Received: {"patch":{"filter":{"group":null}},"idempotencyKey":"${key}","order":[${ending}`;
+      expect(normalizeToolErrorForBreaker(error("first"))).toBe(prefix.trim());
+      expect(normalizeToolErrorForBreaker(error("second"))).toBe(prefix.trim());
+    },
+  );
+
+  it("bounds unmatched validation scans without losing a large error's final diagnosis", () => {
+    const repeated = "Invalid action parameters. Received: x. ".repeat(1000);
+    const error = `${repeated}Provider status 503. Refresh the connected account.`;
+    const start = performance.now();
+    const normalized = normalizeToolErrorForBreaker(error);
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(normalized).toBe(error);
+    expect(
+      normalizeToolErrorForBreaker(
+        `${repeated}Provider status 404. Check the resource name.`,
+      ),
+    ).not.toBe(normalized);
+  }, 15_000);
+
+  it.each([
+    [
+      '{"id":"first","note":"Use . Expected: wording"}',
+      '{"id":"second","note":"Use . Expected: wording"}',
+    ],
+    ['["first"]', '["second"]'],
+  ])("normalizes complete terminal validation echoes: %s", (first, second) => {
+    const prefix = "Invalid action parameters — Invalid input. ";
+    for (const received of [first, second]) {
+      expect(
+        normalizeToolErrorForBreaker(`${prefix}Received: ${received}.`),
+      ).toBe(prefix.trim());
+    }
+  });
+
+  it.each([
+    [
+      "Request failed. Received: 404 Not Found. Check the repo name",
+      "Request failed. Received: 500 Server Error. Retry later",
+      "404 Not Found",
+      "500 Server Error",
+    ],
+    [
+      'Request failed. Received: {"status":404}. Retry later…',
+      'Request failed. Received: {"status":500}. Retry later…',
+      "404",
+      "500",
+    ],
+    [
+      'Request failed. {"status":404}. Retry later',
+      'Request failed. {"status":500}. Retry later',
+      "404",
+      "500",
+    ],
+    [
+      'Invalid action parameters — Invalid input. Received: {"id":"same"}. Provider status 404. Check the resource.',
+      'Invalid action parameters — Invalid input. Received: {"id":"same"}. Provider status 503. Retry later.',
+      "404",
+      "503",
+    ],
+    [
+      "Invalid action parameters — Invalid input. Received: {status:404}.",
+      "Invalid action parameters — Invalid input. Received: {status:503}.",
+      "404",
+      "503",
+    ],
+  ])(
+    "preserves distinct provider failures: %s",
+    (first, second, firstDetail, secondDetail) => {
+      const firstKey = normalizeToolErrorForBreaker(first);
+      const secondKey = normalizeToolErrorForBreaker(second);
+      expect(firstKey).toContain(firstDetail);
+      expect(secondKey).toContain(secondDetail);
+      expect(firstKey).not.toBe(secondKey);
+    },
+  );
+
   it("stops on the FIRST permanently-failing precondition instead of retrying it", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
@@ -16063,6 +17750,74 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).toContain(
       "needs to be fixed outside this chat",
     );
+  });
+
+  function importFileEngine(): AgentEngine {
+    let streamCalls = 0;
+    return {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: `import-${streamCalls}`,
+                name: "import-file",
+                input: { filePath: streamCalls === 1 ? "deck.pdf" : "ref" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "Imported." };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+  }
+
+  it("stops on a missing upload with its own remedy, not a setup list", async () => {
+    const run = vi.fn(async () => {
+      throw attachmentFailureToError({
+        status: "notFound",
+        reason: "blob_missing",
+        filename: "deck.pdf",
+      });
+    });
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine: importFileEngine(),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "import-file": { ...actionEntry({}), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error") as
+      | { error: string; errorCode?: string }
+      | undefined;
+    expect(stop?.errorCode).toBe("permanent_precondition");
+    expect(stop?.error).toContain("import-file can't run yet:");
+    expect(stop?.error).toContain("Attach the file again");
+    expect(stop?.error).not.toContain("a credential, a role");
   });
 
   it.each([
@@ -16414,7 +18169,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("counts per-item not-found errors as distinct failures", async () => {
+  it("bounds a not-found sweep even when errors name distinct items", async () => {
     const ITEMS = 7;
     let streamCalls = 0;
     const run = vi.fn(async (input: { id: number }) => {
@@ -16469,9 +18224,13 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(run).toHaveBeenCalledTimes(ITEMS);
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "error" }),
+    // oracle-change: distinct errors still consume the new per-tool failure budget.
+    expect(run).toHaveBeenCalledTimes(5);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_tool_failure",
+      }),
     );
   });
 
@@ -19194,7 +20953,7 @@ describe("runAgentLoop", () => {
     ]);
   });
 
-  it("recovers schema-invalid empty placeholders in optional tool fields", async () => {
+  it("refuses schema-invalid placeholders mixed with valid clears", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -19278,13 +21037,15 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(run).toHaveBeenCalledOnce();
-    expect(run).toHaveBeenCalledWith({ id: "ext-1" }, expect.any(Object));
-    expect(events).not.toContainEqual(
+    // oracle-change: refusing ambiguous input avoids inferring which valid clears were intended.
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
         tool: "update-extension",
         isError: true,
+        errorCode: "ambiguous_tool_placeholders",
+        completedSideEffect: false,
       }),
     );
   });
@@ -19690,6 +21451,61 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(seenMessages[1])).toContain(
       AGENT_INTERNAL_GUARD_PROMPT,
     );
+  });
+
+  it("lets a final-response guard clear all streamed text on retry and exhaustion", async () => {
+    let streamCalls = 0;
+    const events: AgentChatEvent[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const text = `Draft ${streamCalls}.`;
+        yield { type: "text-delta", text };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: () => ({
+        retryMessage: "Try again.",
+        fallbackMessage: "No verified answer is available.",
+        clearAllText: true,
+        maxRetries: 1,
+      }),
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(events.filter((event) => event.type === "clear")).toEqual([
+      { type: "clear", allText: true },
+      { type: "clear", allText: true },
+    ]);
+    expect(events).toContainEqual({
+      type: "text",
+      text: "No verified answer is available.",
+    });
   });
 
   it("passes plan execution mode to final-response guards", async () => {
@@ -23556,6 +25372,71 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       startedAt: Date.now(),
     };
   }
+
+  it.each([false, true])(
+    "does not replay a consumed queued-message claim in a continuation (insert failure=%s)",
+    async (insertFails) => {
+      let dispatchPayload: string | undefined;
+      let dispatchedBody: Record<string, unknown> | undefined;
+
+      await chainServerDrivenContinuation({
+        event: {},
+        run: makeRun([{ type: "text", text: "Continuing this turn." }]),
+        effectiveThreadId: "t1",
+        effectiveTurnId: "turn1",
+        requestBody: {
+          threadId: "t1",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "already-consumed-claim",
+          message: "continue the queued request",
+        },
+        backgroundContinuationCount: 0,
+        chainViaDurableBackground: false,
+        deps: {
+          countRunsForTurn: async () => 1,
+          readTurnStartedAt: async () => null,
+          isTurnAborted: async () => false,
+          recordRunDiagnostic: async () => {},
+          insertRun: async (_runId, _threadId, _turnId, options) => {
+            if (insertFails) throw new Error("insert unavailable");
+            dispatchPayload = options.dispatchPayload;
+          },
+          markBackgroundContinuationChunkTerminal: async () => true,
+          fireInternalDispatch: async ({ body }) => {
+            dispatchedBody = body;
+          },
+          updateRunHeartbeat: async () => {},
+          readBackgroundRunClaim: async () => null,
+          updateRunStatusIfRunning: async () => false,
+          markRunAborted: async () => true,
+          isRunAborted: async () => false,
+          setRunTerminalReason: async () => {},
+          setRunError: async () => {},
+          emitRunText: async () => {},
+          generateRunId: () => "next-run",
+          sleep: async () => {},
+        },
+      });
+
+      if (insertFails) {
+        expect(dispatchPayload).toBeUndefined();
+        expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+        expect(dispatchedBody).toMatchObject({
+          queuedMessageId: "queued-1",
+          internalContinuation: true,
+        });
+      } else {
+        expect(JSON.parse(dispatchPayload!)).not.toHaveProperty(
+          "queuedMessageClaimId",
+        );
+        expect(JSON.parse(dispatchPayload!)).toMatchObject({
+          queuedMessageId: "queued-1",
+          internalContinuation: true,
+        });
+        expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+      }
+    },
+  );
 
   it("does NOT chain a foreground (non-background-worker) run", () => {
     expect(

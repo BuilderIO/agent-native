@@ -33,6 +33,8 @@ export interface TurnSubmittedReport {
   readonly submitMessageId?: string;
   readonly recoveryOfRunId?: string;
   readonly requestMode?: string;
+  /** Consumed only to derive privacy-safe metadata; never sent to analytics. */
+  readonly promptForMetadata?: string;
 }
 
 export interface RoutedTurnSubmittedReport {
@@ -40,4 +42,28 @@ export interface RoutedTurnSubmittedReport {
   readonly surface: string;
   readonly submitMessageId?: string;
   readonly requestMode?: string;
+  /** Consumed only to derive privacy-safe metadata; never sent to analytics. */
+  readonly promptForMetadata?: string;
+}
+
+/** Reads only the accepted turn's submitted user text for derived metadata. */
+export function acceptedPromptForMetadata(input: {
+  initiator: TurnInitiator;
+  prompt?: string;
+  messages?: readonly {
+    role: string;
+    content: readonly { type: string; text?: unknown }[];
+  }[];
+}): string | undefined {
+  if (input.initiator === "system") return undefined;
+  if (typeof input.prompt === "string") return input.prompt;
+  const latestUserMessage = [...(input.messages ?? [])]
+    .reverse()
+    .find((message) => message.role === "user");
+  if (!latestUserMessage) return undefined;
+  const text = latestUserMessage.content
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text as string)
+    .join("\n");
+  return text || undefined;
 }

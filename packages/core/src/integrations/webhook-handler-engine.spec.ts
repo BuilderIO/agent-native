@@ -30,6 +30,7 @@ const listIntegrationUsageBudgetsMock = vi.hoisted(() => vi.fn());
 const reserveIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const recordUsageMock = vi.hoisted(() => vi.fn());
 const insertAuditEventMock = vi.hoisted(() =>
   vi.fn<typeof import("../audit/store.js").insertAuditEvent>(),
 );
@@ -204,7 +205,7 @@ vi.mock("./awaiting-input-store.js", () => ({
 
 vi.mock("../usage/store.js", () => ({
   calculateCost: vi.fn(() => 25),
-  recordUsage: vi.fn(),
+  recordUsage: recordUsageMock,
 }));
 
 vi.mock("../audit/store.js", () => ({
@@ -419,6 +420,7 @@ describe("integration webhook handler engine resolution", () => {
     settleIntegrationUsageBudgetMock.mockResolvedValue({
       status: "settled",
     });
+    recordUsageMock.mockResolvedValue(undefined);
     setIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     clearIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
@@ -532,6 +534,65 @@ describe("integration webhook handler engine resolution", () => {
         }),
         expect.anything(),
       );
+    },
+  );
+
+  it(
+    "records and settles usage carried by an incomplete agent run error",
+    { timeout: 15_000 },
+    async () => {
+      const { IncompleteAgentRunError } =
+        await import("../agent/run-errors.js");
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      listIntegrationUsageBudgetsMock.mockResolvedValue([
+        {
+          id: "budget-org",
+          subjectType: "org",
+          subjectId: "org-qa",
+        },
+      ]);
+      const usage = {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+      runAgentLoopMock.mockRejectedValueOnce(
+        new IncompleteAgentRunError(
+          {
+            code: "run_budget_exhausted",
+            message: "The agent run ended before the response was complete.",
+          },
+          usage,
+        ),
+      );
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(recordUsageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          inputTokens: 1,
+          outputTokens: 1,
+          model: "test-model",
+        }),
+      );
+      expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          budgetId: "budget-org",
+          actualCostMicros: 2_500,
+        }),
+        expect.anything(),
+      );
+      expect(releaseIntegrationUsageBudgetMock).not.toHaveBeenCalled();
     },
   );
 

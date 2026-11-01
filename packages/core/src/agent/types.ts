@@ -410,7 +410,7 @@ export function isUnknownWriteCause(
  */
 export type ToolErrorClass = "input_invalid" | "rejected";
 
-export type AgentChatEvent =
+type AgentChatEventPayload =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
   | { type: "suggestions"; suggestions: AgentSuggestion[] }
@@ -459,6 +459,8 @@ export type AgentChatEvent =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      /** The call was skipped without executing or serving a result. */
+      notExecuted?: true;
       /** Compact action write evidence retained even when `result` is truncated. */
       receipt?: WriteReceipt;
       /**
@@ -473,6 +475,8 @@ export type AgentChatEvent =
       unknownCause?: UnknownWriteCause;
       /** Why a failed call failed, where the loop could tell. */
       errorClass?: ToolErrorClass;
+      /** With `input_invalid`: the failing argument paths, bounded, never values. */
+      invalidPaths?: string[];
       replayed?: true;
       fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];
@@ -585,7 +589,7 @@ export type AgentChatEvent =
       reason: ContinuationReason;
       maxIterations?: number;
     }
-  | { type: "clear" }
+  | { type: "clear"; allText?: boolean }
   /**
    * A queued message the user sent into this run with Send now, delivered at
    * a tool boundary. The run's later output is written under
@@ -604,6 +608,12 @@ export interface AgentChatSteeredUserMessage {
   createdAt: string;
   attachments?: AgentChatAttachment[];
 }
+
+/** Internal marker: the live event is complete, but durable history must omit
+ * its content because a private action exposed data during this turn. */
+export type AgentChatEvent = AgentChatEventPayload & {
+  omitFromPersistedHistory?: true;
+};
 
 export const CONTINUATION_REASONS = [
   "run_timeout",

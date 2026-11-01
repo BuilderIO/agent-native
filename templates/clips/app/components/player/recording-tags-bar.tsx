@@ -19,14 +19,33 @@ interface RecordingTagsBarProps {
   recordingId: string;
   tags: string[];
   canEdit: boolean;
+  editRequest?: number;
+  onReturnFocus?: () => void;
 }
 
 export function RecordingTagsBar({
   recordingId,
   tags,
   canEdit,
+  editRequest = 0,
+  onReturnFocus,
 }: RecordingTagsBarProps) {
   const t = useT();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [savedDraft, setSavedDraft] = useState({ id: recordingId, value: "" });
+  const previousRequest = useRef(0);
+  const previousRecordingId = useRef(recordingId);
+  useEffect(() => {
+    if (recordingId !== previousRecordingId.current) {
+      previousRecordingId.current = recordingId;
+      setEditingId(null);
+    }
+    if (editRequest !== previousRequest.current) {
+      previousRequest.current = editRequest;
+      setEditingId(recordingId);
+    }
+  }, [editRequest, recordingId]);
+  const editing = editingId === recordingId;
   const update = useActionMutation<
     unknown,
     { recordingId: string; tag: string; op: TagOp }
@@ -125,12 +144,20 @@ export function RecordingTagsBar({
     { enabled: canEdit, staleTime: 60_000 },
   );
 
-  if (!canEdit && displayed.length === 0) return null;
+  if ((!canEdit || !editing) && displayed.length === 0) return null;
 
   return (
     <div className="mt-3">
-      {canEdit ? (
+      {canEdit && editing ? (
         <TagInput
+          key={editRequest}
+          autoFocus
+          initialDraft={savedDraft.id === recordingId ? savedDraft.value : ""}
+          onDraftChange={(value) => setSavedDraft({ id: recordingId, value })}
+          onDismiss={(reason) => {
+            setEditingId(null);
+            if (reason === "escape") onReturnFocus?.();
+          }}
           value={displayed}
           suggestions={suggestionsQ.data?.tags ?? []}
           onChange={commit}

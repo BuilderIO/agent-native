@@ -320,6 +320,41 @@ describe("measureAlignNodes", () => {
     expect(nodes.map((node) => node.movesNestedLayers)).toEqual([true, false]);
   });
 
+  it("aligns a shape inside an editable SVG by its translate, in the SVG's units", () => {
+    const byId = mount(`
+      <svg data-agent-native-node-id="art" data-an-primitive="pasted-svg" viewBox="0 0 300 100" width="600" height="200">
+        <rect data-agent-native-node-id="chip" x="30" y="10" width="20" height="20"/>
+      </svg>`);
+    place(byId("art"), { x: 0, y: 0, width: 600, height: 200 });
+    place(byId("chip"), { x: 60, y: 20, width: 40, height: 40 });
+    Object.defineProperty(byId("art"), "getScreenCTM", {
+      configurable: true,
+      value: () => ({ a: 2, b: 0, c: 0, d: 2, e: 0, f: 0 }),
+    });
+
+    const nodes = measured(["chip"], byId);
+    expect(nodes[0]!.layout).toEqual({
+      kind: "svg-shape",
+      offset: { x: 0, y: 0 },
+    });
+    const plan = planAlignSelection(nodes, "left");
+    if (plan.kind !== "offsets") throw new Error(plan.kind);
+    expect(plan.patches.get("chip")).toEqual([["translate", "-30px 0px"]]);
+  });
+
+  it("keeps shapes of editor-built SVGs unsupported", () => {
+    const byId = mount(`
+      <svg data-agent-native-node-id="bool" data-an-primitive="boolean" width="200" height="100">
+        <svg data-agent-native-node-id="operand" data-an-primitive="boolean-operand" width="50" height="50"></svg>
+      </svg>`);
+    place(byId("bool"), { x: 0, y: 0, width: 200, height: 100 });
+    place(byId("operand"), { x: 0, y: 0, width: 50, height: 50 });
+
+    expect(measured(["operand"], byId)[0]!.layout).toEqual({
+      kind: "unsupported",
+    });
+  });
+
   it("marks sticky layers unsupported", () => {
     const byId = mount(`
       <div data-agent-native-node-id="frame" style="width:600px;height:400px">

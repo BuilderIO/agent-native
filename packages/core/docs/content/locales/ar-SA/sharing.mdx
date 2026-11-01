@@ -118,11 +118,10 @@ description: "مشاركة مألوفة ومتسقة مدمجة في إطار ا
 
 يحصل كل مورد قابل للمشاركة على زر مشاركة في رأسه. يؤدي النقر عليه إلى فتح نافذة منبثقة مرتبطة بالزر (وليس مشروطًا) مع:
 
-- محدد الرؤية (`Private` / `Organization` / `Public link`).
-- الإكمال التلقائي "إضافة أشخاص أو فرق" — ابحث عن المستخدمين في المؤسسة أو الصق بريدًا إلكترونيًا.
-- مربع اختيار `إشعار الأشخاص` لمنح البريد الإلكتروني الفردية.
-- قائمة المنح الحالية مع منتقي الأدوار وعنصر تحكم الإزالة.
-- زر نسخ الارتباط الذي يحترم الرؤية الحالية.
+- حقل دعوة واحد للأشخاص ومجموعات المؤسسة ووكلاء المؤسسة، مع أداة اختيار الدور وزر الدعوة. ويظهر للبريد الإلكتروني المكتوب أيضًا مربع الاختيار `Notify people`.
+- الأشخاص الذين لديهم صلاحية الوصول: المالك والأشخاص والمجموعات والوكلاء في قائمة واحدة. الأدوار هي: يمكنه العرض، ويمكنه التعليق، ويمكنه التعديل، ويمكنه إدارة الوصول. ويظهر «إزالة الوصول» كآخر عنصر في قائمة الدور لكل صف.
+- الوصول العام: المدعوون فقط / أي شخص في المؤسسة / أي شخص لديه الرابط.
+- نسخ الرابط، وقائمة «إرسال إلى»: الفتح في Claude أو Claude Code أو Codex، ونسخ موجّه الوكيل، ونسخ رابط الوكيل، وإعدادات خادم MCP، وأي وجهات يضيفها التطبيق.
 
 يطلب نقل مورد من `Private` إلى `Organization` تأكيدًا أولًا. لا يتغير شيء حتى يؤكد المستخدم. يحافظ الإلغاء أو Escape على الوصول الحالي. إذا فشل الحفظ، يعرض مربع الحوار الخطأ ويمكن للمستخدم المحاولة مجددًا. تُحفظ تغييرات الرؤية الأخرى فورًا. التأكيد موجود في واجهة المشاركة فقط. لا يتغير `set-resource-visibility`، لذلك يواصل الوكيل وأي مستدعٍ آخر تغيير الرؤية مباشرة، وتظل سياسة مشاركة المورد هي التي تحدد المسموح به.
 
@@ -136,6 +135,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+يظهر الوكلاء في حقل الدعوة عندما تمتلك المؤسسة وكلاء خدمة (هويات `svc-<name>@service.<orgId>` من رموز خدمة المؤسسة). تتم مشاركتهم كمستخدمين عاديين ولا تُرسل إليهم رسائل بريد إلكتروني. أما الوكلاء الذين يتصلون عبر MCP أو OAuth فيعملون بصفة الشخص الذي وصّلهم، لذا لا يظهر لهم صف. سلّمهم المورد من «إرسال إلى».
 
 بالنسبة للقوائم، قم بإسقاط `<VisibilityBadge visibility={row.visibility} />` بجوار كل صف حتى يتمكن المستخدمون من رؤية ما هو خاص مقابل ما هو مشترك.
 
@@ -193,7 +194,7 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
 
-Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Declare `agentRead: { actions: ["get-<thing>"] }` (and `idParam` when the tool's id argument is not `id`) so the share panel's Send to menu offers Open in Claude, Claude Code, and Codex with a prompt that calls that MCP tool with the person's own permissions.
 
 ## إنشاءه في قالب جديد {#building}
 

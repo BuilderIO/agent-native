@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   buildResourceSocialMeta,
   safeJsonForHtml,
@@ -35,10 +36,12 @@ import type {
 import { data, redirect, useLoaderData } from "react-router";
 
 import { publicContentBlockRegistry } from "@/blocks/publicBlockRegistry";
+import { ContentErrorBoundaryBody } from "@/components/ContentErrorBoundary";
 import { clipShareUrl } from "@/components/editor/clip-embed/use-clips-links";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import {
   HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
+  privateDocumentRedirectHref,
   privateDocumentRedirectScript,
   privateLinkRedirectStarted,
 } from "@/lib/private-link-redirect";
@@ -76,24 +79,47 @@ type PublicDocumentLoaderData =
       unavailable: { reason: "private"; id: string; basePath: string };
     };
 
+// A public page can be edited, made private or moved to Trash at any moment,
+// and every answer here is cached for all visitors, so none is kept longer
+// than this. Readers see a change within twice this, well under a minute.
+export const PUBLIC_DOCUMENT_CACHE_SECONDS = 20;
+
+const PUBLIC_DOCUMENT_HEADERS = {
+  [SSR_MAX_AGE_HEADER]: String(PUBLIC_DOCUMENT_CACHE_SECONDS),
+};
+
 const PRIVATE_AGENT_DOCUMENT_HEADERS = {
   "Cache-Control": "private, max-age=0, no-store",
   "Referrer-Policy": "no-referrer",
   [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+  [SSR_MAX_AGE_HEADER]: "0",
 };
 
 function publicDocumentLoaderData(
   payload: PublicDocumentLoaderData,
   privateAgentAccess = false,
 ) {
-  if (!privateAgentAccess) return payload;
   return data(payload, {
-    headers: PRIVATE_AGENT_DOCUMENT_HEADERS,
+    headers: privateAgentAccess
+      ? PRIVATE_AGENT_DOCUMENT_HEADERS
+      : PUBLIC_DOCUMENT_HEADERS,
   });
 }
 
-export function headers({ loaderHeaders }: HeadersArgs) {
-  return loaderHeaders;
+// Every answer keeps the short window, including a thrown not-found, which
+// arrives here as errorHeaders; an answer that asked for less keeps its own.
+export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
+  const answer = new Headers(errorHeaders ?? loaderHeaders);
+  if (!answer.has(SSR_MAX_AGE_HEADER)) {
+    answer.set(SSR_MAX_AGE_HEADER, String(PUBLIC_DOCUMENT_CACHE_SECONDS));
+  }
+  return answer;
+}
+
+// React Router calls only the catching route's headers for a thrown answer,
+// so this route catches its own not-found to keep the short cache window.
+export function ErrorBoundary() {
+  return <ContentErrorBoundaryBody />;
 }
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
@@ -452,8 +478,10 @@ function PrivateDocumentNotice({
     : null;
   useEffect(() => {
     if (!pageHref || privateLinkRedirectStarted()) return;
-    window.location.replace(pageHref);
-  }, [pageHref]);
+    window.location.replace(
+      privateDocumentRedirectHref(pageHref, basePath ?? ""),
+    );
+  }, [pageHref, basePath]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -461,7 +489,7 @@ function PrivateDocumentNotice({
         <script
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
-            __html: privateDocumentRedirectScript(pageHref),
+            __html: privateDocumentRedirectScript(pageHref, basePath ?? ""),
           }}
         />
       ) : null}

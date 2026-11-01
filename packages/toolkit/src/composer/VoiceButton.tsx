@@ -6,7 +6,7 @@ import {
   IconPlayerStopFilled,
   IconX,
 } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
@@ -48,16 +48,19 @@ export function VoiceButton({
 }: VoiceButtonProps) {
   const t = useComposerRuntimeAdapters().translate;
   const realtimeVoice = useRealtimeVoiceModeOptional();
+  const [supportChecked, setSupportChecked] = useState(false);
+
+  useEffect(() => setSupportChecked(true), []);
 
   if (voiceChat && realtimeVoice?.active) {
     return <ActiveVoiceChatControls voice={realtimeVoice} />;
   }
-  if (!voice.supported) return null;
+  if (supportChecked && !voice.supported) return null;
   if (isVoiceRecordingActive(voice.state)) {
     return <VoiceDictationPill voice={voice} />;
   }
 
-  const shortcut = isMac ? "⌘⇧M" : "Ctrl+Shift+M";
+  const shortcut = supportChecked && isMac ? "⌘⇧M" : "Ctrl+Shift+M";
   const label = t("agentChat.voice.dictation.start", {
     shortcut,
     defaultValue: `Dictate (${shortcut})`,
@@ -69,8 +72,10 @@ export function VoiceButton({
         <button
           type="button"
           data-agent-composer-slot="voice-button"
-          onClick={() => void voice.start()}
-          disabled={disabled}
+          onClick={() => {
+            if (supportChecked) void voice.start();
+          }}
+          disabled={disabled || !supportChecked}
           aria-label={label}
           className={cn(
             "shrink-0 flex size-[var(--agentkit-composer-toolbar-control-size,1.5rem)] items-center justify-center rounded-[var(--agentkit-composer-control-radius,var(--radius-md))] text-muted-foreground transition-colors duration-150 hover:bg-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30",

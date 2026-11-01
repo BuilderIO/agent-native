@@ -41,7 +41,7 @@ export function runShaderSourceEdit(
     persist: true,
     recordHistory: true,
   });
-  return written.status === "refused"
+  return written.status !== "accepted"
     ? { status: "failed", error: saveFailedMessage }
     : { status: "applied" };
 }

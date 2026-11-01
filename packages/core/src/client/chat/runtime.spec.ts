@@ -903,6 +903,133 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
+  it("keeps private live output visible but excludes its turn from later prompt history", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_start",
+            id: "private-read",
+            tool: "read-document",
+            input: { query: "PRIVATE_ARGUMENT_SENTINEL" },
+            omitFromPersistedHistory: true,
+          },
+          {
+            type: "tool_done",
+            id: "private-read",
+            tool: "read-document",
+            result: "PRIVATE_RESULT_SENTINEL",
+          },
+          { type: "text", text: "PRIVATE_DERIVED_SUMMARY_SENTINEL" },
+          { type: "done", reason: "complete" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "complete" }]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ threadId: "thread-private" });
+    const firstTurn = await session.startTurn({
+      prompt: "Read the private doc",
+    });
+    const liveEvents = await drain(firstTurn.events);
+    const assistantDone = liveEvents.find(
+      (event) =>
+        event.type === "message-done" && event.message.role === "assistant",
+    );
+
+    expect(liveEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool-start",
+        toolCall: expect.objectContaining({
+          input: { query: "PRIVATE_ARGUMENT_SENTINEL" },
+          metadata: { omitFromPersistedHistory: true },
+        }),
+      }),
+    );
+    expect(liveEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool-done",
+        resultText: "PRIVATE_RESULT_SENTINEL",
+        metadata: { omitFromPersistedHistory: true },
+      }),
+    );
+    expect(assistantDone).toMatchObject({
+      message: {
+        content: [
+          {
+            type: "text",
+            text: "PRIVATE_DERIVED_SUMMARY_SENTINEL",
+            omitFromPersistedHistory: true,
+          },
+        ],
+        metadata: {
+          custom: { omitFromPersistedHistory: true },
+        },
+      },
+    });
+
+    const privateAssistant = assistantDone;
+    if (!privateAssistant || privateAssistant.type !== "message-done") {
+      throw new Error("Private assistant completion was not emitted.");
+    }
+    await drain(
+      (
+        await session.startTurn({
+          prompt: "Continue using the public context",
+          messages: [
+            {
+              id: "public-user",
+              role: "user",
+              content: [{ type: "text", text: "PUBLIC_HISTORY_SENTINEL" }],
+            },
+            {
+              id: "public-assistant",
+              role: "assistant",
+              content: [{ type: "text", text: "PUBLIC_REPLY_SENTINEL" }],
+            },
+            {
+              ...privateAssistant.message,
+              content: [
+                ...privateAssistant.message.content,
+                {
+                  type: "tool-call",
+                  toolCallId: "private-read",
+                  toolName: "read-document",
+                  input: { query: "PRIVATE_ARGUMENT_SENTINEL" },
+                  result: "PRIVATE_RESULT_SENTINEL",
+                  omitFromPersistedHistory: true,
+                },
+              ],
+            },
+            {
+              id: "current-user",
+              role: "user",
+              content: [
+                { type: "text", text: "Continue using the public context" },
+              ],
+            },
+          ],
+        })
+      ).events,
+    );
+
+    const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    const serializedHistory = JSON.stringify({
+      history: secondBody.history,
+      structuredHistory: secondBody.structuredHistory,
+    });
+    expect(serializedHistory).toContain("PUBLIC_HISTORY_SENTINEL");
+    expect(serializedHistory).toContain("PUBLIC_REPLY_SENTINEL");
+    expect(serializedHistory).not.toContain("PRIVATE_ARGUMENT_SENTINEL");
+    expect(serializedHistory).not.toContain("PRIVATE_RESULT_SENTINEL");
+    expect(serializedHistory).not.toContain("PRIVATE_DERIVED_SUMMARY_SENTINEL");
+  });
+
   beforeEach(() => {
     resetAgentEngineReadinessForTests();
   });
@@ -912,10 +1039,59 @@ describe("createAgentNativeChatRuntime", () => {
     vi.useRealTimers();
   });
 
+  it("keeps streamed tool input that arrives without a call id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "tool_input_delta", tool: "add-slide", text: '{"deckId"' },
+        { type: "tool_input_delta", tool: "add-slide", text: ':"d1"}' },
+        {
+          type: "tool_input_delta",
+          tool: "add-slide",
+          id: "call-2",
+          text: "{",
+        },
+        { type: "tool_start", tool: "add-slide", input: { deckId: "d1" } },
+        { type: "tool_done", tool: "add-slide", result: "ok" },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ threadId: "thread-input" });
+    const turn = await session.startTurn({ prompt: "Add a slide" });
+    const events = await drain(turn.events);
+
+    const deltas = events.flatMap((event) =>
+      event.type === "tool-delta"
+        ? [{ id: event.toolCallId, text: event.inputTextDelta }]
+        : [],
+    );
+    expect(deltas.map((delta) => delta.text)).toEqual([
+      '{"deckId"',
+      ':"d1"}',
+      "{",
+    ]);
+    const [first, second, third] = deltas;
+    expect(first?.id).toEqual(expect.any(String));
+    expect(second?.id).toBe(first?.id);
+    expect(third?.id).toBe("call-2");
+    // The id-less input and the tool that runs from it are the same call.
+    const finished = events.find((event) => event.type === "tool-done");
+    expect(finished?.type === "tool-done" && finished.toolCallId).toBe(
+      first?.id,
+    );
+  });
+
   it("splits the streamed reply around a message sent into the run", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
-        { type: "text", text: "Checking the deck." },
+        {
+          type: "text",
+          text: "Checking the deck.",
+          omitFromPersistedHistory: true,
+        },
         { type: "tool_start", id: "call-1", tool: "read-deck", input: {} },
         { type: "tool_done", id: "call-1", tool: "read-deck", result: "ok" },
         {
@@ -992,6 +1168,33 @@ describe("createAgentNativeChatRuntime", () => {
         status: "complete",
       },
     });
+    const assistantCompletions = events.filter(
+      (event) =>
+        event.type === "message-done" && event.message.role === "assistant",
+    );
+    expect(assistantCompletions[0]).toMatchObject({
+      message: {
+        metadata: { custom: { omitFromPersistedHistory: true } },
+      },
+    });
+    expect(
+      events.find(
+        (event) =>
+          event.type === "message-delta" && event.messageId === firstReplyId,
+      ),
+    ).toMatchObject({
+      metadata: { omitFromPersistedHistory: true },
+      delta: { text: "Checking the deck." },
+    });
+    expect(assistantCompletions[1]).toMatchObject({
+      message: {
+        content: [{ text: "Switching to blue." }],
+      },
+    });
+    expect(
+      assistantCompletions[1]?.type === "message-done" &&
+        assistantCompletions[1].message.metadata?.custom,
+    ).not.toMatchObject({ omitFromPersistedHistory: true });
   });
 
   it("rejects a user_message event without its continuation id", async () => {
@@ -4278,6 +4481,95 @@ describe("createAgentNativeChatRuntime", () => {
         },
       ],
     });
+  });
+
+  it("drops a cleared draft back to the last completed tool", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          { type: "text", text: "Checking the forms." },
+          { type: "tool_start", id: "tool-1", tool: "list-forms", input: {} },
+          { type: "tool_done", id: "tool-1", tool: "list-forms", result: "ok" },
+          { type: "thinking", text: "Drafting the answer." },
+          { type: "text", text: "You have three forms." },
+          { type: "clear" },
+          { type: "thinking", text: "Checking the receipts." },
+          { type: "text", text: "You have two forms." },
+          { type: "done" },
+        ]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-cleared-draft",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({ prompt: "How many forms?" });
+    const events = await drain(turn.events);
+
+    expect(
+      events.find((event) => event.type === "message-replace"),
+    ).toMatchObject({
+      message: {
+        content: [
+          { type: "text", text: "Checking the forms." },
+          { type: "text", text: "" },
+        ],
+      },
+    });
+    expect(events.find((event) => event.type === "message-done")).toMatchObject(
+      {
+        message: {
+          content: [
+            { type: "text", text: "Checking the forms." },
+            { type: "reasoning", text: "Checking the receipts." },
+            { type: "text", text: "You have two forms." },
+          ],
+        },
+      },
+    );
+  });
+
+  it("clears all streamed text across completed tools when requested", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          { type: "text", text: "Earlier step." },
+          { type: "tool_start", id: "tool-1", tool: "query", input: {} },
+          { type: "tool_done", id: "tool-1", tool: "query", result: "1" },
+          { type: "text", text: "Rejected draft." },
+          { type: "clear", allText: true },
+          { type: "text", text: "Replacement answer." },
+          { type: "done" },
+        ]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-cleared-all-text",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({ prompt: "Query and summarize." });
+    const events = await drain(turn.events);
+
+    expect(
+      events.find((event) => event.type === "message-replace"),
+    ).toMatchObject({
+      message: { content: [{ type: "text", text: "" }] },
+    });
+    expect(events.find((event) => event.type === "message-done")).toMatchObject(
+      {
+        message: {
+          content: [{ type: "text", text: "Replacement answer." }],
+        },
+      },
+    );
   });
 
   it("forwards queued promotion identity with a stable turn ID", async () => {

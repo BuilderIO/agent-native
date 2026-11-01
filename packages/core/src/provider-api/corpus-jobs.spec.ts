@@ -232,6 +232,101 @@ describe("provider corpus jobs", () => {
     _resetProviderCorpusJobsStoreForTests();
   });
 
+  it("refuses to start a HubSpot write job before any request runs", async () => {
+    const executeRequest = vi.fn();
+    const action = createProviderCorpusJobAction({
+      appId: "analytics",
+      getRuntime: () => ({ executeRequest }),
+    });
+
+    await expect(
+      action.run({
+        operation: "start",
+        name: "hubspot-write",
+        mode: "paginated-search",
+        request: {
+          provider: "hubspot",
+          method: "PATCH",
+          path: "/crm/v3/objects/deals/1",
+          body: { properties: { amount: "1" } },
+        },
+        pagination: { itemsPath: "results", maxPages: 1 },
+        search: { query: "anything", textPaths: ["id"] },
+      }),
+    ).rejects.toMatchObject({ errorCode: "provider_writes_not_allowed" });
+    expect(executeRequest).not.toHaveBeenCalled();
+    expect(jobs.size).toBe(0);
+  });
+
+  it("refuses to continue a saved HubSpot write job", async () => {
+    const executeRequest = vi.fn(async () =>
+      providerEnvelope({ results: [{ id: "d1", name: "ordinary deal" }] }),
+    );
+    const action = createProviderCorpusJobAction({
+      appId: "analytics",
+      getRuntime: () => ({ executeRequest }),
+    });
+    const first = (await action.run({
+      operation: "start",
+      name: "hubspot-saved",
+      mode: "paginated-search",
+      request: {
+        provider: "hubspot",
+        method: "GET",
+        path: "/crm/v3/objects/deals",
+      },
+      pagination: { itemsPath: "results", pageParam: "page", maxPages: 3 },
+      search: { query: "Figma MCP", textPaths: ["name"] },
+      limits: { pageBudget: 1 },
+    })) as any;
+    expect(first.job.status).toBe("paused");
+    // A job stored before HubSpot became read-only for agents.
+    const stored = jobs.get(first.job.id)!;
+    stored.request_json = JSON.stringify({
+      provider: "hubspot",
+      method: "PATCH",
+      path: "/crm/v3/objects/deals/1",
+      body: { properties: { amount: "1" } },
+    });
+    executeRequest.mockClear();
+
+    const continued = (await action.run({
+      operation: "continue",
+      jobId: first.job.id,
+    })) as any;
+
+    expect(executeRequest).not.toHaveBeenCalled();
+    expect(continued.job.status).toBe("failed");
+    expect(JSON.stringify(continued)).toContain("read-only");
+  });
+
+  it("still starts a HubSpot search job", async () => {
+    const executeRequest = vi.fn(async () =>
+      providerEnvelope({ results: [{ id: "d1", name: "Figma MCP deal" }] }),
+    );
+    const action = createProviderCorpusJobAction({
+      appId: "analytics",
+      getRuntime: () => ({ executeRequest }),
+    });
+
+    const result = (await action.run({
+      operation: "start",
+      name: "hubspot-search",
+      mode: "paginated-search",
+      request: {
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/deals/search",
+        body: { limit: 10 },
+      },
+      pagination: { itemsPath: "results", maxPages: 1 },
+      search: { query: "Figma MCP", textPaths: ["name"] },
+    })) as any;
+
+    expect(executeRequest).toHaveBeenCalled();
+    expect(result.coverage.totalHits).toBe(1);
+  });
+
   it("checkpoints paginated corpus searches across continue calls", async () => {
     const calls: unknown[] = [];
     const action = createProviderCorpusJobAction({

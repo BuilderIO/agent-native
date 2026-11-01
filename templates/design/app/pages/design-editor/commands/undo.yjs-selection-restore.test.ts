@@ -10,6 +10,7 @@ import {
 import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import { runRedo } from "@/pages/design-editor/commands/redo";
 import { runUndo } from "@/pages/design-editor/commands/undo";
+import { cancelPendingPastedMediaAbsentFromContent } from "@/pages/design-editor/domains/pending-pasted-media";
 import { LOCAL_EDIT_ORIGIN } from "@/pages/design-editor/editor-session";
 import {
   YJS_UNDO_SELECTION_META_KEY,
@@ -122,6 +123,105 @@ function fakeStackItem(meta?: Record<string, unknown>) {
 }
 
 describe("runUndo — single-screen Yjs undo restores the stamped selection", () => {
+  it("cancels preview-only pending media absent from the Yjs undo result", () => {
+    const ydoc = new Y.Doc();
+    const ytext = ydoc.getText("content");
+    ytext.insert(0, "<!doctype html><html><body></body></html>");
+    const um = new Y.UndoManager(ytext, {
+      trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+    });
+    writeCollabText(
+      ydoc,
+      ytext,
+      "<!doctype html><html><body><main>Changed</main></body></html>",
+      LOCAL_EDIT_ORIGIN,
+    );
+    um.stopCapturing();
+    const pendingByScreen = new Map([
+      ["file-1", new Map([["preview-only-image", false]])],
+    ]);
+    const cancelPendingPastedMediaForHistoryReplay = vi.fn(
+      (screenId: string, _previousContent: string, replayedContent: string) =>
+        cancelPendingPastedMediaAbsentFromContent(
+          pendingByScreen,
+          screenId,
+          replayedContent,
+        ),
+    );
+
+    runUndo(
+      baseArgs({
+        activeFile: {
+          id: "file-1",
+          fileType: "html",
+          updatedAt: "2024-01-01T00:00:00Z",
+        },
+        um,
+        undoManagerRef: { current: um },
+        ydoc,
+        getScreenContent: () =>
+          '<main><img data-agent-native-node-id="preview-only-image"></main>',
+        cancelPendingPastedMediaForHistoryReplay,
+        queueFileContentSave: vi.fn(),
+      }),
+    );
+
+    expect(cancelPendingPastedMediaForHistoryReplay).toHaveBeenCalledOnce();
+    expect(pendingByScreen.get("file-1")).toEqual(
+      new Map([["preview-only-image", true]]),
+    );
+    um.destroy();
+    ydoc.destroy();
+  });
+
+  it("cancels a pending paste when Yjs undo removes it", () => {
+    const ydoc = new Y.Doc();
+    const ytext = ydoc.getText("content");
+    const before =
+      '<main><img data-agent-native-node-id="pending-image"></main>';
+    ytext.insert(0, "<main></main>");
+    const um = new Y.UndoManager(ytext, {
+      trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+    });
+    writeCollabText(ydoc, ytext, before, LOCAL_EDIT_ORIGIN);
+    um.stopCapturing();
+    const pendingByScreen = new Map([
+      ["file-1", new Map([["pending-image", false]])],
+    ]);
+    const cancelPendingPastedMediaForHistoryReplay = vi.fn(
+      (screenId: string, _previousContent: string, replayedContent: string) =>
+        cancelPendingPastedMediaAbsentFromContent(
+          pendingByScreen,
+          screenId,
+          replayedContent,
+        ),
+    );
+
+    runUndo(
+      baseArgs({
+        activeFile: {
+          id: "file-1",
+          fileType: "html",
+          updatedAt: "2024-01-01T00:00:00Z",
+        },
+        um,
+        undoManagerRef: { current: um },
+        ydoc,
+        cancelPendingPastedMediaForHistoryReplay,
+        queueFileContentSave: vi.fn(),
+      }),
+    );
+
+    expect(cancelPendingPastedMediaForHistoryReplay).toHaveBeenCalledWith(
+      "file-1",
+      before,
+      expect.not.stringContaining("pending-image"),
+    );
+    expect(pendingByScreen.get("file-1")?.get("pending-image")).toBe(true);
+    um.destroy();
+    ydoc.destroy();
+  });
+
   it("keeps the real Yjs redo item after canonicalizing an undo result", () => {
     const ydoc = new Y.Doc();
     const ytext = ydoc.getText("content");

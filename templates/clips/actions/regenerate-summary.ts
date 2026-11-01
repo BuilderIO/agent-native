@@ -103,7 +103,7 @@ export default defineAction({
       `Regenerate the description for recording ${args.recordingId}. ` +
       `Read the transcript in this request's context and call ` +
       `\`update-recording --id=${args.recordingId} --description="..."\` with a 2–4 ` +
-      `sentence summary of what the recording covers. Title: "${rec.title}". ` +
+      `sentence summary of what the recording covers. Write in the transcript language unless the user requested another language. Title: "${rec.title}". ` +
       `Write the description the way the person who made this recording would ` +
       `describe it themselves: lead with the subject matter, and never use ` +
       `outside-narrator framing like "the speaker", "the presenter", "the video", ` +

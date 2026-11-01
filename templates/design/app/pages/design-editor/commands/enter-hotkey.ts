@@ -120,10 +120,9 @@ export function runEnterHotkey({
     if (
       owner &&
       (penNodesAttr ||
-        ["ellipse", "rect", "rectangle"].includes(primitive ?? "")) &&
-      enterVectorEditForSelection(owner)
+        ["ellipse", "rect", "rectangle"].includes(primitive ?? ""))
     ) {
-      return;
+      return enterVectorEditForSelection(owner);
     }
     if (owner) {
       const isTextNode =

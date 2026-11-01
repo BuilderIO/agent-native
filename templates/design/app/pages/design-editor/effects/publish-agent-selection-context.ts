@@ -145,6 +145,7 @@ export interface PublishAgentSelectionContextArgs {
   persistedSelectionStateRef: RefObject<string | null>;
   persistedSelectionWriteTimerRef: RefObject<number | null>;
   responsiveEditScope: ResponsiveEditScope;
+  reviewThreadId: string | null;
   selectedElement: ElementInfo | null;
   selectedScreenIds: string[];
   selectedStateId: string | null;
@@ -181,6 +182,7 @@ export function runPublishAgentSelectionContext({
   persistedSelectionStateRef,
   persistedSelectionWriteTimerRef,
   responsiveEditScope,
+  reviewThreadId,
   selectedElement,
   selectedScreenIds,
   selectedStateId,
@@ -215,6 +217,9 @@ export function runPublishAgentSelectionContext({
         ? { device: interactDevice, theme: interactTheme }
         : null,
     leftPanel: activeLeftPanel,
+    // The comment thread open on the canvas or highlighted in the Threads
+    // panel; null when none is, so the agent never reads a closed thread.
+    reviewThreadId,
     codeWorkspace: {
       open: activeLeftPanel === "code",
       backendKind: activeCodeFile?.backendKind ?? "virtual-inline",
@@ -313,6 +318,7 @@ export function runPublishAgentSelectionContext({
     activeTool: selection.activeTool,
     interact: selection.interact,
     leftPanel: selection.leftPanel,
+    reviewThreadId: selection.reviewThreadId,
     codeWorkspace: selection.codeWorkspace,
     dock: selection.dock,
     motion: selection.motion,

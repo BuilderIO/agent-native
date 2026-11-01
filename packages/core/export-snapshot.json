@@ -121,6 +121,7 @@
     "./client/settings": ["dist/client/settings/index.js"],
     "./client/use-db-sync": ["dist/client/use-db-sync.js"],
     "./client/zoom-gesture": ["dist/client/zoom-gesture.js"],
+    "./client/generation-stream": ["dist/client/generation-stream/index.js"],
     "./client/ui": ["dist/client/ui/index.js"],
     "./client/theme": ["dist/client/theme.js"],
     "./client/error-boundary": ["dist/client/ErrorBoundary.js"],

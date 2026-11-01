@@ -137,7 +137,7 @@ const messages = {
     openChat: "チャットを開く",
     cloudAuthToken: "認証トークン",
     cloudSetupSteps: "設定手順",
-    cloudConnectedReloading: "接続しました。再読み込み中...",
+    cloudConnectedReloading: "再読み込み中...",
     cloudConnectionFailed: "接続に失敗しました",
     cloudTestConnect: "テストして接続",
     cloudServerlessPostgres: "サーバーレスPostgres",
@@ -264,10 +264,10 @@ const messages = {
     media: "画像/動画…",
     mediaNeedsStorage:
       "画像や動画をアップロードするには、ストレージを設定してください。",
-    transitions: "トランジション",
-    transitionsMenu: "トランジションのオプション",
+    transitions: "アニメーション",
+    transitionsMenu: "アニメーションのオプション",
     transitionsReadOnly: "このデッキは読み取り専用です。",
-    transitionsNeedElement: "トランジションを追加する要素を選択してください。",
+    transitionsNeedElement: "アニメーションを追加する要素を選択してください。",
     transitionNone: "なし",
     transitionAppear: "出現",
     transitionFade: "フェード",
@@ -326,6 +326,10 @@ const messages = {
     usingDesignSystem: "{{title}} を使用中",
     usingLinkedDesignSystem: "リンクされたデザインシステムを使用中",
     viewOnly: "表示のみ",
+    requestEditAccess: "編集権限をリクエスト",
+    editAccessRequested: "リクエスト済み",
+    editAccessRequestFailed:
+      "編集権限をリクエストできませんでした。もう一度お試しください。",
     commenterRoleLabel: "コメント可",
     commenterRoleDescription: "表示とコメントの追加ができます",
     slideSettings: "スライド設定",
@@ -405,10 +409,22 @@ const messages = {
       "デッキをエディターで開きます。アクセス権を持つ人はこのリンクを使用できます。",
     presentationLink: "プレゼンテーションリンク",
     presentationLinkDescription: "デッキをプレゼンテーションモードで開きます",
+    copyEditorLink: "エディターのリンクをコピー",
+    copyPresentationLink: "プレゼンテーションのリンクをコピー",
+    linkCopied: "リンクをコピーしました",
+    linkCopyFailed: "リンクをコピーできませんでした。",
     present: "発表",
     presentInTab: "このタブで",
     presentFullScreen: "全画面表示",
     presentPresenterView: "発表者ビュー",
+    presentOptions: "プレゼンテーションのオプション",
+    presentFromBeginning: "最初から",
+    presentWithShortcut: "発表 ({{shortcut}})",
+    presentUnsaved:
+      "最新の変更を保存できませんでした。このタブから発表します。",
+    presentTabBlocked:
+      "新しいタブで発表するには、ポップアップを許可してください。",
+    deckTitle: "デッキのタイトル",
     presentPresenterViewDescription: "発表中にスピーカーノートを表示",
     presenterViewBlocked:
       "発表者ビューを開くには、ポップアップを許可してください。",
@@ -438,6 +454,23 @@ const messages = {
       "競合を解決できませんでした。下書きはこのデバイスに残っています。",
     conflictKeepMine: "自分のテキストを保持",
     conflictUseLatest: "保存済みテキストを使う",
+    conflictTitleSomeone: "別のユーザーがスライド {{number}} を変更しました",
+    conflictTitleAgent: "エージェントがスライド {{number}} を変更しました",
+    conflictNotesTitleSomeone:
+      "別のユーザーがスライド {{number}} のスピーカーノートを変更しました",
+    conflictNotesTitleAgent:
+      "エージェントがスライド {{number}} のスピーカーノートを変更しました",
+    conflictYourVersion: "自分のバージョン",
+    conflictTheirVersion: "相手のバージョン",
+    conflictAgentVersion: "エージェントのバージョン",
+    conflictKeepMyVersion: "自分のバージョンを残す",
+    conflictKeepTheirVersion: "相手のバージョンを残す",
+    conflictKeepAgentVersion: "エージェントのバージョンを残す",
+    conflictSlideDeleted: "スライドは削除されました",
+    conflictNoNotes: "ノートなし",
+    saveErrorDeckChanged: "他のユーザーがこのプレゼンテーションを変更しました",
+    saveErrorSlidesChanged:
+      "他のユーザーがこのプレゼンテーションのスライドを変更しました",
     importBackup: "バックアップをインポート",
     backupDownloaded: "バックアップをダウンロードしました",
     backupDownloadFailed: "バックアップをダウンロードできませんでした",
@@ -478,9 +511,17 @@ const messages = {
       "このデッキのコピーを Google ドライブに作成しました。",
     googleSlidesGoTo: "Google Slides で開く",
     duplicateDeck: "デッキを複製",
+    cancel: "キャンセル",
+    saveBeforeExportFailed:
+      "最新の変更を保存できませんでした。もう一度エクスポートしてください。",
+    pptxMissingShapes_other:
+      "{{count}} 個の図形をエクスポートできず、PPTX に含まれていません。",
   },
   share: {
     createFailed: "共有リンクを作成できませんでした",
+    snapshotLinks: "スナップショットのリンク",
+    revokeLink: "取り消す",
+    revokeFailed: "共有リンクを取り消せませんでした",
     title: "プレゼンテーションを共有",
     cloudUpgradeDescription:
       "プレゼンテーションを公開共有するには、クラウドデータベースを接続して、どこからでもスライドにアクセスできるようにしてください。",
@@ -668,6 +709,12 @@ const messages = {
     strokeWeight: "太さ",
     typography: "文字設定",
     fontFamily: "フォントファミリー",
+    fontPicker: {
+      search: "フォントを検索",
+      inThisDeck: "このデッキ内",
+      allFonts: "すべてのフォント",
+      catalogUnavailable: "フォントライブラリ全体を読み込めませんでした。",
+    },
     fontFamilies: {
       inherit: "継承",
       sansSerif: "サンセリフ",
@@ -686,6 +733,8 @@ const messages = {
     align: "配置",
     decreaseSize: "フォントサイズを小さく",
     increaseSize: "フォントサイズを大きく",
+    fontSizes: "タイプスケール",
+    deckSizes: "デッキ",
     mixed: "混在",
     textColor: "文字色",
     primary: "Primary",
@@ -721,33 +770,36 @@ const messages = {
     insertColumnLeft: "左に列を挿入",
     insertColumnRight: "右に列を挿入",
     deleteColumn: "列を削除",
+    tableMergedCellsUnavailable: "結合セルのある表では使用できません",
+    tableColumnLayoutUnavailable: "この表の列幅では使用できません",
   },
   animations: {
-    appear: "出现",
-    fade: "淡入",
-    slideUp: "向上滑入",
-    zoom: "缩放",
-    elementFallback: "元素 {{index}}",
-    title: "トランジション",
-    close: "トランジション パネルを閉じる",
-    emptyTitle: "还没有动画。",
+    appear: "出現",
+    fade: "フェード",
+    slideUp: "上にスライド",
+    zoom: "ズーム",
+    elementFallback: "要素 {{index}}",
+    title: "アニメーション",
+    close: "アニメーション パネルを閉じる",
+    emptyTitle: "アニメーションはまだありません。",
     emptyDescription:
-      "トランジションを追加するオブジェクトをスライド上で選択してください。",
+      "アニメーションを追加するオブジェクトをスライド上で選択してください。",
     selectObject: "アニメーションするオブジェクトを選択",
-    addTransition: "トランジションを追加",
+    addAnimation: "アニメーションを追加",
+    alreadyAnimated: "アニメーション設定済み",
     effect: "効果",
     onClick: "クリック時",
     withPrevious: "直前と同時",
     trigger: "開始",
     byParagraph: "段落ごと",
-    expand: "トランジションを展開",
-    collapse: "トランジションを折りたたむ",
-    reorder: "トランジションを並べ替え",
-    remove: "トランジションを削除",
+    expand: "アニメーションを展開",
+    collapse: "アニメーションを折りたたむ",
+    reorder: "アニメーションを並べ替え",
+    remove: "アニメーションを削除",
     play: "再生",
-    clearAll: "全部清除",
-    elements: "元素",
-    autoFill: "自动填充",
+    clearAll: "すべてクリア",
+    elements: "要素",
+    autoFill: "自動入力",
     issueStalePath: "このオブジェクトはスライド上にありません。",
     issueMissingElement: "このオブジェクトがスライド上に見つかりません。",
     issueDuplicate:
@@ -755,69 +807,85 @@ const messages = {
     blocked:
       "解決できないアニメーションを削除するか修正すると、保存または再生できます。",
     changeNotApplied: "この変更は適用されませんでした。",
-    noAnimatableElements: "此幻灯片未检测到可动画元素。",
+    noAnimatableElements:
+      "このスライドにはアニメーションを設定できる要素がありません。",
   },
   generateSlides: {
-    title: "用 AI 生成幻灯片",
-    description: "描述你的演示主题，AI 会为你生成幻灯片。",
-    topic: "主题",
-    topicPlaceholder: "例如：React Hooks 入门、Q4 销售报告、2025 产品路线图...",
-    slides: "幻灯片",
-    slideCount_one: "{{count}} 张幻灯片",
-    slideCount_other: "{{count}} 张幻灯片",
-    styleOptional: "风格（可选）",
-    stylePlaceholder: "例如：极简、企业风...",
-    generateImages: "生成图片",
-    generateImagesDescription: "AI 将使用 Gemini 为视觉幻灯片生成图片",
-    referenceImages: "参考图片（可选，用于品牌一致性）",
-    referenceImagesDescription: "上传图片以匹配生成图片的视觉风格",
-    generating: "正在生成幻灯片...",
-    generate: "生成幻灯片",
+    title: "AI でスライドを生成",
+    description:
+      "プレゼンテーションのトピックを入力すると、AI がスライドを生成します。",
+    topic: "トピック",
+    topicPlaceholder:
+      "例: React Hooks 入門、第 4 四半期の売上報告、2025 年の製品ロードマップ...",
+    slides: "スライド",
+    slideCount_one: "{{count}} 枚のスライド",
+    slideCount_other: "{{count}} 枚のスライド",
+    styleOptional: "スタイル (任意)",
+    stylePlaceholder: "例: ミニマル、ビジネス...",
+    generateImages: "画像を生成",
+    generateImagesDescription:
+      "Gemini を使って、ビジュアル スライド用の画像を AI が生成します",
+    referenceImages: "参考画像 (任意、ブランドの統一感のため)",
+    referenceImagesDescription:
+      "生成する画像のビジュアル スタイルを合わせるための画像をアップロードします",
+    generating: "スライドを生成中...",
+    generate: "スライドを生成",
   },
   deckResult: { saved: "保存済み" },
   history: {
-    unknownTime: "未知时间",
-    justNow: "刚刚",
-    minutesAgo: "{{count}} 分钟前",
-    hoursAgo: "{{count}} 小时前",
-    daysAgo: "{{count}} 天前",
-    slideCount_one: "{{count}} 张幻灯片",
-    slideCount_other: "{{count}} 张幻灯片",
-    versionRestored: "版本已恢复",
-    versionRestoredDescription: "幻灯片已回滚到所选快照。",
-    restoreFailed: "恢复失败",
-    restoreFailedDescription: "无法恢复此幻灯片版本。",
-    backToSavedVersions: "返回已保存版本",
-    savedVersions: "已保存版本",
-    description: "浏览已保存的幻灯片版本并恢复以前的快照。",
-    untitled: "未命名",
-    snapshotUnavailable: "快照不可用",
-    slideNumber: "幻灯片 {{number}}",
-    noSlidesInSnapshot: "此快照中没有幻灯片。",
-    restoreThisVersion: "恢复此版本",
+    restoreDiscardTitle:
+      "保存されていない変更を破棄して、このバージョンを復元しますか？",
+    restoreDiscardConfirm: "破棄して復元",
+    cancel: "キャンセル",
+    restoreNoAccess: "このバージョンを復元するには編集権限が必要です。",
+    restoreVersionMissing: "このバージョンは利用できなくなりました。",
+    restoreDeckChanged:
+      "復元中にデッキが変更されました。もう一度お試しください。",
+    restoreOffline: "オフラインです。再接続してもう一度お試しください。",
+    unknownTime: "不明な時刻",
+    justNow: "たった今",
+    minutesAgo: "{{count}} 分前",
+    hoursAgo: "{{count}} 時間前",
+    daysAgo: "{{count}} 日前",
+    slideCount_one: "{{count}} 枚のスライド",
+    slideCount_other: "{{count}} 枚のスライド",
+    versionRestored: "バージョンを復元しました",
+    versionRestoredDescription:
+      "デッキを選択したスナップショットに戻しました。",
+    restoreFailed: "復元に失敗しました",
+    restoreFailedDescription: "このデッキのバージョンを復元できませんでした。",
+    backToSavedVersions: "履歴に戻る",
+    savedVersions: "履歴",
+    description: "デッキの履歴を表示して、以前のスナップショットを復元します。",
+    untitled: "無題",
+    snapshotUnavailable: "スナップショットを利用できません",
+    slideNumber: "スライド {{number}}",
+    noSlidesInSnapshot: "このスナップショットにはスライドがありません。",
+    restoreThisVersion: "このバージョンを復元",
     retry: "再試行",
-    noSavedVersions: "还没有已保存版本",
-    noSavedVersionsDescription: "以后编辑幻灯片前会自动保存版本。",
+    noSavedVersions: "履歴はまだありません",
+    noSavedVersionsDescription:
+      "今後デッキを編集する前に、履歴が自動的に保存されます。",
     loadFailed: "保存済みバージョンを読み込めませんでした。",
     snapshotLoadFailed: "この保存済みバージョンを読み込めませんでした。",
   },
   editorSidebar: {
-    selectSlide: "选择幻灯片 {{number}}",
-    duplicateSlide: "复制幻灯片",
-    duplicate: "复制",
-    deleteSlide: "删除幻灯片",
+    selectSlide: "スライド {{number}} を選択",
+    duplicateSlide: "スライドを複製",
+    duplicate: "複製",
+    deleteSlide: "スライドを削除",
     slideDeleted: "スライドを削除しました",
-    delete: "删除",
-    generatingSlide: "正在生成幻灯片",
-    uploadFailed: "上传失败",
-    uploadAttachedFileFailed: "无法上传附加文件。",
+    delete: "削除",
+    generatingSlide: "スライドを生成中",
+    uploadFailed: "アップロードに失敗しました",
+    uploadAttachedFileFailed: "添付ファイルをアップロードできませんでした。",
     newSlideSaveFailed:
       "新しいスライドを保存できませんでした。もう一度お試しください。",
-    addSlides: "添加幻灯片",
-    addEmptySlide: "添加空白幻灯片",
-    noAi: "无 AI",
-    duplicateCurrentSlide: "复制当前幻灯片",
-    promptPlaceholder: "描述你想要的幻灯片...",
+    addSlides: "スライドを追加",
+    addEmptySlide: "空のスライドを追加",
+    noAi: "AI なし",
+    duplicateCurrentSlide: "現在のスライドを複製",
+    promptPlaceholder: "作成したいスライドを説明してください...",
     newSlide: "新しいスライド",
     slidesHeading: "スライド",
     emptyTitle: "スライドはまだありません",
@@ -840,9 +908,9 @@ const messages = {
     upNext: "次のスライド",
     endOfDeck: "スライドの最後です",
     closePresenterView: "発表者ビューを閉じる",
-    noSlides: "没有可演示的幻灯片",
-    previousSlide: "上一张幻灯片",
-    nextSlide: "下一张幻灯片",
+    noSlides: "発表するスライドがありません",
+    previousSlide: "前のスライド",
+    nextSlide: "次のスライド",
     voiceNavigation: "音声ナビゲーション",
     voiceNavigationNextCommand: "次のスライド",
     voiceNavigationPreviousCommand: "前のスライド",
@@ -854,9 +922,9 @@ const messages = {
       "このブラウザーでは音声ナビゲーションを利用できません。",
     voiceNavigationError:
       "音声ナビゲーションが停止しました。マイクの権限と接続を確認して、もう一度お試しください。",
-    exitPresentation: "退出演示",
-    enterFullscreen: "进入全屏",
-    clickToEnterFullscreen: "点击进入全屏",
+    exitPresentation: "プレゼンテーションを終了",
+    enterFullscreen: "全画面表示にする",
+    clickToEnterFullscreen: "クリックして全画面表示にする",
   },
   deckAccessPage: {
     errorCode: "エラー 403",
@@ -874,19 +942,30 @@ const messages = {
     switchAccount: "アカウントを切り替える",
   },
   deckEditor: {
-    lookingForDeck: "正在查找此幻灯片",
-    joinTeamToOpen: "加入团队以打开此幻灯片",
-    deckUnavailable: "幻灯片不可用",
+    agentUpdatedSlides_one:
+      "エージェントが {{count}} 枚のスライドを更新しました",
+    agentUpdatedSlides_other:
+      "エージェントが {{count}} 枚のスライドを更新しました",
+    agentUndoConflictTitle: "エージェントの変更を元に戻しますか？",
+    agentUndoConflictDescription:
+      "エージェントの後にこれらのスライドを編集しました。元に戻すと、その編集も削除されます。",
+    agentUndoConfirm: "それでも元に戻す",
+    agentUndoKeep: "キャンセル",
+    lookingForDeck: "このデッキを探しています",
+    joinTeamToOpen: "このデッキを開くにはチームに参加してください",
+    deckUnavailable: "デッキを利用できません",
     generationStalled: "5分間進捗がなかったため生成を一時停止しました",
     generationStalledDescription:
       "保存済みのスライドはそのまま残っています。チャットでこのデッキの続きを作成できます。",
     continueInChat: "チャットで続ける",
     continueGenerationPrompt:
       "このデッキのスライド生成を続けてください。最初に現在のスライドと保存済みの生成コンテキストを確認してください。完成済みのスライドは残し、不足分だけ追加してください。",
-    checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
+    checkingSharedAccess:
+      "このプレゼンテーションがあなたのアカウントと共有されているか確認しています。",
     joinTeamDescription:
-      "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
-    deckUnavailableDescription: "此幻灯片可能已被移除，或你的账户无权访问。",
+      "このリンクはチームのプレゼンテーションを指しています。上に表示されているチームに参加すると、ここでデッキが自動的に開きます。",
+    deckUnavailableDescription:
+      "このデッキは削除されたか、あなたのアカウントにアクセス権がない可能性があります。",
     privateDeckTitle: "このデッキは非公開です",
     privateDeckDescription:
       "このデッキを開くには所有者にアクセスをリクエストしてください。リクエストを送信すると所有者に通知されます。",
@@ -917,7 +996,10 @@ const messages = {
       "アクセスをリクエストできませんでした。もう一度お試しください。",
     accessApprovalTitle: "アクセスを許可しました",
     accessApprovalAlreadyTitle: "アクセスはすでに許可されています",
-    accessApprovalMessage: "{{email}} はこのデッキを開けるようになりました。",
+    accessApprovalEditorMessage:
+      "{{email}} はこのデッキを編集できるようになりました。",
+    accessApprovalViewerMessage:
+      "{{email}} はこのデッキを表示できるようになりました。",
     accessApprovalRequesterEmailed: "メールでお知らせしました。",
     accessApprovalRequesterEmailFailed:
       "{{email}} にメールを送信できませんでした。デッキを開けるようになったことを伝えてください。",
@@ -930,15 +1012,23 @@ const messages = {
       "このリクエストを承認するには、デッキの所有者または管理者としてサインインしてください。",
     accessApprovalOpenDeck: "デッキを開く",
     accessApprovalSignIn: "サインイン",
-    accessApprovalLoading: "アクセスを許可しています...",
+    accessApprovalReviewTitle: "アクセスを許可",
+    accessApprovalRequestedEdit:
+      "{{email}} が「{{title}}」の編集を依頼しています。",
+    accessApprovalRequestedView:
+      "{{email}} が「{{title}}」の表示を依頼しています。",
+    accessApprovalRoleLabel: "ロール",
+    accessApprovalRoleViewer: "閲覧者",
+    accessApprovalRoleEditor: "編集者",
+    accessApprovalAllow: "アクセスを許可",
     backToDecks: "デッキに戻る",
     tryAgain: "再試行",
-    imageUploadFailed: "图片上传失败",
+    imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
       "画像をアップロードするにはオブジェクトストレージを接続してください。Builder.io（無料）を接続するか、設定 → ファイルアップロードで独自の S3 互換ストレージキーを追加してください。",
-    imageAdded: "图片已添加",
-    imageUploadError: "上传此图片时出了点问题。",
-    exportFailed: "导出失败",
+    imageAdded: "画像を追加しました",
+    imageUploadError: "この画像のアップロード中に問題が発生しました。",
+    exportFailed: "エクスポートに失敗しました",
     agentRunFailed:
       "スライドを作成する前にエージェントの実行が失敗しました。チャットで詳細を確認して、もう一度お試しください。",
     generationFailed:
@@ -952,16 +1042,25 @@ const messages = {
     originalPrompt: "入力した内容",
     backToHome: "ホームに戻る",
     checkedDeckTryAgain: "デッキを確認しました。再試行",
+    generationStillRunning:
+      "このデッキはまだ生成中です。進行状況はチャットで確認してください。",
+    questionFlowTitle: "まずデッキの方向性を決めましょう",
+    questionFlowDescription:
+      "重要な選択肢に答えてください。独自の方向性には「その他」を使うか、エージェントに任せてください。",
     deckHasNoSlides: "このデッキにはスライドがありません。",
-    pdfRenderFailed: "无法渲染 PDF。",
-    buildingDeck: "正在构建幻灯片",
+    pdfRenderFailed: "PDF をレンダリングできませんでした。",
+    buildingDeck: "デッキを作成中",
     layoutOverflowWarning: "レイアウトがはみ出しています",
     layoutOverflowDetails: "はみ出しの詳細を表示",
     layoutOverflowVertical: "垂直方向のはみ出し: {{pixels}}px",
     layoutOverflowHorizontal: "水平方向のはみ出し: {{pixels}}px",
     dismissLayoutWarning: "レイアウト警告を閉じる",
-    slidesAdded_one: "已添加 {{count}} 张幻灯片",
-    slidesAdded_other: "已添加 {{count}} 张幻灯片",
+    fixLayoutWithAi: "AIで修正",
+    askingAgentToFixLayout: "依頼中…",
+    shrinkTextToFit: "テキストを縮小して収める",
+    shrinkTextCannotFit: "最小サイズでもテキストがスライドからはみ出します",
+    slidesAdded_one: "{{count}} 枚のスライドを追加しました",
+    slidesAdded_other: "{{count}} 枚のスライドを追加しました",
     unsavedChangesTitle: "未保存の変更",
     unsavedChangesDescription:
       "今終了または再読み込みすると、まだ保存されていない変更が失われる可能性があります。本当に終了しますか？",
@@ -969,6 +1068,8 @@ const messages = {
     leaveWithoutSaving: "保存せずに終了",
     editorMarkupNotSaved:
       "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
+    slideDeletedElsewhere:
+      "編集中のスライドが他のユーザーによって削除されました。",
     historyStepConflict:
       "現在のプレゼンテーションと競合するため、この履歴ステップはスキップされました。",
     historyStepFailed:
@@ -1064,15 +1165,158 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "製品のピッチ資料を作成",
-      roadmap: "製品ロードマップを作成",
-      explainer: "プレゼンでテーマを説明",
+    nextStepBar: {
+      ariaLabel: "最初のプレゼンテーションの次のステップ",
+      refineWithPrompt: "プロンプトで調整",
+      export: "エクスポート",
+      shareLink: "リンクを共有",
+      dismiss: "閉じる",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "顧客の課題、主なメリット、発売計画をまとめ、自信と顧客重視が伝わる製品ローンチ資料を作成してください。",
+        roadmap:
+          "戦略テーマ、マイルストーン、依存関係を整理した、明快な経営層向け四半期ロードマップを作成してください。",
+        opportunity:
+          "市場背景、顧客の課題、解決策、リスクを示し、決断力のある製品視点で機会分析を作成してください。",
+        priorities:
+          "ユーザーへの影響、工数、根拠、トレードオフを比較し、判断しやすい簡潔な機能優先度資料を作成してください。",
+        metrics:
+          "利用、アクティベーション、継続率、洞察をまとめた、率直で分析的な製品指標レビューを作成してください。",
+        discovery:
+          "調査テーマ、重要な引用、未充足ニーズをまとめた、根拠に基づく共感的な顧客調査報告を作成してください。",
+        vision:
+          "目指す未来、原則、製品への投資案を描いた、実践的で人を鼓舞する製品ビジョン資料を作成してください。",
+        release:
+          "目標、成果、顧客の声、未解決事項を整理した、責任感と学びを重視するリリースレビューを作成してください。",
+      },
+      design: {
+        caseStudy:
+          "依頼内容、制作プロセス、主要画面、成果をまとめた、温かみのある編集調のデザイン事例を作成してください。",
+        system:
+          "色、書体、コンポーネント、使用例を示した、端正で視覚的なデザインシステム紹介を作成してください。",
+        critique:
+          "目標、現状の画面、フィードバック、次の手順をまとめた、建設的なデザインレビューを作成してください。",
+        research:
+          "調査背景、傾向、引用、機会をまとめた、共感を大切にするユーザー調査報告を作成してください。",
+        concepts:
+          "3つのビジュアル案、画面例、選択の利点と欠点を示した、遊び心のあるコンセプト資料を作成してください。",
+        accessibility:
+          "主な障壁、注釈付きの例、改善策を示した、明快で包摂的なアクセシビリティレビューを作成してください。",
+        brand:
+          "対象者、ビジュアル参考、色、書体をまとめた、個性が伝わるブランド方針資料を作成してください。",
+        sprint:
+          "課題、アイデア、プロトタイプ、テスト結果を振り返る、前向きなデザインスプリント報告を作成してください。",
+      },
+      developer: {
+        architecture:
+          "コンポーネント、データの流れ、設計上の選択を示した、正確で技術的なシステム構成資料を作成してください。",
+        api: "セットアップ、認証、例、エラー対応をまとめた、開発者にわかりやすいAPI入門ガイドを作成してください。",
+        release:
+          "範囲、節目、依存関係、展開手順をまとめた、実用的なエンジニアリングリリース計画を作成してください。",
+        incident:
+          "影響、時系列、根本原因、対策を整理した、個人を責めないインシデントレビューを作成してください。",
+        migration:
+          "現状、段階、リスク、検証方法を示した、安心感のあるプラットフォーム移行計画を作成してください。",
+        security:
+          "システム境界、脅威、対策、課題をまとめた、率直で技術的なセキュリティレビューを作成してください。",
+        demo: "課題、構成、ライブでの操作、結果を示した、明快な技術デモ資料を作成してください。",
+        metrics:
+          "デリバリー、信頼性、傾向をまとめた、率直なエンジニアリング指標レビューを作成してください。",
+      },
+      marketing: {
+        campaign:
+          "対象者、メッセージ、チャネル、日程をまとめた、活気のあるキャンペーン開始資料を作成してください。",
+        story:
+          "課題、解決策、成果、根拠を紹介する、人間味のある顧客事例を作成してください。",
+        content:
+          "読者のニーズ、テーマ、形式、予定を整理した、編集方針が伝わるコンテンツ戦略を作成してください。",
+        positioning:
+          "対象者、カテゴリー、約束、根拠を示した、個性のあるブランドポジショニング資料を作成してください。",
+        channels:
+          "リーチ、反応、コンバージョン、学びをまとめた、明快なチャネル成果レビューを作成してください。",
+        messaging:
+          "対象者、利点、根拠、例を示した、説得力のある製品メッセージ資料を作成してください。",
+        event:
+          "対象者、見どころ、日程、チャネルを紹介する、親しみやすいイベント告知計画を作成してください。",
+        competition:
+          "代替案、強み、課題、機会を比較した、公平な競合状況資料を作成してください。",
+      },
+      sales: {
+        pitch:
+          "顧客の目標、解決策、成果、実績を示した、自信のある顧客向け提案資料を作成してください。",
+        proposal:
+          "ニーズ、進め方、日程、投資額をまとめた、顧客重視で明快な提案資料を作成してください。",
+        quarterlyReview:
+          "目標、成果、利用状況、次の手順をまとめた、協力的な四半期ビジネスレビューを作成してください。",
+        discovery:
+          "顧客の優先事項、課題、適合度を整理した、相手の話を大切にする調査報告を作成してください。",
+        objections:
+          "よくある懸念、根拠、回答をまとめた、役立つ異議対応ガイドを作成してください。",
+        demo: "顧客の背景、主な操作、成果を結び付けた、簡潔で説得力のある製品デモ資料を作成してください。",
+        renewal:
+          "提供した価値、利用状況、機会をまとめた、パートナーシップを大切にする更新提案を作成してください。",
+        enablement:
+          "理想の顧客、見極め方、会話例をまとめた、実用的な営業支援資料を作成してください。",
+      },
+      ops: {
+        weeklyReview:
+          "目標、指標、障害、担当者をまとめた、落ち着いて率直な週次オペレーションレビューを作成してください。",
+        process:
+          "現在の手順、問題点、目標の流れを示した、実践的な業務改善資料を作成してください。",
+        capacity:
+          "需要、チームの稼働状況、優先事項、シナリオを示した、透明性のあるキャパシティ計画を作成してください。",
+        service:
+          "件数、応答時間、エスカレーション、改善策をまとめた、責任感のあるサービス評価を作成してください。",
+        vendor:
+          "要件、選択肢、費用、リスクを比較した、バランスの取れた判断資料を作成してください。",
+        metrics:
+          "主要指標、傾向、例外を強調した、簡潔で分析的な運用ダッシュボード資料を作成してください。",
+        onboarding:
+          "段階、引き継ぎ、資料、成功指標を示した、支援的なオンボーディング手順を作成してください。",
+        risk: "可能性、影響、軽減策、担当者を整理した、慎重なリスクレビューを作成してください。",
+      },
+      individual: {
+        project:
+          "目標、節目、リソース、リスクをまとめた、意欲を高める個人プロジェクト計画を作成してください。",
+        portfolio:
+          "選んだ作品、制作過程、成果を紹介する、自信のある編集調のポートフォリオ資料を作成してください。",
+        learning:
+          "スキル、教材、練習、節目を整理した、励みになる学習ロードマップを作成してください。",
+        event:
+          "目的、参加者、予定、詳細をまとめた、温かく親しみやすい集まりの計画を作成してください。",
+        budget:
+          "収入、支出、目標、選択肢をまとめた、落ち着いて実用的な個人予算レビューを作成してください。",
+        travel:
+          "行き先、日ごとの見どころ、移動情報をまとめた、魅力的な旅行日程を作成してください。",
+        community:
+          "テーマ、活動、持ち帰れる学びを紹介する、包摂的な地域ワークショップ資料を作成してください。",
+        personalStory:
+          "経歴、関心、仕事を紹介する、自然で会話のような自己紹介資料を作成してください。",
+      },
+      general: {
+        overview:
+          "背景、主な考え、例を紹介する、親しみやすいテーマ概要を作成してください。",
+        fundraiser:
+          "使命、必要性、成果を伝える、希望のある寄付募集資料を作成してください。",
+        lesson:
+          "学習目標、重要な概念、例をまとめた、参加したくなる短い授業資料を作成してください。",
+        research:
+          "問い、方法、発見、意味を整理した、バランスの取れた調査報告を作成してください。",
+        eventProposal:
+          "目的、対象者、形式、予算をまとめた、魅力的なイベント企画書を作成してください。",
+        teamStrategy:
+          "優先事項、指標、取り組みをまとめた、集中力のあるチーム戦略資料を作成してください。",
+        howTo:
+          "明確な手順と役立つ例を示した、励みになるビジュアルガイドを作成してください。",
+        portfolioIntro:
+          "選んだプロジェクトと強みを紹介する、洗練されたポートフォリオ導入資料を作成してください。",
+      },
     },
     suggestedPrompts: "おすすめのプロンプト",
     importMenu: {
       import: "インポート",
-      options: "インポートのオプション",
       invalidPdf: "PDFファイルを選択してください。",
       invalidPptx: "PPTXファイルを選択してください。",
       invalidFile: "PDFまたはPPTXファイルを選択してください。",
@@ -1263,9 +1507,13 @@ const messages = {
     workspaceDefaultBadge: "ワークスペースのデフォルト",
     setWorkspaceDefault: "ワークスペースのデフォルトに設定",
     clearWorkspaceDefault: "ワークスペースのデフォルトを解除",
+    renameDeck: "名前を変更",
+    duplicateDeck: "複製",
+    deleteDeck: "削除",
     workspaceDefaultSet: "ワークスペースのデフォルトに設定しました",
     workspaceDefaultCleared: "ワークスペースのデフォルトを解除しました",
     duplicateFailed: "このデッキを複製できませんでした",
+    deleteFailed: "このデッキを削除できませんでした",
     workspaceDefaultFailed: "ワークスペースのデフォルトを更新できませんでした",
     workspaceDefaultConfirmTitle: "ワークスペースのデフォルトに設定しますか？",
     workspaceDefaultDeckShareBody:
@@ -1286,6 +1534,89 @@ const messages = {
     emptyTitle: "まだデッキがありません",
     createFirstDeck: "最初のデッキを作成",
     emptyDescription: "AI 生成で美しいプレゼンテーションを作成できます。",
+
+    suggestionLabels: {
+      product: {
+        launch: "顧客の課題、主なメリット",
+        roadmap: "戦略テーマ、マイルストーン",
+        opportunity: "市場背景、顧客の課題",
+        priorities: "ユーザーへの影響、工数",
+        metrics: "利用、アクティベーション",
+        discovery: "調査テーマ、重要な引用",
+        vision: "目指す未来、原則",
+        release: "目標、成果",
+      },
+      design: {
+        caseStudy: "依頼内容、制作プロセス",
+        system: "色、書体",
+        critique: "目標、現状の画面",
+        research: "調査背景、傾向",
+        concepts: "3つのビジュアル案、画面例",
+        accessibility: "主な障壁、注釈付きの例",
+        brand: "対象者、ビジュアル参考",
+        sprint: "課題、アイデア",
+      },
+      developer: {
+        architecture: "コンポーネント、データの流れ",
+        api: "セットアップ、認証",
+        release: "範囲、節目",
+        incident: "影響、時系列",
+        migration: "現状、段階",
+        security: "システム境界、脅威",
+        demo: "課題、構成",
+        metrics: "デリバリー、信頼性",
+      },
+      marketing: {
+        campaign: "対象者、メッセージ",
+        story: "課題、解決策",
+        content: "読者のニーズ、テーマ",
+        positioning: "対象者、カテゴリー",
+        channels: "リーチ、反応",
+        messaging: "対象者、利点",
+        event: "対象者、見どころ",
+        competition: "代替案、強み",
+      },
+      sales: {
+        pitch: "顧客の目標、解決策",
+        proposal: "ニーズ、進め方",
+        quarterlyReview: "目標、成果",
+        discovery: "顧客の優先事項、課題",
+        objections: "よくある懸念、根拠",
+        demo: "顧客の背景、主な操作",
+        renewal: "提供した価値、利用状況",
+        enablement: "理想の顧客、見極め方",
+      },
+      ops: {
+        weeklyReview: "目標、指標",
+        process: "現在の手順、問題点",
+        capacity: "需要、チームの稼働状況",
+        service: "件数、応答時間",
+        vendor: "要件、選択肢",
+        metrics: "主要指標、傾向",
+        onboarding: "段階、引き継ぎ",
+        risk: "可能性、影響",
+      },
+      individual: {
+        project: "目標、節目",
+        portfolio: "選んだ作品、制作過程",
+        learning: "スキル、教材",
+        event: "目的、参加者",
+        budget: "収入、支出",
+        travel: "行き先、日ごとの見どころ",
+        community: "テーマ、活動",
+        personalStory: "経歴、関心",
+      },
+      general: {
+        overview: "背景、主な考え",
+        fundraiser: "使命、必要性",
+        lesson: "学習目標、重要な概念",
+        research: "問い、方法",
+        eventProposal: "目的、対象者",
+        teamStrategy: "優先事項、指標",
+        howTo: "明確な手順と役立つ例",
+        portfolioIntro: "ポートフォリオ紹介",
+      },
+    },
   },
   agentChat: {
     setup: {

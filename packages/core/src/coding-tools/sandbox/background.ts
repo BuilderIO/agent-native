@@ -34,6 +34,7 @@ import crypto from "node:crypto";
 
 import type { ActionRunContext } from "../../action.js";
 import { isServerlessRuntime } from "../../db/client.js";
+import { registerBackgroundJobStop } from "../../server/background-jobs.js";
 import { runWithRequestContext } from "../../server/request-context.js";
 import { fireInternalDispatch } from "../../server/self-dispatch.js";
 import type { SandboxAdapter, SandboxRunResult } from "./adapter.js";
@@ -170,12 +171,30 @@ export async function driveSandboxExecution(
     });
     return;
   }
-  void processQueuedSandboxExecution(executionId).catch((err) => {
+  const execution = processQueuedSandboxExecution(executionId).catch((err) => {
     console.error(
       `[run-code] in-process background execution ${executionId} failed:`,
       err,
     );
   });
+  inProcessExecutions.add(execution);
+  void execution.finally(() => inProcessExecutions.delete(execution));
+  // A closing server waits for it (within the shutdown deadline) before a
+  // dev server closes the database it saves its result to.
+  registerBackgroundJobStop(waitForInProcessSandboxExecutions);
+}
+
+/** Executions this process started in the background and hasn't finished. */
+const inProcessExecutions = new Set<Promise<unknown>>();
+
+/**
+ * Resolves once no execution this process started in the background is
+ * still running, including any started while it waits.
+ */
+export async function waitForInProcessSandboxExecutions(): Promise<void> {
+  while (inProcessExecutions.size > 0) {
+    await Promise.all(inProcessExecutions);
+  }
 }
 
 export interface ProcessSandboxExecutionResult {

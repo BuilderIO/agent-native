@@ -14,20 +14,27 @@ import {
   stripBearer,
 } from "./journey-capture-plan.js";
 import {
+  arrayItemAt,
   allocateFrameBudgets,
+  combineSnapshotBands,
   compareTrees,
   defaultSnapshotWeek,
   isReusableCaptureSelection,
+  isBuilderCdnUrl,
   selectCaptureTree,
+  snapshotCanvasTitle,
+  snapshotSummaryBands,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
   snapshotCanvasCacheKey,
+  snapshotPopulationUnit,
   snapshotTreeCacheKey,
   snapshotPresetHash,
   validateSnapshotCostEstimate,
   treeTopForks,
   weekWindow,
   type SnapshotBand,
+  type SnapshotSummaryBand,
   type SnapshotTree,
 } from "./journey-snapshot-plan.js";
 
@@ -39,6 +46,11 @@ const DESIGN_URL = normalizeAppUrl(
 );
 const APPS = ["clips", "design", "slides"] as const;
 type AppName = (typeof APPS)[number];
+const EXPERIMENT_IDS = [
+  "first_run_builder_credits",
+  "first_run_builder_credits_v2",
+] as const;
+type ExperimentId = (typeof EXPERIMENT_IDS)[number];
 
 interface CohortTree extends SnapshotTree {}
 
@@ -56,7 +68,7 @@ interface CohortResponse {
     sessionlessMcpOauthSignupEvents: number;
   };
   experiment?: {
-    id: "first_run_builder_credits";
+    id: ExperimentId;
     arms: Record<"control" | "credits", CohortTree>;
     assignedSessions: number;
     exposureSessions: number;
@@ -83,11 +95,19 @@ interface CaptureFrame {
   width: number;
   height: number;
   capturedAt: string;
-  attachmentRef: string;
+  imageUrl: string;
 }
 
 interface CaptureManifest {
-  frames: CaptureFrame[];
+  frames: Array<{
+    nodeKey: string;
+    exampleIndex: number;
+    width: number;
+    height: number;
+    capturedAt: string;
+    imageUrl?: string;
+    attachmentRef?: string;
+  }>;
   failures: Array<{ nodeKey: string; exampleIndex: number; reason: string }>;
   skipped: Array<{ nodeKey: string; exampleIndex: number; reason: string }>;
 }
@@ -97,18 +117,21 @@ interface CaptureTarget extends SnapshotBand {
   sourceApp: AppName;
 }
 
+interface CapturedBand {
+  target: CaptureTarget;
+  tree: SnapshotTree;
+  frames: CaptureFrame[];
+  failures: number;
+  selectedFrames: number;
+}
+
 interface BoardResult {
   app: AppName;
   title: string;
   designId: string;
   url: string;
   tree: SnapshotTree;
-  bands: Array<{
-    key: string;
-    tree: SnapshotTree;
-    label: string;
-    previousTree?: SnapshotTree;
-  }>;
+  bands: ReturnType<typeof snapshotSummaryBands>;
   manifestFailures: number;
   frames: number;
 }
@@ -139,7 +162,7 @@ Usage:
 Options:
   --week <monday>       UTC Monday to rerun (default: last full UTC week)
   --apps <csv>          clips,design,slides (default: all)
-  --experiment <id>     first_run_builder_credits; displays each arm side by side
+  --experiment <id>     Either supported ID; puts control and credits side by side
   --out <dir>           Private cache and run directory (default: .tmp/onboarding-journey-snapshots)
   --analytics-url <url> Analytics app URL (default: ${ANALYTICS_URL})
   --design-url <url>    Design app URL (default: ${DESIGN_URL})
@@ -149,9 +172,10 @@ Options:
 
 The query begins one day before --week and ends six days after it. Trees, frames,
 and manifests are stored under runs/<week>/<app>; action trees are cached by
-app, window, URL, principal, and preset. Each canvas is capped at ${SNAPSHOT_MAX_FRAMES} frames.
+app, window, URL, principal, and preset. Each app has one canvas capped at
+${SNAPSHOT_MAX_FRAMES} screenshot-backed frames. Cohort trees share that canvas.
 Frames are captured sequentially from Agent-Native session recordings and uploaded
-as private replay attachments before they are copied into the Design canvas.
+to cdn.builder.io before they are added to the Design canvas.
 `;
 
 const repoRoot = path.resolve(
@@ -728,6 +752,68 @@ function captureTargets(
   return targets;
 }
 
+export function summaryTargets(
+  app: AppName,
+  result: SnapshotTree | CohortResponse,
+  useExperiment: boolean,
+): CaptureTarget[] {
+  if (!isCohortResponse(result)) {
+    return [{ key: app, label: app, sourceApp: app, tree: result }];
+  }
+
+  const targets: CaptureTarget[] = [];
+  if (useExperiment && result.experiment) {
+    if (app === "design" && result.experiment.designFirstTouch) {
+      for (const arm of ["control", "credits"] as const) {
+        for (const cohort of ["web", "mcp-oauth", "unknown"] as const) {
+          const tree = result.experiment.designFirstTouch[arm].cohorts[cohort];
+          targets.push({
+            key: `${app}-${arm}-${cohort}`,
+            label: `Experiment · ${arm} · first touch ${cohort}`,
+            sourceApp: app,
+            tree,
+          });
+        }
+      }
+    } else {
+      for (const arm of ["control", "credits"] as const) {
+        targets.push({
+          key: `${app}-${arm}`,
+          label: `Experiment · ${arm}`,
+          sourceApp: app,
+          tree: result.experiment.arms[arm],
+        });
+      }
+    }
+  } else if (app === "design" && result.designFirstTouch) {
+    for (const cohort of ["web", "mcp-oauth", "unknown"] as const) {
+      targets.push({
+        key: `design-${cohort}`,
+        label: `First touch · ${cohort}`,
+        sourceApp: app,
+        tree: result.designFirstTouch.cohorts[cohort],
+      });
+    }
+  } else {
+    targets.push({
+      key: app,
+      label: app,
+      sourceApp: app,
+      tree: result.tree,
+    });
+  }
+
+  if (app === "design" && result.designFirstTouch) {
+    targets.push({
+      key: "design-sessionless-mcp-oauth-signups",
+      label: "MCP OAuth signups without a web session",
+      sourceApp: app,
+      tree: result.designFirstTouch.sessionlessMcpOauthSignupTree,
+    });
+  }
+  return targets;
+}
+
 function canonicalDesignUrl(appUrl: string, designId: string): string {
   const url = new URL(`/design/${encodeURIComponent(designId)}`, appUrl);
   url.searchParams.set("editorView", "overview");
@@ -792,16 +878,27 @@ function canvasReceiptMatches(
   );
 }
 
+function canvasBandKey(app: AppName, targetKey: string): string {
+  const prefix = `${app}-`;
+  const key =
+    targetKey === app
+      ? app
+      : targetKey.startsWith(prefix)
+        ? targetKey.slice(prefix.length)
+        : targetKey;
+  if (!/^[a-z][a-z0-9-]{0,127}$/.test(key)) {
+    throw checkFailure(`Invalid ${app} canvas cohort key: ${targetKey}`);
+  }
+  return key;
+}
+
 async function publishCanvas(args: {
   app: AppName;
   week: string;
-  target: CaptureTarget;
-  capture: {
-    tree: SnapshotTree;
-    frames: CaptureFrame[];
-    failures: number;
-  };
-  previousTree?: SnapshotTree;
+  captures: CapturedBand[];
+  summaryBands: CaptureTarget[];
+  previousTrees: Map<string, SnapshotTree>;
+  experimentId?: ExperimentId;
   designUrl: string;
   designToken: string;
   designScopeHash: string;
@@ -809,39 +906,78 @@ async function publishCanvas(args: {
   bandDir: string;
   refresh: boolean;
 }): Promise<BoardResult> {
-  const titleSuffix =
-    args.target.label === args.app ? "" : ` · ${args.target.label}`;
-  const title = `Onboarding snapshot · ${args.app}${titleSuffix} · ${args.week}`;
-  const canvasFrames = args.capture.frames.map((frame) => ({
-    nodeKey: frame.nodeKey,
-    exampleIndex: frame.exampleIndex,
-    width: frame.width,
-    height: frame.height,
-    capturedAt: frame.capturedAt,
-    attachmentRef: frame.attachmentRef,
-    sourceApp: args.target.sourceApp,
+  const hasFirstTouchBands = args.captures.some(
+    (capture) =>
+      capture.target.key.includes("-web") ||
+      capture.target.key.includes("-mcp-oauth") ||
+      capture.target.key.includes("-unknown"),
+  );
+  const onlyCapture =
+    args.captures.length === 1 ? arrayItemAt(args.captures, 0) : undefined;
+  const title = snapshotCanvasTitle({
+    app: args.app,
+    week: args.week,
+    ...(args.experimentId ? { experimentId: args.experimentId } : {}),
+    ...(onlyCapture
+      ? {
+          singleBand: {
+            key: onlyCapture.target.key,
+            label: onlyCapture.target.label,
+          },
+        }
+      : {}),
+    hasFirstTouchBands,
+  });
+  const keyedBands = args.captures.map((capture) => ({
+    capture,
+    key: canvasBandKey(args.app, capture.target.key),
   }));
+  const firstBand = arrayItemAt(keyedBands, 0);
+  if (!firstBand) {
+    throw checkFailure(`${args.app} has no screenshot-backed canvas bands.`);
+  }
+  const tree =
+    keyedBands.length > 1
+      ? combineSnapshotBands(
+          keyedBands.map(({ key, capture }) => ({ key, tree: capture.tree })),
+          args.app,
+        )
+      : firstBand.capture.tree;
+  const appBands = keyedBands.length > 1;
+  const canvasFrames = keyedBands.flatMap(({ key, capture }) =>
+    capture.frames.map((frame) => ({
+      nodeKey: appBands
+        ? `${args.app}::${key}::${frame.nodeKey}`
+        : frame.nodeKey,
+      exampleIndex: frame.exampleIndex,
+      width: frame.width,
+      height: frame.height,
+      capturedAt: frame.capturedAt,
+      imageUrl: frame.imageUrl,
+      sourceApp: capture.target.sourceApp,
+    })),
+  );
   if (canvasFrames.length > SNAPSHOT_MAX_FRAMES) {
     throw checkFailure(
-      `${args.app}/${args.target.key} selected ${canvasFrames.length} frames, over the ${SNAPSHOT_MAX_FRAMES}-frame board limit.`,
+      `${args.app} selected ${canvasFrames.length} frames, over the ${SNAPSHOT_MAX_FRAMES}-frame canvas limit.`,
     );
   }
-  const tree = args.capture.tree;
   const canvasInput = {
     title,
     tree: {
       window: tree.window,
       app: tree.app,
       rootN: tree.rootN,
+      ...(tree.appRootN ? { appRootN: tree.appRootN } : {}),
       coverage: {
         sessionsWithEvents: tree.coverage.sessionsWithEvents,
         sessionsWithReplay: tree.coverage.sessionsWithReplay,
-        truncated: false,
+        truncated: tree.coverage.truncated,
       },
       nodes: tree.nodes,
     },
     frames: canvasFrames,
-    layoutMode: "tree" as const,
+    layoutMode: appBands ? ("appBands" as const) : ("tree" as const),
     maxExamplesPerNode: SNAPSHOT_PRESET.examplesPerNode,
     includeScreenshotless: false,
   };
@@ -850,6 +986,10 @@ async function publishCanvas(args: {
     designUrl,
     designScopeHash: args.designScopeHash,
     analyticsScopeHash: args.analyticsScopeHash,
+    layout: {
+      experimentId: args.experimentId ?? null,
+      cohortKeys: keyedBands.map(({ key }) => key),
+    },
   });
   const canvasCachePath = path.join(args.bandDir, `canvas-${scopeKey}.json`);
   const savedCanvas = await readJson<{
@@ -935,22 +1075,17 @@ async function publishCanvas(args: {
       );
     }
   }
-  const previousTree = args.previousTree;
   return {
     app: args.app,
     title,
     designId: canvas.designId,
     url: canonicalDesignUrl(args.designUrl, canvas.designId),
     tree,
-    bands: [
-      {
-        key: args.target.key,
-        label: args.target.label,
-        tree: args.target.tree,
-        ...(previousTree ? { previousTree } : {}),
-      },
-    ],
-    manifestFailures: args.capture.failures,
+    bands: snapshotSummaryBands(args.summaryBands, args.previousTrees),
+    manifestFailures: args.captures.reduce(
+      (total, capture) => total + capture.failures,
+      0,
+    ),
     frames: canvasFrames.length,
   };
 }
@@ -981,9 +1116,9 @@ async function runCapture(args: {
   const manifestPath = path.join(captureDir, "manifest.json");
   const selectionHash = pathHash(
     JSON.stringify({
-      formatVersion: 3,
+      formatVersion: 4,
       captureMode: "offline",
-      uploadTarget: "private",
+      uploadTarget: "cdn",
       tree: args.selectedTree,
     }),
   );
@@ -1024,7 +1159,7 @@ async function runCapture(args: {
       "offline",
       "--upload",
       "--upload-target",
-      "private",
+      "cdn",
       "--app-url",
       args.analyticsUrl,
     ];
@@ -1057,8 +1192,8 @@ async function runCapture(args: {
         typeof frame.width !== "number" ||
         typeof frame.height !== "number" ||
         typeof frame.capturedAt !== "string" ||
-        typeof frame.attachmentRef !== "string" ||
-        frame.attachmentRef.length === 0,
+        !isBuilderCdnUrl(frame.imageUrl) ||
+        frame.attachmentRef !== undefined,
     ) ||
     manifest.failures.some(
       (failure) => !isRecord(failure) || typeof failure.nodeKey !== "string",
@@ -1078,12 +1213,25 @@ async function runCapture(args: {
     });
   }
 
-  const frames = manifest.frames.filter(
-    (frame) =>
-      frame.attachmentRef.length > 0 &&
-      typeof frame.width === "number" &&
-      typeof frame.height === "number",
-  );
+  const frames: CaptureFrame[] = manifest.frames.flatMap((frame) => {
+    if (
+      !isBuilderCdnUrl(frame.imageUrl) ||
+      typeof frame.width !== "number" ||
+      typeof frame.height !== "number"
+    ) {
+      return [];
+    }
+    return [
+      {
+        nodeKey: frame.nodeKey,
+        exampleIndex: frame.exampleIndex,
+        width: frame.width,
+        height: frame.height,
+        capturedAt: frame.capturedAt,
+        imageUrl: frame.imageUrl,
+      },
+    ];
+  });
   const successfulNodeKeys = new Set(frames.map((frame) => frame.nodeKey));
   const kept = new Set<string>();
   const nodes = args.selectedTree.nodes.filter((node) => {
@@ -1159,21 +1307,30 @@ function summaryTreeMarkdown(
   tree: SnapshotTree,
   previous: SnapshotTree | null,
 ): string[] {
-  const lines = [`### ${label}: ${tree.rootN} sessions`];
-  const forks = treeTopForks(tree, 4);
-  if (!forks.length)
-    lines.push("- No observed fork with two or more branches.");
-  for (const fork of forks) {
-    lines.push(`- At **${fork.step}** (n=${fork.n}):`);
-    for (const branch of fork.branches) {
+  const lines = [`### ${label}: ${tree.rootN} ${snapshotPopulationUnit(tree)}`];
+  if (tree.populationGrain === "signup_events") {
+    for (const node of tree.nodes) {
       lines.push(
-        `  - ${branch.label}: ${branch.n} (${branch.pctOfParent}% of parent)`,
+        `- ${node.label}: ${node.n} (${node.pctOfRoot}% of signup events).`,
       );
     }
-    if (fork.dropoffN > 0) {
-      lines.push(
-        `  - No later step observed: ${fork.dropoffN} (${fork.dropoffPct}%)`,
-      );
+    for (const note of tree.notes ?? []) lines.push(`- ${note}`);
+  } else {
+    const forks = treeTopForks(tree, 4);
+    if (!forks.length)
+      lines.push("- No observed fork with two or more branches.");
+    for (const fork of forks) {
+      lines.push(`- At **${fork.step}** (n=${fork.n}):`);
+      for (const branch of fork.branches) {
+        lines.push(
+          `  - ${branch.label}: ${branch.n} (${branch.pctOfParent}% of parent)`,
+        );
+      }
+      if (fork.dropoffN > 0) {
+        lines.push(
+          `  - No later step observed: ${fork.dropoffN} (${fork.dropoffPct}%)`,
+        );
+      }
     }
   }
   const firstOutput = tree.nodes.find((node) =>
@@ -1188,7 +1345,13 @@ function summaryTreeMarkdown(
       `- First saved output (${firstOutput.label}): ${firstOutput.n}/${tree.rootN} (${firstOutput.pctOfRoot}% of root).`,
     );
   }
-  if (previous) {
+  if (previous && tree.populationGrain === "signup_events") {
+    const delta = tree.rootN - previous.rootN;
+    const sign = delta > 0 ? "+" : "";
+    lines.push(
+      `- Week-over-week signup events: ${previous.rootN} → ${tree.rootN} (${sign}${delta}).`,
+    );
+  } else if (previous) {
     const deltas = compareTrees(
       tree,
       previous,
@@ -1217,6 +1380,7 @@ function renderSummary(input: {
   dateFrom: string;
   dateTo: string;
   boards: BoardResult[];
+  summaryOnlyBands: SnapshotSummaryBand[];
   cohortNotes: string[];
   frameNotes: string[];
 }): string {
@@ -1248,6 +1412,19 @@ function renderSummary(input: {
     }
     lines.push("");
   }
+  if (input.summaryOnlyBands.length) {
+    lines.push("### Summary-only cohorts", "");
+    for (const band of input.summaryOnlyBands) {
+      lines.push(
+        ...summaryTreeMarkdown(
+          band.label,
+          band.tree,
+          band.previousTree ?? null,
+        ),
+        "",
+      );
+    }
+  }
   if (input.cohortNotes.length) {
     lines.push(
       "## Cohort notes",
@@ -1270,6 +1447,7 @@ function renderSummary(input: {
     `Pinned preset: exclude test identities, Builder identities, beta hosts, and localhost hosts; max depth ${SNAPSHOT_PRESET.maxDepth}; merge branches below ${SNAPSHOT_PRESET.minNodeSessions} sessions; newest examples; desktop viewport ${SNAPSHOT_PRESET.minWidth}–${SNAPSHOT_PRESET.maxWidth}px and aspect ${SNAPSHOT_PRESET.minAspect}–${SNAPSHOT_PRESET.maxAspect}; ${SNAPSHOT_MAX_FRAMES} frame ceiling per board. Tree percentages use the session denominator for each band. Capture failures are listed above and never create screenshotless cards.`,
     "",
     "Clips first output is `recording_ready` (saved clip); `recording_started` is shown only as an attempt. Design MCP OAuth signups without a first-party web session are reported as signup-event counts and have no screenshot journey. Experiment arm results are session-grain; external user-grain checks are not forced onto them.",
+    "Summary metrics use the full Analytics trees; each Design canvas includes only nodes with successfully captured screenshots.",
     "",
   );
   return lines.join("\n");
@@ -1294,10 +1472,11 @@ async function main(argv: string[]): Promise<number> {
     console.log(HELP);
     return 0;
   }
-  if (values.experiment && values.experiment !== "first_run_builder_credits") {
-    console.error(
-      "--experiment currently accepts only first_run_builder_credits.",
-    );
+  if (
+    values.experiment &&
+    !(EXPERIMENT_IDS as readonly string[]).includes(values.experiment)
+  ) {
+    console.error(`--experiment must be one of: ${EXPERIMENT_IDS.join(", ")}.`);
     return 2;
   }
   let window: ReturnType<typeof weekWindow>;
@@ -1379,6 +1558,7 @@ async function main(argv: string[]): Promise<number> {
   );
   const designScopeHash = pathHash(JSON.stringify([designUrl, designToken]));
   const boards: BoardResult[] = [];
+  const summaryOnlyBands: SnapshotSummaryBand[] = [];
   const cohortNotes: string[] = [];
   const frameNotes: string[] = [];
   const runRoot = path.join(outRoot, "runs", window.week);
@@ -1399,7 +1579,7 @@ async function main(argv: string[]): Promise<number> {
     if (isCohortResponse(result)) {
       if (result.readCoverage.sessionlessMcpOauthSignupEvents > 0) {
         cohortNotes.push(
-          `Design MCP OAuth signup tree: ${result.readCoverage.sessionlessMcpOauthSignupEvents} signup events without a first-party web session. This event-grain tree is in design/scopes/${analyticsScopeHash}/tree.json; it is not included in session conversions and has no replay screenshot.`,
+          "MCP OAuth signups without a first-party web session are shown as signup events, not sessions. They have no replay screenshot and are excluded from session conversions.",
         );
       }
       if (result.experiment) {
@@ -1420,18 +1600,11 @@ async function main(argv: string[]): Promise<number> {
       }
     }
     const targetBands = captureTargets(app, result, Boolean(values.experiment));
-    if (
-      app === "design" &&
-      isCohortResponse(result) &&
-      !values.experiment &&
-      result.readCoverage.sessionlessMcpOauthSignupEvents > 0 &&
-      result.tree.rootN === 0 &&
-      result.tree.nodes.length === 0 &&
-      targetBands.length === 1 &&
-      targetBands[0]?.key === "design"
-    ) {
-      continue;
-    }
+    const summaryBandTargets = summaryTargets(
+      app,
+      result,
+      Boolean(values.experiment),
+    );
     const previousResult = await getTreeResult({
       app,
       week: comparisonWindow.week,
@@ -1445,18 +1618,25 @@ async function main(argv: string[]): Promise<number> {
       refresh: values.refresh === true,
     });
     const previousBands = new Map(
-      captureTargets(app, previousResult, Boolean(values.experiment)).map(
+      summaryTargets(app, previousResult, Boolean(values.experiment)).map(
         (target) => [target.key, target.tree],
       ),
     );
+    const hasNoSessionTree = targetBands.every(
+      (target) => target.tree.rootN === 0 && target.tree.nodes.length === 0,
+    );
+    const hasNoAssignedExperimentSessions =
+      isCohortResponse(result) &&
+      result.experiment?.assignedSessions === 0 &&
+      targetBands.length === 0;
+    if (hasNoSessionTree || hasNoAssignedExperimentSessions) {
+      summaryOnlyBands.push(
+        ...snapshotSummaryBands(summaryBandTargets, previousBands),
+      );
+      continue;
+    }
     const budgets = allocateFrameBudgets(targetBands, SNAPSHOT_MAX_FRAMES);
-    const captures: Array<{
-      target: CaptureTarget;
-      tree: SnapshotTree;
-      frames: CaptureFrame[];
-      failures: number;
-      selectedFrames: number;
-    }> = [];
+    const captures: CapturedBand[] = [];
     for (const target of targetBands) {
       const budget = budgets.get(target.key) ?? SNAPSHOT_MAX_FRAMES;
       const selection = selectCaptureTree(target.tree, budget);
@@ -1470,7 +1650,11 @@ async function main(argv: string[]): Promise<number> {
         app,
         band: target,
         selectedTree: selection.tree,
-        runAppDir: path.join(runRoot, app),
+        runAppDir: path.join(
+          runRoot,
+          app,
+          ...(values.experiment ? ["experiments", values.experiment] : []),
+        ),
         analyticsUrl,
         analyticsToken,
         analyticsScopeHash,
@@ -1487,35 +1671,38 @@ async function main(argv: string[]): Promise<number> {
       (capture) => capture.tree.nodes.length > 0 && capture.frames.length > 0,
     );
     if (!nonempty.length) {
-      if (
-        isCohortResponse(result) &&
-        result.experiment?.assignedSessions === 0 &&
-        targetBands.length === 0
-      ) {
-        continue;
-      }
-      throw checkFailure(
-        `${app} has no successfully captured screenshot-backed nodes; no canvas was published.`,
+      frameNotes.push(
+        `${app}: no successfully captured screenshot-backed nodes; no canvas was published.`,
       );
-    }
-    for (const capture of nonempty) {
-      const previousTree = previousBands.get(capture.target.key);
-      boards.push(
-        await publishCanvas({
-          app,
-          week: window.week,
-          target: capture.target,
-          capture,
+      for (const target of summaryBandTargets) {
+        const previousTree = previousBands.get(target.key);
+        summaryOnlyBands.push({
+          key: target.key,
+          label: target.label,
+          tree: target.tree,
           ...(previousTree ? { previousTree } : {}),
-          designUrl,
-          designToken,
-          designScopeHash,
-          analyticsScopeHash,
-          bandDir: path.join(runRoot, app, "bands", capture.target.key),
-          refresh: values.refresh === true,
-        }),
-      );
+        });
+      }
+      continue;
     }
+    boards.push(
+      await publishCanvas({
+        app,
+        week: window.week,
+        captures: nonempty,
+        summaryBands: summaryBandTargets,
+        previousTrees: previousBands,
+        ...(values.experiment
+          ? { experimentId: values.experiment as ExperimentId }
+          : {}),
+        designUrl,
+        designToken,
+        designScopeHash,
+        analyticsScopeHash,
+        bandDir: path.join(runRoot, app, "canvas"),
+        refresh: values.refresh === true,
+      }),
+    );
   }
 
   const summary = renderSummary({
@@ -1524,6 +1711,7 @@ async function main(argv: string[]): Promise<number> {
     dateFrom: window.dateFrom,
     dateTo: window.dateTo,
     boards,
+    summaryOnlyBands,
     cohortNotes,
     frameNotes,
   });

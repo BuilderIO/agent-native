@@ -1,4 +1,7 @@
 export * from "./PromptHome.js";
+export * from "./FirstOutputNextStepBar.js";
+export * from "./home-suggestions.js";
+export * from "./first-paint-prompt-draft.js";
 export * from "./TemplateLibraryGrid.js";
 export * from "./TemplatePreviewDialog.js";
 export * from "./header-actions.js";

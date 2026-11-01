@@ -205,7 +205,7 @@ describe("oauth token store", () => {
     });
   });
 
-  it("keeps the union of scopes when a shared Google token is reauthorized", async () => {
+  it("stores the scope of the token it saves, not of the token it replaced", async () => {
     existingOwner = "steve@builder.io";
     existingTokens = {
       scope: "openid https://www.googleapis.com/auth/gmail.readonly",
@@ -222,7 +222,7 @@ describe("oauth token store", () => {
       decryptSecretValue(String(lastInsert().args[4])),
     ) as { scope?: string };
     expect(stored.scope).toBe(
-      "openid https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.readonly",
     );
   });
 

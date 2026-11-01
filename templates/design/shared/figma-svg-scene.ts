@@ -2506,6 +2506,53 @@ export function collectRawFigmaSvgScene(
 
   function serializeInlineSvg(el: Element): string {
     const clone = el.cloneNode(true) as Element;
+    // The editor moves a shape inside an SVG with its CSS `translate`, which
+    // SVG importers ignore; it applies outside the shape's own `transform`.
+    // Its computed value is px, %, or a calc() of both, and % is relative to
+    // the shape's transform-box.
+    const resolveOffset = (value: string, size: () => number) => {
+      let total = 0;
+      const rest = (/^calc\((.*)\)$/.exec(value)?.[1] ?? value).replace(
+        /([+-]\s+)?(-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(px|%)/gi,
+        (_match, sign: string | undefined, amount: string, unit: string) => {
+          const signed = Number(amount) * (sign?.startsWith("-") ? -1 : 1);
+          total += unit === "%" ? (signed * size()) / 100 : signed;
+          return "";
+        },
+      );
+      return rest.trim() === "" ? total : null;
+    };
+    const referenceBox = (shape: SVGGraphicsElement) => {
+      if (view.getComputedStyle(shape).transformBox !== "view-box") {
+        return shape.getBBox();
+      }
+      const viewport = shape.ownerSVGElement;
+      const box = viewport?.viewBox.baseVal;
+      if (box && box.width > 0 && box.height > 0) return box;
+      return {
+        width: viewport?.width.baseVal.value ?? 0,
+        height: viewport?.height.baseVal.value ?? 0,
+      };
+    };
+    const originals = Array.from(el.querySelectorAll("*"));
+    const copies = Array.from(clone.querySelectorAll("*"));
+    originals.forEach((original, index) => {
+      const copy = copies[index] as SVGElement;
+      const translate = view.getComputedStyle(original).translate;
+      if (!translate || translate === "none") return;
+      const [x = "0px", y = "0px"] = translate.trim().split(/\s+(?![^(]*\))/);
+      const shape = original as SVGGraphicsElement;
+      const dx = resolveOffset(x, () => referenceBox(shape).width);
+      const dy = resolveOffset(y, () => referenceBox(shape).height);
+      if (dx === null || dy === null) return;
+      const authored = copy.getAttribute("transform");
+      copy.setAttribute(
+        "transform",
+        `translate(${dx} ${dy})${authored ? ` ${authored}` : ""}`,
+      );
+      copy.style.removeProperty("translate");
+      if (copy.getAttribute("style") === "") copy.removeAttribute("style");
+    });
     for (const node of Array.from(
       clone.querySelectorAll("script, foreignObject"),
     )) {

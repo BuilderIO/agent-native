@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
@@ -29,6 +29,7 @@ export function listAutoTitleCandidates(
         ownerEmailMatches(r.ownerEmail, ownerEmail),
         eq(r.status, "ready"),
         isNull(r.trashedAt),
+        ne(r.titleSource, "manual"),
         or(
           inArray(r.titleSource, [...AUTO_REPLACEABLE_TITLE_SOURCES]),
           sql`TRIM(${r.title}) IN ('', ${DEFAULT_RECORDING_TITLE})`,

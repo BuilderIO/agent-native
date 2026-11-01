@@ -37,7 +37,7 @@ import type { DesignFile } from "@/pages/design-editor/types";
 export interface RecordPendingVisualStyleEditArgs {
   activeBreakpointUpperBoundPx: number | null;
   activeBreakpointWidthState: number | undefined;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   canEditDesign: boolean;
   canEditLiveScreens?: ReadonlySet<string>;
   cancelPendingStructureVerification: (
@@ -121,7 +121,8 @@ export function runRecordPendingVisualStyleEdit(
   if (entries.length === 0) return;
   const stylePatch = Object.fromEntries(entries);
   const screen = files.find((file) => file.id === screenId);
-  const fallbackName = screen?.filename ?? screenId;
+  if (!screen) return;
+  const fallbackName = screen.filename || screenId;
   const sourceId =
     elementInfo?.sourceId ??
     (screenId === activeFile?.id ? selectedElement?.sourceId : null);

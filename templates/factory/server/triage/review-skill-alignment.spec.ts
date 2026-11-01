@@ -15,6 +15,9 @@ describe("Factory review skill alignment", () => {
 
     expect(prompt).toContain("Custom operator instruction.");
     expect(prompt).toContain("ultra-scary gate");
+    expect(prompt).toMatch(
+      /Any fork\s+PR assigned to a verified current BuilderIO member must stop/,
+    );
     expect(prompt.indexOf(markers.start)).toBeGreaterThan(-1);
     expect(prompt.indexOf(markers.end)).toBeGreaterThan(
       prompt.indexOf(markers.start),
@@ -40,6 +43,10 @@ describe("Factory review skill alignment", () => {
     );
     expect(second).toMatch(/across app and\s+framework areas/);
     expect(second).toContain("independent human review");
+    expect(second).toMatch(
+      /Any fork\s+PR assigned to a verified current BuilderIO member must stop/,
+    );
+    expect(second).not.toContain("confirmed nonmember's fork PR");
     expect(second).toContain("MCP iframe sandboxing, CSP, HTML sanitization");
     expect(second).not.toContain("old contract");
   });

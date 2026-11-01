@@ -269,6 +269,36 @@ describe("collab durable updates", () => {
     return { server, requests };
   }
 
+  it.each([1, 2])(
+    "ignores an obsolete keepalive 413 for %s delivered updates",
+    async (count) => {
+      const result = await mountReady({ durableUpdates: true });
+      updateResponses = ["too_large"];
+      const release = holdUpdateResponse();
+      for (let i = 0; i < count; i++)
+        result().ydoc!.getText("t").insert(0, "old ");
+      window.dispatchEvent(new Event("pagehide"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      result().ydoc!.getText("t").insert(0, "newer ");
+      window.dispatchEvent(new Event("pagehide"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(sentUpdates).toHaveLength(2);
+      result().ydoc!.getText("t").insert(0, "next ");
+      result().ydoc!.getText("t").insert(0, "last ");
+      await act(async () => {
+        release();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result().updatesRefused).toBe(false);
+      await expect(result().flushUpdates()).resolves.toBe(true);
+      expect(sentUpdates).toHaveLength(3);
+    },
+  );
+
   const transitionRows: Array<{
     name: string;
     baseline: string;

@@ -128,7 +128,20 @@ export function hostedModelExperimentVariant(
  */
 export function singleNonHostedAssignment(
   assignments: readonly HostedModelExperimentAssignment[] | undefined,
+  selectedAssignment?: HostedModelExperimentAssignment,
 ): HostedModelExperimentAssignment | undefined {
+  if (
+    selectedAssignment &&
+    selectedAssignment.experimentId !== HOSTED_MODEL_EXPERIMENT_ID &&
+    assignments?.some(
+      (assignment) =>
+        assignment.experimentId === selectedAssignment.experimentId &&
+        assignment.variantId === selectedAssignment.variantId,
+    )
+  ) {
+    return selectedAssignment;
+  }
+
   const others = assignments?.filter(
     (assignment) => assignment.experimentId !== HOSTED_MODEL_EXPERIMENT_ID,
   );

@@ -6,7 +6,6 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
-  IconCut,
   IconEyeOff,
   IconFlame,
   IconGauge,
@@ -15,12 +14,8 @@ import {
   IconPlayerPlay,
   IconPlayerPause,
   IconScissors,
-  IconPhotoEdit,
-  IconBookmarks,
-  IconPuzzle,
   IconDownload,
   IconLoader2,
-  IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -40,6 +35,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -676,53 +672,40 @@ export function EditorToolbar({
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem disabled={busy} onSelect={handleSplit}>
-                <IconCut className="mr-2 h-4 w-4" />
                 {t("editorToolbar.splitAtPlayhead")}
-                <Kbd className="ms-auto h-auto min-w-0 px-1 py-0 text-[10px]">
-                  S
-                </Kbd>
+                <DropdownMenuShortcut>S</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={busy || playheadMs < 500}
                 onSelect={handleTrimStart}
               >
-                <IconScissors className="mr-2 h-4 w-4" />
                 {t("editorToolbar.cutBeforePlayhead")}
-                <Kbd className="ms-auto h-auto min-w-0 px-1 py-0 text-[10px]">
-                  B
-                </Kbd>
+                <DropdownMenuShortcut>B</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={busy || durationMs - playheadMs < 500}
                 onSelect={handleTrimEnd}
               >
-                <IconScissors className="mr-2 h-4 w-4" />
                 {t("editorToolbar.cutAfterPlayhead")}
-                <Kbd className="ms-auto h-auto min-w-0 px-1 py-0 text-[10px]">
-                  A
-                </Kbd>
+                <DropdownMenuShortcut>A</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>{t("editorToolbar.panels")}</DropdownMenuLabel>
               <DropdownMenuItem onSelect={onOpenChapters}>
-                <IconBookmarks className="mr-2 h-4 w-4" />
                 {chaptersOpen
                   ? t("editorToolbar.hideChapters")
                   : t("editorToolbar.showChapters")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={onOpenThumbnailPicker}>
-                <IconPhotoEdit className="mr-2 h-4 w-4" />
                 {t("editorToolbar.thumbnail")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={onOpenStitch}>
-                <IconPuzzle className="mr-2 h-4 w-4" />
                 {t("editorToolbar.stitchClips")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={() => setTimeout(() => setClearOpen(true), 0)}
               >
-                <IconTrash className="mr-2 h-4 w-4" />
                 {t("editorToolbar.clearAllEdits")}
               </DropdownMenuItem>
             </DropdownMenuContent>

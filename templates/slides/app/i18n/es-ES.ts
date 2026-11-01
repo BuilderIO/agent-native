@@ -137,7 +137,7 @@ const messages = {
     openChat: "Abrir chat",
     cloudAuthToken: "Token de autenticación",
     cloudSetupSteps: "Pasos de configuración",
-    cloudConnectedReloading: "Conectado correctamente. Recargando...",
+    cloudConnectedReloading: "Recargando...",
     cloudConnectionFailed: "Error de conexión",
     cloudTestConnect: "Probar y conectar",
     cloudServerlessPostgres: "Postgres sin servidor",
@@ -265,11 +265,10 @@ const messages = {
     media: "Imagen/vídeo…",
     mediaNeedsStorage:
       "Configura el almacenamiento para subir imágenes y vídeos.",
-    transitions: "Transiciones",
-    transitionsMenu: "Opciones de transición",
+    transitions: "Animaciones",
+    transitionsMenu: "Opciones de animación",
     transitionsReadOnly: "Este deck es de solo lectura.",
-    transitionsNeedElement:
-      "Selecciona un elemento para añadir una transición.",
+    transitionsNeedElement: "Selecciona un elemento para añadir una animación.",
     transitionNone: "Ninguna",
     transitionAppear: "Aparecer",
     transitionFade: "Desvanecer",
@@ -332,6 +331,10 @@ const messages = {
     usingDesignSystem: "Usando {{title}}",
     usingLinkedDesignSystem: "Usando un sistema de diseño vinculado",
     viewOnly: "Solo lectura",
+    requestEditAccess: "Solicitar acceso de edición",
+    editAccessRequested: "Solicitado",
+    editAccessRequestFailed:
+      "No se pudo solicitar acceso de edición. Inténtalo de nuevo.",
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Puede ver y añadir comentarios",
     slideSettings: "Ajustes de diapositiva",
@@ -411,10 +414,22 @@ const messages = {
       "Abre el deck en el editor. Cualquiera con acceso puede usar este enlace.",
     presentationLink: "Enlace de presentación",
     presentationLinkDescription: "Abre el deck en modo de presentación",
+    copyEditorLink: "Copiar enlace del editor",
+    copyPresentationLink: "Copiar enlace de presentación",
+    linkCopied: "Enlace copiado",
+    linkCopyFailed: "No se pudo copiar el enlace.",
     present: "Presentar",
     presentInTab: "En esta pestaña",
     presentFullScreen: "Pantalla completa",
     presentPresenterView: "Vista del presentador",
+    presentOptions: "Opciones de presentación",
+    presentFromBeginning: "Desde el principio",
+    presentWithShortcut: "Presentar ({{shortcut}})",
+    presentUnsaved:
+      "No se pudieron guardar tus últimos cambios. Se presentan desde esta pestaña.",
+    presentTabBlocked:
+      "Permite las ventanas emergentes para presentar en una pestaña nueva.",
+    deckTitle: "Título del deck",
     presentPresenterViewDescription:
       "Ver las notas del presentador mientras presentas",
     presenterViewBlocked:
@@ -445,6 +460,23 @@ const messages = {
       "No se pudo resolver el conflicto. El borrador sigue disponible en este dispositivo.",
     conflictKeepMine: "Conservar mi texto",
     conflictUseLatest: "Usar el texto guardado",
+    conflictTitleSomeone: "Otra persona cambió la diapositiva {{number}}",
+    conflictTitleAgent: "El agente cambió la diapositiva {{number}}",
+    conflictNotesTitleSomeone:
+      "Otra persona cambió las notas del orador de la diapositiva {{number}}",
+    conflictNotesTitleAgent:
+      "El agente cambió las notas del orador de la diapositiva {{number}}",
+    conflictYourVersion: "Tu versión",
+    conflictTheirVersion: "Su versión",
+    conflictAgentVersion: "Versión del agente",
+    conflictKeepMyVersion: "Conservar mi versión",
+    conflictKeepTheirVersion: "Conservar su versión",
+    conflictKeepAgentVersion: "Conservar la versión del agente",
+    conflictSlideDeleted: "Diapositiva eliminada",
+    conflictNoNotes: "Sin notas",
+    saveErrorDeckChanged: "Otra persona cambió esta presentación",
+    saveErrorSlidesChanged:
+      "Otra persona cambió diapositivas de esta presentación",
     importBackup: "Importar copia de seguridad",
     backupDownloaded: "Copia de seguridad descargada",
     backupDownloadFailed: "No se pudo descargar la copia de seguridad",
@@ -485,9 +517,21 @@ const messages = {
       "Se creó una copia de esta presentación en tu Google Drive.",
     googleSlidesGoTo: "Ir a Google Slides",
     duplicateDeck: "Duplicar deck",
+    cancel: "Cancelar",
+    saveBeforeExportFailed:
+      "No se pudieron guardar tus últimos cambios. Vuelve a intentar la exportación.",
+    pptxMissingShapes_one:
+      "No se pudo exportar {{count}} forma y falta en el PPTX.",
+    pptxMissingShapes_many:
+      "No se pudieron exportar {{count}} formas y faltan en el PPTX.",
+    pptxMissingShapes_other:
+      "No se pudieron exportar {{count}} formas y faltan en el PPTX.",
   },
   share: {
     createFailed: "No se pudo crear el enlace para compartir",
+    snapshotLinks: "Enlaces de instantánea",
+    revokeLink: "Revocar",
+    revokeFailed: "No se pudo revocar el enlace para compartir",
     title: "Compartir presentación",
     cloudUpgradeDescription:
       "Para compartir presentaciones públicamente, conecta una base de datos en la nube para que tus diapositivas estén disponibles desde cualquier lugar.",
@@ -677,6 +721,13 @@ const messages = {
     strokeWeight: "Grosor",
     typography: "Tipografía",
     fontFamily: "Familia tipográfica",
+    fontPicker: {
+      search: "Buscar fuentes",
+      inThisDeck: "En esta presentación",
+      allFonts: "Todas las fuentes",
+      catalogUnavailable:
+        "No se pudo cargar la biblioteca completa de fuentes.",
+    },
     fontFamilies: {
       inherit: "Heredar",
       sansSerif: "Sans serif",
@@ -695,6 +746,8 @@ const messages = {
     align: "Alineación",
     decreaseSize: "Reducir tamaño de fuente",
     increaseSize: "Aumentar tamaño de fuente",
+    fontSizes: "Escala tipográfica",
+    deckSizes: "Presentación",
     mixed: "Mezclado",
     textColor: "Color del texto",
     primary: "Primary",
@@ -730,6 +783,10 @@ const messages = {
     insertColumnLeft: "Insertar columna a la izquierda",
     insertColumnRight: "Insertar columna a la derecha",
     deleteColumn: "Eliminar columna",
+    tableMergedCellsUnavailable:
+      "No disponible en tablas con celdas combinadas",
+    tableColumnLayoutUnavailable:
+      "No disponible para los anchos de columna de esta tabla",
   },
   animations: {
     appear: "Aparecer",
@@ -737,22 +794,23 @@ const messages = {
     slideUp: "Deslizar arriba",
     zoom: "Zoom",
     elementFallback: "Elemento {{index}}",
-    title: "Transiciones",
-    close: "Cerrar panel de transiciones",
+    title: "Animaciones",
+    close: "Cerrar panel de animaciones",
     emptyTitle: "Aún no hay animaciones.",
     emptyDescription:
-      "Selecciona un objeto de la diapositiva para añadir una transición.",
+      "Selecciona un objeto de la diapositiva para añadir una animación.",
     selectObject: "Selecciona un objeto para animarlo",
-    addTransition: "Añadir transición",
+    addAnimation: "Añadir animación",
+    alreadyAnimated: "Ya tiene animación",
     effect: "Efecto",
     onClick: "Al hacer clic",
     withPrevious: "Con la anterior",
     trigger: "Inicio",
     byParagraph: "Por párrafo",
-    expand: "Expandir transición",
-    collapse: "Contraer transición",
-    reorder: "Reordenar transición",
-    remove: "Eliminar transición",
+    expand: "Expandir animación",
+    collapse: "Contraer animación",
+    reorder: "Reordenar animación",
+    remove: "Eliminar animación",
     play: "Reproducir",
     clearAll: "Borrar todo",
     elements: "Elementos",
@@ -791,6 +849,16 @@ const messages = {
   },
   deckResult: { saved: "Guardado" },
   history: {
+    restoreDiscardTitle:
+      "¿Descartar los cambios sin guardar y restaurar esta versión?",
+    restoreDiscardConfirm: "Descartar y restaurar",
+    cancel: "Cancelar",
+    restoreNoAccess: "Necesitas acceso de edición para restaurar esta versión.",
+    restoreVersionMissing: "Esta versión ya no está disponible.",
+    restoreDeckChanged:
+      "La presentación cambió durante la restauración. Inténtalo de nuevo.",
+    restoreOffline:
+      "No tienes conexión. Vuelve a conectarte e inténtalo de nuevo.",
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
     minutesAgo: "hace {{count}} min",
@@ -890,6 +958,14 @@ const messages = {
     switchAccount: "Cambiar de cuenta",
   },
   deckEditor: {
+    agentUpdatedSlides_one: "El agente actualizó {{count}} diapositiva",
+    agentUpdatedSlides_other: "El agente actualizó {{count}} diapositivas",
+    agentUpdatedSlides_many: "El agente actualizó {{count}} diapositivas",
+    agentUndoConflictTitle: "¿Deshacer el cambio del agente?",
+    agentUndoConflictDescription:
+      "Editaste estas diapositivas después del agente. Al deshacer también se eliminan esas ediciones.",
+    agentUndoConfirm: "Deshacer de todos modos",
+    agentUndoKeep: "Cancelar",
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
@@ -934,7 +1010,8 @@ const messages = {
     accessRequestFailed: "No se pudo solicitar el acceso. Inténtalo de nuevo.",
     accessApprovalTitle: "Acceso concedido",
     accessApprovalAlreadyTitle: "El acceso ya está concedido",
-    accessApprovalMessage: "{{email}} ya puede abrir este deck.",
+    accessApprovalEditorMessage: "{{email}} ya puede editar este deck.",
+    accessApprovalViewerMessage: "{{email}} ya puede ver este deck.",
     accessApprovalRequesterEmailed: "Le hemos avisado por correo electrónico.",
     accessApprovalRequesterEmailFailed:
       "No hemos podido enviar un correo a {{email}}. Avísale de que ya puede abrir el deck.",
@@ -947,7 +1024,13 @@ const messages = {
       "Inicia sesión como propietario o administrador del deck para aprobar esta solicitud.",
     accessApprovalOpenDeck: "Abrir deck",
     accessApprovalSignIn: "Iniciar sesión",
-    accessApprovalLoading: "Concediendo acceso...",
+    accessApprovalReviewTitle: "Permitir acceso",
+    accessApprovalRequestedEdit: "{{email}} ha pedido editar «{{title}}».",
+    accessApprovalRequestedView: "{{email}} ha pedido ver «{{title}}».",
+    accessApprovalRoleLabel: "Rol",
+    accessApprovalRoleViewer: "Lector",
+    accessApprovalRoleEditor: "Editor",
+    accessApprovalAllow: "Permitir acceso",
     backToDecks: "Volver a decks",
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
@@ -969,6 +1052,11 @@ const messages = {
     originalPrompt: "Lo que pediste",
     backToHome: "Volver al inicio",
     checkedDeckTryAgain: "He revisado la presentación. Reintentar",
+    generationStillRunning:
+      "Esta presentación aún se está generando. Consulta el chat para ver el progreso.",
+    questionFlowTitle: "Define primero la presentación",
+    questionFlowDescription:
+      "Responde las opciones que importan. Usa Otro para una dirección personalizada o deja que el agente decida.",
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -977,6 +1065,11 @@ const messages = {
     layoutOverflowVertical: "Desbordamiento vertical: {{pixels}} px",
     layoutOverflowHorizontal: "Desbordamiento horizontal: {{pixels}} px",
     dismissLayoutWarning: "Descartar advertencia de diseño",
+    fixLayoutWithAi: "Corregir con IA",
+    askingAgentToFixLayout: "Preguntando…",
+    shrinkTextToFit: "Reducir texto para ajustar",
+    shrinkTextCannotFit:
+      "El texto sigue saliéndose de la diapositiva con el tamaño mínimo",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
     slidesAdded_many: "{{count}} diapositivas añadidas",
@@ -987,6 +1080,8 @@ const messages = {
     leaveWithoutSaving: "Salir sin guardar",
     editorMarkupNotSaved:
       "Esta edición no se guardó porque habría añadido marcado del editor a la diapositiva.",
+    slideDeletedElsewhere:
+      "Otra persona eliminó una diapositiva que estabas editando.",
     historyStepConflict:
       "Se omitió este paso del historial porque entra en conflicto con la presentación actual.",
     historyStepFailed:
@@ -1084,15 +1179,158 @@ const messages = {
     chooseAnotherFile: "Elegir otro archivo",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "Crea una presentación de producto",
-      roadmap: "Crea una hoja de ruta de producto",
-      explainer: "Explica un tema en una presentación",
+    nextStepBar: {
+      ariaLabel: "Siguientes pasos para tu primera presentación",
+      refineWithPrompt: "Perfeccionar con una instrucción",
+      export: "Exportar",
+      shareLink: "Compartir enlace",
+      dismiss: "Descartar",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "Crea una presentación de lanzamiento con el problema del cliente, los beneficios, el plan y un tono seguro y centrado en el cliente.",
+        roadmap:
+          "Crea una hoja de ruta trimestral con temas estratégicos, hitos, dependencias y un tono ejecutivo claro.",
+        opportunity:
+          "Crea un informe de oportunidad con contexto de mercado, necesidades del cliente, solución, riesgos y un tono decisivo.",
+        priorities:
+          "Crea una presentación de priorización con impacto, esfuerzo, pruebas, compensaciones y un tono claro para decidir.",
+        metrics:
+          "Crea una revisión de métricas de producto con adopción, activación, retención, aprendizajes y un tono analítico sincero.",
+        discovery:
+          "Crea un informe de entrevistas con temas de investigación, citas, necesidades y un tono empático basado en pruebas.",
+        vision:
+          "Crea una presentación de visión con el futuro deseado, principios, apuestas de producto y un tono inspirador y práctico.",
+        release:
+          "Crea una revisión de lanzamiento con objetivos, resultados, comentarios, problemas abiertos y un tono responsable y reflexivo.",
+      },
+      design: {
+        caseStudy:
+          "Crea un caso de estudio de diseño con el encargo, el proceso, pantallas clave, resultados y un tono editorial cálido.",
+        system:
+          "Crea una presentación del sistema de diseño con color, tipografía, componentes, ejemplos de uso y un tono visual nítido.",
+        critique:
+          "Crea una crítica de diseño con objetivos, pantallas actuales, comentarios, próximos pasos y un tono constructivo.",
+        research:
+          "Crea un informe de investigación de usuarios con contexto, patrones, citas, oportunidades y un tono empático.",
+        concepts:
+          "Crea una exploración con tres direcciones visuales, pantallas de ejemplo, ventajas y un tono lúdico.",
+        accessibility:
+          "Crea una revisión de accesibilidad con barreras, ejemplos anotados, mejoras y un tono inclusivo y claro.",
+        brand:
+          "Crea una propuesta de marca con audiencia, referencias visuales, color, tipografía y un tono distintivo.",
+        sprint:
+          "Crea un resumen del sprint de diseño con reto, ideas, prototipo, hallazgos y un tono optimista.",
+      },
+      developer: {
+        architecture:
+          "Crea una presentación de arquitectura con componentes, flujo de datos, compensaciones y un tono técnico preciso.",
+        api: "Crea una guía de inicio para la API con configuración, autenticación, ejemplos, errores y un tono cercano a desarrolladores.",
+        release:
+          "Crea un plan de lanzamiento técnico con alcance, hitos, dependencias, despliegue y un tono práctico.",
+        incident:
+          "Crea una revisión de incidente con impacto, cronología, causa raíz, acciones y un tono sin culpabilizar.",
+        migration:
+          "Crea un plan de migración con estado actual, etapas, riesgos, validación y un tono tranquilizador.",
+        security:
+          "Crea una revisión de seguridad con límites del sistema, amenazas, controles, brechas y un tono técnico directo.",
+        demo: "Crea una demostración técnica con problema, arquitectura, flujo en directo, resultados y un tono claro.",
+        metrics:
+          "Crea una revisión de métricas de ingeniería con entregas, fiabilidad, tendencias y un tono sincero.",
+      },
+      marketing: {
+        campaign:
+          "Crea el lanzamiento de una campaña con audiencia, mensaje, canales, calendario y un tono enérgico.",
+        story:
+          "Crea una historia de cliente con reto, solución, resultados, pruebas y un tono humano.",
+        content:
+          "Crea una estrategia de contenido con necesidades, temas, formatos, calendario y un tono editorial.",
+        positioning:
+          "Crea un posicionamiento de marca con audiencia, categoría, promesa, pruebas y un tono distintivo.",
+        channels:
+          "Crea una revisión de canales con alcance, interacción, conversiones y aprendizajes en un tono claro.",
+        messaging:
+          "Crea mensajes de producto con audiencia, beneficios, pruebas, ejemplos y un tono persuasivo.",
+        event:
+          "Crea un plan de promoción de evento con audiencia, gancho, calendario, canales y un tono acogedor.",
+        competition:
+          "Crea un análisis competitivo con alternativas, fortalezas, brechas, oportunidades y un tono equilibrado.",
+      },
+      sales: {
+        pitch:
+          "Crea una presentación comercial con objetivos del cliente, solución, resultados, pruebas y un tono seguro.",
+        proposal:
+          "Crea una propuesta con necesidades, enfoque, calendario, inversión y un tono claro centrado en el cliente.",
+        quarterlyReview:
+          "Crea una revisión trimestral con objetivos, resultados, adopción, próximos pasos y un tono colaborativo.",
+        discovery:
+          "Crea un informe de descubrimiento con prioridades, necesidades, encaje y un tono atento.",
+        objections:
+          "Crea una guía para objeciones con dudas habituales, pruebas y respuestas en un tono útil.",
+        demo: "Crea una historia de demostración con contexto, flujos clave, resultados y un tono persuasivo y conciso.",
+        renewal:
+          "Crea una presentación de renovación con valor, uso, oportunidades y un tono de colaboración.",
+        enablement:
+          "Crea una guía comercial con compradores ideales, cualificación, argumentos y un tono práctico.",
+      },
+      ops: {
+        weeklyReview:
+          "Crea una revisión semanal de operaciones con objetivos, métricas, bloqueos, responsables y un tono sereno y directo.",
+        process:
+          "Crea una mejora de proceso con pasos actuales, fricciones, flujo futuro y un tono práctico.",
+        capacity:
+          "Crea un plan de capacidad con demanda, disponibilidad, prioridades, escenarios y un tono transparente.",
+        service:
+          "Crea una revisión del servicio con volumen, tiempos, escalaciones, mejoras y un tono responsable.",
+        vendor:
+          "Crea una evaluación de proveedores con requisitos, opciones, costes, riesgos y un tono equilibrado.",
+        metrics:
+          "Crea una historia de panel operativo con métricas, tendencias, excepciones y un tono analítico y conciso.",
+        onboarding:
+          "Crea un flujo de incorporación con etapas, traspasos, recursos, medidas de éxito y un tono de apoyo.",
+        risk: "Crea una revisión de riesgos con probabilidad, impacto, mitigaciones, responsables y un tono mesurado.",
+      },
+      individual: {
+        project:
+          "Crea un plan de proyecto personal con objetivo, hitos, recursos, riesgos y un tono motivador.",
+        portfolio:
+          "Crea un portafolio personal con trabajos, proceso, resultados y un tono editorial seguro.",
+        learning:
+          "Crea una ruta de aprendizaje con habilidades, recursos, práctica e hitos en un tono alentador.",
+        event:
+          "Crea un plan para una reunión con propósito, invitados, agenda, detalles y un tono cálido.",
+        budget:
+          "Crea una revisión de presupuesto personal con ingresos, gastos, objetivos y un tono práctico y sereno.",
+        travel:
+          "Crea un itinerario con destinos, planes diarios, logística y un tono visual atractivo.",
+        community:
+          "Crea una presentación para un taller comunitario con tema, actividades, aprendizajes y un tono inclusivo.",
+        personalStory:
+          "Crea una presentación personal con trayectoria, intereses, trabajo y un tono natural y conversacional.",
+      },
+      general: {
+        overview:
+          "Crea una introducción clara a un tema con contexto, ideas clave, ejemplos y un tono acogedor.",
+        fundraiser:
+          "Crea una presentación para recaudar fondos con misión, necesidad, impacto y un tono esperanzador.",
+        lesson:
+          "Crea una lección breve con objetivos, conceptos clave, ejemplos y un tono ameno.",
+        research:
+          "Crea un informe de investigación con pregunta, método, hallazgos, implicaciones y un tono equilibrado.",
+        eventProposal:
+          "Crea una propuesta de evento con propósito, audiencia, formato, presupuesto y un tono acogedor.",
+        teamStrategy:
+          "Crea una estrategia de equipo con prioridades, medidas, iniciativas y un tono centrado.",
+        howTo:
+          "Crea una guía visual con pasos claros, ejemplos útiles y un tono alentador.",
+        portfolioIntro:
+          "Crea una introducción a un portafolio con proyectos, fortalezas y un tono cuidado.",
+      },
     },
     suggestedPrompts: "Indicaciones sugeridas",
     importMenu: {
       import: "Importar",
-      options: "Opciones de importación",
       invalidPdf: "Elige un archivo PDF.",
       invalidPptx: "Elige un archivo PPTX.",
       invalidFile: "Elige un archivo PDF o PPTX.",
@@ -1284,11 +1522,15 @@ const messages = {
     setWorkspaceDefault:
       "Establecer como predeterminado del espacio de trabajo",
     clearWorkspaceDefault: "Quitar el predeterminado del espacio de trabajo",
+    renameDeck: "Cambiar nombre",
+    duplicateDeck: "Duplicar",
+    deleteDeck: "Eliminar",
     workspaceDefaultSet:
       "Establecido como predeterminado del espacio de trabajo",
     workspaceDefaultCleared:
       "Se quitó el predeterminado del espacio de trabajo",
     duplicateFailed: "No se pudo duplicar esa presentación",
+    deleteFailed: "No se pudo eliminar esa presentación",
     workspaceDefaultFailed:
       "No se pudo actualizar el predeterminado del espacio de trabajo",
     workspaceDefaultConfirmTitle:
@@ -1312,6 +1554,89 @@ const messages = {
     createFirstDeck: "Crea tu primer deck",
     emptyDescription:
       "Crea presentaciones bonitas con generación impulsada por IA.",
+
+    suggestionLabels: {
+      product: {
+        launch: "presentación de lanzamiento",
+        roadmap: "hoja de ruta trimestral",
+        opportunity: "informe de oportunidad",
+        priorities: "presentación de priorización",
+        metrics: "revisión de métricas",
+        discovery: "informe de entrevistas",
+        vision: "presentación de visión",
+        release: "revisión de lanzamiento",
+      },
+      design: {
+        caseStudy: "estudio de caso",
+        system: "sistema de diseño",
+        critique: "crítica de diseño",
+        research: "investigación de usuarios",
+        concepts: "exploración de conceptos",
+        accessibility: "revisión de accesibilidad",
+        brand: "propuesta de marca",
+        sprint: "sprint de diseño",
+      },
+      developer: {
+        architecture: "presentación de arquitectura",
+        api: "guía de inicio",
+        release: "plan de lanzamiento técnico",
+        incident: "revisión de incidente",
+        migration: "plan de migración",
+        security: "revisión de seguridad",
+        demo: "demostración técnica",
+        metrics: "revisión de métricas",
+      },
+      marketing: {
+        campaign: "lanzamiento de una campaña",
+        story: "historia de cliente",
+        content: "estrategia de contenido",
+        positioning: "posicionamiento de marca",
+        channels: "revisión de canales",
+        messaging: "mensajes de producto",
+        event: "plan de promoción de evento",
+        competition: "análisis competitivo",
+      },
+      sales: {
+        pitch: "presentación comercial",
+        proposal: "propuesta de solución",
+        quarterlyReview: "revisión trimestral",
+        discovery: "informe de descubrimiento",
+        objections: "guía de objeciones",
+        demo: "historia de demostración",
+        renewal: "presentación de renovación",
+        enablement: "guía comercial",
+      },
+      ops: {
+        weeklyReview: "revisión semanal de operaciones",
+        process: "mejora de proceso",
+        capacity: "plan de capacidad",
+        service: "revisión del servicio",
+        vendor: "evaluación de proveedores",
+        metrics: "historia de panel operativo",
+        onboarding: "flujo de incorporación",
+        risk: "revisión de riesgos",
+      },
+      individual: {
+        project: "plan de proyecto personal",
+        portfolio: "portafolio personal",
+        learning: "ruta de aprendizaje",
+        event: "plan de promoción de evento",
+        budget: "revisión de presupuesto personal",
+        travel: "itinerario de viaje",
+        community: "taller comunitario",
+        personalStory: "presentación personal",
+      },
+      general: {
+        overview: "introducción clara",
+        fundraiser: "presentación de recaudación",
+        lesson: "lección breve",
+        research: "informe de investigación",
+        eventProposal: "propuesta de evento",
+        teamStrategy: "estrategia de equipo",
+        howTo: "guía visual",
+        portfolioIntro: "introducción de portfolio",
+      },
+    },
   },
   agentChat: {
     setup: {

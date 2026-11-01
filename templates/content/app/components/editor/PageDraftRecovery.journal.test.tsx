@@ -127,6 +127,7 @@ const page = {
   content: "Saved body",
   canEdit: true,
   updatedAt: "v2",
+  contentHash: "sha256:saved-body",
 } as Document;
 
 function entry(writerId: string, content: string, baseUpdatedAt = "v2") {
@@ -389,6 +390,7 @@ describe("Page browser journal recovery", () => {
       title: "Newer SQL title",
       content: "Local",
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
       loadedContentWasEmpty: 0,
       deferredReason: "conflict",
       editorSessionId: "first",
@@ -478,6 +480,7 @@ describe("Page browser journal recovery", () => {
       title: "Peer rename",
       content: "Local",
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
       loadedContentWasEmpty: 0,
       deferredReason: "conflict",
       editorSessionId: "first",
@@ -536,6 +539,7 @@ describe("Page browser journal recovery", () => {
         title: "Newer SQL title",
         content: "Local",
         baseDocumentUpdatedAt: "v2",
+        baseContentHash: "sha256:saved-body",
         loadedContentWasEmpty: 0,
         deferredReason: "conflict",
         editorSessionId: "first",

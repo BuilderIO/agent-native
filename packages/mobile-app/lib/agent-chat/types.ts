@@ -19,6 +19,7 @@ export type WireEventType =
   | "missing_api_key"
   | "loop_limit"
   | "auto_continue"
+  | "clear"
   | "done";
 
 export interface WireEvent {
