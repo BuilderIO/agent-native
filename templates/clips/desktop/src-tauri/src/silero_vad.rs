@@ -9,7 +9,7 @@
 use tauri::AppHandle;
 
 #[cfg(target_os = "macos")]
-pub(crate) use macos::SpeechCheck;
+pub(crate) use macos::{SpeechCheck, Verdict};
 
 /// Fetches the detector while dictation is on, so the first dictation can use
 /// it. Returns at once; the download runs in the background.
@@ -23,6 +23,7 @@ pub fn speech_detector_prepare(app: AppHandle) {
 
 #[cfg(target_os = "macos")]
 mod macos {
+    use std::ops::Range;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
     use std::sync::mpsc;
@@ -141,22 +142,29 @@ mod macos {
     }
 
     /// Speech frames seen so far, and whether they add up to someone speaking.
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Default, Clone, PartialEq, Eq)]
     struct Tally {
         frames: u64,
         speech_frames: u64,
         run: u32,
         heard: bool,
+        /// The speech frames, as runs of frame indices.
+        speech_runs: Vec<Range<u64>>,
     }
 
     impl Tally {
         fn observe(&mut self, probabilities: &[f32]) {
             for &probability in probabilities {
+                let frame = self.frames;
                 self.frames += 1;
                 if probability >= SPEECH_PROBABILITY {
                     self.speech_frames += 1;
                     self.run += 1;
                     self.heard |= self.run >= SPEECH_RUN_FRAMES;
+                    match self.speech_runs.last_mut() {
+                        Some(run) if run.end == frame => run.end = frame + 1,
+                        _ => self.speech_runs.push(frame..frame + 1),
+                    }
                 } else {
                     self.run = 0;
                 }
@@ -174,6 +182,15 @@ mod macos {
                 Voice::Silent
             }
         }
+    }
+
+    /// A finished check: its verdict, and when the audio held frames that may
+    /// be speech, timed from the first sample. A silent verdict can still have
+    /// some, just never enough in a row to count as someone speaking.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(crate) struct Verdict {
+        pub voice: Voice,
+        pub possible_speech: Vec<Range<Duration>>,
     }
 
     #[derive(Debug)]
@@ -298,7 +315,7 @@ mod macos {
         /// The verdict over everything pushed so far. Call it once capture has
         /// stopped. Anything short of a clean verdict is `Unchecked`, which keeps
         /// the dictation on its normal path.
-        pub(crate) fn finish(&self) -> Voice {
+        pub(crate) fn finish(&self) -> Verdict {
             let asked = Instant::now();
             self.close();
             let outcome = self
@@ -344,7 +361,16 @@ mod macos {
                 since(self.pressed_at, first_sample),
                 since(Some(self.started_at), first_sample),
             );
-            voice
+            let at = |frame: u64| Duration::from_millis(frame * FRAME_MS);
+            Verdict {
+                voice,
+                possible_speech: outcome
+                    .tally
+                    .speech_runs
+                    .iter()
+                    .map(|run| at(run.start)..at(run.end))
+                    .collect(),
+            }
         }
 
         fn close(&self) {
@@ -490,6 +516,15 @@ mod macos {
         }
 
         #[test]
+        fn a_silent_tally_keeps_where_it_scored_possible_speech() {
+            let mut tally = Tally::default();
+            tally.observe(&[0.05, 0.9, 0.1]);
+            tally.observe(&[0.3, 0.4, 0.05]);
+            assert_eq!(tally.voice(), Voice::Silent);
+            assert_eq!(tally.speech_runs, vec![1..2, 3..5]);
+        }
+
+        #[test]
         fn a_heard_verdict_does_not_go_back_to_silence() {
             let mut tally = Tally::default();
             tally.observe(&[0.9, 0.9, 0.9]);
@@ -512,13 +547,13 @@ mod macos {
             );
             check.set_sample_rate(16_000.0);
             check.push(&[0.0; 16_000]);
-            assert_eq!(check.finish(), Voice::Unchecked);
+            assert_eq!(check.finish().voice, Voice::Unchecked);
 
             let missing = std::env::temp_dir().join("clips-vad-test-no-such-model.gguf");
             let check = SpeechCheck::start(Ok(missing), "test", None, Box::new(|| {}));
             check.set_sample_rate(16_000.0);
             check.push(&[0.0; 16_000]);
-            assert_eq!(check.finish(), Voice::Unchecked);
+            assert_eq!(check.finish().voice, Voice::Unchecked);
         }
 
         #[test]
@@ -545,7 +580,7 @@ mod macos {
             check.set_sample_rate(16_000.0);
             check.push(&[0.0; 16_000]);
 
-            assert_eq!(check.finish(), Voice::Unchecked);
+            assert_eq!(check.finish().voice, Voice::Unchecked);
             repair_called
                 .recv_timeout(Duration::from_secs(5))
                 .expect("a damaged model must be fetched again");
@@ -591,7 +626,7 @@ mod macos {
                 std::thread::sleep(Duration::from_millis(1));
             }
             let asked = Instant::now();
-            let voice = check.finish();
+            let voice = check.finish().voice;
             (voice, asked.elapsed())
         }
 

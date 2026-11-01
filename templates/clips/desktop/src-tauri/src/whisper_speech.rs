@@ -248,8 +248,9 @@ pub async fn whisper_transcription_reset_timeline(
 #[cfg(target_os = "macos")]
 mod macos {
     use std::collections::HashSet;
-    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-    use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+    use std::ops::Range;
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
     use std::time::{Duration, Instant};
 
     use serde::Serialize;
@@ -262,7 +263,7 @@ mod macos {
     use crate::echo_guard::EchoGuard;
     use crate::native_speech::mic_capture::MicCapture;
     use crate::parakeet_live::{AudioTap, LiveDictation};
-    use crate::silero_vad::SpeechCheck;
+    use crate::silero_vad::{SpeechCheck, Verdict};
     use crate::speech_capture_ownership::{
         claim as claim_speech_capture, SpeechCaptureEngine, SpeechCaptureLease, SpeechCaptureOwner,
     };
@@ -462,20 +463,25 @@ mod macos {
     }
 
     /// Whether a dictation's last pass runs. A silent verdict at release
-    /// skips it, unless a pass has already recognized words: the verdict is
-    /// then wrong, and the last pass is what keeps the end of the dictation.
+    /// skips it, unless a pass recognized words in audio the speech check
+    /// scored as possible speech: the verdict is then wrong, and the last pass
+    /// is what keeps the end of the dictation. Words from audio it scored as
+    /// silence are Whisper's own invention, and never outweigh the verdict.
     #[derive(Default)]
     struct LastPass {
-        silent_verdict: AtomicBool,
-        heard_words: AtomicBool,
+        /// Set at release by a silent verdict, to where it heard possible speech.
+        silent_verdict: OnceLock<Vec<Range<Duration>>>,
+        /// The audio behind each pass that recognized words.
+        worded: Mutex<Vec<Range<Duration>>>,
     }
 
     impl LastPass {
-        /// The text a pass recognized, if any, noting it as heard words.
+        /// The text a pass over `heard` recognized, if any, noting it as words.
         fn recognize(
             &self,
             raw_segs: &[(i64, i64, String)],
             engine: LocalEngine,
+            heard: Range<Duration>,
         ) -> Option<String> {
             let joined: String = raw_segs
                 .iter()
@@ -484,20 +490,32 @@ mod macos {
                 .collect::<Vec<_>>()
                 .join(" ");
             let clean = clean_transcript(&joined, engine)?;
-            self.heard_words.store(true, Ordering::SeqCst);
+            let mut worded = self.worded.lock().unwrap_or_else(PoisonError::into_inner);
+            match worded.last_mut() {
+                // Partials re-read one growing buffer, so most spans join the last.
+                Some(last) if last.start <= heard.end && heard.start <= last.end => {
+                    last.start = last.start.min(heard.start);
+                    last.end = last.end.max(heard.end);
+                }
+                _ => worded.push(heard),
+            }
             Some(clean)
         }
 
-        fn note_silent_verdict(&self) {
-            self.silent_verdict.store(true, Ordering::SeqCst);
-        }
-
-        fn heard_words(&self) -> bool {
-            self.heard_words.load(Ordering::SeqCst)
+        fn note_silent_verdict(&self, possible_speech: Vec<Range<Duration>>) {
+            let _ = self.silent_verdict.set(possible_speech);
         }
 
         fn runs(&self) -> bool {
-            !self.silent_verdict.load(Ordering::SeqCst) || self.heard_words()
+            let Some(possible_speech) = self.silent_verdict.get() else {
+                return true;
+            };
+            let worded = self.worded.lock().unwrap_or_else(PoisonError::into_inner);
+            worded.iter().any(|heard| {
+                possible_speech
+                    .iter()
+                    .any(|speech| speech.start < heard.end && heard.start < speech.end)
+            })
         }
     }
 
@@ -513,6 +531,9 @@ mod macos {
         src_rate: AtomicU32,
         language: Option<String>,
         buf: Mutex<Vec<f32>>,
+        /// How many samples have been drained or cleared from `buf`, so
+        /// `buf[0]` is that sample of the recording. Changes only with `buf` locked.
+        buf_origin: AtomicUsize,
         running: Arc<AtomicBool>,
         done: Arc<AtomicBool>,
         app: AppHandle,
@@ -558,6 +579,7 @@ mod macos {
                 src_rate: AtomicU32::new(src_rate as u32),
                 language,
                 buf: Mutex::new(Vec::new()),
+                buf_origin: AtomicUsize::new(0),
                 running: Arc::new(AtomicBool::new(true)),
                 done: done.clone(),
                 app,
@@ -617,6 +639,15 @@ mod macos {
             self.running.store(false, Ordering::SeqCst);
         }
 
+        /// Where the first `len` samples of `buf` fall in the recording, timed
+        /// from its first sample. Call it with `buf` locked.
+        fn buffered_span(&self, len: usize) -> Range<Duration> {
+            let rate = f64::from(self.src_rate.load(Ordering::SeqCst)).max(1.0);
+            let origin = self.buf_origin.load(Ordering::SeqCst);
+            let at = |sample: usize| Duration::from_secs_f64(sample as f64 / rate);
+            at(origin)..at(origin + len)
+        }
+
         fn offset_ms(&self) -> i64 {
             self.timeline
                 .lock()
@@ -665,6 +696,7 @@ mod macos {
 
         fn reset_timeline(&self, offset: Duration) {
             if let Ok(mut buf) = self.buf.lock() {
+                self.buf_origin.fetch_add(buf.len(), Ordering::SeqCst);
                 buf.clear();
             }
             let now = Instant::now();
@@ -675,13 +707,15 @@ mod macos {
             self.reset_generation.fetch_add(1, Ordering::SeqCst);
         }
 
+        /// `heard` is the audio the pass transcribed.
         fn emit_inference(
             &self,
             event: &'static str,
+            heard: Range<Duration>,
             result: Result<Vec<(i64, i64, String)>, String>,
         ) {
             match result {
-                Ok(segments) => self.emit_transcript(event, &segments, self.offset_ms()),
+                Ok(segments) => self.emit_transcript(event, heard, &segments, self.offset_ms()),
                 Err(error) => {
                     eprintln!("[whisper-{}] {error}", self.source);
                     // The next partial replaces a failed one, but the audio
@@ -713,10 +747,11 @@ mod macos {
         fn emit_transcript(
             &self,
             event: &'static str,
+            heard: Range<Duration>,
             raw_segs: &[(i64, i64, String)],
             offset_ms: i64,
         ) {
-            let Some(clean) = self.last_pass.recognize(raw_segs, self.engine) else {
+            let Some(clean) = self.last_pass.recognize(raw_segs, self.engine, heard) else {
                 return;
             };
             let segments = raw_segs
@@ -952,13 +987,14 @@ mod macos {
             if utterance_finalize_due(have_secs, silence) {
                 let mut n_processed = raw_len;
                 if had_voice && have_secs > 0.4 {
-                    match stream.buf.lock() {
+                    let heard = match stream.buf.lock() {
                         Ok(b) => {
                             resample_state.sync(&b, src_rate);
                             n_processed = b.len();
+                            stream.buffered_span(n_processed)
                         }
                         Err(_) => continue,
-                    }
+                    };
                     if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
                         continue;
                     }
@@ -968,6 +1004,7 @@ mod macos {
                     } else {
                         stream.emit_inference(
                             FINAL_TRANSCRIPT,
+                            heard,
                             infer(&mut session, stream.engine, resample_state.samples(), lang),
                         );
                     }
@@ -976,6 +1013,7 @@ mod macos {
                 if let Ok(mut b) = stream.buf.lock() {
                     let to_drain = n_processed.min(b.len());
                     b.drain(..to_drain);
+                    stream.buf_origin.fetch_add(to_drain, Ordering::SeqCst);
                     pending = b.len();
                 }
                 resample_state.drop_all();
@@ -995,10 +1033,13 @@ mod macos {
                 have_secs,
                 last_infer.elapsed(),
             ) {
-                match stream.buf.lock() {
-                    Ok(b) => resample_state.sync(&b, src_rate),
+                let heard = match stream.buf.lock() {
+                    Ok(b) => {
+                        resample_state.sync(&b, src_rate);
+                        stream.buffered_span(b.len())
+                    }
                     Err(_) => continue,
-                }
+                };
                 if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
                     continue;
                 }
@@ -1008,6 +1049,7 @@ mod macos {
                 } else {
                     stream.emit_inference(
                         PARTIAL_TRANSCRIPT,
+                        heard,
                         infer(&mut session, stream.engine, resample_state.samples(), lang),
                     );
                     true
@@ -1016,7 +1058,11 @@ mod macos {
             }
         }
 
-        let raw = stream.buf.lock().map(|b| b.clone()).unwrap_or_default();
+        let (raw, heard) = stream
+            .buf
+            .lock()
+            .map(|b| (b.clone(), stream.buffered_span(b.len())))
+            .unwrap_or_default();
         let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
         let samples = resample_to_16k(&raw, src_rate);
         if last_pass_due(had_voice, &stream.last_pass, samples.len())
@@ -1024,6 +1070,7 @@ mod macos {
         {
             stream.emit_inference(
                 FINAL_TRANSCRIPT,
+                heard,
                 infer(&mut session, stream.engine, &samples, lang),
             );
         }
@@ -1799,17 +1846,25 @@ mod macos {
             sys_cap.stop();
         }
         drop(session._shared_audio.take());
-        let voice = match &session.mic.speech_check {
+        let verdict = match &session.mic.speech_check {
             None => None,
             Some(_) if discard => None,
             // Silence from a mic that then failed is not a silent hold.
-            Some(_) if mic_failure.is_some() => Some(Voice::Unchecked),
+            Some(_) if mic_failure.is_some() => Some(Verdict {
+                voice: Voice::Unchecked,
+                possible_speech: Vec::new(),
+            }),
             Some(check) => Some(check.finish()),
         };
-        if voice == Some(Voice::Silent) {
+        let voice = verdict.as_ref().map(|verdict| verdict.voice);
+        if let Some(Verdict {
+            voice: Voice::Silent,
+            possible_speech,
+        }) = verdict
+        {
             // Read by the worker after its loop ends, which `mic.stop()` below
             // causes, so a partial it is still running counts too.
-            session.mic.last_pass.note_silent_verdict();
+            session.mic.last_pass.note_silent_verdict(possible_speech);
         }
         session.mic.stop();
         if let Some(sys) = &session.sys {
@@ -1868,9 +1923,9 @@ mod macos {
         }
         let workers_done = workers_done();
         eprintln!("[whisper] {:?} transcription stopped", session.owner);
-        if voice == Some(Voice::Silent) && session.mic.last_pass.heard_words() {
+        if voice == Some(Voice::Silent) && session.mic.last_pass.runs() {
             eprintln!(
-                "[whisper] kept the last pass: words were recognized despite a silent verdict"
+                "[whisper] kept the last pass: words were recognized in possible speech despite a silent verdict"
             );
         }
         let failure = session
@@ -1897,6 +1952,7 @@ mod macos {
 
     #[cfg(test)]
     mod tests {
+        use std::ops::Range;
         use std::time::{Duration, Instant};
 
         use super::{
@@ -1912,32 +1968,44 @@ mod macos {
             vec![(0, 900, text.to_owned())]
         }
 
+        fn ms(range: Range<u64>) -> Range<Duration> {
+            Duration::from_millis(range.start)..Duration::from_millis(range.end)
+        }
+
         #[test]
-        fn a_silent_verdict_keeps_the_last_pass_once_words_were_recognized() {
+        fn a_silent_verdict_keeps_the_last_pass_once_words_were_recognized_in_possible_speech() {
             let last_pass = LastPass::default();
-            // A partial with words while the key is held, then more audio
-            // through the release tail, then Silero calls the hold silent.
+            // Partials with words while the key is held, over quiet speech
+            // Silero scored too briefly to call heard, then the release tail.
+            let said = segment(" and the second point ");
             assert!(last_pass
-                .recognize(&segment(" and the second point "), LocalEngine::Whisper)
+                .recognize(&said, LocalEngine::Whisper, ms(0..800))
                 .is_some());
             assert!(last_pass
-                .recognize(&segment(""), LocalEngine::Whisper)
+                .recognize(&said, LocalEngine::Whisper, ms(0..1_200))
+                .is_some());
+            assert!(last_pass
+                .recognize(&segment(""), LocalEngine::Whisper, ms(0..1_400))
                 .is_none());
             let tail_16k = 8_000;
-            last_pass.note_silent_verdict();
+            last_pass.note_silent_verdict(vec![ms(960..1_024)]);
             assert!(last_pass_due(true, &last_pass, tail_16k));
         }
 
         #[test]
-        fn a_silent_verdict_skips_the_last_pass_when_nothing_was_recognized() {
+        fn a_silent_verdict_skips_the_last_pass_when_words_came_only_from_silence() {
             let last_pass = LastPass::default();
             assert!(last_pass.runs());
-            // Whisper's stock phrase over silence is not words.
+            // Whisper's stock phrase over silence is filtered out; "Okay" is
+            // not on that list, but Silero scored that audio as silence.
             assert!(last_pass
-                .recognize(&segment(" Thank you. "), LocalEngine::Whisper)
+                .recognize(&segment(" Thank you. "), LocalEngine::Whisper, ms(0..900))
                 .is_none());
-            last_pass.note_silent_verdict();
-            assert!(!last_pass.heard_words());
+            assert!(last_pass
+                .recognize(&segment(" Okay. "), LocalEngine::Whisper, ms(0..1_500))
+                .is_some());
+            last_pass.note_silent_verdict(vec![ms(1_600..1_632)]);
+            assert!(!last_pass.runs());
             assert!(!last_pass_due(true, &last_pass, 8_000));
         }
 

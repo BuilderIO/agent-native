@@ -1966,7 +1966,7 @@ pub(crate) mod macos {
         session.stopped.store(true, Ordering::SeqCst);
         stop_engine_and_remove_tap(&session);
         let voice = match &session.audio {
-            SpeechAudio::Capture(capture) => Some(capture.speech_check().finish()),
+            SpeechAudio::Capture(capture) => Some(capture.speech_check().finish().voice),
             SpeechAudio::Engine { .. } => None,
         };
         // SAFETY: `endAudio()` signals that no more buffers are coming. The
