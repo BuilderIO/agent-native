@@ -115,8 +115,10 @@ Transcription engine, and Apple Speech handles dictation until it has loaded.
 A dictation never waits for the model: if it isn't loaded, warmed up and free
 when the key goes down, that dictation runs on Apple Speech while Parakeet
 reloads in the background.
-Meetings use Parakeet too when it is the chosen engine and loaded, and Whisper
-otherwise. Only one of the two models stays loaded at a time.
+Meetings use Parakeet too when it is the chosen engine and downloaded, and
+Whisper otherwise. Only one of the two models is ever loaded: while a meeting
+transcribes on one, anything that needs the other (a dictation, which runs on
+Apple Speech, or Screen Memory, which waits) gets it after the meeting ends.
 
 `CLIPS_PARAKEET_LIVE_DEBUG=fail` or `=stall` in the app's environment breaks
 the live pass on purpose, to test the whole-recording fallback. Each Parakeet

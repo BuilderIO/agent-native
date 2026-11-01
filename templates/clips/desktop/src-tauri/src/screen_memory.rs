@@ -38,6 +38,9 @@ const CAPTURE_START_GATE_GENERATION_INCREMENT: u64 = 1 << 17;
 const CAPTURE_START_GATE_GENERATION_MASK: u64 = !(CAPTURE_START_GATE_GENERATION_INCREMENT - 1);
 const SCREEN_MEMORY_MCP_NAME: &str = "clips-screen-memory";
 const RETENTION_SWEEP_INTERVAL: Duration = Duration::from_secs(10 * 60);
+/// How long a segment waits to try transcribing again after the local model
+/// turned it away because a meeting's runs hold the other model.
+const TRANSCRIPT_RETRY_AFTER: Duration = Duration::from_secs(60);
 static SEGMENT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Default)]
@@ -3516,15 +3519,37 @@ fn run_transcript_queue(app: AppHandle) {
             job
         };
         let state = app.state::<ScreenMemoryState>();
-        let Ok(_indexing) = state.indexing.lock() else {
-            return;
+        let outcome = {
+            let Ok(_indexing) = state.indexing.lock() else {
+                return;
+            };
+            run_transcript_job(&app, &job)
         };
-        let _ = run_transcript_job(&app, job);
+        if matches!(outcome, Ok(TranscriptJobOutcome::Deferred)) {
+            std::thread::sleep(TRANSCRIPT_RETRY_AFTER);
+            if let Ok(mut runtime) = state.inner.lock() {
+                requeue_deferred_transcript(&mut runtime, job);
+            }
+            continue;
+        }
         if let Ok(mut runtime) = state.inner.lock() {
             if let Some(segment_id) = runtime.transcript_active_segment.take() {
                 runtime.transcript_cancelled_segments.remove(&segment_id);
             }
         };
+    }
+}
+
+/// Puts a deferred job back at the front of the queue, unless its segment was
+/// deleted while it waited. It stays the active job meanwhile, so a delete
+/// marks it cancelled; one that has already cleared its mark leaves no file.
+fn requeue_deferred_transcript(runtime: &mut ScreenMemoryRuntime, job: ScreenMemoryTranscriptJob) {
+    runtime.transcript_active_segment = None;
+    let cancelled = runtime
+        .transcript_cancelled_segments
+        .remove(&job.segment.id);
+    if !cancelled && job.segment.path.exists() {
+        runtime.transcript_queue.push_front(job);
     }
 }
 
@@ -3578,7 +3603,19 @@ fn write_transcript_rows(
     Ok(())
 }
 
-fn run_transcript_job(app: &AppHandle, job: ScreenMemoryTranscriptJob) -> Result<(), String> {
+/// How a transcript job ended.
+#[derive(Debug, PartialEq, Eq)]
+enum TranscriptJobOutcome {
+    Finished,
+    /// A meeting's runs hold the other local model, so the slot turned this
+    /// one away. The segment is pending again and tries later.
+    Deferred,
+}
+
+fn run_transcript_job(
+    app: &AppHandle,
+    job: &ScreenMemoryTranscriptJob,
+) -> Result<TranscriptJobOutcome, String> {
     use crate::screen_memory_transcript::ScreenMemoryTranscriptStatus;
 
     if !segment_transcript_eligible(&job.segment) || !job.segment.path.exists() {
@@ -3586,7 +3623,8 @@ fn run_transcript_job(app: &AppHandle, job: ScreenMemoryTranscriptJob) -> Result
             app,
             &job.segment.id,
             &ScreenMemoryTranscriptStatus::skipped(now_iso()),
-        );
+        )
+        .map(|()| TranscriptJobOutcome::Finished);
     }
     let started_at = now_iso();
     write_transcript_status(
@@ -3606,6 +3644,7 @@ fn run_transcript_job(app: &AppHandle, job: ScreenMemoryTranscriptJob) -> Result
                     "segment start timestamp unavailable",
                 ),
             )
+            .map(|()| TranscriptJobOutcome::Finished)
         }
     };
     let duration_ms = u64::try_from(job.segment.duration_ms)
@@ -3624,7 +3663,8 @@ fn run_transcript_job(app: &AppHandle, job: ScreenMemoryTranscriptJob) -> Result
                     now_iso(),
                     format!("{source} sidecar is unavailable"),
                 ),
-            );
+            )
+            .map(|()| TranscriptJobOutcome::Finished);
         };
         match crate::screen_memory_transcript::transcribe_segment(
             app,
@@ -3637,12 +3677,23 @@ fn run_transcript_job(app: &AppHandle, job: ScreenMemoryTranscriptJob) -> Result
             None,
         ) {
             Ok(mut source_rows) => rows.append(&mut source_rows),
+            // Not a failure, and nothing was heard: the segment must not end
+            // up failed, empty or ready, so it is pending until it is retried.
+            Err(error) if error == crate::transcribe_engine::OTHER_MODEL_IN_USE => {
+                write_transcript_status(
+                    app,
+                    &job.segment.id,
+                    &ScreenMemoryTranscriptStatus::pending(),
+                )?;
+                return Ok(TranscriptJobOutcome::Deferred);
+            }
             Err(error) => {
                 return write_transcript_status(
                     app,
                     &job.segment.id,
                     &ScreenMemoryTranscriptStatus::failed(started_at, now_iso(), error),
                 )
+                .map(|()| TranscriptJobOutcome::Finished)
             }
         }
     }
@@ -3654,7 +3705,7 @@ fn run_transcript_job(app: &AppHandle, job: ScreenMemoryTranscriptJob) -> Result
         &ScreenMemoryTranscriptStatus::ready(rows.len(), started_at, now_iso()),
     );
     let _ = refresh_rewind_chapters(app);
-    result
+    result.map(|()| TranscriptJobOutcome::Finished)
 }
 
 fn write_segment_metadata(
@@ -4557,6 +4608,51 @@ command = "keep"
             runtime.transcript_active_segment.as_deref(),
             Some("transcript")
         );
+    }
+
+    #[test]
+    fn a_deferred_transcript_goes_back_first_unless_its_segment_was_deleted() {
+        let dir = std::env::temp_dir().join(format!(
+            "clips-screen-memory-deferred-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let on_disk = |id: &str| {
+            let mut segment = segment(id);
+            segment.path = dir.join(format!("{id}.mp4"));
+            std::fs::write(&segment.path, b"mp4").unwrap();
+            ScreenMemoryTranscriptJob { segment }
+        };
+        let mut runtime = ScreenMemoryRuntime {
+            transcript_worker_running: true,
+            ..ScreenMemoryRuntime::default()
+        };
+        runtime.transcript_queue.push_back(on_disk("waiting"));
+        runtime.transcript_queue.push_back(on_disk("newer"));
+
+        let deferred = take_next_transcript_job(&mut runtime).unwrap();
+        requeue_deferred_transcript(&mut runtime, deferred);
+        assert_eq!(runtime.transcript_active_segment, None);
+        let queued: Vec<_> = runtime
+            .transcript_queue
+            .iter()
+            .map(|job| job.segment.id.as_str())
+            .collect();
+        assert_eq!(queued, ["waiting", "newer"]);
+
+        let deleted = take_next_transcript_job(&mut runtime).unwrap();
+        runtime
+            .transcript_cancelled_segments
+            .insert("waiting".to_owned());
+        requeue_deferred_transcript(&mut runtime, deleted);
+        assert!(runtime.transcript_cancelled_segments.is_empty());
+
+        let gone = take_next_transcript_job(&mut runtime).unwrap();
+        std::fs::remove_file(&gone.segment.path).unwrap();
+        requeue_deferred_transcript(&mut runtime, gone);
+        assert!(runtime.transcript_queue.is_empty());
+        assert_eq!(runtime.transcript_active_segment, None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

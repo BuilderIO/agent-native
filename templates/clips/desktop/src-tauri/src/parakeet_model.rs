@@ -67,8 +67,10 @@ pub(crate) enum Unavailable {
     /// An earlier dictation's live pass still holds it. A prepare waits for
     /// it to be handed back, and retires a copy that never is.
     Held,
-    /// An earlier dictation's whole-recording pass, or a meeting, is
-    /// transcribing on it; it comes back when that ends.
+    /// One-shot runs (an earlier dictation's whole-recording pass, or a
+    /// meeting) hold it, and it comes back when they end; or they hold
+    /// Whisper, which can't be swapped out under them, and Parakeet reloads at
+    /// the first dictation after they end.
     Busy,
     /// The last download or load failed; Settings shows why and offers Retry.
     Failed,
@@ -116,6 +118,7 @@ fn unavailable(
         _ if failed || on_disk.is_err() => Unavailable::Failed,
         _ if matches!(on_disk, Ok(false)) => Unavailable::Missing,
         LeaseRefused::Cold => Unavailable::Loading,
+        LeaseRefused::OtherModelRunning => Unavailable::Busy,
         LeaseRefused::NotLoaded | LeaseRefused::Quitting => Unavailable::Unloaded,
     }
 }
@@ -231,7 +234,7 @@ pub(crate) async fn meeting_lease(
     })
     .await
     .map_err(|e| format!("parakeet load task failed: {e}"))?
-    .map_err(|e| format!("parakeet {e}"))?;
+    .map_err(|e| crate::transcribe_engine::model_error("parakeet", e))?;
     eprintln!(
         "[parakeet] meeting runs on Parakeet ({}, after {} ms)",
         if loaded { "loaded" } else { "resident" },
@@ -360,12 +363,10 @@ fn start_prepare(app: AppHandle, reclaim: bool) -> Result<(), String> {
             Err(error) if error == DOWNLOAD_CANCELLED => {
                 let _ = app.emit("parakeet:model-cancelled", ());
             }
-            // Neither is a failure: a busy copy comes back when its runs end,
-            // and a quitting app prepares nothing.
-            Err(error)
-                if error == crate::transcribe_engine::IN_USE
-                    || error == crate::transcribe_engine::QUITTING =>
-            {
+            // A refusal is not a failure: a busy copy comes back when its runs
+            // end, Whisper's runs keep Parakeet out only until they end, and a
+            // quitting app prepares nothing.
+            Err(error) if crate::transcribe_engine::is_refusal(&error) => {
                 eprintln!("[parakeet] prepare stopped: {error}");
                 let _ = app.emit(STATUS_CHANGED, ());
             }
@@ -418,8 +419,7 @@ async fn prepare(app: &AppHandle) -> Result<(), String> {
         if crate::transcribe_engine::quit_token().is_cancelled() {
             return Err(crate::transcribe_engine::QUITTING.to_owned());
         }
-        if error == crate::transcribe_engine::IN_USE || error == crate::transcribe_engine::QUITTING
-        {
+        if crate::transcribe_engine::is_refusal(&error) {
             return Err(error);
         }
         // A copy that loaded but failed its warm-up must not stay resident.
@@ -573,7 +573,9 @@ mod tests {
 
     #[test]
     fn a_dictation_turned_away_says_why_and_whether_parakeet_recovers() {
-        use crate::transcribe_engine::LeaseRefused::{Cold, NotLoaded, Running, Streaming};
+        use crate::transcribe_engine::LeaseRefused::{
+            Cold, NotLoaded, OtherModelRunning, Running, Streaming,
+        };
         let on_disk = Ok(true);
         let absent = Ok(false);
         let unreadable = Err("could not read".to_owned());
@@ -606,6 +608,16 @@ mod tests {
             (
                 unavailable(Running, false, false, false, &on_disk),
                 Unavailable::Busy,
+            ),
+            // A meeting's runs hold Whisper, which can't be swapped out.
+            (
+                unavailable(OtherModelRunning, false, false, false, &on_disk),
+                Unavailable::Busy,
+            ),
+            // The file is still fetched while the meeting runs.
+            (
+                unavailable(OtherModelRunning, false, false, false, &absent),
+                Unavailable::Missing,
             ),
             (
                 unavailable(NotLoaded, false, false, true, &absent),

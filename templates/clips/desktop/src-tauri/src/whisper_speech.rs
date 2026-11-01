@@ -227,7 +227,8 @@ mod macos {
         RawSckAudioCapture,
     };
     use crate::transcribe_engine::{
-        open_session, transcribe_parakeet, transcribe_whisper, RunLease, LOCAL_MODEL, QUITTING,
+        model_error, open_session, transcribe_parakeet, transcribe_whisper, RunLease, LOCAL_MODEL,
+        QUITTING,
     };
     use crate::whisper_model::{ensure_model, model_file, remove_superseded_legacy_model};
 
@@ -290,7 +291,7 @@ mod macos {
         let path = model_file(app)?;
         let (lease, loaded) = LOCAL_MODEL
             .lease_for_run(&path)
-            .map_err(|e| format!("whisper {e}"))?;
+            .map_err(|e| model_error("whisper", e))?;
         if loaded {
             remove_superseded_legacy_model(app, &path);
         }
