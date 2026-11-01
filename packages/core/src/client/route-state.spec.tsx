@@ -640,6 +640,9 @@ describe("route-state client helpers", () => {
             "X-Agent-Native-CSRF": "1",
             "X-Agent-Native-Browser-Tab": expect.any(String),
             "X-Request-Source": "tab-1",
+            // Its place in this page's write order.
+            "X-Agent-Native-App-State-Writer": expect.stringMatching(/^page-/),
+            "X-Agent-Native-App-State-Seq": expect.stringMatching(/^[0-9]+$/),
           },
           keepalive: undefined,
           signal: undefined,

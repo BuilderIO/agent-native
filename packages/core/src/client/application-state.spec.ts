@@ -11,6 +11,13 @@ import {
 } from "./application-state.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 
+// The write-order headers every value write and delete carries (see
+// AppStateWriteOrder in the store).
+const orderHeaders = {
+  "X-Agent-Native-App-State-Writer": expect.stringMatching(/^page-/),
+  "X-Agent-Native-App-State-Seq": expect.stringMatching(/^[1-9][0-9]*$/),
+};
+
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
     headers: { "Content-Type": "application/json" },
@@ -347,6 +354,7 @@ describe("client application-state helpers", () => {
           "Content-Type": "application/json",
           "X-Agent-Native-Browser-Tab": expect.any(String),
           "X-Request-Source": "tab-1",
+          ...orderHeaders,
         },
         body: JSON.stringify(value),
         keepalive: true,
@@ -394,11 +402,13 @@ describe("client application-state helpers", () => {
       "Content-Type": "application/json",
       "X-Agent-Native-Browser-Tab": currentMountTabId,
       "X-Request-Source": currentMountTabId,
+      ...orderHeaders,
     });
     expect(fetchMock.mock.calls[1][1]?.headers).toEqual({
       "X-Agent-Native-CSRF": "1",
       "X-Agent-Native-Browser-Tab": currentMountTabId,
       "X-Request-Source": currentMountTabId,
+      ...orderHeaders,
     });
   });
 
@@ -420,6 +430,7 @@ describe("client application-state helpers", () => {
         headers: {
           "X-Agent-Native-CSRF": "1",
           "X-Request-Source": "tab-1",
+          ...orderHeaders,
         },
         keepalive: undefined,
         signal: undefined,
@@ -430,7 +441,7 @@ describe("client application-state helpers", () => {
       "/_agent-native/application-state/selection",
       {
         method: "DELETE",
-        headers: { "X-Agent-Native-CSRF": "1" },
+        headers: { "X-Agent-Native-CSRF": "1", ...orderHeaders },
         keepalive: true,
         signal: undefined,
       },
@@ -440,7 +451,7 @@ describe("client application-state helpers", () => {
       "/_agent-native/application-state/selection",
       {
         method: "DELETE",
-        headers: { "X-Agent-Native-CSRF": "1" },
+        headers: { "X-Agent-Native-CSRF": "1", ...orderHeaders },
         keepalive: undefined,
         signal: undefined,
       },
@@ -592,18 +603,101 @@ describe("client application-state helpers", () => {
     await expect(history).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe("/_agent-native/application-state");
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      headers: {
+        "X-Agent-Native-App-State-Writer":
+          orderHeaders["X-Agent-Native-App-State-Writer"],
+      },
+    });
+    expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty(
+      "X-Agent-Native-App-State-Seq",
+    );
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
       writes: [
         {
           key: "navigation",
           value: { view: "editor" },
           requestSource: "content-editor",
+          seq: expect.any(Number),
         },
-        { key: "content-selection", value: { id: "b1" } },
-        { key: "content-history:doc-1", delete: true },
+        {
+          key: "content-selection",
+          value: { id: "b1" },
+          seq: expect.any(Number),
+        },
+        { key: "content-history:doc-1", delete: true, seq: expect.any(Number) },
       ],
     });
+  });
+
+  it("numbers writes in the order they're sent, from one writer per page load", async () => {
+    vi.resetModules();
+    const fetchMock = vi.fn((url: RequestInfo | URL, init?: RequestInit) =>
+      Promise.resolve(
+        jsonResponse(
+          String(url) === "/_agent-native/application-state"
+            ? {
+                results: JSON.parse(String(init?.body)).writes.map(() => ({
+                  ok: true,
+                  value: null,
+                })),
+              }
+            : init?.method === "PATCH"
+              ? { changed: true }
+              : JSON.parse(String(init?.body ?? "null")),
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const fresh = await import("./application-state.js");
+
+    await fresh.writeClientAppState("draft", { text: "a" });
+    await Promise.all([
+      fresh.writeClientAppState("draft", { text: "ab" }),
+      fresh.deleteClientAppState("old"),
+    ]);
+    await fresh.writeClientAppState(
+      "draft",
+      { text: "abc" },
+      {
+        signal: new AbortController().signal,
+      },
+    );
+    await fresh.deleteClientAppState("old", {
+      signal: new AbortController().signal,
+    });
+    // Compare-and-set isn't ordered: the server's comparison orders it.
+    await fresh.compareAndSetClientAppState("flag", null, { on: true });
+
+    const sent = fetchMock.mock.calls.map(([url, init]) => {
+      const headers = init?.headers as Record<string, string>;
+      const writer = headers["X-Agent-Native-App-State-Writer"];
+      const seqs =
+        String(url) === "/_agent-native/application-state"
+          ? JSON.parse(String(init?.body)).writes.map(
+              (write: { seq: number }) => write.seq,
+            )
+          : headers["X-Agent-Native-App-State-Seq"] === undefined
+            ? []
+            : [Number(headers["X-Agent-Native-App-State-Seq"])];
+      return { writer, seqs };
+    });
+    expect(sent.map(({ seqs }) => seqs)).toEqual([[1], [2, 3], [4], [5], []]);
+    const writers = new Set(sent.slice(0, 4).map(({ writer }) => writer));
+    expect(writers.size).toBe(1);
+    expect(sent[4]?.writer).toBeUndefined();
+
+    // A reload starts a new writer, numbering from 1 again.
+    vi.resetModules();
+    const reloaded = await import("./application-state.js");
+    await reloaded.writeClientAppState("draft", { text: "x" });
+    const last = fetchMock.mock.lastCall?.[1]?.headers as Record<
+      string,
+      string
+    >;
+    expect(last["X-Agent-Native-App-State-Seq"]).toBe("1");
+    expect(writers.has(last["X-Agent-Native-App-State-Writer"])).toBe(false);
   });
 
   it("falls back to a request per key when the server has no batch route", async () => {
@@ -1150,23 +1244,34 @@ describe("client application-state helpers", () => {
       void last;
     });
 
-    it("keeps the newer value when the write it jumped ahead of commits last", async () => {
+    it("keeps the newer value when it fails on the client and the write it jumped ahead of commits last", async () => {
       const { fresh, listeners, fetchMock } = await hidingPage();
-      // The server applies each write when it answers it.
-      let stored: unknown;
+      // A server that applies the write order: it skips a write numbered at
+      // or below the last one it applied from the same writer.
+      let stored: { value: unknown; writer?: string; seq?: number } = {
+        value: null,
+      };
+      const apply = (init?: RequestInit) => {
+        const headers = init?.headers as Record<string, string>;
+        const writer = headers["X-Agent-Native-App-State-Writer"];
+        const seq = Number(headers["X-Agent-Native-App-State-Seq"]);
+        if (stored.writer !== writer || (stored.seq ?? 0) < seq) {
+          stored = { value: JSON.parse(String(init?.body)), writer, seq };
+        }
+      };
       let commitOlder!: () => void;
       fetchMock.mockImplementation((_url, init) => {
-        const value = JSON.parse(String(init?.body));
-        const commit = () => {
-          stored = value;
-          return jsonResponse(value);
-        };
         if (fetchMock.mock.calls.length === 1) {
           return new Promise<Response>((resolve) => {
-            commitOlder = () => resolve(commit());
+            commitOlder = () => {
+              apply(init);
+              resolve(jsonResponse(JSON.parse(String(init?.body))));
+            };
           });
         }
-        return Promise.resolve(commit());
+        // The newer write lands, but its answer never reaches the page.
+        apply(init);
+        return Promise.reject(new TypeError("Failed to fetch"));
       });
 
       const older = fresh.writeClientAppState("draft", { text: "a" });
@@ -1179,14 +1284,43 @@ describe("client application-state helpers", () => {
       await Promise.resolve();
       for (const listener of listeners.pagehide ?? []) listener();
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-      expect(stored).toEqual({ text: "ab" });
+      expect(stored.value).toEqual({ text: "ab" });
 
       commitOlder();
       await older;
-      await expect(newer).resolves.toEqual({ text: "ab" });
+      await expect(newer).rejects.toThrow("Failed to fetch");
 
-      expect(stored).toEqual({ text: "ab" });
-      expect(fresh.isClientAppStateMutationPending("draft")).toBe(false);
+      expect(stored.value).toEqual({ text: "ab" });
+      // Nothing was sent again: the order alone keeps the newer value.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("leaves a queued delete waiting when the page hides", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      let commitOlder!: () => void;
+      fetchMock.mockImplementationOnce(
+        (_url, init) =>
+          new Promise<Response>((resolve) => {
+            commitOlder = () =>
+              resolve(jsonResponse(JSON.parse(String(init?.body))));
+          }),
+      );
+
+      const older = fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const deletion = fresh.deleteClientAppState("draft", { keepalive: true });
+      await Promise.resolve();
+      for (const listener of listeners.pagehide ?? []) listener();
+
+      // Sent now, the delete could land first and the older write would bring
+      // the row back, since the server keeps no record of a delete.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      commitOlder();
+      await older;
+      await deletion;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "DELETE" });
     });
 
     it("sends a write made while the page is hidden at once, with keepalive", async () => {

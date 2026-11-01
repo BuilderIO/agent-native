@@ -18,3 +18,12 @@ export const TAB_SCOPED_APP_STATE_KEYS: ReadonlySet<string> = new Set([
  * the route ran, and its writes may have landed, from a server without it.
  */
 export const APP_STATE_BATCH_ROUTE_HEADER = "X-Agent-Native-App-State-Batch";
+
+/**
+ * A browser page numbers its writes so the server can skip one that lands
+ * after a newer write from the same page to the same row. The writer header
+ * names the page load; the sequence header (or a batch item's `seq`) numbers
+ * the write, counting up across the page's writes.
+ */
+export const APP_STATE_WRITER_HEADER = "X-Agent-Native-App-State-Writer";
+export const APP_STATE_SEQ_HEADER = "X-Agent-Native-App-State-Seq";

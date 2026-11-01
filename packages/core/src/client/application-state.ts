@@ -1,5 +1,7 @@
 import {
   APP_STATE_BATCH_ROUTE_HEADER,
+  APP_STATE_SEQ_HEADER,
+  APP_STATE_WRITER_HEADER,
   TAB_SCOPED_APP_STATE_KEYS,
 } from "../shared/app-state-routes.js";
 import { agentNativePath } from "./api-path.js";
@@ -51,6 +53,28 @@ function requestSourceHeader(requestSource?: string): Record<string, string> {
       ? getBrowserTabId()
       : requestSource,
   };
+}
+
+// This page load's writes are numbered in the order they're sent, so the
+// server can skip one that lands after a newer write to its row (see
+// AppStateWriteOrder in the store). The tab id outlives a reload and the count
+// doesn't, so the writer is a fresh id per page load.
+const pageWriter = `page-${Date.now().toString(36)}-${Math.random()
+  .toString(36)
+  .slice(2, 12)}`;
+let lastWriteSeq = 0;
+
+function nextWriteSeq(): number {
+  lastWriteSeq += 1;
+  return lastWriteSeq;
+}
+
+function writerHeader(): Record<string, string> {
+  return { [APP_STATE_WRITER_HEADER]: pageWriter };
+}
+
+function writeOrderHeaders(seq: number): Record<string, string> {
+  return { ...writerHeader(), [APP_STATE_SEQ_HEADER]: String(seq) };
 }
 
 function browserTabHeaders(): Record<string, string> | undefined {
@@ -109,6 +133,8 @@ interface QueuedReplacement {
   sent: boolean;
   /** Whether the request on the wire actually carries keepalive. */
   sentKeepalive: boolean;
+  /** This write's number in the page's order, given when it's first sent. */
+  seq?: number | undefined;
   pending?: Promise<void> | undefined;
   result: Promise<unknown>;
   running?: Promise<unknown>;
@@ -224,17 +250,7 @@ function replaceClientAppState(
     sent: false,
     sentKeepalive: false,
   } as QueuedReplacement;
-  entry.result = runClientAppStateMutation(key, async () => {
-    // Already running here means the page hid and sent this write while the
-    // earlier one to its key was still in flight (see flushOnPageHide).
-    const jumpedAhead = entry.running !== undefined;
-    const value = await startReplacement(entry);
-    if (!jumpedAhead) return value;
-    // The earlier write may have reached the database last. The page is
-    // still alive if this runs, so the newer value goes out once more; later
-    // writes to the key wait behind it.
-    return sendReplacement(entry, wantsKeepalive(entry.replacement));
-  });
+  entry.result = runClientAppStateMutation(key, () => startReplacement(entry));
   entry.pending = pendingMutations.get(id);
   if (!entry.started) queuedReplacements.set(id, entry);
   return entry.result;
@@ -304,11 +320,15 @@ function flushOnPageHide(): void {
   pageHidden = true;
   // A keepalive write still waiting for an earlier write to its key would
   // never start once the page is gone, so it goes now, alongside that write.
-  // The server may then apply the two in either order; without this it would
-  // get only the earlier one. If the page lives on, the newer value is sent
-  // again once the earlier write settles (see replaceClientAppState).
+  // It's numbered after the earlier one, so the server skips the earlier one
+  // if it lands last. A delete keeps waiting: the server keeps no record of
+  // one, so the earlier write landing after it would bring the row back.
   for (const entry of [...queuedReplacements.values()]) {
-    if (entry.replacement.keepalive) void startReplacement(entry);
+    if (entry.replacement.keepalive && entry.replacement.method === "PUT") {
+      // Its caller hears how it went through entry.result, once the earlier
+      // write settles.
+      startReplacement(entry).catch(() => {});
+    }
   }
   flushReplacements();
 }
@@ -318,7 +338,10 @@ function flushReplacements(): void {
   replacementFlushTimer = undefined;
   const entries = unsentReplacements;
   unsentReplacements = [];
-  for (const entry of entries) entry.sent = true;
+  for (const entry of entries) {
+    entry.sent = true;
+    entry.seq ??= nextWriteSeq();
+  }
   const plain = entries.filter((entry) => !wantsKeepalive(entry.replacement));
   for (let i = 0; i < plain.length; i += MAX_BATCH_WRITES) {
     sendChunk(plain.slice(i, i + MAX_BATCH_WRITES), false);
@@ -369,12 +392,15 @@ const BATCH_BODY_OVERHEAD = encodedLength(`{"writes":[]}`);
 
 function batchItem({
   key,
+  seq,
   replacement: { method, body, requestSource },
 }: QueuedReplacement): string {
   const source = requestSourceHeader(requestSource)["X-Request-Source"];
   return `{"key":${JSON.stringify(key)}${
     method === "DELETE" ? `,"delete":true` : `,"value":${body}`
-  }${source ? `,"requestSource":${JSON.stringify(source)}` : ""}}`;
+  }${source ? `,"requestSource":${JSON.stringify(source)}` : ""}${
+    seq === undefined ? "" : `,"seq":${seq}`
+  }}`;
 }
 
 async function sendBatch(
@@ -392,7 +418,12 @@ async function sendBatch(
   try {
     response = await fetch(
       agentNativePath("/_agent-native/application-state"),
-      { method: "POST", headers: buildHeaders(), body, ...keepalive.init },
+      {
+        method: "POST",
+        headers: { ...buildHeaders(), ...writerHeader() },
+        body,
+        ...keepalive.init,
+      },
     );
   } catch (error) {
     for (const entry of entries) entry.settle?.reject(error);
@@ -495,6 +526,7 @@ async function sendReplacement(
 ): Promise<unknown> {
   const { key } = entry;
   const { method, body, requestSource, keepalive: asked } = entry.replacement;
+  const order = writeOrderHeaders((entry.seq ??= nextWriteSeq()));
   const keepalive = keepaliveRequest(
     wantKeepalive ? true : asked === undefined ? undefined : false,
     body,
@@ -506,11 +538,12 @@ async function sendReplacement(
       method,
       headers:
         method === "PUT"
-          ? buildHeaders(requestSource)
+          ? { ...buildHeaders(requestSource), ...order }
           : {
               "X-Agent-Native-CSRF": "1",
               ...(browserTabHeaders() ?? {}),
               ...requestSourceHeader(requestSource),
+              ...order,
             },
       ...(body === undefined ? {} : { body }),
       ...keepalive.init,
@@ -737,7 +770,10 @@ export async function writeClientAppState<T = unknown>(
         try {
           response = await fetch(appStateUrl(key), {
             method: "PUT",
-            headers: buildHeaders(options.requestSource),
+            headers: {
+              ...buildHeaders(options.requestSource),
+              ...writeOrderHeaders(nextWriteSeq()),
+            },
             body,
             ...keepalive.init,
             signal: options.signal ?? null,
@@ -811,6 +847,7 @@ export async function deleteClientAppState(
               "X-Agent-Native-CSRF": "1",
               ...(browserTabHeaders() ?? {}),
               ...requestSourceHeader(options.requestSource),
+              ...writeOrderHeaders(nextWriteSeq()),
             },
             ...keepalive.init,
             signal: options.signal ?? null,

@@ -393,6 +393,37 @@ describe("application-state handlers", () => {
       });
     });
 
+    it("passes each write's number in the page's order", async () => {
+      mockAppStatePut.mockResolvedValue(undefined);
+      mockAppStateDelete.mockResolvedValue(true);
+
+      const result = await putStateMany({
+        _headers: { "x-agent-native-app-state-writer": "page-1" },
+        _body: {
+          writes: [
+            { key: "draft", value: { text: "ab" }, seq: 4 },
+            { key: "old", delete: true, seq: 5 },
+            { key: "other", value: { v: 1 }, seq: "6" },
+          ],
+        },
+      });
+
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "user@example.com",
+        "draft",
+        { text: "ab" },
+        { order: { writer: "page-1", seq: 4 } },
+      );
+      expect(mockAppStateDelete).toHaveBeenCalledWith(
+        "user@example.com",
+        "old",
+        { order: { writer: "page-1", seq: 5 } },
+      );
+      // A batch item numbers its write with a JSON number, not a string.
+      expect(mockAppStatePut).toHaveBeenCalledTimes(1);
+      expect(result.results[2]).toMatchObject({ ok: false, status: 400 });
+    });
+
     it("answers a failing write on its own without failing the others", async () => {
       mockAppStatePut
         .mockRejectedValueOnce(
@@ -537,6 +568,73 @@ describe("application-state handlers", () => {
         { view: "settings" },
         { requestSource: undefined },
       );
+    });
+  });
+
+  describe("write order", () => {
+    const orderHeaders = (seq: string, writer = "page-1") => ({
+      "x-agent-native-app-state-writer": writer,
+      "x-agent-native-app-state-seq": seq,
+    });
+
+    it("passes a write's number in the page's order to the store", async () => {
+      mockAppStatePut.mockResolvedValue(undefined);
+      mockAppStateDelete.mockResolvedValue(true);
+
+      await putState({
+        _params: { key: "draft" },
+        _body: { text: "ab" },
+        _headers: orderHeaders("12"),
+      });
+      await deleteState({
+        _params: { key: "draft" },
+        _headers: orderHeaders("13"),
+      });
+
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "user@example.com",
+        "draft",
+        { text: "ab" },
+        { order: { writer: "page-1", seq: 12 } },
+      );
+      expect(mockAppStateDelete).toHaveBeenCalledWith(
+        "user@example.com",
+        "draft",
+        { order: { writer: "page-1", seq: 13 } },
+      );
+    });
+
+    it("leaves a write without either header unordered", async () => {
+      mockAppStatePut.mockResolvedValue(undefined);
+
+      await putState({ _params: { key: "draft" }, _body: {}, _headers: {} });
+
+      expect(mockAppStatePut.mock.calls[0]?.[3]).toEqual({
+        requestSource: undefined,
+        order: undefined,
+      });
+    });
+
+    it("rejects a partial or malformed order instead of writing out of order", async () => {
+      for (const headers of [
+        { "x-agent-native-app-state-writer": "page-1" },
+        { "x-agent-native-app-state-seq": "3" },
+        orderHeaders("0"),
+        orderHeaders("-1"),
+        orderHeaders("1.5"),
+        orderHeaders("99999999999999999"),
+        orderHeaders("3", "page 1"),
+        orderHeaders("3", "x".repeat(129)),
+      ]) {
+        await expect(
+          putState({ _params: { key: "draft" }, _body: {}, _headers: headers }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        await expect(
+          deleteState({ _params: { key: "draft" }, _headers: headers }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+      }
+      expect(mockAppStatePut).not.toHaveBeenCalled();
+      expect(mockAppStateDelete).not.toHaveBeenCalled();
     });
   });
 

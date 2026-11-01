@@ -13,6 +13,8 @@ import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   APP_STATE_BATCH_ROUTE_HEADER,
+  APP_STATE_SEQ_HEADER,
+  APP_STATE_WRITER_HEADER,
   TAB_SCOPED_APP_STATE_KEYS,
 } from "../shared/app-state-routes.js";
 import { appStateKeyForBrowserTab } from "./script-helpers.js";
@@ -24,6 +26,7 @@ import {
   appStateDelete,
   appStateList,
   appStateDeleteByPrefix,
+  type AppStateWriteOrder,
 } from "./store.js";
 
 export const APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY =
@@ -50,6 +53,42 @@ async function getSessionId(event: H3Event): Promise<string> {
 
 function safeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_:-]/g, "");
+}
+
+const APP_STATE_WRITER_PATTERN = /^[a-zA-Z0-9_:-]{1,128}$/;
+
+/**
+ * The order a browser page gave a write (see AppStateWriteOrder): its writer
+ * header plus a sequence number from the sequence header or a batch item's
+ * `seq`. A write with neither is unordered; one with a malformed or partial
+ * order is rejected rather than applied out of order.
+ */
+function writeOrder(
+  event: H3Event,
+  seq: unknown,
+): AppStateWriteOrder | undefined {
+  const writer = getHeader(event, APP_STATE_WRITER_HEADER);
+  if (writer === undefined && seq === undefined) return undefined;
+  if (
+    writer === undefined ||
+    !APP_STATE_WRITER_PATTERN.test(writer) ||
+    typeof seq !== "number" ||
+    !Number.isSafeInteger(seq) ||
+    seq < 1
+  ) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `${APP_STATE_WRITER_HEADER} and a positive integer sequence must be sent together`,
+    });
+  }
+  return { writer, seq };
+}
+
+// The sequence header as a number when it's all digits, else as sent, so
+// writeOrder rejects it.
+function headerSeq(event: H3Event): unknown {
+  const seq = getHeader(event, APP_STATE_SEQ_HEADER);
+  return seq !== undefined && /^[0-9]{1,16}$/.test(seq) ? Number(seq) : seq;
 }
 
 function requestScopedKey(key: string, event: H3Event): string {
@@ -120,17 +159,18 @@ export const putState = defineEventHandler(async (event: H3Event) => {
     safeKey(String(getRouterParam(event, "key"))),
     event,
   );
+  const order = writeOrder(event, headerSeq(event));
   const body = await readBody(event);
   const requestSource = getHeader(event, "x-request-source") || undefined;
-  await appStatePut(sessionId, key, body, { requestSource });
+  await appStatePut(sessionId, key, body, { requestSource, order });
   return body;
 });
 
 export const MAX_APP_STATE_BATCH_WRITES = 100;
 
 type AppStateBatchWrite =
-  | { key: string; value: unknown; requestSource?: string }
-  | { key: string; delete: true; requestSource?: string };
+  | { key: string; value: unknown; requestSource?: string; seq?: number }
+  | { key: string; delete: true; requestSource?: string; seq?: number };
 
 // A write sets a value or deletes the key, never both: an entry that carries
 // a value alongside any `delete`, or a `delete` other than true, is rejected
@@ -179,11 +219,13 @@ export const putStateMany = defineEventHandler(async (event: H3Event) => {
     (writes as AppStateBatchWrite[]).map(
       async (write): Promise<AppStateBatchWriteResult> => {
         const key = requestScopedKey(safeKey(write.key), event);
-        const options =
-          typeof write.requestSource === "string" && write.requestSource
-            ? { requestSource: write.requestSource }
-            : {};
         try {
+          const options = {
+            ...(typeof write.requestSource === "string" && write.requestSource
+              ? { requestSource: write.requestSource }
+              : {}),
+            order: writeOrder(event, write.seq),
+          };
           if (!("value" in write)) {
             await appStateDelete(sessionId, key, options);
             return { ok: true, value: { ok: true } };
@@ -246,8 +288,9 @@ export const deleteState = defineEventHandler(async (event: H3Event) => {
     safeKey(String(getRouterParam(event, "key"))),
     event,
   );
+  const order = writeOrder(event, headerSeq(event));
   const requestSource = getHeader(event, "x-request-source") || undefined;
-  await appStateDelete(sessionId, key, { requestSource });
+  await appStateDelete(sessionId, key, { requestSource, order });
   return { ok: true };
 });
 
