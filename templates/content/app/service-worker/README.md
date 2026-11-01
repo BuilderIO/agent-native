@@ -26,11 +26,13 @@ the build's JavaScript and CSS.
 - Files of the current build, the one before it, and the build of every open tab: each tab reports its build when
   it loads and when it's shown again, and keeps that build's files until it closes (or, if the browser can't list
   its open tabs, for a day after its last report). Only the current and previous builds keep shells to answer
-  navigations with.
+  navigations with. After the worker stops serving a build (see below), the build before them keeps its shells
+  too, so it's the previous build again if the one it stopped serving comes back.
 
-The worker downloads at most two build files at a time, at low priority, behind the app's own requests. Only the
-current build downloads the rest of its files: a new build's boot files stop it, and it starts again on the next
-page load.
+The worker downloads at most two build files at a time, at low priority, behind the app's own requests. Once a page
+has loaded, it downloads the rest of the current build and of every build an open tab runs, so a tab left on an
+older build still finds its lazy chunks after a deploy. A new build's boot files take the slots first, and a build
+that is neither current nor open in a tab stops downloading.
 Under `Save-Data` (the navigation's header or `navigator.connection.saveData`) the worker downloads only boot files,
 so lazy chunks load from the network as they would without it.
 

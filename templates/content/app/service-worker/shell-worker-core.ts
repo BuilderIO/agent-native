@@ -69,6 +69,12 @@ interface ShellState {
   current?: string | undefined;
   /** The build before it, kept for tabs still running it and for offline. */
   previous?: string | undefined;
+  /**
+   * After a step-down, the build that was previous until then, kept while no
+   * build is current: if the build stepped down from comes back, this one is
+   * the build before it again.
+   */
+  beforePrevious?: string | undefined;
   workerCheckedAt?: number;
   /** The build each open tab runs, by client id, as the tab last reported it. */
   clients?: Record<string, ShellClientBuild> | undefined;
@@ -354,11 +360,13 @@ function parsePageKey(href: string): PageKey | undefined {
 interface DownloadOptions {
   /** Skip files that fail instead of stopping at the first. */
   skipFailures?: boolean;
+  /** Wait while any build's boot files download, so they get the slots first. */
+  behindBoot?: boolean;
   /** Stops the download: no new file starts and running ones are aborted. */
   signal: AbortSignal;
 }
 
-/** A download of one build's files that a newer build can cancel. */
+/** A download of one build's files, stopped once nothing will use that build. */
 interface Download {
   version: string;
   /** The newest answer waiting on it. */
@@ -374,8 +382,8 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
   const buildFiles = new Map<string, Promise<ShellBuildFile>>();
   // Boot downloads, by build.
   const downloads = new Map<string, Download>();
-  // The one background download of the rest of the current build.
-  let fill: Download | undefined;
+  // Background downloads of the rest of a build's files, by build.
+  const fills = new Map<string, Download>();
   // Build files downloading now, and downloads waiting for a slot.
   let downloading = 0;
   const waiting: Array<() => void> = [];
@@ -517,6 +525,18 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     }
   }
 
+  /** Resolves once no build's boot files are downloading, or `signal` aborts. */
+  async function bootFilesDone(signal: AbortSignal): Promise<void> {
+    while (downloads.size > 0 && !signal.aborted) {
+      await Promise.race([
+        Promise.allSettled([...downloads.values()].map(({ done }) => done)),
+        new Promise((resolve) =>
+          signal.addEventListener("abort", resolve, { once: true }),
+        ),
+      ]);
+    }
+  }
+
   /**
    * Downloads the files of `paths` the cache lacks, at low priority, since
    * the page in front of the user never waits on them. The first failure
@@ -525,7 +545,7 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
    */
   async function precache(
     paths: readonly string[],
-    { skipFailures = false, signal }: DownloadOptions,
+    { skipFailures = false, behindBoot = false, signal }: DownloadOptions,
   ): Promise<number> {
     const cache = await openCache(SHELL_CACHE_NAMES.assets);
     const cached = new Set(
@@ -533,8 +553,9 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     );
     const missing = paths.filter((path) => !cached.has(path));
     let skipped = 0;
-    await runPool(missing, DOWNLOAD_SLOTS, (path) =>
-      inSlot(async () => {
+    await runPool(missing, DOWNLOAD_SLOTS, async (path) => {
+      if (behindBoot) await bootFilesDone(signal);
+      await inSlot(async () => {
         if (removed) throw new Error("The shell worker removed itself");
         signal.throwIfAborted();
         try {
@@ -553,21 +574,16 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
           if (!skipFailures || signal.aborted) throw error;
           skipped += 1;
         }
-      }),
-    );
+      });
+    });
     return skipped;
   }
 
   /**
-   * One download per build, however many navigations want it. The server
-   * answering with another build means the current one is on its way out
-   * (after an atomic deploy, the host no longer has its files), so the rest
-   * of it stops downloading and leaves the slots to this one.
+   * One download per build, however many navigations want it. Fills wait
+   * while it runs, so a new build's boot files get the slots first.
    */
   function downloadBoot(record: ShellBuildRecord, answer: number): Download {
-    if (fill && fill.version !== record.version && answer > promotedAnswer) {
-      fill.controller.abort();
-    }
     const running = downloads.get(record.version);
     if (running && !running.controller.signal.aborted) {
       running.answer = Math.max(running.answer, answer);
@@ -591,7 +607,7 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
   }
 
   /**
-   * A build became current, or none is: downloads only an older answer
+   * A build became current, or none is: boot downloads only an older answer
    * waits on can never be used, so they stop.
    */
   function stopOutdatedDownloads(current: string | undefined): void {
@@ -600,7 +616,24 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
         download.controller.abort();
       }
     }
-    if (fill && fill.version !== current) fill.controller.abort();
+  }
+
+  /** The builds fills download: the current one and every open tab's. */
+  async function buildsInUse(state: ShellState): Promise<Set<string>> {
+    const clients = await openClientBuilds(state.clients);
+    return new Set(
+      [
+        state.current,
+        ...Object.values(clients).map((client) => client.version),
+      ].filter((version): version is string => Boolean(version)),
+    );
+  }
+
+  /** Fills stop once their build is neither current nor open in a tab. */
+  function stopUnusedFills(inUse: ReadonlySet<string>): void {
+    for (const download of fills.values()) {
+      if (!inUse.has(download.version)) download.controller.abort();
+    }
   }
 
   async function fetchBuildFile(version: string): Promise<ShellBuildFile> {
@@ -762,8 +795,8 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
 
   /**
    * Drops every build that isn't kept: the current one, the one before it
-   * and the build of each open tab stay. Only the first two keep shells to
-   * answer navigations with. Runs under `exclusive`.
+   * (after a step-down, the one before that too) and the build of each open
+   * tab stay. Only the first ones keep shells. Runs under `exclusive`.
    */
   async function prune(state: ShellState): Promise<void> {
     const clients = await openClientBuilds(state.clients);
@@ -773,8 +806,8 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
       await writeState({ ...state, clients });
     }
     const shells = new Set(
-      [state.current, state.previous].filter((version): version is string =>
-        Boolean(version),
+      [state.current, state.previous, state.beforePrevious].filter(
+        (version): version is string => Boolean(version),
       ),
     );
     const keep = new Set([
@@ -872,45 +905,47 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
       if (!known) await writeBuild(record);
       await storePage(known ?? record, answer);
       if (promoting) {
+        // After a step-down the build coming back can be the previous one;
+        // the build before it stays previous then, so the two never match.
+        const before = state.current ?? state.previous;
         const next: ShellState = {
           ...state,
           current: record.version,
-          previous: state.current ?? state.previous,
+          previous: before === record.version ? state.beforePrevious : before,
+          beforePrevious: undefined,
         };
         await writeState(next);
         promotedAnswer = answer.number;
         stopOutdatedDownloads(record.version);
         await prune(next);
+        stopUnusedFills(await buildsInUse(next));
       }
       return true;
     });
   }
 
   /**
-   * Downloads the rest of the current build's files, lazy chunks included,
-   * once a page has finished loading. Only the current build downloads, never
-   * under Save-Data or while another build's boot files download; each page
-   * load picks up where the last one stopped.
+   * Downloads the rest of the files of the current build and of every build
+   * an open tab runs, lazy chunks included, once a page has finished
+   * loading. Never under Save-Data; it waits while any build's boot files
+   * download, and each page load picks up where the last one stopped.
    */
-  async function fillCurrentBuild(): Promise<void> {
-    for (;;) {
-      if (removed || saveDataNavigation || env.saveData()) return;
-      const record = await readBuild((await readState()).current);
-      if (!record || record.assetsCached) return;
-      const switching = [...downloads.values()].some(
-        (download) =>
-          download.version !== record.version &&
-          !download.controller.signal.aborted,
-      );
-      if (switching) return;
-      if (!fill) fill = startFill(record);
-      if (fill.version === record.version) return fill.done;
-      // The build changed since this fill started; it stops before the
-      // current one begins.
-      fill.controller.abort();
-      // coercion-ok: the stopped fill's own caller reports its failure.
-      await fill.done.catch(() => undefined);
+  async function fillOpenBuilds(): Promise<void> {
+    const inUse = await buildsInUse(await readState());
+    stopUnusedFills(inUse);
+    const running: Promise<void>[] = [];
+    for (const version of inUse) {
+      if (removed || saveDataNavigation || env.saveData()) break;
+      const record = await readBuild(version);
+      if (!record || record.assetsCached) continue;
+      const stopped = fills.get(version);
+      if (stopped?.controller.signal.aborted) {
+        // coercion-ok: the stopped fill's own caller reports its failure.
+        await stopped.done.catch(() => undefined);
+      }
+      running.push((fills.get(version) ?? startFill(record)).done);
     }
+    await Promise.all(running);
   }
 
   function startFill({ version, assets }: ShellBuildRecord): Download {
@@ -925,6 +960,7 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
           complete =
             (await precache(assets, {
               skipFailures: true,
+              behindBoot: true,
               signal: controller.signal,
             })) === 0;
         } catch (error) {
@@ -939,9 +975,10 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
           return true;
         });
       }).finally(() => {
-        if (fill === download) fill = undefined;
+        if (fills.get(version) === download) fills.delete(version);
       }),
     };
+    fills.set(version, download);
     return download;
   }
 
@@ -974,19 +1011,23 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     await exclusive(async () => {
       const state = await readState();
       if (removed || !state.current) return;
-      await writeState({
+      const next: ShellState = {
         ...state,
         current: undefined,
         previous: state.current,
-      });
+        beforePrevious: state.previous,
+      };
+      await writeState(next);
       stopOutdatedDownloads(undefined);
+      stopUnusedFills(await buildsInUse(next));
     });
   }
 
   async function removeWorker(): Promise<void> {
     removed = true;
-    for (const download of downloads.values()) download.controller.abort();
-    fill?.controller.abort();
+    for (const download of [...downloads.values(), ...fills.values()]) {
+      download.controller.abort();
+    }
     await deleteShellCaches(env.caches);
     statePromise = undefined;
     builds.clear();
@@ -1049,7 +1090,7 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
   async function pageLoaded(clientId: string, version: string): Promise<void> {
     await noteClient(clientId, version);
     // The rest of the build downloads only once the page's own boot is done.
-    await fillCurrentBuild();
+    await fillOpenBuilds();
   }
 
   /** The server's own answer for a page, past the browser's HTTP cache and without cookies. */
@@ -1299,7 +1340,9 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
       if (request.destination !== "document") return;
       saveDataNavigation =
         request.headers.get("save-data")?.trim().toLowerCase() === "on";
-      if (saveDataNavigation) fill?.controller.abort();
+      if (saveDataNavigation) {
+        for (const download of fills.values()) download.controller.abort();
+      }
       // Framework endpoints and files go to the network, whatever markers
       // their URL carries.
       if (FRAMEWORK_PATH.test(url.pathname) || FILE_PATH.test(url.pathname)) {
@@ -1346,7 +1389,7 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
       // On a first visit there was no state to record the tab in yet.
       if (!noted && client) await noteClient(client.id, client.version);
     }
-    await fillCurrentBuild();
+    await fillOpenBuilds();
   }
 
   async function activate(): Promise<void> {

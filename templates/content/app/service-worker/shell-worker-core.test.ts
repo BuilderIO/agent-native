@@ -577,6 +577,27 @@ describe("deploys", () => {
     },
   );
 
+  it("keeps the build before as previous when the build it stepped down from comes back", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+    server.deploy(b);
+    await visitAndSettle("/page/a");
+    const recovery = fetchEvent(
+      navigationRequest(`${ORIGIN}/page/a/__agent-native-chunk-recovery`),
+    );
+    worker.handleFetch(recovery.event);
+    await recovery.settled();
+
+    // The server still answers with build b, so it becomes current again.
+    await visitAndSettle("/page/a");
+    expect(await worker.readState()).toMatchObject({
+      current: b.version,
+      previous: a.version,
+    });
+    const pages = await cachePaths(SHELL_CACHE_NAMES.pages);
+    expect(pages.some((path) => path.includes(`/${a.version}/`))).toBe(true);
+  });
+
   it("keeps the current build after a marked framework navigation", async () => {
     server.deploy(a);
     await visitAndSettle("/page/a");
@@ -862,53 +883,6 @@ describe("background downloads", () => {
     expect(assets.some((path) => a.lazy.includes(path))).toBe(false);
   });
 
-  it("stops downloading a build once another is current, two files at a time", async () => {
-    let running = 0;
-    let most = 0;
-    const slow = gate();
-    // Counts the requests the worker has open; an aborted one closes at once.
-    const track =
-      (path: string, wait?: Promise<void>) => async (init?: RequestInit) => {
-        running += 1;
-        most = Math.max(most, running);
-        try {
-          await Promise.race([
-            wait,
-            new Promise((_resolve, reject) =>
-              init?.signal?.addEventListener("abort", reject, { once: true }),
-            ),
-          ]);
-          return asset(path);
-        } finally {
-          running -= 1;
-        }
-      };
-    server.deploy(a);
-    await visitAndSettle("/page/a");
-    // Build b's lazy files hang, and build c deploys while they do.
-    server.deploy(b);
-    for (const path of b.lazy)
-      server.routes.set(path, track(path, slow.opened));
-    const visit = await navigate("/page/a");
-    await visit.call.settled();
-    const loading = pageLoaded(visit.text);
-    await downloadStarted(b.lazy[0] ?? "");
-    const c = makeBuild("c", [], 3);
-    server.deploy(c);
-    for (const path of c.lazy) server.routes.set(path, track(path));
-    await visitAndSettle("/page/a");
-    await loading;
-
-    expect((await worker.readState()).current).toBe(c.version);
-    const lazyCalls = fetchCalls.filter((call) => b.lazy.includes(call.url));
-    expect(lazyCalls.length).toBeGreaterThan(0);
-    expect(lazyCalls.every((call) => call.init?.signal?.aborted)).toBe(true);
-    expect(most).toBeLessThanOrEqual(2);
-    const assets = await cachePaths(SHELL_CACHE_NAMES.assets);
-    expect(assets).toEqual(expect.arrayContaining(c.lazy));
-    slow.open();
-  });
-
   it("never downloads more than two build files at once, boot files included", async () => {
     let running = 0;
     let most = 0;
@@ -949,7 +923,69 @@ describe("background downloads", () => {
     expect(most).toBeLessThanOrEqual(2);
   });
 
-  it("leaves the rest of the current build alone while another build's boot files download", async () => {
+  it.each([
+    ["finishes downloading a build an open tab still runs", ["visitor"], true],
+    ["stops downloading a build no open tab runs", [], false],
+  ])(
+    "%s once another build is current",
+    async (_label, tabs: string[], finished) => {
+      server.deploy(a);
+      const first = await navigate("/page/a");
+      await first.call.settled();
+      // One of build a's lazy files is still on its way when build b
+      // becomes current.
+      const slow = gate();
+      const [held = ""] = a.lazy;
+      server.routes.set(held, () => slow.opened.then(() => asset(held)));
+      openTabs = tabs;
+      const loading = pageLoaded(first.text);
+      await downloadStarted(held);
+      server.deploy(b);
+      const second = await navigate("/page/a");
+      await second.call.settled();
+      expect((await worker.readState()).current).toBe(b.version);
+
+      slow.open();
+      await loading;
+      const assets = await cachePaths(SHELL_CACHE_NAMES.assets);
+      expect(a.lazy.every((path) => assets.includes(path))).toBe(finished);
+    },
+  );
+
+  it("downloads a new build's boot files before the rest of an older one", async () => {
+    server.deploy(a);
+    const first = await navigate("/page/a");
+    await first.call.settled();
+    // Build a's first two lazy files hold both download slots.
+    const slow = gate();
+    const [one = "", two = "", three = ""] = a.lazy;
+    for (const path of [one, two]) {
+      server.routes.set(path, () => slow.opened.then(() => asset(path)));
+    }
+    openTabs = ["visitor"];
+    const loading = pageLoaded(first.text);
+    await downloadStarted(two);
+    server.deploy(b);
+    const second = await navigate("/page/a");
+    await downloadStarted(`/assets/sw-build-${b.version}.json`);
+    // Build b's boot download lines up for the slots.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    slow.open();
+    await second.call.settled();
+    await loading;
+
+    const order = fetchCalls.map((call) => call.url);
+    const boot = [`/assets/manifest-${b.version}.js`, ...b.boot];
+    expect(order.indexOf(three)).toBeGreaterThan(
+      Math.max(...boot.map((path) => order.indexOf(path))),
+    );
+    expect((await worker.readState()).current).toBe(b.version);
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toEqual(
+      expect.arrayContaining(a.lazy),
+    );
+  });
+
+  it("holds the rest of the current build back while another build's boot files download", async () => {
     server.deploy(a);
     const first = await navigate("/page/a");
     await first.call.settled();
@@ -958,12 +994,19 @@ describe("background downloads", () => {
     server.routes.set(b.page, () => slow.opened.then(() => asset(b.page)));
     const visit = await navigate("/page/a");
     await downloadStarted(b.page);
-    await pageLoaded(first.text);
+    openTabs = ["visitor"];
+    const loading = pageLoaded(first.text);
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchCalls.some((call) => a.lazy.includes(call.url))).toBe(false);
     slow.open();
     await visit.call.settled();
+    await loading;
     expect((await worker.readState()).current).toBe(b.version);
+    // The tab still runs build a, so the rest of it follows.
+    expect(await cachePaths(SHELL_CACHE_NAMES.assets)).toEqual(
+      expect.arrayContaining(a.lazy),
+    );
   });
 });
 
