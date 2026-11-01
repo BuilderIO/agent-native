@@ -80,7 +80,16 @@ pastes into a page becomes a private Clip bound to that page instead of a file
 in Content's storage. The page holds `<ClipEmbed … origin="upload" />`, and
 the Clip is visible to exactly the people who can see the page. The browser
 sends the file straight to Clips, and only the page's editors can upload.
-Uploading is UI-only: no agent tool uploads a video.
+
+An outside agent holding a video file uploads it the same way with
+`create-video-upload`, an MCP-only action (the app's own agent has no files to
+send). It checks you can edit the page and returns `chunkUrl`,
+`chunkSizeBytes`, `totalChunks`, `uploadKey`, `clipEmbedTag`, and a `next`
+line with the steps: POST the file's chunks to Clips in order, the last with
+`isFinal=1`, then put `clipEmbedTag` in the page with `edit-document`. To
+start the same file again after a failed call, send the `uploadKey` it
+returned, so Clips makes one Clip. When it answers `storage_required` or
+`too_large`, nothing was uploaded; tell the user.
 
 - Clips takes MP4, WebM, and MOV. Another video type is refused with a
   message naming those, and an empty file as a video that didn't upload;
