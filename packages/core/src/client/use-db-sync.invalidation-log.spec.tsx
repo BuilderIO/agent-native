@@ -37,6 +37,37 @@ function Probe({ queryClient }: { queryClient: QueryClientProbe }) {
   return null;
 }
 
+// The tab's own event stream, which hears changes as they happen.
+function StreamProbe({ queryClient }: { queryClient: QueryClientProbe }) {
+  useDbSync({
+    queryClient,
+    sseUrl: "/_agent-native/events",
+    realtime: { reason: "test the sync invalidation log" },
+    interval: 1_000,
+    fallbackInterval: 1_000,
+    pauseWhenHidden: false,
+  });
+  return null;
+}
+
+class FakeEventSource {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
+  static instances: FakeEventSource[] = [];
+  readyState = FakeEventSource.CONNECTING;
+  onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: ((message: { data: string }) => void) | null = null;
+  addEventListener(): void {}
+  constructor(readonly url: string) {
+    FakeEventSource.instances.push(this);
+  }
+  close(): void {
+    this.readyState = FakeEventSource.CLOSED;
+  }
+}
+
 type PolledEvent = {
   version: number;
   cursorId?: string;
@@ -129,6 +160,83 @@ describe("the invalidations sync asked, by sync cursor", () => {
 
     expect(syncInvalidationsAfter(queryClient)?.length).toBe(1);
     expect(syncInvalidationsAfter(new QueryClientProbe())).toEqual([]);
+  });
+
+  describe("when the stream hears a change before the first poll answers", () => {
+    const e4: PolledEvent = {
+      version: 4,
+      cursorId: "e4",
+      source: "action",
+      key: "add-item",
+    };
+    const e6: PolledEvent = {
+      version: 6,
+      cursorId: "e6",
+      source: "action",
+      key: "add-item",
+    };
+
+    // The first poll goes out at once and is held; the stream then hears e6.
+    async function streamAheadOfFirstPoll() {
+      const queryClient = new QueryClientProbe();
+      FakeEventSource.instances = [];
+      vi.stubGlobal("EventSource", FakeEventSource);
+      const polls: Array<(events: PolledEvent[]) => void> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              polls.push((events) => {
+                const version = Math.max(0, ...events.map((e) => e.version));
+                resolve(new Response(JSON.stringify({ version, events })));
+              });
+            }),
+        ),
+      );
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+      await act(async () => {
+        root?.render(<StreamProbe queryClient={queryClient} />);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(polls).toHaveLength(1);
+      await act(async () => {
+        FakeEventSource.instances.at(-1)?.onmessage?.({
+          data: JSON.stringify({ version: 6, events: [e6] }),
+        });
+        await vi.advanceTimersByTimeAsync(1_300);
+      });
+      return { queryClient, answerFirstPoll: polls[0] };
+    }
+
+    it("cannot tell a read anything until a poll says where the log starts", async () => {
+      const { queryClient } = await streamAheadOfFirstPoll();
+
+      expect(syncInvalidationsAfter(queryClient, "3.e3")).toBeUndefined();
+      expect(syncInvalidationsAfter(queryClient)).toBeUndefined();
+    });
+
+    it("cannot tell a read older than the stream's change, whose earlier changes the poll then skips", async () => {
+      const { queryClient, answerFirstPoll } = await streamAheadOfFirstPoll();
+      // The poll was sent from the start and names e4 and e6, but e6 already
+      // moved the tab past e4, so e4 never reaches the log.
+      await act(async () => {
+        answerFirstPoll?.([e4, e6]);
+        await vi.advanceTimersByTimeAsync(1_300);
+      });
+
+      expect(syncInvalidationsAfter(queryClient, "3.e3")).toBeUndefined();
+      expect(syncInvalidationsAfter(queryClient)).toBeUndefined();
+      expect(syncInvalidationsAfter(queryClient, "6.e6")).toEqual([]);
+    });
+  });
+
+  it("tells a read every change after its cursor when the first poll started from the beginning", async () => {
+    const queryClient = await deliver([[]]);
+
+    expect(syncInvalidationsAfter(queryClient, "3.e3")).toEqual([]);
   });
 
   it("cannot tell an unreadable cursor, or one older than the invalidations it no longer keeps", async () => {

@@ -338,14 +338,32 @@ type LoggedSyncInvalidation = {
 export type SyncInvalidationFilters = { queryKey?: readonly unknown[] };
 
 const SYNC_INVALIDATION_LOG_LIMIT = 200;
-const syncInvalidationLogs = new WeakMap<
-  object,
-  {
-    entries: LoggedSyncInvalidation[];
-    // The newest of the entries no longer kept.
-    dropped?: SyncCursor | "local";
+type SyncInvalidationLog = {
+  entries: LoggedSyncInvalidation[];
+  // The newest of the entries no longer kept.
+  dropped?: SyncCursor | "local";
+  // The cursor after which every change reached the log: where the first poll
+  // this client heard started, or past it if events had already moved its
+  // cursor on, since those hide any earlier event the poll brings.
+  coversFrom?: SyncCursor;
+  // Events reached the log before any poll did, so where it starts is unknown.
+  heardBeforePoll?: boolean;
+};
+const syncInvalidationLogs = new WeakMap<object, SyncInvalidationLog>();
+
+function syncInvalidationLog(queryClient: object): SyncInvalidationLog {
+  let log = syncInvalidationLogs.get(queryClient);
+  if (!log) {
+    log = { entries: [] };
+    syncInvalidationLogs.set(queryClient, log);
   }
->();
+  return log;
+}
+
+function noteSyncLogCoverage(queryClient: object, from: SyncCursor): void {
+  const log = syncInvalidationLog(queryClient);
+  log.coversFrom = log.coversFrom ? maxSyncCursor(log.coversFrom, from) : from;
+}
 
 function isLoggedAfter(
   after: SyncCursor | "local",
@@ -368,11 +386,7 @@ function logSyncInvalidations(
     (event) => !(typeof event.version === "number" && event.version > 0),
   );
   const after = local ? "local" : (cursorForEvents(events) ?? "local");
-  let log = syncInvalidationLogs.get(queryClient);
-  if (!log) {
-    log = { entries: [] };
-    syncInvalidationLogs.set(queryClient, log);
-  }
+  const log = syncInvalidationLog(queryClient);
   for (const requested of filters) {
     // A predicate decides by the query itself, so it is kept as reaching
     // every query.
@@ -402,8 +416,10 @@ function logSyncInvalidations(
  * The invalidations sync has asked of `queryClient` for changes after
  * `cursor`, the sync cursor a server read at (as the poll endpoint encodes
  * it), however long before the caller started watching. With no cursor, all
- * of them. Undefined when that cannot be told: the cursor is unreadable, or
- * invalidations that may be after it are no longer kept.
+ * of them. Undefined when that cannot be told: the cursor is unreadable,
+ * invalidations that may be after it are no longer kept, or changes after it
+ * may never have reached the log (it starts after the cursor, or events came
+ * before any poll and may have hidden earlier ones).
  */
 export function syncInvalidationsAfter(
   queryClient: object,
@@ -414,6 +430,13 @@ export function syncInvalidationsAfter(
   const log = syncInvalidationLogs.get(queryClient);
   if (!log) return [];
   if (log.dropped !== undefined && isLoggedAfter(log.dropped, readAt)) {
+    return undefined;
+  }
+  if (log.coversFrom === undefined) {
+    if (log.heardBeforePoll) return undefined;
+  } else if (
+    compareSyncCursors(log.coversFrom, readAt ?? INITIAL_SYNC_CURSOR) > 0
+  ) {
     return undefined;
   }
   return log.entries
@@ -446,6 +469,9 @@ type EventSubscriber = (
   events: SyncEvent[],
   version: number | undefined,
   cursor?: SyncCursor,
+  // For a poll's answer, the cursor the poll was sent with: the events are
+  // every change after it, up to `cursor`.
+  polledFrom?: SyncCursor,
 ) => void;
 
 function getPollAbortMs(interval: number): number {
@@ -863,6 +889,7 @@ class SyncTransport {
     events: SyncEvent[],
     version: number | undefined,
     cursor: SyncCursor = this.cursorRef,
+    polledFrom?: SyncCursor,
   ): void {
     if (typeof window !== "undefined") {
       for (const event of events) {
@@ -879,7 +906,7 @@ class SyncTransport {
     }
     this.deliveredFirstBatch = true;
     for (const sub of this.subscribers.values()) {
-      sub.onEvents(events, version, cursor);
+      sub.onEvents(events, version, cursor, polledFrom);
     }
   }
 
@@ -1250,9 +1277,10 @@ class SyncTransport {
         const ok = await this.mintToken();
         if (!ok || this.stopped) return;
       }
+      const polledFrom = this.cursorRef;
       const data = await fetchPollJson<PollResponse>(
         this.activePollUrl,
-        this.cursorRef,
+        polledFrom,
         this.effectiveInterval,
         this.mode === "hosted" ? (this.token ?? undefined) : undefined,
       );
@@ -1279,7 +1307,7 @@ class SyncTransport {
       const responseCursor = decodeSyncCursor(data.cursor);
       this.applyVersion(events, responseCursor ? undefined : data.version);
       this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
-      this.fan(events, data.version, this.cursorRef);
+      this.fan(events, data.version, this.cursorRef, polledFrom);
     } catch (err) {
       if (this.stopped) return;
       this.consecutiveFailures++;
@@ -1596,6 +1624,7 @@ export function useDbSync(
     const id = Symbol("useDbSync");
     let subscriberVersion = 0;
     let subscriberCursor: SyncCursor = { ...INITIAL_SYNC_CURSOR };
+    let polled = false;
 
     let pendingInvalidateEvents: SyncEvent[] = [];
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1894,6 +1923,7 @@ export function useDbSync(
       events: SyncEvent[],
       version: number | undefined,
       cursor: SyncCursor | undefined,
+      polledFrom?: SyncCursor,
     ): void {
       const freshEvents = events.filter((event) => {
         return isSyncEventAfterCursor(
@@ -1902,6 +1932,21 @@ export function useDbSync(
           subscriberVersion,
         );
       });
+      // Where this client's log starts to hold every change: the first poll
+      // brings all after the cursor it was sent with, but an event heard
+      // before it moved this subscriber's cursor on, and the poll's earlier
+      // events are then skipped.
+      if (queryClient && !polled) {
+        if (polledFrom) {
+          polled = true;
+          noteSyncLogCoverage(
+            queryClient,
+            maxSyncCursor(polledFrom, subscriberCursor),
+          );
+        } else if (freshEvents.length > 0) {
+          syncInvalidationLog(queryClient).heardBeforePoll = true;
+        }
+      }
 
       if (freshEvents.length > 0) {
         queueInvalidateBatch(freshEvents);
