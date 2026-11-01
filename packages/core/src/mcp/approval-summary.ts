@@ -16,7 +16,7 @@ import type { McpApprovalPriorRun } from "./execute-action-call.js";
 /** One argument of the call, as a person reads it. */
 export interface McpApprovalField {
   label: string;
-  /** As the call wrote it. */
+  /** As the call wrote it, with a yes or no, a list or an object in words. */
   value: string;
   /** Set when `value` names a point in time, to show in the reader's zone. */
   time?: McpApprovalTime;
@@ -66,6 +66,10 @@ const COPY_KEY = /^b?cc$/i;
 const EMAIL = /^[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[^\s@<>(),;:]+$/;
 const ADDRESS_SEPARATOR = /[,;\n]/;
 const NAMED_ADDRESS = /^[^<>]*<([^<>]+)>$/;
+// An object that names one person by these keys (`{ email, displayName }`)
+// reads as `Dana <dana@example.com>`.
+const PERSON_ADDRESS_KEY = /^(?:e_?mail|e_?mail_?address|address)$/i;
+const PERSON_NAME_KEY = /^(?:name|display_?name|full_?name)$/i;
 const TIME_ZONE_KEY = /time_?zone$|^tz$/i;
 // A choice written as an identifier (`externalOnly`, `high_priority`) reads
 // better split into words; `America/New_York` or `New York` doesn't.
@@ -280,18 +284,64 @@ function zoneArgument(
 function readableValue(
   value: unknown,
   labels: { yes: string; no: string },
+  depth = 0,
 ): string | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === "string") return value;
   if (typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? labels.yes : labels.no;
+  if (depth > MAX_DEPTH) return JSON.stringify(value);
   if (Array.isArray(value)) {
     const items = value
-      .map((item) => readableValue(item, labels))
+      .map((item) => readableValue(item, labels, depth + 1))
       .filter((item): item is string => item !== undefined);
     return items.length > 0 ? items.join(", ") : undefined;
   }
-  return JSON.stringify(value);
+  return readableObject(value as Record<string, unknown>, labels, depth);
+}
+
+/**
+ * An object in words, with every value it holds: one that names a person as
+ * `Dana <dana@example.com>`, followed by anything else it says
+ * (`(Optional: Yes)`), and any other as its values with their labels. Inside
+ * another value, those labeled values sit in parentheses, so a list of
+ * objects reads one object at a time.
+ */
+function readableObject(
+  record: Record<string, unknown>,
+  labels: { yes: string; no: string },
+  depth: number,
+): string | undefined {
+  const entries = Object.entries(record).flatMap(([key, item]) => {
+    const text = readableValue(item, labels, depth + 1);
+    return text === undefined || text === "" ? [] : [{ key, item, text }];
+  });
+  const address = entries.find(
+    (entry) =>
+      PERSON_ADDRESS_KEY.test(entry.key) &&
+      typeof entry.item === "string" &&
+      EMAIL.test(entry.item.trim()),
+  );
+  const name = address
+    ? entries.find(
+        (entry) =>
+          PERSON_NAME_KEY.test(entry.key) &&
+          typeof entry.item === "string" &&
+          entry.item.trim() !== "",
+      )
+    : undefined;
+  const rest = entries
+    .filter((entry) => entry !== address && entry !== name)
+    .map((entry) => `${humanizeIdentifier(entry.key)}: ${entry.text}`)
+    .join(", ");
+  if (!address) {
+    if (!rest) return undefined;
+    return depth > 0 ? `(${rest})` : rest;
+  }
+  const person = name
+    ? `${name.text.trim()} <${address.text.trim()}>`
+    : address.text.trim();
+  return rest ? `${person} (${rest})` : person;
 }
 
 /**

@@ -222,7 +222,7 @@ describe("summarizeMcpApproval", () => {
       },
       {
         label: "Attendees",
-        value: '{"email":"dana@example.com","displayName":"Dana"}',
+        value: "Dana <dana@example.com>",
       },
       { label: "Account email", value: "me@example.com" },
       { label: "Send updates", value: "all", choice: "All" },
@@ -270,7 +270,7 @@ describe("summarizeMcpApproval", () => {
     ).toEqual([
       {
         label: "Attendees",
-        value: '{"email":"eve@example.com","optional":true}',
+        value: "eve@example.com (Optional: Yes)",
       },
     ]);
   });
@@ -296,7 +296,7 @@ describe("summarizeMcpApproval", () => {
     expect(summary.fields).toEqual([
       { label: "To", value: "ana@example.com" },
       { label: "Cc", value: "cy@example.com" },
-      { label: "Bcc", value: '{"email":"dee@example.com"}' },
+      { label: "Bcc", value: "dee@example.com" },
     ]);
 
     // An argument that names no one doesn't count as another.
@@ -317,6 +317,54 @@ describe("summarizeMcpApproval", () => {
     const blind = summarize({ bcc: ["dee@example.com"] });
     expect(blind.recipients).toEqual(["dee@example.com"]);
     expect(blind.fields).toEqual([{ label: "Bcc", value: "dee@example.com" }]);
+  });
+
+  it("names a guest given as an object, and says every other value in words", () => {
+    const summarize = (args: Record<string, unknown>) =>
+      summarizeMcpApproval({
+        entry: undefined,
+        actionName: "create-event",
+        argumentsJson: JSON.stringify(args),
+        labels,
+      }).fields;
+    expect(
+      summarize({
+        attendees: [
+          { email: "dana@example.com", displayName: "Dana Ruiz" },
+          { name: "Bo", address: "bo@example.com", optional: true },
+          { email: "cy@example.com", responseStatus: "needsAction" },
+        ],
+      }),
+    ).toEqual([
+      {
+        label: "Attendees",
+        value:
+          "Dana Ruiz <dana@example.com>, Bo <bo@example.com> (Optional: Yes), cy@example.com (Response status: needsAction)",
+      },
+    ]);
+
+    // An object that names no one keeps each value with its label, and one
+    // inside another value sits in parentheses.
+    expect(
+      summarize({
+        reminders: {
+          useDefault: false,
+          overrides: [
+            { method: "popup", minutes: 10 },
+            { method: "email", minutes: 60 },
+          ],
+        },
+        location: { address: "1 Main St", room: "4B" },
+        extra: {},
+      }),
+    ).toEqual([
+      {
+        label: "Reminders",
+        value:
+          "Use default: No, Overrides: (Method: popup, Minutes: 10), (Method: email, Minutes: 60)",
+      },
+      { label: "Location", value: "Address: 1 Main St, Room: 4B" },
+    ]);
   });
 
   it("says a choice in words, with the schema's own title for it when there is one", () => {
@@ -768,7 +816,7 @@ describe("mcpApprovalPromptText", () => {
       expect(form({ attendees: [attendee] })).toEqual([
         "Send email needs your approval before it runs. Check what it will do, then choose Approve or Deny.",
         "Reaches: dana@example.com",
-        'Attendees: {"email":"dana@example.com","displayName":"Dana","optional":true}',
+        "Attendees: Dana <dana@example.com> (Optional: Yes)",
       ]);
     });
 
