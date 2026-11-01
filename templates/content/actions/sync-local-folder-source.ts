@@ -11,7 +11,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
@@ -721,7 +721,7 @@ export default defineAction({
               ownerEmail: userEmail,
               orgId: target.database.orgId,
             });
-            await syncPrivateCalloutReferences(tx as ReturnType<typeof getDb>, {
+            await syncPrivateBodyReferences(tx as ReturnType<typeof getDb>, {
               documentId: plan.id,
               before: "",
               after: plan.file.content,
@@ -811,17 +811,14 @@ export default defineAction({
                   orgId: target.database.orgId,
                 });
               }
-              await syncPrivateCalloutReferences(
-                tx as ReturnType<typeof getDb>,
-                {
-                  documentId: plan.id,
-                  before: plan.existing.content,
-                  after: plan.file.content,
-                  userEmail,
-                  ownerEmail: plan.existing.ownerEmail,
-                  orgId: target.database.orgId,
-                },
-              );
+              await syncPrivateBodyReferences(tx as ReturnType<typeof getDb>, {
+                documentId: plan.id,
+                before: plan.existing.content,
+                after: plan.file.content,
+                userEmail,
+                ownerEmail: plan.existing.ownerEmail,
+                orgId: target.database.orgId,
+              });
             }
           }
         }

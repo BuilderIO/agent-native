@@ -77,6 +77,9 @@ vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", async () => {
 
 import { VisualEditor } from "./VisualEditor";
 
+const PRIVATE_IMAGE_URL =
+  "/api/private-media/0b9f3c1e-7a2d-4c5b-9e8f-1a2b3c4d5e6f";
+
 function mediaEvent(type: "drop" | "paste", file: File) {
   const event = new Event(type, { cancelable: true }) as Event & {
     dataTransfer?: { files: File[]; items: [] };
@@ -97,11 +100,11 @@ describe("VisualEditor upload storage gate", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClient;
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    fetchMock = vi.fn(async () => new Response("{}"));
+    fetchMock = vi.fn<typeof fetch>(async () => new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
     container = document.createElement("div");
     document.body.append(container);
@@ -127,7 +130,11 @@ describe("VisualEditor upload storage gate", () => {
   });
 
   async function mount(
-    options: { suggesting?: boolean; widget?: boolean } = {},
+    options: {
+      suggesting?: boolean;
+      widget?: boolean;
+      privateImages?: boolean;
+    } = {},
   ) {
     await act(async () => {
       root.render(
@@ -145,6 +152,9 @@ describe("VisualEditor upload storage gate", () => {
                 suggesting: options.suggesting,
                 widgetLoadDiagnosticsActive: options.widget,
                 onChange: vi.fn(),
+                ...(options.privateImages
+                  ? { documentId: "doc-1", privateImageUploads: true }
+                  : {}),
               }),
             ),
           ),
@@ -266,6 +276,81 @@ describe("VisualEditor upload storage gate", () => {
       ).toBe(false);
     },
   );
+
+  it.each(["drop", "paste"] as const)(
+    "uploads a private image %s without waiting for file storage",
+    async (type) => {
+      fetchMock.mockImplementation(async (url) =>
+        String(url).includes("/api/private-media")
+          ? new Response(JSON.stringify({ url: PRIVATE_IMAGE_URL }), {
+              status: 201,
+            })
+          : new Response("{}"),
+      );
+      const editor = await mount({ privateImages: true });
+      const file = new File(["image"], "photo.png", { type: "image/png" });
+      type MediaHandler = (view: typeof editor.view, event: Event) => boolean;
+      const handler = (
+        editor.options.editorProps as unknown as Record<
+          "handleDrop" | "handlePaste",
+          MediaHandler
+        >
+      )[type === "drop" ? "handleDrop" : "handlePaste"];
+      const event = mediaEvent(type, file);
+
+      await act(async () => {
+        expect(handler(editor.view, event)).toBe(true);
+      });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(
+        document.body.querySelector(
+          '[data-testid="file-storage-setup-popover"]',
+        ),
+      ).toBeNull();
+      const uploadCall = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes("/api/private-media"),
+      );
+      const form = (uploadCall?.[1] as RequestInit | undefined)
+        ?.body as FormData;
+      expect(form.get("documentId")).toBe("doc-1");
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).includes("/_agent-native/file-upload"),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("keeps the image picker open to private uploads without file storage", async () => {
+    await mount({ privateImages: true });
+
+    expect(
+      container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
+    ).toBe(false);
+  });
+
+  it("still waits for file storage when a private-image page gets audio", async () => {
+    const editor = await mount({ privateImages: true });
+    const file = new File(["audio"], "note.mp3", { type: "audio/mpeg" });
+    const handler = editor.options.editorProps.handleDrop as unknown as (
+      view: typeof editor.view,
+      event: Event,
+    ) => boolean;
+
+    await act(async () => {
+      expect(handler(editor.view, mediaEvent("drop", file))).toBe(true);
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="file-storage-setup-popover"]'),
+    ).not.toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        /\/api\/private-media|\/_agent-native\/file-upload/.test(String(url)),
+      ),
+    ).toBe(false);
+  });
 
   it("resumes the exact dropped File after storage becomes available", async () => {
     const file = new File(["image"], "photo.png", {
