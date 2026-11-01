@@ -44,12 +44,44 @@ function batchedKeys(url: RequestInfo | URL): string[] | null {
 
 function makeAppStateFetch(initialState: Record<string, unknown>) {
   const state = { ...initialState };
-  const writes: Array<{ key: string; body: unknown; init: RequestInit }> = [];
+  const writes: Array<{
+    key: string;
+    body: unknown;
+    init: RequestInit;
+    requestSource?: string | undefined;
+  }> = [];
   const deletes: Array<{ key: string; init: RequestInit }> = [];
   const fetchMock = vi.fn(
     async (url: RequestInfo | URL, init?: RequestInit) => {
       const key = appStateKey(url);
       const method = init?.method ?? "GET";
+      if (method === "POST" && key === "") {
+        // Writes to several keys in one tick arrive as one batch.
+        const { writes: batch } = JSON.parse(String(init?.body)) as {
+          writes: Array<{
+            key: string;
+            value?: unknown;
+            delete?: true;
+            requestSource?: string;
+          }>;
+        };
+        const results = batch.map((write) => {
+          if (write.delete) {
+            delete state[write.key];
+            deletes.push({ key: write.key, init: init ?? {} });
+            return { ok: true, value: { ok: true } };
+          }
+          state[write.key] = write.value;
+          writes.push({
+            key: write.key,
+            body: write.value,
+            init: init ?? {},
+            requestSource: write.requestSource,
+          });
+          return { ok: true, value: write.value };
+        });
+        return jsonResponse({ results });
+      }
       if (method === "PUT") {
         const body = JSON.parse(String(init?.body ?? "null"));
         state[key] = body;
@@ -109,13 +141,17 @@ describe("route-state client helpers", () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     for (const root of roots) {
       act(() => root.unmount());
     }
     for (const container of containers) {
       container.remove();
     }
+    // Writes wait a tick to share one request; let the last ones reach this
+    // test's fetch rather than the next test's.
+    await flush();
+    await flush();
     vi.unstubAllGlobals();
     window.history.replaceState(null, "", "/");
     Reflect.deleteProperty(document, "startViewTransition");
@@ -226,6 +262,7 @@ describe("route-state client helpers", () => {
       void navigate?.("/chat/thread-1");
       await flush();
     });
+    await act(flush);
 
     const scopedNavigationKeys = Array.from(
       new Set(
@@ -270,12 +307,15 @@ describe("route-state client helpers", () => {
       view: "inbox",
       threadId: "thread-1",
     });
+    // Both keys go in one batch, each carrying the request source.
+    expect(writes.map((write) => write.requestSource)).toEqual([
+      "tab-1",
+      "tab-1",
+    ]);
     expect(writes[0].init).toMatchObject({
+      method: "POST",
       keepalive: true,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Request-Source": "tab-1",
-      },
+      headers: { "Content-Type": "application/json" },
     });
   });
 
@@ -585,6 +625,8 @@ describe("route-state client helpers", () => {
     containers.push(rendered.container);
     await act(flush);
     await act(flush);
+    // The consumed command's delete goes out on the tick after it's read.
+    await act(flush);
 
     expect(commands).toEqual([
       { view: "thread", threadId: "thread-2", _writeId: "a" },
@@ -598,6 +640,9 @@ describe("route-state client helpers", () => {
             "X-Agent-Native-CSRF": "1",
             "X-Agent-Native-Browser-Tab": expect.any(String),
             "X-Request-Source": "tab-1",
+            // Its place in this page's write order.
+            "X-Agent-Native-App-State-Writer": expect.stringMatching(/^page-/),
+            "X-Agent-Native-App-State-Seq": expect.stringMatching(/^[0-9]+$/),
           },
           keepalive: undefined,
           signal: undefined,
@@ -695,6 +740,8 @@ describe("route-state client helpers", () => {
     await act(flush);
 
     expect(rendered.container.textContent).toBe("/detail/123");
+    // The second state waits for the first write to land, then goes out.
+    await act(flush);
     expect(writes.map((write) => write.key)).toEqual([
       "navigation:tab-1",
       "navigation:tab-1",

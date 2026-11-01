@@ -4,12 +4,19 @@ import {
   getRouterParam,
   getHeader,
   getQuery,
+  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
 import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  APP_STATE_BATCH_ROUTE_HEADER,
+  APP_STATE_SEQ_HEADER,
+  APP_STATE_WRITER_HEADER,
+  TAB_SCOPED_APP_STATE_KEYS,
+} from "../shared/app-state-routes.js";
 import { appStateKeyForBrowserTab } from "./script-helpers.js";
 import {
   appStateGet,
@@ -19,6 +26,7 @@ import {
   appStateDelete,
   appStateList,
   appStateDeleteByPrefix,
+  type AppStateWriteOrder,
 } from "./store.js";
 
 export const APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY =
@@ -47,17 +55,44 @@ function safeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_:-]/g, "");
 }
 
-const TAB_SCOPED_KEYS = new Set([
-  "navigation",
-  "navigate",
-  "__url__",
-  "__set_url__",
-  "settings-view",
-  "pending-selection-context",
-]);
+const APP_STATE_WRITER_PATTERN = /^[a-zA-Z0-9_:-]{1,128}$/;
+
+/**
+ * The order a browser page gave a write (see AppStateWriteOrder): its writer
+ * header plus a sequence number from the sequence header or a batch item's
+ * `seq`. A write with neither is unordered; one with a malformed or partial
+ * order is rejected rather than applied out of order.
+ */
+function writeOrder(
+  event: H3Event,
+  seq: unknown,
+): AppStateWriteOrder | undefined {
+  const writer = getHeader(event, APP_STATE_WRITER_HEADER);
+  if (writer === undefined && seq === undefined) return undefined;
+  if (
+    writer === undefined ||
+    !APP_STATE_WRITER_PATTERN.test(writer) ||
+    typeof seq !== "number" ||
+    !Number.isSafeInteger(seq) ||
+    seq < 1
+  ) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `${APP_STATE_WRITER_HEADER} and a positive integer sequence must be sent together`,
+    });
+  }
+  return { writer, seq };
+}
+
+// The sequence header as a number when it's all digits, else as sent, so
+// writeOrder rejects it.
+function headerSeq(event: H3Event): unknown {
+  const seq = getHeader(event, APP_STATE_SEQ_HEADER);
+  return seq !== undefined && /^[0-9]{1,16}$/.test(seq) ? Number(seq) : seq;
+}
 
 function requestScopedKey(key: string, event: H3Event): string {
-  return TAB_SCOPED_KEYS.has(key)
+  return TAB_SCOPED_APP_STATE_KEYS.has(key)
     ? appStateKeyForBrowserTab(key, readBrowserTabIdHeader(event))
     : key;
 }
@@ -124,10 +159,99 @@ export const putState = defineEventHandler(async (event: H3Event) => {
     safeKey(String(getRouterParam(event, "key"))),
     event,
   );
+  const order = writeOrder(event, headerSeq(event));
   const body = await readBody(event);
   const requestSource = getHeader(event, "x-request-source") || undefined;
-  await appStatePut(sessionId, key, body, { requestSource });
+  await appStatePut(sessionId, key, body, { requestSource, order });
   return body;
+});
+
+export const MAX_APP_STATE_BATCH_WRITES = 100;
+
+type AppStateBatchWrite =
+  | { key: string; value: unknown; requestSource?: string; seq?: number }
+  | { key: string; delete: true; requestSource?: string; seq?: number };
+
+// A write sets a value or deletes the key, never both: an entry that carries
+// a value alongside any `delete`, or a `delete` other than true, is rejected
+// rather than guessed at.
+function isBatchWrite(write: unknown): write is AppStateBatchWrite {
+  if (!write || typeof write !== "object") return false;
+  const entry = write as Record<string, unknown>;
+  if (typeof entry.key !== "string") return false;
+  if ("value" in entry) return !("delete" in entry);
+  return entry.delete === true;
+}
+
+type AppStateBatchWriteResult =
+  | { ok: true; value: unknown }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Applies several PUT or DELETE writes from one browser tab in one request,
+ * each exactly as its own route would. The client sends at most one write per
+ * key in a batch, so the writes run in parallel. Each write answers on its
+ * own: one failing doesn't fail the others.
+ */
+export const putStateMany = defineEventHandler(async (event: H3Event) => {
+  setResponseHeader(event, APP_STATE_BATCH_ROUTE_HEADER, "1");
+  const sessionId = await getSessionId(event);
+  const body = (await readBody(event)) as { writes?: unknown } | null;
+  const writes = body?.writes;
+  if (
+    !Array.isArray(writes) ||
+    writes.length === 0 ||
+    !writes.every(isBatchWrite)
+  ) {
+    throw createError({
+      statusCode: 400,
+      statusMessage:
+        "`writes` must list { key, value } or { key, delete: true } entries",
+    });
+  }
+  if (writes.length > MAX_APP_STATE_BATCH_WRITES) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `At most ${MAX_APP_STATE_BATCH_WRITES} keys may be written at once`,
+    });
+  }
+  const results = await Promise.all(
+    (writes as AppStateBatchWrite[]).map(
+      async (write): Promise<AppStateBatchWriteResult> => {
+        const key = requestScopedKey(safeKey(write.key), event);
+        try {
+          const options = {
+            ...(typeof write.requestSource === "string" && write.requestSource
+              ? { requestSource: write.requestSource }
+              : {}),
+            order: writeOrder(event, write.seq),
+          };
+          if (!("value" in write)) {
+            await appStateDelete(sessionId, key, options);
+            return { ok: true, value: { ok: true } };
+          }
+          // Like the per-key route, which stores whatever body it's sent.
+          await appStatePut(
+            sessionId,
+            key,
+            write.value as Record<string, unknown>,
+            options,
+          );
+          return { ok: true, value: write.value };
+        } catch (error) {
+          const status =
+            (error as { statusCode?: unknown }).statusCode ??
+            (error as { status?: unknown }).status;
+          return {
+            ok: false,
+            status: typeof status === "number" ? status : 500,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    ),
+  );
+  return { results };
 });
 
 export const compareAndSetState = defineEventHandler(async (event: H3Event) => {
@@ -164,8 +288,9 @@ export const deleteState = defineEventHandler(async (event: H3Event) => {
     safeKey(String(getRouterParam(event, "key"))),
     event,
   );
+  const order = writeOrder(event, headerSeq(event));
   const requestSource = getHeader(event, "x-request-source") || undefined;
-  await appStateDelete(sessionId, key, { requestSource });
+  await appStateDelete(sessionId, key, { requestSource, order });
   return { ok: true };
 });
 

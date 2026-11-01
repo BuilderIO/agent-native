@@ -63,6 +63,10 @@ import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
+import {
+  ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
+  reserveKeepaliveBytes,
+} from "./keepalive-budget.js";
 import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
 import { currentSessionIdentity } from "./session-identity.js";
@@ -362,9 +366,7 @@ function presentUiCapability(
   });
 }
 
-export const ACTION_KEEPALIVE_BODY_BUDGET_BYTES = 48_000;
-
-let reservedKeepaliveBodyBytes = 0;
+export { ACTION_KEEPALIVE_BODY_BUDGET_BYTES };
 
 function utf8ByteLength(value: string): number {
   if (typeof TextEncoder !== "undefined") {
@@ -1106,10 +1108,10 @@ export function tryCallActionKeepalive<
     };
   }
 
-  if (
-    reservedKeepaliveBodyBytes + bodyBytes >
-    ACTION_KEEPALIVE_BODY_BUDGET_BYTES
-  ) {
+  // Shared with application state's keepalive writes, which leave room for
+  // this call (see keepalive-budget).
+  const release = reserveKeepaliveBytes("action", bodyBytes);
+  if (!release) {
     return {
       accepted: false,
       bodyBytes,
@@ -1118,18 +1120,12 @@ export function tryCallActionKeepalive<
     };
   }
 
-  reservedKeepaliveBodyBytes += bodyBytes;
   const completion = actionFetch<R>(actionName, method, params, {
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     keepalive: true,
     serializedBody,
-  }).finally(() => {
-    reservedKeepaliveBodyBytes = Math.max(
-      0,
-      reservedKeepaliveBodyBytes - bodyBytes,
-    );
-  });
+  }).finally(release);
 
   return { accepted: true, bodyBytes, completion };
 }

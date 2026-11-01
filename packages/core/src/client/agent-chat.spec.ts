@@ -1766,8 +1766,7 @@ describe("sendToAgentChat", () => {
       targetThreadId: "thread-1",
     });
 
-    await flushMicrotasks();
-    expect(fetchSpy).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
     expect(listAgentChatContext()).toEqual([]);
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
     const requestState = JSON.parse(
@@ -1813,8 +1812,7 @@ describe("sendToAgentChat", () => {
       targetThreadId: "thread-2",
     });
 
-    await flushMicrotasks();
-    expect(fetchSpy).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
     const firstState = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
     firstWrite.resolve({
       ok: true,
