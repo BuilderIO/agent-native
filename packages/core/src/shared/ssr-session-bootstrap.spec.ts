@@ -5,6 +5,7 @@ import {
   hasSessionHint,
   isSessionNavigationPending,
   navigateForSession,
+  SESSION_INVALIDATION_STORAGE_KEY,
   SESSION_NAVIGATION_RELEASED_EVENT,
   SESSION_NAVIGATION_STALL_MS,
   SSR_SESSION_BOOTSTRAP_TIMEOUT_MS,
@@ -79,6 +80,48 @@ describe("getSsrSessionBootstrapScriptBody", () => {
     );
     deadline?.();
     expect(abort).toHaveBeenCalledOnce();
+  });
+
+  it("records the stored invalidation marker as the read goes out", () => {
+    const windowObject: {
+      localStorage: { getItem: (key: string) => string | null };
+      __agentNativeSessionBootstrapInvalidation?: string;
+    } = {
+      localStorage: {
+        getItem: (key) =>
+          key === SESSION_INVALIDATION_STORAGE_KEY ? "signed-in-earlier" : null,
+      },
+    };
+    const recordedWhenSent: Array<string | undefined> = [];
+    const fetch = vi.fn(() => {
+      recordedWhenSent.push(
+        windowObject.__agentNativeSessionBootstrapInvalidation,
+      );
+      return new Promise(() => {});
+    });
+    const runScript = new Function(
+      "window",
+      "document",
+      "AbortController",
+      "setTimeout",
+      "clearTimeout",
+      "fetch",
+      getSsrSessionBootstrapScriptBody("/session", "an_hint"),
+    );
+
+    runScript(
+      windowObject,
+      { cookie: "an_hint=1" },
+      class TestAbortController {
+        signal = {};
+        abort() {}
+      },
+      () => 1,
+      vi.fn(),
+      fetch,
+    );
+
+    expect(recordedWhenSent).toEqual(["signed-in-earlier"]);
   });
 
   it("does not schedule or fetch without the session hint", () => {
