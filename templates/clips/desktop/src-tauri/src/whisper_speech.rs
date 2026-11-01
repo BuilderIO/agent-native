@@ -695,10 +695,14 @@ mod macos {
         }
 
         fn reset_timeline(&self, offset: Duration) {
-            if let Ok(mut buf) = self.buf.lock() {
-                self.buf_origin.fetch_add(buf.len(), Ordering::SeqCst);
-                buf.clear();
-            }
+            // The generation moves while the buffer's lock is held, so a
+            // reader holding that lock sees a buffer and generation that agree.
+            let mut buf = self
+                .buf
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            self.buf_origin.fetch_add(buf.len(), Ordering::SeqCst);
+            buf.clear();
             let now = Instant::now();
             if let Ok(mut timeline) = self.timeline.lock() {
                 timeline.stream_start = timeline_start_for_offset(now, offset);
@@ -868,6 +872,21 @@ mod macos {
     fn mic_voice_detected(rms: f32, vad_probability: Option<f32>) -> bool {
         rms > VOICE_RMS_THRESHOLD
             && vad_probability.is_none_or(|probability| probability >= MIN_MIC_VAD_PROBABILITY)
+    }
+
+    /// Whether the audio after the first `polled` samples of `raw` holds
+    /// voice, judged the way the worker's loop judges each new stretch.
+    fn unpolled_voice(
+        raw: &[f32],
+        polled: usize,
+        sample_rate: f32,
+        vad: Option<&mut MicVoiceActivity>,
+    ) -> bool {
+        let Some(tail) = raw.get(polled..).filter(|tail| !tail.is_empty()) else {
+            return false;
+        };
+        let rms = (tail.iter().map(|x| x * x).sum::<f32>() / tail.len() as f32).sqrt();
+        mic_voice_detected(rms, vad.and_then(|vad| vad.observe(tail, sample_rate)))
     }
 
     fn buffer_start_after_drain(now: Instant, pending: Duration) -> Instant {
@@ -1058,12 +1077,37 @@ mod macos {
             }
         }
 
-        let (raw, heard) = stream
+        let (raw, heard, reset_since_poll) = stream
             .buf
             .lock()
-            .map(|b| (b.clone(), stream.buffered_span(b.len())))
+            .map(|b| {
+                let generation = stream.reset_generation.load(Ordering::SeqCst);
+                (
+                    b.clone(),
+                    stream.buffered_span(b.len()),
+                    generation != seen_reset_generation,
+                )
+            })
             .unwrap_or_default();
         let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
+        // Stopping delivers the capture's last buffers after the loop's final
+        // poll, so speech heard only there must still count.
+        // A reset since the last poll discarded the audio `had_voice` judged.
+        let (had_voice, polled) = if reset_since_poll {
+            if let Some(vad) = mic_voice_activity.as_mut() {
+                vad.reset();
+            }
+            (false, 0)
+        } else {
+            (had_voice, last_raw_len)
+        };
+        let had_voice = had_voice
+            || unpolled_voice(
+                &raw,
+                polled,
+                src_rate.max(1.0) as f32,
+                mic_voice_activity.as_mut(),
+            );
         let samples = resample_to_16k(&raw, src_rate);
         if last_pass_due(had_voice, &stream.last_pass, samples.len())
             && !stream.is_playback_echo(&samples)
@@ -2293,6 +2337,19 @@ mod macos {
             assert!(!super::mic_voice_detected(0.004, Some(0.99)));
             assert!(super::mic_voice_detected(0.02, Some(0.6)));
             assert!(super::mic_voice_detected(0.02, None));
+        }
+
+        #[test]
+        fn speech_delivered_after_the_last_poll_counts_as_voice() {
+            let polled = 4_800;
+            let mut raw = vec![0.0; polled];
+            raw.extend((0..4_800).map(|i| if i % 2 == 0 { 0.1 } else { -0.1 }));
+            assert!(super::unpolled_voice(&raw, polled, 48_000.0, None));
+
+            let quiet_tail = vec![0.0; polled * 2];
+            assert!(!super::unpolled_voice(&quiet_tail, polled, 48_000.0, None));
+            assert!(!super::unpolled_voice(&raw, raw.len(), 48_000.0, None));
+            assert!(!super::unpolled_voice(&raw, raw.len() + 1, 48_000.0, None));
         }
 
         #[test]
