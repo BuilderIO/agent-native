@@ -215,6 +215,7 @@ type Options = {
   pending?: PendingCommentSelection | null;
   commentAi?: CommentAiController;
   scrollContainer?: HTMLDivElement;
+  canDecideFieldSuggestions?: boolean;
 };
 
 let replies: ReturnType<typeof useCommentReplyDrafts>;
@@ -246,6 +247,8 @@ function Owner({
       currentUserEmail="reviewer@example.test"
       canComment
       canResolve
+      canDecideSuggestions
+      canDecideFieldSuggestions={options.canDecideFieldSuggestions ?? true}
       alignToAnchors={false}
       scrollContainerRef={
         options.scrollContainer
@@ -407,6 +410,38 @@ describe("comments across Blocks field tabs", () => {
 
     act(() => replies.setHistoryFilters({ tab: "" }));
     expect(feed()).toEqual(["# Content", "body-1", "edit-1"]);
+  });
+
+  it("offers decisions on a tab's suggestion only to the Collection's editors", () => {
+    const decisions = (id: string) =>
+      [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          `[data-suggestion-id="${id}"] button[aria-label]`,
+        ),
+      ]
+        .map((button) => button.getAttribute("aria-label"))
+        .filter((label) => label?.endsWith("Suggestion"));
+    const suggestions = [
+      suggestion("edit-1"),
+      tabSuggestion("notes-edit", "notes"),
+    ];
+
+    render(tabThreads, {
+      documentProperties: twoFields,
+      suggestions,
+      canDecideFieldSuggestions: false,
+    });
+    expect(decisions("edit-1")).toEqual([
+      "editor.acceptSuggestion",
+      "editor.rejectSuggestion",
+    ]);
+    expect(decisions("notes-edit")).toEqual([]);
+
+    render(tabThreads, { documentProperties: twoFields, suggestions });
+    expect(decisions("notes-edit")).toEqual([
+      "editor.acceptSuggestion",
+      "editor.rejectSuggestion",
+    ]);
   });
 
   it("shows every tab again when the chosen one is gone", () => {

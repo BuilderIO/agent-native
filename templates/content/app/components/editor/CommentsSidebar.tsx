@@ -1093,6 +1093,11 @@ interface CommentsSidebarOptions {
     decision: SuggestionDecision,
   ) => void;
   canDecideSuggestions?: boolean;
+  /**
+   * A tab's suggestion writes its Collection's field, so deciding on one
+   * also takes edit access to the Collection.
+   */
+  canDecideFieldSuggestions?: boolean;
   decidingSuggestion?: (suggestionId: string) => boolean;
   onDecideSuggestion?: (
     suggestion: ResourceSuggestion,
@@ -1181,6 +1186,7 @@ export function CommentsSidebar({
   onMaterializeDraft,
   onDecideDraftSuggestion,
   canDecideSuggestions = false,
+  canDecideFieldSuggestions = false,
   decidingSuggestion = () => false,
   onDecideSuggestion,
   onDecideSuggestionProposal,
@@ -2891,6 +2897,13 @@ export function CommentsSidebar({
     );
   };
 
+  const canDecide = (
+    suggestions: ReadonlyArray<ResourceSuggestion | DraftSuggestion>,
+  ) =>
+    canDecideSuggestions &&
+    (canDecideFieldSuggestions ||
+      suggestions.every((suggestion) => !suggestionBlocksFieldId(suggestion)));
+
   const renderFoldedStack = (
     stack: CommentStack<CommentThread>,
     layoutId: string,
@@ -2960,7 +2973,7 @@ export function CommentsSidebar({
       const proposalId = members.length > 1 ? members[0]?.proposalId : null;
       return {
         suggestions: members,
-        canDecide: canDecideSuggestions,
+        canDecide: canDecide(members),
         busy: suggestionBusy,
         conflict: isUnplaceable,
         onDecide: (
@@ -3283,7 +3296,7 @@ export function CommentsSidebar({
         anchorUnavailable={anchorUnavailable}
         unplaceable={isUnplaceable(suggestion)}
         canComment={canComment}
-        canDecide={canDecideSuggestions}
+        canDecide={canDecide([suggestion])}
         deciding={suggestionBusy(suggestion)}
         onActivate={() => {
           if (presentation !== "history") onActivateSuggestion?.(suggestion.id);
@@ -3316,7 +3329,7 @@ export function CommentsSidebar({
       onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
       acceptDisabled={members.some(isUnplaceable)}
-      canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
+      canDecide={canDecide(members) && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
         onDecideSuggestionProposal?.(
           proposalId,
@@ -3355,7 +3368,7 @@ export function CommentsSidebar({
         activeSuggestionId === suggestion.id ||
         hoveredSuggestionId === suggestion.id
       }
-      canDecide={canDecideSuggestions}
+      canDecide={canDecide([suggestion])}
       deciding={decidingSuggestion(suggestion.id)}
       onActivate={() => onActivateSuggestion?.(suggestion.id)}
       onMaterialize={onMaterializeDraft}

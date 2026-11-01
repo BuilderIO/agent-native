@@ -8282,13 +8282,14 @@ function PageEditorSessionBody({
     pagePropertiesDatabaseId,
     { enabled: !mcpDirectoryWidgetReadOnly },
   );
-  const pageProperties = documentPropertiesResponseMatchesScope(
+  const pagePropertiesInScope = documentPropertiesResponseMatchesScope(
     documentId,
     pagePropertiesDatabaseId,
     pagePropertiesQuery.data,
   )
-    ? pagePropertiesQuery.data.properties
+    ? pagePropertiesQuery.data
     : undefined;
+  const pageProperties = pagePropertiesInScope?.properties;
   const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
@@ -9858,6 +9859,8 @@ function PageEditorSessionBody({
         return suggestion ?? null;
       }}
       canDecideSuggestions={canEdit}
+      // Deciding on a tab's suggestion writes the Collection's field.
+      canDecideFieldSuggestions={pagePropertiesInScope?.canEditValues === true}
       decidingSuggestion={(suggestionId) =>
         fieldSuggestions.deciding ||
         isSubmittingSuggestions ||
