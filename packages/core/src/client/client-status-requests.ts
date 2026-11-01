@@ -150,8 +150,9 @@ function forgetSessionBootstrap(): void {
 }
 
 /**
- * The shell's session read, taken once. It answers only a caller on the
- * transport it went out on; any other caller reads the session for itself.
+ * The shell's session read, taken once, by the first caller on the transport
+ * it went out on. A caller on any other transport reads the session for
+ * itself and leaves the shell's read for one that matches.
  */
 function takeSessionBootstrap(
   options?: ClientStatusRequestOptions,
@@ -159,14 +160,19 @@ function takeSessionBootstrap(
   const bootstrap = window.__agentNativeSessionBootstrap;
   if (!bootstrap) return undefined;
   const bootstrapFetch = window[SESSION_BOOTSTRAP_FETCH_GLOBAL];
-  forgetSessionBootstrap();
-  const fetcher = options?.fetch ?? globalThis.fetch;
-  if (typeof bootstrapFetch !== "function" || typeof fetcher !== "function") {
+  if (typeof bootstrapFetch !== "function") {
+    forgetSessionBootstrap();
     return undefined;
   }
-  return fetchTransport(bootstrapFetch) === fetchTransport(fetcher)
-    ? bootstrap
-    : undefined;
+  const fetcher = options?.fetch ?? globalThis.fetch;
+  if (
+    typeof fetcher !== "function" ||
+    fetchTransport(bootstrapFetch) !== fetchTransport(fetcher)
+  ) {
+    return undefined;
+  }
+  forgetSessionBootstrap();
+  return bootstrap;
 }
 
 function pruneExpiredStatusCache(now: number): void {
