@@ -27,6 +27,18 @@ export const SESSION_BOOTSTRAP_INVALIDATION_GLOBAL =
 export const SESSION_BOOTSTRAP_FETCH_GLOBAL =
   "__agentNativeSessionBootstrapFetch";
 
+/**
+ * When the early session read answered. Held for a later caller, its answer
+ * lasts as long as any cached session answer does, and no longer.
+ */
+export const SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL =
+  "__agentNativeSessionBootstrapAnsweredAt";
+
+/** Records, inline, that the early session read has just answered. */
+export function recordSessionBootstrapAnswerScript(): string {
+  return `window[${JSON.stringify(SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL)}] = Date.now();`;
+}
+
 /** The current invalidation marker, or "" when none is stored or readable. */
 export function readSessionInvalidationMarker(): string {
   try {
@@ -58,6 +70,7 @@ declare global {
     [SESSION_NAVIGATION_FLAG]?: string;
     [SESSION_BOOTSTRAP_INVALIDATION_GLOBAL]?: string;
     [SESSION_BOOTSTRAP_FETCH_GLOBAL]?: typeof fetch;
+    [SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL]?: number;
   }
 }
 
@@ -173,6 +186,7 @@ export function getSsrSessionBootstrapScriptBody(
     return { state: "unavailable" };
   }).finally(function () {
     clearTimeout(timeoutId);
+    ${recordSessionBootstrapAnswerScript()}
   });
 })();`;
 }
