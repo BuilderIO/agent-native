@@ -1409,7 +1409,7 @@ describe("desktop voice dictation runs", () => {
       expect(startSound).not.toHaveBeenCalled();
     });
 
-    it.each(onDeviceKinds)(
+    it.each(["whisper", "parakeet"] as const)(
       "ends a silent %s hold as no speech without waiting",
       async (kind) => {
         engineStopReturns("silent");
@@ -1428,6 +1428,54 @@ describe("desktop voice dictation runs", () => {
         );
       },
     );
+
+    it("ends a silent Apple Speech hold as no speech once its final has had 300 ms", async () => {
+      engineStopReturns("silent");
+      const runId = await startRun("native");
+      await release();
+      await vi.advanceTimersByTimeAsync(299);
+      await settle();
+      expect(runStates(runId)).not.toContain("error");
+
+      await vi.advanceTimersByTimeAsync(1);
+      await settle();
+      expect(stateChanges().at(-1)).toMatchObject({
+        runId,
+        state: "error",
+        failure: "no-speech",
+      });
+    });
+
+    it("ends a silent Apple Speech hold at once when its final comes back empty", async () => {
+      engineStopReturns("silent");
+      const runId = await startRun("native");
+      await release();
+      await settle();
+      emitFinal(runId, "");
+      await settle();
+
+      expect(stateChanges().at(-1)).toMatchObject({
+        runId,
+        state: "error",
+        failure: "no-speech",
+      });
+    });
+
+    it("pastes an Apple Speech final that arrives after a silent verdict", async () => {
+      engineStopReturns("silent");
+      const runId = await startRun("native");
+      await release();
+      await settle();
+      await vi.advanceTimersByTimeAsync(150);
+      emitFinal(runId, "late words");
+      await vi.advanceTimersByTimeAsync(250);
+      await settle();
+
+      expect(runStates(runId)).not.toContain("error");
+      expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
+        text: "late words",
+      });
+    });
 
     it.each(["native", "whisper"] as const)(
       "pastes what %s heard even when the detector called the hold silent",

@@ -623,6 +623,10 @@ export function installDesktopVoiceDictation(
   // The mic stays open this long after release, so the end of the last word
   // is still recorded.
   const RELEASE_TAIL_MS = 200;
+  // Apple Speech can send its final after the stop call has answered, so a
+  // silent verdict waits this long for it. Its finals land within about
+  // 150 ms of the stop.
+  const NATIVE_FINAL_GRACE_MS = 300;
   const unlistens: Array<() => void> = [];
   const registerListener = (listener: Promise<() => void>) => {
     listener
@@ -2085,8 +2089,9 @@ export function installDesktopVoiceDictation(
   };
 
   // Tells Apple Speech or Whisper to stop and finalizes once the last text
-  // arrives. A silent verdict with nothing transcribed ends at once instead of
-  // waiting out the timeout.
+  // arrives. A silent verdict with nothing transcribed ends without waiting
+  // out the timeout: at once for Whisper, and for Apple Speech once its final
+  // is in or NATIVE_FINAL_GRACE_MS has passed.
   const stopAndFinalize = (lingering: VoiceSession) => {
     const stopCmd =
       lingering.kind === "whisper"
@@ -2143,10 +2148,17 @@ export function installDesktopVoiceDictation(
           }).catch(() => {});
         });
     };
+    let finalArrived = false;
+    let silentVerdict = false;
     lingering.onNativeFinalize = () => {
       if (lingering.nativeFinalizationStarted) return;
+      finalArrived = true;
       if (lingering.nativeFinalizeTimer !== undefined) {
         window.clearTimeout(lingering.nativeFinalizeTimer);
+      }
+      if (silentVerdict && !lingering.browserTranscript.trim()) {
+        finalize("silent");
+        return;
       }
       lingering.nativeFinalizeTimer = window.setTimeout(
         () => finalize("final"),
@@ -2155,9 +2167,18 @@ export function installDesktopVoiceDictation(
     };
     void stopRequest.then(
       (result) => {
-        if (result?.voice === "silent" && !lingering.browserTranscript.trim()) {
-          finalize("silent");
+        if (result?.voice !== "silent" || lingering.browserTranscript.trim()) {
+          return;
         }
+        if (lingering.kind === "whisper" || finalArrived) {
+          finalize("silent");
+          return;
+        }
+        silentVerdict = true;
+        lingering.nativeFinalizeTimer = window.setTimeout(
+          () => finalize("silent"),
+          NATIVE_FINAL_GRACE_MS,
+        );
       },
       (err) => {
         console.warn(`[voice-dictation] ${stopCmd} failed:`, err);
