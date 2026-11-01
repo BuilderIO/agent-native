@@ -1,4 +1,5 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
+import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import {
   createContext,
   useCallback,
@@ -10,8 +11,6 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-
-import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 
 import type { CommentThread } from "@/hooks/use-comments";
 

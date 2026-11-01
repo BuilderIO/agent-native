@@ -144,7 +144,7 @@ interface DocumentBlockFieldsProps {
   /** The primary body as its editor holds it now, for its tab's word count. */
   primaryContent?: string;
   /** The fields the page read returned, used until the property read lands. */
-  pageProperties?: DocumentProperty[];
+  pageProperties?: DocumentProperty[] | undefined;
   onAdditionalContentChange?: (
     documentId: string,
     propertyId: string,
@@ -2250,7 +2250,9 @@ function AdditionalBlockEditor({
           return "failed";
         return (await onSaveContent(markdown)) ? "persisted" : "failed";
       }}
-      editable={session ? true : canEdit}
+      // A decision on the tab's suggestions ends its draft, so the tab takes
+      // no typing until it restarts on the decided text.
+      editable={session ? !suggestionEditor?.deciding : canEdit}
       suggesting={!!session}
       suggestions={visuals}
       activeSuggestionId={suggestionEditor?.activeSuggestionId}

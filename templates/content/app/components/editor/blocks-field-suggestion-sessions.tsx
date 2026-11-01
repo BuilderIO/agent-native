@@ -11,6 +11,12 @@ import type {
   SuggestionDecision,
   SuggestionOperation,
 } from "@agent-native/core/review";
+import {
+  blocksFieldSuggestionRevision,
+  CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
+  suggestionBlocksFieldId,
+} from "@shared/blocks-field-suggestions";
+import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
@@ -23,13 +29,6 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
-
-import {
-  blocksFieldSuggestionRevision,
-  CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
-  suggestionBlocksFieldId,
-} from "@shared/blocks-field-suggestions";
-import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
 
 import { SUGGESTION_AUTOSAVE_IDLE_MS } from "./suggestions/autosave-schedule";
 import {
@@ -62,6 +61,7 @@ import type { VisualEditorSuggestion } from "./VisualEditor";
 const RETRY_MS = 5000;
 const NO_TRANSITIONS: SuggestionPresentationTransitions = new Map();
 const NO_VISUALS: VisualEditorSuggestion[] = [];
+const NO_FIELDS: ReadonlySet<string> = new Set();
 
 type ProposalRequest = {
   resourceType: string;
@@ -75,6 +75,8 @@ type ProposalRequest = {
 };
 
 type FieldSession = {
+  /** The page it suggests on, kept for saves that outlive the page. */
+  documentId: string;
   fieldId: string;
   session: SuggestionDraftSession;
   draft: string;
@@ -83,6 +85,11 @@ type FieldSession = {
   proposalId: string | null;
   /** Changed since it was last saved. */
   dirty: boolean;
+  /**
+   * Suggesting ended while the draft still had unsaved edits. It's no longer
+   * the tab's session, but it keeps trying to save them.
+   */
+  ended: boolean;
   /** The last save failed, so the next failure stays quiet while typing. */
   failed: boolean;
   timer: ReturnType<typeof setTimeout> | null;
@@ -118,6 +125,8 @@ type BlocksFieldSuggestionsValue = {
   change: (fieldId: string, markdown: string) => void;
   replacementIntent: (fieldId: string, intent: ReplacementIntent) => void;
   visuals: (fieldId: string, markdown: string) => VisualEditorSuggestion[];
+  /** Tabs whose suggestions are being accepted or rejected. */
+  decidingFields: ReadonlySet<string>;
   activeSuggestionId: string | null;
   onActivateSuggestion: ((suggestionId: string) => void) | undefined;
   onHoverSuggestion: ((suggestionId: string | null) => void) | undefined;
@@ -177,6 +186,7 @@ export function useBlocksFieldSuggestionEditor(fieldId: string) {
   return {
     suggesting: value.suggesting,
     session: value.sessions.get(fieldId) ?? null,
+    deciding: value.decidingFields.has(fieldId),
     visuals,
     activeSuggestionId: value.activeSuggestionId,
     ...handlers,
@@ -292,7 +302,8 @@ export function useBlocksFieldSuggestions({
   refetchRef.current = refetchSuggestions;
   const amendmentKeysRef = useRef(new Map<string, string>());
   const creationKeysRef = useRef(new Map<string, string>());
-  const [deciding, setDeciding] = useState(false);
+  const [decidingFields, setDecidingFields] =
+    useState<ReadonlySet<string>>(NO_FIELDS);
   const decidingRef = useRef(false);
   const [anchors, setAnchors] = useState<ReadonlyMap<string, string[]>>(
     () => new Map(),
@@ -338,13 +349,19 @@ export function useBlocksFieldSuggestions({
         )
           throw new Error("Proposal creation returned an incomplete edit set");
         session.proposalId = created.proposal.id;
-        operations.forEach((operation, index) => {
-          session.entries.set(keys[index], {
+        // The three lists line up, one entry per edit, as checked above.
+        const savedKeys = keys.values();
+        const savedSuggestions = created.suggestions.values();
+        for (const operation of operations) {
+          const key = savedKeys.next();
+          const suggestion = savedSuggestions.next();
+          if (key.done || suggestion.done) break;
+          session.entries.set(key.value, {
             idempotencyKey,
             operation,
-            suggestion: created.suggestions[index],
+            suggestion: suggestion.value,
           });
-        });
+        }
         savedNow.push(...created.suggestions);
       };
       try {
@@ -433,11 +450,13 @@ export function useBlocksFieldSuggestions({
           const keys = create.map(({ key }) => key);
           const fields = {
             resourceType: "document",
-            resourceId: documentId,
+            resourceId: session.documentId,
             adapterKind: CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
             baseRevision: session.session.baseRevision,
             summary,
-            proposalId: session.proposalId ?? undefined,
+            ...(session.proposalId === null
+              ? {}
+              : { proposalId: session.proposalId }),
             suggestions: pending.map((operation) => ({
               summary,
               operations: [operation],
@@ -497,21 +516,26 @@ export function useBlocksFieldSuggestions({
         bump();
       }
     },
-    [bump, documentId, latest, schedule],
+    [bump, latest, schedule],
   );
 
   /** Saves the tab's draft after any save already under way. */
   const save = useCallback(
     (
       session: FieldSession,
-      { autosave, ended = false }: { autosave: boolean; ended?: boolean },
+      { autosave }: { autosave: boolean },
     ): Promise<boolean> => {
       if (session.timer) {
         clearTimeout(session.timer);
         session.timer = null;
       }
       const run = session.queue.then(() => {
-        if (!ended && sessionsRef.current.get(session.fieldId) !== session)
+        // A session a decision replaced was saved before it; one that ended
+        // with unsaved edits keeps saving them, retries included.
+        if (
+          !session.ended &&
+          sessionsRef.current.get(session.fieldId) !== session
+        )
           return true;
         if (!session.dirty && !session.unresolved) return true;
         return persist(session, autosave);
@@ -530,9 +554,10 @@ export function useBlocksFieldSuggestions({
     if (sessions.length === 0) return;
     sessionsRef.current.clear();
     for (const session of sessions) {
-      if (session.dirty || session.unresolved)
-        void save(session, { autosave: true, ended: true });
-      else if (session.timer) clearTimeout(session.timer);
+      if (session.dirty || session.unresolved) {
+        session.ended = true;
+        void save(session, { autosave: true });
+      } else if (session.timer) clearTimeout(session.timer);
     }
     bump();
   }, [bump, save]);
@@ -572,6 +597,7 @@ export function useBlocksFieldSuggestions({
     (fieldId: string, base: { content: string; revision: number }) => {
       if (!suggestingRef.current || sessionsRef.current.has(fieldId)) return;
       sessionsRef.current.set(fieldId, {
+        documentId,
         fieldId,
         session: createSuggestionDraftSession({
           id: globalThis.crypto.randomUUID(),
@@ -583,6 +609,7 @@ export function useBlocksFieldSuggestions({
         entries: new Map(),
         proposalId: null,
         dirty: false,
+        ended: false,
         failed: false,
         timer: null,
         queue: Promise.resolve(),
@@ -590,7 +617,7 @@ export function useBlocksFieldSuggestions({
       });
       bump();
     },
-    [bump],
+    [bump, documentId],
   );
 
   const change = useCallback(
@@ -720,6 +747,7 @@ export function useBlocksFieldSuggestions({
       change,
       replacementIntent,
       visuals,
+      decidingFields,
       activeSuggestionId,
       onActivateSuggestion,
       onHoverSuggestion,
@@ -728,6 +756,7 @@ export function useBlocksFieldSuggestions({
     [
       activeSuggestionId,
       change,
+      decidingFields,
       derived.sessions,
       onActivateSuggestion,
       onAnchorsChange,
@@ -755,8 +784,9 @@ export function useBlocksFieldSuggestions({
       const fieldId = suggestionBlocksFieldId(draft);
       const session = fieldId ? sessionsRef.current.get(fieldId) : undefined;
       if (!session || !(await save(session, { autosave: false }))) return null;
-      if (draft.operations.length === 0) return null;
-      const operation = draft.operations[0];
+      const first = draft.operations.values().next();
+      if (first.done) return null;
+      const operation = first.value;
       const exact = session.entries.get(suggestionOperationKey(operation));
       if (exact) return exact.suggestion;
       // Typing since the draft rendered changed its edit; the saved edit at
@@ -795,7 +825,9 @@ export function useBlocksFieldSuggestions({
     async (fieldIds: string[], run: () => Promise<void>) => {
       if (decidingRef.current) return;
       decidingRef.current = true;
-      setDeciding(true);
+      // The tabs stop taking typing until they restart on the decided text,
+      // so nothing typed meanwhile is dropped with the old draft.
+      setDecidingFields(new Set(fieldIds));
       try {
         for (const fieldId of new Set(fieldIds)) {
           const session = sessionsRef.current.get(fieldId);
@@ -821,7 +853,7 @@ export function useBlocksFieldSuggestions({
         void refetchRef.current().catch(() => undefined);
       } finally {
         decidingRef.current = false;
-        setDeciding(false);
+        setDecidingFields(NO_FIELDS);
       }
     },
     [bump, documentId, queryClient, save],
@@ -890,7 +922,7 @@ export function useBlocksFieldSuggestions({
     /** Suggestions each tab's editor shows, by field. */
     anchors,
     hasOpen,
-    deciding,
+    deciding: decidingFields.size > 0,
     flushAll,
     materializeDraft,
     decide,

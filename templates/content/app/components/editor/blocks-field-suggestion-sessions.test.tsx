@@ -73,12 +73,21 @@ function savedSuggestion(
   } as ResourceSuggestion;
 }
 
+/** The first of `items`, which the test expects to be there. */
+function first<T>(items: readonly T[]): T {
+  for (const item of items) return item;
+  throw new Error("Expected at least one item.");
+}
+
 describe("useBlocksFieldSuggestions", () => {
   let root: Root;
   let container: HTMLDivElement;
   let queryClient: QueryClient;
   let latest: Sessions;
   const onSaved = vi.fn();
+  /** The suggestions the first save reported. */
+  const firstSaved = () =>
+    first(first(onSaved.mock.calls)) as ResourceSuggestion[];
   const refetchSuggestions = vi.fn(async () => [] as ResourceSuggestion[]);
 
   function Harness(props: {
@@ -158,7 +167,7 @@ describe("useBlocksFieldSuggestions", () => {
     await render(true, []);
     await draftInTab();
     expect(latest.drafts).toHaveLength(1);
-    expect(latest.drafts[0].operations[0].targetId).toBe("notes");
+    expect(first(first(latest.drafts).operations).targetId).toBe("notes");
     expect(latest.hasOpen).toBe(true);
 
     let saved = false;
@@ -181,7 +190,7 @@ describe("useBlocksFieldSuggestions", () => {
         ],
       }),
     );
-    const created = onSaved.mock.calls[0][0] as ResourceSuggestion[];
+    const created = firstSaved();
     expect(created.map((suggestion) => suggestion.id)).toEqual(["saved-0"]);
 
     // Once the list has it, the draft is that suggestion, not a new one.
@@ -210,7 +219,7 @@ describe("useBlocksFieldSuggestions", () => {
     await act(async () => {
       await latest.flushAll();
     });
-    const [created] = onSaved.mock.calls[0][0] as ResourceSuggestion[];
+    const created = first(firstSaved());
     await render(true, [created]);
     expect(latest.provider.sessions.has("notes")).toBe(true);
 
@@ -268,5 +277,73 @@ describe("useBlocksFieldSuggestions", () => {
 
     expect(mocks.createProposal).toHaveBeenCalledTimes(1);
     expect(latest.provider.sessions.size).toBe(0);
+  });
+
+  it("keeps trying to save a tab's draft after Suggesting mode ends", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.createProposal.mockRejectedValueOnce(new Error("Network down"));
+      await render(true, []);
+      await draftInTab();
+
+      await render(false, []);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(latest.provider.sessions.size).toBe(0);
+
+      // The retry saves the ended draft rather than skipping it.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(mocks.createProposal).toHaveBeenCalledTimes(2);
+      expect(mocks.createProposal).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          resourceId: "doc-1",
+          baseRevision: "blocks-field:notes:3",
+        }),
+      );
+      expect(firstSaved().map((suggestion) => suggestion.id)).toEqual([
+        "saved-0",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("marks a tab as deciding until a decision on its suggestions ends", async () => {
+    let finish: ((value: unknown) => void) | undefined;
+    mocks.decideSuggestion.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    await render(true, [created]);
+    expect(latest.provider.decidingFields.has("notes")).toBe(false);
+
+    let decision: Promise<void> | undefined;
+    await act(async () => {
+      decision = latest.decide(created, "accepted");
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    expect(latest.provider.decidingFields.has("notes")).toBe(true);
+    expect(latest.deciding).toBe(true);
+
+    await act(async () => {
+      finish?.({});
+      await decision;
+    });
+    expect(latest.provider.decidingFields.size).toBe(0);
+    expect(latest.deciding).toBe(false);
   });
 });

@@ -111,7 +111,9 @@ export async function writeStoredBlocksField(
     propertyId: args.propertyId,
     previousMarkdown: previousContent,
     markdown: args.content,
-    expectedRevision: args.expectedRevision,
+    ...(args.expectedRevision === undefined
+      ? {}
+      : { expectedRevision: args.expectedRevision }),
     now: args.now,
   });
 }

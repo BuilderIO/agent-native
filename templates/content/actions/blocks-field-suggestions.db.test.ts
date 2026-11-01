@@ -128,7 +128,7 @@ async function seedRow(suffix: string, body: string, notes: string) {
       { documentId: row, databaseId, propertyId: notesId, value: notes },
       ctx,
     );
-    return { databaseId, row, primaryId, notesId };
+    return { databaseId, databaseDocumentId, row, primaryId, notesId };
   });
 }
 
@@ -488,5 +488,106 @@ describe("suggestions on a Blocks field tab", () => {
     expect(onOther).toMatchObject({
       errorCode: "suggestion_field_unavailable",
     });
+  });
+
+  it("refuses a suggestion on a tab whose text the Collection's source owns", async () => {
+    const seeded = await seedRow("source-owned", "Body.", "Synced notes.");
+    const before = await fieldState(
+      seeded.row,
+      seeded.databaseId,
+      seeded.notesId,
+    );
+    const now = new Date().toISOString();
+    const sourceId = `source-${seeded.databaseId}`;
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId: seeded.databaseId,
+      sourceType: "notion-database",
+      sourceName: "Notion",
+      sourceTable: "example-database",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseSourceFields)
+      .values({
+        id: `source-field-${seeded.notesId}`,
+        ownerEmail: OWNER,
+        sourceId,
+        propertyId: seeded.notesId,
+        localFieldKey: "notes",
+        sourceFieldKey: "notes",
+        sourceFieldLabel: "Notes",
+        sourceFieldType: "rich_text",
+        writeOwner: "source",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await expect(
+      suggest(
+        seeded.row,
+        blocksFieldSuggestionRevision(seeded.notesId, before.revision),
+        [tabEdit(seeded.notesId, before.content, "Synced notes, edited.")],
+        "source-owned-create",
+      ),
+    ).rejects.toMatchObject({ errorCode: "PROPERTY_NOT_WRITABLE" });
+  });
+
+  it("lets only the Collection's editors accept a tab suggestion", async () => {
+    const seeded = await seedRow("row-editor", "Body.", "Notes to keep.");
+    const before = await fieldState(
+      seeded.row,
+      seeded.databaseId,
+      seeded.notesId,
+    );
+    const rowEditor = "row-editor@example.com";
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: `share-${seeded.row}`,
+        resourceId: seeded.row,
+        principalType: "user",
+        principalId: rowEditor,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+    const created = await suggest(
+      seeded.row,
+      blocksFieldSuggestionRevision(seeded.notesId, before.revision),
+      [tabEdit(seeded.notesId, before.content, "Notes to change.")],
+      "row-editor-create",
+    );
+    const suggestion = present(created.suggestions[0], "the suggestion");
+
+    const asRowEditor = { caller: "frontend" as const, userEmail: rowEditor };
+    const refused = await runWithRequestContext(
+      { userEmail: rowEditor, orgId: null },
+      () =>
+        decideSuggestion.run(
+          {
+            id: suggestion.id,
+            decision: "accepted",
+            idempotencyKey: `row-editor-accept-${suggestion.id}`,
+            observedBase: suggestion.baseRevision,
+            observedRevision: suggestion.revision,
+          },
+          asRowEditor,
+        ),
+    ).catch((error) => error);
+    // The row editor gets past the row's own check; the Collection's refuses.
+    expect(refused).toMatchObject({
+      message: `No access to document ${seeded.databaseDocumentId}`,
+    });
+    expect(
+      await fieldState(seeded.row, seeded.databaseId, seeded.notesId),
+    ).toEqual(before);
+    const still = await as(() => getSuggestion.run({ id: suggestion.id }, ctx));
+    expect(still.status).toBe("pending");
+
+    const decided = await accept(suggestion.id);
+    expect(decided.suggestion.status).toBe("accepted");
   });
 });

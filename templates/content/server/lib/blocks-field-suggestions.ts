@@ -4,6 +4,7 @@ import type {
   SuggestionAdapter,
   SuggestionOperation,
 } from "@agent-native/core/review";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 
 import { lockPrimaryBlocksFields } from "../../actions/_blocks-field-identity.js";
@@ -55,12 +56,12 @@ const INLINE_DATABASE_MESSAGE =
   "Tabs containing inline databases cannot receive suggestions yet.";
 
 function fieldOperation(operations: SuggestionOperation[]) {
-  if (operations.length !== 1) {
+  const operation = firstRow(operations);
+  if (operations.length !== 1 || !operation) {
     throw new Error(
       "Content v1 accepts one independently reviewable edit per suggestion",
     );
   }
-  const operation = operations[0];
   if (!CONTENT_SUGGESTION_OPERATION_KINDS.includes(operation.kind)) {
     throw new Error(
       `Unsupported Content suggestion operation: ${operation.kind}`,
@@ -117,6 +118,38 @@ async function readSuggestionField(
   )
     fieldUnavailable();
   return { databaseId: String(field.database_id) };
+}
+
+/** Content's Drizzle view of a suggestion's transaction. */
+function contentDb(tx: DbExec) {
+  return drizzleTransactionForExec(tx) as unknown as Parameters<
+    typeof lockContentDatabaseMutation
+  >[0];
+}
+
+/**
+ * The field's definition, refused when the Collection's source owns its
+ * text, as a tab's own save is.
+ */
+async function writableField(
+  db: ReturnType<typeof contentDb>,
+  databaseId: string,
+  fieldId: string,
+) {
+  const definition = firstRow(
+    await db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.id, fieldId),
+          eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+        ),
+      ),
+  );
+  if (!definition) fieldUnavailable();
+  await assertPropertyWritableByRowMutation(db, databaseId, definition);
+  return definition;
 }
 
 async function storedFieldRevision(
@@ -211,7 +244,14 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
     if (!page) throw new Error("Document not found");
     if (page.trashed_at)
       throw new Error("Trashed Pages cannot receive suggestions");
-    await readSuggestionField(tx, input.resourceId, fieldId);
+    const { databaseId } = await readSuggestionField(
+      tx,
+      input.resourceId,
+      fieldId,
+    );
+    // A tab whose text the Collection's source owns can't take one, since
+    // accepting it would be refused.
+    await writableField(contentDb(tx), databaseId, fieldId);
     const revision = await storedFieldRevision(tx, input.resourceId, fieldId);
     const content = String(
       (
@@ -246,9 +286,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
   async apply(context) {
     const { operation, fieldId, before } = fieldOperation(context.operations);
     const tx = context.transaction as DbExec;
-    const db = drizzleTransactionForExec(tx) as unknown as Parameters<
-      typeof lockContentDatabaseMutation
-    >[0];
+    const db = contentDb(tx);
     const documentId = context.resourceId;
     const { databaseId } = await readSuggestionField(tx, documentId, fieldId);
     // The order set-document-property locks in, so the two never deadlock.
@@ -260,28 +298,25 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       .from(schema.documents)
       .where(eq(schema.documents.id, documentId));
     assertEditableDocument(page);
-    const definition = firstRow(
-      await db
-        .select()
-        .from(schema.documentPropertyDefinitions)
-        .where(
-          and(
-            eq(schema.documentPropertyDefinitions.id, fieldId),
-            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
-          ),
-        ),
-    );
-    if (!definition) fieldUnavailable();
     // Checked again under the locks: the field may have changed since.
     await readSuggestionField(tx, documentId, fieldId);
-    await assertPropertyWritableByRowMutation(db, databaseId, definition);
+    await writableField(db, databaseId, fieldId);
     const database = firstRow(
       await db
-        .select({ ownerEmail: schema.contentDatabases.ownerEmail })
+        .select({
+          ownerEmail: schema.contentDatabases.ownerEmail,
+          documentId: schema.contentDatabases.documentId,
+        })
         .from(schema.contentDatabases)
         .where(eq(schema.contentDatabases.id, databaseId)),
     );
     if (!database) fieldUnavailable();
+    // A tab's text belongs to the Collection's field, which only the
+    // Collection's editors write, as set-document-property requires.
+    await assertAccess("document", database.documentId, "editor", {
+      ...currentAccess(),
+      transaction: tx,
+    });
 
     const current = await readStoredBlocksField(db, documentId, fieldId);
     const next =

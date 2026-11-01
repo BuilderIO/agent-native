@@ -319,6 +319,7 @@ describe("DocumentBlockFields suggestion boundary", () => {
       onActivateSuggestion: vi.fn(),
       onHoverSuggestion: vi.fn(),
       onAnchorsChange: vi.fn(),
+      decidingFields: new Set<string>(),
     };
     const renderWith = async (suggesting: boolean) => {
       await act(async () => {
@@ -382,6 +383,18 @@ describe("DocumentBlockFields suggestion boundary", () => {
     await flushAllBlockFieldSaveControllersForDocument("doc-1");
     expect(mocks.save).not.toHaveBeenCalled();
 
+    // A decision on the tab's suggestions ends its draft, so meanwhile the
+    // tab takes no typing.
+    provider.decidingFields = new Set(["outline"]);
+    await renderWith(true);
+    expect(mocks.editorProps).toMatchObject({
+      editable: false,
+      suggesting: true,
+    });
+    provider.decidingFields = new Set();
+    await renderWith(true);
+    expect(mocks.editorProps).toMatchObject({ editable: true });
+
     // The session ends with Suggesting mode; the tab shows its text again.
     provider.sessions = new Map();
     await renderWith(false);
@@ -419,6 +432,7 @@ describe("DocumentBlockFields suggestion boundary", () => {
       onActivateSuggestion: vi.fn(),
       onHoverSuggestion: vi.fn(),
       onAnchorsChange: vi.fn(),
+      decidingFields: new Set<string>(),
     };
     const renderWith = async (suggesting: boolean) => {
       await act(async () => {

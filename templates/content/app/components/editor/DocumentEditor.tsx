@@ -198,10 +198,6 @@ import {
   useBlockFieldComments,
 } from "./block-field-comments";
 import {
-  BlocksFieldSuggestionsProvider,
-  useBlocksFieldSuggestions,
-} from "./blocks-field-suggestion-sessions";
-import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
   peekBlockFieldSaveController,
@@ -212,6 +208,10 @@ import {
   visibleBlockFieldEditor,
   type BlockFieldVisit,
 } from "./blockFieldTabs";
+import {
+  BlocksFieldSuggestionsProvider,
+  useBlocksFieldSuggestions,
+} from "./blocks-field-suggestion-sessions";
 import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
