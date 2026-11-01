@@ -1,0 +1,139 @@
+// @vitest-environment happy-dom
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  status: { body: null as unknown, code: 200 },
+}));
+
+vi.mock(
+  "@agent-native/core/client/use-after-paint",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/use-after-paint")
+    >()),
+    useAfterStartup: () => true,
+  }),
+);
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useT: () => (key: string) => key,
+}));
+vi.mock("sonner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
+
+import { NotionSyncBar } from "./NotionSyncBar";
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+
+describe("NotionSyncBar's link form", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let queryClient: QueryClient;
+
+  async function renderBar() {
+    await act(async () =>
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(NotionSyncBar, { documentId: "notion-fixture" }),
+        ),
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(statusQueryStates()).toEqual([
+        expect.stringMatching(/success|error/),
+      ]),
+    );
+    await act(async () => Promise.resolve());
+  }
+
+  function statusQueryStates() {
+    return queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["action", "refresh-notion-sync-status"] })
+      .map((query) => query.state.status);
+  }
+
+  function buttonLabels() {
+    return Array.from(container.querySelectorAll("button")).map((button) =>
+      button.textContent.trim(),
+    );
+  }
+
+  beforeEach(() => {
+    mocks.status = { body: null, code: 200 };
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const href = String(input);
+        if (href.includes("/_agent-native/actions/get-actions-batch")) {
+          const { requests } = JSON.parse(String(init?.body)) as {
+            requests: Array<{ action: string }>;
+          };
+          return json({
+            results: requests.map(({ action }) => ({
+              status: 200,
+              body:
+                action === "connect-notion-status" ? { connected: true } : {},
+            })),
+          });
+        }
+        if (href.includes("connect-notion-status")) {
+          return json({ connected: true });
+        }
+        if (href.includes("refresh-notion-sync-status")) {
+          return json(mocks.status.body, mocks.status.code);
+        }
+        return json({});
+      }),
+    );
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    queryClient.clear();
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("offers no link form when the status read fails", async () => {
+    mocks.status = { body: { error: "Notion is unavailable" }, code: 500 };
+    await renderBar();
+
+    expect(statusQueryStates()).toEqual(["error"]);
+    expect(buttonLabels()).not.toContain("editor.toolbar.linkPage");
+    expect(container.querySelector("input")).toBeNull();
+    expect(buttonLabels()).toContain("editor.toolbar.disconnect");
+  });
+
+  it("offers the link form once the status says the page isn't linked", async () => {
+    mocks.status = {
+      body: { connected: true, pageId: null, hasConflict: false },
+      code: 200,
+    };
+    await renderBar();
+
+    await vi.waitFor(() =>
+      expect(buttonLabels()).toContain("editor.toolbar.linkPage"),
+    );
+    expect(container.querySelector("input")).not.toBeNull();
+  });
+});

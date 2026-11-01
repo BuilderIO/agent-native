@@ -182,16 +182,20 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
           <p className="mt-0.5 text-xs text-muted-foreground">
             {!connection?.connected
               ? t("editor.toolbar.connectNotionWorkspaceToLink")
-              : syncStatus?.pageId
-                ? syncStatus.lastSyncedAt
-                  ? t("editor.toolbar.linkedToPageLastSynced", {
-                      pageId: syncStatus.pageId,
-                      date: new Date(syncStatus.lastSyncedAt).toLocaleString(),
-                    })
-                  : t("editor.toolbar.linkedToPage", {
-                      pageId: syncStatus.pageId,
-                    })
-                : t("editor.toolbar.pasteNotionPageUrlOrIdToLink")}
+              : !syncStatus
+                ? null
+                : syncStatus.pageId
+                  ? syncStatus.lastSyncedAt
+                    ? t("editor.toolbar.linkedToPageLastSynced", {
+                        pageId: syncStatus.pageId,
+                        date: new Date(
+                          syncStatus.lastSyncedAt,
+                        ).toLocaleString(),
+                      })
+                    : t("editor.toolbar.linkedToPage", {
+                        pageId: syncStatus.pageId,
+                      })
+                  : t("editor.toolbar.pasteNotionPageUrlOrIdToLink")}
           </p>
           {syncStatus?.lastError && (
             <p className="mt-1 text-xs text-destructive">
@@ -218,7 +222,10 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
           </Button>
         ) : (
           <>
-            {!syncStatus?.pageId ? (
+            {/* Without a status answer the bar can't tell a linked page from
+                an unlinked one, and linking a linked page pulls Notion over
+                local edits, so it offers no link form until one arrives. */}
+            {!syncStatus ? null : !syncStatus.pageId ? (
               <>
                 <Input
                   size="sm"

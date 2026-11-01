@@ -11,7 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 const mocks = vi.hoisted(() => ({
   startupSettled: false,
   fetchUrls: [] as string[],
-  answerStatus: null as null | ((body: unknown) => void),
+  answerStatus: null as null | ((body: unknown, status?: number) => void),
 }));
 
 vi.mock("@agent-native/toolkit/clipboard", () => ({
@@ -55,9 +55,9 @@ vi.mock("@agent-native/toolkit/app/sharing", () => ({
 
 import { DocumentToolbar } from "./DocumentToolbar";
 
-const json = (body: unknown) =>
+const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { "content-type": "application/json" },
   });
 
@@ -123,10 +123,11 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
     );
   }
 
-  function answerStatus(body: unknown) {
+  function answerStatus(body: unknown, status?: number) {
     const answer = mocks.answerStatus;
     if (!answer) throw new Error("the sync status wasn't requested");
-    answer(body);
+    mocks.answerStatus = null;
+    answer(body, status);
   }
 
   function statusRequests() {
@@ -165,7 +166,7 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
         }
         if (href.includes("refresh-notion-sync-status")) {
           return new Promise<Response>((resolve) => {
-            mocks.answerStatus = (body) => resolve(json(body));
+            mocks.answerStatus = (body, status) => resolve(json(body, status));
           });
         }
         return json({});
@@ -231,5 +232,39 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
     expect(notionItem()?.textContent.trim()).toBe(
       "editor.toolbar.linkToNotion",
     );
+  });
+
+  it("offers no link form when the status read fails, and asks again when the page actions reopen", async () => {
+    await renderToolbar();
+    await openPageActions();
+    expect(statusRequests()).toHaveLength(1);
+
+    await act(async () =>
+      answerStatus({ error: "Notion is unavailable" }, 500),
+    );
+    await act(async () => Promise.resolve());
+
+    const failed = notionItem();
+    expect(failed?.textContent.trim()).toBe("editor.toolbar.notionSync");
+    expect(failed?.disabled).toBe(true);
+    expect(document.body.textContent).not.toContain(
+      "editor.toolbar.linkToNotion",
+    );
+
+    await openPageActions();
+    await openPageActions();
+    await vi.waitFor(() => expect(statusRequests()).toHaveLength(2));
+    expect(notionItem()?.disabled).toBe(true);
+
+    await act(async () =>
+      answerStatus({
+        connected: true,
+        pageId: "notion-page-1",
+        state: "idle",
+        hasConflict: false,
+      }),
+    );
+    await vi.waitFor(() => expect(notionItem()?.disabled).toBe(false));
+    expect(notionItem()?.textContent.trim()).toBe("editor.toolbar.notionSync");
   });
 });

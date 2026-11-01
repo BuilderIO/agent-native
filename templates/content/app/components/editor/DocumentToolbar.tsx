@@ -1039,12 +1039,13 @@ export function DocumentToolbar({
   // actions open, since the Notion item there depends on it.
   const [pageActionsOpened, setPageActionsOpened] = useState(false);
   const notionStatusApplies = !inWidget && canEdit && !isLocalFileDocument;
-  const { data: syncStatus, isError: syncStatusFailed } = useDocumentSyncStatus(
-    notionStatusApplies ? documentId : null,
-    {
-      now: pageActionsOpened,
-    },
-  );
+  const {
+    data: syncStatus,
+    isError: syncStatusFailed,
+    refetch: refetchSyncStatus,
+  } = useDocumentSyncStatus(notionStatusApplies ? documentId : null, {
+    now: pageActionsOpened,
+  });
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);
@@ -1113,10 +1114,11 @@ export function DocumentToolbar({
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
-  // Until the first status answer the toolbar can't tell a linked page from
-  // an unlinked one, so the Notion item waits instead of offering a link.
-  const notionStatusPending =
-    isConnected && notionStatusApplies && !syncStatus && !syncStatusFailed;
+  // Until the first successful status answer the toolbar can't tell a
+  // linked page from an unlinked one, so the Notion item waits instead of
+  // offering a link. A failed read counts as waiting too: linking a page
+  // that's already linked pulls Notion over local edits.
+  const notionStatusPending = isConnected && notionStatusApplies && !syncStatus;
   const hasConflict = syncStatus?.hasConflict ?? false;
   const isWorking =
     linkDocument.isPending ||
@@ -1842,6 +1844,8 @@ export function DocumentToolbar({
               pageActionsOpenRef.current = nextOpen;
               if (nextOpen) {
                 setPageActionsOpened(true);
+                // Reopening the menu retries a status read that failed.
+                if (syncStatusFailed && !syncStatus) void refetchSyncStatus();
                 flushPendingPageActionsRestore();
                 pageActionsPreservationFrameRef.current = requestAnimationFrame(
                   () => {
