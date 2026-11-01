@@ -1150,6 +1150,45 @@ describe("client application-state helpers", () => {
       void last;
     });
 
+    it("keeps the newer value when the write it jumped ahead of commits last", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      // The server applies each write when it answers it.
+      let stored: unknown;
+      let commitOlder!: () => void;
+      fetchMock.mockImplementation((_url, init) => {
+        const value = JSON.parse(String(init?.body));
+        const commit = () => {
+          stored = value;
+          return jsonResponse(value);
+        };
+        if (fetchMock.mock.calls.length === 1) {
+          return new Promise<Response>((resolve) => {
+            commitOlder = () => resolve(commit());
+          });
+        }
+        return Promise.resolve(commit());
+      });
+
+      const older = fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const newer = fresh.writeClientAppState(
+        "draft",
+        { text: "ab" },
+        { keepalive: true },
+      );
+      await Promise.resolve();
+      for (const listener of listeners.pagehide ?? []) listener();
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(stored).toEqual({ text: "ab" });
+
+      commitOlder();
+      await older;
+      await expect(newer).resolves.toEqual({ text: "ab" });
+
+      expect(stored).toEqual({ text: "ab" });
+      expect(fresh.isClientAppStateMutationPending("draft")).toBe(false);
+    });
+
     it("sends a write made while the page is hidden at once, with keepalive", async () => {
       const { fresh, fetchMock } = await hidingPage("hidden");
 

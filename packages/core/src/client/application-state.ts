@@ -224,7 +224,17 @@ function replaceClientAppState(
     sent: false,
     sentKeepalive: false,
   } as QueuedReplacement;
-  entry.result = runClientAppStateMutation(key, () => startReplacement(entry));
+  entry.result = runClientAppStateMutation(key, async () => {
+    // Already running here means the page hid and sent this write while the
+    // earlier one to its key was still in flight (see flushOnPageHide).
+    const jumpedAhead = entry.running !== undefined;
+    const value = await startReplacement(entry);
+    if (!jumpedAhead) return value;
+    // The earlier write may have reached the database last. The page is
+    // still alive if this runs, so the newer value goes out once more; later
+    // writes to the key wait behind it.
+    return sendReplacement(entry, wantsKeepalive(entry.replacement));
+  });
   entry.pending = pendingMutations.get(id);
   if (!entry.started) queuedReplacements.set(id, entry);
   return entry.result;
@@ -295,7 +305,8 @@ function flushOnPageHide(): void {
   // A keepalive write still waiting for an earlier write to its key would
   // never start once the page is gone, so it goes now, alongside that write.
   // The server may then apply the two in either order; without this it would
-  // get only the earlier one.
+  // get only the earlier one. If the page lives on, the newer value is sent
+  // again once the earlier write settles (see replaceClientAppState).
   for (const entry of [...queuedReplacements.values()]) {
     if (entry.replacement.keepalive) void startReplacement(entry);
   }
