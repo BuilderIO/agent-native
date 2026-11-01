@@ -185,29 +185,28 @@ export default defineAction({
         paths: paths && paths.length > 0 ? paths : ["/"],
       });
     }
-    await mutateDesignData({
-      designId,
-      mutate: (current) => {
-        const app = readFusionApp(current);
-        return app
-          ? writeFusionApp(current, {
-              ...app,
-              ...(previewUrl ? { previewUrl } : {}),
-              status,
-              statusMessage,
-              updatedAt: now,
-            })
-          : current;
-      },
-      isApplied: (current) => {
-        const app = readFusionApp(current);
-        return (
-          app?.status === status &&
-          app.statusMessage === statusMessage &&
-          (!previewUrl || app.previewUrl === previewUrl)
-        );
-      },
-    });
+    const isBound = (app: ReturnType<typeof readFusionApp>) =>
+      app?.status === status &&
+      app.statusMessage === statusMessage &&
+      (!previewUrl || app.previewUrl === previewUrl);
+    // Re-opening an app that is already bound this way writes nothing.
+    if (!isBound(existingApp))
+      await mutateDesignData({
+        designId,
+        mutate: (current) => {
+          const app = readFusionApp(current);
+          return app
+            ? writeFusionApp(current, {
+                ...app,
+                ...(previewUrl ? { previewUrl } : {}),
+                status,
+                statusMessage,
+                updatedAt: now,
+              })
+            : current;
+        },
+        isApplied: (current) => isBound(readFusionApp(current)),
+      });
     stages.mark("bindMs");
     console.info("[open-builder-branch-design] stage timings", {
       projectId,

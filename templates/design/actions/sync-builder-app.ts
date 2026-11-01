@@ -126,19 +126,26 @@ export default defineAction({
     });
 
     const now = new Date().toISOString();
+    // The container check can take 20 s. If the app changed meanwhile (another
+    // sync found it ready), a failure or "still starting" seen here is stale.
+    const isSuperseded = (current: Record<string, unknown>) =>
+      readFusionApp(current)?.updatedAt !== fusionApp.updatedAt;
 
     if (result.status === "error") {
       const statusMessage = result.message ?? "Container provisioning failed";
       await mutateDesignData({
         designId,
         mutate: (current) =>
-          writeFusionApp(current, {
-            ...(readFusionApp(current) ?? fusionApp),
-            status: "error",
-            statusMessage,
-            updatedAt: now,
-          }),
+          isSuperseded(current)
+            ? current
+            : writeFusionApp(current, {
+                ...(readFusionApp(current) ?? fusionApp),
+                status: "error",
+                statusMessage,
+                updatedAt: now,
+              }),
         isApplied: (current) => {
+          if (isSuperseded(current)) return true;
           const persisted = readFusionApp(current);
           return (
             persisted?.status === "error" &&
@@ -161,13 +168,16 @@ export default defineAction({
         await mutateDesignData({
           designId,
           mutate: (current) =>
-            writeFusionApp(current, {
-              ...(readFusionApp(current) ?? fusionApp),
-              status: "building",
-              statusMessage,
-              updatedAt: now,
-            }),
+            isSuperseded(current)
+              ? current
+              : writeFusionApp(current, {
+                  ...(readFusionApp(current) ?? fusionApp),
+                  status: "building",
+                  statusMessage,
+                  updatedAt: now,
+                }),
           isApplied: (current) => {
+            if (isSuperseded(current)) return true;
             const persisted = readFusionApp(current);
             return (
               persisted?.status === "building" &&
