@@ -10,6 +10,7 @@ import {
   fetchAuthSessionStatus,
   invalidateClientStatusRequests,
   SESSION_RESULT_LIFETIME_MS,
+  statusResultAnsweredAt,
 } from "./client-status-requests.js";
 import {
   _resetEmbedAuthForTests,
@@ -255,6 +256,27 @@ describe("session reads over a cookie and a bearer transport", () => {
         value: { userId: "cookie-user" },
       });
       expect(network).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts the cached answer's age from when the head's read answered, not when it was taken", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(1_000_000);
+      runSessionHeadScript();
+      await window.__agentNativeSessionBootstrap;
+      // Taken just before it would have been dropped: the answer it gives is
+      // as old as the head's read, so it lasts only what is left.
+      vi.setSystemTime(1_000_000 + SESSION_RESULT_LIFETIME_MS - 1);
+      const taken = await fetchAuthSessionStatus();
+      expect(network).toHaveBeenCalledTimes(1);
+      expect(statusResultAnsweredAt(taken)).toBe(1_000_000);
+
+      vi.setSystemTime(1_000_000 + SESSION_RESULT_LIFETIME_MS);
+      await fetchAuthSessionStatus();
+      expect(network).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }

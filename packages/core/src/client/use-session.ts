@@ -14,6 +14,7 @@ import {
   fetchAuthSessionStatus,
   invalidateClientStatusRequest,
   SESSION_RESULT_LIFETIME_MS,
+  statusResultAnsweredAt,
 } from "./client-status-requests.js";
 import {
   FETCH_TRANSPORT_CHANGED_EVENT,
@@ -780,7 +781,7 @@ function fetchSharedSession(): Promise<SessionRead> {
         cachedSessionFromFirstRead = firstRead;
         if (!firstRead) firstSessionReadReplaced = true;
       }
-      cachedSessionAt = Date.now();
+      cachedSessionAt = statusResultAnsweredAt(result) ?? Date.now();
       cachedEvidence = session
         ? "signed_in"
         : result.state === "unavailable"
