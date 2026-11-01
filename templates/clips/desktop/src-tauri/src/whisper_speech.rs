@@ -1,4 +1,14 @@
+use serde::Serialize;
 use tauri::AppHandle;
+
+/// The first failure reported for a stopped run: a microphone that sent no
+/// usable audio, or a transcription that failed. Either way the run's
+/// transcript is missing speech, so whoever saves it must carry `failure`.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhisperStopResult {
+    pub failure: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OfflineTranscriptSegment {
@@ -82,21 +92,20 @@ pub async fn whisper_transcription_stop(
     app: AppHandle,
     owner: Option<String>,
     run_id: Option<u64>,
-) -> Result<(), String> {
+) -> Result<WhisperStopResult, String> {
     #[cfg(target_os = "macos")]
     {
-        macos::stop(
+        Ok(macos::stop(
             &app,
             owner.map(|owner| macos::SessionOwner::from_param(Some(owner))),
             run_id,
             false,
-        );
-        Ok(())
+        ))
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, owner, run_id);
-        Ok(())
+        Ok(WhisperStopResult::default())
     }
 }
 
@@ -334,6 +343,7 @@ mod macos {
         reset_generation: AtomicU32,
         emit_partials: bool,
         echo_guard: Option<Arc<EchoGuard>>,
+        failure: OnceLock<String>,
     }
 
     impl WhisperStream {
@@ -365,6 +375,7 @@ mod macos {
                 reset_generation: AtomicU32::new(0),
                 emit_partials,
                 echo_guard,
+                failure: OnceLock::new(),
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
@@ -474,6 +485,7 @@ mod macos {
         }
 
         fn report_failure(&self, error: &str) {
+            let _ = self.failure.set(error.to_owned());
             let _ = self.app.emit(
                 "pill:error",
                 serde_json::json!({ "error": format!("Transcription worker ({}) failed: {error}", self.source) }),
@@ -1381,7 +1393,7 @@ mod macos {
         owner: Option<SessionOwner>,
         run_id: Option<u64>,
         replace_older: bool,
-    ) {
+    ) -> super::WhisperStopResult {
         let mut latest = match latest_run_id_slot().lock() {
             Ok(latest) => latest,
             Err(poisoned) => poisoned.into_inner(),
@@ -1394,20 +1406,20 @@ mod macos {
                 if latest.latest_run_id != Some(run_id)
                     || owner.is_some_and(|owner| latest.latest_owner != Some(owner))
                 {
-                    return;
+                    return super::WhisperStopResult::default();
                 }
             } else {
                 let Some(owner) = owner.or(latest.latest_owner) else {
-                    return;
+                    return super::WhisperStopResult::default();
                 };
                 if slot
                     .as_ref()
                     .is_some_and(|current| current.owner != owner || current.run_id != Some(run_id))
                 {
-                    return;
+                    return super::WhisperStopResult::default();
                 }
                 if !cancel_run_authority(&mut latest, owner, run_id) {
-                    return;
+                    return super::WhisperStopResult::default();
                 }
             }
         }
@@ -1428,7 +1440,7 @@ mod macos {
         drop(slot);
         drop(latest);
         let Some(mut session) = session else {
-            return;
+            return super::WhisperStopResult::default();
         };
         session.mic.stop();
         if let Some(sys) = &session.sys {
@@ -1456,6 +1468,14 @@ mod macos {
             std::thread::sleep(Duration::from_millis(50));
         }
         eprintln!("[whisper] meeting transcription stopped");
+        let failure = session
+            .mic
+            .failure
+            .get()
+            .or_else(|| session.sys.as_ref().and_then(|sys| sys.failure.get()));
+        super::WhisperStopResult {
+            failure: failure.cloned(),
+        }
     }
 
     #[cfg(test)]
@@ -1770,5 +1790,25 @@ mod macos {
                 Some("Thanks for the update".to_string())
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WhisperStopResult;
+
+    #[test]
+    fn a_stop_result_always_says_whether_the_run_failed() {
+        assert_eq!(
+            serde_json::to_value(WhisperStopResult::default()).unwrap(),
+            serde_json::json!({ "failure": null })
+        );
+        assert_eq!(
+            serde_json::to_value(WhisperStopResult {
+                failure: Some("Microphone AirPods sent no audio in 2.3 s.".into()),
+            })
+            .unwrap(),
+            serde_json::json!({ "failure": "Microphone AirPods sent no audio in 2.3 s." })
+        );
     }
 }

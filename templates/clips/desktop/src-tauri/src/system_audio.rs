@@ -99,7 +99,7 @@ pub async fn audio_transcription_stop(
     app: AppHandle,
     owner: Option<String>,
     run_id: Option<u64>,
-) -> Result<(), String> {
+) -> Result<crate::whisper_speech::WhisperStopResult, String> {
     crate::whisper_speech::whisper_transcription_stop(app, owner, run_id).await
 }
 

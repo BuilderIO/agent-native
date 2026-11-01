@@ -354,6 +354,7 @@ export async function startTranscriptionCapture(
   let transitioning = false;
   let pauseFinalsSettleUntil = 0;
   let transitionFailure: string | null = null;
+  let runFailure: string | null = null;
   const settlingRunDeadlines = new Map<number, number>();
   const unlistens: UnlistenFn[] = [];
   const timeline = createActiveTimeline();
@@ -373,7 +374,7 @@ export async function startTranscriptionCapture(
     text: transcriptFullText(lines),
     segments: transcriptSegments(lines),
     source: engine,
-    failureReason: transitionFailure ?? undefined,
+    failureReason: runFailure ?? transitionFailure ?? undefined,
   });
 
   let engine: TranscriptionEngine;
@@ -420,7 +421,8 @@ export async function startTranscriptionCapture(
     try {
       if (desiredPaused) {
         const pauseBoundaryMs = timeline.current();
-        await stopTranscriptionEngine(engine, activeRunId);
+        const stopped = await stopTranscriptionEngine(engine, activeRunId);
+        runFailure ??= stopped.failure;
         timeline.pause(pauseBoundaryMs);
         paused = true;
         pauseFinalsSettleUntil = Date.now() + WHISPER_STOP_SETTLE_MS;
@@ -493,9 +495,11 @@ export async function startTranscriptionCapture(
         return captured();
       }
       try {
-        await stopTranscriptionEngine(engine, activeRunId);
+        const stopped = await stopTranscriptionEngine(engine, activeRunId);
+        runFailure ??= stopped.failure;
       } catch (err) {
         console.warn("[clips-recorder] transcription stop failed:", err);
+        runFailure ??= `Local transcription did not stop cleanly: ${err instanceof Error ? err.message : String(err)}`;
         cleanup();
         return captured();
       }
