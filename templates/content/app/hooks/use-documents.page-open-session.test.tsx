@@ -58,22 +58,24 @@ vi.mock("@agent-native/core/client/hooks", () => {
   // Answers as whichever account the cookies name when the request goes out.
   const callAction = (
     name: string,
-    params: { id?: string; includePreviewDraft?: boolean },
+    params: { id?: string },
   ): Promise<unknown> => {
     server.calls.push({ name, params });
     const account = server.account;
     if (name === "get-preview-document-draft") {
       return Promise.resolve({ editable: true, draft: `${account}'s draft` });
     }
+    const page = { id: params.id, title: `${account}'s page`, canEdit: true };
+    if (name === "get-page-open-read") {
+      return Promise.resolve({
+        document: {
+          ...page,
+          previewDraft: { editable: true, draft: `${account}'s draft` },
+        },
+      });
+    }
     if (name !== "get-document") return Promise.resolve({ account });
-    return Promise.resolve({
-      id: params.id,
-      title: `${account}'s page`,
-      canEdit: true,
-      ...(params.includePreviewDraft
-        ? { previewDraft: { editable: true, draft: `${account}'s draft` } }
-        : {}),
-    });
+    return Promise.resolve(page);
   };
   return {
     callAction,
@@ -187,7 +189,8 @@ describe("a page read sent before the session is known", () => {
       title: "a's page",
       draft: "a's draft",
     });
-    expect(reads("get-document")).toBe(1);
+    expect(reads("get-page-open-read")).toBe(1);
+    expect(reads("get-document")).toBe(0);
     expect(reads("get-preview-document-draft")).toBe(0);
     // Comments and suggestions wait for the session, then start at once.
     expect(reads("list-comments")).toBe(1);
@@ -220,17 +223,19 @@ describe("a page read sent before the session is known", () => {
           async () =>
             new Response(
               JSON.stringify({
-                id: "doc-1",
-                title: "a's page",
-                canEdit: true,
-                previewDraft: { editable: true, draft: "a's draft" },
+                document: {
+                  id: "doc-1",
+                  title: "a's page",
+                  canEdit: true,
+                  previewDraft: { editable: true, draft: "a's draft" },
+                },
               }),
               { status: 200, headers: { "content-type": "application/json" } },
             ),
         ),
       );
       new Function(
-        startupPageReadScript("/_agent-native/actions/get-document"),
+        startupPageReadScript("/_agent-native/actions/get-page-open-read"),
       )();
     });
 
@@ -249,6 +254,7 @@ describe("a page read sent before the session is known", () => {
         title: "a's page",
         draft: "a's draft",
       });
+      expect(reads("get-page-open-read")).toBe(0);
       expect(reads("get-document")).toBe(0);
       expect(reads("get-preview-document-draft")).toBe(0);
     });

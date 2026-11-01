@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { startupPageReadScript, takeStartupPageRead } from "./page-open-reads";
 
-const ACTION_URL = "/_agent-native/actions/get-document";
+const ACTION_URL = "/_agent-native/actions/get-page-open-read";
 
 function runHeadScript() {
   // The script runs as an inline <script> in the document head.
@@ -36,8 +36,10 @@ describe("the load's page read from the document head", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends the page and draft read with the page's own context", async () => {
-    openLoad("/page/doc-1?databaseId=db-1&databaseDocumentId=dbdoc-1");
+  it("sends the page read with the page's own context and view", async () => {
+    openLoad(
+      "/page/doc-1?databaseId=db-1&databaseDocumentId=dbdoc-1&databaseViewId=%20board%20",
+    );
 
     runHeadScript();
 
@@ -49,7 +51,7 @@ describe("the load's page read from the document head", () => {
       id: "doc-1",
       databaseId: "db-1",
       databaseDocumentId: "dbdoc-1",
-      includePreviewDraft: "true",
+      databaseViewId: "board",
     });
     expect(init).toMatchObject({
       credentials: "same-origin",

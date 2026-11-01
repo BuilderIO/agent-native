@@ -72,6 +72,11 @@ import {
   isDocumentCreationPending,
 } from "../lib/optimistic-document";
 import {
+  loadDatabaseViewId,
+  seedPageOpenCollection,
+  type PageOpenReadAnswer,
+} from "../lib/page-open-collection";
+import {
   adoptPageOpenRead,
   claimPageOpenRead,
   isAwaitingSession,
@@ -947,16 +952,18 @@ export function startPageOpenDocumentReads(
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const readsDraft =
     !widgetBridgeActive && previewDocumentDraftIsRead(queryClient, cached);
-  // One request answers the page and its draft, so the draft read cannot hold
-  // the page back on its own. Each read takes that answer once: a refetch
-  // through either key sends its own request rather than replaying this one.
-  let pageRead: Promise<PageOpenDocumentRead> | null = null;
+  // One request answers the page, its draft and, for a collection's page, the
+  // reads its table sends first, so none of them holds the page back on its
+  // own. Each read takes that answer once: a refetch through any of their keys
+  // sends its own request rather than replaying this one.
+  let pageRead: Promise<PageOpenReadAnswer> | null = null;
+  const databaseViewId = beforeSession ? loadDatabaseViewId() : null;
   const sendPageRead = () =>
-    callAction<PageOpenDocumentRead>(
-      "get-document",
+    callAction<PageOpenReadAnswer>(
+      "get-page-open-read",
       {
         ...documentReadParams(documentId, context),
-        ...(readsDraft ? { includePreviewDraft: true } : {}),
+        ...(databaseViewId ? { databaseViewId } : {}),
       },
       { method: "GET" },
     );
@@ -968,7 +975,7 @@ export function startPageOpenDocumentReads(
   const readPage = () =>
     (pageRead ??= startupRead
       ? startupRead.then((answer) =>
-          answer.ok ? (answer.value as PageOpenDocumentRead) : sendPageRead(),
+          answer.ok ? (answer.value as PageOpenReadAnswer) : sendPageRead(),
         )
       : sendPageRead());
   let documentTaken = false;
@@ -986,9 +993,15 @@ export function startPageOpenDocumentReads(
           );
         }
         documentTaken = true;
-        return readPage().then(
-          ({ previewDraft: _previewDraft, ...document }) => document,
-        );
+        return readPage().then(({ document, collection }) => {
+          if (collection) {
+            seedPageOpenCollection(queryClient, documentId, collection, {
+              beforeSession,
+            });
+          }
+          const { previewDraft: _previewDraft, ...page } = document;
+          return page;
+        });
       },
       retry: false,
     },
@@ -1012,7 +1025,7 @@ export function startPageOpenDocumentReads(
           // A server without the combined answer, or a page read that failed,
           // leaves the draft to its own request.
           return readPage().then(
-            (read) => read.previewDraft ?? draftRead.queryFn(context),
+            (read) => read.document.previewDraft ?? draftRead.queryFn(context),
             () => draftRead.queryFn(context),
           );
         },
@@ -1091,10 +1104,6 @@ export interface PreviewDocumentDraftResponse {
   draft: PreviewDocumentDraftRecord | null;
   editable: boolean;
 }
-
-type PageOpenDocumentRead = Document & {
-  previewDraft?: PreviewDocumentDraftResponse;
-};
 
 function previewDocumentDraftReadOptions(
   documentId: string,
