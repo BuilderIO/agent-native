@@ -139,9 +139,12 @@ Real replies that missed, and what to send instead:
     days;
   - an earlier run's PR for it is still open. That PR's `/ship` closes the
     report out when it merges.
-- **PRs:** push to, comment on, or merge only PRs authored by the active
-  GitHub login (`gh api user --jq .login`). Never touch anyone else's PR unless
-  the invocation names that exact PR and action.
+- **PRs:** push to, comment on, or merge only the PR this run opened. Every
+  sweep PR and most of Steve's other PRs share the active GitHub login
+  (`gh api user --jq .login`), so authorship proves nothing: a PR that merely
+  carries Steve's name may be another thread's work in flight, and pushing to
+  it lands commits under his name that nobody reviewed. Never touch any other
+  PR unless the invocation names that exact PR and action.
 - **One run, one PR.** Work only on the PR this run opened. Every sweep PR is
   authored by Steve's login, so the author check can't tell runs apart: an
   open PR with a `Reports` section that this run didn't open belongs to
