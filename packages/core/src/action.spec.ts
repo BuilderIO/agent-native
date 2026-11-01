@@ -21,6 +21,7 @@ import {
   isActionContractError,
   isActionOutputContractError,
   runActionWithExecutionOutcome,
+  stripUnsupportedSchemaKeywords,
   invocationEffect,
   DEFAULT_TOOL_RESULT_CHARS,
   resolveToolMaxResultChars,
@@ -43,6 +44,7 @@ import {
   createPlanModeActionRegistry,
 } from "./agent/production-agent.js";
 import * as actionAuditRecord from "./audit/record.js";
+import { boundedJsonValueBranches } from "./json-schema/json-value.js";
 import {
   derivedTool,
   plainJsonSnapshot,
@@ -1088,11 +1090,31 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     },
   );
 
+  it("fills the trailing items of a tuple through the any-value writer", () => {
+    const writeJsonValue = vi.fn((node: Record<string, unknown>) => {
+      node.type = "string";
+    });
+    const tuple = {
+      type: "array",
+      prefixItems: [{ type: "number" }],
+    };
+
+    stripUnsupportedSchemaKeywords(tuple, writeJsonValue);
+
+    expect(tuple).toEqual({
+      type: "array",
+      prefixItems: [{ type: "number" }],
+      items: { type: "string" },
+    });
+    expect(writeJsonValue).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     {
       name: "a Zod tuple",
       schema: z.object({ pair: z.tuple([z.number(), z.string()]) }),
       witness: { pair: [1, "a"] },
+      trailingItems: { anyOf: boundedJsonValueBranches() },
     },
     {
       name: "a 2020-12 tuple written by hand",
@@ -1114,10 +1136,11 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
         );
       })(),
       witness: { pair: [1, "a", true] },
+      trailingItems: { type: "boolean" },
     },
   ])(
     "lists, conforms and calls an action whose input holds $name",
-    async ({ schema, witness }) => {
+    async ({ schema, witness, trailingItems }) => {
       const pair = defineAction({
         description: "Reads a pair",
         schema,
@@ -1134,6 +1157,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       expect(
         providerSchemaViolations({ name: "pair", inputSchema: inAppSchema }),
       ).toEqual([]);
+      expect(
+        (inAppSchema as { properties: { pair: { items: unknown } } }).properties
+          .pair.items,
+      ).toEqual(trailingItems);
       const validateInApp = new Ajv2020({ strict: false }).compile(inAppSchema);
       expect([
         validateInApp(witness),

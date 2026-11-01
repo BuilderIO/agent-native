@@ -467,6 +467,21 @@ describe("background agent sessions through the agent-chat plugin", () => {
     }
   });
 
+  it("rejects a process-run request whose body is not JSON", async () => {
+    const response = await fetch(AGENT_CHAT_PROCESS_RUN_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // Bytes, not a string: the fetch spy above parses string bodies.
+      body: new TextEncoder().encode("{not json"),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid request body",
+      code: "invalid_request_body",
+    });
+  });
+
   it("does not pass loopback as an org ChatGPT readiness exception", async () => {
     const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "0";

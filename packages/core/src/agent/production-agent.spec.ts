@@ -9768,6 +9768,132 @@ describe("createProductionAgentHandler", () => {
     expect(stream).not.toHaveBeenCalled();
   });
 
+  describe("400 responses carry a stable code", () => {
+    const threadId = "thread-400-codes";
+    const messageId = "message-400-codes";
+    const payload = { threadId, id: messageId, text: "Run" };
+    const post = async (body: BodyInit) => {
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: engineWithUncalledStream(),
+        actions: {},
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        }),
+      );
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      return { response, status: event.res.status };
+    };
+
+    it.each([
+      ["invalid_request_body", "{not json", "Invalid request body"],
+      [
+        "submission_payload_not_object",
+        JSON.stringify({
+          message: "Run",
+          threadId,
+          agentKitMessageId: messageId,
+          submissionPayload: "payload",
+        }),
+        "Invalid submissionPayload",
+      ],
+      [
+        "submission_payload_message_mismatch",
+        JSON.stringify({
+          message: "Run",
+          threadId,
+          agentKitMessageId: messageId,
+          submissionPayload: { ...payload, id: "another-message" },
+        }),
+        "submissionPayload does not match this message",
+      ],
+      [
+        "submission_payload_rejected",
+        JSON.stringify({
+          message: "Run",
+          threadId,
+          agentKitMessageId: messageId,
+          submissionPayload: { threadId, id: messageId },
+        }),
+        "Invalid submissionPayload",
+      ],
+      [
+        "submission_payload_options_mismatch",
+        JSON.stringify({
+          message: "Another message",
+          threadId,
+          agentKitMessageId: messageId,
+          submissionPayload: payload,
+        }),
+        "submissionPayload does not match this message",
+      ],
+      [
+        "unsupported_hosted_harness",
+        JSON.stringify({ message: "Run", harness: { runtime: "unknown" } }),
+        "Unsupported hosted harness runtime",
+      ],
+    ])("%s", async (code, body, error) => {
+      await expect(post(body)).resolves.toEqual({
+        response: { error, code },
+        status: 400,
+      });
+    });
+
+    it("continuation_action_scope_missing", async () => {
+      const claimBackgroundRun = vi
+        .spyOn(runStore, "claimBackgroundRun")
+        .mockResolvedValue(true);
+      const recordRunDiagnostic = vi
+        .spyOn(runStore, "recordRunDiagnostic")
+        .mockResolvedValue(undefined);
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: engineWithUncalledStream(),
+        actions: {},
+        resolveActionSurface: async () => ({ actionScope: undefined }),
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }),
+      );
+      event.context.__agentChatBackgroundBody = {
+        message: "Run",
+        threadId,
+        actionScope: { id: "scope" },
+        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+          runId: "run-continuation-scope",
+          turnId: "turn-continuation-scope",
+        },
+      };
+
+      try {
+        await expect(
+          runWithRequestContext(
+            { userEmail: "alice@example.com", orgId: "acme", run: {} },
+            () => handler(event),
+          ),
+        ).resolves.toEqual({
+          error: "Resolved actionScope is required for continuation",
+          code: "continuation_action_scope_missing",
+        });
+        expect(event.res.status).toBe(400);
+      } finally {
+        claimBackgroundRun.mockRestore();
+        recordRunDiagnostic.mockRestore();
+      }
+    });
+  });
+
   it("refuses a busy thread before uploading the message's attachments", async () => {
     // The client sends the same message again once the thread frees up, so
     // uploading before the refusal would store every file again per retry.

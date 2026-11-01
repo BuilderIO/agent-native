@@ -1,4 +1,9 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -35,7 +40,10 @@ import { createWorkspaceFileActionEntries } from "../workspace-files/actions.js"
 import { createWorkspaceFilesTool } from "../workspace-files/tool.js";
 import {
   conformanceMcpConfig,
+  AGENT_PATH_PROVIDERS,
+  listAgentToolSchemas,
   listMcpCatalogTools,
+  loadTemplateMcpConformance,
   MCP_CATALOG_MODES,
   PROVIDER_SCHEMA_RULES,
   providerSchemaViolations,
@@ -449,5 +457,53 @@ describe("framework MCP tools", () => {
       required: ["id"],
     });
     expect(await listed("full")).toMatchObject(full);
+  });
+});
+
+describe("in-app agent tool schemas", () => {
+  const pair = defineAction({
+    description: "Reads a pair",
+    schema: z.object({ pair: z.tuple([z.number(), z.string()]) }),
+    run: async (args: unknown) => args,
+  });
+
+  it("lists each action as the gateway receives it and keeps it provider-safe", () => {
+    const [tool, ...rest] = listAgentToolSchemas({ pair });
+
+    expect(rest).toEqual([]);
+    expect(tool?.name).toBe("pair");
+    expect(tool?.inputSchema).toMatchObject({
+      properties: {
+        pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
+      },
+    });
+    expect(
+      providerSchemaViolations({
+        name: tool!.name,
+        inputSchema: tool!.inputSchema,
+      }).filter(({ provider }) =>
+        (AGENT_PATH_PROVIDERS as readonly string[]).includes(provider),
+      ),
+    ).toEqual([]);
+  });
+
+  it("serves a template's agent tools from its own actions", async () => {
+    const projectRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-tools-conformance-"),
+    );
+    try {
+      fs.mkdirSync(path.join(projectRoot, "actions"));
+      fs.writeFileSync(path.join(projectRoot, "actions", "pair.ts"), "");
+      const template = await loadTemplateMcpConformance(
+        projectRoot,
+        async () => ({ default: { pair: { default: pair } } }),
+      );
+
+      expect(template.listAgentTools().map(({ name }) => name)).toContain(
+        "pair",
+      );
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 });
