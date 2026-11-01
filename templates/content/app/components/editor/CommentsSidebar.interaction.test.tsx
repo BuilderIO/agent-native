@@ -591,30 +591,35 @@ describe("comment review interactions", () => {
   });
 
   /** Thread one's AI request, finished with the suggestion it names. */
-  const suggestedCommentAi = (suggestionId: string): CommentAiController => ({
-    requests: [
-      {
-        operationId: "request-one",
-        requestId: "request-one",
-        documentId: "fixture",
-        threadId: "one",
-        rootCommentId: "one-root",
-        intent: "suggest",
-        status: "suggested",
-        attemptId: null,
-        attemptCount: 1,
-        runId: null,
-        agentThreadId: null,
-        agentTurnId: null,
-        model: "claude-haiku-5-5",
-        engine: "anthropic",
-        result: { suggestionId },
-        errorCode: null,
-        error: null,
-        createdAt: "2026-10-20T12:00:00Z",
-        updatedAt: "2026-10-20T12:01:00Z",
-      },
-    ],
+  const suggestedRequest = (
+    suggestionId: string,
+    operationId = "request-one",
+    updatedAt = "2026-10-20T12:01:00Z",
+  ): CommentAiController["requests"][number] => ({
+    operationId,
+    requestId: operationId,
+    documentId: "fixture",
+    threadId: "one",
+    rootCommentId: "one-root",
+    intent: "suggest",
+    status: "suggested",
+    attemptId: null,
+    attemptCount: 1,
+    runId: null,
+    agentThreadId: null,
+    agentTurnId: null,
+    model: "claude-haiku-5-5",
+    engine: "anthropic",
+    result: { suggestionId },
+    errorCode: null,
+    error: null,
+    createdAt: "2026-10-20T12:00:00Z",
+    updatedAt,
+  });
+  const commentAiWithRequests = (
+    requests: CommentAiController["requests"],
+  ): CommentAiController => ({
+    requests,
     startingThreadIds: new Set<string>(),
     stoppingRequestIds: new Set<string>(),
     continuations: new Map(),
@@ -629,6 +634,8 @@ describe("comment review interactions", () => {
     freshResolutions: new Map(),
     dismissResolution: vi.fn(),
   });
+  const suggestedCommentAi = (suggestionId: string) =>
+    commentAiWithRequests([suggestedRequest(suggestionId)]);
 
   describe("Accept and resolve", () => {
     const asked = (id: string, status: ResourceSuggestion["status"]) => ({
@@ -757,6 +764,26 @@ describe("comment review interactions", () => {
       expect(
         container.querySelector("[data-suggestion-accept-resolve]"),
       ).not.toBeNull();
+    });
+
+    it("offers no resolve while an earlier request's edit is still loading", () => {
+      render("one", [thread("one")], "inline", {
+        suggestions: [asked("first", "pending"), asked("second", "pending")],
+        onDecideSuggestionProposal: decide,
+        decidingSuggestion: () => deciding,
+        commentAi: commentAiWithRequests([
+          suggestedRequest(
+            "earlier",
+            "request-earlier",
+            "2026-10-20T11:00:00Z",
+          ),
+          { ...suggestedRequest("first"), status: "replied" },
+        ]),
+        awaitedSuggestionIds: new Set(["earlier"]),
+      });
+      expect(
+        container.querySelector("[data-suggestion-accept-resolve]"),
+      ).toBeNull();
     });
 
     it("leaves the thread open when its AI adds an edit during the accept", () => {

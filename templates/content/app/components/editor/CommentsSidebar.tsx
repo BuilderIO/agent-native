@@ -421,6 +421,19 @@ function loadingRequestSuggestion(
   );
 }
 
+/** Whether an edit any of the thread's AI requests made is still loading. */
+function loadingThreadSuggestion(
+  requests: readonly CommentAiRequest[],
+  threadId: string,
+  awaitedSuggestionIds: ReadonlySet<string>,
+) {
+  return requests.some(
+    (request) =>
+      request.threadId === threadId &&
+      loadingRequestSuggestion(request, awaitedSuggestionIds),
+  );
+}
+
 /** Whether a thread's tab is on the page but not open. */
 function sameThreadIds(a: ReadonlySet<string>, b: ReadonlySet<string>) {
   return a.size === b.size && [...b].every((threadId) => a.has(threadId));
@@ -2728,11 +2741,13 @@ export function CommentsSidebar({
         (threadSuggestions.get(threadId) ?? []).some(
           (suggestion) => suggestion.status === "pending",
         ) ||
-        loadingRequestSuggestion(
-          commentAi
-            ? latestCommentAiRequest(commentAi.requests, threadId)
-            : undefined,
-          awaitedSuggestionIds,
+        Boolean(
+          commentAi &&
+          loadingThreadSuggestion(
+            commentAi.requests,
+            threadId,
+            awaitedSuggestionIds,
+          ),
         );
       if (
         thread &&
@@ -3059,6 +3074,14 @@ export function CommentsSidebar({
       aiRequest,
       awaitedSuggestionIds,
     );
+    const threadSuggestionLoading = Boolean(
+      commentAi &&
+      loadingThreadSuggestion(
+        commentAi.requests,
+        thread.threadId,
+        awaitedSuggestionIds,
+      ),
+    );
     const suggestionProps = (members: ResourceSuggestion[]) => {
       const proposalId = members.length > 1 ? members[0]?.proposalId : null;
       const pendingMembers = suggestions.filter(
@@ -3070,7 +3093,7 @@ export function CommentsSidebar({
       // the last group with any left offers to resolve, and none while an
       // edit is still loading.
       const pendingElsewhere =
-        aiSuggestionLoading ||
+        threadSuggestionLoading ||
         embedded.some(
           (suggestion) =>
             suggestion.status === "pending" && !members.includes(suggestion),
