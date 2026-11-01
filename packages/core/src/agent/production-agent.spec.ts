@@ -18443,6 +18443,13 @@ describe("runAgentLoop", () => {
       expect(await toolResultFor(async () => ({ moved: 21 }))).toBe(
         '{"moved":21}',
       );
+      const examples = {
+        note: "The literal prefix data:, has no payload.",
+        urls: ["data:,", "data:;base64,", "data:image/png;base64,"],
+      };
+      const actual = await toolResultFor(async () => examples);
+      if (typeof actual !== "string") throw new Error("Missing tool result");
+      expect(JSON.parse(actual)).toEqual(examples);
     });
 
     it("appends warnings raised deep inside the action's call stack", async () => {
