@@ -244,13 +244,9 @@ function parakeetReturns(text: string) {
       !(args as { discard?: boolean } | undefined)?.discard
     ) {
       return Promise.resolve({
+        failure: null,
+        dictation: { text, pass: "live", releaseToTextMs: 120, audioMs: 2_000 },
         voice: "heard",
-        transcript: {
-          text,
-          pass: "live",
-          releaseToTextMs: 120,
-          audioMs: 2_000,
-        },
       });
     }
     return Promise.resolve(
@@ -866,10 +862,10 @@ describe("desktop voice dictation runs", () => {
       expect(JSON.stringify(info.mock.calls)).not.toContain("recognized");
     });
 
-    it("dictates with Apple Speech until Parakeet is ready", async () => {
+    it("dictates with Apple Speech until Parakeet is ready, and says why", async () => {
       tauri.invoke.mockImplementation((command) => {
         if (command === "audio_transcription_start") {
-          return Promise.reject("parakeet-model-not-ready");
+          return Promise.reject("parakeet-model-not-ready:unloaded");
         }
         return Promise.resolve(
           command === "complete_voice_dictation" ? "inserted" : undefined,
@@ -892,6 +888,28 @@ describe("desktop voice dictation runs", () => {
       expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
         text: "recognized words",
       });
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "complete",
+        engineFallback: "loading",
+      });
+    });
+
+    it("fails loudly on a Parakeet refusal it can't read", async () => {
+      tauri.invoke.mockImplementation((command) => {
+        if (command === "audio_transcription_start") {
+          return Promise.reject("parakeet-model-not-ready:sideways");
+        }
+        return Promise.resolve(undefined);
+      });
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      await settle();
+
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "native_speech_start",
+        expect.anything(),
+      );
+      expect(stateChanges().at(-1)).toMatchObject({ state: "error" });
     });
 
     it("discards the recording when the dictation is cancelled", async () => {
@@ -952,10 +970,33 @@ describe("desktop voice dictation runs", () => {
       );
     });
 
+    it("fails as a microphone error when the mic sent no audio", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      tauri.invoke.mockImplementation((command) =>
+        command === "audio_transcription_stop"
+          ? Promise.reject("Microphone Studio Mic sent no audio in 2.0 s.")
+          : Promise.resolve(undefined),
+      );
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      await release();
+      await settle();
+
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "error",
+        failure: "microphone-unavailable",
+      });
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+    });
+
     describe("cancelled, then pressed again at once", () => {
       const transcript = (text: string) => ({
+        failure: null,
+        dictation: { text, pass: "live", releaseToTextMs: 120, audioMs: 900 },
         voice: "heard",
-        transcript: { text, pass: "live", releaseToTextMs: 120, audioMs: 900 },
       });
 
       // Every stop the test has not answered yet, by run.
@@ -1164,14 +1205,17 @@ describe("desktop voice dictation runs", () => {
         .map((state) => state.state);
 
     // The engine's stop call answers with the speech detector's verdict.
-    function engineStopReturns(result: unknown) {
+    function engineStopReturns(
+      voice: "heard" | "silent" | "unchecked",
+      dictation: unknown = null,
+    ) {
       tauri.invoke.mockImplementation((command, args) => {
+        if (command === "native_speech_stop") return Promise.resolve({ voice });
         if (
-          (command === "native_speech_stop" ||
-            command === "audio_transcription_stop") &&
+          command === "audio_transcription_stop" &&
           !(args as { discard?: boolean } | undefined)?.discard
         ) {
-          return Promise.resolve(result);
+          return Promise.resolve({ failure: null, dictation, voice });
         }
         return Promise.resolve(
           command === "complete_voice_dictation" ? "inserted" : undefined,
@@ -1340,7 +1384,7 @@ describe("desktop voice dictation runs", () => {
     it.each(onDeviceKinds)(
       "ends a silent %s hold as no speech without waiting",
       async (kind) => {
-        engineStopReturns({ voice: "silent" });
+        engineStopReturns("silent");
         const runId = await startRun(kind);
         await release();
         await settle();
@@ -1360,7 +1404,7 @@ describe("desktop voice dictation runs", () => {
     it.each(["native", "whisper"] as const)(
       "pastes what %s heard even when the detector called the hold silent",
       async (kind) => {
-        engineStopReturns({ voice: "silent" });
+        engineStopReturns("silent");
         const runId = await startRun(kind);
         emitFinal(runId, "recognized words");
         await release();
@@ -1376,14 +1420,11 @@ describe("desktop voice dictation runs", () => {
     );
 
     it("pastes what Parakeet heard even when the detector called the hold silent", async () => {
-      engineStopReturns({
-        voice: "silent",
-        transcript: {
-          text: "recognized words",
-          pass: "live",
-          releaseToTextMs: 120,
-          audioMs: 2_000,
-        },
+      engineStopReturns("silent", {
+        text: "recognized words",
+        pass: "live",
+        releaseToTextMs: 120,
+        audioMs: 2_000,
       });
       await startRun("parakeet");
       await release();
@@ -1397,7 +1438,7 @@ describe("desktop voice dictation runs", () => {
     it.each(["heard", "unchecked"] as const)(
       "waits for the transcript when the detector answers %s",
       async (voice) => {
-        engineStopReturns({ voice });
+        engineStopReturns(voice);
         const runId = await startRun("whisper");
         await release();
         await vi.advanceTimersByTimeAsync(1_000);
@@ -1890,5 +1931,22 @@ describe("desktop voice dictation runs", () => {
         });
       },
     );
+  });
+});
+
+describe("parakeetUnavailableReason", () => {
+  it("reads the reason a Parakeet start gave and nothing else", async () => {
+    const { parakeetUnavailableReason } = await import("./voice-dictation");
+    expect(parakeetUnavailableReason("parakeet-model-not-ready:busy")).toBe(
+      "busy",
+    );
+    expect(
+      parakeetUnavailableReason(new Error("parakeet-model-not-ready:failed")),
+    ).toBe("failed");
+    expect(parakeetUnavailableReason("parakeet-model-not-ready:unloaded")).toBe(
+      "loading",
+    );
+    expect(parakeetUnavailableReason("parakeet-model-not-ready")).toBeNull();
+    expect(parakeetUnavailableReason("mic capture failed")).toBeNull();
   });
 });

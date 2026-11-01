@@ -2161,6 +2161,12 @@ const messages = {
     flowOriginalTranscript: "मूल ट्रांसक्रिप्ट दिखाएँ",
     flowCleanupSkipped: "टेक्स्ट की सफ़ाई छोड़ी गई; मूल टेक्स्ट रखा गया",
     flowBacktrackSkipped: "टेक्स्ट संपादन छोड़ा गया; पहचाना गया टेक्स्ट रखा गया",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet डाउनलोड नहीं हुआ",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet डाउनलोड हो रहा है",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet लोड हो रहा है",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet व्यस्त है",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet लोड नहीं हो सका",
     flowCancelDictation: "डिक्टेशन रद्द करें",
     flowCopying: "ट्रांसक्रिप्ट कॉपी हो रहा है…",
     aiProcessed: "AI द्वारा प्रोसेस किया गया",

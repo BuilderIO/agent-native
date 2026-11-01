@@ -6,9 +6,9 @@ import { allocateVoiceRunId } from "./voice-dictation-lifecycle";
 export type TranscriptSource = "mic" | "system";
 export type TranscriptionEngine = "whisper" | "macos-native";
 /**
- * A model the on-device engine runs instead of Whisper when it is loaded.
- * The engine falls back to Whisper when it is not, so meetings never wait on
- * a download.
+ * A model the on-device engine runs instead of Whisper. A meeting waits for
+ * it to load, and uses Whisper when its file isn't downloaded or fails to
+ * load, so a meeting never waits on a download.
  */
 export type LocalTranscriptionModel = "parakeet";
 
@@ -286,7 +286,6 @@ export async function restartTranscriptionEngine(
   engine: TranscriptionEngine,
   mic?: MicSelection,
   captureSystem: boolean = true,
-  voiceProcessing: boolean = false,
   emitPartials: boolean = true,
   runId: number = allocateVoiceRunId(),
   localModel: LocalTranscriptionModel | null = null,
@@ -298,7 +297,6 @@ export async function restartTranscriptionEngine(
       micDeviceId: mic?.deviceId || null,
       micDeviceLabel: mic?.label || null,
       captureSystem,
-      voiceProcessing,
       emitPartials,
       owner: "meeting",
       runId,
@@ -318,14 +316,12 @@ export async function restartTranscriptionEngine(
 export async function startTranscriptionEngine(opts: {
   mic?: MicSelection;
   captureSystem?: boolean;
-  voiceProcessing?: boolean;
   emitPartials?: boolean;
   runId?: number;
   canContinue?: () => boolean;
   localModel?: LocalTranscriptionModel | null;
 }): Promise<TranscriptionEngine> {
   const captureSystem = opts.captureSystem ?? true;
-  const voiceProcessing = opts.voiceProcessing ?? false;
   const emitPartials = opts.emitPartials ?? true;
   const runId = opts.runId ?? allocateVoiceRunId();
   const localModel = opts.localModel ?? null;
@@ -340,7 +336,6 @@ export async function startTranscriptionEngine(opts: {
       "whisper",
       opts.mic,
       captureSystem,
-      voiceProcessing,
       emitPartials,
       runId,
       localModel,
@@ -368,7 +363,6 @@ export async function startTranscriptionEngine(opts: {
           "whisper",
           undefined,
           captureSystem,
-          voiceProcessing,
           emitPartials,
           runId,
           localModel,
@@ -392,7 +386,6 @@ export async function startTranscriptionEngine(opts: {
         "macos-native",
         fallbackMic,
         true,
-        false,
         true,
         runId,
       );
@@ -410,15 +403,34 @@ export async function startTranscriptionEngine(opts: {
   }
 }
 
+export interface TranscriptionStopResult {
+  /**
+   * The first failure the stopped run reported, such as a microphone that
+   * sent no usable audio. Its transcript is then missing speech.
+   */
+  failure: string | null;
+}
+
+function whisperStopResult(payload: unknown): TranscriptionStopResult {
+  const failure = (payload as { failure?: unknown } | null)?.failure;
+  if (failure === null || typeof failure === "string") return { failure };
+  return {
+    failure:
+      "Local Whisper stopped without reporting whether it captured all the audio.",
+  };
+}
+
 export async function stopTranscriptionEngine(
   engine: TranscriptionEngine,
   runId: number,
-): Promise<void> {
+): Promise<TranscriptionStopResult> {
   if (engine === "whisper") {
-    await invoke("audio_transcription_stop", { owner: "meeting", runId });
-    return;
+    return whisperStopResult(
+      await invoke("audio_transcription_stop", { owner: "meeting", runId }),
+    );
   }
   await invoke("native_speech_stop", { owner: "meeting", runId });
+  return { failure: null };
 }
 
 export async function resetTranscriptionTimeline(

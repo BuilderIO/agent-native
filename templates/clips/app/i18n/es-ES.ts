@@ -2244,6 +2244,11 @@ const messages = {
     flowCleanupSkipped: "Se omitió la revisión y se conservó el texto original",
     flowBacktrackSkipped:
       "Se omitió la edición y se conservó el texto reconocido",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet no descargado",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Descargando Parakeet",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Cargando Parakeet",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet ocupado",
+    flowAppleSpeechParakeetFailed: "Apple Speech · No se pudo cargar Parakeet",
     flowCancelDictation: "Cancelar dictado",
     flowCopying: "Copiando la transcripción…",
     aiProcessed: "Procesado por IA",

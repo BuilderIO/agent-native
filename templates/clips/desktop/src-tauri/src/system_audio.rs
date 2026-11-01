@@ -66,7 +66,6 @@ pub async fn audio_transcription_start(
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     capture_system: Option<bool>,
-    voice_processing: Option<bool>,
     emit_partials: Option<bool>,
     owner: Option<String>,
     run_id: Option<u64>,
@@ -80,7 +79,6 @@ pub async fn audio_transcription_start(
         mic_device_id,
         mic_device_label,
         capture_system.unwrap_or(true),
-        voice_processing.unwrap_or(false),
         emit_partials.unwrap_or(true),
         owner,
         run_id,
@@ -104,7 +102,7 @@ pub async fn audio_transcription_stop(
     owner: Option<String>,
     run_id: Option<u64>,
     discard: Option<bool>,
-) -> Result<Option<crate::whisper_speech::DictationStop>, String> {
+) -> Result<crate::whisper_speech::WhisperStopResult, String> {
     crate::whisper_speech::whisper_transcription_stop(app, owner, run_id, discard.unwrap_or(false))
         .await
 }
