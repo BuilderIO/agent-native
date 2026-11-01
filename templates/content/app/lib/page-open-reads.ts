@@ -164,18 +164,65 @@ function openReads(queryClient: QueryClient) {
   return reads;
 }
 
+type PageOpenReadStart = { identity?: SessionReadIdentity; startedAt?: number };
+
 // Returns whether it started a read; one made for this open already counts.
 export function startPageOpenRead<TData>(
   queryClient: QueryClient,
   documentId: string,
   options: FetchQueryOptions<TData, Error, TData, QueryKey>,
+  start: PageOpenReadStart = {},
+): boolean {
+  if (!beginPageOpenRead(queryClient, documentId, options.queryKey, start)) {
+    return false;
+  }
+  void queryClient.prefetchQuery({ ...options, staleTime: 0 });
+  return true;
+}
+
+/**
+ * Puts an answer this open already holds in the cache as a read made for the
+ * open, such as a part another read brought along. It is dated from the
+ * request that read it, not from now, so it is never fresher than that
+ * request's own answer. Like any page-open read it is held to the identity it
+ * was read as. Returns whether it did.
+ */
+export function seedPageOpenRead<TData>(
+  queryClient: QueryClient,
+  documentId: string,
+  queryKey: QueryKey,
+  data: TData,
+  start: PageOpenReadStart & { startedAt: number },
+): boolean {
+  // Unlike a fetch, a seed writes at once, so it is checked before it does.
+  const identity = start.identity ?? sessionReadIdentity();
+  if (sessionReadIdentityStatus(identity) === "stale") return false;
+  if (
+    !beginPageOpenRead(queryClient, documentId, queryKey, {
+      ...start,
+      identity,
+    })
+  ) {
+    return false;
+  }
+  queryClient.setQueryData(queryKey, data, { updatedAt: start.startedAt });
+  // A cache write is not a fetch's success, so mark it landed here.
+  const read = openReads(queryClient).get(hashKey(queryKey));
+  if (read) read.landed = true;
+  return true;
+}
+
+function beginPageOpenRead(
+  queryClient: QueryClient,
+  documentId: string,
+  queryKey: QueryKey,
   {
     identity = sessionReadIdentity(),
     startedAt = Date.now(),
-  }: { identity?: SessionReadIdentity; startedAt?: number } = {},
+  }: PageOpenReadStart,
 ): boolean {
   const reads = openReads(queryClient);
-  const queryHash = hashKey(options.queryKey);
+  const queryHash = hashKey(queryKey);
   const current = reads.get(queryHash);
   if (
     current &&
@@ -184,13 +231,11 @@ export function startPageOpenRead<TData>(
   ) {
     return false;
   }
-  const query = queryClient
-    .getQueryCache()
-    .find({ queryKey: options.queryKey, exact: true });
+  const query = queryClient.getQueryCache().find({ queryKey, exact: true });
   // A fetch already in flight may predate this open, or be a spoiled earlier
   // read; the new read must not join it. Cancelling reverts the query at once.
   if (query && query.state.fetchStatus !== "idle") {
-    void queryClient.cancelQueries({ queryKey: options.queryKey, exact: true });
+    void queryClient.cancelQueries({ queryKey, exact: true });
   }
   // An already-invalidated query dispatches no further invalidate events, so
   // clear the flag before this read replaces its data; otherwise a change that
@@ -206,11 +251,7 @@ export function startPageOpenRead<TData>(
     identity,
   };
   reads.set(queryHash, read);
-  watchReads(queryClient).reads.set(read, {
-    queryKey: options.queryKey,
-    handedOver: false,
-  });
-  void queryClient.prefetchQuery({ ...options, staleTime: 0 });
+  watchReads(queryClient).reads.set(read, { queryKey, handedOver: false });
   return true;
 }
 

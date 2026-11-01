@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // and the table adopts them as its own reads while they are fresh. Like the
 // page, each part is as old as the request that read it, not as old as the
 // moment its answer was put in the cache: a slow answer leaves the table
-// less of the freshness window, never a new one.
+// less of the freshness window, never a new one, and its cached copy is
+// dated from the request.
 
 const server = vi.hoisted(() => ({
   held: [] as Array<(value: unknown) => void>,
@@ -76,11 +77,12 @@ const answer = {
 describe("a collection part seeded late in the page-open read's life", () => {
   let queryClient: QueryClient;
   let requestAge = 0;
+  let sentAt = 0;
 
   beforeEach(() => {
     server.held = [];
     queryClient = new QueryClient();
-    const sentAt = Date.now();
+    sentAt = Date.now();
     requestAge = 0;
     vi.spyOn(Date, "now").mockImplementation(() => sentAt + requestAge);
   });
@@ -110,6 +112,14 @@ describe("a collection part seeded late in the page-open read's life", () => {
       expect(claimPageOpenRead(queryClient, queryKey).adoption).toBe("none");
     },
   );
+
+  it("dates every part from the request, not from when its answer landed", async () => {
+    await answerAtNineSeconds();
+
+    for (const [, queryKey] of parts) {
+      expect(queryClient.getQueryState(queryKey)?.dataUpdatedAt).toBe(sentAt);
+    }
+  });
 
   it("is adopted while the request is still inside the window", async () => {
     await answerAtNineSeconds();

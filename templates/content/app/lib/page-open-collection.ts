@@ -24,7 +24,7 @@ import type { PreviewDocumentDraftResponse } from "../hooks/use-documents";
 import {
   claimPageOpenRead,
   releasePageOpenRead,
-  startPageOpenRead,
+  seedPageOpenRead,
   trackedPageOpenRead,
   type PageOpenRead,
   type PageOpenReadAdoption,
@@ -165,9 +165,10 @@ export function pageOpenReadOwner(
  * looks for them, as reads made for this open. They carry the page read's
  * identity, so they are held like it: dropped if the session turns out to be
  * someone else's, and never seeded once it has. Nothing is seeded once the
- * read's owner is gone. A part being read now, read since this open's read
- * started, or invalidated while it was out, is left to its own read; one
- * read earlier, say on a previous visit, is replaced.
+ * read's owner is gone. Every part is dated from the request that read it,
+ * so none looks fresher than that request. A part being read now, read since
+ * this open's read started, or invalidated while it was out, is left to its
+ * own read; one read earlier, say on a previous visit, is replaced.
  */
 export function seedPageOpenCollection(
   queryClient: QueryClient,
@@ -176,7 +177,6 @@ export function seedPageOpenCollection(
   { owner }: { owner?: PageOpenReadOwner } = {},
 ) {
   if (owner && !owner.stillOwns()) return;
-  if (owner && sessionReadIdentityStatus(owner.identity) === "stale") return;
   const readStartedAt = owner?.startedAt ?? Date.now();
   const seeds: Array<[QueryKey, unknown]> = [];
   if (collection.database !== undefined) {
@@ -217,16 +217,10 @@ export function seedPageOpenCollection(
     ) {
       continue;
     }
-    // Its freshness counts from the request, as the page's does.
-    startPageOpenRead(
-      queryClient,
-      documentId,
-      { queryKey, queryFn: () => Promise.resolve(value), retry: false },
-      {
-        ...(owner ? { identity: owner.identity } : {}),
-        startedAt: readStartedAt,
-      },
-    );
+    seedPageOpenRead(queryClient, documentId, queryKey, value, {
+      ...(owner ? { identity: owner.identity } : {}),
+      startedAt: readStartedAt,
+    });
   }
 }
 
