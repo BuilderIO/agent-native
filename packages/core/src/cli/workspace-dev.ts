@@ -33,6 +33,19 @@ import { openUrlInBrowser } from "./open-url.js";
 import { DEV_SERVER_SUPERVISOR_ENV } from "./process.js";
 import { captureSentryException } from "./sentry-telemetry.js";
 
+// Windows only resolves `pnpm.cmd` shims through a shell, and the shell needs
+// the command line quoted because app directories may contain spaces.
+export function pnpmSpawnTarget(
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): [string, string[], boolean] {
+  if (platform !== "win32") return ["pnpm", args, false];
+  const quoted = args.map((arg) =>
+    /[\s"&|<>^()%!]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg,
+  );
+  return [["pnpm", ...quoted].join(" "), [], true];
+}
+
 export interface WorkspaceApp {
   id: string;
   name: string;
@@ -894,7 +907,9 @@ export async function runWorkspaceDev(
       );
     }
 
-    const child = spawnProcess("pnpm", childArgs, {
+    const [pnpmCommand, pnpmArgs, pnpmShell] = pnpmSpawnTarget(childArgs);
+    const child = spawnProcess(pnpmCommand, pnpmArgs, {
+      ...(pnpmShell ? { shell: true } : {}),
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",

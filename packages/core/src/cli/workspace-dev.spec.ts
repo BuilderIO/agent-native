@@ -1291,3 +1291,27 @@ function fakeSpawn(pid?: number): {
         .map((call) => path.basename(call.args[1])),
   };
 }
+
+describe("workspace app spawn on Windows", () => {
+  it("runs pnpm through a shell so a pnpm.cmd shim resolves", async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn();
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: testEnv(),
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+      });
+      const { url } = await handle.ready;
+      await fetch(`${url}/dispatch`, { headers: { accept: "text/html" } });
+      const call = fake.calls().at(-1);
+      expect(call?.options?.shell).toBe(true);
+      expect(call?.command).toMatch(/^pnpm /);
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+    }
+  });
+});
