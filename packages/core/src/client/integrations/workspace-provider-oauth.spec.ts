@@ -91,6 +91,25 @@ describe("workspaceProviderOAuthUrl", () => {
     expect(url.searchParams.get("return")).toBe(serverReturnPath);
   });
 
+  it("preserves scoped consent options alongside a server return path", () => {
+    stubUi("https://api.example.com/mail");
+    const url = new URL(
+      workspaceProviderOAuthUrl("gmail", {
+        appId: "mail",
+        requestedScopes: ["openid", "email"],
+        optionalScopes: ["email"],
+        targetAccountEmail: "owner@example.test",
+        serverReturnPath: "/_agent-native/oauth/popup",
+      }),
+    );
+    expect(url.searchParams.get("requestedScopes")).toBe("openid email");
+    expect(url.searchParams.get("optionalScopes")).toBe("email");
+    expect(url.searchParams.get("targetAccountEmail")).toBe(
+      "owner@example.test",
+    );
+    expect(url.searchParams.get("return")).toBe("/_agent-native/oauth/popup");
+  });
+
   it("navigates the page to the start URL", () => {
     const assign = stubUi();
     startWorkspaceProviderOAuth("google_calendar", { appId: "calendar" });

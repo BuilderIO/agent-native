@@ -73,6 +73,37 @@ describe("action lifecycle tracking", () => {
     );
   });
 
+  it("omits output IDs for private actions and inherited private turns", async () => {
+    const events = captureEvents();
+    const privateAction = wrapRunWithActionTracking(
+      async () => ({ id: "private-record-id" }),
+      false,
+      { includeOutputId: false },
+    );
+    const inheritedPrivateTurn = wrapRunWithActionTracking(
+      async () => ({ id: "private-result-id" }),
+      false,
+    );
+
+    await privateAction({}, context);
+    await inheritedPrivateTurn(
+      {},
+      {
+        ...context,
+        omitFromPersistedHistory: true,
+      },
+    );
+
+    expect(
+      events.filter((event) => event.name === "action_completed"),
+    ).toHaveLength(2);
+    expect(
+      events
+        .filter((event) => event.name === "action_completed")
+        .every((event) => !("output_id" in (event.properties ?? {}))),
+    ).toBe(true);
+  });
+
   it("records a failed outcome and preserves the original error", async () => {
     const events = captureEvents();
     const failure = new Error("storage unavailable");

@@ -41,6 +41,7 @@ import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import {
+  hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
   isFederationMembershipValidatedForEvent,
   resolveOrgIdForEmail,
@@ -1275,10 +1276,49 @@ function mountActionRoutesInternal(
             orgId = await storedActiveOrgId(resolvedCaller.owner);
           }
         } else if (!capabilityAllowed || userEmail) {
-          orgId = options?.resolveOrgId
-            ? ((await options.resolveOrgId(event)) ?? undefined)
-            : undefined;
-          if (!hasExplicitPersonalOrgScope(event) && !orgId && userEmail) {
+          const publicRead =
+            entry.requiresAuth === false && entry.readOnly === true;
+          let orgUnavailable = false;
+          try {
+            orgId = options?.resolveOrgId
+              ? ((await options.resolveOrgId(event)) ?? undefined)
+              : undefined;
+          } catch (error) {
+            if (
+              !publicRead ||
+              !(
+                typeof error === "object" &&
+                error !== null &&
+                "statusCode" in error &&
+                error.statusCode === 503
+              )
+            )
+              throw error;
+            orgUnavailable = true;
+          }
+          const orgForbidden = hasForbiddenOrgScope(event);
+          orgUnavailable ||= hasOrgScopeResolutionUnavailable(event);
+          if (orgForbidden || orgUnavailable) {
+            orgId = undefined;
+            orgScope = undefined;
+          }
+          if (orgForbidden && !publicRead) {
+            setResponseStatus(event, 403);
+            return { error: "Organization scope is forbidden." };
+          }
+          if (orgUnavailable && !publicRead) {
+            setResponseStatus(event, 503);
+            return {
+              error: "Organization scope is unavailable. Please retry.",
+            };
+          }
+          if (
+            !orgUnavailable &&
+            !orgForbidden &&
+            !hasExplicitPersonalOrgScope(event) &&
+            !orgId &&
+            userEmail
+          ) {
             orgId = await storedActiveOrgId(userEmail);
             if (!orgId) {
               try {
@@ -1768,17 +1808,20 @@ function mountActionRoutesInternal(
               setResponseStatus(event, status);
 
               const failureCaller = requestCaller;
+              const privateAction = entry.persistInChatHistory === false;
               countActionFailure({
                 action: name,
                 status,
                 caller: failureCaller,
-                errorCode: llmProviderMissing
-                  ? LLM_PROVIDER_MISSING_ERROR_CODE
-                  : typeof err?.errorCode === "string"
-                    ? err.errorCode
-                    : isValidationError
-                      ? "validation"
-                      : undefined,
+                errorCode: privateAction
+                  ? undefined
+                  : llmProviderMissing
+                    ? LLM_PROVIDER_MISSING_ERROR_CODE
+                    : typeof err?.errorCode === "string"
+                      ? err.errorCode
+                      : isValidationError
+                        ? "validation"
+                        : undefined,
               });
               if (llmProviderMissing) {
                 countCredentialState(
@@ -1859,21 +1902,29 @@ function mountActionRoutesInternal(
                         : {}),
                     };
               }
-              const captureId = captureError(err, {
-                route: routePath,
-                method: reqMethod,
-                tags: {
-                  action: name,
-                  caller: failureCaller,
-                  status_code: String(status),
+              const captureId = captureError(
+                privateAction ? new Error("Private content omitted") : err,
+                {
+                  ...(privateAction
+                    ? { errorMessagePolicy: "omit" as const }
+                    : {}),
+                  route: routePath,
+                  method: reqMethod,
+                  tags: {
+                    action: name,
+                    caller: failureCaller,
+                    status_code: String(status),
+                  },
+                  ...(requestId ? { extra: { request_id: requestId } } : {}),
                 },
-                ...(requestId ? { extra: { request_id: requestId } } : {}),
-              });
+              );
               console.error(`[agent-native] action '${name}' failed:`, {
                 action: name,
                 ...(requestId ? { requestId } : {}),
                 ...(captureId ? { captureId } : {}),
-                error: redactErrorStack(err) ?? redact(String(err)),
+                error: privateAction
+                  ? "Private content omitted"
+                  : (redactErrorStack(err) ?? redact(String(err))),
               });
               return { error: "Internal server error" };
             }
