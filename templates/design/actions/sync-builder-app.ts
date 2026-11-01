@@ -1,5 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { ensureFusionContainer } from "@agent-native/core/server";
+import {
+  ensureFusionContainer,
+  isFusionDevServerServing,
+} from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, count, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -18,6 +21,8 @@ import {
   readFusionApp,
   writeFusionApp,
 } from "../shared/full-app.js";
+
+const DEV_SERVER_STARTING_MESSAGE = "Starting the dev server";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -83,26 +88,71 @@ export default defineAction({
       });
     }
 
-    const result = await ensureFusionContainer({
+    // A local session's app runs on the user's machine, not in a container.
+    if (fusionApp.projectId === "local") {
+      return {
+        status: fusionApp.status,
+        ...(fusionApp.previewUrl ? { previewUrl: fusionApp.previewUrl } : {}),
+        pendingEditCount: await countPendingEdits(design),
+      };
+    }
+
+    const ensureStartedAt = Date.now();
+    const container = await ensureFusionContainer({
       projectId: fusionApp.projectId,
       branchName: fusionApp.branchName,
       timeoutMs: 20_000,
+    }).catch((err: unknown) => ({
+      // Reaching Builder failed (e.g. this caller has no Builder
+      // credentials): a failed check, not a failed app.
+      status: "error" as const,
+      message: err instanceof Error ? err.message : String(err),
+      errorSource: "request" as const,
+    }));
+    // The container is up before its dev server serves, and a screen loaded
+    // in between never gets the editor bridge: it is still starting until then.
+    const result =
+      container.status === "ready" &&
+      container.url &&
+      !(await isFusionDevServerServing(container.url))
+        ? {
+            status: "provisioning" as const,
+            message: DEV_SERVER_STARTING_MESSAGE,
+          }
+        : container;
+    console.info("[sync-builder-app] container", {
+      projectId: fusionApp.projectId,
+      status: result.status,
+      ensureMs: Date.now() - ensureStartedAt,
     });
 
     const now = new Date().toISOString();
+    // The container check can take 20 s. If the app changed meanwhile (another
+    // sync found it ready), a failure or "still starting" seen here is stale.
+    const isSuperseded = (current: Record<string, unknown>) =>
+      readFusionApp(current)?.updatedAt !== fusionApp.updatedAt;
 
     if (result.status === "error") {
       const statusMessage = result.message ?? "Container provisioning failed";
+      // Only the container failing marks the app failed for everyone. A
+      // failed request (e.g. this caller's Builder credentials), or any
+      // error over an app that was working, is this caller's to see.
+      if (result.errorSource !== "container" || fusionApp.status === "ready") {
+        return { status: "error" as const, message: statusMessage };
+      }
       await mutateDesignData({
         designId,
         mutate: (current) =>
-          writeFusionApp(current, {
-            ...(readFusionApp(current) ?? fusionApp),
-            status: "error",
-            statusMessage,
-            updatedAt: now,
-          }),
+          isSuperseded(current)
+            ? current
+            : writeFusionApp(current, {
+                ...(readFusionApp(current) ?? fusionApp),
+                status: "error",
+                statusMessage,
+                updatedAt: now,
+              }),
         isApplied: (current) => {
+          if (isSuperseded(current)) return true;
           const persisted = readFusionApp(current);
           return (
             persisted?.status === "error" &&
@@ -118,23 +168,30 @@ export default defineAction({
 
     if (result.status === "provisioning") {
       const statusMessage = result.message ?? "Container is still starting";
-      await mutateDesignData({
-        designId,
-        mutate: (current) =>
-          writeFusionApp(current, {
-            ...(readFusionApp(current) ?? fusionApp),
-            status: "building",
-            statusMessage,
-            updatedAt: now,
-          }),
-        isApplied: (current) => {
-          const persisted = readFusionApp(current);
-          return (
-            persisted?.status === "building" &&
-            persisted.statusMessage === statusMessage
-          );
-        },
-      });
+      const alreadyStarting =
+        fusionApp.status === "building" &&
+        fusionApp.statusMessage === statusMessage;
+      if (!alreadyStarting)
+        await mutateDesignData({
+          designId,
+          mutate: (current) =>
+            isSuperseded(current)
+              ? current
+              : writeFusionApp(current, {
+                  ...(readFusionApp(current) ?? fusionApp),
+                  status: "building",
+                  statusMessage,
+                  updatedAt: now,
+                }),
+          isApplied: (current) => {
+            if (isSuperseded(current)) return true;
+            const persisted = readFusionApp(current);
+            return (
+              persisted?.status === "building" &&
+              persisted.statusMessage === statusMessage
+            );
+          },
+        });
       return {
         status: "building" as const,
         message: statusMessage,
@@ -173,25 +230,30 @@ export default defineAction({
     });
 
     const statusMessage = result.message ?? "Container is ready";
-    await mutateDesignData({
-      designId,
-      mutate: (current) =>
-        writeFusionApp(current, {
-          ...(readFusionApp(current) ?? fusionApp),
-          previewUrl,
-          status: "ready",
-          statusMessage,
-          updatedAt: now,
-        }),
-      isApplied: (current) => {
-        const persisted = readFusionApp(current);
-        return (
-          persisted?.previewUrl === previewUrl &&
-          persisted.status === "ready" &&
-          persisted.statusMessage === statusMessage
-        );
-      },
-    });
+    const alreadyReady =
+      fusionApp.status === "ready" &&
+      fusionApp.previewUrl === previewUrl &&
+      fusionApp.statusMessage === statusMessage;
+    if (!alreadyReady)
+      await mutateDesignData({
+        designId,
+        mutate: (current) =>
+          writeFusionApp(current, {
+            ...(readFusionApp(current) ?? fusionApp),
+            previewUrl,
+            status: "ready",
+            statusMessage,
+            updatedAt: now,
+          }),
+        isApplied: (current) => {
+          const persisted = readFusionApp(current);
+          return (
+            persisted?.previewUrl === previewUrl &&
+            persisted.status === "ready" &&
+            persisted.statusMessage === statusMessage
+          );
+        },
+      });
 
     const pendingEditCount = await countPendingEdits(design);
 

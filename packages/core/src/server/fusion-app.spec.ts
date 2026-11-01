@@ -18,7 +18,9 @@ import {
   getBuilderReferralInfo,
   getBuilderCreditUsage,
   getFusionDeploys,
+  isFusionDevServerServing,
   pushFusionBranch,
+  sendFusionBranchMessage,
 } from "./fusion-app.js";
 
 describe("Fusion Builder authorization", () => {
@@ -318,5 +320,120 @@ describe("Fusion Builder authorization", () => {
       statusCode: 502,
       details: { upstreamStatus: 200 },
     });
+  });
+});
+
+describe("sendFusionBranchMessage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+      oauthScope: "user",
+    });
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const streamOf = (...events: Record<string, unknown>[]) =>
+    new Response(
+      [
+        { type: "sending-message" },
+        ...events.map((event) => ({ type: "ai", event })),
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+      { status: 200 },
+    );
+
+  it("finishes on a turn that ended the run", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      streamOf(
+        { type: "done", autoContinue: true, actions: [] },
+        { type: "done", autoContinue: true, stopReason: "max_tokens" },
+        {
+          type: "done",
+          autoContinue: false,
+          actions: [{ type: "text", content: "Updated the header." }],
+        },
+      ),
+    );
+
+    await expect(
+      sendFusionBranchMessage({
+        projectId: "project-1",
+        branchName: "main",
+        prompt: "Make the header blue",
+        fireAndForget: false,
+      }),
+    ).resolves.toEqual({
+      sent: true,
+      completed: true,
+      response: "Updated the header.",
+    });
+  });
+
+  it("is unconfirmed when the stream ends on a turn the agent continues", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      streamOf({ type: "done", autoContinue: true, actions: [] }),
+    );
+
+    await expect(
+      sendFusionBranchMessage({
+        projectId: "project-1",
+        branchName: "main",
+        prompt: "Make the header blue",
+        fireAndForget: false,
+      }),
+    ).resolves.toMatchObject({ sent: true, unconfirmed: true });
+  });
+});
+
+describe("isFusionDevServerServing", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("asks the branch's launch server whether the dev server serves", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({ state: "active-session", httpServerState: "ok-2xx" }),
+      ),
+    );
+
+    await expect(
+      isFusionDevServerServing("https://project-1-main.example.test/"),
+    ).resolves.toBe(true);
+    expect(String(vi.mocked(fetch).mock.calls[0]![0])).toBe(
+      "https://project-1-main.example.test/_builder.io/api/status-v2",
+    );
+  });
+
+  it("is not serving while the container is up but the dev server is not", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({ state: "init-running", httpServerState: "pending" }),
+      ),
+    );
+
+    await expect(
+      isFusionDevServerServing("https://project-1-main.example.test"),
+    ).resolves.toBe(false);
+  });
+
+  it("is not serving when the launch server does not answer", async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(
+      isFusionDevServerServing("https://project-1-main.example.test"),
+    ).resolves.toBe(false);
   });
 });
