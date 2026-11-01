@@ -616,6 +616,21 @@ mod macos {
             && vad_probability.is_none_or(|probability| probability >= MIN_MIC_VAD_PROBABILITY)
     }
 
+    /// Whether the audio after the first `polled` samples of `raw` holds
+    /// voice, judged the way the worker's loop judges each new stretch.
+    fn unpolled_voice(
+        raw: &[f32],
+        polled: usize,
+        sample_rate: f32,
+        vad: Option<&mut MicVoiceActivity>,
+    ) -> bool {
+        let Some(tail) = raw.get(polled..).filter(|tail| !tail.is_empty()) else {
+            return false;
+        };
+        let rms = (tail.iter().map(|x| x * x).sum::<f32>() / tail.len() as f32).sqrt();
+        mic_voice_detected(rms, vad.and_then(|vad| vad.observe(tail, sample_rate)))
+    }
+
     fn buffer_start_after_drain(now: Instant, pending: Duration) -> Instant {
         now.checked_sub(pending).unwrap_or(now)
     }
@@ -793,6 +808,15 @@ mod macos {
 
         let raw = stream.buf.lock().map(|b| b.clone()).unwrap_or_default();
         let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
+        // Stopping delivers the capture's last buffers after the loop's final
+        // poll, so speech heard only there must still count.
+        let had_voice = had_voice
+            || unpolled_voice(
+                &raw,
+                last_raw_len,
+                src_rate.max(1.0) as f32,
+                mic_voice_activity.as_mut(),
+            );
         let samples = resample_to_16k(&raw, src_rate);
         if had_voice
             && samples.len() as f32 / SAMPLE_RATE_16K > 0.3
@@ -1770,6 +1794,19 @@ mod macos {
             assert!(!super::mic_voice_detected(0.004, Some(0.99)));
             assert!(super::mic_voice_detected(0.02, Some(0.6)));
             assert!(super::mic_voice_detected(0.02, None));
+        }
+
+        #[test]
+        fn speech_delivered_after_the_last_poll_counts_as_voice() {
+            let polled = 4_800;
+            let mut raw = vec![0.0; polled];
+            raw.extend((0..4_800).map(|i| if i % 2 == 0 { 0.1 } else { -0.1 }));
+            assert!(super::unpolled_voice(&raw, polled, 48_000.0, None));
+
+            let quiet_tail = vec![0.0; polled * 2];
+            assert!(!super::unpolled_voice(&quiet_tail, polled, 48_000.0, None));
+            assert!(!super::unpolled_voice(&raw, raw.len(), 48_000.0, None));
+            assert!(!super::unpolled_voice(&raw, raw.len() + 1, 48_000.0, None));
         }
 
         #[test]
