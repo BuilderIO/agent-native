@@ -68,6 +68,7 @@ const guards = [
   "guard:ssr-cache-shell",
   "guard:ssr-cache-artifact",
   "guard:route-chunk-recovery",
+  "guard:blocker-safe-module-names",
   "guard:one-sign-in",
   "guard:no-secret-literals",
   "guard:additive-migrations",

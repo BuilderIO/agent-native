@@ -2269,6 +2269,9 @@ jobs:
       - name: Test legacy MCP hint baseline guard
         run: pnpm test:no-new-legacy-mcp-hints
 
+      - name: Test blocker-safe module names guard
+        run: pnpm test:blocker-safe-module-names
+
       - name: Test strictness ratchet guards
         run: pnpm test:strictness-guards
 
