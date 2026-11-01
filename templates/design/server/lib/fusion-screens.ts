@@ -209,7 +209,10 @@ export async function upsertFusionScreens(args: {
         designId,
         async (tx) => {
           const [current] = await tx
-            .select({ id: schema.designFiles.id })
+            .select({
+              id: schema.designFiles.id,
+              content: schema.designFiles.content,
+            })
             .from(schema.designFiles)
             .where(
               and(
@@ -219,6 +222,9 @@ export async function upsertFusionScreens(args: {
             )
             .limit(1);
           if (!current) return false;
+          // Edited into the user's own page since the listing: leave it, and
+          // the insert below gives the screen a fresh name.
+          if (!isAppScreenFile(current)) return false;
           await tx
             .update(schema.designFiles)
             .set({ filename, content: url, fileType: "html", updatedAt: now })

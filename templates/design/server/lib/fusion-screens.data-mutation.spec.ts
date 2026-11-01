@@ -155,7 +155,9 @@ describe("fusion screen designs.data mutation", () => {
       from: vi.fn(() => ({
         where: vi.fn(() =>
           Object.assign(Promise.resolve(rows), {
-            limit: vi.fn(async () => [{ id: "legacy-home" }]),
+            limit: vi.fn(async () => [
+              { id: "legacy-home", content: "https://example.test/" },
+            ]),
           }),
         ),
       })),
@@ -237,7 +239,9 @@ describe("fusion screen designs.data mutation", () => {
       from: vi.fn(() => ({
         where: vi.fn(() =>
           Object.assign(Promise.resolve(rows), {
-            limit: vi.fn(async () => [{ id: "app-home" }]),
+            limit: vi.fn(async () => [
+              { id: "app-home", content: "https://example.test/" },
+            ]),
           }),
         ),
       })),
@@ -361,6 +365,47 @@ describe("fusion screen designs.data mutation", () => {
     expect(state.db.update).not.toHaveBeenCalled();
     expect(state.insertChain.values).toHaveBeenCalledWith(
       expect.objectContaining({ filename: "home-2.html" }),
+    );
+    expect(result.screens).toEqual([
+      expect.objectContaining({ filename: "home-2.html" }),
+    ]);
+  });
+
+  it("leaves a screen the user edited into their own page meanwhile", async () => {
+    state.existingFiles = [
+      { id: "app-home", filename: "home.html", content: "https://old.test/" },
+    ];
+    const edited = {
+      id: "app-home",
+      filename: "home.html",
+      content: "<!doctype html><h1>Mine now</h1>",
+    };
+    const rows = state.existingFiles;
+    // The update's re-read and the insert's recheck both see the edit.
+    const lockedRead = () => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({ limit: vi.fn(async () => [edited]) })),
+      })),
+    });
+    state.db.select
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => rows) })),
+      }))
+      .mockImplementationOnce(lockedRead)
+      .mockImplementationOnce(lockedRead);
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+    });
+
+    expect(state.db.update).not.toHaveBeenCalled();
+    expect(state.insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: "home-2.html",
+        content: "https://example.test/",
+      }),
     );
     expect(result.screens).toEqual([
       expect.objectContaining({ filename: "home-2.html" }),
