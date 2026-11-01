@@ -78,6 +78,7 @@ import {
   releasePageOpenRead,
   spoilPageOpenReads,
   startPageOpenRead,
+  readFromStartupPageRead,
   takeStartupPageRead,
   whenReadsBeforeSessionKept,
   type PageOpenRead,
@@ -960,18 +961,16 @@ export function startPageOpenDocumentReads(
       },
       { method: "GET" },
     );
-  // The load's head script may already have sent this read; a failed one is
-  // sent again here, so its error comes from the app's own request. Its age
-  // counts from when the script sent it.
+  // The load's head script may already have sent this read; a failed or
+  // stalled one is sent again here, so its error comes from the app's own
+  // request. Its age counts from when the script sent it.
   const startupRead = beforeSession
     ? takeStartupPageRead(documentId, context)
     : null;
   const startedAt = startupRead?.startedAt;
   const readPage = () =>
     (pageRead ??= startupRead
-      ? startupRead.answer.then((answer) =>
-          answer.ok ? (answer.value as PageOpenDocumentRead) : sendPageRead(),
-        )
+      ? readFromStartupPageRead(startupRead, sendPageRead)
       : sendPageRead());
   let documentTaken = false;
   const documentReadStarted = startPageOpenRead(

@@ -4,8 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   PAGE_OPEN_READ_TTL_MS,
+  readFromStartupPageRead,
+  STARTUP_PAGE_READ_WAIT_MS,
   startupPageReadScript,
   takeStartupPageRead,
+  type StartupPageReadAnswer,
 } from "./page-open-reads";
 
 const ACTION_URL = "/_agent-native/actions/get-document";
@@ -152,5 +155,81 @@ describe("the load's page read from the document head", () => {
     runHeadScript();
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("the app's page from the head script's read", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function headRead() {
+    let answer!: (value: StartupPageReadAnswer) => void;
+    const taken = {
+      startedAt: Date.now(),
+      answer: new Promise<StartupPageReadAnswer>((resolve) => {
+        answer = resolve;
+      }),
+    };
+    return { taken, answer };
+  }
+
+  it("is the head read's answer when it lands within the wait, with no read of its own", async () => {
+    vi.useFakeTimers();
+    const head = headRead();
+    const ownRead = vi.fn(async () => "own");
+    const page = readFromStartupPageRead(head.taken, ownRead);
+
+    head.answer({ ok: true, value: "head" });
+    await expect(page).resolves.toBe("head");
+    await vi.advanceTimersByTimeAsync(STARTUP_PAGE_READ_WAIT_MS * 2);
+    expect(ownRead).not.toHaveBeenCalled();
+  });
+
+  it("is the app's own read at once when the head read fails", async () => {
+    vi.useFakeTimers();
+    const head = headRead();
+    const ownRead = vi.fn(async () => "own");
+    const page = readFromStartupPageRead(head.taken, ownRead);
+
+    head.answer({ ok: false });
+    await expect(page).resolves.toBe("own");
+    expect(ownRead).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the app's own read once the wait runs out, and takes whichever answers first", async () => {
+    vi.useFakeTimers();
+    const head = headRead();
+    let ownAnswer!: (value: string) => void;
+    const ownRead = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          ownAnswer = resolve;
+        }),
+    );
+    const page = readFromStartupPageRead(head.taken, ownRead);
+
+    await vi.advanceTimersByTimeAsync(STARTUP_PAGE_READ_WAIT_MS - 1);
+    expect(ownRead).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ownRead).toHaveBeenCalledTimes(1);
+
+    // The head read lands first after all.
+    head.answer({ ok: true, value: "head" });
+    ownAnswer("own");
+    await expect(page).resolves.toBe("head");
+  });
+
+  it("fails with the app's own read's error when the head read has not answered", async () => {
+    vi.useFakeTimers();
+    const head = headRead();
+    const ownRead = vi.fn(() =>
+      Promise.reject(new Error("Document not found")),
+    );
+    const page = readFromStartupPageRead(head.taken, ownRead);
+    const settled = expect(page).rejects.toThrow("Document not found");
+
+    await vi.advanceTimersByTimeAsync(STARTUP_PAGE_READ_WAIT_MS);
+    await settled;
   });
 });
