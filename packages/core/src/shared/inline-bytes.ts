@@ -175,6 +175,8 @@ function scrubString(value: string): string {
     : value;
 }
 
+export { scrubString as stripInlineDataUrls };
+
 function sanitize(
   value: unknown,
   policy: InlineBytesPolicy,

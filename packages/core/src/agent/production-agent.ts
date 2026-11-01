@@ -231,6 +231,7 @@ import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
   DurableAttachmentReferenceRequiredError,
   stripInlineBytes,
+  stripInlineDataUrls,
 } from "../shared/inline-bytes.js";
 import {
   isReasoningEffort,
@@ -11213,7 +11214,11 @@ export async function runAgentLoop(opts: {
           let resultStr =
             typeof resultForAgent === "string"
               ? resultForAgent
-              : JSON.stringify(resultForAgent, null, 2);
+              : JSON.stringify(resultForAgent, (_key, value: unknown) =>
+                  typeof value === "string"
+                    ? stripInlineDataUrls(value)
+                    : value,
+                );
           if (resultStr.length > toolMaxResultChars) {
             const truncated = resultStr.slice(0, toolMaxResultChars);
             resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;

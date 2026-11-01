@@ -18434,12 +18434,14 @@ describe("runAgentLoop", () => {
       return done && "result" in done ? (done.result as string) : undefined;
     }
 
-    it("leaves a warning-free tool result byte-identical", async () => {
+    it("does not wrap a warning-free tool result", async () => {
       expect(await toolResultFor(async () => "moved 21 members")).toBe(
         "moved 21 members",
       );
+      const jsonText = '{\n  "moved": 21\n}';
+      expect(await toolResultFor(async () => jsonText)).toBe(jsonText);
       expect(await toolResultFor(async () => ({ moved: 21 }))).toBe(
-        '{\n  "moved": 21\n}',
+        '{"moved":21}',
       );
     });
 
@@ -25570,6 +25572,147 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
 });
 
 describe("runAgentLoop tool-result images", () => {
+  it.each([false, true])(
+    "omits inline bytes before applying the model budget without changing other JSON data (mirrored Blocks: %s)",
+    async (mirrored) => {
+      const imageData = "A".repeat(70_000);
+      const suffix = mirrored ? `\n${"Fictional record ".repeat(800)}` : "";
+      const content = `Opening paragraph.\n![chart](data:image/png;base64,${imageData})\nClosing paragraph.${suffix}`;
+      const original = {
+        content,
+        baseRevision: "body:7:sha256:original",
+        contentHash: "sha256:original",
+        updatedAt: new Date("2026-10-31T16:00:00.000Z"),
+        attachments: [
+          {
+            type: "file",
+            url: "https://cdn.example.com/report.pdf?token=abc#page=2",
+          },
+        ],
+        ...(mirrored
+          ? {
+              properties: [
+                {
+                  definition: {
+                    id: "primary-body",
+                    name: "Blocks",
+                    type: "blocks",
+                    options: { blocks: { primary: true } },
+                  },
+                  value: content,
+                  blocksField: {
+                    version: 1,
+                    fieldId: "primary-body",
+                    revision: 7,
+                    contentHash: "nfm_original",
+                    identityStatus: "known",
+                    blocks: Array.from({ length: 135 }, (_, index) => ({
+                      id: `block_${String(index).padStart(32, "0")}`,
+                      parentId: null,
+                      kind: "paragraph",
+                      position: index,
+                      addressable: true,
+                    })),
+                    tombstones: [],
+                    recoveryMode: "editor-undo-with-tombstones",
+                  },
+                },
+              ],
+              contextPath: [
+                {
+                  id: "folder-1",
+                  kind: "page",
+                  title: "Fictional examples",
+                  description: "Preserved trailing context.",
+                },
+              ],
+            }
+          : {}),
+      };
+      const saved = structuredClone(original);
+      let toolResult: EngineContentPart | undefined;
+      let calls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: true,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(opts): AsyncIterable<EngineEvent> {
+          calls += 1;
+          if (calls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call",
+                  id: "read-1",
+                  name: "read-document",
+                  input: {},
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          toolResult = opts.messages
+            .flatMap((message) => message.content)
+            .find((part) => part.type === "tool-result");
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Read." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Read the document." }],
+          },
+        ],
+        actions: {
+          "read-document": {
+            ...actionEntry({ description: "Read a document", readOnly: true }),
+            run: async () => original,
+          },
+        },
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+
+      expect(toolResult?.type).toBe("tool-result");
+      if (toolResult?.type !== "tool-result")
+        throw new Error("Missing tool result");
+      expect(toolResult.content).not.toContain("truncated");
+      const projectedContent = `Opening paragraph.\n![chart]([inline image/png data omitted])\nClosing paragraph.${suffix}`;
+      const expected = {
+        ...JSON.parse(JSON.stringify(saved)),
+        content: projectedContent,
+      };
+      if (mirrored) {
+        expected.properties[0].value = projectedContent;
+        expect(JSON.stringify(expected, null, 2).length).toBeGreaterThan(
+          50_000,
+        );
+      }
+      expect(JSON.parse(toolResult.content)).toEqual(expected);
+      expect(toolResult.content.length).toBeLessThan(50_000);
+      expect(original).toEqual(saved);
+    },
+  );
+
   it("attaches _agentImages to the tool-result part, strips the field from the text, and persists only notes", async () => {
     const oversize = "A".repeat(2_000_001);
     const imageData = "aW1hZ2U=";
@@ -25667,7 +25810,7 @@ describe("runAgentLoop tool-result images", () => {
       { data: imageData, mediaType: "image/jpeg", label: "data" },
     ]);
     expect(toolResult.content).not.toContain("_agentImages");
-    expect(toolResult.content).toContain('"page": "dashboard"');
+    expect(toolResult.content).toMatch(/"page":\s*"dashboard"/);
     expect(toolResult.content).toContain("https://cdn.example.com/shot.png");
     expect(toolResult.content).toContain("exceeds");
     expect(toolResult.content).not.toContain("A".repeat(100));
