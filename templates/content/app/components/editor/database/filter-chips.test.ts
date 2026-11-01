@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   databaseFilterChipToReopen,
+  databaseFilterEncodeSelectedValues,
   foldDatabaseFilterChips,
 } from "./filter-chips";
 import type { DatabaseFilter, DatabaseFilterMode } from "./types";
@@ -93,24 +94,48 @@ describe("databaseFilterChipToReopen", () => {
     ).toBe(0);
   });
 
-  it("loses nothing by reopening a status chip, since a row holds one status", () => {
-    // What a second chip would have meant instead: two "is" chips under All
-    // match no row, and two "is not" chips under Any match every row.
+  it("reopens a status chip, where a second value shows rows a second chip can't", () => {
+    // Under All, "is done" gets "dropped" picked in its reopened chip. As one
+    // chip that shows rows with either status; as two chips it showed none.
+    const isDone = chip("status", "contains", "done");
+    expect(
+      databaseFilterChipToReopen([isDone], "status", "and", properties),
+    ).toBe(0);
     expect(
       matchingRows(
         [
-          chip("status", "contains", "done"),
-          chip("status", "contains", "dropped"),
+          {
+            ...isDone,
+            value: databaseFilterEncodeSelectedValues(["done", "dropped"]),
+          },
         ],
         "and",
       ),
+    ).toEqual(["Row 1", "Row 2"]);
+    expect(
+      matchingRows([isDone, chip("status", "contains", "dropped")], "and"),
     ).toEqual([]);
+
+    // Under Any, "is not done" the same way: one chip hides both statuses;
+    // two chips showed every row.
+    const isNotDone = chip("status", "does_not_equal", "done");
+    expect(
+      databaseFilterChipToReopen([isNotDone], "status", "or", properties),
+    ).toBe(0);
     expect(
       matchingRows(
         [
-          chip("status", "does_not_equal", "done"),
-          chip("status", "does_not_equal", "dropped"),
+          {
+            ...isNotDone,
+            value: databaseFilterEncodeSelectedValues(["done", "dropped"]),
+          },
         ],
+        "or",
+      ),
+    ).toEqual(["Row 0", "Row 3"]);
+    expect(
+      matchingRows(
+        [isNotDone, chip("status", "does_not_equal", "dropped")],
         "or",
       ),
     ).toEqual(["Row 0", "Row 1", "Row 2", "Row 3"]);
