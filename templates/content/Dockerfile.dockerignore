@@ -1,0 +1,13 @@
+**/node_modules
+**/.output
+**/.netlify
+**/.react-router
+packages/*/dist
+templates/*/build
+templates/*/dist
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+.git
+.tmp

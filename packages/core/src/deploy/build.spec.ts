@@ -114,6 +114,7 @@ import {
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
   shouldBundleYjsRuntimeForPreset,
+  shouldCopyExternalSsrPackagesForNodePreset,
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
   shouldRemoveNetlifyStaticRootShell,
@@ -166,6 +167,24 @@ describe("shouldBundleYjsRuntimeForPreset", () => {
     }
     expect(shouldBundleYjsRuntimeForPreset("cloudflare-pages")).toBe(false);
     expect(shouldBundleYjsRuntimeForPreset("deno-deploy")).toBe(false);
+  });
+});
+
+describe("shouldCopyExternalSsrPackagesForNodePreset", () => {
+  it("copies SSR packages into Node server output only", () => {
+    expect(shouldCopyExternalSsrPackagesForNodePreset("node")).toBe(true);
+    expect(shouldCopyExternalSsrPackagesForNodePreset("node-server")).toBe(
+      true,
+    );
+    for (const preset of [
+      "netlify",
+      "vercel",
+      "aws-lambda",
+      "aws-amplify",
+      "cloudflare-module",
+    ]) {
+      expect(shouldCopyExternalSsrPackagesForNodePreset(preset)).toBe(false);
+    }
   });
 });
 

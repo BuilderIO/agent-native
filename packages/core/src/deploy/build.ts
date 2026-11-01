@@ -4701,6 +4701,19 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   );
 }
 
+/**
+ * Node server output that has to run without the workspace's node_modules.
+ * Nitro leaves React, React Router and React Query external on Node presets,
+ * so `.output/` copied into a container or onto a VM answers API requests but
+ * fails every SSR page with "Cannot find module 'react'". Serverless presets
+ * get these packages from their own packaging step.
+ */
+export function shouldCopyExternalSsrPackagesForNodePreset(
+  targetPreset: string,
+): boolean {
+  return targetPreset === "node" || targetPreset === "node-server";
+}
+
 const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
   /@agent-native[\\/](?:core|creative-context)(?:[\\/]|$)/;
 
@@ -6313,6 +6326,9 @@ export default bundle;
     copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
+  } else if (shouldCopyExternalSsrPackagesForNodePreset(preset)) {
+    copyInstalledResvgPackages(nitro.options.output.serverDir);
+    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
   }
 
   if (shouldBundleYjsRuntimeForPreset(preset)) {
