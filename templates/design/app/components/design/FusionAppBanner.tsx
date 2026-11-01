@@ -85,20 +85,22 @@ export function FusionAppBanner({
               "Couldn't build your app" /* i18n-ignore fusion app banner, flag-gated feature */
           }
         </span>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-6 shrink-0 cursor-pointer gap-1 px-2 !text-[11px]"
-          disabled={syncMutation.isPending}
-          onClick={() => syncMutation.mutate({ designId } as any)}
-        >
-          {syncMutation.isPending ? (
-            <Spinner className="size-3" />
-          ) : (
-            <IconRefresh className="size-3" />
-          )}
-          {"Retry" /* i18n-ignore fusion app banner, flag-gated feature */}
-        </Button>
+        {canSync ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 shrink-0 cursor-pointer gap-1 px-2 !text-[11px]"
+            disabled={syncMutation.isPending}
+            onClick={() => syncMutation.mutate({ designId })}
+          >
+            {syncMutation.isPending ? (
+              <Spinner className="size-3" />
+            ) : (
+              <IconRefresh className="size-3" />
+            )}
+            {"Retry" /* i18n-ignore fusion app banner, flag-gated feature */}
+          </Button>
+        ) : null}
       </div>
     );
   }

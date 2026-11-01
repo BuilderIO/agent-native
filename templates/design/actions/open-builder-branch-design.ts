@@ -173,8 +173,15 @@ export default defineAction({
       (existingApp?.status === "ready" &&
         existingApp.previewUrl === previewUrl);
     const status = running ? ("ready" as const) : ("building" as const);
-    const statusMessage = running
-      ? existingApp?.statusMessage
+    // An app already starting at this URL keeps its more specific message
+    // ("Starting the dev server").
+    const keepsMessage =
+      running ||
+      (existingApp?.status === "building" &&
+        existingApp.previewUrl === previewUrl);
+    const statusMessage = keepsMessage
+      ? (existingApp?.statusMessage ??
+        (running ? undefined : APP_STARTING_MESSAGE))
       : APP_STARTING_MESSAGE;
 
     stages.mark("createMs");
