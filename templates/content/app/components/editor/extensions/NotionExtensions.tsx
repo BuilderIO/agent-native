@@ -6,7 +6,7 @@ import {
   type IconValue,
 } from "@agent-native/core/icons";
 import { findTrailingPlainInlineMath } from "@shared/inline-math";
-import { NFM_COLORS } from "@shared/nfm";
+import { NFM_COLORS, serializeToggleTitle } from "@shared/nfm";
 import {
   escapeHtml,
   indentMarkdown,
@@ -24,6 +24,7 @@ import { Code } from "@tiptap/extension-code";
 import type {
   DOMOutputSpec,
   Fragment,
+  NodeType,
   Node as ProseMirrorNode,
 } from "@tiptap/pm/model";
 import {
@@ -122,22 +123,6 @@ function serializeInnerMarkdown(editor: any, node: any): string {
     return node.textContent || "";
   }
   return editor.storage.markdown.serializer.serialize(node).trimEnd();
-}
-
-/** A Toggle title's inline Markdown, on the one line a `<summary>` reads. */
-function serializeTitleMarkdown(editor: any, title: ProseMirrorNode): string {
-  const { schema } = title.type;
-  const paragraph = schema.nodes.paragraph;
-  if (!editor?.storage?.markdown?.serializer || !paragraph) {
-    return escapeHtml(title.textContent);
-  }
-  return serializeInnerMarkdown(
-    editor,
-    schema.topNodeType.create(null, paragraph.create(null, title.content)),
-  )
-    .trim()
-    .replace(/\\\r?\n/g, "<br>")
-    .replace(/\r?\n/g, " ");
 }
 
 function serializeContainerTag(
@@ -284,15 +269,17 @@ export function splitToggleTitle(editor: Editor): boolean {
   const context = toggleTitleAtSelection(editor.state);
   if (!context) return false;
   const { schema } = editor.state;
-  const paragraph = schema.nodes.paragraph;
-  const titleType = schema.nodes[TOGGLE_TITLE_NODE];
+  const paragraph = schema.nodes.paragraph as NodeType | undefined;
+  const titleType = schema.nodes[TOGGLE_TITLE_NODE] as NodeType | undefined;
   if (!paragraph || !titleType) return false;
   const { togglePos, toggle, title, titleStart } = context;
 
   let tr = editor.state.tr;
   if (!tr.selection.empty) tr = tr.deleteSelection();
   const cursor = tr.selection.from;
-  const titleEnd = titleStart + tr.doc.nodeAt(togglePos + 1)!.content.size;
+  const titleNode = tr.doc.nodeAt(togglePos + 1);
+  if (!titleNode) return false;
+  const titleEnd = titleStart + titleNode.content.size;
 
   if (title.content.size === 0 && toggle.childCount === 1) {
     tr.replaceWith(togglePos, togglePos + toggle.nodeSize, paragraph.create());
@@ -309,7 +296,9 @@ export function splitToggleTitle(editor: Editor): boolean {
 
   const rest = tr.doc.slice(cursor, titleEnd).content;
   tr.delete(cursor, titleEnd);
-  const after = togglePos + tr.doc.nodeAt(togglePos)!.nodeSize;
+  const shortened = tr.doc.nodeAt(togglePos);
+  if (!shortened) return false;
+  const after = togglePos + shortened.nodeSize;
   tr.insert(
     after,
     toggle.type.create({ open: false }, titleType.create(null, rest)),
@@ -329,7 +318,7 @@ export function unwrapToggleAtTitleStart(editor: Editor): boolean {
   if (!context || !selection.empty || selection.$from.parentOffset !== 0) {
     return false;
   }
-  const paragraph = editor.state.schema.nodes.paragraph;
+  const paragraph = editor.state.schema.nodes.paragraph as NodeType | undefined;
   if (!paragraph) return false;
   const { togglePos, toggle, title } = context;
   const blocks: ProseMirrorNode[] = [
@@ -573,7 +562,9 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
 
     if (!open) setOpen(true);
 
-    const paragraph = editor.state.schema.nodes.paragraph;
+    const paragraph = editor.state.schema.nodes.paragraph as
+      | NodeType
+      | undefined;
     const currentNode = editor.state.doc.nodeAt(pos);
     if (!paragraph || currentNode?.type.name !== "notionToggle") return;
     const bodyStart = toggleBodyStart(currentNode, pos);
@@ -1200,7 +1191,6 @@ export const NotionToggle = Node.create<NotionToggleOptions>({
     return {
       markdown: {
         serialize: function (_state: any, node: any) {
-          const editor = (this as any).editor;
           const title = toggleTitleNode(node);
           const attrs: Record<string, string> = {};
           // A title that is page text is written as Markdown; see nfm.ts.
@@ -1215,6 +1205,8 @@ export const NotionToggle = Node.create<NotionToggleOptions>({
           const body = title
             ? node.copy(node.content.cut(title.nodeSize))
             : node;
+          // The Markdown extension calls this with its editor as `this`.
+          const { editor } = this as { editor?: unknown };
           const inner = serializeInnerMarkdown(editor, body);
           const openTag = `<details${serializeTagAttributes(attrs)}>`;
           _state.write(`${prefix}${openTag}`);
@@ -1222,7 +1214,7 @@ export const NotionToggle = Node.create<NotionToggleOptions>({
           _state.write(
             `${prefix}<summary>${
               title
-                ? serializeTitleMarkdown(editor, title)
+                ? serializeToggleTitle(title.toJSON())
                 : escapeHtml(node.attrs.summary || "")
             }</summary>`,
           );
@@ -1378,7 +1370,9 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
         // left to that tab.
         appendTransaction(transactions, oldState, newState) {
           if (!editor.isEditable || !transactions.some(isEdit)) return null;
-          const titleType = newState.schema.nodes[TOGGLE_TITLE_NODE];
+          const titleType = newState.schema.nodes[TOGGLE_TITLE_NODE] as
+            | NodeType
+            | undefined;
           if (!titleType) return null;
           const touched = togglesTouchedBy(transactions, oldState.doc);
           // A Toggle that kept its title in `summary` and still starts where

@@ -1239,8 +1239,8 @@ describe("bug fixes — reliability sweep", () => {
         "</details>",
       );
       const reread = nfmToDoc(nfm);
-      expect(reread.content[0].content).toEqual([
-        { type: "notionToggleSummary" },
+      expect(reread.content).toEqual([
+        expect.objectContaining({ content: [{ type: "notionToggleSummary" }] }),
       ]);
       expect(docToNfm(reread)).toBe(nfm);
     });
@@ -1253,8 +1253,14 @@ describe("bug fixes — reliability sweep", () => {
         "</details>",
       );
       const reread = nfmToDoc(nfm);
-      expect(reread.content[0].attrs?.summary).toBe("**Plan** stays as typed");
-      expect(reread.content[0].content?.[0]?.type).toBe("paragraph");
+      expect(reread.content).toEqual([
+        expect.objectContaining({
+          attrs: expect.objectContaining({
+            summary: "**Plan** stays as typed",
+          }),
+          content: [expect.objectContaining({ type: "paragraph" })],
+        }),
+      ]);
       expect(docToNfm(reread)).toBe(nfm);
     });
 
@@ -1266,7 +1272,11 @@ describe("bug fixes — reliability sweep", () => {
       );
       const { doc, losses } = parseNfmWithLosses(nfm);
       expect(losses.map((loss) => loss.kind)).toContain("dropped-attribute");
-      expect(doc.content[0].attrs?.summary).toBe("**Plan**");
+      expect(doc.content).toEqual([
+        expect.objectContaining({
+          attrs: expect.objectContaining({ summary: "**Plan**" }),
+        }),
+      ]);
     });
 
     it("writes a title's line break on the summary's one line", () => {

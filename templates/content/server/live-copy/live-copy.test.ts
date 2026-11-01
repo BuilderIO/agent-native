@@ -1507,6 +1507,7 @@ describe("edit-document on a switched page", () => {
     ].join("\n");
     await switchedPage("rich-title", `${toggle}\nHello there\nSecond`);
     const loaded = await page("rich-title");
+    assert(loaded);
     await typeInTab("rich-title", `${toggle}\nHello there\nSecond B`);
 
     const result = await agentEdit("rich-title", loaded, [
@@ -1514,9 +1515,9 @@ describe("edit-document on a switched page", () => {
     ]);
 
     expect(result.receipt.outcome).toBe("applied");
-    expect((await page("rich-title")).content).toBe(
-      `${toggle}\nHello world\nSecond B`,
-    );
+    const after = await page("rich-title");
+    assert(after);
+    expect(after.content).toBe(`${toggle}\nHello world\nSecond B`);
     const live = await collab.readLiveCopy(
       binding.contentLiveCopy,
       "rich-title",
@@ -1529,9 +1530,10 @@ describe("edit-document on a switched page", () => {
       editorSchema,
     );
     doc.destroy();
-    const toggleNode = root.firstChild!;
+    const toggleNode = root.firstChild;
+    assert(toggleNode);
     expect(toggleNode.attrs.summary).toBe("");
-    expect(toggleNode.firstChild!.toJSON()).toEqual({
+    expect(toggleNode.firstChild?.toJSON()).toEqual({
       type: "notionToggleSummary",
       content: [
         { type: "text", text: "Plan", marks: [{ type: "bold" }] },

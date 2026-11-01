@@ -1655,16 +1655,23 @@ function serializeQuote(node: PMNode, ind: number): string[] {
   return out;
 }
 
+/**
+ * A titled Toggle's title (its `notionToggleSummary`) as inline Markdown, on
+ * the one line its `<summary>` or heading reads.
+ */
+export function serializeToggleTitle(title: PMNode): string {
+  return serializeInline(title.content).replace(/\r?\n/g, " ");
+}
+
 function serializeToggle(node: PMNode, ind: number): string[] {
   // A Toggle's title is its first child, written as inline Markdown like a
-  // paragraph, on the summary's one line, and marked `markdown="1"`. A
-  // Toggle saved before titles were page text keeps its title in `summary`,
-  // written as it was stored.
-  const title =
-    node.content?.[0]?.type === "notionToggleSummary" ? node.content[0] : null;
-  const body = title ? node.content!.slice(1) : node.content || [];
+  // paragraph and marked `markdown="1"`. A Toggle saved before titles were
+  // page text keeps its title in `summary`, written as it was stored.
+  const first = node.content?.[0];
+  const title = first?.type === "notionToggleSummary" ? first : null;
+  const body = (node.content ?? []).slice(title ? 1 : 0);
   const summary = title
-    ? serializeInline(title.content).replace(/\r?\n/g, " ")
+    ? serializeToggleTitle(title)
     : (node.attrs?.summary as string) || "";
   const headingLevel = Number(node.attrs?.headingLevel) || 0;
   const color = node.attrs?.color;
@@ -2800,8 +2807,10 @@ function parseSingleBlock(
   const headingMatch = dedent.match(/^(#{1,6})\s+(.*)$/);
   if (headingMatch) {
     const level = headingMatch[1].length;
+    // The pattern's second group: the line after its hashes and spaces.
+    const headingText = dedent.slice(level).trimStart();
     const { text, toggle, markdown, color } = splitBlockAttrs(
-      headingMatch[2],
+      headingText,
       true,
     );
     if (toggle) {
@@ -3291,7 +3300,7 @@ function parseContainer(
     if (attrs.open !== undefined && !["", "open", "true"].includes(attrs.open))
       reportLoss("dropped-attribute", `<details open="${attrs.open}">`);
     const markdown = attrs.markdown === "1";
-    if (attrs.markdown !== undefined && !markdown)
+    if ("markdown" in attrs && !markdown)
       reportLoss("dropped-attribute", `<details markdown="${attrs.markdown}">`);
     let summary = "";
     let bodyStart = childStart;

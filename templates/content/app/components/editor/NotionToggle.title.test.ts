@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { Editor, type Extensions } from "@tiptap/core";
+import type { NodeType } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import {
   prosemirrorJSONToYXmlFragment,
@@ -289,7 +290,8 @@ describe("a Toggle's title as page text", () => {
 
   it("leaves another tab's change to the title to that tab", () => {
     const editor = createEditor([titled("Title", true, [paragraph("Body")])]);
-    const paragraphType = editor.schema.nodes.paragraph!;
+    const paragraphType = editor.schema.nodes.paragraph as NodeType | undefined;
+    if (!paragraphType) throw new Error("The schema has no paragraph.");
     const tr = editor.state.tr
       .setBlockType(2, 7, paragraphType)
       .setMeta(ySyncPluginKey, { isChangeOrigin: true });

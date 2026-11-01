@@ -448,9 +448,13 @@ describe("BubbleToolbar", () => {
     editor.commands.setTextSelection({ from: 11, to: 17 });
     const onComment = vi.fn();
 
-    root = createRoot(toolbarElement);
+    const toolbarRoot = createRoot(toolbarElement);
+    root = toolbarRoot;
+    const titledEditor = editor;
     act(() =>
-      root!.render(<BubbleToolbar editor={editor!} onComment={onComment} />),
+      toolbarRoot.render(
+        <BubbleToolbar editor={titledEditor} onComment={onComment} />,
+      ),
     );
     expect(
       toolbarElement.querySelector(
@@ -461,10 +465,16 @@ describe("BubbleToolbar", () => {
       toolbarElement.querySelector('button[aria-label="editor.bold"]'),
     ).not.toBeNull();
     editor.view.focus();
+    const toolbar =
+      toolbarElement.querySelector<HTMLElement>(".bubble-toolbar");
+    const comment = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.comment"]',
+    );
+    if (!toolbar || !comment) throw new Error("The toolbar didn't render.");
     expect(
       shouldShowBubbleToolbar({
         editor,
-        element: toolbarElement.querySelector<HTMLElement>(".bubble-toolbar")!,
+        element: toolbar,
         state: editor.state,
         from: 11,
         to: 17,
@@ -472,11 +482,7 @@ describe("BubbleToolbar", () => {
     ).toBe(true);
 
     act(() => {
-      toolbarElement!
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="editor.comment"]',
-        )!
-        .dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      comment.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     });
     expect(onComment).toHaveBeenCalledOnce();
     expect(onComment.mock.calls[0]?.[0]).toBe("launch");
