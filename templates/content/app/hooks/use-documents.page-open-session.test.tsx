@@ -300,6 +300,48 @@ describe("a page read sent before the session is known", () => {
       expect(reads("get-page-open-read")).toBe(1);
     });
 
+    it("does not hold the editor when it never answers", async () => {
+      // The first fetch is the head script's; it never answers.
+      void takeStartupPageRead("", {});
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => new Promise<Response>(() => {})),
+      );
+      new Function(
+        startupPageReadScript("/_agent-native/actions/get-page-open-read"),
+      )();
+      const takenAt = Date.now();
+
+      startPageOpenDocumentReads(
+        queryClient,
+        "doc-1",
+        {},
+        { beforeSession: true },
+      );
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Page),
+          ),
+        );
+      });
+      await act(async () => session.set("first-read"));
+
+      await vi.waitFor(
+        () =>
+          expect(last).toMatchObject({
+            fetchedForThisOpen: true,
+            title: "a's page",
+            draft: "a's draft",
+          }),
+        { timeout: 5_000 },
+      );
+      expect(Date.now() - takenAt).toBeLessThan(5_000);
+      expect(reads("get-page-open-read")).toBe(1);
+    });
+
     it("is read again when the app takes it after its freshness ran out", async () => {
       const realNow = Date.now.bind(Date);
       // The head read finished; the app code arrives a minute later.

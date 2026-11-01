@@ -295,6 +295,10 @@ export function retirePageOpenReads(
 // page and context; any other answer, or none, leaves the read to the app.
 const STARTUP_PAGE_READ_GLOBAL = "__contentStartupPageRead";
 export const STARTUP_PAGE_READ_TIMEOUT_MS = 15_000;
+// How long the app waits on a head read still out before sending its own. The
+// head read is usually in by the time the app code runs, so this only bounds
+// a slow or stalled one; whichever read answers first is the page.
+export const STARTUP_PAGE_READ_WAIT_MS = 1_000;
 
 export type StartupPageReadAnswer =
   | { ok: true; value: unknown }
@@ -387,4 +391,38 @@ export function takeStartupPageRead(
       firstSessionReadAnswer() === "replaced" ? { ok: false } : answer,
     ),
   };
+}
+
+// The page from the head script's read, or from the app's own read when the
+// head read failed or is still out after a short wait. Once the app has sent
+// its own read, the first of the two to answer is the page, and an error comes
+// from the app's own request.
+export function readFromStartupPageRead<T>(
+  startupRead: TakenStartupPageRead,
+  sendOwnRead: () => Promise<T>,
+  waitMs = STARTUP_PAGE_READ_WAIT_MS,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let ownRead: Promise<T> | null = null;
+    const settle = (finish: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(wait);
+      finish();
+    };
+    const sendOwn = () => {
+      if (ownRead || settled) return;
+      ownRead = sendOwnRead();
+      ownRead.then(
+        (value) => settle(() => resolve(value)),
+        (error: unknown) => settle(() => reject(error)),
+      );
+    };
+    const wait = setTimeout(sendOwn, waitMs);
+    void startupRead.answer.then((answer) => {
+      if (answer.ok) settle(() => resolve(answer.value as T));
+      else sendOwn();
+    });
+  });
 }
