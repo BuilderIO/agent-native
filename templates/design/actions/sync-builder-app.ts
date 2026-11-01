@@ -102,7 +102,12 @@ export default defineAction({
       projectId: fusionApp.projectId,
       branchName: fusionApp.branchName,
       timeoutMs: 20_000,
-    });
+    }).catch((err: unknown) => ({
+      // Reaching Builder failed (e.g. no Builder credentials): show it
+      // instead of polling a starting app forever.
+      status: "error" as const,
+      message: err instanceof Error ? err.message : String(err),
+    }));
     // The container is up before its dev server serves, and a screen loaded
     // in between never gets the editor bridge: it is still starting until then.
     const result =
@@ -149,23 +154,27 @@ export default defineAction({
 
     if (result.status === "provisioning") {
       const statusMessage = result.message ?? "Container is still starting";
-      await mutateDesignData({
-        designId,
-        mutate: (current) =>
-          writeFusionApp(current, {
-            ...(readFusionApp(current) ?? fusionApp),
-            status: "building",
-            statusMessage,
-            updatedAt: now,
-          }),
-        isApplied: (current) => {
-          const persisted = readFusionApp(current);
-          return (
-            persisted?.status === "building" &&
-            persisted.statusMessage === statusMessage
-          );
-        },
-      });
+      const alreadyStarting =
+        fusionApp.status === "building" &&
+        fusionApp.statusMessage === statusMessage;
+      if (!alreadyStarting)
+        await mutateDesignData({
+          designId,
+          mutate: (current) =>
+            writeFusionApp(current, {
+              ...(readFusionApp(current) ?? fusionApp),
+              status: "building",
+              statusMessage,
+              updatedAt: now,
+            }),
+          isApplied: (current) => {
+            const persisted = readFusionApp(current);
+            return (
+              persisted?.status === "building" &&
+              persisted.statusMessage === statusMessage
+            );
+          },
+        });
       return {
         status: "building" as const,
         message: statusMessage,

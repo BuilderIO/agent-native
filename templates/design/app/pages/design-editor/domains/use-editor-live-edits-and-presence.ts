@@ -1216,8 +1216,10 @@ export function useEditorLiveEditsAndPresence({
     if (typeof raw === "string" && raw) return raw;
     return fusionApp?.previewUrl;
   }, [designDataJson, fusionApp]);
+  // Only editors check the app, so only they wait for it: a viewer's saved
+  // status may never move, and loading the URL wakes the container anyway.
   const fusionAppStarting = Boolean(
-    fullAppBuildingEnabled && fusionApp?.status === "building",
+    fullAppBuildingEnabled && canEditDesign && fusionApp?.status === "building",
   );
 
   const handleActiveRuntimeLayerSnapshot = useCallback(
