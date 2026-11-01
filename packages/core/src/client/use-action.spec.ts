@@ -29,6 +29,7 @@ import {
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
   guardActionQueryRefetchInterval,
+  prepareUiActionCapability,
   serializeActionQueryParams,
   shouldRetryActionQueryForError,
   tryCallActionKeepalive,
@@ -1873,7 +1874,11 @@ describe("the UI capability on writes from the signed-in app", () => {
       import("./use-action.js"),
       import("./session-identity.js"),
     ]);
-    return { callAction: actions.callAction, identity };
+    return {
+      callAction: actions.callAction,
+      prepareUiActionCapability: actions.prepareUiActionCapability,
+      identity,
+    };
   }
 
   it("skips the mint after a reload inside the reuse window", async () => {
@@ -1913,13 +1918,26 @@ describe("the UI capability on writes from the signed-in app", () => {
     );
   });
 
-  it("mints as soon as a signed-in session is published", async () => {
+  it("leaves the mint to the first write unless the page asks for it early", async () => {
     signIn();
     const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
 
-    notifySessionIdentityPublished();
+    notifySessionIdentityPublished("user-1");
+    await Promise.resolve();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("mints as soon as a signed-in session is known on a page that asks", async () => {
+    const reloaded = await reloadModules();
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+
+    reloaded.prepareUiActionCapability();
+    expect(fetchMock).not.toHaveBeenCalled();
+    reloaded.identity.recordSessionIdentity("user-1");
+    reloaded.identity.notifySessionIdentityPublished("user-1");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    await callAction("delete-file", { id: "file-1" });
+    await reloaded.callAction("delete-file", { id: "file-1" });
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       MINT,
@@ -1927,17 +1945,63 @@ describe("the UI capability on writes from the signed-in app", () => {
     ]);
   });
 
+  it("mints at once when a page asks after the session is known", async () => {
+    signIn();
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+    notifySessionIdentityPublished("user-1");
+
+    prepareUiActionCapability();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(MINT);
+  });
+
   it("does not mint when a published session is signed out", async () => {
     vi.stubGlobal("window", {});
     const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
 
     recordSessionIdentity(null);
-    notifySessionIdentityPublished();
+    notifySessionIdentityPublished(null);
     recordSessionIdentity(undefined);
-    notifySessionIdentityPublished();
+    notifySessionIdentityPublished(null);
     await Promise.resolve();
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forgets the capability, remembered one included, on sign-out", async () => {
+    const stored = stubSessionStorage();
+    signIn("user-1");
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+    notifySessionIdentityPublished("user-1");
+    await callAction("delete-file", { id: "file-1" });
+    expect(stored.size).toBe(1);
+
+    recordSessionIdentity(null);
+    notifySessionIdentityPublished(null);
+    expect(stored.size).toBe(0);
+    recordSessionIdentity("user-1");
+    notifySessionIdentityPublished("user-1");
+    await callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      2,
+    );
+  });
+
+  it("forgets the capability when the account or org changes", async () => {
+    stubSessionStorage();
+    signIn("user-1");
+    const fetchMock = routeFetch(() => jsonResponse({ ok: true }));
+    notifySessionIdentityPublished("user-1\nauth-1\norg-1");
+    await callAction("delete-file", { id: "file-1" });
+
+    notifySessionIdentityPublished("user-1\nauth-1\norg-2");
+    await callAction("delete-file", { id: "file-2" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === MINT)).toHaveLength(
+      2,
+    );
   });
 
   it("re-mints when the server rejects a remembered capability", async () => {

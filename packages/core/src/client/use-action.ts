@@ -267,6 +267,9 @@ const UI_CAPABILITY_MINT_TIMEOUT_MS = 10_000;
 let uiCapabilityRequest: Promise<void> | undefined;
 let uiCapability: { identity: string | null | undefined; at: number } | null =
   null;
+// The account and org of the last published session. The remembered
+// capability is tied to it, so a reload in another org doesn't reuse it.
+let publishedSessionScope: string | null | undefined;
 
 // The capability is a cookie the browser keeps across reloads, so the tab
 // remembers when it minted one and a reload inside the reuse window skips the
@@ -277,9 +280,10 @@ function uiCapabilityStorageKey(): string {
 }
 
 function identityFingerprint(identity: string): string {
+  const scope = publishedSessionScope ?? identity;
   let hash = 0x811c9dc5;
-  for (let index = 0; index < identity.length; index += 1) {
-    hash ^= identity.charCodeAt(index);
+  for (let index = 0; index < scope.length; index += 1) {
+    hash ^= scope.charCodeAt(index);
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(36);
@@ -381,10 +385,15 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   });
 }
 
-// A doc's first open sends several writes at once, and each one waits on the
-// mint. Minting when the session is first known moves that wait off the writes.
-onSessionIdentityPublished(() => {
+// A page that sends action writes as soon as it opens (a Content document) can
+// ask for the mint early, so it overlaps the page's reads instead of holding
+// its first write. Other pages mint on their first write, as before, so a
+// visit that never writes doesn't make the request.
+let uiCapabilityWanted = false;
+
+function mintWantedUiCapability(): void {
   if (
+    !uiCapabilityWanted ||
     typeof window === "undefined" ||
     agentNativeApiDisabledReason() ||
     isEmbedAuthActive() ||
@@ -396,6 +405,30 @@ onSessionIdentityPublished(() => {
   ensureUiActionCapability().catch(() => {
     // The first write that needs the capability mints it again.
   });
+}
+
+/**
+ * Mint the UI write capability now, or as soon as a signed-in session is
+ * known, for a page that is about to send action writes. Pages that don't call
+ * this mint on their first write.
+ */
+export function prepareUiActionCapability(): void {
+  uiCapabilityWanted = true;
+  mintWantedUiCapability();
+}
+
+onSessionIdentityPublished((scope) => {
+  const previous = publishedSessionScope;
+  publishedSessionScope = scope;
+  // A capability minted for a session that signed out, or for another account
+  // or org, isn't this session's to reuse.
+  if (
+    scope === null ||
+    (previous !== undefined && previous !== null && previous !== scope)
+  ) {
+    forgetUiActionCapability();
+  }
+  mintWantedUiCapability();
 });
 
 /**

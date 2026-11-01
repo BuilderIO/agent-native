@@ -15,7 +15,7 @@ export function useFeatureFlag(key: string): boolean {
   const query = useActionQuery<EvaluatedFeatureFlags>(
     "get-feature-flags" as never,
     undefined,
-    { enabled: status === "authenticated", batchFirstFetch: true },
+    { enabled: status === "authenticated" },
   );
   if (RETIRED_ENABLED_FLAG_KEYS.has(key)) return true;
   return featureFlagValue(evaluatedFeatureFlagValues(query.data), key);
@@ -52,15 +52,13 @@ export function useFeatureFlagState(
     undefined,
     {
       enabled: status === "authenticated",
-      // A caller that asks for fresh flags is deciding something on them, so
-      // only the ordinary read shares a batch on its first fetch.
       ...(options?.freshOnMount
         ? {
             staleTime: 0,
             refetchOnMount: "always" as const,
             queryKeyScope: ["fresh-on-mount", scope],
           }
-        : { batchFirstFetch: true }),
+        : {}),
     },
   );
   if (RETIRED_ENABLED_FLAG_KEYS.has(key)) {
@@ -90,7 +88,7 @@ export function useFeatureFlags(): Record<string, boolean> {
   const query = useActionQuery<EvaluatedFeatureFlags>(
     "get-feature-flags" as never,
     undefined,
-    { enabled: status === "authenticated", batchFirstFetch: true },
+    { enabled: status === "authenticated" },
   );
   return evaluatedFeatureFlagValues(query.data);
 }

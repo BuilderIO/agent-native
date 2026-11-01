@@ -218,7 +218,11 @@ function publishSessionIdentity(session: AuthSessionResponse | null): void {
   const identity = session?.userId ?? session?.email ?? null;
   const authUserId = session?.authUserId;
   recordSessionIdentity(identity);
-  notifySessionIdentityPublished();
+  notifySessionIdentityPublished(
+    session
+      ? [identity, authUserId ?? "", session.orgId ?? ""].join("\n")
+      : null,
+  );
   if (
     trackedSessionIdentity !== identity ||
     trackedSessionAuthUserId !== authUserId

@@ -1,4 +1,6 @@
+import { prepareUiActionCapability } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useEffect } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import { DocumentEditor } from "@/components/editor/DocumentEditor";
@@ -23,6 +25,9 @@ export default function DocumentPage() {
   const databaseId = searchParams.get("databaseId");
   const databaseDocumentId = searchParams.get("databaseDocumentId");
   const viewId = searchParams.get("viewId");
+  // An open page sends action writes as its editor mounts, so the UI write
+  // capability is minted while the page loads instead of holding them.
+  useEffect(() => prepareUiActionCapability(), []);
 
   return id ? (
     <DocumentEditor
