@@ -201,11 +201,14 @@ interface NativeStopResult {
 }
 
 /** What `audio_transcription_stop` returns; a Parakeet dictation's text is in
- * `dictation`, and a dictation's speech check verdict in `voice`. */
+ * `dictation`, and a dictation's speech check verdict in `voice`. A Whisper
+ * dictation's `words` says whether the text it already sent stands: `discard`
+ * when the hold was silent and no word came from possible speech. */
 interface OnDeviceStopResult {
   failure: string | null;
   dictation: OnDeviceDictationTranscript | null;
   voice: DictationVoice | null;
+  words?: "keep" | "discard" | null;
 }
 type DictationTimingEvent = "start" | "complete" | "skipped";
 
@@ -627,6 +630,9 @@ export function installDesktopVoiceDictation(
   // silent verdict waits this long for it. Its finals land within about
   // 150 ms of the stop.
   const NATIVE_FINAL_GRACE_MS = 300;
+  // Whisper's stop answers once its last pass is done, but finals sent just
+  // before can land after the answer.
+  const WHISPER_STOP_SETTLE_MS = 250;
   const unlistens: Array<() => void> = [];
   const registerListener = (listener: Promise<() => void>) => {
     listener
@@ -2089,9 +2095,11 @@ export function installDesktopVoiceDictation(
   };
 
   // Tells Apple Speech or Whisper to stop and finalizes once the last text
-  // arrives. A silent verdict with nothing transcribed ends without waiting
-  // out the timeout: at once for Whisper, and for Apple Speech once its final
-  // is in or NATIVE_FINAL_GRACE_MS has passed.
+  // arrives. Whisper's stop answers after its last pass, so that answer ends
+  // the run; a failed or missing answer is a provider failure, never no
+  // speech. Apple Speech finalizes on its final; a silent verdict with
+  // nothing transcribed ends once that final is in or NATIVE_FINAL_GRACE_MS
+  // has passed.
   const stopAndFinalize = (lingering: VoiceSession) => {
     const stopCmd =
       lingering.kind === "whisper"
@@ -2105,16 +2113,29 @@ export function installDesktopVoiceDictation(
       },
     );
     const stopAtMs = Date.now();
-    const finalize = (reason: "final" | "timeout" | "silent") => {
-      if (lingering.nativeFinalizationStarted) return;
+    const clearFinalizeTimer = () => {
       if (lingering.nativeFinalizeTimer !== undefined) {
         window.clearTimeout(lingering.nativeFinalizeTimer);
         lingering.nativeFinalizeTimer = undefined;
       }
+    };
+    const endFinalization = () => {
+      if (lingeringSession === lingering) lingeringSession = null;
+      if (session === lingering) session = null;
+      emit("voice:partial-transcript", {
+        text: "",
+        runId: lingering.runId,
+      }).catch(() => {});
+    };
+    // Claims the run's last text, or `null` when it has already finished.
+    const takeText = (reason: string): string | null => {
+      if (lingering.nativeFinalizationStarted) return null;
+      clearFinalizeTimer();
+      window.clearTimeout(finalizeTimeout);
       lingering.nativeFinalizationStarted = true;
       if (!isRunActive(lingering)) {
         cleanup(lingering);
-        return;
+        return null;
       }
       const text = lingering.browserTranscript.trim();
       lingering.browserTranscript = "";
@@ -2126,36 +2147,94 @@ export function installDesktopVoiceDictation(
         undefined,
         { reason, textLength: text.length },
       );
+      return text;
+    };
+    const failProvider = (text: string) => {
+      if (lifecycle.isActive(lingering.runId)) {
+        failRun(
+          lingering.runId,
+          "provider",
+          text
+            ? { recoverable: true, transcript: text }
+            : { recoverable: false },
+        );
+      }
+    };
+    const finalize = (reason: "final" | "stopped" | "timeout" | "silent") => {
+      const text = takeText(reason);
+      if (text === null) return;
       void completeText(text, lingering)
         .catch((err) => {
           console.error("[voice-dictation] finalization failed:", err);
-          if (lifecycle.isActive(lingering.runId)) {
-            failRun(
-              lingering.runId,
-              "provider",
-              text
-                ? { recoverable: true, transcript: text }
-                : { recoverable: false },
+          failProvider(text);
+        })
+        .finally(endFinalization);
+    };
+    const failWhisper = (reason: "failure" | "timeout") => {
+      const text = takeText(reason);
+      if (text === null) return;
+      failProvider(text);
+      cleanup(lingering);
+      endFinalization();
+    };
+    const heldSeconds = (stopAtMs - lingering.startedAt) / 1000;
+    const timeoutBaseMs = lingering.kind === "whisper" ? 4500 : 3000;
+    const finalizeTimeoutMs = Math.min(
+      8000,
+      Math.max(timeoutBaseMs, timeoutBaseMs + 100 * heldSeconds),
+    );
+    const finalizeTimeout = window.setTimeout(() => {
+      if (lingering.kind === "whisper") {
+        console.warn(
+          `[voice-dictation] Whisper did not finish within ${finalizeTimeoutMs} ms of the stop`,
+        );
+        failWhisper("timeout");
+      } else {
+        finalize("timeout");
+      }
+    }, finalizeTimeoutMs);
+    if (lingering.kind === "whisper") {
+      void stopRequest.then(
+        (answer) => {
+          const result = answer as OnDeviceStopResult | null;
+          if (lingering.nativeFinalizationStarted) return;
+          if (result?.failure) {
+            console.warn(
+              "[voice-dictation] Whisper dictation stop failed:",
+              result.failure,
+            );
+            failWhisper("failure");
+            return;
+          }
+          window.clearTimeout(finalizeTimeout);
+          if (result?.words === "discard") {
+            lingering.browserTranscript = "";
+            finalize("silent");
+            return;
+          }
+          if (!result?.words) {
+            console.warn(
+              "[voice-dictation] Whisper stop found no dictation to judge; finishing with the text already received",
             );
           }
-        })
-        .finally(() => {
-          if (lingeringSession === lingering) lingeringSession = null;
-          if (session === lingering) session = null;
-          emit("voice:partial-transcript", {
-            text: "",
-            runId: lingering.runId,
-          }).catch(() => {});
-        });
-    };
+          lingering.nativeFinalizeTimer = window.setTimeout(
+            () => finalize("stopped"),
+            WHISPER_STOP_SETTLE_MS,
+          );
+        },
+        (err) => {
+          console.warn(`[voice-dictation] ${stopCmd} failed:`, err);
+          failWhisper("failure");
+        },
+      );
+      return;
+    }
     let finalArrived = false;
     let silentVerdict = false;
     lingering.onNativeFinalize = () => {
       if (lingering.nativeFinalizationStarted) return;
       finalArrived = true;
-      if (lingering.nativeFinalizeTimer !== undefined) {
-        window.clearTimeout(lingering.nativeFinalizeTimer);
-      }
+      clearFinalizeTimer();
       if (silentVerdict && !lingering.browserTranscript.trim()) {
         finalize("silent");
         return;
@@ -2170,7 +2249,7 @@ export function installDesktopVoiceDictation(
         if (result?.voice !== "silent" || lingering.browserTranscript.trim()) {
           return;
         }
-        if (lingering.kind === "whisper" || finalArrived) {
+        if (finalArrived) {
           finalize("silent");
           return;
         }
@@ -2188,13 +2267,6 @@ export function installDesktopVoiceDictation(
         }
       },
     );
-    const heldSeconds = (stopAtMs - lingering.startedAt) / 1000;
-    const timeoutBaseMs = lingering.kind === "whisper" ? 4500 : 3000;
-    const finalizeTimeoutMs = Math.min(
-      8000,
-      Math.max(timeoutBaseMs, timeoutBaseMs + 100 * heldSeconds),
-    );
-    window.setTimeout(() => finalize("timeout"), finalizeTimeoutMs);
   };
 
   // The engine keeps recording for RELEASE_TAIL_MS after the key comes up,

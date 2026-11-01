@@ -1204,23 +1204,47 @@ describe("desktop voice dictation runs", () => {
         .filter((state) => state.runId === runId)
         .map((state) => state.state);
 
-    // The engine's stop call answers with the speech detector's verdict.
-    function engineStopReturns(
-      voice: "heard" | "silent" | "unchecked",
-      dictation: unknown = null,
-    ) {
+    type StopAnswer = {
+      failure: string | null;
+      dictation: unknown;
+      voice: "heard" | "silent" | "unchecked";
+      words: "keep" | "discard";
+    };
+
+    // The engine's stop call answers with the speech detector's verdict and,
+    // for Whisper, whether the words it sent stand; by default they stand
+    // unless the hold was silent.
+    function engineStopAnswers(answer: () => Promise<StopAnswer>) {
       tauri.invoke.mockImplementation((command, args) => {
-        if (command === "native_speech_stop") return Promise.resolve({ voice });
+        if (command === "native_speech_stop") {
+          return answer().then(({ voice }) => ({ voice }));
+        }
         if (
           command === "audio_transcription_stop" &&
           !(args as { discard?: boolean } | undefined)?.discard
         ) {
-          return Promise.resolve({ failure: null, dictation, voice });
+          return answer();
         }
         return Promise.resolve(
           command === "complete_voice_dictation" ? "inserted" : undefined,
         );
       });
+    }
+
+    function engineStopReturns(
+      voice: StopAnswer["voice"],
+      dictation: unknown = null,
+      answer: Partial<StopAnswer> = {},
+    ) {
+      engineStopAnswers(() =>
+        Promise.resolve({
+          failure: null,
+          dictation,
+          voice,
+          words: voice === "silent" ? "discard" : "keep",
+          ...answer,
+        }),
+      );
     }
 
     it("fetches the speech detector once dictation is on", async () => {
@@ -1480,7 +1504,7 @@ describe("desktop voice dictation runs", () => {
     it.each(["native", "whisper"] as const)(
       "pastes what %s heard even when the detector called the hold silent",
       async (kind) => {
-        engineStopReturns("silent");
+        engineStopReturns("silent", null, { words: "keep" });
         const runId = await startRun(kind);
         emitFinal(runId, "recognized words");
         await release();
@@ -1512,23 +1536,119 @@ describe("desktop voice dictation runs", () => {
     });
 
     it.each(["heard", "unchecked"] as const)(
-      "waits for the transcript when the detector answers %s",
+      "finishes a Whisper dictation on its stop answer when the detector answers %s",
       async (voice) => {
-        engineStopReturns(voice);
+        let answer!: (stop: StopAnswer) => void;
+        engineStopAnswers(
+          () =>
+            new Promise((resolve) => {
+              answer = resolve;
+            }),
+        );
         const runId = await startRun("whisper");
         await release();
+        emitFinal(runId, "recognized words");
         await vi.advanceTimersByTimeAsync(1_000);
         await settle();
-        expect(runStates(runId)).not.toContain("error");
+        expect(tauri.invoke).not.toHaveBeenCalledWith(
+          "complete_voice_dictation",
+          expect.anything(),
+        );
 
-        emitFinal(runId, "recognized words");
-        await vi.advanceTimersByTimeAsync(250);
+        answer({ failure: null, dictation: null, voice, words: "keep" });
+        await vi.advanceTimersByTimeAsync(249);
+        await settle();
+        expect(tauri.invoke).not.toHaveBeenCalledWith(
+          "complete_voice_dictation",
+          expect.anything(),
+        );
+        // A final sent just before the answer can land just after it.
+        emitFinal(runId, "and the rest");
+        await vi.advanceTimersByTimeAsync(1);
         await settle();
         expect(tauri.invoke).toHaveBeenCalledWith("complete_voice_dictation", {
-          text: "recognized words",
+          text: "recognized words and the rest",
         });
+        expect(runStates(runId)).not.toContain("error");
       },
     );
+
+    it("drops the words of a silent Whisper hold when none came from possible speech", async () => {
+      engineStopReturns("silent", null, { words: "discard" });
+      const runId = await startRun("whisper");
+      emitFinal(runId, "thank you");
+      await release();
+      await settle();
+
+      expect(stateChanges().at(-1)).toMatchObject({
+        runId,
+        state: "error",
+        failure: "no-speech",
+      });
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+    });
+
+    it.each([
+      [
+        "with",
+        "recognized words",
+        { recoverable: true, transcript: "recognized words" },
+      ],
+      ["without", "", { recoverable: false }],
+    ] as const)(
+      "ends a Whisper stop that reports a failure as a provider failure %s text",
+      async (_, text, offered) => {
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+        engineStopReturns("heard", null, {
+          failure:
+            "Local Whisper was still transcribing when the recording stopped, so the end of the transcript may be missing.",
+        });
+        const runId = await startRun("whisper");
+        if (text) emitFinal(runId, text);
+        await release();
+        await settle();
+
+        expect(stateChanges().at(-1)).toMatchObject({
+          runId,
+          state: "error",
+          failure: "provider",
+          ...offered,
+        });
+        expect(tauri.invoke).not.toHaveBeenCalledWith(
+          "complete_voice_dictation",
+          expect.anything(),
+        );
+      },
+    );
+
+    it("ends a Whisper stop that never answers as a provider failure, not no speech", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      engineStopAnswers(() => new Promise(() => {}));
+      const runId = await startRun("whisper");
+      emitFinal(runId, "recognized words");
+      await release();
+      // Whisper's own stop gives up on its worker after 4 s.
+      await vi.advanceTimersByTimeAsync(4_000);
+      await settle();
+      expect(runStates(runId)).not.toContain("error");
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(stateChanges().at(-1)).toMatchObject({
+        runId,
+        state: "error",
+        failure: "provider",
+        recoverable: true,
+        transcript: "recognized words",
+      });
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+    });
   });
 
   it("does not let an old recorder stop replace the newer finalizing run", async () => {

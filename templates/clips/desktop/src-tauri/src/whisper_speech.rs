@@ -75,6 +75,17 @@ impl Voice {
     }
 }
 
+/// Whether a Whisper dictation's words stand, decided at stop. Whisper sends
+/// each utterance as it ends, so these are words the dictation already has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Words {
+    Keep,
+    /// The hold was silent, and no word came from audio the speech check
+    /// scored as possible speech: Whisper made them up from room noise.
+    Discard,
+}
+
 /// What stopping an Apple Speech dictation returns: the speech check's verdict.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,14 +96,16 @@ pub struct DictationStop {
 /// The first failure reported for a stopped run: a microphone that sent no
 /// usable audio, or a transcription that failed. Either way the run's
 /// transcript is missing speech, so whoever saves it must carry `failure`.
-/// A Parakeet dictation's text comes back in `dictation`, and a dictation's
-/// speech check verdict in `voice`.
+/// A Parakeet dictation's text comes back in `dictation`, a dictation's
+/// speech check verdict in `voice`, and whether a Whisper dictation's words
+/// stand in `words`.
 #[derive(Debug, Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WhisperStopResult {
     pub failure: Option<String>,
     pub dictation: Option<DictationTranscript>,
     pub voice: Option<Voice>,
+    pub words: Option<Words>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1956,6 +1969,7 @@ mod macos {
                     failure: None,
                     dictation: None,
                     voice: Some(voice),
+                    words: None,
                 });
             }
             if voice == Voice::Silent {
@@ -1969,6 +1983,7 @@ mod macos {
                 failure: None,
                 dictation: Some(dictation),
                 voice: Some(voice),
+                words: None,
             });
         }
         let workers_done = || {
@@ -1984,10 +1999,23 @@ mod macos {
         }
         let workers_done = workers_done();
         eprintln!("[whisper] {:?} transcription stopped", session.owner);
-        if voice == Some(Voice::Silent) && session.mic.last_pass.runs() {
-            eprintln!(
-                "[whisper] kept the last pass: words were recognized in possible speech despite a silent verdict"
-            );
+        // Only a dictation has a verdict. Read once the worker is done, so a
+        // pass it was still running has had its words noted.
+        let words = voice.map(|_| {
+            if session.mic.last_pass.runs() {
+                super::Words::Keep
+            } else {
+                super::Words::Discard
+            }
+        });
+        match (voice, words) {
+            (Some(Voice::Silent), Some(super::Words::Keep)) => eprintln!(
+                "[whisper] kept the dictation: words were recognized in possible speech despite a silent verdict"
+            ),
+            (_, Some(super::Words::Discard)) => eprintln!(
+                "[whisper] discarded the dictation: the hold was silent and no word came from possible speech"
+            ),
+            _ => {}
         }
         let failure = session
             .mic
@@ -2008,6 +2036,7 @@ mod macos {
             failure,
             dictation: None,
             voice,
+            words,
         })
     }
 
@@ -2472,7 +2501,7 @@ mod macos {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_local_engine, LocalEngine, Voice, WhisperStopResult};
+    use super::{resolve_local_engine, LocalEngine, Voice, WhisperStopResult, Words};
 
     /// A dictation always reaches the start that can turn it away with a
     /// reason and recover Parakeet, however the model is doing.
@@ -2512,20 +2541,31 @@ mod tests {
     fn a_stop_result_always_says_whether_the_run_failed() {
         assert_eq!(
             serde_json::to_value(WhisperStopResult::default()).unwrap(),
-            serde_json::json!({ "failure": null, "dictation": null, "voice": null })
+            serde_json::json!({
+                "failure": null,
+                "dictation": null,
+                "voice": null,
+                "words": null
+            })
         );
         assert_eq!(
             serde_json::to_value(WhisperStopResult {
                 failure: Some("Microphone AirPods sent no audio in 2.3 s.".into()),
                 dictation: None,
                 voice: Some(Voice::Unchecked),
+                words: Some(Words::Keep),
             })
             .unwrap(),
             serde_json::json!({
                 "failure": "Microphone AirPods sent no audio in 2.3 s.",
                 "dictation": null,
-                "voice": "unchecked"
+                "voice": "unchecked",
+                "words": "keep"
             })
+        );
+        assert_eq!(
+            serde_json::to_value(Words::Discard).unwrap(),
+            serde_json::json!("discard")
         );
     }
 }
