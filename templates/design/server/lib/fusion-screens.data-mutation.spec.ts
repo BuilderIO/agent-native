@@ -275,16 +275,20 @@ describe("fusion screen designs.data mutation", () => {
         },
       },
     };
-    state.db.select.mockImplementationOnce(() => ({
-      from: vi.fn(() => ({ where: vi.fn(async () => state.existingFiles) })),
-    }));
-    state.db.select.mockImplementationOnce(() => ({
+    const rows = state.existingFiles;
+    // One read lists the design's files, the other reads the design row.
+    const selectWithLimit = () => ({
       from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: vi.fn(async () => [{ data: JSON.stringify(bound) }]),
-        })),
+        where: vi.fn(() =>
+          Object.assign(Promise.resolve(rows), {
+            limit: vi.fn(async () => [{ data: JSON.stringify(bound) }]),
+          }),
+        ),
       })),
-    }));
+    });
+    state.db.select
+      .mockImplementationOnce(selectWithLimit)
+      .mockImplementationOnce(selectWithLimit);
 
     const result = await upsertFusionScreens({
       designId: "design-1",
