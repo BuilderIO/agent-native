@@ -800,6 +800,7 @@ function runPnpm(
     encoding: "utf-8",
     timeout,
     env: { ...process.env },
+    shell: process.platform === "win32",
   });
   return {
     status: res.status,

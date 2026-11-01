@@ -41,6 +41,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
+import { pnpmCommand } from "./lib/pnpm-command.ts";
 import {
   baseEnv,
   dropDatabase,
@@ -662,8 +663,10 @@ async function startNodeServer(
     assertNotInterrupted();
     exitMessage = null;
     closed = false;
-    const next = spawn("pnpm", ["start"], {
+    const pnpm = pnpmCommand(["start"]);
+    const next = spawn(pnpm.command, pnpm.args, {
       cwd: appDir,
+      shell: pnpm.shell,
       env: { ...env, NODE_ENV: "production", PORT: String(port) },
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],

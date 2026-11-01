@@ -89,6 +89,7 @@ const guards = [
   "guard:no-blob-column-predicate",
   "guard:no-unbounded-table-reads",
   "guard:no-bare-error-in-actions",
+  "guard:no-bare-pnpm-spawn",
   "guard:no-deferred-server-counts",
   "guard:no-oracle-loosening",
   "guard:no-new-legacy-mcp-hints",
@@ -275,7 +276,7 @@ function guardCommand(name: GuardName): [string, string[]] {
   if (name === "guard:no-blob-column-predicate") {
     return ["node", ["scripts/guard-no-blob-column-predicate.mjs"]];
   }
-  return [pnpmCommand(), ["run", name]];
+  return ["pnpm", ["run", name]];
 }
 
 function formatCommand([command, args]: [string, string[]]): string {
@@ -376,8 +377,4 @@ function clamp(value: number, min: number, max: number): number {
 function formatElapsed(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function pnpmCommand(): string {
-  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 }

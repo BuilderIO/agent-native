@@ -9,6 +9,7 @@ import {
   isInstructionPath,
   normalizeChangedPath,
 } from "./ci-change-scope.ts";
+import { pnpmCommand } from "./lib/pnpm-command.ts";
 
 const ROOT = process.cwd();
 const CORE = "@agent-native/core";
@@ -120,10 +121,6 @@ function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
   return out;
 }
 
-function pnpmCommand(): string {
-  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-}
-
 function readTargetedFilters(): string[] | undefined {
   const raw = process.env.CI_WORKSPACE_FILTERS;
   if (raw === undefined) return undefined;
@@ -165,8 +162,10 @@ function resolveTestPackages(all: Pkg[], filters: string[] | undefined): Pkg[] {
     "--depth=-1",
     "--json",
   ];
-  const output = execFileSync(pnpmCommand(), args, {
+  const pnpm = pnpmCommand(args);
+  const output = execFileSync(pnpm.command, pnpm.args, {
     encoding: "utf8",
+    shell: pnpm.shell,
   });
 
   let workspaces: unknown;
@@ -265,9 +264,11 @@ function readCoreFastTestFiles(since?: string): string[] {
     args.push("--exclude", exclude);
   }
 
-  const output = execFileSync(pnpmCommand(), args, {
+  const pnpm = pnpmCommand(args);
+  const output = execFileSync(pnpm.command, pnpm.args, {
     cwd: ROOT,
     encoding: "utf8",
+    shell: pnpm.shell,
   });
   let result: unknown;
   try {

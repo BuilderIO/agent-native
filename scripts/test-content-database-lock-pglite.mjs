@@ -143,24 +143,29 @@ try {
     symlinkSync(driverPackage, driverLink, "dir");
     link.linkedByScript = true;
   }
+  const suiteArgs = [
+    "--filter",
+    "content",
+    "exec",
+    "vitest",
+    "--run",
+    "actions/migrate-content-database-rows.db.test.ts",
+    "--config",
+    "vitest.config.ts",
+  ];
+  // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
+  // shell. The arguments are fixed literals, so one joined line is safe.
+  const windows = process.platform === "win32";
   const actionSuite = spawnSync(
-    "pnpm",
-    [
-      "--filter",
-      "content",
-      "exec",
-      "vitest",
-      "--run",
-      "actions/migrate-content-database-rows.db.test.ts",
-      "--config",
-      "vitest.config.ts",
-    ],
+    windows ? ["pnpm", ...suiteArgs].join(" ") : "pnpm",
+    windows ? [] : suiteArgs,
     {
       cwd: process.cwd(),
       env: {
         ...process.env,
         CONTENT_MIGRATION_TEST_BACKEND: "pglite",
       },
+      shell: windows,
       stdio: "inherit",
     },
   );

@@ -12,6 +12,7 @@ import path from "node:path";
 
 import type { Browser, Locator, Page } from "playwright";
 
+import { pnpmCommand } from "./lib/pnpm-command.ts";
 import { MISSING_BROWSER_HINT } from "./playwright-browser-hint";
 
 interface RunningDispatch {
@@ -44,8 +45,10 @@ const sharedOverrideContent = `# ${resourceName}\n\nOrganization override wins.`
 
 function buildCurrentPackages() {
   for (const pkg of ["@agent-native/core", "@agent-native/dispatch"]) {
-    execFileSync("pnpm", ["--filter", pkg, "build"], {
+    const pnpm = pnpmCommand(["--filter", pkg, "build"]);
+    execFileSync(pnpm.command, pnpm.args, {
       cwd: repoRoot,
+      shell: pnpm.shell,
       stdio: "inherit",
       env: { ...process.env, NO_COLOR: "1" },
     });
@@ -155,25 +158,23 @@ async function startDispatch(): Promise<RunningDispatch> {
   const baseUrl = `http://127.0.0.1:${port}`;
   const dataDir = path.join(tmpRoot, "dispatch-pglite");
   const logs: string[] = [];
-  const child = spawn(
-    "pnpm",
-    [
-      "--dir",
-      templateDir,
-      "dev",
-      "--",
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(port),
-      "--strictPort",
-    ],
-    {
-      cwd: repoRoot,
-      env: dispatchEnv(baseUrl, dataDir),
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  const pnpm = pnpmCommand([
+    "--dir",
+    templateDir,
+    "dev",
+    "--",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    String(port),
+    "--strictPort",
+  ]);
+  const child = spawn(pnpm.command, pnpm.args, {
+    cwd: repoRoot,
+    env: dispatchEnv(baseUrl, dataDir),
+    shell: pnpm.shell,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   child.stdout.on("data", (chunk) => logs.push(chunk.toString()));
   child.stderr.on("data", (chunk) => logs.push(chunk.toString()));

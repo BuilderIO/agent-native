@@ -58,6 +58,7 @@ function notifyReload(): void {
 
 const vite = spawn("pnpm", ["exec", "vite", "build", "--watch"], {
   cwd: root,
+  shell: process.platform === "win32",
   stdio: "inherit",
 });
 vite.on("exit", (code) => {

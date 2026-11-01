@@ -76,7 +76,7 @@ function seedDesign(): string {
       "--title",
       "Runtime budget",
     ],
-    { cwd: designRoot, encoding: "utf8" },
+    { cwd: designRoot, encoding: "utf8", shell: process.platform === "win32" },
   );
   const id = /^design (\S+) /m.exec(output)?.[1];
   if (!id) throw new Error(`seeding printed no design id:\n${output}`);

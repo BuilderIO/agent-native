@@ -661,7 +661,12 @@ async function startServer(): Promise<{
       String(port),
       "--inspect=0",
     ],
-    { cwd: WORKTREE_ROOT, detached: true, stdio: ["ignore", log, log] },
+    {
+      cwd: WORKTREE_ROOT,
+      detached: true,
+      shell: process.platform === "win32",
+      stdio: ["ignore", log, log],
+    },
   );
   let exited: number | null = null;
   child.on("exit", (code) => {

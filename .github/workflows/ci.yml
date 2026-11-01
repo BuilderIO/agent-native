@@ -2263,6 +2263,9 @@ jobs:
       - name: Test mobile build path guard
         run: pnpm test:mobile-build-paths
 
+      - name: Test bare pnpm spawn guard
+        run: pnpm test:no-bare-pnpm-spawn
+
       - name: Test source-reading tests guard
         run: pnpm test:no-source-reading-tests
 

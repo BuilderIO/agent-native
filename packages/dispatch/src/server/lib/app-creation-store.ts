@@ -2885,11 +2885,21 @@ function runScaffoldCli(input: {
   args: string[];
 }): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("pnpm", ["exec", "agent-native", ...input.args], {
-      cwd: input.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
-    });
+    // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
+    // shell. The app id is validated and the template comes from an allowlist,
+    // so one joined command line is safe there.
+    const args = ["exec", "agent-native", ...input.args];
+    const windows = process.platform === "win32";
+    const child = spawn(
+      windows ? ["pnpm", ...args].join(" ") : "pnpm",
+      windows ? [] : args,
+      {
+        cwd: input.cwd,
+        shell: windows,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
+      },
+    );
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => {

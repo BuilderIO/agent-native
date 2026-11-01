@@ -13,6 +13,7 @@ import {
   normalizeOrigin,
   rewriteRedirectLocation,
 } from "../packages/core/src/cli/gateway-helpers.ts";
+import { pnpmCommand } from "./lib/pnpm-command.ts";
 
 interface TemplateApp {
   id: string;
@@ -1006,46 +1007,44 @@ function startApp(app: TemplateApp): void {
   const basePath = `/${app.id}`;
   let child: ChildProcess;
   try {
-    child = spawn(
-      "pnpm",
-      [
-        "--dir",
-        app.dir,
-        "exec",
-        "vite",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(app.port),
-        "--strictPort",
-      ],
-      {
-        cwd: ROOT,
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: process.platform !== "win32",
-        env: devWatcherEnv({
-          ...process.env,
-          ...appDatabaseEnv(app),
-          ...appLocalEnv(app),
-          ...appGoogleOAuthEnv(app),
-          FORCE_COLOR: "1",
-          APP_NAME: app.id,
-          AGENT_NATIVE_WORKSPACE: "1",
-          AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
-          APP_BASE_PATH: basePath,
-          VITE_AGENT_NATIVE_WORKSPACE: "1",
-          VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
-          VITE_APP_BASE_PATH: basePath,
-          VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(
-            process.env,
-            gatewayUrl,
-          ),
-          VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
-          PORT: String(app.port),
-          WORKSPACE_GATEWAY_URL: gatewayUrl,
-        }),
-      },
-    );
+    const pnpm = pnpmCommand([
+      "--dir",
+      app.dir,
+      "exec",
+      "vite",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(app.port),
+      "--strictPort",
+    ]);
+    child = spawn(pnpm.command, pnpm.args, {
+      cwd: ROOT,
+      shell: pnpm.shell,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+      env: devWatcherEnv({
+        ...process.env,
+        ...appDatabaseEnv(app),
+        ...appLocalEnv(app),
+        ...appGoogleOAuthEnv(app),
+        FORCE_COLOR: "1",
+        APP_NAME: app.id,
+        AGENT_NATIVE_WORKSPACE: "1",
+        AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+        APP_BASE_PATH: basePath,
+        VITE_AGENT_NATIVE_WORKSPACE: "1",
+        VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+        VITE_APP_BASE_PATH: basePath,
+        VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(
+          process.env,
+          gatewayUrl,
+        ),
+        VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
+        PORT: String(app.port),
+        WORKSPACE_GATEWAY_URL: gatewayUrl,
+      }),
+    });
   } catch (error) {
     scheduleAppRestart(app, {
       code: null,

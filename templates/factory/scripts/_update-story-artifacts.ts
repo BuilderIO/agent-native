@@ -96,8 +96,12 @@ if (!print) {
   writeFileSync(file, coverage);
   written.push(file);
   // The repo formats what it writes; do it here so a rerun changes nothing.
-  execFileSync("pnpm", ["exec", "oxfmt", ...written], {
-    cwd: path.resolve(import.meta.dirname, ".."),
+  // Relative paths, so the shell Windows needs never splits one at a space.
+  const factoryDir = path.resolve(import.meta.dirname, "..");
+  const files = written.map((file) => path.relative(factoryDir, file));
+  execFileSync("pnpm", ["exec", "oxfmt", ...files], {
+    cwd: factoryDir,
+    shell: process.platform === "win32",
     stdio: "ignore",
   });
   console.log("COVERAGE.md written");
