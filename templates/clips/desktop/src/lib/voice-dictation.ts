@@ -10,6 +10,7 @@ import {
   loadVocabularyEntries,
   recordPasteForLearn,
 } from "./personal-vocabulary";
+import { isMacPlatform } from "./platform";
 import {
   onAudioLevel,
   onFinalTranscript,
@@ -30,6 +31,8 @@ import type {
   DictationLifecyclePhase,
   DictationInsertion,
 } from "./voice-dictation-lifecycle";
+import { resolveDictationRoute } from "./voice-settings";
+import type { VoiceEngine, VoicePolish } from "./voice-settings";
 
 export type VoiceShortcutPreference =
   | "fn"
@@ -39,15 +42,6 @@ export type VoiceShortcutPreference =
   | "both";
 export type VoiceMode = "push-to-talk" | "toggle";
 
-export type VoiceProvider =
-  | "auto"
-  | "browser"
-  | "macos-native"
-  | "whisper"
-  | "builder-gemini"
-  | "builder"
-  | "gemini"
-  | "groq";
 type ServerVoiceProvider =
   | "auto"
   | "builder-gemini"
@@ -88,20 +82,13 @@ type VoiceShortcutSource =
   | "ctrl-shift-space"
   | "custom";
 
-interface ProviderStatus {
-  builder: boolean;
-  gemini: boolean;
-  groq: boolean;
-  browser: true;
-  native: boolean;
-}
-
 interface DesktopVoiceDictationOptions {
   enabled: boolean;
   serverUrl: string;
   shortcut: VoiceShortcutPreference;
   mode: VoiceMode;
-  provider: VoiceProvider;
+  engine: VoiceEngine;
+  polish: VoicePolish;
   micDeviceId?: string | null;
   micDeviceLabel?: string | null;
   instructions?: string;
@@ -555,15 +542,14 @@ export function installDesktopVoiceDictation(
   let enabled = options.enabled;
   let shortcut = options.shortcut;
   let mode = options.mode;
-  let provider = options.provider;
+  const engine = options.engine;
+  const polish = options.polish;
   let micDeviceId = concreteMediaDeviceId(options.micDeviceId);
   let micDeviceLabel = options.micDeviceLabel ?? "";
   let instructions = options.instructions ?? "";
   let startInFlight = false;
   let startInFlightRunId: number | null = null;
   let stopRequestedBeforeReady = false;
-  let providerStatus: ProviderStatus | null = null;
-  let providerStatusFetchedAt = 0;
   let pendingHandsFreeTapAt: number | null = null;
   let handsFreeActive = false;
   const HANDS_FREE_UPGRADE_WINDOW_MS = 400;
@@ -712,90 +698,14 @@ export function installDesktopVoiceDictation(
     return source === shortcut;
   };
 
-  const refreshProviderStatus = async (
-    opts: { logFailures?: boolean } = {},
-  ): Promise<ProviderStatus> => {
-    if (providerStatus && Date.now() - providerStatusFetchedAt < 60_000) {
-      return providerStatus;
-    }
-    try {
-      const res = await fetch(
-        `${serverUrl.replace(/\/+$/, "")}/_agent-native/voice-providers/status`,
-        { credentials: "include" },
-      );
-      if (!res.ok) throw new Error(`status ${res.status}`);
-      const data = (await res.json()) as Partial<ProviderStatus>;
-      providerStatus = {
-        builder: !!data.builder,
-        gemini: !!data.gemini,
-        groq: !!data.groq,
-        browser: true,
-        native: !!data.native,
-      };
-      providerStatusFetchedAt = Date.now();
-      return providerStatus;
-    } catch (err) {
-      if (opts.logFailures) {
-        console.warn("[voice-dictation] provider status fetch failed:", err);
-      }
-      providerStatus = null;
-      providerStatusFetchedAt = 0;
-      return {
-        builder: false,
-        gemini: false,
-        groq: false,
-        browser: true,
-        native: false,
-      };
-    }
-  };
-
-  const resolveProvider = async (): Promise<
-    | { kind: "browser"; cleanupProvider?: ServerVoiceProvider }
-    | { kind: "native"; cleanupProvider?: ServerVoiceProvider }
-    | { kind: "whisper"; cleanupProvider?: ServerVoiceProvider }
-    | {
-        kind: "server";
-        providerPref: ServerVoiceProvider;
-      }
-  > => {
-    if (provider === "browser") {
-      if (
-        concreteMediaDeviceId(micDeviceId) &&
-        typeof navigator !== "undefined" &&
-        /Mac/i.test(navigator.platform)
-      ) {
-        return { kind: "native" };
-      }
-      return { kind: "browser" };
-    }
-    if (provider === "macos-native") return { kind: "native" };
-    if (provider === "whisper") return { kind: "whisper" };
-    if (provider !== "auto") {
-      const cleanupProvider =
-        provider === "builder" ? "builder-gemini" : provider;
-      if (typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)) {
-        return { kind: "native", cleanupProvider };
-      }
-      if (getSpeechRecognitionCtor()) {
-        return { kind: "browser", cleanupProvider };
-      }
-      return { kind: "server", providerPref: cleanupProvider };
-    }
-    const status = await refreshProviderStatus({ logFailures: true });
-    if (status.builder)
-      return { kind: "server", providerPref: "builder-gemini" };
-    if (status.gemini) return { kind: "server", providerPref: "gemini" };
-    if (status.groq) return { kind: "server", providerPref: "groq" };
-    if (
-      status.native &&
-      typeof navigator !== "undefined" &&
-      /Mac/i.test(navigator.platform)
-    ) {
-      return { kind: "native" };
-    }
-    return { kind: "browser" };
-  };
+  const resolveProvider = () =>
+    resolveDictationRoute(
+      { engine, polish },
+      {
+        isMac: isMacPlatform(),
+        hasBrowserSpeech: getSpeechRecognitionCtor() !== null,
+      },
+    );
 
   const releaseStart = (runId: number) => {
     if (startInFlightRunId !== runId) return;
@@ -896,19 +806,28 @@ export function installDesktopVoiceDictation(
     void invoke("show_flow_bar").catch(() => {});
 
     try {
-      const resolved = await resolveProvider();
+      const resolved = resolveProvider();
       if (disposed || stopRequestedBeforeReady || !lifecycle.isActive(runId)) {
         abortPendingStart(runId);
         return;
       }
-      if (resolved.kind === "browser") {
-        await startBrowser(runId, resolved.cleanupProvider, triggerSource);
-      } else if (resolved.kind === "native") {
-        await startNative(runId, resolved.cleanupProvider, triggerSource);
-      } else if (resolved.kind === "whisper") {
-        await startWhisper(runId, resolved.cleanupProvider, triggerSource);
-      } else {
-        await startServer(runId, resolved.providerPref, triggerSource);
+      switch (resolved.kind) {
+        case "server":
+          await startServer(runId, resolved.providerPref, triggerSource);
+          break;
+        case "browser":
+          await startBrowser(runId, resolved.cleanupProvider, triggerSource);
+          break;
+        case "native":
+          await startNative(runId, resolved.cleanupProvider, triggerSource);
+          break;
+        case "whisper":
+          await startWhisper(runId, resolved.cleanupProvider, triggerSource);
+          break;
+        default: {
+          const unrouted: never = resolved;
+          throw new Error(`No dictation start path for ${String(unrouted)}`);
+        }
       }
     } catch (err) {
       console.error("[voice-dictation] start failed", err);
@@ -1190,7 +1109,7 @@ export function installDesktopVoiceDictation(
       snippets,
       terms,
       metadata: {
-        provider,
+        provider: polish === "off" ? engine : polish,
         locale: navigator.language || "en-US",
         micDeviceLabel: micDeviceLabel || null,
       },
@@ -2078,7 +1997,6 @@ export function installDesktopVoiceDictation(
     }
   };
 
-  refreshProviderStatus({ logFailures: false }).catch(() => {});
   configureVocabularyClient(serverUrl);
   loadVocabulary().catch(() => {});
 
@@ -2396,7 +2314,7 @@ export function installDesktopVoiceDictation(
   );
 
   console.log(
-    "[voice-dictation] installed v3 (no-warm-stream): provider=" + provider,
+    `[voice-dictation] installed v3 (no-warm-stream): engine=${engine} polish=${polish}`,
   );
 
   const forceStopSession = (target: VoiceSession | null) => {
@@ -2445,7 +2363,6 @@ export function installDesktopVoiceDictation(
     serverUrl = "";
     shortcut = "both";
     mode = "push-to-talk";
-    provider = "auto";
     setHandsFreeActive(false);
     pendingHandsFreeTapAt = null;
     unlistens.forEach((u) => {
