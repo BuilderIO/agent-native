@@ -243,6 +243,25 @@ describe("processWebContent", () => {
     expect(textResult.fullContentFormat).toBe("raw");
   });
 
+  it("includes a search summary when a raw-mode search finds no hits", async () => {
+    const { processWebContent, formatWebContentResult } =
+      await import("./web-content.js");
+    const result = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+      search: { query: "no-such-token" },
+    });
+
+    expect(result.matches).toEqual([]);
+    expect(result.totalMatches).toBe(0);
+    expect(result.searchSource).toBe("extracted");
+    expect(formatWebContentResult(result)).toContain(
+      "Matches: 0 shown of 0 [source: extracted]",
+    );
+  });
+
   it("uses the raw body in text mode when extraction yields no usable text", async () => {
     const { processWebContent } = await import("./web-content.js");
     const body =
@@ -257,6 +276,51 @@ describe("processWebContent", () => {
 
     expect(result.content).toBe(body);
     expect(result.rawBodyFallback).toBe(true);
+  });
+
+  it("labels truncated text-mode output as a raw fallback when only markdown extraction succeeded", async () => {
+    const { processWebContent, formatWebContentResult } =
+      await import("./web-content.js");
+    // Image-only markup: Turndown still emits markdown, but plain text is
+    // empty, so text mode displays the raw body. A search forces markdown
+    // conversion on this path (the production gap). extract:"none" keeps
+    // Readability from promoting a title into the text corpus.
+    const body =
+      `<!doctype html><html><body>` +
+      `<img src="https://example.com/${"p".repeat(80)}.png" alt="">` +
+      `</body></html>`;
+    const maxChars = 40;
+
+    const markdown = await processWebContent({
+      url: "https://example.com/photo",
+      body,
+      contentType: "text/html",
+      responseMode: "markdown",
+      extract: "none",
+    });
+    expect(markdown.content).toMatch(
+      /!\[.*]\(https:\/\/example.com\/p+\.png\)/,
+    );
+    expect(markdown.rawBodyFallback).toBeUndefined();
+
+    const result = await processWebContent({
+      url: "https://example.com/photo",
+      body,
+      contentType: "text/html",
+      responseMode: "text",
+      extract: "none",
+      search: { query: "no-such-token" },
+      maxChars,
+    });
+
+    expect(result.content).toBe(`${body.slice(0, maxChars)}\n... (truncated)`);
+    expect(result.truncated).toBe(true);
+    expect(result.rawBodyFallback).toBe(true);
+    const formatted = formatWebContentResult(result);
+    expect(formatted).toContain(
+      `Full raw response: ${body.length} characters.`,
+    );
+    expect(formatted).not.toContain("extracted content");
   });
 
   it.each(["markdown", "text"] as const)(
@@ -352,6 +416,7 @@ describe("processWebContent", () => {
     });
     expect(markupByDefault.searchSource).toBe("extracted");
     expect(markupByDefault.matches ?? []).toHaveLength(0);
+    expect(markupByDefault.totalMatches).toBe(0);
 
     // `source: "raw"` is the explicit opt-in for searching the markup.
     const explicitRaw = await processWebContent({
@@ -701,6 +766,24 @@ describe("formatWebContentResult", () => {
     expect(formatted).toContain("Matches: 1 shown of 1 [source: raw]");
     expect(formatted).toContain("topbar");
     expect(formatted).toContain("<frameset>");
+  });
+
+  it("includes a search summary when a raw-mode search returns no matches", async () => {
+    const { formatWebContentResult } = await import("./web-content.js");
+    const rawBody = "<html><body>some raw content</body></html>";
+    const formatted = formatWebContentResult({
+      mode: "raw",
+      extract: "none",
+      contentType: "text/html",
+      content: rawBody,
+      matches: [],
+      totalMatches: 0,
+      omittedMatches: 0,
+      searchSource: "extracted",
+      searchTruncated: false,
+    });
+    expect(formatted).toContain(rawBody);
+    expect(formatted).toContain("Matches: 0 shown of 0 [source: extracted]");
   });
 
   it("appends formatted matches in raw mode so fetch callers see search hits", async () => {

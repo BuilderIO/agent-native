@@ -230,9 +230,14 @@ export async function processWebContent(
   const fallbackSearchSource: WebSearchSource = hasRealExtractedContent
     ? "extracted"
     : "raw";
-  // Base the fallback flag on extraction success, not on structured-mode
-  // display content (links/metadata return "" from contentForMode by design).
-  const rawBodyFallback = mode !== "raw" && !hasRealExtractedContent;
+  // Base the fallback flag on the representation this mode actually displays.
+  // Text mode uses plain text only (`contentForMode`); markdown existing while
+  // text is empty still surfaces the raw body, and callers must not label
+  // that truncation as extracted content. Links/metadata keep the broader
+  // extraction-success check because they do not display that body.
+  const selectedExtractedText =
+    mode === "text" ? extractedPlainText : realExtractedText;
+  const rawBodyFallback = mode !== "raw" && !selectedExtractedText;
   const savedExtractedText =
     options.saveContentFormat === "text"
       ? extractedPlainText
@@ -339,7 +344,7 @@ export function formatWebContentResult(result: WebContentResult): string {
   if (result.mode === "raw") {
     const lines: string[] = [];
     if (result.content) lines.push(result.content);
-    if (result.matches?.length) {
+    if (hasSearchSummary(result)) {
       lines.push("", formatMatches(result));
     }
     return lines.join("\n");
@@ -381,7 +386,7 @@ export function formatWebContentResult(result: WebContentResult): string {
       JSON.stringify(result.agentMetadata, null, 2),
     );
   }
-  if (result.matches?.length && result.mode !== "matches") {
+  if (result.mode !== "matches" && hasSearchSummary(result)) {
     lines.push("", formatMatches(result));
   }
   appendRawTruncationFooter(lines, result);
@@ -979,6 +984,14 @@ function normalizeWhitespace(value: string): string {
 function textOrUndefined(value: string | null | undefined): string | undefined {
   const normalized = normalizeWhitespace(value ?? "");
   return normalized || undefined;
+}
+
+function hasSearchSummary(result: WebContentResult): boolean {
+  return (
+    result.matches !== undefined ||
+    result.totalMatches !== undefined ||
+    result.searchSource !== undefined
+  );
 }
 
 function formatMatches(result: WebContentResult): string {
