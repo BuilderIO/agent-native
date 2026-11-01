@@ -10,6 +10,10 @@ import {
   writeClientAppState,
 } from "./application-state.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
+import {
+  ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
+  KEEPALIVE_PAGE_LIMIT_BYTES,
+} from "./keepalive-budget.js";
 
 // The write-order headers every value write and delete carries (see
 // AppStateWriteOrder in the store).
@@ -978,13 +982,17 @@ describe("client application-state helpers", () => {
   });
   describe("keepalive budget", () => {
     // Browsers refuse a keepalive request once the keepalive bodies in flight
-    // pass 64 KiB, counted in encoded bytes.
-    const KEEPALIVE_BYTES = 64 * 1024;
+    // pass 64 KiB, counted in encoded bytes. Application state keeps room in
+    // that for a document save (see keepalive-budget).
+    const KEEPALIVE_BYTES = KEEPALIVE_PAGE_LIMIT_BYTES;
+    const APP_STATE_ROOM =
+      KEEPALIVE_PAGE_LIMIT_BYTES - ACTION_KEEPALIVE_BODY_BUDGET_BYTES;
     const encodedLength = (body: unknown) =>
       new TextEncoder().encode(String(body ?? "")).length;
 
     function browserLikeFetch(hold?: (url: string) => Promise<void>) {
       let inFlight = 0;
+      let peak = 0;
       const overBudget: number[] = [];
       const fetchMock = vi.fn(
         async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -994,6 +1002,7 @@ describe("client application-state helpers", () => {
             throw new TypeError("Failed to fetch");
           }
           inFlight += bytes;
+          peak = Math.max(peak, inFlight);
           try {
             await hold?.(String(url));
             const body = JSON.parse(String(init?.body));
@@ -1020,7 +1029,7 @@ describe("client application-state helpers", () => {
           }
         },
       );
-      return { fetchMock, overBudget };
+      return { fetchMock, overBudget, peak: () => peak };
     }
 
     it("splits keepalive writes by encoded bytes so each stays keepalive", async () => {
@@ -1028,7 +1037,7 @@ describe("client application-state helpers", () => {
       const fresh = await import("./application-state.js");
       const { fetchMock, overBudget } = browserLikeFetch();
       vi.stubGlobal("fetch", fetchMock);
-      const big = "a".repeat(31_000);
+      const big = "a".repeat(8_000);
 
       await expect(
         Promise.all([
@@ -1048,9 +1057,11 @@ describe("client application-state helpers", () => {
     it("counts multi-byte characters against the budget", async () => {
       vi.resetModules();
       const fresh = await import("./application-state.js");
-      const { fetchMock, overBudget } = browserLikeFetch();
+      const { fetchMock, overBudget, peak } = browserLikeFetch();
       vi.stubGlobal("fetch", fetchMock);
-      const wide = "漢".repeat(12_000);
+      // 15,000 bytes each: one fits beside room for a document save, but
+      // counted as characters both would.
+      const wide = "漢".repeat(5_000);
 
       await expect(
         Promise.all([
@@ -1059,6 +1070,8 @@ describe("client application-state helpers", () => {
         ]),
       ).resolves.toEqual([wide, wide]);
       expect(overBudget).toEqual([]);
+      expect(peak()).toBeGreaterThan(0);
+      expect(peak()).toBeLessThanOrEqual(APP_STATE_ROOM);
     });
 
     it("leaves room for keepalive writes already in flight", async () => {
@@ -1073,14 +1086,15 @@ describe("client application-state helpers", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
 
-      const first = fresh.writeClientAppState("a", "a".repeat(40_000), {
+      const first = fresh.writeClientAppState("a", "a".repeat(10_000), {
         keepalive: true,
       });
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-      const second = fresh.writeClientAppState("b", "b".repeat(30_000), {
+      const second = fresh.writeClientAppState("b", "b".repeat(8_000), {
         keepalive: true,
       });
-      await expect(second).resolves.toBe("b".repeat(30_000));
+      await expect(second).resolves.toBe("b".repeat(8_000));
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ keepalive: false });
       release();
       await first;
       expect(overBudget).toEqual([]);
@@ -1108,17 +1122,17 @@ describe("client application-state helpers", () => {
       const swap = fresh.compareAndSetClientAppState(
         "cas",
         null,
-        { text: "c".repeat(40_000) },
+        { text: "c".repeat(10_000) },
         { keepalive: true },
       );
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
       const batch = Promise.all([
-        fresh.writeClientAppState("a", "a".repeat(15_000), { keepalive: true }),
-        fresh.writeClientAppState("b", "b".repeat(15_000), { keepalive: true }),
+        fresh.writeClientAppState("a", "a".repeat(4_000), { keepalive: true }),
+        fresh.writeClientAppState("b", "b".repeat(4_000), { keepalive: true }),
       ]);
       await expect(batch).resolves.toEqual([
-        "a".repeat(15_000),
-        "b".repeat(15_000),
+        "a".repeat(4_000),
+        "b".repeat(4_000),
       ]);
       release();
       await expect(swap).resolves.toBe(true);
@@ -1134,14 +1148,14 @@ describe("client application-state helpers", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       const batch = Promise.all([
-        fresh.writeClientAppState("a", "a".repeat(15_000), { keepalive: true }),
-        fresh.writeClientAppState("b", "b".repeat(15_000), { keepalive: true }),
+        fresh.writeClientAppState("a", "a".repeat(4_000), { keepalive: true }),
+        fresh.writeClientAppState("b", "b".repeat(4_000), { keepalive: true }),
       ]);
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
       const swap = fresh.compareAndSetClientAppState(
         "cas",
         null,
-        { text: "c".repeat(40_000) },
+        { text: "c".repeat(10_000) },
         { keepalive: true },
       );
       await expect(swap).resolves.toBe(true);

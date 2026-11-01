@@ -10,6 +10,10 @@ import {
   getBrowserTabId,
   isBrowserTabIdForCurrentDocument,
 } from "./browser-tab-id.js";
+import {
+  availableKeepaliveBytes,
+  reserveKeepaliveBytes,
+} from "./keepalive-budget.js";
 import { recordStateWrite } from "./recorder.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
@@ -160,29 +164,19 @@ let replacementFlushTimer: ReturnType<typeof setTimeout> | undefined;
 // own route again until the page reloads.
 let batchWritesUnsupported = false;
 
-// Browsers refuse a keepalive request once the keepalive bodies in flight
-// from the page pass 64 KiB, counted in encoded bytes. Keepalive requests
-// from this module (writes, deletes and compare-and-sets) claim their bytes
-// until they finish, and a request that doesn't fit goes without keepalive
+// Keepalive requests from this module (writes, deletes and compare-and-sets)
+// hold their bytes of the page's keepalive allowance until they finish. They
+// share it with action calls and leave room for a document save (see
+// keepalive-budget), and a request that doesn't fit goes without keepalive
 // rather than fail.
-const KEEPALIVE_BYTE_BUDGET = 64 * 1024;
 const MAX_BATCH_WRITES = 100;
-let keepaliveBytesInFlight = 0;
 
 function encodedLength(text: string): number {
   return new TextEncoder().encode(text).length;
 }
 
 function claimKeepalive(body: string | undefined): (() => void) | undefined {
-  const bytes = encodedLength(body ?? "");
-  if (keepaliveBytesInFlight + bytes > KEEPALIVE_BYTE_BUDGET) return undefined;
-  keepaliveBytesInFlight += bytes;
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    keepaliveBytesInFlight -= bytes;
-  };
+  return reserveKeepaliveBytes("app-state", encodedLength(body ?? ""));
 }
 
 /**
@@ -357,7 +351,7 @@ function flushReplacements(): void {
     if (
       chunk.length > 0 &&
       (chunk.length >= MAX_BATCH_WRITES ||
-        chunkBytes + 1 + bytes > KEEPALIVE_BYTE_BUDGET - keepaliveBytesInFlight)
+        chunkBytes + 1 + bytes > availableKeepaliveBytes("app-state"))
     ) {
       sendChunk(chunk, true);
       chunk = [];
