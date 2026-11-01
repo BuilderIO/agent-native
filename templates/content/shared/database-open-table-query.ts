@@ -2,7 +2,6 @@ import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type ContentDatabaseFilter,
   type ContentDatabaseFilterMode,
-  type ContentDatabasePersonalViewOverrides,
   type ContentDatabaseSort,
   type ContentDatabaseTableQuery,
   type ContentDatabaseViewConfig,
@@ -37,8 +36,9 @@ export function openingDatabaseTableQuery({
   requestedViewId,
 }: {
   viewConfig: Partial<ContentDatabaseViewConfig> | null | undefined;
-  overrides: ContentDatabasePersonalViewOverrides | null | undefined;
-  requestedViewId?: string | null;
+  // The reader's stored overrides, checked here as the view checks them.
+  overrides: unknown;
+  requestedViewId?: string | null | undefined;
 }): ContentDatabaseTableQuery | undefined {
   const saved = savedViews(viewConfig);
   const personal = personalOverrides(overrides);
@@ -72,8 +72,8 @@ function savedViews(
   value: Partial<ContentDatabaseViewConfig> | null | undefined,
 ): { activeViewId: string; views: OpeningView[] } {
   const views = Array.isArray(value?.views)
-    ? value.views.flatMap((view): OpeningView[] =>
-        view && typeof view.id === "string" && view.id.trim()
+    ? value.views.flatMap((view: unknown): OpeningView[] =>
+        isRecord(view) && typeof view.id === "string" && view.id.trim()
           ? [
               {
                 id: view.id,
@@ -106,14 +106,12 @@ function savedViews(
   return { activeViewId, views: normalized };
 }
 
-function personalOverrides(
-  value: ContentDatabasePersonalViewOverrides | null | undefined,
-): {
+function personalOverrides(value: unknown): {
   activeViewId: string | undefined;
   views: Array<Omit<OpeningView, "type">>;
 } | null {
   if (
-    !value ||
+    !isRecord(value) ||
     value.version !== CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION ||
     !Array.isArray(value.views)
   ) {
@@ -122,15 +120,23 @@ function personalOverrides(
   return {
     activeViewId:
       typeof value.activeViewId === "string" ? value.activeViewId : undefined,
-    views: value.views
-      .filter((view) => typeof view?.id === "string")
-      .map((view) => ({
-        id: view.id,
-        sorts: validSorts(view.sorts),
-        filters: validFilters(view.filters),
-        filterMode: view.filterMode === "or" ? "or" : "and",
-      })),
+    views: value.views.flatMap((view: unknown) =>
+      isRecord(view) && typeof view.id === "string"
+        ? [
+            {
+              id: view.id,
+              sorts: validSorts(view.sorts),
+              filters: validFilters(view.filters),
+              filterMode: view.filterMode === "or" ? "or" : "and",
+            } satisfies Omit<OpeningView, "type">,
+          ]
+        : [],
+    ),
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object";
 }
 
 function openingViewType(type: unknown) {

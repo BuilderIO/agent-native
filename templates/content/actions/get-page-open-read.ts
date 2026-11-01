@@ -61,6 +61,8 @@ async function readOpeningCollection(
   };
 }
 
+// It returns get-document's answer and the collection reads' own answers.
+// guard:allow-no-output-schema — none of the reads it returns declares one.
 export default defineAction({
   description:
     "Read what opening one page shows first: the page as get-document returns it with the reader's unsaved draft and, for a collection page, its first rows and the reader's personal view. The page editor sends this when it opens a page.",

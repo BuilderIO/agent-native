@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -21,7 +22,7 @@ const OWNER = "open-owner@example.com";
 const VIEWER = "open-viewer@example.com";
 const STRANGER = "open-stranger@example.com";
 
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let getPageOpenReadAction: typeof import("./get-page-open-read.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
@@ -58,7 +59,7 @@ beforeAll(async () => {
     .default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin(undefined as never);
   const { scheduleStartupMaintenance } =
     await import("../server/lib/startup-maintenance.js");
   await scheduleStartupMaintenance();
@@ -69,7 +70,7 @@ afterAll(() => {
 });
 
 // Each read runs as the browser's own request for that reader.
-function as<T>(userEmail: string, run: (ctx: any) => Promise<T>) {
+function as<T>(userEmail: string, run: (ctx: ActionRunContext) => Promise<T>) {
   return runWithRequestContext({ userEmail }, () =>
     run({ caller: "frontend", userEmail }),
   );
