@@ -191,7 +191,7 @@ export async function upsertFusionScreens(args: {
       existing.filename !== preferredFilename &&
       !usedFilenames.has(preferredFilename);
     if (renameLegacy) usedFilenames.add(preferredFilename);
-    const filename = renameLegacy
+    let filename = renameLegacy
       ? preferredFilename
       : (existing?.filename ?? uniqueFilename(path, usedFilenames));
     let fileId = existing?.id ?? nanoid();
@@ -238,18 +238,44 @@ export async function upsertFusionScreens(args: {
       }
     }
     if (!existing) {
-      await withDesignSourceMutationTransaction(designId, (tx) =>
-        tx.insert(schema.designFiles).values({
-          id: fileId,
-          designId,
-          filename,
-          fileType: "html",
-          content: url,
-          createdAt: now,
-          updatedAt: now,
-        }),
+      // Under the design's lock, so a bind running at the same time (the
+      // open and the editor's first sync) can't insert this screen twice.
+      const racedFile = await withDesignSourceMutationTransaction(
+        designId,
+        async (tx) => {
+          const rows = await tx
+            .select({
+              id: schema.designFiles.id,
+              filename: schema.designFiles.filename,
+            })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.designId, designId),
+                eq(schema.designFiles.content, url),
+              ),
+            )
+            .limit(1);
+          const raced = rows[0] as (typeof rows)[number] | undefined;
+          if (raced) return raced;
+          await tx.insert(schema.designFiles).values({
+            id: fileId,
+            designId,
+            filename,
+            fileType: "html",
+            content: url,
+            createdAt: now,
+            updatedAt: now,
+          });
+          return null;
+        },
       );
-      await seedFromText(fileId, url);
+      if (racedFile) {
+        fileId = racedFile.id;
+        filename = racedFile.filename;
+      } else {
+        await seedFromText(fileId, url);
+      }
     }
 
     results.push({ fileId, filename, path, url, title, width, height });

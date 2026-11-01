@@ -91,7 +91,7 @@ export function FusionAppBanner({
             variant="outline"
             className="h-6 shrink-0 cursor-pointer gap-1 px-2 !text-[11px]"
             disabled={syncMutation.isPending}
-            onClick={() => syncMutation.mutate({ designId })}
+            onClick={runSync}
           >
             {syncMutation.isPending ? (
               <Spinner className="size-3" />

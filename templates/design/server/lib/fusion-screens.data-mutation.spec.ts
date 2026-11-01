@@ -11,9 +11,14 @@ const state = vi.hoisted(() => {
     }>,
     insertChain,
     db: {
-      select: vi.fn(() => ({
+      select: vi.fn<() => unknown>(() => ({
         from: vi.fn(() => ({
-          where: vi.fn(async () => state.existingFiles),
+          // Listing the design's files; .limit is the insert's race recheck.
+          where: vi.fn(() =>
+            Object.assign(Promise.resolve(state.existingFiles), {
+              limit: vi.fn(async () => []),
+            }),
+          ),
         })),
       })),
       insert: vi.fn(() => insertChain),
@@ -294,5 +299,32 @@ describe("fusion screen designs.data mutation", () => {
     expect(state.db.update).not.toHaveBeenCalled();
     expect(state.insertChain.values).not.toHaveBeenCalled();
     expect(state.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("reuses a screen another bind created while this one waited", async () => {
+    state.db.select
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      }))
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [
+              { id: "raced-home", filename: "home.html" },
+            ]),
+          })),
+        })),
+      }));
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+    });
+
+    expect(state.insertChain.values).not.toHaveBeenCalled();
+    expect(result.screens).toEqual([
+      expect.objectContaining({ fileId: "raced-home", filename: "home.html" }),
+    ]);
   });
 });
