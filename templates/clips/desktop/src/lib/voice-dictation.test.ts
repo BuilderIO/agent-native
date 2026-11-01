@@ -216,10 +216,8 @@ function parakeetReturns(text: string) {
       !(args as { discard?: boolean } | undefined)?.discard
     ) {
       return Promise.resolve({
-        text,
-        pass: "live",
-        releaseToTextMs: 120,
-        audioMs: 2_000,
+        failure: null,
+        dictation: { text, pass: "live", releaseToTextMs: 120, audioMs: 2_000 },
       });
     }
     return Promise.resolve(

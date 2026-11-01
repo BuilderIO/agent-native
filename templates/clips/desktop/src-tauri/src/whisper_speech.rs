@@ -52,6 +52,17 @@ pub struct DictationTranscript {
     pub audio_ms: u64,
 }
 
+/// The first failure reported for a stopped run: a microphone that sent no
+/// usable audio, or a transcription that failed. Either way the run's
+/// transcript is missing speech, so whoever saves it must carry `failure`.
+/// A Parakeet dictation's text comes back in `dictation`.
+#[derive(Debug, Default, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhisperStopResult {
+    pub failure: Option<String>,
+    pub dictation: Option<DictationTranscript>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OfflineTranscriptSegment {
     pub start_ms: i64,
@@ -146,7 +157,7 @@ pub async fn whisper_transcription_stop(
     owner: Option<String>,
     run_id: Option<u64>,
     discard: bool,
-) -> Result<Option<DictationTranscript>, String> {
+) -> Result<WhisperStopResult, String> {
     #[cfg(target_os = "macos")]
     {
         tauri::async_runtime::spawn_blocking(move || {
@@ -164,7 +175,7 @@ pub async fn whisper_transcription_stop(
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, owner, run_id, discard);
-        Ok(None)
+        Ok(WhisperStopResult::default())
     }
 }
 
@@ -212,7 +223,7 @@ mod macos {
     use serde::Serialize;
     use tauri::{AppHandle, Emitter};
 
-    use super::{DictationTranscript, LocalEngine};
+    use super::LocalEngine;
     use crate::capture_audio_bus::{
         try_subscribe, AudioSources, AudioSubscription, SubscriptionAttempt,
     };
@@ -433,6 +444,7 @@ mod macos {
         reset_generation: AtomicU32,
         emit_partials: bool,
         echo_guard: Option<Arc<EchoGuard>>,
+        failure: OnceLock<String>,
     }
 
     /// What a stream's worker transcribes with: a Parakeet dictation's live
@@ -477,6 +489,7 @@ mod macos {
                 reset_generation: AtomicU32::new(0),
                 emit_partials,
                 echo_guard,
+                failure: OnceLock::new(),
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
@@ -597,6 +610,7 @@ mod macos {
         }
 
         fn report_failure(&self, error: &str) {
+            let _ = self.failure.set(error.to_owned());
             let _ = self.app.emit(
                 "pill:error",
                 serde_json::json!({ "error": format!("Transcription worker ({}) failed: {error}", self.source) }),
@@ -1611,7 +1625,7 @@ mod macos {
         run_id: Option<u64>,
         replace_older: bool,
         discard: bool,
-    ) -> Result<Option<DictationTranscript>, String> {
+    ) -> Result<super::WhisperStopResult, String> {
         let released = Instant::now();
         let mut latest = match latest_run_id_slot().lock() {
             Ok(latest) => latest,
@@ -1640,20 +1654,20 @@ mod macos {
                 if latest.latest_run_id != Some(run_id)
                     || owner.is_some_and(|owner| latest.latest_owner != Some(owner))
                 {
-                    return Ok(None);
+                    return Ok(super::WhisperStopResult::default());
                 }
             } else {
                 let Some(owner) = owner.or(latest.latest_owner) else {
-                    return Ok(None);
+                    return Ok(super::WhisperStopResult::default());
                 };
                 if slot
                     .as_ref()
                     .is_some_and(|current| current.owner != owner || current.run_id != Some(run_id))
                 {
-                    return Ok(None);
+                    return Ok(super::WhisperStopResult::default());
                 }
                 if !cancel_run_authority(&mut latest, owner, run_id) {
-                    return Ok(None);
+                    return Ok(super::WhisperStopResult::default());
                 }
             }
         }
@@ -1679,7 +1693,7 @@ mod macos {
         drop(slot);
         drop(latest);
         let Some(mut session) = session else {
-            return Ok(None);
+            return Ok(super::WhisperStopResult::default());
         };
         session.mic.stop();
         if let Some(sys) = &session.sys {
@@ -1700,7 +1714,7 @@ mod macos {
         if let Some(live) = session.mic.live.clone() {
             if discard {
                 live.discard();
-                return Ok(None);
+                return Ok(super::WhisperStopResult::default());
             }
             // The stop call returns a Parakeet dictation's text, so a mic that
             // sent nothing must fail it here rather than come back empty.
@@ -1710,7 +1724,10 @@ mod macos {
             }
             let transcript = live.finish(&session.mic.audio_tap(), released);
             drop(finalizing);
-            return transcript.map(Some);
+            return transcript.map(|dictation| super::WhisperStopResult {
+                failure: None,
+                dictation: Some(dictation),
+            });
         }
         let deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
@@ -1724,7 +1741,15 @@ mod macos {
             std::thread::sleep(Duration::from_millis(50));
         }
         eprintln!("[whisper] meeting transcription stopped");
-        Ok(None)
+        let failure = session
+            .mic
+            .failure
+            .get()
+            .or_else(|| session.sys.as_ref().and_then(|sys| sys.failure.get()));
+        Ok(super::WhisperStopResult {
+            failure: failure.cloned(),
+            dictation: None,
+        })
     }
 
     #[cfg(test)]
@@ -2068,7 +2093,7 @@ mod macos {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_local_engine, LocalEngine};
+    use super::{resolve_local_engine, LocalEngine, WhisperStopResult};
 
     /// A dictation always reaches the start that can turn it away with a
     /// reason and recover Parakeet, however the model is doing.
@@ -2101,6 +2126,25 @@ mod tests {
         assert_eq!(
             resolve_local_engine(Some("parakeat"), true, || true),
             Err("unknown-transcription-engine")
+        );
+    }
+
+    #[test]
+    fn a_stop_result_always_says_whether_the_run_failed() {
+        assert_eq!(
+            serde_json::to_value(WhisperStopResult::default()).unwrap(),
+            serde_json::json!({ "failure": null, "dictation": null })
+        );
+        assert_eq!(
+            serde_json::to_value(WhisperStopResult {
+                failure: Some("Microphone AirPods sent no audio in 2.3 s.".into()),
+                dictation: None,
+            })
+            .unwrap(),
+            serde_json::json!({
+                "failure": "Microphone AirPods sent no audio in 2.3 s.",
+                "dictation": null
+            })
         );
     }
 }

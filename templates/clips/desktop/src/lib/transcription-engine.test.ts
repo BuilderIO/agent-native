@@ -472,8 +472,13 @@ describe("meeting microphone capture", () => {
   it.each(["whisper", "macos-native"] as const)(
     "stops the exact meeting %s run",
     async (engine) => {
-      await stopTranscriptionEngine(engine, 123);
+      invokeMock.mockResolvedValueOnce(
+        engine === "whisper" ? { failure: null } : undefined,
+      );
 
+      await expect(stopTranscriptionEngine(engine, 123)).resolves.toEqual({
+        failure: null,
+      });
       expect(invokeMock).toHaveBeenCalledWith(
         engine === "whisper"
           ? "audio_transcription_stop"
@@ -482,6 +487,22 @@ describe("meeting microphone capture", () => {
       );
     },
   );
+
+  it("returns the failure a stopped Whisper run reported", async () => {
+    const failure = "Microphone AirPods sent no audio in 2.3 s.";
+    invokeMock.mockResolvedValueOnce({ failure });
+
+    await expect(stopTranscriptionEngine("whisper", 123)).resolves.toEqual({
+      failure,
+    });
+  });
+
+  it("does not read a Whisper stop without a failure field as clean", async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    const { failure } = await stopTranscriptionEngine("whisper", 123);
+    expect(failure).toContain("without reporting");
+  });
 
   it("falls back to native speech when the local Whisper capture cannot start", async () => {
     invokeMock

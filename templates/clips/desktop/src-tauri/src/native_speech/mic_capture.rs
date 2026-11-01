@@ -518,8 +518,12 @@ fn read_mono(sample_buffer: &CMSampleBuffer) -> Result<MonoPcm, String> {
             }
         })
         .collect();
+    let samples = mix_to_mono(layout, &planes)?;
+    if samples.iter().any(|sample| !sample.is_finite()) {
+        return Err("PCM with non-finite samples".into());
+    }
     Ok(MonoPcm {
-        samples: mix_to_mono(layout, &planes)?,
+        samples,
         sample_rate: layout.sample_rate,
     })
 }
@@ -763,6 +767,43 @@ mod tests {
             Some("24-bit integer PCM")
         );
         assert!((summary.peak - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn treats_buffers_with_non_finite_samples_as_unreadable() {
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::Arc;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let on_samples: AudioCallback = Arc::new(move |_: &[f32], _: f64| {
+            counter.fetch_add(1, Ordering::Relaxed);
+        });
+        let tally = CaptureTally::default();
+        let mono = asbd(SampleFormat::F32, 1, true);
+        // Two loud channels whose average overflows to infinity.
+        let overflowing = f32_bytes(&[f32::MAX, f32::MAX]);
+        let buffers = [
+            sample_buffer(mono, &f32_bytes(&[0.1, f32::NAN]), 2),
+            sample_buffer(mono, &f32_bytes(&[f32::INFINITY, 0.1]), 2),
+            sample_buffer(asbd(SampleFormat::F32, 2, true), &overflowing, 1),
+        ];
+        for buffer in &buffers {
+            assert_eq!(
+                deliver(unsafe { buffer.0.as_ref() }, &tally, &on_samples),
+                None
+            );
+        }
+
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        let summary = tally.summary(Duration::from_secs(1));
+        assert_eq!(summary.buffers, 0);
+        assert_eq!(summary.unreadable, 3);
+        assert_eq!(summary.peak, 0.0);
+        assert_eq!(
+            capture_verdict("USB Mic", &summary).unwrap_err(),
+            "Microphone USB Mic sent audio Clips could not read (PCM with non-finite samples)."
+        );
     }
 
     fn summary(buffers: u64, peak: f32, reason: Option<&str>) -> CaptureSummary {

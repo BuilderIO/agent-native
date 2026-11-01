@@ -55,6 +55,7 @@ interface MeetingTranscriptionSession {
     actualEnd: string | null;
   } | null;
   lines: TranscriptLine[];
+  transcriptionFailure: string | null;
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
@@ -245,6 +246,9 @@ export function useMeetingTranscription({
               segments: transcriptSegments(session.lines),
               source: session.engine,
               overwriteReady: true,
+              ...(session.transcriptionFailure
+                ? { failureReason: session.transcriptionFailure }
+                : {}),
             },
             { signal },
           ),
@@ -320,7 +324,9 @@ export function useMeetingTranscription({
             ),
           );
           for (const result of stopResults) {
-            if (result.status === "rejected") {
+            if (result.status === "fulfilled") {
+              session.transcriptionFailure ??= result.value.failure;
+            } else {
               console.warn(
                 "[clips-popover] meeting audio stop failed:",
                 result.reason,
@@ -337,7 +343,11 @@ export function useMeetingTranscription({
             () => null,
           );
           if (engineWasStarting && startedEngine) {
-            await stopTranscriptionEngine(startedEngine, stoppingRunId);
+            const stopped = await stopTranscriptionEngine(
+              startedEngine,
+              stoppingRunId,
+            );
+            session.transcriptionFailure ??= stopped.failure;
           }
           if (!session.paused) {
             session.settlingRunDeadlines.set(
@@ -681,6 +691,7 @@ export function useMeetingTranscription({
           settlingRunDeadlines: new Map(),
           recordingId: null,
           lines: [],
+          transcriptionFailure: null,
           unlisten: [],
           flushTimer: null,
           stopping: false,
@@ -909,7 +920,11 @@ export function useMeetingTranscription({
                   if (!sessionIsActive()) return;
                   session.engine = engine;
                   const pausedRunId = session.audioRunId;
-                  await stopTranscriptionEngine(engine, pausedRunId);
+                  const stopped = await stopTranscriptionEngine(
+                    engine,
+                    pausedRunId,
+                  );
+                  session.transcriptionFailure ??= stopped.failure;
                   session.settlingRunDeadlines.set(
                     pausedRunId,
                     Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,

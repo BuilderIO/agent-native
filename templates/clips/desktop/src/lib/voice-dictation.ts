@@ -178,12 +178,17 @@ interface VoiceSession extends DictationHistoryContext {
 
 type DictationTimingPhase = "release" | "finalization" | "cleanup" | "paste";
 
-/** What `audio_transcription_stop` returns for a Parakeet dictation. */
 interface OnDeviceDictationTranscript {
   text: string;
   pass: "live" | "fallback";
   releaseToTextMs: number;
   audioMs: number;
+}
+
+/** What `audio_transcription_stop` returns; a Parakeet dictation's text is in `dictation`. */
+interface OnDeviceStopResult {
+  failure: string | null;
+  dictation: OnDeviceDictationTranscript | null;
 }
 type DictationTimingEvent = "start" | "complete" | "skipped";
 
@@ -1869,12 +1874,14 @@ export function installDesktopVoiceDictation(
   const finishParakeet = async (target: VoiceSession) => {
     target.nativeFinalizationStarted = true;
     try {
-      let transcript: OnDeviceDictationTranscript | null;
+      let transcript: OnDeviceDictationTranscript | null | undefined;
       try {
-        transcript = await invoke<OnDeviceDictationTranscript | null>(
-          "audio_transcription_stop",
-          { owner: "dictation", runId: target.runId },
-        );
+        transcript = (
+          await invoke<OnDeviceStopResult | null>("audio_transcription_stop", {
+            owner: "dictation",
+            runId: target.runId,
+          })
+        )?.dictation;
       } catch (err) {
         if (!target.cancelled) {
           console.warn("[voice-dictation] Parakeet stop failed:", err);

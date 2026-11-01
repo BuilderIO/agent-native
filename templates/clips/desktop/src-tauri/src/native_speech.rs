@@ -1259,12 +1259,25 @@ pub(crate) mod macos {
 
         let queue = DispatchQueue::new(queue_label, None);
         unsafe { output.setSampleBufferDelegate_queue(Some(delegate), Some(&queue)) };
-        objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
+        let started = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
             session.startRunning()
         }))
-        .map_err(|e| format!("AVCaptureSession start threw: {e:?}"))?;
-        if !unsafe { session.isRunning() } {
-            return Err(format!("Could not start capture from {device_name}."));
+        .map_err(|e| format!("AVCaptureSession start threw: {e:?}"))
+        .and_then(|()| {
+            if unsafe { session.isRunning() } {
+                Ok(())
+            } else {
+                Err(format!("Could not start capture from {device_name}."))
+            }
+        });
+        if let Err(error) = started {
+            unsafe {
+                session.stopRunning();
+                output.setSampleBufferDelegate_queue(None, None);
+            }
+            // The caller drops the delegate once this returns.
+            queue.exec_sync(|| {});
+            return Err(error);
         }
         Ok(CaptureSession {
             session,
