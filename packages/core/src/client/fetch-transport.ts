@@ -5,6 +5,10 @@
  * a value that stands for the credentials it adds instead, such as one
  * bearer token. An unmarked wrapper is a transport of its own.
  */
+import { FETCH_TRANSPORT_CHANGED_EVENT } from "../shared/embed-auth.js";
+
+export { FETCH_TRANSPORT_CHANGED_EVENT };
+
 const TRANSPORT = Symbol.for("agent-native.fetch.transport");
 
 export type FetchTransport = typeof fetch | object;
@@ -49,4 +53,15 @@ export function fetchTransport(fetcher: typeof fetch): FetchTransport {
     current = transport();
   }
   return current;
+}
+
+/** Tells the session that requests now go out with other credentials. */
+export function announceFetchTransportChange(): void {
+  if (
+    typeof window === "undefined" ||
+    typeof window.dispatchEvent !== "function"
+  ) {
+    return;
+  }
+  window.dispatchEvent(new Event(FETCH_TRANSPORT_CHANGED_EVENT));
 }

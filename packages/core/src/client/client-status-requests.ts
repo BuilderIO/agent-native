@@ -53,6 +53,8 @@ const freshRequests = new WeakSet<object>();
 const requestControllers = new Map<string, AbortController>();
 const requestSourceTokens = new WeakMap<object, number>();
 let nextRequestSourceToken = 1;
+// When the server gave each result: a cached answer's age counts from here.
+const resultAnsweredAt = new WeakMap<object, number>();
 let invalidationListenersInstalled = false;
 // Endpoint statuses expire on focus and visibility; the session read only on
 // a full invalidation, so it has its own generation.
@@ -185,7 +187,19 @@ function takeSessionBootstrap(
     return undefined;
   }
   forgetSessionBootstrap();
-  return bootstrap;
+  // Its age counts from when the head's read answered, which may be before it
+  // is taken.
+  return bootstrap.then((result) => {
+    const at = answeredAt ?? window[SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL];
+    delete window[SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL];
+    if (typeof at === "number") resultAnsweredAt.set(result, at);
+    return result;
+  });
+}
+
+/** When the server gave `result`, if this module read it. */
+export function statusResultAnsweredAt(result: object): number | undefined {
+  return resultAnsweredAt.get(result);
 }
 
 function pruneExpiredStatusCache(now: number): void {
@@ -325,6 +339,8 @@ async function fetchClientStatus<T>(
       if (supersededRequests.has(request)) {
         return fetchClientStatus<T>(path, { ...options, fresh: false });
       }
+      const answeredAt = resultAnsweredAt.get(result) ?? Date.now();
+      resultAnsweredAt.set(result, answeredAt);
       if (
         currentGeneration() === requestGeneration &&
         result.state === "available"
@@ -332,7 +348,7 @@ async function fetchClientStatus<T>(
         cache.set(key, {
           url: canonicalUrl,
           expiresAt:
-            Date.now() +
+            answeredAt +
             (sessionRead && isSignedInSession(result.value)
               ? SESSION_RESULT_LIFETIME_MS
               : path === AGENT_ENGINE_STATUS_PATH

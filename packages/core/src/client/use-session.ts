@@ -14,8 +14,13 @@ import {
   fetchAuthSessionStatus,
   invalidateClientStatusRequest,
   SESSION_RESULT_LIFETIME_MS,
+  statusResultAnsweredAt,
 } from "./client-status-requests.js";
-import { fetchTransport, type FetchTransport } from "./fetch-transport.js";
+import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  fetchTransport,
+  type FetchTransport,
+} from "./fetch-transport.js";
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 import { recordSessionIdentity } from "./session-identity.js";
 
@@ -120,7 +125,6 @@ let sessionRequest: Promise<SessionRead> | undefined;
 let sessionRequestTransport: FetchTransport | undefined;
 let trackedSessionIdentity: string | null | undefined;
 let trackedSessionAuthUserId: string | undefined;
-let sessionGeneration = 0;
 // The page load's own session read is the only one sent with the cookies a
 // request made before the session was known also carried. A retry or a reset
 // replaces it for the life of the document.
@@ -129,10 +133,74 @@ let cachedSessionFromFirstRead = false;
 // Set once a retry or a reset replaces the first read, answered or not.
 let firstSessionReadReplaced = false;
 const firstSessionReadAnswerListeners = new Set<() => void>();
-// Who the session this tab holds names, and the transport its read went out
-// on; and the same for the load's first session read once it has answered.
-let cachedSessionIdentity: AnsweredReadIdentity | undefined;
-let firstSessionReadIdentity: AnsweredReadIdentity | undefined;
+
+/*
+ * Whom a request was answered for
+ * ===============================
+ *
+ * The server answers each request for whoever its credentials named when it
+ * left: the account the cookies held, or the one a bearer token signs for. A
+ * response cannot say which, so every request is tagged when it is sent and
+ * its tag is judged against the session this tab accepts. Only an accepted
+ * request's answer may be shown.
+ *
+ * A tag is `{ generation, transport }`. A generation is one session read and
+ * the time it is out: the tab opens one for each session read it sends,
+ * except that a read joining one already out shares its generation, and an
+ * explicit invalidation opens one at once, before its read goes out. The
+ * page load's first read is generation 0, and a request the document head
+ * sent beside it carries 0 too. Every other request carries the generation
+ * open when it is sent, and the transport it went out on (`fetch-transport`).
+ *
+ * The accepted identity is `{ scope, transport, generations }`: whom the last
+ * answer named, over which transport, and every generation whose read named
+ * that same identity. A request is then
+ *   - accepted ("current"): its generation is one of those, the identity is
+ *     confirmed, and it went out over the same transport;
+ *   - provisional ("pending"): its generation is the one open now and has not
+ *     answered, or the identity is unconfirmed after an invalidation and its
+ *     generation may still be confirmed again;
+ *   - stale ("stale"), and dropped: anything else. A stale request never
+ *     becomes current again.
+ *
+ * How each session event moves them:
+ *   - First answer, or the shell's bootstrap answer taken in its place: the
+ *     identity it names is accepted with generation 0.
+ *   - Routine re-read (focus, visibility, an expired answer): its generation
+ *     is provisional. The accepted identity stays confirmed, so what it
+ *     accepted stays shown. An answer naming the same identity adds the
+ *     generation, promoting what was sent while it was out. An answer naming
+ *     someone else replaces the identity under a fresh generation: what was
+ *     accepted before and what was sent while it was out are both stale.
+ *   - Retry after an unreadable answer: another read, so another generation,
+ *     provisional or not as the one it follows. What was sent while the
+ *     unreadable read was out is stale.
+ *   - Explicit invalidation (a peer tab's broadcast, a 401, a missed
+ *     broadcast, a hung read): a new generation opens and the accepted
+ *     identity is unconfirmed, so everything waits. Its read was sent after
+ *     the change, so its answer decides for what was sent while it was out:
+ *     the same identity adds the generation and every accepted request is
+ *     current again; another identity replaces it with this generation.
+ *   - Transport change: an embed token arriving or the host runtime swapping
+ *     `fetch` dispatches FETCH_TRANSPORT_CHANGED_EVENT, and a request tagged
+ *     over a transport other than the accepted one is noticed when tagged.
+ *     Either one invalidates explicitly. The read that follows goes out over
+ *     the new transport, so its identity differs and replaces the old one.
+ *     The session read itself also refuses an answer, or a read in flight,
+ *     from another transport.
+ *   - Sign-out: an explicit invalidation whose answer names no one.
+ */
+type AcceptedSessionIdentity = {
+  scope: string;
+  transport: FetchTransport;
+  generations: Set<number>;
+};
+let acceptedIdentity: AcceptedSessionIdentity | undefined;
+let acceptedConfirmed = false;
+let sessionGeneration = 0;
+// Whether a session read has gone out in the open generation: the next one
+// opens another.
+let generationRead = false;
 const sessionReadIdentityListeners = new Set<() => void>();
 let sessionInvalidationListenersInstalled = false;
 let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
@@ -276,12 +344,14 @@ function notifyParentAuthState(
 
 function resetSessionCache(): void {
   const before = firstSessionReadAnswer();
+  // An explicit invalidation: everything waits for the next answer.
   sessionGeneration += 1;
+  generationRead = false;
+  acceptedConfirmed = false;
   firstSessionReadUnsent = false;
   cachedSessionFromFirstRead = false;
   firstSessionReadReplaced = true;
   cachedSession = undefined;
-  cachedSessionIdentity = undefined;
   cachedSessionAt = 0;
   cachedEvidence = undefined;
   sessionRequest = undefined;
@@ -309,11 +379,9 @@ function invalidateSessionCache(): Promise<void> {
   return notifySessionSubscribers();
 }
 
-// A routine re-check asks the server again but keeps the identity this tab
-// accepts while it is out: requests sent as that identity stay shown, and an
-// answer naming the same identity changes nothing. Only an answer naming
-// someone else, a switch of transport, or an explicit invalidation replaces
-// it.
+// A routine re-check: its read opens a provisional generation, and what is
+// accepted stays shown while it is out (see "Whom a request was answered
+// for").
 function rereadSession(): void {
   cachedSessionAt = 0;
   clearTimeout(staleSessionRecheck);
@@ -365,6 +433,11 @@ function installSessionInvalidationListeners(): void {
   sessionInvalidationListenersInstalled = true;
 
   window.addEventListener("focus", revalidateStaleSession);
+  // Checked after the change settles: a transport can change while one is
+  // being read.
+  window.addEventListener(FETCH_TRANSPORT_CHANGED_EVENT, () =>
+    queueMicrotask(recheckSessionTransport),
+  );
   window.addEventListener("storage", (event) => {
     if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
       void invalidateSessionCache();
@@ -470,28 +543,15 @@ function notifyFirstSessionReadAnswer(): void {
   }
 }
 
-type AnsweredReadIdentity = { scope: string; transport: FetchTransport };
-
 /**
- * Who a request was sent as. The server answers it for the account the
- * cookies named when it left, or for the credentials its transport added, and
- * the request cannot tell which that was. It records instead the session read
- * those cookies belong to, and the transport it went out on, so the answer can
- * be checked against the session this tab accepts. See
+ * Who a request was sent as: the session generation open when it left, and the
+ * transport it went out on. See "Whom a request was answered for" above and
  * {@link sessionReadIdentityStatus}.
  */
 export type SessionReadIdentity = {
+  readonly generation: number;
   readonly transport: FetchTransport;
-} & (
-  | // Sent before the load's first session read answered, with the cookies
-    // that read carried.
-    { readonly sentWith: "first-read" }
-  // Sent while the session this tab held named `scope`.
-  | { readonly sentWith: "answered"; readonly scope: string }
-  // Sent while a later session read was out, so with the cookies that read
-  // carries.
-  | { readonly sentWith: "reread"; readonly generation: number }
-);
+};
 
 export type SessionReadIdentityStatus = "pending" | "current" | "stale";
 
@@ -509,6 +569,23 @@ function currentFetchTransport(): FetchTransport {
     : NO_FETCH_TRANSPORT;
 }
 
+// Whether the session this tab accepts, or the read it has out, was read over
+// another transport than requests go out on now.
+function sessionTransportChanged(transport: FetchTransport): boolean {
+  return Boolean(
+    (acceptedConfirmed &&
+      acceptedIdentity &&
+      acceptedIdentity.transport !== transport) ||
+    (sessionRequest && sessionRequestTransport !== transport),
+  );
+}
+
+function recheckSessionTransport(): void {
+  if (sessionTransportChanged(currentFetchTransport())) {
+    void invalidateSessionCache();
+  }
+}
+
 /**
  * The identity a request sent now goes out under: `fetch` is the one it is
  * sent with (the page's own by default). A request the document head sent
@@ -520,18 +597,15 @@ export function sessionReadIdentity(
   const transport = options.fetch
     ? fetchTransport(options.fetch)
     : currentFetchTransport();
-  if (options.sentWithFirstSessionRead) {
-    return { sentWith: "first-read", transport };
+  // Requests now go out over a transport the session was not read over, and
+  // nothing announced it: read the session again over this one.
+  if (sessionTransportChanged(currentFetchTransport())) {
+    queueMicrotask(recheckSessionTransport);
   }
-  if (cachedSessionIdentity) {
-    return {
-      sentWith: "answered",
-      scope: cachedSessionIdentity.scope,
-      transport,
-    };
-  }
-  if (!firstSessionReadReplaced) return { sentWith: "first-read", transport };
-  return { sentWith: "reread", generation: sessionGeneration, transport };
+  return {
+    generation: options.sentWithFirstSessionRead ? 0 : sessionGeneration,
+    transport,
+  };
 }
 
 /**
@@ -544,30 +618,13 @@ export function sessionReadIdentity(
 export function sessionReadIdentityStatus(
   identity: SessionReadIdentity,
 ): SessionReadIdentityStatus {
-  let scope: string;
-  if (identity.sentWith === "first-read") {
-    // Replaced before it answered: whoever the cookies named then is unknown.
-    if (!firstSessionReadIdentity) {
-      return firstSessionReadReplaced ? "stale" : "pending";
-    }
-    // Sent beside the first read, but not over its transport: the first
-    // read's answer says nothing about whom this one was answered for.
-    if (identity.transport !== firstSessionReadIdentity.transport) {
-      return "stale";
-    }
-    scope = firstSessionReadIdentity.scope;
-  } else if (identity.sentWith === "reread") {
-    if (identity.generation !== sessionGeneration) return "stale";
-    if (!cachedSessionIdentity) return "pending";
-    scope = cachedSessionIdentity.scope;
-  } else {
-    scope = identity.scope;
+  if (acceptedIdentity?.generations.has(identity.generation)) {
+    if (!acceptedConfirmed) return "pending";
+    return identity.transport === acceptedIdentity.transport
+      ? "current"
+      : "stale";
   }
-  if (!cachedSessionIdentity) return "pending";
-  return scope === cachedSessionIdentity.scope &&
-    identity.transport === cachedSessionIdentity.transport
-    ? "current"
-    : "stale";
+  return identity.generation === sessionGeneration ? "pending" : "stale";
 }
 
 /**
@@ -652,12 +709,7 @@ function fetchSharedSession(): Promise<SessionRead> {
   // signs the page's requests with its bearer token they are B's, even while
   // the cookie read said A. Neither that answer nor a read still out on that
   // transport is reused; the session is read again over this one.
-  if (
-    (cachedSessionIdentity && cachedSessionIdentity.transport !== transport) ||
-    (sessionRequest && sessionRequestTransport !== transport)
-  ) {
-    resetSessionCache();
-  }
+  if (sessionTransportChanged(transport)) resetSessionCache();
   if (hasFreshSessionCache()) {
     return Promise.resolve({
       state: "resolved",
@@ -666,6 +718,13 @@ function fetchSharedSession(): Promise<SessionRead> {
   }
   if (sessionRequest) return sessionRequest;
 
+  // Each session read opens its own generation; the first in a generation
+  // opened by an invalidation, and the load's first read, use the one open.
+  if (generationRead) {
+    sessionGeneration += 1;
+    notifySessionReadIdentity();
+  }
+  generationRead = true;
   const requestGeneration = sessionGeneration;
   const firstRead = firstSessionReadUnsent;
   firstSessionReadUnsent = false;
@@ -695,21 +754,34 @@ function fetchSharedSession(): Promise<SessionRead> {
           : (data as AuthSessionResponse & ClientAuthSession);
       const answerBefore = firstSessionReadAnswer();
       const scope = sessionScope(session);
-      // A re-check that names the identity already accepted changes nothing:
-      // whatever was accepted, the first read's answer included, still is.
       const sameIdentity =
-        !firstRead &&
-        cachedSessionIdentity?.scope === scope &&
-        cachedSessionIdentity.transport === transport;
-      const identityBefore = cachedSessionIdentity;
+        acceptedIdentity?.scope === scope &&
+        acceptedIdentity.transport === transport;
+      // A routine re-check that names the identity already accepted keeps
+      // whatever was accepted, the first read's answer included.
+      const confirmsAccepted = sameIdentity && acceptedConfirmed;
+      if (acceptedIdentity && sameIdentity) {
+        acceptedIdentity.generations.add(requestGeneration);
+      } else {
+        if (acceptedConfirmed) {
+          // A routine re-check found someone else. What was sent while it was
+          // out went with cookies that may name either, so it is dropped
+          // with what was accepted before; the new identity starts afresh.
+          sessionGeneration += 1;
+        }
+        acceptedIdentity = {
+          scope,
+          transport,
+          generations: new Set([sessionGeneration]),
+        };
+      }
+      acceptedConfirmed = true;
       cachedSession = session;
-      if (!sameIdentity) {
-        cachedSessionIdentity = { scope, transport };
-        if (firstRead) firstSessionReadIdentity = cachedSessionIdentity;
+      if (!confirmsAccepted) {
         cachedSessionFromFirstRead = firstRead;
         if (!firstRead) firstSessionReadReplaced = true;
       }
-      cachedSessionAt = Date.now();
+      cachedSessionAt = statusResultAnsweredAt(result) ?? Date.now();
       cachedEvidence = session
         ? "signed_in"
         : result.state === "unavailable"
@@ -719,7 +791,7 @@ function fetchSharedSession(): Promise<SessionRead> {
       if (firstSessionReadAnswer() !== answerBefore) {
         notifyFirstSessionReadAnswer();
       }
-      if (cachedSessionIdentity !== identityBefore) notifySessionReadIdentity();
+      notifySessionReadIdentity();
       return { state: "resolved", session };
     } catch {
       return { state: "unreadable" };

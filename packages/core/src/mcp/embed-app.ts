@@ -1,5 +1,8 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
-import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
@@ -970,6 +973,13 @@ export function embedApp(
           }
           return originalFetch(url, nextInit);
         };
+        // Requests now go out signed by this runtime: the app reads the
+        // session again over it.
+        if (typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(
+            new Event(${JSON.stringify(FETCH_TRANSPORT_CHANGED_EVENT)})
+          );
+        }
       }
       if (typeof XMLHttpRequest !== "undefined") {
         const originalOpen = XMLHttpRequest.prototype.open;

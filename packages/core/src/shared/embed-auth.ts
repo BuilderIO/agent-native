@@ -6,6 +6,13 @@ export const MCP_APP_CHAT_BRIDGE_QUERY_PARAM = "__an_mcp_chat_bridge";
 export const MCP_DIRECTORY_WIDGET_QUERY_PARAM = "__an_mcp_directory_widget";
 export const EMBED_SESSION_COOKIE = "an_embed_session";
 export const EMBED_TARGET_HEADER = "x-agent-native-embed-target";
+/**
+ * Dispatched on `window` wherever the page's requests start going out with
+ * other credentials: an embed token stored, or `fetch` replaced by a runtime
+ * that signs requests. The session is read again over the new transport.
+ */
+export const FETCH_TRANSPORT_CHANGED_EVENT =
+  "agent-native:fetch-transport-changed";
 export const MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER =
   "x-agent-native-widget-session-expired";
 

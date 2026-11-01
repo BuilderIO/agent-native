@@ -12,6 +12,7 @@ const analyticsMocks = vi.hoisted(() => ({
 vi.mock("./analytics.js", () => analyticsMocks);
 
 import { fetchAuthSessionStatus } from "./client-status-requests.js";
+import { FETCH_TRANSPORT_CHANGED_EVENT } from "./fetch-transport.js";
 import {
   navigateForSession,
   notifySessionInvalidated,
@@ -1389,7 +1390,16 @@ describe("sessionReadIdentityStatus", () => {
     expect(module.sessionReadIdentityStatus(overBearer)).toBe("current");
   });
 
-  it("keeps a read accepted, with no change heard, while a routine re-check names the same identity", async () => {
+  // Focus after the answer's lifetime: the session is read again.
+  async function routineRecheck() {
+    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("keeps a read accepted, never heard otherwise, while a routine re-check names the same identity", async () => {
     const module = await freshSessionModule();
     const reads = heldSessionReads();
     vi.stubGlobal("fetch", reads.fetcher);
@@ -1401,36 +1411,95 @@ describe("sessionReadIdentityStatus", () => {
       heard.push(module.sessionReadIdentityStatus(read)),
     );
 
-    // Focus after the answer's lifetime: the session is read again.
-    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
-    await act(async () => {
-      window.dispatchEvent(new Event("focus"));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await routineRecheck();
     expect(reads.fetcher).toHaveBeenCalledTimes(2);
     expect(module.sessionReadIdentityStatus(read)).toBe("current");
     await reads.answerAs("user-a");
 
     expect(module.sessionReadIdentityStatus(read)).toBe("current");
-    expect(heard).toEqual([]);
+    expect(heard.length).toBeGreaterThan(0);
+    expect(new Set(heard)).toEqual(new Set(["current"]));
   });
 
-  it("drops a read when a routine re-check names someone else", async () => {
+  it("holds a read sent while a routine re-check is out, and accepts it once the re-check names the same identity", async () => {
     const module = await freshSessionModule();
     const reads = heldSessionReads();
     vi.stubGlobal("fetch", reads.fetcher);
     await mountProbe(module);
     await reads.answerAs("user-a");
-    const read = module.sessionReadIdentity();
 
-    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+    await routineRecheck();
+    const duringRecheck = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(duringRecheck)).toBe("pending");
+    await reads.answerAs("user-a");
+
+    expect(module.sessionReadIdentityStatus(duringRecheck)).toBe("current");
+  });
+
+  it("drops what it accepted and what was sent while it was out when a routine re-check names someone else", async () => {
+    const module = await freshSessionModule();
+    const reads = heldSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    await mountProbe(module);
+    await reads.answerAs("user-a");
+    const before = module.sessionReadIdentity();
+
+    await routineRecheck();
+    const duringRecheck = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(before)).toBe("current");
+    await reads.answerAs("user-b");
+    const after = module.sessionReadIdentity();
+
+    expect(module.sessionReadIdentityStatus(before)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(duringRecheck)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(after)).toBe("current");
+  });
+
+  it("reads the session again over a new transport when one is announced, with no session read asked for", async () => {
+    const module = await freshSessionModule();
+    const cookieReads = heldSessionReads();
+    const bearerReads = heldSessionReads();
+    vi.stubGlobal("fetch", cookieReads.fetcher);
+    await mountProbe(module);
+    await cookieReads.answerAs("user-a");
+    const overCookies = module.sessionReadIdentity();
+
+    // The embed runtime takes over the page's fetch and says so.
+    vi.stubGlobal("fetch", bearerReads.fetcher);
     await act(async () => {
-      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(new Event(FETCH_TRANSPORT_CHANGED_EVENT));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    await reads.answerAs("user-b");
+    expect(bearerReads.fetcher).toHaveBeenCalledTimes(1);
+    expect(module.sessionReadIdentityStatus(overCookies)).toBe("pending");
+    await bearerReads.answerAs("user-b");
 
-    expect(module.sessionReadIdentityStatus(read)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(overCookies)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(module.sessionReadIdentity())).toBe(
+      "current",
+    );
+  });
+
+  it("reads the session again when a request goes out over a transport nothing announced", async () => {
+    const module = await freshSessionModule();
+    const cookieReads = heldSessionReads();
+    const bearerReads = heldSessionReads();
+    vi.stubGlobal("fetch", cookieReads.fetcher);
+    await mountProbe(module);
+    await cookieReads.answerAs("user-a");
+
+    vi.stubGlobal("fetch", bearerReads.fetcher);
+    const overBearer = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(overBearer)).toBe("stale");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bearerReads.fetcher).toHaveBeenCalledTimes(1);
+    await bearerReads.answerAs("user-b");
+
+    expect(module.sessionReadIdentityStatus(module.sessionReadIdentity())).toBe(
+      "current",
+    );
   });
 
   it("drops a read the head sent with the first session read once that read is replaced", async () => {
