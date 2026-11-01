@@ -2021,6 +2021,36 @@ describe("SSE event processor no-progress recovery", () => {
     }
   });
 
+  it("keeps text blocks separate across an auto-continue", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "First block ends here." },
+          { type: "auto_continue", reason: "run_timeout" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    ).catch(() => undefined);
+    await drain(
+      readSSEStream(
+        eventStream([{ type: "text", text: "Second block starts here." }]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    ).catch(() => undefined);
+
+    expect(content).toEqual([
+      {
+        type: "text",
+        text: "First block ends here.\n\nSecond block starts here.",
+      },
+    ]);
+  });
+
   it("carries activity trail on auto-continuation signals", async () => {
     const err = await (async () => {
       try {

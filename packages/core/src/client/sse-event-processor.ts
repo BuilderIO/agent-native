@@ -2324,6 +2324,12 @@ export function processEvent(
   }
 
   if (ev.type === "auto_continue") {
+    // The continuation reads a fresh stream into this same content array, so
+    // the boundary has to be written before the next text delta glues on.
+    const tail = content.at(-1);
+    if (tail?.type === "text" && tail.text && !/\s$/.test(tail.text)) {
+      tail.text += "\n\n";
+    }
     const reason =
       ev.reason === "stream_ended" ||
       ev.reason === "loop_limit" ||

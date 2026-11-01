@@ -1207,6 +1207,24 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("separates text blocks across an auto-continue boundary", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First block ends here." } },
+        { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
+        { seq: 2, event: { type: "text", text: "Second block starts here." } },
+      ],
+      "run-sep",
+    );
+
+    expect(message?.content).toEqual([
+      {
+        type: "text",
+        text: "First block ends here.\n\nSecond block starts here.",
+      },
+    ]);
+  });
+
   it("persists partial output from suppressed loop-limit boundaries", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "partial answer" } },

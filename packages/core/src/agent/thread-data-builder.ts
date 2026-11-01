@@ -312,10 +312,13 @@ export function buildAssistantMessage(
   let endedAtInternalContinuationBoundary = false;
   let userStoppedRun = false;
 
+  let textBreakPending = false;
   const appendText = (text: string) => {
     const last = content[content.length - 1];
+    const sep = textBreakPending && last?.text && text ? "\n\n" : "";
+    if (text) textBreakPending = false;
     if (last && last.type === "text") {
-      last.text = (last.text ?? "") + text;
+      last.text = (last.text ?? "") + sep + text;
     } else {
       content.push({ type: "text", text });
     }
@@ -582,6 +585,7 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "auto_continue") {
+      textBreakPending = true;
       if (options.suppressInternalContinuation) {
         endedAtInternalContinuationBoundary = true;
       }
