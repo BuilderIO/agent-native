@@ -12,9 +12,12 @@
  *
  *   pnpm mutation:changed
  */
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
+  appendFileSync,
+  copyFileSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -23,14 +26,21 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   GUARD_EXIT_COULD_NOT_RUN,
+  diffBaseCommit,
   requireAddedLines,
 } from "./lib/changed-lines.mjs";
 import { isMutationScopePath } from "./lib/mutation-scope.ts";
+import {
+  aggregateShardReceipts,
+  createShardReceipt,
+} from "./lib/mutation-shard-reports.ts";
+import { parseMutationShard } from "./lib/mutation-shard-runner.mts";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -52,7 +62,7 @@ const STRYKER_BIN = path.join(STRYKER_DIR, "node_modules", ".bin", "stryker");
  * Installs Stryker into its own directory and points its vitest peer at the
  * project's vitest, so the runner drives the same vitest the tests use.
  */
-function installStryker(): string | null {
+function installStryker(withVitestPeer = true): string | null {
   if (!existsSync(STRYKER_BIN)) {
     mkdirSync(STRYKER_DIR, { recursive: true });
     writeFileSync(
@@ -75,6 +85,7 @@ function installStryker(): string | null {
       return `npm install of Stryker ${STRYKER_VERSION} failed (exit ${install.status ?? install.signal})`;
     }
   }
+  if (!withVitestPeer) return null;
   let vitest: string;
   try {
     vitest = realpathSync(path.join(CORE_ROOT, "node_modules", "vitest"));
@@ -304,10 +315,212 @@ function readReport(): MutationReport {
   return JSON.parse(readFileSync(REPORT_PATH, "utf8")) as MutationReport;
 }
 
-function main(): number {
+export function mutationShardCount(specs: readonly string[]): number {
+  const lines = specs.reduce((total, spec) => {
+    const range = /:(\d+)-(\d+)$/.exec(spec);
+    if (!range) throw new Error(`Invalid mutation range: ${spec}`);
+    const start = Number(range[1]);
+    const end = Number(range[2]);
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 1 ||
+      end < start
+    )
+      throw new Error(`Invalid mutation range: ${spec}`);
+    return total + end - start + 1;
+  }, 0);
+  return Math.max(1, Math.min(64, Math.ceil(lines / 32)));
+}
+
+function digest(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function readStrykerConfiguration() {
+  const input: unknown = JSON.parse(
+    readFileSync(path.join(CORE_ROOT, "stryker.config.json"), "utf8"),
+  );
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    throw new Error("Stryker configuration must be an object");
+  const original = input as Record<string, unknown>;
+  const thresholds = original.thresholds;
+  if (
+    !thresholds ||
+    typeof thresholds !== "object" ||
+    !("break" in thresholds) ||
+    typeof thresholds.break !== "number" ||
+    !Number.isFinite(thresholds.break) ||
+    thresholds.break < 0 ||
+    thresholds.break > 100
+  )
+    throw new Error("Stryker break threshold is unavailable");
+  const appendPlugins: string[] = [];
+  if (original.appendPlugins !== undefined) {
+    if (!Array.isArray(original.appendPlugins))
+      throw new Error("Stryker appendPlugins must be an array");
+    for (const plugin of original.appendPlugins as unknown[]) {
+      if (typeof plugin !== "string")
+        throw new Error("Stryker plugin path must be a string");
+      appendPlugins.push(plugin);
+    }
+  }
+  return {
+    ...original,
+    thresholds: { ...thresholds, break: thresholds.break },
+    appendPlugins,
+  };
+}
+
+function shardMetadata(specs: readonly string[], shardCount: number) {
+  const base = diffBaseCommit(REPO_ROOT);
+  if (!base) throw new Error("Mutation diff base could not be resolved");
+  const config = readFileSync(
+    path.join(CORE_ROOT, "stryker.config.json"),
+    "utf8",
+  );
+  const plugin = readFileSync(
+    path.join(REPO_ROOT, "scripts/mutation-shard-plugin.mts"),
+    "utf8",
+  );
+  const runner = readFileSync(
+    path.join(REPO_ROOT, "scripts/lib/mutation-shard-runner.mts"),
+    "utf8",
+  );
+  const runId = process.env.GITHUB_RUN_ID
+    ? `${process.env.GITHUB_RUN_ID}/${process.env.GITHUB_RUN_ATTEMPT}`
+    : process.env.MUTATION_RUN_ID;
+  if (!runId)
+    throw new Error(
+      "Sharded mutation reports require a shared MUTATION_RUN_ID outside Actions",
+    );
+  return {
+    head: execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    }).trim(),
+    base,
+    configHash: digest(
+      JSON.stringify([STRYKER_VERSION, config, plugin, runner, runId]),
+    ),
+    scopeHash: digest(JSON.stringify(specs)),
+    testScopeHash: digest(
+      readFileSync(path.join(CORE_ROOT, VITEST_CONFIG), "utf8"),
+    ),
+    shardCount,
+  };
+}
+
+async function aggregateReports(
+  directory: string,
+  specs: readonly string[],
+): Promise<number> {
+  const entries = readdirSync(directory, { withFileTypes: true });
+  if (
+    entries.some(
+      (entry) => !entry.isFile() || !/^shard-\d+\.json$/.test(entry.name),
+    )
+  ) {
+    throw new Error("Mutation artifact directory contains an unexpected entry");
+  }
+  const receipts: unknown[] = entries.map((entry) =>
+    JSON.parse(readFileSync(path.join(directory, entry.name), "utf8")),
+  );
+  const merged = aggregateShardReceipts(
+    receipts,
+    shardMetadata(specs, mutationShardCount(specs)),
+  );
+  const installFailure = installStryker(false);
+  if (installFailure) throw new Error(installFailure);
+  const require = createRequire(path.join(STRYKER_DIR, "package.json"));
+  const metricsModule: unknown = await import(
+    pathToFileURL(require.resolve("mutation-testing-metrics")).href
+  );
+  if (
+    !metricsModule ||
+    typeof metricsModule !== "object" ||
+    !("calculateMetrics" in metricsModule) ||
+    typeof metricsModule.calculateMetrics !== "function"
+  ) {
+    throw new Error("Pinned Stryker metrics implementation is unavailable");
+  }
+  const result: unknown = metricsModule.calculateMetrics(merged.files);
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !("metrics" in result) ||
+    !result.metrics ||
+    typeof result.metrics !== "object" ||
+    !("mutationScore" in result.metrics) ||
+    typeof result.metrics.mutationScore !== "number"
+  ) {
+    throw new Error("Pinned Stryker metrics returned an invalid score");
+  }
+  const score = result.metrics.mutationScore;
+  const config = readStrykerConfiguration();
+  mkdirSync(REPORT_DIR, { recursive: true });
+  writeFileSync(
+    REPORT_PATH,
+    JSON.stringify(
+      {
+        schemaVersion: "1.0",
+        thresholds: config.thresholds,
+        files: merged.files,
+      },
+      null,
+      2,
+    ),
+  );
+  const total = Object.values(merged.files).reduce(
+    (count, file) => count + file.mutants.length,
+    0,
+  );
+  if (total === 0) {
+    console.log(
+      "mutation-changed: complete shard inventory contains no generated mutants; score is not applicable.",
+    );
+    return 0;
+  }
+  if (!Number.isFinite(score))
+    throw new Error("Global mutation score could not be computed");
+  for (const survivor of survivingMutants({ files: merged.files }))
+    console.log(`  ${survivor}`);
+  console.log(
+    `mutation-changed: complete global score ${score.toFixed(2)}%; required ${config.thresholds.break}%; ${total} mutants.`,
+  );
+  return score >= config.thresholds.break ? 0 : 1;
+}
+
+async function main(): Promise<number> {
   const added = requireAddedLines(REPO_ROOT, "mutation-changed");
   const specs = mutateSpecs(added);
+  const args = process.argv.slice(2);
+  const planMode = args.length === 1 && args[0] === "--plan";
+  const aggregateMode = args.length === 2 && args[0] === "--aggregate";
+  const shard =
+    args.length === 3 && args[0] === "--shard"
+      ? parseMutationShard(args[1], args[2])
+      : null;
+  if (args.length > 0 && !planMode && !aggregateMode && !shard)
+    throw new Error(
+      "Expected --plan, --shard <index> <count>, or --aggregate <directory>",
+    );
+  if (planMode) {
+    const count = mutationShardCount(specs);
+    const matrix = {
+      include: Array.from({ length: count }, (_, index) => ({ index, count })),
+    };
+    if (process.env.GITHUB_OUTPUT)
+      appendFileSync(
+        process.env.GITHUB_OUTPUT,
+        `matrix=${JSON.stringify(matrix)}\nhas_ranges=${specs.length > 0}\n`,
+      );
+    console.log(JSON.stringify(matrix));
+    return 0;
+  }
   if (specs.length === 0) {
+    if (shard)
+      throw new Error("Sharded mutation run selected without source ranges");
     console.log(
       "mutation-changed: no added packages/core source lines in scope; nothing to mutate.",
     );
@@ -332,15 +545,63 @@ function main(): number {
     console.error(`mutation-changed: ${untested}.`);
     return 1;
   }
+  if (aggregateMode) return aggregateReports(path.resolve(args[1]), specs);
   const installFailure = installStryker();
   if (installFailure) {
     console.error(`mutation-changed: ${installFailure}`);
     return GUARD_EXIT_COULD_NOT_RUN;
   }
+  let configFile = "stryker.config.json";
+  if (shard) {
+    if (shard.count !== mutationShardCount(specs))
+      throw new Error("Mutation shard count differs from the current plan");
+    mkdirSync(path.join(STRYKER_DIR, "lib"), { recursive: true });
+    copyFileSync(
+      path.join(REPO_ROOT, "scripts/mutation-shard-plugin.mts"),
+      path.join(STRYKER_DIR, "mutation-shard-plugin.mts"),
+    );
+    copyFileSync(
+      path.join(REPO_ROOT, "scripts/lib/mutation-shard-runner.mts"),
+      path.join(STRYKER_DIR, "lib/mutation-shard-runner.mts"),
+    );
+    const original = readStrykerConfiguration();
+    mkdirSync(path.join(CORE_ROOT, ".tmp"), { recursive: true });
+    configFile = path.join(CORE_ROOT, ".tmp/mutation-shard.generated.json");
+    // A shard produces an owner-only report. Only the aggregate evaluates the original global threshold.
+    writeFileSync(
+      configFile,
+      JSON.stringify(
+        {
+          ...original,
+          testRunner: "sharded-vitest",
+          appendPlugins: [
+            ...(original.appendPlugins ?? []),
+            path.join(STRYKER_DIR, "mutation-shard-plugin.mts"),
+          ],
+          reporters: ["json", "progress"],
+          thresholds: { ...original.thresholds, break: 0 },
+        },
+        null,
+        2,
+      ),
+    );
+  }
   const run = spawnSync(
     STRYKER_BIN,
-    ["run", "stryker.config.json", "--mutate", specs.join(",")],
-    { cwd: CORE_ROOT, stdio: "inherit" },
+    ["run", configFile, "--mutate", specs.join(",")],
+    {
+      cwd: CORE_ROOT,
+      stdio: "inherit",
+      ...(shard
+        ? {
+            env: {
+              ...process.env,
+              MUTATION_SHARD_INDEX: String(shard.index),
+              MUTATION_SHARD_COUNT: String(shard.count),
+            },
+          }
+        : {}),
+    },
   );
   if (run.error || run.signal !== null || run.status === null) {
     console.error(
@@ -357,6 +618,25 @@ function main(): number {
       `mutation-changed: no readable Stryker report at ${path.relative(REPO_ROOT, REPORT_PATH)}: ${error instanceof Error ? error.message : String(error)}`,
     );
     return GUARD_EXIT_COULD_NOT_RUN;
+  }
+
+  if (shard) {
+    if (run.status !== 0)
+      throw new Error(`Mutation report shard failed with exit ${run.status}`);
+    const receipt = createShardReceipt(report, {
+      ...shardMetadata(specs, shard.count),
+      shardIndex: shard.index,
+    });
+    const directory = path.join(REPO_ROOT, ".tmp/mutation-shards");
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(
+      path.join(directory, `shard-${shard.index}.json`),
+      JSON.stringify(receipt),
+    );
+    console.log(
+      `mutation-changed: owner-only report shard ${shard.index + 1}/${shard.count} complete; global threshold has not been evaluated.`,
+    );
+    return 0;
   }
 
   const survivors = survivingMutants(report);
@@ -386,5 +666,14 @@ if (
   process.argv[1] &&
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  process.exit(main());
+  main()
+    .then((status) => {
+      process.exitCode = status;
+    })
+    .catch((error: unknown) => {
+      console.error(
+        `mutation-changed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      process.exitCode = GUARD_EXIT_COULD_NOT_RUN;
+    });
 }

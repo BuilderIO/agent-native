@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   contiguousRanges,
   mutateSpecs,
+  mutationShardCount,
   namedSpecs,
   survivingMutants,
 } from "./mutation-changed.ts";
@@ -15,6 +16,21 @@ const repoRoot = path.resolve(
   "..",
 );
 const absolute = (repoPath: string) => path.join(repoRoot, repoPath);
+
+test("bounds mutation workers to the complete changed-line workload", () => {
+  assert.equal(mutationShardCount([]), 1);
+  assert.equal(mutationShardCount(["src/a.ts:1-32"]), 1);
+  assert.equal(mutationShardCount(["src/a.ts:1-32", "src/b.ts:9-9"]), 2);
+  assert.equal(mutationShardCount(["src/a.ts:1-10000"]), 64);
+  assert.throws(
+    () => mutationShardCount(["src/a.ts:5-1"]),
+    /Invalid mutation range/,
+  );
+  assert.throws(
+    () => mutationShardCount(["src/a.ts"]),
+    /Invalid mutation range/,
+  );
+});
 
 test("merges added lines into inclusive contiguous ranges", () => {
   assert.deepEqual(contiguousRanges([5, 1, 2, 3, 9, 10, 3]), [
