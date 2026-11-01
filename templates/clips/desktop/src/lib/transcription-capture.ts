@@ -345,9 +345,6 @@ export async function startTranscriptionCapture(
     label?: string | null;
   },
   captureSystem: boolean = true,
-  opts?: {
-    voiceProcessing?: boolean;
-  },
 ): Promise<TranscriptionCapture | null> {
   const lines: TranscriptLine[] = [];
   let disposed = false;
@@ -402,7 +399,6 @@ export async function startTranscriptionCapture(
     engine = await startTranscriptionEngine({
       mic,
       captureSystem,
-      voiceProcessing: opts?.voiceProcessing,
       emitPartials: false,
       runId: activeRunId,
       canContinue: () => !disposed,
@@ -438,7 +434,6 @@ export async function startTranscriptionCapture(
           const nextEngine = await startTranscriptionEngine({
             mic,
             captureSystem,
-            voiceProcessing: opts?.voiceProcessing,
             emitPartials: false,
             runId: nextRunId,
             canContinue: () => !disposed,

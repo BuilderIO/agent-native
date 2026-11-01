@@ -1448,7 +1448,6 @@ export function installDesktopVoiceDictation(
           micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
           micDeviceLabel: micDeviceLabel || null,
           captureSystem: false,
-          voiceProcessing: true,
           owner: "dictation",
           runId,
           engine,
@@ -1880,7 +1879,9 @@ export function installDesktopVoiceDictation(
         if (!target.cancelled) {
           console.warn("[voice-dictation] Parakeet stop failed:", err);
         }
-        if (lifecycle.isActive(target.runId)) failRun(target.runId, "provider");
+        if (lifecycle.isActive(target.runId)) {
+          failRun(target.runId, speechFailure(String(err)));
+        }
         cleanup(target);
         return;
       }

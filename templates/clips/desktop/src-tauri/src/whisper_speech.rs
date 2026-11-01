@@ -82,7 +82,6 @@ pub async fn whisper_transcription_start(
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     capture_system: bool,
-    voice_processing: bool,
     emit_partials: bool,
     owner: Option<String>,
     run_id: Option<u64>,
@@ -105,7 +104,6 @@ pub async fn whisper_transcription_start(
             mic_device_id,
             mic_device_label,
             capture_system,
-            voice_processing,
             emit_partials,
             macos::SessionOwner::from_param(owner),
             run_id,
@@ -121,7 +119,6 @@ pub async fn whisper_transcription_start(
             mic_device_id,
             mic_device_label,
             capture_system,
-            voice_processing,
             emit_partials,
             owner,
             run_id,
@@ -220,9 +217,7 @@ mod macos {
         try_subscribe, AudioSources, AudioSubscription, SubscriptionAttempt,
     };
     use crate::echo_guard::EchoGuard;
-    use crate::native_speech::macos::{
-        start_raw_mic_capture, MicVoiceProcessingMode, RawMicCapture,
-    };
+    use crate::native_speech::mic_capture::MicCapture;
     use crate::parakeet_live::{AudioTap, LiveDictation};
     use crate::speech_capture_ownership::{
         claim as claim_speech_capture, SpeechCaptureEngine, SpeechCaptureLease, SpeechCaptureOwner,
@@ -1001,35 +996,9 @@ mod macos {
         owner == SessionOwner::Meeting && microphone_capture_supported
     }
 
-    #[derive(Debug, PartialEq, Eq)]
-    struct SplitMicCaptureOptions {
-        voice_processing: MicVoiceProcessingMode,
-        reuse_voice_processing_engine: bool,
-    }
-
-    fn split_mic_capture_options(
-        owner: SessionOwner,
-        capture_system: bool,
-        requested_voice_processing: bool,
-    ) -> SplitMicCaptureOptions {
-        let voice_processing = match owner {
-            SessionOwner::Meeting => MicVoiceProcessingMode::Bypassed,
-            SessionOwner::Dictation if requested_voice_processing => {
-                MicVoiceProcessingMode::Enabled
-            }
-            SessionOwner::Dictation => MicVoiceProcessingMode::Disabled,
-        };
-        SplitMicCaptureOptions {
-            voice_processing,
-            reuse_voice_processing_engine: owner == SessionOwner::Dictation
-                && !capture_system
-                && voice_processing == MicVoiceProcessingMode::Enabled,
-        }
-    }
-
     struct Session {
         app: AppHandle,
-        mic_cap: Option<RawMicCapture>,
+        mic_cap: Option<MicCapture>,
         sys_cap: Option<RawSckAudioCapture>,
         _shared_audio: Option<AudioSubscription>,
         temporary_audio: Option<crate::screen_memory::TemporaryAudioLease>,
@@ -1178,7 +1147,6 @@ mod macos {
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
         capture_system: bool,
-        voice_processing: bool,
         emit_partials: bool,
         owner: SessionOwner,
         run_id: Option<u64>,
@@ -1425,16 +1393,16 @@ mod macos {
                 mic_stream.set_src_rate(48000.0);
                 Ok((None, Some(combined_cap)))
             } else {
-                let mic_options =
-                    split_mic_capture_options(owner, capture_system, voice_processing);
-                let mic_cap = start_raw_mic_capture(
+                let mic_for_capture = mic_stream.clone();
+                let mic_cap = MicCapture::start(
                     app.clone(),
-                    mic_device_id,
-                    mic_device_label,
-                    mic_options.voice_processing,
-                    mic_options.reuse_voice_processing_engine,
+                    mic_device_id.as_deref(),
+                    mic_device_label.as_deref(),
                     run_id,
-                    mic_callback,
+                    Arc::new(move |samples: &[f32], sample_rate: f64| {
+                        mic_for_capture.set_src_rate(sample_rate);
+                        mic_for_capture.push(samples);
+                    }),
                 )
                 .map_err(|e| {
                     mic_stream.stop();
@@ -1443,7 +1411,6 @@ mod macos {
                     }
                     format!("mic capture failed: {e}")
                 })?;
-                mic_stream.set_src_rate(mic_cap.sample_rate());
 
                 let sys_cap = if let Some(system_callback) = system_callback {
                     match start_raw_system_capture(app.clone(), system_callback, run_id) {
@@ -1453,7 +1420,7 @@ mod macos {
                                 sys_stream.stop();
                             }
                             mic_stream.stop();
-                            mic_cap.stop();
+                            drop(mic_cap);
                             return Err(format!("system capture failed: {e}"));
                         }
                     }
@@ -1485,9 +1452,7 @@ mod macos {
                 if let Some(sys_stream) = &sys_stream {
                     sys_stream.stop();
                 }
-                if let Some(mic_cap) = mic_cap {
-                    mic_cap.stop();
-                }
+                drop(mic_cap);
                 if let Some(sys_cap) = sys_cap {
                     sys_cap.stop();
                 }
@@ -1502,9 +1467,7 @@ mod macos {
             if let Some(sys_stream) = &sys_stream {
                 sys_stream.stop();
             }
-            if let Some(mic_cap) = mic_cap {
-                mic_cap.stop();
-            }
+            drop(mic_cap);
             if let Some(sys_cap) = sys_cap {
                 sys_cap.stop();
             }
@@ -1519,9 +1482,7 @@ mod macos {
                 if let Some(sys_stream) = &sys_stream {
                     sys_stream.stop();
                 }
-                if let Some(mic_cap) = mic_cap {
-                    mic_cap.stop();
-                }
+                drop(mic_cap);
                 if let Some(sys_cap) = sys_cap {
                     sys_cap.stop();
                 }
@@ -1540,9 +1501,7 @@ mod macos {
             if let Some(sys_stream) = &sys_stream {
                 sys_stream.stop();
             }
-            if let Some(mic_cap) = mic_cap {
-                mic_cap.stop();
-            }
+            drop(mic_cap);
             if let Some(sys_cap) = sys_cap {
                 sys_cap.stop();
             }
@@ -1725,8 +1684,12 @@ mod macos {
         if let Some(sys) = &session.sys {
             sys.stop();
         }
-        if let Some(mic_cap) = session.mic_cap.take() {
-            mic_cap.stop();
+        let mic_failure = session
+            .mic_cap
+            .take()
+            .and_then(|mic_cap| mic_cap.stop().err());
+        if let Some(error) = &mic_failure {
+            session.mic.report_failure(error);
         }
         if let Some(sys_cap) = session.sys_cap.take() {
             sys_cap.stop();
@@ -1737,6 +1700,12 @@ mod macos {
             if discard {
                 live.discard();
                 return Ok(None);
+            }
+            // The stop call returns a Parakeet dictation's text, so a mic that
+            // sent nothing must fail it here rather than come back empty.
+            if let Some(error) = mic_failure {
+                live.discard();
+                return Err(error);
             }
             let transcript = live.finish(&session.mic.audio_tap(), released);
             drop(finalizing);
@@ -1765,11 +1734,10 @@ mod macos {
             begin_run_authority, begin_run_result, buffer_start_after_drain, cancel_run_authority,
             clean_transcript, partial_inference_due, partial_inference_timestamp, resample_to_16k,
             run_is_current, session_start_error, should_use_combined_sck_capture,
-            split_mic_capture_options, start_native_capture_without_authority_lock, stop_reaches,
-            timeline_start_for_offset, utterance_finalize_due, IncrementalResample, LocalEngine,
-            RunAuthority, SessionOwner, START_SUPERSEDED,
+            start_native_capture_without_authority_lock, stop_reaches, timeline_start_for_offset,
+            utterance_finalize_due, IncrementalResample, LocalEngine, RunAuthority, SessionOwner,
+            START_SUPERSEDED,
         };
-        use crate::native_speech::macos::MicVoiceProcessingMode;
 
         #[test]
         fn a_stop_reaches_its_own_run_and_replaces_only_older_ones() {
@@ -2047,49 +2015,6 @@ mod macos {
                 SessionOwner::Dictation,
                 true
             ));
-        }
-
-        #[test]
-        fn meeting_split_capture_uses_bypassed_voice_processing() {
-            assert_eq!(
-                split_mic_capture_options(SessionOwner::Meeting, true, false),
-                super::SplitMicCaptureOptions {
-                    voice_processing: MicVoiceProcessingMode::Bypassed,
-                    reuse_voice_processing_engine: false,
-                }
-            );
-            assert_eq!(
-                split_mic_capture_options(SessionOwner::Meeting, false, true),
-                super::SplitMicCaptureOptions {
-                    voice_processing: MicVoiceProcessingMode::Bypassed,
-                    reuse_voice_processing_engine: false,
-                }
-            );
-        }
-
-        #[test]
-        fn dictation_split_capture_preserves_requested_processing() {
-            assert_eq!(
-                split_mic_capture_options(SessionOwner::Dictation, false, true),
-                super::SplitMicCaptureOptions {
-                    voice_processing: MicVoiceProcessingMode::Enabled,
-                    reuse_voice_processing_engine: true,
-                }
-            );
-            assert_eq!(
-                split_mic_capture_options(SessionOwner::Dictation, true, false),
-                super::SplitMicCaptureOptions {
-                    voice_processing: MicVoiceProcessingMode::Disabled,
-                    reuse_voice_processing_engine: false,
-                }
-            );
-            assert_eq!(
-                split_mic_capture_options(SessionOwner::Dictation, true, true),
-                super::SplitMicCaptureOptions {
-                    voice_processing: MicVoiceProcessingMode::Enabled,
-                    reuse_voice_processing_engine: false,
-                }
-            );
         }
 
         #[test]

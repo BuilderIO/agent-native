@@ -941,6 +941,28 @@ describe("desktop voice dictation runs", () => {
       );
     });
 
+    it("fails as a microphone error when the mic sent no audio", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      tauri.invoke.mockImplementation((command) =>
+        command === "audio_transcription_stop"
+          ? Promise.reject("Microphone Studio Mic sent no audio in 2.0 s.")
+          : Promise.resolve(undefined),
+      );
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      await release();
+      await settle();
+
+      expect(stateChanges().at(-1)).toMatchObject({
+        state: "error",
+        failure: "microphone-unavailable",
+      });
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+    });
+
     it("fails the run when the stop call returns no transcript", async () => {
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       const started = await startDictation("parakeet");
