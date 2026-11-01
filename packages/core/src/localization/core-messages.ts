@@ -1,5 +1,5 @@
 import { agentResourcePackMessagesForLocale } from "./agent-resources-messages.js";
-import { consentBannerMessagesForLocale } from "./consent-banner-messages.js";
+import { consentBannerMessagesForLocale } from "./notice-bar-messages.js";
 import * as englishSupplementalMessages from "./core-messages/supplemental/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
 import { iconPickerMessagesForLocale } from "./icon-picker-messages.js";

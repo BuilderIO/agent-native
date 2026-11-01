@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AUTOMATION_OUTCOME_MESSAGES } from "./automation-outcome-messages.js";
-import { CONSENT_BANNER_MESSAGES } from "./consent-banner-messages.js";
+import { CONSENT_BANNER_MESSAGES } from "./notice-bar-messages.js";
 import {
   coreMessagesForLocale,
   loadCoreMessagesForLocale,
