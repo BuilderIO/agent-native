@@ -289,7 +289,15 @@ export function useBlocksFieldSuggestions({
   presentations: (args: PresentationsArgs) => VisualEditorSuggestion[];
   /** Suggestions a tab saved, so they show before the list is read again. */
   onSaved: (suggestions: ResourceSuggestion[]) => void;
-  refetchSuggestions: () => Promise<ResourceSuggestion[] | undefined>;
+  /**
+   * Reads the page's suggestions again: the suggestions query's own
+   * `refetch`, which resolves even when the read fails.
+   */
+  refetchSuggestions: () => Promise<{
+    data?: { suggestions: ResourceSuggestion[] } | undefined;
+    isError: boolean;
+    error: Error | null;
+  }>;
   activeSuggestionId: string | null;
   onActivateSuggestion?: (suggestionId: string) => void;
   onHoverSuggestion?: (suggestionId: string | null) => void;
@@ -355,9 +363,14 @@ export function useBlocksFieldSuggestions({
   );
 
   const latest = useCallback(async (id: string) => {
-    const suggestions = await refetchRef.current();
-    if (!suggestions) throw new Error("Could not refresh suggestions");
-    return suggestions.find((suggestion) => suggestion.id === id);
+    const refreshed = await refetchRef.current();
+    // A failed read still resolves, with the last list read, which mustn't
+    // pass for the current one; the save fails and tries again instead.
+    if (refreshed.isError || !refreshed.data)
+      throw refreshed.error ?? new Error("Could not refresh suggestions");
+    return refreshed.data.suggestions.find(
+      (suggestion) => suggestion.id === id,
+    );
   }, []);
 
   const persist = useCallback(

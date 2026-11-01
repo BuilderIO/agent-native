@@ -88,7 +88,11 @@ describe("useBlocksFieldSuggestions", () => {
   /** The suggestions the first save reported. */
   const firstSaved = () =>
     first(first(onSaved.mock.calls)) as ResourceSuggestion[];
-  const refetchSuggestions = vi.fn(async () => [] as ResourceSuggestion[]);
+  const refetchSuggestions = vi.fn(async () => ({
+    data: { suggestions: [] as ResourceSuggestion[] },
+    isError: false,
+    error: null as Error | null,
+  }));
 
   function Harness(props: {
     suggesting: boolean;
@@ -604,6 +608,50 @@ describe("useBlocksFieldSuggestions", () => {
       await latest.flushAll();
     });
     expect(leave()).toBe(false);
+  });
+
+  it("doesn't take a failed read of the suggestions for a fresh one", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    // Someone decided the suggestion while the author kept typing on it.
+    mocks.updateSuggestion.mockRejectedValue(
+      Object.assign(new Error("The suggestion changed"), {
+        status: 409,
+        errorCode: "suggestion_conflict",
+      }),
+    );
+    // The read fails, but resolves with the list it read before.
+    refetchSuggestions.mockResolvedValueOnce({
+      data: { suggestions: [created] },
+      isError: true,
+      error: new Error("Network down"),
+    });
+    await act(async () => {
+      latest.provider.change("notes", "Original notes, revised again.");
+    });
+
+    let saved = true;
+    await act(async () => {
+      saved = await latest.flushAll();
+    });
+    expect(saved).toBe(false);
+    expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+
+    // Read for real, the decided suggestion's edit is suggested anew.
+    refetchSuggestions.mockResolvedValueOnce({
+      data: { suggestions: [{ ...created, status: "rejected" }] },
+      isError: false,
+      error: null,
+    });
+    await act(async () => {
+      saved = await latest.flushAll();
+    });
+    expect(saved).toBe(true);
+    expect(mocks.createProposal).toHaveBeenCalledTimes(2);
   });
 
   it("decides on the newest revision of a tab suggestion someone else amended", async () => {

@@ -6228,11 +6228,6 @@ function PageEditorSessionBody({
     },
     [],
   );
-  const refetchSuggestions = suggestionsQuery.refetch;
-  const refetchSavedSuggestions = useCallback(
-    async () => (await refetchSuggestions()).data?.suggestions,
-    [refetchSuggestions],
-  );
   // Declared further down; a tab's highlight opens its card the same way.
   const activateSuggestionOrThreadRef = useRef<(suggestionId: string) => void>(
     () => undefined,
@@ -6250,7 +6245,7 @@ function PageEditorSessionBody({
     saved: allSavedSuggestions,
     presentations: documentEditorSuggestionPresentations,
     onSaved: rememberFieldSuggestions,
-    refetchSuggestions: refetchSavedSuggestions,
+    refetchSuggestions: suggestionsQuery.refetch,
     activeSuggestionId: hoveredSuggestionId ?? selectedSuggestionId,
     onActivateSuggestion: activateFieldSuggestion,
     onHoverSuggestion: setHoveredSuggestionId,
