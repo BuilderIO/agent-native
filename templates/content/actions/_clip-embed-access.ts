@@ -74,6 +74,10 @@ const FAILURES: Record<
     statusCode: 403,
     message: "Only people who can comment on the page can comment on its Clips",
   },
+  [CLIP_PLAYBACK_ERRORS.commentKeyUsed]: {
+    statusCode: 409,
+    message: "A different comment was already saved with this key",
+  },
   [CLIP_PLAYBACK_ERRORS.forbidden]: {
     statusCode: 403,
     message: "Clips refused this reader",

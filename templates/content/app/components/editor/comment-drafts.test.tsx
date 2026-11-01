@@ -193,6 +193,74 @@ describe("comment drafts", () => {
     act(() => currentDraft!.finishSubmission("operation-b"));
   });
 
+  it("keeps a submission that may have saved with its draft through a reload, until one that didn't", async () => {
+    const retry = { payload: '{"content":"Clip note"}', operationId: "op-a" };
+    const draft = () => {
+      if (!currentDraft) throw new Error("No draft rendered");
+      return currentDraft;
+    };
+    const failOnce = async (outcome?: typeof retry) => {
+      await act(async () => draft().beginSubmission("op-a"));
+      await act(async () => draft().restoreSubmittedDraft("op-a", outcome));
+      await act(async () => draft().finishSubmission("op-a"));
+    };
+    render({});
+    await act(async () => draft().setText("Clip note"));
+    await failOnce(retry);
+    expect(draft().draft).toMatchObject({ text: "Clip note", retry });
+
+    await act(async () => root?.unmount());
+    root = null;
+    render({});
+    expect(draft().draft).toMatchObject({ text: "Clip note", retry });
+
+    await failOnce();
+    expect(draft().draft.text).toBe("Clip note");
+    expect(draft().draft).not.toHaveProperty("retry");
+  });
+
+  it("gives a newer draft the key of a submission that may have saved", async () => {
+    const retry = { payload: '{"content":"Clip note"}', operationId: "op-a" };
+    const draft = () => {
+      if (!currentDraft) throw new Error("No draft rendered");
+      return currentDraft;
+    };
+    render({});
+    await act(async () => draft().setText("Clip note"));
+    await act(async () => draft().beginSubmission("op-a"));
+    await act(async () => draft().setText("Clip"));
+    await act(async () => draft().restoreSubmittedDraft("op-a", retry));
+    await act(async () => draft().finishSubmission("op-a"));
+    expect(draft().draft).toMatchObject({ text: "Clip", retry });
+
+    await act(async () => root?.unmount());
+    root = null;
+    render({});
+    expect(draft().draft).toMatchObject({ text: "Clip", retry });
+  });
+
+  it("gives a newer draft the latest uncertain key when two posts were in flight", async () => {
+    const first = { payload: '{"content":"one"}', operationId: "op-a" };
+    const second = { payload: '{"content":"two"}', operationId: "op-b" };
+    const draft = () => {
+      if (!currentDraft) throw new Error("No draft rendered");
+      return currentDraft;
+    };
+    render({});
+    await act(async () => draft().setText("one"));
+    await act(async () => draft().beginSubmission("op-a"));
+    await act(async () => draft().setText("two"));
+    await act(async () => draft().beginSubmission("op-b"));
+    await act(async () => draft().setText("three"));
+
+    await act(async () => draft().restoreSubmittedDraft("op-a", first));
+    await act(async () => draft().finishSubmission("op-a"));
+    expect(draft().draft).toMatchObject({ text: "three", retry: first });
+    await act(async () => draft().restoreSubmittedDraft("op-b", second));
+    await act(async () => draft().finishSubmission("op-b"));
+    expect(draft().draft).toMatchObject({ text: "three", retry: second });
+  });
+
   it("retains the submitted mentions across remount and replaces them on resubmit", () => {
     render({});
     act(() => currentDraft!.setText("Hello @Reviewer"));

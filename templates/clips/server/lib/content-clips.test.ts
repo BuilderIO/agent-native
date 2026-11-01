@@ -36,6 +36,9 @@ const state = vi.hoisted(() => {
     db: null as unknown as PgliteDatabase,
     blobs: new Map<string, unknown>(),
     beforeClipOpens: null as (() => Promise<void>) | null,
+    /** Each comment notification the routes asked for, and what it answers. */
+    notified: [] as Array<{ recordingId: string; content: string }>,
+    notification: null as Promise<null> | null,
   };
 });
 
@@ -69,7 +72,16 @@ vi.mock("./context-footage.js", async (importOriginal) => {
   };
 });
 vi.mock("./activity-notifications.js", () => ({
-  notifyRecordingComment: async () => null,
+  notifyRecordingComment: async (input: {
+    recordingId: string;
+    content: string;
+  }) => {
+    state.notified.push({
+      recordingId: input.recordingId,
+      content: input.content,
+    });
+    return state.notification ?? null;
+  },
   notifyRecordingReaction: async () => null,
 }));
 vi.mock("./user-identities.js", () => ({
@@ -86,9 +98,13 @@ const { organizations, orgMembers } = await import("@agent-native/core/org");
 const { putUserSetting } = await import("@agent-native/core/settings");
 const { signA2AToken } = await import("@agent-native/core/a2a");
 const { withDbExec } = await import("@agent-native/core/db");
+const { runWithRequestContext } =
+  await import("@agent-native/core/server/request-context");
 const { schema } = await import("../db/index.js");
 const {
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
+  CONTENT_CLIP_COMMENT_KEY_HEADER,
+  CONTENT_CLIP_COMMENT_KEY_USED,
   CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
   CONTENT_CLIP_COMMENT_TEXT_CHARS,
   CONTENT_CLIP_GRANT_EXPIRED,
@@ -104,6 +120,8 @@ const {
 const { __resetContentClipRateLimitsForTests } =
   await import("./content-clip-peer.js");
 const { contentPlaybackGrantKey } = await import("./content-peer-secret.js");
+const { default: addCommentAction } =
+  await import("../../actions/add-comment.js");
 const { default: playbackRoute } =
   await import("../routes/api/content-clips/[recordingId]/playback.get.js");
 const { default: listCommentsRoute } =
@@ -137,7 +155,18 @@ function createTableSql(table: PgTable): string {
     }
     return parts.join(" ");
   });
-  return `CREATE TABLE "${config.name}" (${columns.join(", ")});`;
+  const uniqueIndexes = config.indexes
+    .filter((index) => index.config.unique)
+    .map(
+      (index) =>
+        `CREATE UNIQUE INDEX "${index.config.name}" ON "${config.name}" (${index.config.columns
+          .map((column) => `"${(column as { name: string }).name}"`)
+          .join(", ")});`,
+    );
+  return [
+    `CREATE TABLE "${config.name}" (${columns.join(", ")});`,
+    ...uniqueIndexes,
+  ].join("\n");
 }
 
 /**
@@ -331,6 +360,7 @@ function peerEvent(
     bearer?: string | undefined;
     method?: string;
     body?: unknown;
+    headers?: Record<string, string> | undefined;
   } = {},
 ) {
   const event = mockEvent(`${CLIPS_URL}${path}`, {
@@ -338,6 +368,7 @@ function peerEvent(
     headers: {
       ...(options.bearer ? { authorization: `Bearer ${options.bearer}` } : {}),
       ...(options.body ? { "content-type": "application/json" } : {}),
+      ...options.headers,
     },
     ...(options.body ? { body: JSON.stringify(options.body) } : {}),
   });
@@ -391,13 +422,19 @@ function listComments(
   );
 }
 
-function writeComment(recordingId: string, bearer: string, body: unknown) {
+function writeComment(
+  recordingId: string,
+  bearer: string,
+  body: unknown,
+  headers?: Record<string, string>,
+) {
   return respond(
     writeCommentsRoute,
     peerEvent(`/api/content-clips/${recordingId}/comments`, {
       bearer,
       method: "POST",
       body,
+      headers,
     }),
   );
 }
@@ -457,6 +494,8 @@ beforeEach(async () => {
   client = await PGlite.create("memory://");
   state.db = drizzle(client);
   state.blobs.clear();
+  state.notified = [];
+  state.notification = null;
   __resetContentClipRateLimitsForTests();
   for (const table of [
     schema.recordings,
@@ -1487,6 +1526,279 @@ describe("video comments through a doc", () => {
         )
       ).status,
     ).toBe(404);
+  });
+
+  describe("a comment sent again with its key", () => {
+    const KEY = "0f5b3c1e-6a4d-4c2b-9e7f-1a2b3c4d5e6f";
+    const keyed = (key = KEY) => ({ [CONTENT_CLIP_COMMENT_KEY_HEADER]: key });
+    const add = { operation: "add", content: "Once", videoTimestampMs: 2_500 };
+
+    async function keysStored() {
+      const { rows } = await client.query(
+        "SELECT id, author_email, idempotency_key FROM recording_comments ORDER BY created_at, id",
+      );
+      return rows as Array<Record<string, unknown>>;
+    }
+
+    it("saves it once, and answers the repeat with the saved comment's ids", async () => {
+      const write = await token({ scope: SCOPES.comment });
+      const first = await writeComment("rec-upload", write, add, keyed());
+      expect(first.status).toBe(200);
+
+      // Content never heard the answer, so the reader posts again.
+      const again = await writeComment("rec-upload", write, add, keyed());
+      expect(again).toMatchObject({ status: 200, body: first.body });
+      expect(await keysStored()).toEqual([
+        { id: first.body.id, author_email: READER, idempotency_key: KEY },
+      ]);
+      expect(state.notified).toEqual([
+        { recordingId: "rec-upload", content: "Once" },
+      ]);
+    });
+
+    it("saves a reply once", async () => {
+      await seedComment("owner-comment");
+      const write = await token({ scope: SCOPES.comment });
+      const reply = {
+        operation: "reply",
+        commentId: "owner-comment",
+        content: "Agreed",
+      };
+      const first = await writeComment("rec-upload", write, reply, keyed());
+      const again = await writeComment("rec-upload", write, reply, keyed());
+      expect(first).toMatchObject({
+        status: 200,
+        body: { threadId: "owner-comment", parentId: "owner-comment" },
+      });
+      expect(again).toMatchObject({ status: 200, body: first.body });
+      expect(await storedComments()).toHaveLength(2);
+      expect(state.notified).toHaveLength(1);
+    });
+
+    it("saves one comment when the same key arrives twice at once", async () => {
+      const write = await token({ scope: SCOPES.comment });
+      const [one, two] = await Promise.all([
+        writeComment("rec-upload", write, add, keyed()),
+        writeComment("rec-upload", write, add, keyed()),
+      ]);
+      expect(one.status).toBe(200);
+      expect(two).toMatchObject({ status: 200, body: one.body });
+      expect(await storedComments()).toHaveLength(1);
+      expect(state.notified).toHaveLength(1);
+    });
+
+    it("refuses the key for any other comment by its author", async () => {
+      await seedComment("owner-comment");
+      await insertRecording("rec-other");
+      await insertBinding("binding-other", {
+        recordingId: "rec-other",
+        blockId: "block-2",
+      });
+      const write = await token({ scope: SCOPES.comment });
+      const first = await writeComment("rec-upload", write, add, keyed());
+      expect(first.status).toBe(200);
+
+      for (const [recordingId, body] of [
+        ["rec-upload", { ...add, content: "Something else" }],
+        ["rec-upload", { ...add, videoTimestampMs: 3_000 }],
+        [
+          "rec-upload",
+          { operation: "reply", commentId: "owner-comment", content: "Once" },
+        ],
+        ["rec-other", add],
+      ] as const) {
+        const bearer = await token({ scope: SCOPES.comment, recordingId });
+        const result = await writeComment(recordingId, bearer, body, keyed());
+        expect(result.status).toBe(409);
+        expect(result.body).toMatchObject({
+          code: CONTENT_CLIP_COMMENT_KEY_USED,
+        });
+      }
+      expect(await keysStored()).toEqual([
+        expect.objectContaining({ id: "owner-comment", idempotency_key: null }),
+        { id: first.body.id, author_email: READER, idempotency_key: KEY },
+      ]);
+      expect(state.notified).toHaveLength(1);
+    });
+
+    it("never answers one author with another's comment", async () => {
+      const mine = await writeComment(
+        "rec-upload",
+        await token({ scope: SCOPES.comment }),
+        add,
+        keyed(),
+      );
+      const theirs = await writeComment(
+        "rec-upload",
+        await token({ scope: SCOPES.comment, sub: OTHER_READER }),
+        add,
+        keyed(),
+      );
+      expect(theirs.status).toBe(200);
+      expect(theirs.body.id).not.toBe(mine.body.id);
+      expect(await keysStored()).toEqual(
+        expect.arrayContaining([
+          { id: mine.body.id, author_email: READER, idempotency_key: KEY },
+          {
+            id: theirs.body.id,
+            author_email: OTHER_READER,
+            idempotency_key: KEY,
+          },
+        ]),
+      );
+    });
+
+    it("answers before the emails go out, which the platform keeps running", async () => {
+      // Emails that take longer than Content waits for an answer.
+      state.notification = new Promise(() => {});
+      const kept: Promise<unknown>[] = [];
+      const event = peerEvent("/api/content-clips/rec-upload/comments", {
+        bearer: await token({ scope: SCOPES.comment }),
+        method: "POST",
+        body: add,
+        headers: keyed(),
+      });
+      Object.assign(event.req, {
+        waitUntil: (promise: Promise<unknown>) => kept.push(promise),
+      });
+
+      const result = await respond(writeCommentsRoute, event);
+      expect(result.status).toBe(200);
+      expect(state.notified).toHaveLength(1);
+      expect(kept).toHaveLength(1);
+      const stillSending = Symbol("still sending");
+      await expect(Promise.race([kept[0], stillSending])).resolves.toBe(
+        stillSending,
+      );
+      expect(await storedComments()).toHaveLength(1);
+    });
+
+    it("answers within a moment where the platform can't keep the emails running", async () => {
+      // Emails that never finish, on a runtime with no waitUntil.
+      state.notification = new Promise(() => {});
+      const result = await writeComment(
+        "rec-upload",
+        await token({ scope: SCOPES.comment }),
+        add,
+        keyed(),
+      );
+      expect(result.status).toBe(200);
+      expect(state.notified).toHaveLength(1);
+      expect(await storedComments()).toHaveLength(1);
+    });
+
+    it("answers with the saved comment when its emails fail", async () => {
+      let fail!: (error: Error) => void;
+      state.notification = new Promise<null>((_, reject) => {
+        fail = reject;
+      });
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const answer = writeComment(
+          "rec-upload",
+          await token({ scope: SCOPES.comment }),
+          add,
+          keyed(),
+        );
+        await vi.waitFor(() => expect(state.notified).toHaveLength(1));
+        fail(new Error("Email service down"));
+        expect((await answer).status).toBe(200);
+        expect(await storedComments()).toHaveLength(1);
+        await vi.waitFor(() =>
+          expect(errors).toHaveBeenCalledWith(
+            expect.stringContaining("failed after it was saved"),
+            "Email service down",
+          ),
+        );
+      } finally {
+        errors.mockRestore();
+      }
+    });
+
+    it("saves every comment sent with no key, as before keys", async () => {
+      const write = await token({ scope: SCOPES.comment });
+      const first = await writeComment("rec-upload", write, add);
+      const second = await writeComment("rec-upload", write, add);
+      expect(second.body.id).not.toBe(first.body.id);
+      expect(await keysStored()).toEqual([
+        expect.objectContaining({ idempotency_key: null }),
+        expect.objectContaining({ idempotency_key: null }),
+      ]);
+      expect(state.notified).toHaveLength(2);
+    });
+
+    it("gives an agent repeating add-comment the saved comment, and sends nothing", async () => {
+      const asOwner = () =>
+        withDbExec(coreDb(), () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            addCommentAction.run({
+              recordingId: "rec-upload",
+              content: "Once",
+              videoTimestampMs: 2_500,
+              idempotencyKey: KEY,
+            }),
+          ),
+        );
+      const first = await asOwner();
+      const again = await asOwner();
+      expect(first).toMatchObject({ repeated: false, notified: null });
+      expect(again).toEqual({
+        id: first.id,
+        threadId: first.threadId,
+        notified: null,
+        repeated: true,
+      });
+      expect(await storedComments()).toHaveLength(1);
+      expect(state.notified).toHaveLength(1);
+    });
+
+    it("refuses an agent's key sent again with other people mentioned", async () => {
+      const ana = await readerInWorkspaces("clips-org");
+      const ben = await readerInWorkspaces("clips-org");
+      const asOwner = (mentions: { email: string; name: string }[]) =>
+        withDbExec(coreDb(), () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            addCommentAction.run({
+              recordingId: "rec-upload",
+              content: "Once",
+              videoTimestampMs: 2_500,
+              mentions,
+              idempotencyKey: KEY,
+            }),
+          ),
+        );
+      const first = await asOwner([
+        { email: ana, name: "Ana" },
+        { email: ben, name: "Ben" },
+      ]);
+
+      // The same people in another order and case are the same comment.
+      const again = await asOwner([
+        { email: ben.toUpperCase(), name: "B." },
+        { email: ana, name: "Ana" },
+      ]);
+      expect(again).toMatchObject({ id: first.id, repeated: true });
+      await expect(asOwner([{ email: ana, name: "Ana" }])).rejects.toThrow(
+        /already used for a different comment/,
+      );
+      expect(await storedComments()).toHaveLength(1);
+      expect(state.notified).toHaveLength(1);
+    });
+
+    it("refuses a key that isn't one", async () => {
+      const write = await token({ scope: SCOPES.comment });
+      for (const key of [
+        "short",
+        "x".repeat(65),
+        "has spaces in it, sixteen+",
+      ]) {
+        const result = await writeComment("rec-upload", write, add, {
+          [CONTENT_CLIP_COMMENT_KEY_HEADER]: key,
+        });
+        expect(result.status).toBe(400);
+      }
+      expect(await storedComments()).toEqual([]);
+    });
   });
 
   describe("with comments turned off", () => {
