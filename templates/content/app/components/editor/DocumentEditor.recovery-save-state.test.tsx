@@ -943,8 +943,9 @@ function pasteTitle(value: string) {
   });
 }
 
-function mounted<T>(value: T | null): T {
-  if (value === null) throw new Error("Expected a mounted editor fixture.");
+function mounted<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined)
+    throw new Error("Expected a mounted editor fixture.");
   return value;
 }
 
@@ -998,7 +999,7 @@ it("closes a newly edited row without resubmitting its confirmed generation", as
     revision: documentRevisionToken(1, "Saved body for the edited row."),
   });
   expect(fixture.save).toHaveBeenCalledTimes(2);
-  expect(fixture.save.mock.calls[1][0]).toMatchObject({
+  expect(mounted(fixture.save.mock.calls[1])[0]).toMatchObject({
     editorEditGeneration: 2,
     authoredBaseContent: "",
     authoredCandidateContent: "Saved body for the edited row.",
@@ -1021,7 +1022,7 @@ it("still attests a failed edit reverted after a confirmed generation when the p
   await act(async () => vi.advanceTimersByTimeAsync(500));
   await act(async () => renderEditor());
   expect(fixture.save).toHaveBeenCalledOnce();
-  expect(fixture.save.mock.calls[0][0]).toMatchObject({
+  expect(mounted(fixture.save.mock.calls[0])[0]).toMatchObject({
     content: "Confirmed body",
     editorEditGeneration: 1,
   });
@@ -1031,7 +1032,8 @@ it("still attests a failed edit reverted after a confirmed generation when the p
   act(() => mounted(fixture.editor).onChange("Failed body"));
   await act(async () => vi.advanceTimersByTimeAsync(500));
   expect(fixture.save).toHaveBeenCalledTimes(2);
-  const failedGeneration = fixture.save.mock.calls[1][0].editorEditGeneration;
+  const failedGeneration = mounted(fixture.save.mock.calls[1])[0]
+    .editorEditGeneration;
   expect(failedGeneration).toBeGreaterThan(1);
   act(() => mounted(fixture.editor).onChange("Confirmed body"));
   acknowledgeCurrentSaves();
@@ -1039,15 +1041,14 @@ it("still attests a failed edit reverted after a confirmed generation when the p
     await expect(mounted(fixture.session).flush()).resolves.toBeUndefined();
   });
   expect(fixture.save).toHaveBeenCalledTimes(3);
-  expect(fixture.save.mock.calls[2][0]).toMatchObject({
+  const attestation = mounted(fixture.save.mock.calls[2])[0];
+  expect(attestation).toMatchObject({
     title: "Saved title",
     content: "Confirmed body",
     editorSessionId: mounted(mounted(fixture.awareness).getLocalState())
       .editorSessionId,
   });
-  expect(fixture.save.mock.calls[2][0].editorEditGeneration).toBeGreaterThan(
-    failedGeneration,
-  );
+  expect(attestation.editorEditGeneration).toBeGreaterThan(failedGeneration);
   await act(async () => {
     await expect(mounted(fixture.session).flush()).resolves.toBeUndefined();
   });
@@ -1168,12 +1169,12 @@ it.each([false, true])(
     await act(async () => {
       await fixture.pickIcon!("tabler:star");
     });
-    expect(fixture.save.mock.calls[acceptedCount][0]).toMatchObject({
+    expect(mounted(fixture.save.mock.calls[acceptedCount])[0]).toMatchObject({
       icon: "tabler:star",
     });
-    expect(fixture.save.mock.calls[acceptedCount][0]).not.toHaveProperty(
-      "title",
-    );
+    expect(
+      mounted(fixture.save.mock.calls[acceptedCount])[0],
+    ).not.toHaveProperty("title");
     await act(async () => {
       await expect(fixture.session!.flush()).resolves.toBeUndefined();
     });
