@@ -1296,8 +1296,12 @@ function mountActionRoutesInternal(
               throw error;
             orgUnavailable = true;
           }
-          const orgForbidden = !orgId && hasForbiddenOrgScope(event);
-          orgUnavailable ||= !orgId && hasOrgScopeResolutionUnavailable(event);
+          const orgForbidden = hasForbiddenOrgScope(event);
+          orgUnavailable ||= hasOrgScopeResolutionUnavailable(event);
+          if (orgForbidden || orgUnavailable) {
+            orgId = undefined;
+            orgScope = undefined;
+          }
           if (orgForbidden && !publicRead) {
             setResponseStatus(event, 403);
             return { error: "Organization scope is forbidden." };

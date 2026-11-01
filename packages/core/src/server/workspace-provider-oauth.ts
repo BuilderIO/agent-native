@@ -25,6 +25,7 @@ import {
 import { getDbExec, withDbExec } from "../db/client.js";
 import {
   OAuthAccountOwnedByOtherUserError,
+  getOAuthTokens,
   saveOAuthTokens,
   setOAuthDisplayName,
 } from "../oauth-tokens/store.js";
@@ -501,7 +502,14 @@ export async function handleWorkspaceProviderOAuthStart(
         challenge,
         loginHint: targetAccountEmail ?? session.email,
         includeGrantedScopes: sharesGoogleTokenRow(provider),
-        ...(requestedScopes ? { requestedScopes } : {}),
+        ...(requestedScopes || optionalScopes
+          ? {
+              requestedScopes: mergeWorkspaceOAuthValues(
+                requestedScopes ?? provider.oauth.scopes,
+                optionalScopes ?? [],
+              ),
+            }
+          : {}),
         ...(providerId === "sigma"
           ? {
               authorizationUrl: flow.sigmaAuthorizationUrl,
@@ -696,12 +704,20 @@ export async function handleWorkspaceProviderOAuthCallback(
           identity.accountId,
         );
         try {
+          const previousTokens =
+            googleGrant && !googleGrant.explicitScope
+              ? await getOAuthTokens("google", accountId, session.email)
+              : null;
+          const tokenScope = googleGrant
+            ? mergeWorkspaceOAuthValues(
+                [...googleGrant.heldScopes],
+                previousTokens ? tokenScopes(previousTokens, []) : [],
+              ).join(" ")
+            : undefined;
           await saveOAuthTokens(
             provider.oauth!.provider,
             accountId,
-            googleGrant
-              ? { ...tokens, scope: [...googleGrant.heldScopes].join(" ") }
-              : tokens,
+            googleGrant ? { ...tokens, scope: tokenScope } : tokens,
             session.email,
           );
         } catch (error) {
@@ -734,7 +750,13 @@ export async function handleWorkspaceProviderOAuthCallback(
           googleGrant?.scopes ??
           mergeWorkspaceOAuthValues(
             identity.scopes ?? [],
-            tokenScopes(tokens, flow.requestedScopes ?? provider.oauth.scopes),
+            tokenScopes(
+              tokens,
+              mergeWorkspaceOAuthValues(
+                flow.requestedScopes ?? provider.oauth.scopes,
+                flow.optionalScopes ?? [],
+              ),
+            ),
           );
         const connectionConfig = {
           credentialMode: "oauth",
@@ -789,7 +811,7 @@ export async function handleWorkspaceProviderOAuthCallback(
           scopes,
           config: connectionConfig,
         });
-        if (googleGrant) {
+        if (googleGrant?.explicitScope) {
           await dropGoogleScopesTokenLacks(
             connection.id,
             accountId,
@@ -827,13 +849,18 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
 }): string {
   if (!input.provider.oauth)
     throw new Error("Provider does not support OAuth.");
-  const scopes = input.requestedScopes ?? input.provider.oauth.scopes;
+  const requestedScopes = input.requestedScopes ?? input.provider.oauth.scopes;
   if (
     input.requestedScopes &&
-    !isAllowedWorkspaceOAuthScopes(scopes, input.provider.oauth.scopes)
+    !isAllowedWorkspaceOAuthScopes(requestedScopes, input.provider.oauth.scopes)
   ) {
     throw new Error("Requested OAuth scopes are invalid or unsupported.");
   }
+  // The callback identifies the account through OIDC userinfo, even for an
+  // API-only consent request.
+  const scopes = isGoogleWorkspaceOAuthProvider(input.provider.id)
+    ? [...new Set(["openid", "email", ...requestedScopes])]
+    : requestedScopes;
   const url = new URL(
     input.authorizationUrl ?? input.provider.oauth.authorizationUrl,
   );
@@ -1886,15 +1913,27 @@ function resolveGoogleGrant(
 ) {
   const requested = flow.requestedScopes ?? provider.oauth.scopes;
   const optional = flow.optionalScopes ?? [];
+  if (tokens.scope !== undefined && typeof tokens.scope !== "string") {
+    throw new Error("Google returned an invalid OAuth scope.");
+  }
+  const explicitScope = typeof tokens.scope === "string";
+  // RFC 6749 permits omission only when the grant matches the request. An
+  // omitted scope does not establish revocation of earlier account grants.
   const heldScopes = new Set(
-    (text(tokens.scope) ?? "")
-      .split(/[ ,]+/)
+    (explicitScope
+      ? (tokens.scope as string).split(/[ ,]+/)
+      : mergeWorkspaceOAuthValues(
+          ["openid", "email"],
+          mergeWorkspaceOAuthValues(requested, optional),
+        )
+    )
       .filter(Boolean)
       .map(normalizeOAuthScope),
   );
   const missingScopes = requested.filter((scope) => !heldScopes.has(scope));
   return {
     heldScopes,
+    explicitScope,
     scopes: mergeWorkspaceOAuthValues(requested, optional).filter((scope) =>
       heldScopes.has(scope),
     ),

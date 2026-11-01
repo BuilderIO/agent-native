@@ -30,7 +30,10 @@ import {
   toolInputFingerprint,
   toolInputsMatch,
 } from "../shared/tool-inputs.js";
-import { approvalKeyForHistory } from "./approval-key.js";
+import {
+  approvalKeyForHistory,
+  approvalKeyForPrivateHistory,
+} from "./approval-key.js";
 import { isAgentInternalContinuationPrompt } from "./continuation-prompt.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import {
@@ -386,8 +389,10 @@ export function buildAssistantMessage(
         toolName: event.tool ?? "unknown",
         argsText: JSON.stringify(args),
         args,
-        ...(executionStepId ? { executionStepId } : {}),
-        ...(event.inputFingerprint
+        ...(event.omitFromPersistedHistory !== true && executionStepId
+          ? { executionStepId }
+          : {}),
+        ...(event.omitFromPersistedHistory !== true && event.inputFingerprint
           ? { inputFingerprint: event.inputFingerprint }
           : {}),
         ...(event.omitFromPersistedHistory === true
@@ -407,13 +412,19 @@ export function buildAssistantMessage(
 
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
-        part.approval = {
-          approvalKey: approvalKeyForHistory(event.approvalKey),
-          ...(event.askId ? { askId: event.askId } : {}),
-          ...(event.allowPersistentApproval === false
-            ? { allowPersistentApproval: false }
-            : {}),
-        };
+        const historyKey =
+          event.omitFromPersistedHistory === true
+            ? approvalKeyForPrivateHistory(event.askId)
+            : approvalKeyForHistory(event.approvalKey);
+        if (historyKey) {
+          part.approval = {
+            approvalKey: historyKey,
+            ...(event.askId ? { askId: event.askId } : {}),
+            ...(event.allowPersistentApproval === false
+              ? { allowPersistentApproval: false }
+              : {}),
+          };
+        }
         approvalPauseCandidates.add(part);
       }
       continue;
@@ -509,15 +520,24 @@ export function buildAssistantMessage(
             continue;
           }
         }
-        if (executionStepId) part.executionStepId = executionStepId;
-        if (event.inputFingerprint) {
-          part.inputFingerprint = event.inputFingerprint;
+        const privatePart =
+          event.omitFromPersistedHistory === true ||
+          part.omitFromPersistedHistory === true;
+        if (privatePart) {
+          part.args = {};
+          part.argsText = "{}";
+          delete part.executionStepId;
+          delete part.inputFingerprint;
+        } else {
+          if (executionStepId) part.executionStepId = executionStepId;
+          if (event.inputFingerprint) {
+            part.inputFingerprint = event.inputFingerprint;
+          }
         }
-        part.result =
-          event.omitFromPersistedHistory === true
-            ? "[Private content omitted]"
-            : ((event.result as string | null | undefined) ?? "");
-        if (event.omitFromPersistedHistory === true) {
+        part.result = privatePart
+          ? "[Private content omitted]"
+          : ((event.result as string | null | undefined) ?? "");
+        if (privatePart) {
           part.omitFromPersistedHistory = true;
         }
         // Older journals have approval_required but no pause marker on tool_done.
@@ -542,7 +562,7 @@ export function buildAssistantMessage(
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
         }
-        if (event.omitFromPersistedHistory !== true) {
+        if (!privatePart) {
           if (event.artifacts !== undefined) part.artifacts = event.artifacts;
           if (event.mcpApp) part.mcpApp = event.mcpApp;
           if (event.chatUI) part.chatUI = event.chatUI;

@@ -671,3 +671,77 @@ it("bootstraps one organization for concurrent requests", async () => {
     await database.close();
   }
 });
+
+it.each([
+  ["unavailable", "__anOrgScopeResolutionUnavailable", 503],
+  ["forbidden", "__anOrgScopeForbidden", 403],
+])(
+  "rejects a stale resolved organization when scope is %s",
+  async (_status, marker, status) => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const app = createApp();
+    mountActionRoutes(
+      { app },
+      {
+        "stale-scope": defineAction({
+          description: "Run a scoped test action.",
+          schema: z.object({}),
+          run,
+        }),
+      },
+      {
+        getOwnerFromEvent: async () => "fresh@example.test",
+        resolveOrgId: async (event) => {
+          event.context[marker] = true;
+          return "stale-org";
+        },
+      },
+    );
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/actions/stale-scope", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    expect(response.status).toBe(status);
+    expect(run).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["__anOrgScopeResolutionUnavailable", "__anOrgScopeForbidden"])(
+  "does not pass an unverified organization to a public read (%s)",
+  async (marker) => {
+    const run = vi.fn(async (_params, context) => ({
+      orgId: context.orgId ?? null,
+      requestOrgId: getRequestOrgId() ?? null,
+    }));
+    const app = createApp();
+    mountActionRoutes(
+      { app },
+      {
+        "public-scope": defineAction({
+          description: "Read a public test resource.",
+          schema: z.object({}),
+          requiresAuth: false,
+          readOnly: true,
+          http: { method: "GET" },
+          run,
+        }),
+      },
+      {
+        getOwnerFromEvent: async () => "fresh@example.test",
+        resolveOrgId: async (event) => {
+          event.context[marker] = true;
+          return "stale-org";
+        },
+      },
+    );
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/actions/public-scope"),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ orgId: null, requestOrgId: null });
+    expect(run).toHaveBeenCalledOnce();
+  },
+);

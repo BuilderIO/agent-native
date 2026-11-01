@@ -39,6 +39,7 @@ import { setActiveOrgId } from "./active-org.js";
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
+  hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
   resolveOrgIdForEmail,
   resolveOrgScopeForEmail,
@@ -1304,6 +1305,7 @@ describe("getOrgContext", () => {
     });
 
     it("does NOT auto-create when the flag is explicitly disabled", async () => {
+      process.env.ORG_CREATION = "open";
       process.env.AUTO_CREATE_DEFAULT_ORG = "0";
       mockGetSession.mockResolvedValue({
         email: "loner@startup.dev",
@@ -1312,7 +1314,14 @@ describe("getOrgContext", () => {
       queueSelect([], []);
       const ctx = await getOrgContext(EVENT);
       expect(ctx.orgId).toBeNull();
+      expect(hasForbiddenOrgScope(EVENT)).toBe(false);
+      expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(false);
       expect(mockGetSetting).not.toHaveBeenCalled();
+      expect(
+        mockExecute.mock.calls.some(([query]) =>
+          query.sql.includes("INSERT INTO organizations"),
+        ),
+      ).toBe(false);
     });
 
     it("does NOT auto-create a personal org when org creation is closed", async () => {
@@ -1327,6 +1336,7 @@ describe("getOrgContext", () => {
       const ctx = await getOrgContext(EVENT);
 
       expect(ctx.orgId).toBeNull();
+      expect(hasForbiddenOrgScope(EVENT)).toBe(true);
       expect(mockGetSetting).not.toHaveBeenCalled();
       expect(
         mockExecute.mock.calls.some(([query]) =>

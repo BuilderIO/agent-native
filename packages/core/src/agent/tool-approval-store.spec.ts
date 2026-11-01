@@ -49,24 +49,30 @@ describe("agent tool approval store", () => {
     ddlMocks.ensureTableExists.mockResolvedValue(undefined);
   });
 
-  it("stores only a hash of the client-visible approval key", async () => {
+  it("stores keyed grant digests that cannot be guessed from input hashes", async () => {
     const { createAgentToolApproval, hashAgentToolApprovalKey } =
       await import("./tool-approval-store.js");
 
-    await createAgentToolApproval(binding);
+    await createAgentToolApproval({
+      ...binding,
+      argumentsHash: "known-arguments",
+    });
 
-    expect(dbMocks.execute).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        sql: expect.stringContaining("INSERT INTO agent_tool_approvals"),
-        args: expect.arrayContaining([
-          hashAgentToolApprovalKey(binding.approvalKey),
-        ]),
-      }),
+    const insert = dbMocks.execute.mock.calls[0]?.[0] as {
+      sql: string;
+      args: unknown[];
+    };
+    expect(insert.sql).toContain("INSERT INTO agent_tool_approvals");
+    expect(insert.args[8]).toMatch(/^hmac-v1:[a-f0-9]{64}$/);
+    expect(insert.args[12]).toMatch(/^hmac-v1:[a-f0-9]{64}$/);
+    expect(insert.args[8]).not.toBe(
+      hashAgentToolApprovalKey(binding.approvalKey),
     );
-    expect(dbMocks.execute.mock.calls[0]?.[0].args).not.toContain(
-      binding.approvalKey,
+    expect(insert.args[12]).not.toBe(
+      hashAgentToolApprovalKey("known-arguments"),
     );
+    expect(insert.args).not.toContain(binding.approvalKey);
+    expect(insert.args).not.toContain("known-arguments");
   });
 
   it("gives a delayed approval click at least 30 minutes before the grant expires", async () => {

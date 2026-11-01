@@ -3881,6 +3881,10 @@ function pendingApprovalRuntimeMessages(
         {
           type: "tool-result",
           toolCallId: part.toolCallId,
+          ...(part.omitFromPersistedHistory === true ||
+          state.message.omitFromPersistedHistory === true
+            ? { omitFromPersistedHistory: true }
+            : {}),
           ...(part.approval?.askId
             ? { approvalAskId: part.approval.askId }
             : {}),
@@ -3902,6 +3906,10 @@ function pendingApprovalRuntimeMessages(
           toolName: part.toolName,
           input: part.args,
           approval: part.approval,
+          ...(part.omitFromPersistedHistory === true ||
+          state.message.omitFromPersistedHistory === true
+            ? { omitFromPersistedHistory: true }
+            : {}),
           ...(isApprovedPendingCall ? { approvedReplay: true } : {}),
         },
       ],

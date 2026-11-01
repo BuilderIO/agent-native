@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   TURN_RUN_LEDGER_SLACK,
@@ -26,6 +28,7 @@ import {
   prepareServicePrincipalRunStart,
   recordServicePrincipalDenial,
 } from "../org/service-principal-guard.js";
+import { getSecretEncryptionKey } from "../secrets/crypto.js";
 import { platformWaitUntil } from "../server/background-work.js";
 import { captureError } from "../server/capture-error.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -35,7 +38,11 @@ import {
   stripInlineBytesFromJson,
 } from "../shared/inline-bytes.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
-import { approvalKeyForHistory } from "./approval-key.js";
+import {
+  approvalKeyForHistory,
+  approvalKeyForPrivateHistory,
+  PRIVATE_APPROVAL_UNAVAILABLE,
+} from "./approval-key.js";
 import {
   admitAutoContinue,
   admitManualContinue,
@@ -856,6 +863,29 @@ export type AgentExecutionStepAdmission =
   | { status: "completed"; resultJson: string | null; errorJson: string | null }
   | { status: "unknown" };
 
+export function privateExecutionStepInputJson(input: {
+  threadId: string;
+  turnId: string;
+  toolName: string;
+  argumentsHash: string;
+}): string {
+  const identity = createHmac("sha256", getSecretEncryptionKey())
+    .update("agent-private-execution-step-v1\0")
+    .update(
+      JSON.stringify([
+        input.threadId,
+        input.turnId,
+        input.toolName,
+        input.argumentsHash,
+      ]),
+    )
+    .digest("hex");
+  return JSON.stringify({
+    omitFromPersistedHistory: true,
+    identity: `hmac-v1:${identity}`,
+  });
+}
+
 const ARGUMENTS_HASH_INPUT_PREFIX = '{"argumentsHash":';
 
 /**
@@ -865,7 +895,31 @@ const ARGUMENTS_HASH_INPUT_PREFIX = '{"argumentsHash":';
 function executionStepInputIdentity(
   inputJson: string | undefined,
 ): string | undefined {
-  if (!inputJson?.startsWith(ARGUMENTS_HASH_INPUT_PREFIX)) return inputJson;
+  if (!inputJson?.startsWith(ARGUMENTS_HASH_INPUT_PREFIX)) {
+    if (!inputJson) return inputJson;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(inputJson);
+    } catch {
+      return inputJson;
+    }
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "omitFromPersistedHistory" in parsed &&
+      parsed.omitFromPersistedHistory === true
+    ) {
+      if (
+        !("identity" in parsed) ||
+        typeof parsed.identity !== "string" ||
+        !/^hmac-v1:[a-f0-9]{64}$/.test(parsed.identity)
+      ) {
+        throw new Error("Private execution step identity is unavailable");
+      }
+      return `private:${parsed.identity}`;
+    }
+    return inputJson;
+  }
   const { argumentsHash } = JSON.parse(inputJson) as {
     argumentsHash?: unknown;
   };
@@ -4443,7 +4497,9 @@ function omitPersistedRunEventContent(event: Record<string, unknown>) {
         ...base,
         tool: event.tool,
         input: {},
-        approvalKey: approvalKeyForHistory(event.approvalKey as string),
+        approvalKey:
+          approvalKeyForPrivateHistory(event.askId) ??
+          PRIVATE_APPROVAL_UNAVAILABLE,
         ...(event.allowPersistentApproval === false
           ? { allowPersistentApproval: false }
           : {}),

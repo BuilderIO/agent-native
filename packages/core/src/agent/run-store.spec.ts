@@ -1091,6 +1091,56 @@ describe("run store", () => {
     });
   });
 
+  it("persists a private approval by its server grant id without an input digest", async () => {
+    const approvalKey = 'send-email:{"body":"synthetic-private-body"}';
+    const askId = "agent-tool-approval-11111111-2222-4333-8444-555555555555";
+    await insertRunEvent(
+      "run-private-approval",
+      2,
+      JSON.stringify({
+        type: "approval_required",
+        tool: "send-email",
+        input: { body: "synthetic-private-body" },
+        approvalKey,
+        askId,
+        omitFromPersistedHistory: true,
+      }),
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    expect(JSON.parse(stored)).toMatchObject({
+      approvalKey: askId,
+      askId,
+      input: {},
+    });
+    expect(stored).not.toContain("synthetic-private-body");
+    expect(stored).not.toContain(approvalKeyForHistory(approvalKey));
+  });
+
+  it("marks a private approval without a grant id unavailable", async () => {
+    await insertRunEvent(
+      "run-private-approval-no-id",
+      2,
+      JSON.stringify({
+        type: "approval_required",
+        tool: "send-email",
+        input: { body: "synthetic-private-body" },
+        approvalKey: 'send-email:{"body":"synthetic-private-body"}',
+        omitFromPersistedHistory: true,
+      }),
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    expect(JSON.parse(stored).approvalKey).toBe(
+      "[Private approval unavailable]",
+    );
+    expect(stored).not.toContain("synthetic-private-body");
+  });
+
   it("never lets an older progress write move the stored timestamp backward", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(12_345);
 

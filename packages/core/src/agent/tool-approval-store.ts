@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
 import type { DbExec } from "../db/client.js";
@@ -9,7 +9,7 @@ import {
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
-import { hashAgentToolApprovalKey } from "./approval-key.js";
+import { getSecretEncryptionKey } from "../secrets/crypto.js";
 import { withFencedExecutionWrite } from "./execution-fence.js";
 import {
   AGENT_TOOL_APPROVAL_MIGRATIONS,
@@ -31,6 +31,16 @@ export { hashAgentToolApprovalKey } from "./approval-key.js";
 
 const APPROVAL_TTL_MS = 60 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
+
+function approvalGrantDigest(
+  purpose: "approval-key" | "arguments",
+  value: string,
+): string {
+  const key = createHmac("sha256", getSecretEncryptionKey())
+    .update("agent-tool-approval-grant-v1")
+    .digest();
+  return `hmac-v1:${createHmac("sha256", key).update(purpose).update("\0").update(value).digest("hex")}`;
+}
 
 export const agentToolApprovalsStore = defineStore({
   id: "agent_tool_approvals",
@@ -403,7 +413,9 @@ export async function resolveAgentToolApprovalTurnId(binding: {
 
   await ensureAgentToolApprovalTable();
   const now = Date.now();
-  const hashes = approvalKeys.map(hashAgentToolApprovalKey);
+  const hashes = approvalKeys.map((key) =>
+    approvalGrantDigest("approval-key", key),
+  );
   const placeholders = hashes.map(() => "?").join(", ");
   const exactApprovalFilter = binding.approvalId ? "AND id = ?" : "";
   const approvalIdArgs = binding.approvalId ? [binding.approvalId] : [];
@@ -473,11 +485,13 @@ export async function createAgentToolApproval(
           binding.toolName,
           binding.toolRevision ?? null,
           binding.callId,
-          hashAgentToolApprovalKey(binding.approvalKey),
+          approvalGrantDigest("approval-key", binding.approvalKey),
           expiresAt,
           now,
           now,
-          binding.argumentsHash ?? null,
+          binding.argumentsHash
+            ? approvalGrantDigest("arguments", binding.argumentsHash)
+            : null,
         ],
       }),
     {
@@ -550,9 +564,13 @@ export async function consumeAgentToolApproval(
           binding.toolName,
           binding.toolRevision ?? null,
           binding.toolRevision ?? null,
-          hashAgentToolApprovalKey(binding.approvalKey),
-          binding.argumentsHash ?? null,
-          binding.argumentsHash ?? null,
+          approvalGrantDigest("approval-key", binding.approvalKey),
+          binding.argumentsHash
+            ? approvalGrantDigest("arguments", binding.argumentsHash)
+            : null,
+          binding.argumentsHash
+            ? approvalGrantDigest("arguments", binding.argumentsHash)
+            : null,
           ...approvalIdArgs,
           now,
         ],

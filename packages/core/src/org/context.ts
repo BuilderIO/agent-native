@@ -630,6 +630,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
       return resolveOrgContextUncached(event);
     }
     if (
+      getAppConfig().access.orgCreation === "closed" &&
       !autoCreateDefaultOrgEnabled() &&
       !hasOrgScopeResolutionUnavailable(event)
     )

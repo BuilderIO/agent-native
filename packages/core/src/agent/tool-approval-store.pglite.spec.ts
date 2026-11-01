@@ -81,6 +81,7 @@ const {
   denyAgentToolApproval,
   hashAgentToolApprovalKey,
   isAgentToolAlwaysAllowed,
+  resolveAgentToolApprovalTurnId,
   setAgentToolApprovalPolicy,
 } = await import("./tool-approval-store.js");
 const { claimTurnExecutionLease, ensureRunTables, insertRun, markTurnAborted } =
@@ -145,6 +146,55 @@ beforeEach(async () => {
 });
 
 describe("tool approvals bound to the arguments that run", () => {
+  it("uses opaque keyed row values and refuses a grant after key rotation", async () => {
+    const previousAppName = process.env.APP_NAME;
+    const previousKey = process.env.SECRETS_ENCRYPTION_KEY;
+    process.env.APP_NAME = "";
+    process.env.SECRETS_ENCRYPTION_KEY = "synthetic-approval-key-a";
+    try {
+      const grant = { ...call, argumentsHash: "known-argument-digest" };
+      const approvalId = await createAgentToolApproval(grant);
+      const row = await pglite.query<{
+        approval_key_hash: string;
+        arguments_hash: string;
+      }>(
+        "SELECT approval_key_hash, arguments_hash FROM agent_tool_approvals WHERE id = ?",
+        [approvalId],
+      );
+      expect(row.rows[0]?.approval_key_hash).toMatch(/^hmac-v1:[a-f0-9]{64}$/);
+      expect(row.rows[0]?.arguments_hash).toMatch(/^hmac-v1:[a-f0-9]{64}$/);
+      expect(row.rows[0]?.approval_key_hash).not.toBe(
+        hashAgentToolApprovalKey(call.approvalKey),
+      );
+      expect(row.rows[0]?.arguments_hash).not.toBe(
+        hashAgentToolApprovalKey(grant.argumentsHash),
+      );
+      process.env.SECRETS_ENCRYPTION_KEY = "synthetic-approval-key-b";
+      await expect(
+        consumeAgentToolApproval({ ...grant, approvalId }),
+      ).resolves.toBe(false);
+      process.env.SECRETS_ENCRYPTION_KEY = "synthetic-approval-key-a";
+      await expect(
+        resolveAgentToolApprovalTurnId({
+          ...scope,
+          approvalKeys: [grant.approvalKey],
+          approvalId,
+        }),
+      ).resolves.toBe(scope.turnId);
+      await expect(
+        consumeAgentToolApproval({ ...grant, approvalId }),
+      ).resolves.toBe(true);
+      await expect(
+        consumeAgentToolApproval({ ...grant, approvalId }),
+      ).resolves.toBe(false);
+    } finally {
+      if (previousAppName === undefined) delete process.env.APP_NAME;
+      else process.env.APP_NAME = previousAppName;
+      if (previousKey === undefined) delete process.env.SECRETS_ENCRYPTION_KEY;
+      else process.env.SECRETS_ENCRYPTION_KEY = previousKey;
+    }
+  });
+
   it("consumes a one-time approval only for the arguments it was granted for", async () => {
     await createAgentToolApproval({ ...call, argumentsHash: "args-1" });
 
@@ -494,7 +544,7 @@ describe("voice chat approvals", () => {
 });
 
 describe("tool approvals bound to a revision", () => {
-  it("keeps rows written before the migration valid for tools without a revision", async () => {
+  it("keeps legacy policies while refusing legacy unsalted grants", async () => {
     await expect(
       isAgentToolAlwaysAllowed({ ...scope, toolName: "legacy-tool" }),
     ).resolves.toBe(true);
@@ -512,7 +562,7 @@ describe("tool approvals bound to a revision", () => {
         callId: "call-0",
         approvalKey: "legacy-tool:{}",
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
   });
 
   it("consumes a one-time approval only for the revision it was granted for", async () => {

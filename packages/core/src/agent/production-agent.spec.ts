@@ -7058,8 +7058,9 @@ describe("createProductionAgentHandler", () => {
   it("executes a private approved call only for the exact durable grant without replaying private history", async () => {
     const secret = "private-approval-sentinel";
     const input = { body: secret };
-    const approvalKey = toolCallCacheKey("private-write", input);
-    const approvalId = "ask-private-approval";
+    const liveApprovalKey = toolCallCacheKey("private-write", input);
+    const approvalId =
+      "agent-tool-approval-11111111-2222-4333-8444-555555555555";
     const snapshot = {
       messages: [
         {
@@ -7099,7 +7100,7 @@ describe("createProductionAgentHandler", () => {
     const grant = vi
       .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
       .mockImplementation(async (binding) =>
-        binding.approvalKeys[0] === approvalKey &&
+        binding.approvalKeys[0] === liveApprovalKey &&
         binding.approvalId === approvalId
           ? "private-turn"
           : null,
@@ -7195,7 +7196,7 @@ describe("createProductionAgentHandler", () => {
             message: "Approved",
             threadId: "private-thread",
             turnId: "private-turn",
-            approvedToolCalls: [approvalKey],
+            approvedToolCalls: [approvalId],
             approvedToolCallAskIds: [approvalId],
             structuredHistory: [
               {
@@ -7206,7 +7207,7 @@ describe("createProductionAgentHandler", () => {
                     id: "call-private",
                     name: "private-write",
                     input: candidate,
-                    approvalKey,
+                    approvalKey: approvalId,
                     approvalAskId: approvalId,
                   },
                 ],

@@ -251,7 +251,7 @@ import {
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
 import {
-  approvalKeyForHistory,
+  approvalKeyForPrivateHistory,
   approvalKeyWithArguments,
 } from "./approval-key.js";
 import {
@@ -430,6 +430,7 @@ import {
   writeLedgerEntry,
   readLedgerEntry,
   beginAgentExecutionStep,
+  privateExecutionStepInputJson,
   completeAgentExecutionStep,
   markAgentExecutionStepDispatched,
   resetAgentExecutionStepBeforeInvocation,
@@ -8287,7 +8288,9 @@ export async function runAgentLoop(opts: {
   toolResultHistory.push(...journaledPriorToolResults);
   const unreadableJournalStop: TerminalActionStop | null =
     journalRead.status === "unreadable" &&
-    (internalContinuationTurn || opts.recoverCompletedExecutionSteps === true)
+    (journalRead.code === "private_history_unrecoverable" ||
+      internalContinuationTurn ||
+      opts.recoverCompletedExecutionSteps === true)
       ? {
           message:
             "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
@@ -10456,7 +10459,12 @@ export async function runAgentLoop(opts: {
               operationId: executionStepId,
               toolName: toolCall.name,
               inputJson: isPrivateCall()
-                ? JSON.stringify({ omitFromPersistedHistory: true })
+                ? privateExecutionStepInputJson({
+                    threadId: executionFence.threadId,
+                    turnId: executionFence.turnId,
+                    toolName: toolCall.name,
+                    argumentsHash,
+                  })
                 : JSON.stringify({
                     argumentsHash,
                     input: stripInlineBytes(
@@ -11158,7 +11166,7 @@ export async function runAgentLoop(opts: {
               get approvedToolCallKey(): string | undefined {
                 return wasApproved
                   ? isPrivateCall()
-                    ? approvalKeyForHistory(approvalKey)
+                    ? approvalKeyForPrivateHistory(opts.approvedToolCallAskId)
                     : approvalKey
                   : undefined;
               },
@@ -11174,7 +11182,9 @@ export async function runAgentLoop(opts: {
                   ? {
                       get approvedToolCallKey() {
                         return isPrivateCall()
-                          ? approvalKeyForHistory(approvalKey)
+                          ? approvalKeyForPrivateHistory(
+                              opts.approvedToolCallAskId,
+                            )
                           : approvalKey;
                       },
                       auditOverride: opts.auditOverride,
