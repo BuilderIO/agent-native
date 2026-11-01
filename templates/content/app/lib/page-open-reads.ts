@@ -51,9 +51,15 @@ const droppedByClient = new WeakMap<QueryClient, Map<string, PageOpenRead>>();
 // sent as. One whose session is replaced by another account's, or that went
 // out over another transport, is dropped before the app shows it. Work that
 // must not run as another account waits here too.
+type WaitingWork = {
+  identity: SessionReadIdentity;
+  run: () => void;
+  // The page it is for; leaving that page cancels it.
+  documentId: string | null;
+};
 type WatchedReads = {
   reads: Map<PageOpenRead, { queryKey: QueryKey; handedOver: boolean }>;
-  waiting: Array<{ identity: SessionReadIdentity; run: () => void }>;
+  waiting: WaitingWork[];
   unsubscribe: () => void;
 };
 const watchedByClient = new WeakMap<QueryClient, WatchedReads>();
@@ -94,11 +100,24 @@ function settleReadIdentities(queryClient: QueryClient) {
     if (status === "current") ready.push(run);
     return status === "pending";
   });
-  if (watched.reads.size === 0 && watched.waiting.length === 0) {
-    watched.unsubscribe();
-    watchedByClient.delete(queryClient);
-  }
+  stopWatchingWhenIdle(queryClient, watched);
   for (const run of ready) run();
+}
+
+function stopWatchingWhenIdle(queryClient: QueryClient, watched: WatchedReads) {
+  if (watched.reads.size > 0 || watched.waiting.length > 0) return;
+  watched.unsubscribe();
+  watchedByClient.delete(queryClient);
+}
+
+function cancelWaitingWork(
+  queryClient: QueryClient,
+  cancels: (work: WaitingWork) => boolean,
+) {
+  const watched = watchedByClient.get(queryClient);
+  if (!watched) return;
+  watched.waiting = watched.waiting.filter((work) => !cancels(work));
+  stopWatchingWhenIdle(queryClient, watched);
 }
 
 // Not the session this tab accepts: none of it is shown, and a component
@@ -130,17 +149,27 @@ function handOver(queryClient: QueryClient, read: PageOpenRead) {
 }
 
 // Runs `callback` once a request sent as `identity` is known to have been
-// answered for the session this tab accepts, and never if it was not.
+// answered for the session this tab accepts, and never if it was not. Work for
+// a page (`documentId`) is cancelled when its open ends: the page is left, or
+// another is opened. The returned function cancels it too.
 export function whenReadIdentityCurrent(
   queryClient: QueryClient,
   identity: SessionReadIdentity,
   callback: () => void,
-) {
+  { documentId = null }: { documentId?: string | null } = {},
+): () => void {
   const status = sessionReadIdentityStatus(identity);
   if (status === "current") callback();
-  else if (status === "pending") {
-    watchReads(queryClient).waiting.push({ identity, run: callback });
-  }
+  if (status !== "pending") return () => {};
+  const work: WaitingWork = { identity, run: callback, documentId };
+  watchReads(queryClient).waiting.push(work);
+  return () => cancelWaitingWork(queryClient, (waiting) => waiting === work);
+}
+
+// The page's open has ended: it was left. Work waiting on the session for it
+// is not run.
+export function endPageOpen(queryClient: QueryClient, documentId: string) {
+  cancelWaitingWork(queryClient, (work) => work.documentId === documentId);
 }
 
 // Whether nothing may be shown from this read yet: the session read that
@@ -337,6 +366,10 @@ export function retirePageOpenReads(
   for (const [queryHash, read] of reads) {
     if (read.documentId !== keepDocumentId) reads.delete(queryHash);
   }
+  cancelWaitingWork(
+    queryClient,
+    (work) => work.documentId !== null && work.documentId !== keepDocumentId,
+  );
 }
 
 // A load of /page/:id sends its page read from a script in the document head,

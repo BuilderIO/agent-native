@@ -10,15 +10,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// A page is opened, left, and opened again after the session's answer has
-// aged out, so the session is read again while the page's reads are out. That
-// read finds the same account, but over another transport than the one the
-// tab accepted (a fetch wrapper installed since then without a transport
-// mark, as the demo-mode wrapper was), so the open's reads are dropped as not
-// this session's and read again. The page's component was already watching
-// them: the reads made again must still count as this open's, and the page
-// shows. (Its comments and suggestions are then read by the editor itself.)
-
 const SESSION_PATH = "/_agent-native/auth/session";
 const PAGE_READ_URL = "/_agent-native/actions/get-document";
 
@@ -108,7 +99,7 @@ const flush = () =>
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-describe("an open whose reads are dropped after its page is watching them", () => {
+describe("a page open waiting on the session", () => {
   let container: HTMLDivElement;
   let root: Root | null;
 
@@ -142,7 +133,9 @@ describe("an open whose reads are dropped after its page is watching them", () =
     vi.unstubAllGlobals();
   });
 
-  it("shows the page once the reads made again land", async () => {
+  // Loads /page/doc-1: the document head sends the session and page reads,
+  // and the app's code arrives.
+  async function loadApp() {
     const { getSsrSessionBootstrapScriptBody } =
       await import("@agent-native/core/shared/ssr-session-bootstrap");
     const { startupPageReadScript } = await import("../lib/page-open-reads");
@@ -162,7 +155,6 @@ describe("an open whose reads are dropped after its page is watching them", () =
 
     const queryClient = new QueryClient();
     const shown: boolean[] = [];
-    const lastShown = () => shown[shown.length - 1];
     function Page() {
       useSession();
       const { query, fetchedForThisOpen } = usePageOpenDocument("doc-1", {});
@@ -182,6 +174,34 @@ describe("an open whose reads are dropped after its page is watching them", () =
           </QueryClientProvider>,
         );
       });
+    return {
+      queryClient,
+      renderPage,
+      startPageOpenDocumentReads,
+      lastShown: () => shown[shown.length - 1],
+    };
+  }
+
+  async function answerHeldSessionRead() {
+    server.holdSessionReads = false;
+    await act(async () => {
+      server.heldSessionReads.shift()?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await flush();
+  }
+
+  // The page is opened, left, and opened again after the session's answer has
+  // aged out, so the session is read again while the page's reads are out.
+  // That read finds the same account, but over another transport than the one
+  // the tab accepted (a fetch wrapper installed since then without a transport
+  // mark, as the demo-mode wrapper was), so the open's reads are dropped as
+  // not this session's and read again. The page's component was already
+  // watching them: the reads made again must still count as this open's.
+  // (Its comments and suggestions are then read by the editor itself.)
+  it("shows the page once reads dropped for another transport are read again", async () => {
+    const { queryClient, renderPage, startPageOpenDocumentReads, lastShown } =
+      await loadApp();
 
     // The load opens the page; it shows.
     startPageOpenDocumentReads(queryClient, "doc-1", {}, { fromLoad: true });
@@ -207,16 +227,30 @@ describe("an open whose reads are dropped after its page is watching them", () =
     expect(lastShown()).toBe(false);
     expect(server.calls).not.toContain("list-comments");
 
-    server.holdSessionReads = false;
-    await act(async () => {
-      server.heldSessionReads.shift()?.();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    await flush();
+    await answerHeldSessionRead();
 
     expect(server.sessionReads[server.sessionReads.length - 1]).toBe("a");
     await vi.waitFor(() => expect(lastShown()).toBe(true));
     expect(server.calls).toContain("get-document");
+    queryClient.clear();
+  });
+
+  it("reads no comments or suggestions for a page left before the session answers", async () => {
+    // The load's own session read is held.
+    server.holdSessionReads = true;
+    const { queryClient, renderPage, startPageOpenDocumentReads } =
+      await loadApp();
+    startPageOpenDocumentReads(queryClient, "doc-1", {}, { fromLoad: true });
+    await renderPage(true);
+    await vi.waitFor(() => expect(server.heldSessionReads).toHaveLength(1));
+
+    // The page is left while the session read is out.
+    await renderPage(false);
+    await answerHeldSessionRead();
+
+    expect(server.sessionReads).toEqual(["a"]);
+    expect(server.calls).not.toContain("list-comments");
+    expect(server.calls).not.toContain("list-resource-suggestions");
     queryClient.clear();
   });
 });

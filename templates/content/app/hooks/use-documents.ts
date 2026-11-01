@@ -75,6 +75,7 @@ import {
 import {
   adoptPageOpenRead,
   claimPageOpenRead,
+  endPageOpen,
   isAwaitingSession,
   releasePageOpenRead,
   spoilPageOpenReads,
@@ -929,6 +930,12 @@ export function usePageOpenDocument(
       releasePageOpenRead(queryClient, claim.queryKey, claim.read);
     }
   }, [claim, queryClient]);
+  // Leaving the page ends its open: work still waiting on the session for it,
+  // such as its comment and suggestion reads, is not run.
+  useEffect(
+    () => () => endPageOpen(queryClient, documentId),
+    [documentId, queryClient],
+  );
   // A read dropped as not this session's counts once it has been read again.
   const readAgain = claim.read?.readAgain ?? "no";
   return {
@@ -1041,7 +1048,9 @@ export function startPageOpenDocumentReads(
       startPageOpenReviewReads(queryClient, documentId);
     }
   };
-  whenReadIdentityCurrent(queryClient, identity, startReviewReads);
+  whenReadIdentityCurrent(queryClient, identity, startReviewReads, {
+    documentId,
+  });
 }
 
 // Open comments and suggestions hold the review margin open beside the page,
@@ -1078,8 +1087,11 @@ export function startPageOpenCompanionReads(
   if (isEmbedMcpChatBridgeActive()) return;
   startPreviewDocumentDraftRead(queryClient, documentId, knownDocument);
   if (knownDocument?.source?.mode !== "local-files") {
-    whenReadIdentityCurrent(queryClient, sessionReadIdentity(), () =>
-      startPageOpenReviewReads(queryClient, documentId),
+    whenReadIdentityCurrent(
+      queryClient,
+      sessionReadIdentity(),
+      () => startPageOpenReviewReads(queryClient, documentId),
+      { documentId },
     );
   }
 }
