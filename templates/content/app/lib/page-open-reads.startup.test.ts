@@ -157,6 +157,54 @@ describe("the load's page read from the document head", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("is not sent for another route whose path ends like a page's", () => {
+    openLoad("/settings/page/doc-1");
+    runHeadScript();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe("for Content mounted under a base path", () => {
+    const MOUNTED_ACTION_URL = "/content/_agent-native/actions/get-document";
+
+    function runMountedHeadScript() {
+      // The server renders the script with the base path the router gets.
+      new Function(startupPageReadScript(MOUNTED_ACTION_URL, "/content"))();
+    }
+
+    it("sends the read for a page under the mount", async () => {
+      openLoad("/content/page/doc-1?databaseId=db-1");
+      runMountedHeadScript();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const sent = new URL(url, "http://localhost");
+      expect(sent.pathname).toBe(MOUNTED_ACTION_URL);
+      expect(sent.searchParams.get("id")).toBe("doc-1");
+      await expect(
+        takeStartupPageRead("doc-1", { databaseId: "db-1" })?.answer,
+      ).resolves.toMatchObject({ ok: true });
+    });
+
+    it("is not sent for a route under the mount that only ends like a page's", () => {
+      openLoad("/content/settings/page/doc-1");
+      runMountedHeadScript();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("matches a load outside the mount the way the router does, from the root", () => {
+      openLoad("/page/doc-1");
+      runMountedHeadScript();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      void takeStartupPageRead("", {});
+      openLoad("/other/page/doc-1");
+      runMountedHeadScript();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 describe("the app's page from the head script's read", () => {
