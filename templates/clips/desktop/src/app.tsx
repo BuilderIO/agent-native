@@ -169,6 +169,12 @@ import {
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import { getPopoverAutoSizeOptions } from "./lib/popover-sizing";
 import {
+  READY_TO_RECORD_EVENTS,
+  isReadyToRecordToggle,
+  type ReadyToRecordState,
+  type ReadyToRecordToggle,
+} from "./lib/ready-to-record";
+import {
   changeRecordFirstFiles,
   effectiveLocalRecordingMode,
   loadRecordFirstFiles,
@@ -1327,6 +1333,17 @@ export function App({
     view: popoverView,
   };
   const recordShortcutHandlerRef = useRef<() => void>(() => {});
+  // Set while the "Ready to record" panel is open; says whether cancelling
+  // should bring the popover back (it was open when recording was requested).
+  const readyToRecordRef = useRef<{ revealPopoverOnCancel: boolean } | null>(
+    null,
+  );
+  const readyToRecordHandlersRef = useRef<{
+    state: () => ReadyToRecordState;
+    toggle: (target: ReadyToRecordToggle) => void;
+    start: () => void;
+    cancel: () => void;
+  } | null>(null);
   const handleStartRecordingRef = useRef<
     (options?: {
       resumeCapture?: RestartHandoff;
@@ -4554,21 +4571,120 @@ export function App({
 
   function beginRecording(
     options?: Parameters<typeof handleStartRecording>[0],
-    beginOptions?: { revealPopoverIfMicOff?: boolean },
+    beginOptions?: {
+      revealPopoverIfMicOff?: boolean;
+      confirmedInReadyPanel?: boolean;
+      skipReadyPanel?: boolean;
+    },
   ) {
-    if (!micOn) {
+    // The panel relays Record through an event, which loses the click's user
+    // activation. WebKit's getDisplayMedia needs that activation, so only
+    // native captures (and camera-only clips) go through the panel.
+    if (
+      isMacPlatform() &&
+      (mode === "camera" || nativeCaptureRecordingActive) &&
+      !options?.resumeCapture &&
+      !beginOptions?.confirmedInReadyPanel &&
+      !beginOptions?.skipReadyPanel
+    ) {
+      openReadyToRecord(!beginOptions?.revealPopoverIfMicOff);
+      return;
+    }
+    // The panel shows the microphone state, so choosing Record there is the
+    // confirmation the mic-off prompt would otherwise ask for.
+    if (!micOn && !beginOptions?.confirmedInReadyPanel) {
       if (beginOptions?.revealPopoverIfMicOff) {
         invoke("show_popover").catch(() => {});
       }
       setMicOffConfirmOpen(true);
       return;
     }
-    void handleStartRecording(options);
+    return handleStartRecording(options);
   }
 
   function closeMicOffConfirmation() {
     setMicOffConfirmOpen(false);
   }
+
+  function readyToRecordState(): ReadyToRecordState {
+    return {
+      mode,
+      source,
+      cameraOn,
+      cameraLabel,
+      cameraError,
+      micOn,
+      micLabel: selectedMicLabel || micLabel,
+      systemAudioOn,
+      nativeCapture: shouldUseNativeFullscreenRecording(source),
+    };
+  }
+
+  function openReadyToRecord(revealPopoverOnCancel: boolean) {
+    // Opening it again (say, from the record shortcut) keeps where Cancel
+    // returns to from the first open.
+    readyToRecordRef.current ??= { revealPopoverOnCancel };
+    hidePopover();
+    invoke("show_ready_to_record").catch((error) => {
+      console.error("[clips] ready-to-record panel failed to open:", error);
+      readyToRecordRef.current = null;
+      // Nobody saw the panel, so keep the mic-off prompt. It lives in the
+      // popover, which was just hidden.
+      revealPopoverUnlessStarted(
+        beginRecording(undefined, {
+          skipReadyPanel: true,
+          revealPopoverIfMicOff: true,
+        }),
+      );
+    });
+  }
+
+  // A failed start writes its recovery steps to the popover, which the panel
+  // hid, so bring the popover back when no recording began.
+  function revealPopoverUnlessStarted(
+    start: Promise<RecorderHandle | null> | undefined,
+  ) {
+    const revealPopover = () => {
+      invoke("show_popover").catch(() => {});
+    };
+    void start?.then(
+      (handle) => {
+        if (!handle) revealPopover();
+      },
+      (error: unknown) => {
+        console.error("[clips] recording start failed:", error);
+        revealPopover();
+      },
+    );
+  }
+
+  function closeReadyToRecord() {
+    const panel = readyToRecordRef.current;
+    readyToRecordRef.current = null;
+    invoke("close_ready_to_record").catch(() => {});
+    return panel;
+  }
+
+  readyToRecordHandlersRef.current = {
+    state: readyToRecordState,
+    toggle: (target) => {
+      if (target === "camera") toggleCamera(!cameraOn);
+      else if (target === "mic") setMicOn(!micOn);
+      else setSystemAudioOn(!systemAudioOn);
+    },
+    start: () => {
+      if (!closeReadyToRecord()) return;
+      revealPopoverUnlessStarted(
+        beginRecording(undefined, { confirmedInReadyPanel: true }),
+      );
+    },
+    cancel: () => {
+      const panel = closeReadyToRecord();
+      if (panel?.revealPopoverOnCancel) {
+        invoke("show_popover").catch(() => {});
+      }
+    },
+  };
 
   recordShortcutHandlerRef.current = () => {
     if (recordingStartAttemptRef.current || restartInFlightRef.current) {
@@ -4617,7 +4733,7 @@ export function App({
       return;
     }
 
-    beginRecording(undefined, { revealPopoverIfMicOff: true });
+    void beginRecording(undefined, { revealPopoverIfMicOff: true });
   };
 
   useEffect(() => {
@@ -4648,6 +4764,59 @@ export function App({
       unlistenAcks?.();
     };
   }, []);
+
+  useEffect(() => {
+    const unlisteners = [
+      listen(READY_TO_RECORD_EVENTS.requestState, () => {
+        const handlers = readyToRecordHandlersRef.current;
+        if (!handlers || !readyToRecordRef.current) return;
+        emit(READY_TO_RECORD_EVENTS.state, handlers.state()).catch(() => {});
+      }),
+      listen<{ target?: unknown }>(READY_TO_RECORD_EVENTS.toggle, (event) => {
+        if (!readyToRecordRef.current) return;
+        const target = event.payload.target;
+        if (isReadyToRecordToggle(target)) {
+          readyToRecordHandlersRef.current?.toggle(target);
+        }
+      }),
+      listen(READY_TO_RECORD_EVENTS.start, () => {
+        readyToRecordHandlersRef.current?.start();
+      }),
+      listen(READY_TO_RECORD_EVENTS.cancel, () => {
+        readyToRecordHandlersRef.current?.cancel();
+      }),
+    ];
+    return () => {
+      for (const unlisten of unlisteners) {
+        void unlisten.then((stop) => stop()).catch(() => {});
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!readyToRecordRef.current) return;
+    emit(READY_TO_RECORD_EVENTS.state, {
+      mode,
+      source,
+      cameraOn,
+      cameraLabel,
+      cameraError,
+      micOn,
+      micLabel: selectedMicLabel || micLabel,
+      systemAudioOn,
+      nativeCapture: shouldUseNativeFullscreenRecording(source),
+    } satisfies ReadyToRecordState).catch(() => {});
+  }, [
+    mode,
+    source,
+    cameraOn,
+    cameraLabel,
+    cameraError,
+    micOn,
+    micLabel,
+    selectedMicLabel,
+    systemAudioOn,
+  ]);
 
   function retryCameraPreview() {
     setCameraError(null);
