@@ -1412,3 +1412,24 @@ describe("end-to-end: scaffold template is clean", () => {
     expect(report.ok).toBe(true);
   });
 });
+
+describe("native manifest validation", () => {
+  it("reports invalid capabilities even when the guard is disabled", () => {
+    const root = makeTempAppRoot({
+      "agent-native.json": JSON.stringify({
+        doctor: { disabledGuards: ["native-manifest"] },
+        native: { uses: ["capture.screen@2"] },
+      }),
+    });
+    const report = runDoctorScan({ root });
+    expect(report.guardsRun).toContain("native-manifest");
+    expect(report.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: "agent-native.json",
+          message: expect.stringContaining("native.uses.0"),
+        }),
+      ]),
+    );
+  });
+});

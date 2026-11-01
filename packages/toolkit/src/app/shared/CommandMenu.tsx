@@ -47,6 +47,7 @@ import React, {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
+import { toast } from "sonner";
 
 import { AboutAgentNativeDialog } from "./AboutAgentNativeDialog.js";
 import { LazyChunkErrorBoundary } from "./LazyChunkErrorBoundary.js";
@@ -72,6 +73,29 @@ function CommandSelectionTracker({
   const value = useCommandState((state) => state.value);
 
   useEffect(() => onChange(value), [onChange, value]);
+  return null;
+}
+
+// cmdk keeps its first selection when rows mount later, so results that load
+// after the search changes would stay below the always-present Ask AI row.
+function FirstResultPromoter({
+  enabled,
+  navigatedRef,
+  getFirstValue,
+  onPromote,
+}: {
+  enabled: boolean;
+  navigatedRef: { current: boolean };
+  getFirstValue: () => string | null | undefined;
+  onPromote: (value: string) => void;
+}) {
+  const count = useCommandState((state) => state.filtered.count);
+
+  useEffect(() => {
+    if (!enabled || navigatedRef.current) return;
+    const first = getFirstValue();
+    if (first) onPromote(first);
+  }, [count, enabled, getFirstValue, navigatedRef, onPromote]);
   return null;
 }
 
@@ -536,6 +560,8 @@ export interface CommandMenuProps<TAppContext = unknown> {
   embeddedChatSlot?: (context: AppCommandContext<TAppContext>) => ReactNode;
   /** Content shown below the results with shared spacing and note semantics. */
   footerSlot?: ReactNode;
+  /** Like footerSlot, but computed from the current search text; return null to hide the footer. */
+  renderFooter?: (context: { search: string }) => ReactNode;
 }
 
 export function CommandMenu<TAppContext = unknown>({
@@ -572,12 +598,15 @@ export function CommandMenu<TAppContext = unknown>({
   filterLauncherSlot,
   embeddedChatSlot,
   footerSlot,
+  renderFooter,
 }: CommandMenuProps<TAppContext>) {
   const [search, setSearch] = useState("");
   const [appPageStack, setAppPageStack] = useState<
     Array<{ pageId: string; parentSearch: string }>
   >([]);
   const [selectedCommandValue, setSelectedCommandValue] = useState("");
+  const [promotedValue, setPromotedValue] = useState<string>();
+  const navigatedRef = useRef(false);
   const models = useChatModels({
     enabled: open && showAgentFallback,
     storageKey: chatModelSelectionStorageKey(chatStorageKey),
@@ -606,6 +635,7 @@ export function CommandMenu<TAppContext = unknown>({
   const updateSearch = useCallback((value: string) => {
     if (searchValueRef.current === value) return;
     searchValueRef.current = value;
+    navigatedRef.current = false;
     setSearch(value);
     onSearchChangeRef.current?.(value);
   }, []);
@@ -637,6 +667,8 @@ export function CommandMenu<TAppContext = unknown>({
 
   const resetSelection = useCallback(() => {
     selectionEnabledRef.current = false;
+    navigatedRef.current = false;
+    setPromotedValue(undefined);
     setSelectionEnabled(false);
     setSelectedCommandValue(
       initialSelection === "none" ? nextEmptySelectionValue() : "",
@@ -772,8 +804,8 @@ export function CommandMenu<TAppContext = unknown>({
         .includes(search.toLowerCase()));
   const handleSignOut = useCallback(() => {
     onOpenChange(false);
-    void signOut();
-  }, [onOpenChange]);
+    void signOut().catch(() => toast.error(t("agentChat.auth.logOutFailed")));
+  }, [onOpenChange, t]);
 
   const filterChildren = (nodes: ReactNode): ReactNode => {
     return React.Children.map(nodes, (child) => {
@@ -873,6 +905,13 @@ export function CommandMenu<TAppContext = unknown>({
           NO_COMMAND_SELECTION)
         : undefined;
   const selectedAppCommandValue = commandMenuValue ?? selectedCommandValue;
+  const getFirstCommandValue = useCallback(
+    () =>
+      containerRef.current
+        ?.querySelector('[cmdk-item]:not([aria-disabled="true"])')
+        ?.getAttribute("data-value"),
+    [],
+  );
   const previewAppCommand =
     appCommandEntries.find(
       (entry) => entry.value === selectedAppCommandValue,
@@ -1207,6 +1246,8 @@ export function CommandMenu<TAppContext = unknown>({
     );
   };
 
+  const footer = renderFooter ? renderFooter({ search }) : footerSlot;
+
   return (
     <>
       <Dialog
@@ -1223,15 +1264,31 @@ export function CommandMenu<TAppContext = unknown>({
           onPointerDownCapture={(event) => {
             if (
               initialSelection === "none" &&
-              (event.target as HTMLElement).closest?.("[cmdk-item]")
+              event.target instanceof Element &&
+              event.target.closest("[cmdk-item]")
             ) {
               enableSelection();
             }
           }}
+          onKeyDownCapture={(event) => {
+            if (
+              ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) ||
+              (event.ctrlKey && ["n", "j", "p", "k"].includes(event.key))
+            ) {
+              navigatedRef.current = true;
+            }
+          }}
           onPointerMoveCapture={(event) => {
             if (
+              event.target instanceof Element &&
+              event.target.closest("[cmdk-item]")
+            ) {
+              navigatedRef.current = true;
+            }
+            if (
               initialSelection === "none" &&
-              (event.target as HTMLElement).closest?.("[cmdk-item]")
+              event.target instanceof Element &&
+              event.target.closest("[cmdk-item]")
             ) {
               enableSelection();
             }
@@ -1279,7 +1336,8 @@ export function CommandMenu<TAppContext = unknown>({
             loop
             shouldFilter={false}
             className="h-auto rounded-lg"
-            value={commandMenuValue}
+            value={commandMenuValue ?? promotedValue}
+            onValueChange={setPromotedValue}
           >
             <CommandMenuContext.Provider
               value={{
@@ -1290,6 +1348,12 @@ export function CommandMenu<TAppContext = unknown>({
                   initialSelection !== "none" || selectionEnabled,
               }}
             >
+              <FirstResultPromoter
+                enabled={open && commandMenuValue === undefined}
+                navigatedRef={navigatedRef}
+                getFirstValue={getFirstCommandValue}
+                onPromote={setPromotedValue}
+              />
               {(appCommandGroups !== undefined ||
                 embeddedChatSlot ||
                 initialSelection !== undefined) && (
@@ -1332,12 +1396,12 @@ export function CommandMenu<TAppContext = unknown>({
               {open && renderContent
                 ? renderContent({ search, renderList })
                 : open && renderList()}
-              {open && footerSlot != null ? (
+              {open && footer != null ? (
                 <div
                   role="note"
                   className="border-t border-border px-3 py-2 text-xs text-muted-foreground"
                 >
-                  {footerSlot}
+                  {footer}
                 </div>
               ) : null}
             </CommandMenuContext.Provider>

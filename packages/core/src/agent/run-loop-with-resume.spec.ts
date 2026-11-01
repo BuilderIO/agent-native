@@ -289,6 +289,53 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     vi.unstubAllEnvs();
   });
 
+  it("shares privacy state across a timed continuation", async () => {
+    const seen: boolean[] = [];
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      seen.push(opts.historyPrivacyState?.private ?? false);
+      if (attempts === 1) {
+        if (!opts.historyPrivacyState) throw new Error("missing privacy state");
+        opts.historyPrivacyState.private = true;
+        opts.send({
+          type: "text",
+          text: "private prefix",
+          omitFromPersistedHistory: true,
+        });
+        throw new EngineError("gateway timeout", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      expect(JSON.stringify(opts.messages)).toContain("private prefix");
+      return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal),
+      60_000,
+    );
+    expect(seen).toEqual([false, true]);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "assistant",
+          content: [
+            expect.objectContaining({ omitFromPersistedHistory: true }),
+          ],
+        }),
+      ]),
+    );
+  });
+
   it("resumes on builder_gateway_timeout and runs another LLM call", async () => {
     let attempts = 0;
     const seenRequestTexts: Array<string | undefined> = [];

@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "로그아웃하지 못했습니다",
   "block.renderUnavailable": "이 블록은 일시적으로 사용할 수 없습니다.",
   "block.loading": "블록을 불러오는 중입니다.",
   "composer.contextUrlLabel": "URL",

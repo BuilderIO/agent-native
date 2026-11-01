@@ -96,6 +96,7 @@
       "browser": "./dist/index.browser.js",
       "default": "./dist/index.js"
     },
+    "./native": "./dist/native/index.js",
     "./vite": "./dist/vite/index.js",
     "./vitest-config": "./dist/vitest-config.js",
     "./server": "./dist/server/index.js",

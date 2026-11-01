@@ -62,6 +62,10 @@ export default defineAction({
 
 The agent receives `hello` as a tool. React calls the same function with `useActionQuery("hello", { name: "Alex" })`. Agent-Native also exposes it through HTTP, MCP, A2A, and the CLI.
 
+Actions may set `persistInChatHistory: false` for sensitive results. Live tool calls and the current UI retain their values, while durable chat, trace and audit payloads omit the private content and its derived assistant output. Later requests use the server's sanitized thread history; unavailable projections return a retryable error. Browser caching is controlled separately with `persistInBrowser: false`. The current model invocation still receives the tool result. Private turns skip Context Xray transformation and manifest persistence. This policy does not erase historical records.
+
+Private approvals retain an opaque server approval ID, with server-keyed argument checks. Pending approvals created before this format or before a server encryption-key rotation require a new approval. An interrupted turn that already dispatched a private tool cannot safely reconstruct its omitted input and result, so automatic recovery stops and requires a new turn. A verified approval-only pause that did not execute remains resumable.
+
 ## Included
 
 - **[Agent chat](https://agent-native.com/docs/agent-surfaces?utm_source=npm&utm_medium=referral&utm_content=core-readme):** Let people delegate work, ask questions, and review results in the same UI.
