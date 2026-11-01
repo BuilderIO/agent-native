@@ -309,8 +309,15 @@ function invalidateSessionCache(): Promise<void> {
   return notifySessionSubscribers();
 }
 
+// A routine re-check asks the server again but keeps the identity this tab
+// accepts while it is out: requests sent as that identity stay shown, and an
+// answer naming the same identity changes nothing. Only an answer naming
+// someone else, a switch of transport, or an explicit invalidation replaces
+// it.
 function rereadSession(): void {
-  resetSessionCache();
+  cachedSessionAt = 0;
+  clearTimeout(staleSessionRecheck);
+  staleSessionRecheck = undefined;
   expireClientStatusResult(SESSION_STATUS_PATH);
   void notifySessionSubscribers();
 }
@@ -687,12 +694,22 @@ function fetchSharedSession(): Promise<SessionRead> {
           ? null
           : (data as AuthSessionResponse & ClientAuthSession);
       const answerBefore = firstSessionReadAnswer();
+      const scope = sessionScope(session);
+      // A re-check that names the identity already accepted changes nothing:
+      // whatever was accepted, the first read's answer included, still is.
+      const sameIdentity =
+        !firstRead &&
+        cachedSessionIdentity?.scope === scope &&
+        cachedSessionIdentity.transport === transport;
+      const identityBefore = cachedSessionIdentity;
       cachedSession = session;
-      cachedSessionIdentity = { scope: sessionScope(session), transport };
-      if (firstRead) firstSessionReadIdentity = cachedSessionIdentity;
+      if (!sameIdentity) {
+        cachedSessionIdentity = { scope, transport };
+        if (firstRead) firstSessionReadIdentity = cachedSessionIdentity;
+        cachedSessionFromFirstRead = firstRead;
+        if (!firstRead) firstSessionReadReplaced = true;
+      }
       cachedSessionAt = Date.now();
-      cachedSessionFromFirstRead = firstRead;
-      if (!firstRead) firstSessionReadReplaced = true;
       cachedEvidence = session
         ? "signed_in"
         : result.state === "unavailable"
@@ -702,7 +719,7 @@ function fetchSharedSession(): Promise<SessionRead> {
       if (firstSessionReadAnswer() !== answerBefore) {
         notifyFirstSessionReadAnswer();
       }
-      notifySessionReadIdentity();
+      if (cachedSessionIdentity !== identityBefore) notifySessionReadIdentity();
       return { state: "resolved", session };
     } catch {
       return { state: "unreadable" };
