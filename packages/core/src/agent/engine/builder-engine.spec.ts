@@ -1563,6 +1563,127 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("gateway_suspended");
   });
 
+  describe("tool-result images", () => {
+    const PNG_1X1 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const OWNED_URL =
+      "https://cdn.builder.io/api/v1/image/assets%2Fspace-test%2Fscreenshot";
+
+    function screenshotMessages(url: string): EngineStreamOptions["messages"] {
+      return [
+        { role: "user", content: [{ type: "text", text: "Build a page" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "call_1",
+              name: "take-design-screenshot",
+              input: {},
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_1",
+              toolName: "take-design-screenshot",
+              toolInput: "{}",
+              content: "Captured the page.",
+              images: [{ url, label: "desktop" }],
+            },
+          ],
+        },
+      ];
+    }
+
+    function routedFetch(imageResponse: () => Response) {
+      return vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.startsWith("https://cdn.builder.io/")) return imageResponse();
+        return jsonlResponse([{ type: "stop", reason: "end_turn" }]);
+      });
+    }
+
+    function gatewayToolResultContent(fetchSpy: ReturnType<typeof vi.fn>) {
+      const gatewayCall = fetchSpy.mock.calls.find(
+        ([input]) => !String(input).startsWith("https://cdn.builder.io/"),
+      );
+      const body = JSON.parse((gatewayCall![1] as RequestInit).body as string);
+      return body.messages[2].content[0].content;
+    }
+
+    it("sends an image we host as bytes, not as a URL the provider would fetch", async () => {
+      const fetchSpy = routedFetch(
+        () =>
+          new Response(Buffer.from(PNG_1X1, "base64"), {
+            status: 200,
+            headers: { "content-type": "image/png" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+      const messages = screenshotMessages(OWNED_URL);
+
+      await collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, messages }),
+      );
+
+      expect(gatewayToolResultContent(fetchSpy)).toEqual([
+        { type: "text", text: "Captured the page." },
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: PNG_1X1 },
+        },
+      ]);
+      const stored = messages[2]!.content[0] as { images?: unknown[] };
+      expect(stored.images).toEqual([{ url: OWNED_URL, label: "desktop" }]);
+    });
+
+    it("leaves an image URL we do not host as a URL and never fetches it", async () => {
+      const fetchSpy = routedFetch(() => new Response(null, { status: 500 }));
+      vi.stubGlobal("fetch", fetchSpy);
+      const foreign = "https://images.example.com/photo.png";
+
+      await collectEvents(
+        createBuilderEngine().stream({
+          ...BASE_OPTS,
+          messages: screenshotMessages(foreign),
+        }),
+      );
+
+      expect(gatewayToolResultContent(fetchSpy)[1]).toEqual({
+        type: "image",
+        source: { type: "url", url: foreign },
+      });
+      expect(
+        fetchSpy.mock.calls.some(([input]) => String(input) === foreign),
+      ).toBe(false);
+    });
+
+    it("keeps the URL when our image cannot be read, and still sends the request", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchSpy = routedFetch(() => new Response(null, { status: 404 }));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await collectEvents(
+        createBuilderEngine().stream({
+          ...BASE_OPTS,
+          messages: screenshotMessages(OWNED_URL),
+        }),
+      );
+
+      expect(gatewayToolResultContent(fetchSpy)[1]).toEqual({
+        type: "image",
+        source: { type: "url", url: OWNED_URL },
+      });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("tool-result image sent as a URL"),
+      );
+    });
+  });
+
   describe("Builder-credits lane", () => {
     beforeEach(() => {
       credentialState.lane = "gateway-deploy";
