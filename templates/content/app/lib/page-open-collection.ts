@@ -214,11 +214,12 @@ export function seedPageOpenCollection(
     ) {
       continue;
     }
+    // Its freshness counts from the request, as the page's does.
     startPageOpenRead(
       queryClient,
       documentId,
       { queryKey, queryFn: () => Promise.resolve(value), retry: false },
-      { beforeSession },
+      { beforeSession, startedAt: readStartedAt },
     );
   }
 }
