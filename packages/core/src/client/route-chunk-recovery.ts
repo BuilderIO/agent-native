@@ -7,6 +7,7 @@ import {
   EXTERNAL_EMBED_WINDOW_KEY,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
   STALE_CHUNK_EXHAUSTED_KEY,
+  STALE_CHUNK_NAVIGATING_AT_KEY,
   STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
   STALE_CHUNK_RELOAD_AT_KEY,
   STALE_CHUNK_RELOAD_COOLDOWN_MS,
@@ -138,7 +139,9 @@ export function intendedHrefFromClick(
   return sameOriginHref(win, anchor.href);
 }
 
-function hardNavigate(win: Window, href: string): void {
+function hardNavigate(win: Window, href: string, now = Date.now()): void {
+  (win as unknown as Record<string, unknown>)[STALE_CHUNK_NAVIGATING_AT_KEY] =
+    now;
   try {
     win.location.assign(href);
   } catch {
@@ -401,6 +404,17 @@ export function reloadForStaleChunk(
     lastReloadAt > 0 &&
     now - lastReloadAt <= STALE_CHUNK_RELOAD_COOLDOWN_MS
   ) {
+    // Several chunks fail together; the first started this document's recovery
+    // navigation, so the rest are that recovery still unloading, not a failure.
+    const navigatingAt = (win as unknown as Record<string, unknown>)[
+      STALE_CHUNK_NAVIGATING_AT_KEY
+    ];
+    if (
+      typeof navigatingAt === "number" &&
+      now - navigatingAt <= STALE_CHUNK_RELOAD_COOLDOWN_MS
+    ) {
+      return true;
+    }
     reportStaleChunkRecoveryExhausted(win, "cooldown");
     return false;
   }
@@ -410,6 +424,7 @@ export function reloadForStaleChunk(
     hasViteDevRecovery(win) === true
       ? win.location.href
       : withChunkRecoveryCacheBuster(win, win.location.href, now),
+    now,
   );
   return true;
 }

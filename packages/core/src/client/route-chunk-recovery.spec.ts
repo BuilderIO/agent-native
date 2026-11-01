@@ -857,7 +857,7 @@ describe("route chunk recovery", () => {
     expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
     expectRecoveryNavigation(fakeLocation, "https://example.com/dispatch/apps");
 
-    expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(false);
+    expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(true);
     expect(fakeLocation.assign).toHaveBeenCalledTimes(1);
 
     expect(reloadForStaleChunk(fakeWindow, 20_000)).toBe(true);
@@ -1027,15 +1027,34 @@ describe("route chunk recovery", () => {
       expect(dispatchEvent).not.toHaveBeenCalled();
     });
 
-    it("reports exactly once when the reload cooldown blocks it", () => {
-      const { fakeWindow } = createFakeWindow();
+    it("stays silent for chunks that fail while this page's own recovery reload is unloading", () => {
+      const { fakeWindow, fakeLocation } = createFakeWindow();
       const dispatchEvent = vi.fn();
       (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
         dispatchEvent;
 
       expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
-      expect(reloadForStaleChunk(fakeWindow, 2_000)).toBe(false);
-      expect(reloadForStaleChunk(fakeWindow, 3_000)).toBe(false);
+      expect(reloadForStaleChunk(fakeWindow, 1_050)).toBe(true);
+      expect(reloadForStaleChunk(fakeWindow, 3_000)).toBe(true);
+
+      expect(fakeLocation.assign).toHaveBeenCalledOnce();
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+      expect(dispatchEvent).not.toHaveBeenCalled();
+    });
+
+    it("reports exactly once when a reloaded page still hits the cooldown", () => {
+      const first = createFakeWindow();
+      expect(reloadForStaleChunk(first.fakeWindow, Date.now())).toBe(true);
+      const recoveryUrl = first.fakeLocation.assign.mock.calls[0]?.[0];
+
+      const { fakeWindow } = createFakeWindow(recoveryUrl);
+      const dispatchEvent = vi.fn();
+      (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
+        dispatchEvent;
+      installRouteChunkRecovery(fakeWindow);
+
+      expect(reloadForStaleChunk(fakeWindow, Date.now())).toBe(false);
+      expect(reloadForStaleChunk(fakeWindow, Date.now())).toBe(false);
 
       expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
         reason: "cooldown",
