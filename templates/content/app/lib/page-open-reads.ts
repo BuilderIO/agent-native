@@ -183,6 +183,15 @@ export function isPageOpenRead(queryClient: QueryClient, queryKey: QueryKey) {
   return openReads(queryClient).has(hashKey(queryKey));
 }
 
+// The read this open made for the key, while it is tracked. Its `invalidated`
+// flag records a change that spoiled it after it started.
+export function trackedPageOpenRead(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+): PageOpenRead | null {
+  return openReads(queryClient).get(hashKey(queryKey)) ?? null;
+}
+
 // Claims the read made for this open. A claimed read stays tracked until
 // `releasePageOpenRead`, so a change that arrives before the claiming
 // component subscribes still spoils it.

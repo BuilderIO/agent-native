@@ -75,6 +75,7 @@ import {
 } from "@agent-native/core/client/action-query-cache";
 
 import { openingDatabaseQueryKey } from "../lib/page-open-collection";
+import { spoilPageOpenReads } from "../lib/page-open-reads";
 import { startPageOpenDocumentReads } from "./use-documents";
 
 const tableQuery = {
@@ -194,5 +195,44 @@ describe("a page-open read answered after the tab changed identity", () => {
     queryClient.removeQueries({ queryKey: ["action"] });
 
     expect(pageRead?.signal?.aborted).toBe(true);
+  });
+});
+
+describe("a page-open read spoiled while it is in flight", () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    server.calls = [];
+    server.held = [];
+    session.reset();
+    queryClient = new QueryClient();
+  });
+
+  afterEach(() => queryClient.clear());
+
+  it.each([
+    [
+      "an invalidation of the page",
+      (client: QueryClient) =>
+        void client.invalidateQueries({
+          queryKey: ["action", "get-document", { id: "page-1" }],
+        }),
+    ],
+    [
+      "a change to the page from another tab",
+      (client: QueryClient) => spoilPageOpenReads(client, "page-1"),
+    ],
+  ])("does not seed the collection after %s", async (_change, spoil) => {
+    // Nothing has mounted the page yet, so its read is an inactive prefetch.
+    startPageOpenDocumentReads(queryClient, "page-1");
+    expect(server.held).toHaveLength(1);
+
+    spoil(queryClient);
+    for (const release of server.held) release(answerForA);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    for (const queryKey of collectionKeys) {
+      expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+    }
   });
 });

@@ -19,6 +19,7 @@ import {
   claimPageOpenRead,
   releasePageOpenRead,
   startPageOpenRead,
+  trackedPageOpenRead,
   type PageOpenRead,
   type PageOpenReadAdoption,
 } from "./page-open-reads";
@@ -59,6 +60,7 @@ export function openingDatabaseQueryKey(documentId: string) {
 // browser cache's binding to an account and organization, and the session.
 // An account or organization switch removes or rebinds all three, so a read
 // that answers afterwards belongs to an identity this tab no longer shows.
+// A read spoiled by a change while it was out is no one's current answer.
 export type PageOpenReadOwner = {
   startedAt: number;
   stillOwns: () => boolean;
@@ -74,12 +76,15 @@ export function pageOpenReadOwner(
   const query = queryCache.find({ queryKey, exact: true });
   const binding = currentActionQueryCacheBinding();
   const session = firstSessionReadAnswer();
+  const read = trackedPageOpenRead(queryClient, queryKey);
   return {
     startedAt,
     stillOwns: () =>
       !signal.aborted &&
       query !== undefined &&
       queryCache.find({ queryKey, exact: true }) === query &&
+      !query.state.isInvalidated &&
+      read?.invalidated !== true &&
       // A read sent before the cache was first bound is checked by its query
       // and session alone; a binding that untrusted reads must not join
       // removes their queries.
