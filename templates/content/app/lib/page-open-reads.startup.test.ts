@@ -115,24 +115,25 @@ describe("the load's page read from the document head", () => {
   });
 
   it("keeps its age from when it was sent, and is not the answer once that has run out", () => {
-    const realNow = Date.now.bind(Date);
-    openLoad("/page/doc-1");
-    const sentAt = realNow();
-    runHeadScript();
-    // The app code arrives after the read's freshness has run out.
-    const dateNow = vi
-      .spyOn(Date, "now")
-      .mockImplementation(() => sentAt + PAGE_OPEN_READ_TTL_MS);
+    // The head script and the app read the same clock; the spec owns it, so
+    // a slow runner can't move the script's send time.
+    let now = 1_800_000_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     try {
+      openLoad("/page/doc-1");
+      runHeadScript();
+      // The app code arrives as the read's freshness runs out.
+      now += PAGE_OPEN_READ_TTL_MS;
       expect(takeStartupPageRead("doc-1", {})).toBeNull();
+
+      const sentAt = now;
+      runHeadScript();
+      // Just short of that, the read is the answer, aged from when it was sent.
+      now += PAGE_OPEN_READ_TTL_MS - 1;
+      expect(takeStartupPageRead("doc-1", {})?.startedAt).toBe(sentAt);
     } finally {
       dateNow.mockRestore();
     }
-
-    runHeadScript();
-    const taken = takeStartupPageRead("doc-1", {});
-    expect(taken?.startedAt).toBeGreaterThanOrEqual(sentAt);
-    expect(taken?.startedAt).toBeLessThanOrEqual(realNow());
   });
 
   it("is not sent without the session hint", () => {
