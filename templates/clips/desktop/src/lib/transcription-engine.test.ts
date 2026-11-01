@@ -409,6 +409,7 @@ describe("meeting microphone capture", () => {
       emitPartials: true,
       owner: "meeting",
       runId: expect.any(Number),
+      engine: null,
     });
   });
 
@@ -427,6 +428,7 @@ describe("meeting microphone capture", () => {
       emitPartials: true,
       owner: "meeting",
       runId: expect.any(Number),
+      engine: null,
     });
   });
 
@@ -445,7 +447,17 @@ describe("meeting microphone capture", () => {
       emitPartials: false,
       owner: "meeting",
       runId: expect.any(Number),
+      engine: null,
     });
+  });
+
+  it("asks the on-device engine for Parakeet when the user chose it", async () => {
+    await startTranscriptionEngine({ localModel: "parakeet" });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "audio_transcription_start",
+      expect.objectContaining({ owner: "meeting", engine: "parakeet" }),
+    );
   });
 
   it("rebases a resumed Whisper session to the recording timeline", async () => {
@@ -639,6 +651,7 @@ describe("meeting microphone capture", () => {
       emitPartials: true,
       owner: "meeting",
       runId: expect.any(Number),
+      engine: null,
     });
   });
 

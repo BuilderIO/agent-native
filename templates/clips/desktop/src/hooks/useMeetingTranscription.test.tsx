@@ -93,6 +93,7 @@ function Probe({
     selectedMicId: null,
     selectedMicLabel: null,
     enabled: true,
+    localModel: null,
   });
   return null;
 }

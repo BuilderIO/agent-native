@@ -62,7 +62,7 @@ vi.mock("../lib/transcription-engine", async () => {
 import { ClipsActionError } from "../lib/clips-action";
 import { useMeetingTranscription } from "./useMeetingTranscription";
 
-function Harness() {
+function Harness({ localModel = null }: { localModel?: "parakeet" | null }) {
   useMeetingTranscription({
     callClipsAction: async <T,>(
       name: string,
@@ -91,6 +91,7 @@ function Harness() {
     selectedMicId: null,
     selectedMicLabel: null,
     enabled: true,
+    localModel,
   });
   return null;
 }
@@ -570,6 +571,28 @@ describe("meeting transcription pause and resume", () => {
     });
     expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
     warning.mockRestore();
+  });
+
+  it("asks for Parakeet when the meeting starts and again when it resumes", async () => {
+    await act(async () => {
+      root.render(createElement(Harness, { localModel: "parakeet" }));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+    expect(mocks.startTranscriptionEngine).toHaveBeenCalledWith(
+      expect.objectContaining({ localModel: "parakeet" }),
+    );
+
+    await dispatch("clips:recorder-pause");
+    await dispatch("clips:recorder-resume");
+    expect(mocks.restartTranscriptionEngine).toHaveBeenCalledWith(
+      "whisper",
+      expect.anything(),
+      true,
+      true,
+      expect.any(Number),
+      "parakeet",
+    );
   });
 
   it("accepts paused-run finals through the settle window after resume", async () => {
