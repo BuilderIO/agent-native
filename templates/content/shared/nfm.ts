@@ -1636,7 +1636,15 @@ function serializeQuote(node: PMNode, ind: number): string[] {
 }
 
 function serializeToggle(node: PMNode, ind: number): string[] {
-  const summary = (node.attrs?.summary as string) || "";
+  // A Toggle's title is its first child, written as inline Markdown like a
+  // paragraph. A Toggle saved before titles were page text keeps its title
+  // in `summary`, written as it was stored.
+  const title =
+    node.content?.[0]?.type === "notionToggleSummary" ? node.content[0] : null;
+  const body = title ? node.content!.slice(1) : node.content || [];
+  const summary = title
+    ? serializeInline(title.content)
+    : (node.attrs?.summary as string) || "";
   const headingLevel = Number(node.attrs?.headingLevel) || 0;
   const color = node.attrs?.color;
   const out: string[] = [];
@@ -1645,17 +1653,17 @@ function serializeToggle(node: PMNode, ind: number): string[] {
       indentStr(ind) +
         "#".repeat(headingLevel) +
         " " +
-        escapeTrailingBackslashRun(summary) +
+        (title ? summary : escapeTrailingBackslashRun(summary)) +
         blockAttrSuffix({ toggle: true, color }),
     );
-    pushAll(out, serializeBlocks(node.content || [], ind + 1));
+    pushAll(out, serializeBlocks(body, ind + 1));
     return out;
   }
   const attrStr = serializeAttrs([["color", isColor(color) ? color : null]]);
   const openAttr = node.attrs?.open === true ? " open" : "";
   out.push(indentStr(ind) + `<details${attrStr}${openAttr}>`);
   out.push(indentStr(ind) + `<summary>${summary}</summary>`);
-  pushAll(out, serializeBlocks(node.content || [], ind + 1));
+  pushAll(out, serializeBlocks(body, ind + 1));
   out.push(indentStr(ind) + "</details>");
   return out;
 }

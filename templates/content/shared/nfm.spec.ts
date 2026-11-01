@@ -1161,6 +1161,66 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
+  describe("titled toggles", () => {
+    // A Toggle whose title is its first child rather than `summary`.
+    const titledToggleDoc = (attrs: Record<string, unknown>): any => ({
+      type: "doc",
+      content: [
+        {
+          type: "notionToggle",
+          attrs: { summary: "", open: false, color: null, ...attrs },
+          content: [
+            {
+              type: "notionToggleSummary",
+              content: [
+                { type: "text", text: "Plan", marks: [{ type: "bold" }] },
+                { type: "text", text: " for <today> " },
+                {
+                  type: "text",
+                  text: "here",
+                  marks: [{ type: "link", attrs: { href: "https://x" } }],
+                },
+              ],
+            },
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "Body" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    it("writes the title as the summary's inline Markdown and the rest as the body", () => {
+      const nfm = docToNfm(titledToggleDoc({}));
+      expect(nfm).toBe(
+        L(
+          "<details>",
+          "<summary>**Plan** for \\<today\\> [here](https://x)</summary>",
+          "\tBody",
+          "</details>",
+        ),
+      );
+      // Markdown still reads the summary into `summary`, as written.
+      const reread = nfmToDoc(nfm);
+      expect(reread.content[0].attrs?.summary).toBe(
+        "**Plan** for \\<today\\> [here](https://x)",
+      );
+      expect(docToNfm(reread)).toBe(nfm);
+    });
+
+    it("writes a titled toggle heading's title as its heading text", () => {
+      const nfm = docToNfm(titledToggleDoc({ headingLevel: 2, open: true }));
+      expect(nfm).toBe(
+        L(
+          '## **Plan** for \\<today\\> [here](https://x) {toggle="true"}',
+          "\tBody",
+        ),
+      );
+      expect(docToNfm(nfmToDoc(nfm))).toBe(nfm);
+    });
+  });
+
   describe("n26: toggle-heading summary corruption resistance", () => {
     const headingToggleDoc = (summary: string, headingLevel = 2): any => ({
       type: "doc",
