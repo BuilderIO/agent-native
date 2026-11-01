@@ -36,7 +36,11 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   },
 }));
 
-import { openingDatabaseQueryKey } from "../lib/page-open-collection";
+import {
+  openingDatabaseQueryKey,
+  pageOpenReadOwner,
+  seedPageOpenCollection,
+} from "../lib/page-open-collection";
 import { claimPageOpenRead } from "../lib/page-open-reads";
 import { startPageOpenDocumentReads } from "./use-documents";
 
@@ -145,6 +149,73 @@ describe("a collection part invalidated while the page-open read is out", () => 
         read: "before the change",
       });
       expect(claimPageOpenRead(queryClient, queryKey).adoption).toBe("fresh");
+    }
+  });
+});
+
+describe("a cached collection part already invalidated when the read's answer is seeded", () => {
+  const pageKey = ["action", "get-document", { id: "page-1" }];
+  const identity = {
+    sentWith: "answered",
+    scope: "a",
+    transport: {},
+  } as const;
+  let queryClient: QueryClient;
+
+  beforeEach(async () => {
+    queryClient = new QueryClient();
+    queryClient.setQueryData(pageKey, answer.document);
+    // A previous visit left every part cached; then one of them changed.
+    for (const [, queryKey] of parts) {
+      queryClient.setQueryData(
+        queryKey,
+        { read: "on a previous visit" },
+        { updatedAt: Date.now() - 60_000 },
+      );
+    }
+    await queryClient.invalidateQueries({
+      queryKey: openingDatabaseQueryKey("page-1"),
+      exact: true,
+    });
+  });
+
+  afterEach(() => queryClient.clear());
+
+  function seedWith(sentAt?: number) {
+    const owner = pageOpenReadOwner(
+      queryClient,
+      pageKey,
+      new AbortController().signal,
+      identity,
+      sentAt,
+    );
+    seedPageOpenCollection(queryClient, "page-1", answer.collection, {
+      owner,
+    });
+  }
+
+  it("is left to its own read when the head sent the read before the tab watched", () => {
+    seedWith(Date.now() - 500);
+
+    const changed = queryClient
+      .getQueryCache()
+      .find({ queryKey: openingDatabaseQueryKey("page-1"), exact: true });
+    expect(changed?.state.data).toEqual({ read: "on a previous visit" });
+    expect(changed?.state.isInvalidated).toBe(true);
+    for (const [, queryKey] of parts.slice(1)) {
+      expect(queryClient.getQueryData(queryKey)).toMatchObject({
+        read: "before the change",
+      });
+    }
+  });
+
+  it("is seeded by a read the app sent after the change", () => {
+    seedWith();
+
+    for (const [, queryKey] of parts) {
+      expect(queryClient.getQueryData(queryKey)).toMatchObject({
+        read: "before the change",
+      });
     }
   });
 });

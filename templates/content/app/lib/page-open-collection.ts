@@ -70,6 +70,9 @@ export function openingDatabaseQueryKey(documentId: string) {
 // A read spoiled by a change while it was out is no one's current answer.
 // A change to one collection part alone leaves the page's answer standing,
 // but that part of it is older than the change.
+// A read the document head sent went out before this tab could watch for
+// changes. A part it finds already marked invalidated may have changed after
+// the request left, so that part is treated as changed while it was out.
 export type PageOpenReadOwner = {
   startedAt: number;
   identity: SessionReadIdentity;
@@ -128,8 +131,11 @@ export function pageOpenReadOwner(
   queryKey: QueryKey,
   signal: AbortSignal,
   identity: SessionReadIdentity,
-  startedAt = Date.now(),
+  // When the request went out, if before now: the head's read.
+  sentAt?: number,
 ): PageOpenReadOwner {
+  const startedAt = sentAt ?? Date.now();
+  const watchedSinceSent = sentAt === undefined;
   const queryCache = queryClient.getQueryCache();
   const query = queryCache.find({ queryKey, exact: true });
   const binding = currentActionQueryCacheBinding();
@@ -142,7 +148,10 @@ export function pageOpenReadOwner(
     identity,
     invalidatedWhileOut: (partKey) =>
       watch.queryHashes.has(hashKey(partKey)) ||
-      watch.filters.some((filters) => invalidationReaches(filters, partKey)),
+      watch.filters.some((filters) => invalidationReaches(filters, partKey)) ||
+      (!watchedSinceSent &&
+        queryCache.find({ queryKey: partKey, exact: true })?.state
+          .isInvalidated === true),
     finished: () => {
       watches.delete(watch);
     },
