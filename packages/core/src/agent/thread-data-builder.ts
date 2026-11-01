@@ -516,7 +516,7 @@ export function buildAssistantMessage(
         part.result =
           event.omitFromPersistedHistory === true
             ? "[Private content omitted]"
-            : (event.result ?? "");
+            : ((event.result as string | null | undefined) ?? "");
         if (event.omitFromPersistedHistory === true) {
           part.omitFromPersistedHistory = true;
         }
@@ -1403,7 +1403,7 @@ export interface ThreadDataToEngineMessagesOptions {
 }
 
 export function threadDataToEngineMessages(
-  threadData: string | Record<string, unknown> | null | undefined,
+  threadData: unknown,
   options: ThreadDataToEngineMessagesOptions = {},
 ): EngineMessage[] {
   const messages: EngineMessage[] = [];
@@ -4285,15 +4285,15 @@ const PRIVATE_SNAPSHOT_IDENTITY_FIELDS = new Set([
 ]);
 
 function privateActionName(
-  record: any,
+  record: Record<string, unknown>,
   names: ReadonlySet<string>,
 ): string | null {
   const candidates = [
-    record?.toolName,
-    record?.name,
-    record?.action,
-    record?.toolCall?.name,
-    record?.invocation?.action,
+    record.toolName,
+    record.name,
+    record.action,
+    (record.toolCall as Record<string, unknown> | null | undefined)?.name,
+    (record.invocation as Record<string, unknown> | null | undefined)?.action,
   ];
   return (
     candidates.find(
@@ -4327,7 +4327,7 @@ function collectPrivateSnapshotContext(
     return;
   }
   if (!value || typeof value !== "object") return;
-  const record = value as Record<string, any>;
+  const record = value as Record<string, unknown>;
   const runId =
     (typeof record.runId === "string" && record.runId) || inheritedRunId;
   const messageId =
@@ -4343,7 +4343,10 @@ function collectPrivateSnapshotContext(
     foundPrivateContent.value = true;
     if (runId) runIds.add(runId);
     const identifiedMessageId =
-      messageId ?? record.message?.id ?? record.toolCall?.messageId;
+      messageId ??
+      (record.message as Record<string, unknown> | null | undefined)?.id ??
+      (record.toolCall as Record<string, unknown> | null | undefined)
+        ?.messageId;
     if (typeof identifiedMessageId === "string") {
       messageIds.add(identifiedMessageId);
     }
@@ -4380,15 +4383,19 @@ function omitPrivateSnapshotContent(
     );
   }
   if (!value || typeof value !== "object") return value;
-  const record = value as Record<string, any>;
+  const record = value as Record<string, unknown>;
   const privateMessage =
     typeof record.id === "string" && privateMessageIds.has(record.id);
+  const metadata = record.metadata as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  const custom = metadata?.custom as Record<string, unknown> | null | undefined;
   const privateRun =
     (typeof record.runId === "string" && privateRunIds.has(record.runId)) ||
-    (typeof record.metadata?.runId === "string" &&
-      privateRunIds.has(record.metadata.runId)) ||
-    (typeof record.metadata?.custom?.runId === "string" &&
-      privateRunIds.has(record.metadata.custom.runId)) ||
+    (typeof metadata?.runId === "string" &&
+      privateRunIds.has(metadata.runId)) ||
+    (typeof custom?.runId === "string" && privateRunIds.has(custom.runId)) ||
     (typeof record.id === "string" && privateRunIds.has(record.id)) ||
     inheritedPrivate ||
     privateMessage ||
@@ -4446,7 +4453,8 @@ function collectPrivateSnapshotContextForRepos(
       privateMessageIds,
       foundPrivateContent,
     );
-    const agentKit = (candidate as any)?.agentKit;
+    const agentKit = (candidate as { agentKit?: unknown } | null | undefined)
+      ?.agentKit;
     for (const [messageId, runId] of snapshotMessageRunIds(agentKit)) {
       if (privateRunIds.has(runId)) privateMessageIds.add(messageId);
     }
@@ -4509,10 +4517,10 @@ export function hasPrivateRunProjections(
 
 /** Redacts client snapshots for private actions before a route can store them. */
 export function sanitizeThreadDataForPrivateActions(
-  repo: any,
+  repo: unknown,
   actionNames: ReadonlySet<string>,
   relatedRepos: readonly unknown[] = [],
-): any {
+): unknown {
   const context = collectPrivateSnapshotContextForRepos(
     [repo, ...relatedRepos],
     actionNames,

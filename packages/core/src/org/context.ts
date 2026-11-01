@@ -923,7 +923,7 @@ async function bootstrapEmptyOrganizationForRequest(
             ON CONFLICT (id) DO NOTHING RETURNING id
           )
           INSERT INTO org_members (id, org_id, email, role, joined_at)
-          SELECT ?, id, ?, 'owner', ? FROM new_org RETURNING org_id`,
+          SELECT ?, id, ?, 'owner', ? FROM new_org LIMIT 1 RETURNING org_id`,
     args: [
       id,
       name,

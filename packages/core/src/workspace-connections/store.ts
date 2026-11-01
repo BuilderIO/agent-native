@@ -18,6 +18,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { sql } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import {
@@ -1728,20 +1729,18 @@ export async function setWorkspaceConnectionAgentDiscoveryPreference(
   }
   await ensureWorkspaceConnectionsTable();
   const client = getDbExec();
-  const table = workspaceConnectionsTable();
   const scope = requireWorkspaceConnectionScope();
-  const where = scopedWhere(scope);
-  const update = await client.execute({
-    sql: `UPDATE ${table}
+  const where = scope.orgId
+    ? sql`org_id = ${sql.value(scope.orgId)}`
+    : sql`owner_email = ${sql.value(scope.ownerEmail)} AND org_id IS NULL`;
+  const update = await client.execute(sql`UPDATE public.workspace_connections
       SET config_json = jsonb_set(
         COALESCE(config_json::jsonb, '{}'::jsonb),
         '{includeInAgentDiscovery}',
-        to_jsonb(?::boolean),
+        to_jsonb(${sql.value(includeInAgentDiscovery)}::boolean),
         true
       )::text
-      WHERE id = ? AND ${where.sql}`,
-    args: [includeInAgentDiscovery, normalizedId, ...where.args],
-  });
+      WHERE id = ${sql.value(normalizedId)} AND ${where}`);
   if (update.rowsAffected === 0) {
     throw new Error(
       `Workspace connection "${normalizedId}" was not found in the current request scope.`,

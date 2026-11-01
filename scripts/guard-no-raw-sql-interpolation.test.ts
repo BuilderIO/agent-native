@@ -30,6 +30,25 @@ function source(lines: string[]): string {
 }
 
 describe("raw SQL interpolation guard", () => {
+  it("distinguishes interpolated bound values from SQL interpolation", () => {
+    const text = source([
+      "function save(threadId: string, runId: string) {",
+      '  database.execute({ sql: "INSERT INTO runs VALUES (?, ?)", args: [threadId, runId] });',
+      "}",
+      "save(`thread-${id}`, `run-${id}`);",
+      'database.execute({ sql: "SELECT * FROM runs WHERE id = ?", args: [`run-${id}`] });',
+      "database.execute({ sql: `SELECT * FROM ${table}`, args: [] });",
+      "database.execute(`DELETE FROM runs WHERE id = ${id}`);",
+    ]);
+    expect(
+      findRawSqlInterpolationViolations(
+        FILE,
+        text,
+        new Set([1, 2, 3, 4, 5, 6, 7]),
+      ).map((finding) => finding.line),
+    ).toEqual([6, 7]);
+  });
+
   it("finds interpolated SQL template properties on added lines", () => {
     const text = source([
       "const query = {",

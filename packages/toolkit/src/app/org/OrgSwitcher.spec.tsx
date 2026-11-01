@@ -1111,7 +1111,8 @@ describe("OrgSwitcher (account menu)", () => {
       });
       expect(cleanup).toHaveBeenCalledTimes(2);
       expect(notify).toHaveBeenCalledTimes(2);
-      expect(notify).toHaveBeenCalledWith("agentChat.auth.logOutFailed");
+      // oracle-change: the missing key now resolves to the localized error; retry and cleanup assertions stay fixed.
+      expect(notify).toHaveBeenCalledWith("Log out failed");
     } finally {
       unregister();
     }

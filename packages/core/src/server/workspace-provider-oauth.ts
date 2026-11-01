@@ -326,7 +326,7 @@ export async function handleWorkspaceProviderOAuthStart(
   const provider = requiredProvider(providerId);
   const requestedScopes = parseRequestedWorkspaceOAuthScopes(
     query.requestedScopes,
-    provider.oauth!.scopes,
+    provider.oauth.scopes,
   );
   if (requestedScopes === null) {
     return oauthFlowFailure(
@@ -337,7 +337,7 @@ export async function handleWorkspaceProviderOAuthStart(
   }
   const optionalScopes = parseRequestedWorkspaceOAuthScopes(
     query.optionalScopes,
-    provider.oauth!.scopes,
+    provider.oauth.scopes,
   );
   if (optionalScopes === null) {
     return oauthFlowFailure(
@@ -734,7 +734,7 @@ export async function handleWorkspaceProviderOAuthCallback(
           googleGrant?.scopes ??
           mergeWorkspaceOAuthValues(
             identity.scopes ?? [],
-            tokenScopes(tokens, flow.requestedScopes ?? provider.oauth!.scopes),
+            tokenScopes(tokens, flow.requestedScopes ?? provider.oauth.scopes),
           );
         const connectionConfig = {
           credentialMode: "oauth",
@@ -1385,11 +1385,13 @@ async function resolveWorkspaceProviderIdentitySingle(
 
 function requiredProvider(
   providerId: GenericWorkspaceOAuthProvider,
-): WorkspaceConnectionProvider {
+): WorkspaceConnectionProvider & {
+  oauth: NonNullable<WorkspaceConnectionProvider["oauth"]>;
+} {
   const provider = getWorkspaceConnectionProvider(providerId);
   if (!provider?.oauth)
     throw new Error(`${providerId} OAuth is not configured.`);
-  return provider;
+  return { ...provider, oauth: provider.oauth };
 }
 
 function readStoredFlow(
@@ -1880,9 +1882,9 @@ function sharesGoogleTokenRow(provider: WorkspaceConnectionProvider): boolean {
 function resolveGoogleGrant(
   tokens: Record<string, unknown>,
   flow: WorkspaceProviderOAuthFlow,
-  provider: WorkspaceConnectionProvider,
+  provider: ReturnType<typeof requiredProvider>,
 ) {
-  const requested = flow.requestedScopes ?? provider.oauth!.scopes;
+  const requested = flow.requestedScopes ?? provider.oauth.scopes;
   const optional = flow.optionalScopes ?? [];
   const heldScopes = new Set(
     (text(tokens.scope) ?? "")

@@ -301,8 +301,12 @@ function renderDataWidget(context: ToolRendererContext) {
         <Suspense fallback={<BuiltinToolRendererSkeleton />}>
           <LazyDataChartWidget
             chart={result.chartSeries}
-            display={result.display}
-            layout={context.dataChartLayout}
+            {...(result.display === undefined
+              ? {}
+              : { display: result.display })}
+            {...(context.dataChartLayout === undefined
+              ? {}
+              : { layout: context.dataChartLayout })}
           />
         </Suspense>
         {modelName && (

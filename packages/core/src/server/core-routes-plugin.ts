@@ -5971,7 +5971,12 @@ export function createCoreRoutesPlugin(
                   : undefined,
             };
           } catch (err) {
-            if ((err as { statusCode?: unknown })?.statusCode === 503)
+            if (
+              typeof err === "object" &&
+              err !== null &&
+              "statusCode" in err &&
+              err.statusCode === 503
+            )
               throw err;
             await trackBuilderLifecycle(
               event,

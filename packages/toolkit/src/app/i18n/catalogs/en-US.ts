@@ -1,4 +1,5 @@
 const messages = {
+  "auth.logOutFailed": "Log out failed",
   "block.renderUnavailable": "This block is temporarily unavailable.",
   "block.loading": "Loading block.",
   "composer.contextUrlLabel": "URL",

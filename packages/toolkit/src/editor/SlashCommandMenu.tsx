@@ -306,9 +306,15 @@ export function SlashCommandMenu({
       const menuHeight = 320;
       const spaceBelow = window.innerHeight - coords.bottom;
       const flipUp = spaceBelow < menuHeight && coords.top > menuHeight;
+      // Match the menu's own `min(420px, calc(100vw - 24px))` width so it cannot
+      // overflow the viewport on narrow screens.
+      const menuWidth = Math.min(420, window.innerWidth - 24);
       setPosition({
         top: flipUp ? coords.top : coords.bottom + 4,
-        left: Math.min(coords.left, window.innerWidth - 250),
+        left: Math.min(
+          coords.left,
+          Math.max(12, window.innerWidth - menuWidth - 12),
+        ),
         flipUp,
       });
       setIsOpen(true);

@@ -5,12 +5,16 @@ import { useId, useRef, useState, type PointerEvent } from "react";
 import type { AgentChatDataChartLayout } from "../../../agentkit/react/data-chart-layout.js";
 import type { DataChartWidget as DataChartWidgetData } from "./data-widget-types.js";
 
-const DEFAULT_COLORS = [
+const DEFAULT_COLORS: readonly [string, ...string[]] = [
   "hsl(var(--chart-1, var(--primary)))",
   "hsl(var(--chart-2, 199 89% 48%))",
   "hsl(var(--chart-3, 151 55% 42%))",
   "hsl(var(--chart-4, 35 92% 50%))",
 ];
+
+function defaultColorAt(index: number): string {
+  return DEFAULT_COLORS.at(index % DEFAULT_COLORS.length) ?? DEFAULT_COLORS[0];
+}
 
 const WIDTH = 640;
 const HEIGHT = 360;
@@ -135,7 +139,7 @@ function tooltipLinesForBar(
 }
 
 function pieSlicesFor(chart: DataChartWidgetData): PieSlice[] {
-  const series = chart.series[0];
+  const series = chart.series.at(0);
   if (chart.series.length !== 1 || !series || chart.data.length === 0) {
     throw new Error(
       "Pie and donut charts require one series and at least one category",
@@ -179,13 +183,13 @@ function pieSlicesFor(chart: DataChartWidgetData): PieSlice[] {
     const endAngle =
       index === lastPositiveIndex
         ? circleStart + Math.PI * 2
-        : startAngle + (weights[index]! / totalWeight) * Math.PI * 2;
+        : startAngle + (value / maxValue / totalWeight) * Math.PI * 2;
     if (value > 0) currentAngle = endAngle;
 
     return {
       label,
       value,
-      color: DEFAULT_COLORS[index % DEFAULT_COLORS.length]!,
+      color: defaultColorAt(index),
       startAngle,
       endAngle,
     };
@@ -304,7 +308,7 @@ function scatterLegendFor(chart: DataChartWidgetData) {
     if (typeof value !== "string" || categories.has(value)) continue;
     categories.set(value, {
       label: labelFor(value),
-      color: DEFAULT_COLORS[categories.size % DEFAULT_COLORS.length]!,
+      color: defaultColorAt(categories.size),
     });
   }
   return Array.from(categories, ([key, category]) => ({
@@ -534,8 +538,8 @@ function ChartBody({
   }
 
   if (chart.type === "number") {
-    const series = chart.series[0];
-    const row = chart.data[0];
+    const series = chart.series.at(0);
+    const row = chart.data.at(0);
     const value = series && row ? numericValue(row, series.key) : null;
     if (
       chart.series.length !== 1 ||
@@ -995,7 +999,7 @@ function ChartBody({
                 ? categoryColors.get(category)
                 : undefined) ??
               series.color ??
-              DEFAULT_COLORS[seriesIndex % DEFAULT_COLORS.length]!;
+              defaultColorAt(seriesIndex);
             const xTitle = chart.xAxisTitle ?? chart.xKey;
             const pointLabel = [
               `${xTitle}: ${formatValueLabel(xValue)}`,
@@ -1486,6 +1490,8 @@ function ChartBody({
     const linePath = points
       .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
       .join(" ");
+    const firstPoint = points.at(0);
+    const lastPoint = points.at(-1);
     const areaPath =
       points.length === 0
         ? ""
@@ -1494,7 +1500,7 @@ function ChartBody({
               .reverse()
               .map((point) => `L ${point.x} ${point.lowerY}`)
               .join(" ")} Z`
-          : `${linePath} L ${points[points.length - 1].x} ${zeroY} L ${points[0].x} ${zeroY} Z`;
+          : `${linePath} L ${lastPoint?.x ?? 0} ${zeroY} L ${firstPoint?.x ?? 0} ${zeroY} Z`;
     return { series, color, linePath, areaPath, points };
   });
 
@@ -1598,13 +1604,16 @@ export function DataChartRenderer({
   const isPieChart =
     renderedChart.type === "pie" || renderedChart.type === "donut";
   const pieSlices = isPieChart ? pieSlicesFor(renderedChart) : undefined;
+  const numberSeries = renderedChart.series.at(0);
   const numberValue =
-    renderedChart.type === "number" && renderedChart.series.length === 1
-      ? numericValue(renderedChart.data[0] ?? {}, renderedChart.series[0]!.key)
+    renderedChart.type === "number" &&
+    renderedChart.series.length === 1 &&
+    numberSeries !== undefined
+      ? numericValue(renderedChart.data[0] ?? {}, numberSeries.key)
       : null;
   const ariaLabel =
     renderedChart.type === "number" && numberValue !== null
-      ? `${renderedChart.title ?? renderedChart.series[0]!.label}: ${formatValueLabel(numberValue)}`
+      ? `${renderedChart.title ?? numberSeries?.label ?? ""}: ${formatValueLabel(numberValue)}`
       : (renderedChart.title ??
         (isPieChart ? renderedChart.series[0]?.label : undefined) ??
         t("agentChat.widget.dataChart"));

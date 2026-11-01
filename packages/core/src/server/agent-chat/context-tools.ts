@@ -8,6 +8,7 @@ import {
   DATA_WIDGET_MAX_CHART_POINTS,
   DATA_WIDGET_MAX_ROWS,
   dataWidgetResultSchema,
+  isDataWidgetResult,
 } from "../../data-widgets/index.js";
 import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import { getRequestRunContext } from "../request-context.js";
@@ -825,6 +826,11 @@ export function createDataWidgetActionEntries(
         const result = dataWidgetResultSchema.parse(
           normalizeDataWidgetToolInput(args),
         );
+        if (!isDataWidgetResult(result)) {
+          throw new ActionInputValidationError(
+            "The data widget result is not renderable.",
+          );
+        }
         await validateDataWidget?.(args, context);
         return clampDataWidgetRows(result);
       },

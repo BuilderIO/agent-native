@@ -55,6 +55,51 @@ describe("SlashCommandMenu heading", () => {
   });
 });
 
+describe("SlashCommandMenu viewport positioning", () => {
+  it("keeps the menu inside a narrow viewport when the caret is near the right edge", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+    const editorElement = document.createElement("div");
+    const menuElement = document.createElement("div");
+    document.body.append(editorElement, menuElement);
+    const editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+    });
+    const root = createRoot(menuElement);
+    vi.spyOn(editor.view, "coordsAtPos").mockReturnValue(
+      new DOMRect(380, 10, 1, 10),
+    );
+
+    try {
+      await act(async () => {
+        root.render(createElement(SlashCommandMenu, { editor }));
+      });
+      await act(async () => {
+        editor.commands.insertContent("/");
+      });
+
+      const menu = document.querySelector<HTMLElement>(
+        ".an-rich-md-slash-menu",
+      );
+      expect(menu).not.toBeNull();
+      expect(menu?.style.left).toBe("12px");
+    } finally {
+      act(() => root.unmount());
+      editor.destroy();
+      editorElement.remove();
+      menuElement.remove();
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalWidth,
+      });
+    }
+  });
+});
+
 describe("filterSlashCommandItems", () => {
   it("hides commands whose editor extensions are disabled", () => {
     const commands = filterSlashCommandItems(DEFAULT_SLASH_COMMANDS, {

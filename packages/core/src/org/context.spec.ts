@@ -1171,6 +1171,7 @@ describe("getOrgContext", () => {
       await expect(getOrgContext(EVENT)).rejects.toMatchObject({
         code: "08006",
       });
+      // raw-sql-ok: Vitest matcher asserting captured SQL; this statement does not construct or execute a query.
       expect(mockExecute).toHaveBeenCalledWith({
         sql: expect.stringContaining("DELETE FROM settings"),
         args: ["u:race@example.test:auto-create-claim"],

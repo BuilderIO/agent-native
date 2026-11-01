@@ -1711,7 +1711,7 @@ export function processEvent(
       if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
     }
     if (ev.text?.trim()) markAssistantText(state);
-    const lastPart = content[content.length - 1];
+    const lastPart = content.at(-1);
     if (
       lastPart &&
       lastPart.type === "text" &&
@@ -1741,7 +1741,7 @@ export function processEvent(
     const delta = ev.text ?? "";
     if (!delta) return { action: "continue" };
     if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
-    const lastPart = content[content.length - 1];
+    const lastPart = content.at(-1);
     if (
       lastPart &&
       lastPart.type === "reasoning" &&
@@ -2084,7 +2084,7 @@ export function processEvent(
         ? approvedResumeIndex
         : findPendingToolCallIndex(content, doneTool, ev.id);
     if (doneIdx >= 0) {
-      const part = content[doneIdx];
+      const part = content.at(doneIdx);
       if (part?.type === "tool-call") {
         if (omitFromPersistedHistory) {
           part.omitFromPersistedHistory = true;

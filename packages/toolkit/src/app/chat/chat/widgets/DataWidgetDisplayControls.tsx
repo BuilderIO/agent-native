@@ -16,7 +16,6 @@ import {
   IconCompass,
   IconCopy,
   IconDotsVertical,
-  IconExternalLink,
   IconNotebook,
 } from "@tabler/icons-react";
 import { forwardRef } from "react";
@@ -140,10 +139,8 @@ const WidgetActionLink = forwardRef<
           <IconCompass aria-hidden="true" className="size-3.5 shrink-0" />
         ) : icon === "camera" ? (
           <IconCamera aria-hidden="true" className="size-3.5 shrink-0" />
-        ) : icon === "notebook" ? (
+        ) : icon !== undefined ? (
           <IconNotebook aria-hidden="true" className="size-3.5 shrink-0" />
-        ) : icon ? (
-          <IconExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
         ) : null
       ) : null}
       <span className={iconOnly ? "sr-only" : "truncate"}>{label}</span>
@@ -152,10 +149,8 @@ const WidgetActionLink = forwardRef<
           <IconCompass aria-hidden="true" className="size-3.5 shrink-0" />
         ) : icon === "camera" ? (
           <IconCamera aria-hidden="true" className="size-3.5 shrink-0" />
-        ) : icon === "notebook" ? (
-          <IconNotebook aria-hidden="true" className="size-3.5 shrink-0" />
         ) : (
-          <IconExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
+          <IconNotebook aria-hidden="true" className="size-3.5 shrink-0" />
         )
       ) : null}
     </a>

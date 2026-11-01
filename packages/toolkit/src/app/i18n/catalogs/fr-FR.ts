@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "Échec de la déconnexion",
   "block.renderUnavailable": "Ce bloc est temporairement indisponible.",
   "block.loading": "Chargement du bloc.",
   "composer.contextUrlLabel": "Adresse URL",

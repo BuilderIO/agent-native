@@ -1264,7 +1264,8 @@ export function CommandMenu<TAppContext = unknown>({
           onPointerDownCapture={(event) => {
             if (
               initialSelection === "none" &&
-              (event.target as HTMLElement).closest?.("[cmdk-item]")
+              event.target instanceof Element &&
+              event.target.closest("[cmdk-item]")
             ) {
               enableSelection();
             }
@@ -1278,12 +1279,16 @@ export function CommandMenu<TAppContext = unknown>({
             }
           }}
           onPointerMoveCapture={(event) => {
-            if ((event.target as HTMLElement).closest?.("[cmdk-item]")) {
+            if (
+              event.target instanceof Element &&
+              event.target.closest("[cmdk-item]")
+            ) {
               navigatedRef.current = true;
             }
             if (
               initialSelection === "none" &&
-              (event.target as HTMLElement).closest?.("[cmdk-item]")
+              event.target instanceof Element &&
+              event.target.closest("[cmdk-item]")
             ) {
               enableSelection();
             }

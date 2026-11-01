@@ -26,7 +26,7 @@ import { cn } from "../utils.js";
 import { fitAxisLabelToPixelWidth } from "./axis-label-width.js";
 import { DataTable } from "./DataTable.js";
 
-const DEFAULT_COLORS = [
+const DEFAULT_COLORS: readonly [string, ...string[]] = [
   "hsl(var(--chart-1, 0 0% 20%))",
   "hsl(var(--chart-2, 155 36% 42%))",
   "hsl(var(--chart-3, 32 55% 50%))",
@@ -372,7 +372,7 @@ export function GenericChartRenderer({
   }
 
   if (config.chartType === "pie" || config.chartType === "donut") {
-    const valueKey = yKeys[0];
+    const valueKey = yKeys.at(0) ?? xKey;
     const total = rows.reduce((sum, row) => {
       const value = row[valueKey];
       return (
@@ -390,7 +390,7 @@ export function GenericChartRenderer({
     };
     return (
       <ChartCanvas height={config.height}>
-        <PieChart margin={plotMargin}>
+        <PieChart {...(plotMargin === undefined ? {} : { margin: plotMargin })}>
           <Pie
             data={rows}
             dataKey={valueKey}
@@ -408,7 +408,7 @@ export function GenericChartRenderer({
             onClick={
               config.onPieSliceClick
                 ? (_sector, rowIndex) => {
-                    const row = rows[rowIndex];
+                    const row = rows.at(rowIndex);
                     if (row) config.onPieSliceClick?.({ row, rowIndex });
                   }
                 : undefined
@@ -442,10 +442,12 @@ export function GenericChartRenderer({
     return (
       <ChartCanvas height={config.height}>
         <BarChart
-          barCategoryGap={config.barCategoryGap}
+          {...(config.barCategoryGap === undefined
+            ? {}
+            : { barCategoryGap: config.barCategoryGap })}
           data={rows}
-          layout={config.layout}
-          margin={plotMargin}
+          {...(config.layout === undefined ? {} : { layout: config.layout })}
+          {...(plotMargin === undefined ? {} : { margin: plotMargin })}
         >
           <ChartAxes
             xKey={xKey}
@@ -540,7 +542,10 @@ export function GenericChartRenderer({
   return (
     <ChartCanvas height={config.height}>
       {showFill ? (
-        <AreaChart data={rows} margin={plotMargin}>
+        <AreaChart
+          data={rows}
+          {...(plotMargin === undefined ? {} : { margin: plotMargin })}
+        >
           <ChartAxes
             xKey={xKey}
             xTitle={config.xAxisTitle}
@@ -583,9 +588,15 @@ export function GenericChartRenderer({
               {config.areaDataLabelFormatter ? (
                 <LabelList
                   dataKey={key}
-                  angle={config.areaDataLabelAngle}
-                  fill={config.areaDataLabelColor}
-                  fontSize={config.areaDataLabelFontSize}
+                  {...(config.areaDataLabelAngle === undefined
+                    ? {}
+                    : { angle: config.areaDataLabelAngle })}
+                  {...(config.areaDataLabelColor === undefined
+                    ? {}
+                    : { fill: config.areaDataLabelColor })}
+                  {...(config.areaDataLabelFontSize === undefined
+                    ? {}
+                    : { fontSize: config.areaDataLabelFontSize })}
                   formatter={(value) =>
                     typeof value === "number"
                       ? (config.areaDataLabelFormatter?.(value) ?? "")
@@ -597,7 +608,10 @@ export function GenericChartRenderer({
           ))}
         </AreaChart>
       ) : (
-        <LineChart data={rows} margin={plotMargin}>
+        <LineChart
+          data={rows}
+          {...(plotMargin === undefined ? {} : { margin: plotMargin })}
+        >
           <ChartAxes
             xKey={xKey}
             xTitle={config.xAxisTitle}
@@ -634,11 +648,17 @@ export function GenericChartRenderer({
               {config.lineDataLabelFormatter ? (
                 <LabelList
                   dataKey={key}
-                  angle={config.lineDataLabelAngle}
+                  {...(config.lineDataLabelAngle === undefined
+                    ? {}
+                    : { angle: config.lineDataLabelAngle })}
                   fill={
-                    config.lineDataLabelColor ?? colors[index % colors.length]
+                    config.lineDataLabelColor ??
+                    colors.at(index % colors.length) ??
+                    DEFAULT_COLORS[0]
                   }
-                  fontSize={config.lineDataLabelFontSize}
+                  {...(config.lineDataLabelFontSize === undefined
+                    ? {}
+                    : { fontSize: config.lineDataLabelFontSize })}
                   formatter={(value) =>
                     typeof value === "number"
                       ? (config.lineDataLabelFormatter?.(value) ?? "")
@@ -667,7 +687,7 @@ function ChartCanvas({
   height = 250,
 }: {
   children: ReactNode;
-  height?: number;
+  height?: number | undefined;
 }) {
   return (
     <div className="w-full" style={{ height }}>
@@ -793,8 +813,8 @@ function FacetedCharts({
 }: {
   rows: GenericChartDatum[];
   config: GenericChartConfig;
-  horizontalValues?: GenericChartFacetValue[];
-  verticalValues?: GenericChartFacetValue[];
+  horizontalValues?: GenericChartFacetValue[] | undefined;
+  verticalValues?: GenericChartFacetValue[] | undefined;
 }) {
   const horizontalFacet = config.horizontalFacet;
   const verticalFacet = config.verticalFacet;
@@ -863,12 +883,14 @@ function ChartTooltip({
   show,
   valueFormatter,
 }: {
-  fields?: string[];
-  fieldLabels?: Record<string, string>;
+  fields?: string[] | undefined;
+  fieldLabels?: Record<string, string> | undefined;
   labelField: string;
-  labelFormatter?: (value: ReactNode) => ReactNode;
-  percentageForRow?: (row: GenericChartDatum | undefined) => number | null;
-  show?: boolean;
+  labelFormatter?: ((value: ReactNode) => ReactNode) | undefined;
+  percentageForRow?:
+    | ((row: GenericChartDatum | undefined) => number | null)
+    | undefined;
+  show?: boolean | undefined;
   valueFormatter: (value: number) => string;
 }) {
   if (show === false) return null;
@@ -944,9 +966,11 @@ function ChartTooltip({
 
           return (
             <DefaultTooltipContent
+              {...(labelFormatter === undefined ? {} : { labelFormatter })}
               formatter={tooltipValueFormatter}
-              label={showLabel ? props.label : undefined}
-              labelFormatter={labelFormatter}
+              {...(showLabel && props.label !== undefined
+                ? { label: props.label }
+                : {})}
               payload={tooltipPayload}
             />
           );
@@ -954,9 +978,9 @@ function ChartTooltip({
 
   return (
     <Tooltip
-      content={content}
+      {...(content === undefined ? {} : { content })}
       formatter={tooltipValueFormatter}
-      labelFormatter={labelFormatter}
+      {...(labelFormatter === undefined ? {} : { labelFormatter })}
     />
   );
 }

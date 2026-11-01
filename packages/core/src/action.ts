@@ -1512,14 +1512,13 @@ export function defineAction(options: any) {
 
   const auditConfig = normalizeAuditConfig(options.audit);
   const actionIsPrivate = options.persistInChatHistory === false;
-  const effectiveAuditConfig = actionIsPrivate
-    ? {
-        ...(auditConfig ?? {}),
-        recordInputs: false,
-        target: undefined,
-        summary: undefined,
-      }
-    : auditConfig;
+  let effectiveAuditConfig: ActionAuditConfig | undefined;
+  if (actionIsPrivate) {
+    const { target: _target, summary: _summary, ...shared } = auditConfig ?? {};
+    effectiveAuditConfig = { ...shared, recordInputs: false };
+  } else {
+    effectiveAuditConfig = auditConfig;
+  }
   const finalRun = resolveAuditAttach(effectiveAuditConfig, readOnly)
     ? wrapRunWithAudit(run, effectiveAuditConfig, actionIsPrivate)
     : run;

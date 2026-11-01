@@ -1098,11 +1098,11 @@ export async function instrumentAgentLoop(opts: {
             pendingModelInput = undefined;
             pendingModelInputStartedAt = undefined;
             pendingModelInputDispatched = true;
-            pendingModelInputOmitted = false;
             const currentIndex = modelRoundTrips.length - 1;
             if (pendingModelInputOmitted) {
               privateModelRoundTrips.add(currentIndex);
             }
+            pendingModelInputOmitted = false;
             startOtelModelSpan(tripIndex);
           }
         } else if (modelStreamOpenedAt !== null) {

@@ -1286,7 +1286,12 @@ function mountActionRoutesInternal(
           } catch (error) {
             if (
               !publicRead ||
-              (error as { statusCode?: unknown })?.statusCode !== 503
+              !(
+                typeof error === "object" &&
+                error !== null &&
+                "statusCode" in error &&
+                error.statusCode === 503
+              )
             )
               throw error;
             orgUnavailable = true;

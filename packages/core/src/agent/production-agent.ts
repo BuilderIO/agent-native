@@ -1434,7 +1434,7 @@ function createHistoryPrivacySender(
   privacyState: { private: boolean } = { private: false },
 ): HistoryPrivacySender {
   const inheritedPrivacy =
-    (send as HistoryPrivacySender).isPrivateTurn?.() === true;
+    (send as Partial<HistoryPrivacySender>).isPrivateTurn?.() === true;
   if (initiallyPrivate || inheritedPrivacy) privacyState.private = true;
   const sendWithPrivacy: HistoryPrivacySender = (event) => {
     const actionName =
@@ -9485,7 +9485,7 @@ export async function runAgentLoop(opts: {
             receiptGuardRetried = true;
           }
           finalGuardRetries += 1;
-          send(
+          await send(
             typeof guard !== "string" && guard.clearAllText
               ? { type: "clear", allText: true }
               : { type: "clear" },
@@ -9501,7 +9501,7 @@ export async function runAgentLoop(opts: {
           });
           continue;
         }
-        send(
+        await send(
           typeof guard !== "string" && guard.clearAllText
             ? { type: "clear", allText: true }
             : { type: "clear" },
@@ -17877,11 +17877,13 @@ export function createProductionAgentHandler(
           requestActions[exactApprovedToolCall.name]?.persistInChatHistory ===
             false,
         );
+        const approvedActionEntry: unknown = exactApprovedToolCall
+          ? requestActions[exactApprovedToolCall.name]
+          : undefined;
         const privateApprovalState =
           exactApprovedToolCall &&
           (approvedActionIsPrivate ||
-            (privateRequestHistory &&
-              !requestActions[exactApprovedToolCall.name]))
+            (privateRequestHistory && approvedActionEntry == null))
             ? { private: true, recorded: false }
             : undefined;
         const agentLoopOpts = {
@@ -17989,7 +17991,7 @@ export function createProductionAgentHandler(
             try {
               const { recordThreadPrivateRun } = await import("./run-store.js");
               await recordThreadPrivateRun(effectiveThreadId, runId);
-              if (privateApprovalState) privateApprovalState.recorded = true;
+              privateApprovalState.recorded = true;
             } catch {
               send({
                 type: "error",

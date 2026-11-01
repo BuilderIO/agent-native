@@ -1,3 +1,7 @@
+function bodyFontFamily(body: HTMLElement | null): string {
+  return body ? getComputedStyle(body).fontFamily : "sans-serif";
+}
+
 const measuredTextWidths = new Map<string, number>();
 let measurementCanvas: HTMLCanvasElement | null = null;
 let measurementDocument: Document | undefined;
@@ -50,9 +54,7 @@ export function fitAxisLabelToPixelWidth(
   const context = measurementCanvas.getContext("2d");
   if (!context) return label;
 
-  const fontFamily = document.body
-    ? getComputedStyle(document.body).fontFamily
-    : "sans-serif";
+  const fontFamily = bodyFontFamily(document.body);
   context.font = `${fontSize}px ${fontFamily || "sans-serif"}`;
   const font = context.font;
   const measureText = (text: string) => {

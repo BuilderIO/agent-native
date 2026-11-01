@@ -4426,7 +4426,7 @@ function createAuthGuardFn(
           path: p,
           method,
           email: session.email,
-          orgId: session.orgId,
+          ...(session.orgId === undefined ? {} : { orgId: session.orgId }),
         });
         if (
           workspaceAppAccess === false &&

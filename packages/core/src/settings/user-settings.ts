@@ -146,7 +146,9 @@ async function mutateUserSettingValue(
           ? null
           : await getSetting(legacy, {
               bypassCache: true,
-              transaction: options?.transaction,
+              ...(options?.transaction
+                ? { transaction: options.transaction }
+                : {}),
             });
       migratedLegacy = legacyCurrent !== null;
       migratedLegacyValue = legacyCurrent;
@@ -166,7 +168,7 @@ async function mutateUserSettingValue(
     if (
       await getSetting(legacy, {
         bypassCache: true,
-        transaction: options?.transaction,
+        ...(options?.transaction ? { transaction: options.transaction } : {}),
       })
     )
       return result;

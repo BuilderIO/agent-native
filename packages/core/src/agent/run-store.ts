@@ -4369,7 +4369,7 @@ export async function getRunAbortState(
   };
 }
 
-function omitPersistedRunEventContent(event: Record<string, any>) {
+function omitPersistedRunEventContent(event: Record<string, unknown>) {
   const base = {
     type: event.type,
     omitFromPersistedHistory: true,
@@ -4443,7 +4443,7 @@ function omitPersistedRunEventContent(event: Record<string, any>) {
         ...base,
         tool: event.tool,
         input: {},
-        approvalKey: approvalKeyForHistory(event.approvalKey),
+        approvalKey: approvalKeyForHistory(event.approvalKey as string),
         ...(event.allowPersistentApproval === false
           ? { allowPersistentApproval: false }
           : {}),

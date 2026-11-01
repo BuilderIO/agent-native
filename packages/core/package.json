@@ -728,7 +728,7 @@
     "diff": "^9.0.0",
     "diff-match-patch": "^1.0.5",
     "dotenv": "^17.2.1",
-    "drizzle-orm": "^0.45.4",
+    "drizzle-orm": "^0.45.2",
     "entities": "^8.1.0",
     "esbuild": "^0.28.1",
     "fast-xml-parser": "5.11.1",

@@ -1441,7 +1441,7 @@ export function useActionQuery<
       try {
         result = await actionFetch<R>(actionName, method, params, {
           signal,
-          beforeSend,
+          ...(beforeSend ? { beforeSend } : {}),
           batch: method === "GET" && canBatchActionQueryFetch(query),
           onResponse: (response) => {
             lastResponse = response;
