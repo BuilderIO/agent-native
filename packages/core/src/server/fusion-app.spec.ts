@@ -353,10 +353,11 @@ describe("sendFusionBranchMessage", () => {
   it("finishes on a turn that ended the run", async () => {
     vi.mocked(fetch).mockResolvedValue(
       streamOf(
-        { type: "done", stopReason: "tool_use", actions: [] },
+        { type: "done", autoContinue: true, actions: [] },
+        { type: "done", autoContinue: true, stopReason: "max_tokens" },
         {
           type: "done",
-          stopReason: "end_turn",
+          autoContinue: false,
           actions: [{ type: "text", content: "Updated the header." }],
         },
       ),
@@ -376,9 +377,9 @@ describe("sendFusionBranchMessage", () => {
     });
   });
 
-  it("is unconfirmed when the stream ends after a turn that called tools", async () => {
+  it("is unconfirmed when the stream ends on a turn the agent continues", async () => {
     vi.mocked(fetch).mockResolvedValue(
-      streamOf({ type: "done", stopReason: "tool_use", actions: [] }),
+      streamOf({ type: "done", autoContinue: true, actions: [] }),
     );
 
     await expect(

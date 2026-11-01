@@ -346,13 +346,6 @@ export async function isFusionDevServerServing(
 
 const DEFAULT_SEND_MESSAGE_TIMEOUT_MS = 30_000;
 
-/** Stop reasons after which the coding agent runs another turn. */
-const CONTINUING_STOP_REASONS = new Set([
-  "tool_use",
-  "pause_turn",
-  "compaction",
-]);
-
 export async function sendFusionBranchMessage(
   args: FusionBranchRef & {
     prompt: string;
@@ -430,12 +423,11 @@ export async function sendFusionBranchMessage(
         if (event && typeof event === "object") {
           const ev = event as Record<string, unknown>;
           args.onEvent?.(ev);
-          // A `done` ends one model turn, not the run: a turn that stopped
-          // to call tools (or pause, or compact) is followed by more turns.
+          // A `done` ends one model turn, not the run: `autoContinue` says
+          // the agent runs another (after tool calls, a pause, compaction,
+          // or a max_tokens cut-off).
           if (asString(ev.type) === "done") {
-            finished = !CONTINUING_STOP_REASONS.has(
-              asString(ev.stopReason) ?? "",
-            );
+            finished = ev.autoContinue !== true;
           }
           if (asString(ev.type) === "done" && Array.isArray(ev.actions)) {
             for (const action of ev.actions) {
