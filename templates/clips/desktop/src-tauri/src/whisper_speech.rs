@@ -1695,10 +1695,8 @@ mod macos {
         let Some(mut session) = session else {
             return Ok(super::WhisperStopResult::default());
         };
-        session.mic.stop();
-        if let Some(sys) = &session.sys {
-            sys.stop();
-        }
+        // Captures go first: stopping one delivers the buffers it already
+        // queued, and a stream drops whatever arrives after its own stop.
         let mic_failure = session
             .mic_cap
             .take()
@@ -1710,6 +1708,10 @@ mod macos {
             sys_cap.stop();
         }
         drop(session._shared_audio.take());
+        session.mic.stop();
+        if let Some(sys) = &session.sys {
+            sys.stop();
+        }
         release_temporary_audio(app, session.temporary_audio.take());
         if let Some(live) = session.mic.live.clone() {
             if discard {
@@ -1729,25 +1731,36 @@ mod macos {
                 dictation: Some(dictation),
             });
         }
+        let workers_done = || {
+            session.mic.done.load(Ordering::SeqCst)
+                && session
+                    .sys
+                    .as_ref()
+                    .map_or(true, |s| s.done.load(Ordering::SeqCst))
+        };
         let deadline = Instant::now() + Duration::from_secs(4);
-        while Instant::now() < deadline {
-            let sys_done = session
-                .sys
-                .as_ref()
-                .map_or(true, |s| s.done.load(Ordering::SeqCst));
-            if session.mic.done.load(Ordering::SeqCst) && sys_done {
-                break;
-            }
+        while !workers_done() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(50));
         }
+        let workers_done = workers_done();
         eprintln!("[whisper] meeting transcription stopped");
         let failure = session
             .mic
             .failure
             .get()
-            .or_else(|| session.sys.as_ref().and_then(|sys| sys.failure.get()));
+            .or_else(|| session.sys.as_ref().and_then(|sys| sys.failure.get()))
+            .cloned()
+            .or_else(|| {
+                let engine = match session.mic.engine {
+                    LocalEngine::Whisper => "Local Whisper",
+                    LocalEngine::Parakeet => "Parakeet",
+                };
+                (!workers_done).then(|| {
+                    format!("{engine} was still transcribing when the recording stopped, so the end of the transcript may be missing.")
+                })
+            });
         Ok(super::WhisperStopResult {
-            failure: failure.cloned(),
+            failure,
             dictation: None,
         })
     }
