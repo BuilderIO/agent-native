@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  abortedByEither,
   PAGE_OPEN_READ_TTL_MS,
   readFromStartupPageRead,
   STARTUP_PAGE_READ_WAIT_MS,
@@ -401,5 +402,44 @@ describe("the app's page from the head script's read", () => {
     head.answer({ ok: false });
     await settled;
     expect(ownRead).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the signal that stops the app's own page read", () => {
+  const any = Object.getOwnPropertyDescriptor(AbortSignal, "any");
+
+  // Safari before 17.4 has no AbortSignal.any.
+  beforeEach(() => {
+    Object.defineProperty(AbortSignal, "any", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    if (any) Object.defineProperty(AbortSignal, "any", any);
+  });
+
+  it("is aborted by either signal, with the reason it was given", () => {
+    const query = new AbortController();
+    const own = new AbortController();
+    const first = abortedByEither(query.signal, own.signal);
+    expect(first.aborted).toBe(false);
+    own.abort("head won");
+    expect(first.aborted).toBe(true);
+    expect(first.reason).toBe("head won");
+
+    const other = new AbortController();
+    const second = abortedByEither(other.signal, new AbortController().signal);
+    other.abort("query cancelled");
+    expect(second.reason).toBe("query cancelled");
+  });
+
+  it("is aborted at once when either signal already is", () => {
+    const query = new AbortController();
+    query.abort("gone");
+    const signal = abortedByEither(query.signal, new AbortController().signal);
+    expect(signal.aborted).toBe(true);
+    expect(signal.reason).toBe("gone");
   });
 });

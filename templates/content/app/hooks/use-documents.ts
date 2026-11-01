@@ -79,6 +79,7 @@ import {
   type PageOpenReadOwner,
 } from "../lib/page-open-collection";
 import {
+  abortedByEither,
   adoptPageOpenRead,
   claimPageOpenRead,
   endPageOpen,
@@ -1018,9 +1019,7 @@ export function startPageOpenDocumentReads(
   const readPage = (signal?: AbortSignal) =>
     (pageRead ??= startupRead
       ? readFromStartupPageRead(startupRead, (ownSignal) =>
-          sendPageRead(
-            signal ? AbortSignal.any([signal, ownSignal]) : ownSignal,
-          ),
+          sendPageRead(signal ? abortedByEither(signal, ownSignal) : ownSignal),
         )
       : sendPageRead(signal));
   let documentTaken = false;

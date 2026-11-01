@@ -610,6 +610,22 @@ export function takeStartupPageRead(
   };
 }
 
+// Aborted once either signal is. Not `AbortSignal.any`, which Safari lacks
+// before 17.4: there it would throw before the app's own page read went out.
+export function abortedByEither(a: AbortSignal, b: AbortSignal): AbortSignal {
+  const either = new AbortController();
+  for (const signal of [a, b]) {
+    if (signal.aborted) {
+      either.abort(signal.reason);
+      break;
+    }
+    signal.addEventListener("abort", () => either.abort(signal.reason), {
+      once: true,
+    });
+  }
+  return either.signal;
+}
+
 // The page from the head script's read, or from the app's own read when the
 // head read failed or is still out after a short wait. Once the app has sent
 // its own read, the first of the two to answer is the page, and a head answer
