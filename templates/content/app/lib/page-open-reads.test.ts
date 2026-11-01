@@ -29,7 +29,9 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   // Like the session store: a read sent while the load's first session read
   // is out belongs to that read, and is current only if it answers. These
   // specs never switch the session after it, so a later read is current.
-  sessionReadIdentity: (options: { sentWithFirstSessionRead?: boolean } = {}) =>
+  sessionReadIdentity: (
+    options: { sentWithFirstSessionRead?: boolean } = {},
+  ) =>
     options.sentWithFirstSessionRead || session.get() === "pending"
       ? { sentWith: "first-read", transport: session.transport }
       : { sentWith: "answered", scope: "a", transport: session.transport },
@@ -540,6 +542,43 @@ describe("page open reads", () => {
       whenReadIdentityCurrent(other, sessionReadIdentity(), dropped);
       session.set("replaced");
       expect(dropped).not.toHaveBeenCalled();
+    });
+
+    it("stops watching a page's read once another page opens and its session is this tab's", async () => {
+      await startLandedBeforeSession();
+      // Another page opens; doc-1's reads are never claimed.
+      retirePageOpenReads(queryClient, "doc-2");
+      // Still watched: the session that decides whose they are is out.
+      expect(session.listeners.size).toBe(1);
+
+      session.set("first-read");
+
+      expect(session.listeners.size).toBe(0);
+      expect(queryClient.getQueryData(queryKey)).toEqual({
+        id: "doc-1",
+        by: "a",
+      });
+    });
+
+    it("stops watching at once a retired read whose session is already this tab's", async () => {
+      await startLandedBeforeSession();
+      session.set("first-read");
+      expect(session.listeners.size).toBe(1);
+
+      retirePageOpenReads(queryClient, "doc-2");
+
+      expect(session.listeners.size).toBe(0);
+    });
+
+    it("still drops a retired read whose session turns out to be someone else's", async () => {
+      await startLandedBeforeSession();
+      retirePageOpenReads(queryClient, "doc-2");
+
+      session.set("replaced");
+
+      expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+      expect(queryClient.getQueryData(draftKey)).toBeUndefined();
+      expect(session.listeners.size).toBe(0);
     });
 
     it("does not run work waiting on the session for a page whose open has ended", () => {
