@@ -1455,6 +1455,109 @@ describe("sessionReadIdentityStatus", () => {
     expect(module.sessionReadIdentityStatus(after)).toBe("current");
   });
 
+  // A session endpoint that answers as `state.user`, or never while `state.hang`.
+  function hangingSessionReads() {
+    const state = { hang: false, user: "user-a" };
+    const fetcher = vi.fn(() =>
+      state.hang
+        ? new Promise<Response>(() => {})
+        : Promise.resolve(
+            jsonResponse({
+              userId: state.user,
+              email: `${state.user}@x.test`,
+            }),
+          ),
+    );
+    return { state, fetcher };
+  }
+
+  // Timers and the monotonic clock run fake; Date.now stays the spec's own.
+  function fakeTimersKeepingDate() {
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "performance",
+      ],
+    });
+  }
+
+  it("answers what was sent while a routine re-check hung past the budget, keeping what it accepted", async () => {
+    const module = await freshSessionModule();
+    const reads = hangingSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    await mountProbe(module);
+    const accepted = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(accepted)).toBe("current");
+    const heard: string[] = [];
+    module.subscribeSessionReadIdentity(() =>
+      heard.push(module.sessionReadIdentityStatus(accepted)),
+    );
+
+    fakeTimersKeepingDate();
+    reads.state.hang = true;
+    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const during = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(during)).toBe("pending");
+
+    // Every read hangs until the budget is spent and the resolver gives up.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    const after = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(accepted)).toBe("current");
+    expect(module.sessionReadIdentityStatus(during)).toBe("pending");
+    expect(module.sessionReadIdentityStatus(after)).toBe("pending");
+
+    // The backend comes back; reads go on in the background, backing off, and
+    // one answers without a focus or any other session event.
+    reads.state.hang = false;
+    const callsBefore = reads.fetcher.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+
+    expect(reads.fetcher.mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(module.sessionReadIdentityStatus(during)).toBe("current");
+    expect(module.sessionReadIdentityStatus(after)).toBe("current");
+    expect(module.sessionReadIdentityStatus(accepted)).toBe("current");
+    expect(new Set(heard)).toEqual(new Set(["current"]));
+  });
+
+  it("ends an invalidation whose read hung past the budget in a fresh answer, never the old account", async () => {
+    const module = await freshSessionModule();
+    const reads = hangingSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    await mountProbe(module);
+    const accepted = module.sessionReadIdentity();
+
+    fakeTimersKeepingDate();
+    reads.state.hang = true;
+    await act(async () => {
+      void module.notifySessionInvalidated();
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    const during = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(accepted)).toBe("pending");
+    expect(module.sessionReadIdentityStatus(during)).toBe("pending");
+
+    // The server now answers for someone else.
+    reads.state.hang = false;
+    reads.state.user = "user-b";
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+
+    expect(module.sessionReadIdentityStatus(accepted)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(during)).toBe("current");
+  });
+
   it("reads the session again over a new transport when one is announced, with no session read asked for", async () => {
     const module = await freshSessionModule();
     const cookieReads = heldSessionReads();

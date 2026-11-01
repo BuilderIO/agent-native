@@ -146,8 +146,9 @@ const firstSessionReadAnswerListeners = new Set<() => void>();
  *
  * A tag is `{ generation, transport }`. A generation is one session read and
  * the time it is out: the tab opens one for each session read it sends,
- * except that a read joining one already out shares its generation, and an
- * explicit invalidation opens one at once, before its read goes out. The
+ * except that a read joining one already out shares its generation, a retry
+ * shares the generation of the read it retries, and an explicit invalidation
+ * opens one at once, before its read goes out. The
  * page load's first read is generation 0, and a request the document head
  * sent beside it carries 0 too. Every other request carries the generation
  * open when it is sent, and the transport it went out on (`fetch-transport`).
@@ -172,11 +173,15 @@ const firstSessionReadAnswerListeners = new Set<() => void>();
  *     generation, promoting what was sent while it was out. An answer naming
  *     someone else replaces the identity under a fresh generation: what was
  *     accepted before and what was sent while it was out are both stale.
- *   - Retry after an unreadable answer: another read, so another generation,
- *     provisional or not as the one it follows. What was sent while the
- *     unreadable read was out is stale.
+ *   - Retry, after an unreadable answer or a read out past the retry budget:
+ *     not an identity event. Nothing accepted changes, and the retry is the
+ *     read of the generation the failed one opened, so its answer decides for
+ *     what was sent while either was out. A hung read is abandoned and its
+ *     late answer is not taken. Before the first answer a retry opens its own
+ *     generation instead and replaces the first read, and a hung first read
+ *     is replaced at once, as an invalidation.
  *   - Explicit invalidation (a peer tab's broadcast, a 401, a missed
- *     broadcast, a hung read): a new generation opens and the accepted
+ *     broadcast): a new generation opens and the accepted
  *     identity is unconfirmed, so everything waits. Its read was sent after
  *     the change, so its answer decides for what was sent while it was out:
  *     the same identity adds the generation and every accepted request is
@@ -189,6 +194,10 @@ const firstSessionReadAnswerListeners = new Set<() => void>();
  *     The session read itself also refuses an answer, or a read in flight,
  *     from another transport.
  *   - Sign-out: an explicit invalidation whose answer names no one.
+ *
+ * A generation that has not answered always has a read out or scheduled:
+ * when the resolver gives up on its budget with one open, it keeps reading in
+ * the background, backing off, until one answers.
  */
 type AcceptedSessionIdentity = {
   scope: string;
@@ -201,6 +210,10 @@ let sessionGeneration = 0;
 // Whether a session read has gone out in the open generation: the next one
 // opens another.
 let generationRead = false;
+// Bumped when a hung read is abandoned, so its late answer is not taken.
+let sessionReadAttempt = 0;
+let backgroundSessionRead: ReturnType<typeof setTimeout> | undefined;
+let backgroundSessionReads = 0;
 const sessionReadIdentityListeners = new Set<() => void>();
 let sessionInvalidationListenersInstalled = false;
 let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
@@ -360,6 +373,37 @@ function resetSessionCache(): void {
   staleSessionRecheck = undefined;
   if (before !== "replaced") notifyFirstSessionReadAnswer();
   notifySessionReadIdentity();
+}
+
+// A read out past the retry budget is given up on without invalidating: what
+// is accepted stays accepted, and the next read joins the generation the hung
+// one opened, which is still waiting for an answer.
+function abandonSessionRead(): void {
+  sessionReadAttempt += 1;
+  sessionRequest = undefined;
+  sessionRequestTransport = undefined;
+}
+
+function sessionGenerationAnswered(): boolean {
+  return Boolean(
+    acceptedConfirmed && acceptedIdentity?.generations.has(sessionGeneration),
+  );
+}
+
+const BACKGROUND_SESSION_READ_MAX_DELAY_MS = 60_000;
+
+function scheduleBackgroundSessionRead(): void {
+  clearTimeout(backgroundSessionRead);
+  const delay = Math.min(
+    SESSION_RETRY_MAX_DELAY_MS * 2 ** backgroundSessionReads,
+    BACKGROUND_SESSION_READ_MAX_DELAY_MS,
+  );
+  backgroundSessionReads += 1;
+  backgroundSessionRead = setTimeout(() => {
+    backgroundSessionRead = undefined;
+    if (signingOut || activeResolveGeneration !== 0) return;
+    void resolveSession();
+  }, delay);
 }
 
 function notifySessionSubscribers(): Promise<void> {
@@ -719,20 +763,25 @@ function fetchSharedSession(): Promise<SessionRead> {
   if (sessionRequest) return sessionRequest;
 
   // Each session read opens its own generation; the first in a generation
-  // opened by an invalidation, and the load's first read, use the one open.
-  if (generationRead) {
+  // opened by an invalidation, the load's first read, and a retry of a read
+  // that never answered once an identity is accepted use the one open.
+  if (generationRead && (!acceptedIdentity || sessionGenerationAnswered())) {
     sessionGeneration += 1;
     notifySessionReadIdentity();
   }
   generationRead = true;
   const requestGeneration = sessionGeneration;
+  const requestAttempt = sessionReadAttempt;
   const firstRead = firstSessionReadUnsent;
   firstSessionReadUnsent = false;
   let request: Promise<SessionRead>;
   const requestResult = (async (): Promise<SessionRead> => {
     try {
       const result = await fetchAuthSessionStatus();
-      if (requestGeneration !== sessionGeneration) {
+      if (
+        requestGeneration !== sessionGeneration ||
+        requestAttempt !== sessionReadAttempt
+      ) {
         return { state: "superseded" };
       }
       // Only the endpoint's own answer is definitive: a signed-out body or a
@@ -817,6 +866,8 @@ async function resolveSession(): Promise<void> {
   if (signingOut) return;
   const generation = ++resolveGeneration;
   activeResolveGeneration = generation;
+  clearTimeout(backgroundSessionRead);
+  backgroundSessionRead = undefined;
   const isCurrent = () => generation === resolveGeneration && !signingOut;
   const startedAt = monotonicNow();
   let failures = 0;
@@ -834,7 +885,8 @@ async function resolveSession(): Promise<void> {
       let hung = false;
       if (raced === RETRY_BUDGET_EXCEEDED) {
         // Abandon the hung read so the next attempt is a fresh request.
-        resetSessionCache();
+        if (acceptedIdentity) abandonSessionRead();
+        else resetSessionCache();
         invalidateClientStatusRequest(SESSION_STATUS_PATH);
         hung = true;
         read = { state: "unreadable" };
@@ -843,6 +895,7 @@ async function resolveSession(): Promise<void> {
       }
 
       if (read.state === "resolved") {
+        backgroundSessionReads = 0;
         lastResolution = {
           evidence:
             cachedEvidence ?? (read.session ? "signed_in" : "signed_out_body"),
@@ -875,6 +928,10 @@ async function resolveSession(): Promise<void> {
         // background, so a backend that comes back recovers on its own.
         if (hung && !isDefinitive(snapshot)) {
           queueMicrotask(() => void resolveSession());
+        } else if (isDefinitive(snapshot) && !sessionGenerationAnswered()) {
+          // The page is shown and a generation is still waiting: requests
+          // sent in it stay pending until a read answers it.
+          scheduleBackgroundSessionRead();
         }
         return;
       }
