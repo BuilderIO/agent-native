@@ -410,28 +410,21 @@ function measureThreadQuotes(
   return quotes;
 }
 
-/** Whether the request's AI finished an edit the page is still loading. */
-function loadingRequestSuggestion(
-  request: CommentAiRequest | undefined,
-  awaitedSuggestionIds: ReadonlySet<string>,
-) {
-  return (
-    request?.status === "suggested" &&
-    awaitedSuggestionIds.has(request.result?.suggestionId ?? "")
-  );
-}
-
-/** Whether an edit any of the thread's AI requests made is still loading. */
-function loadingThreadSuggestion(
+/** The edits the thread's AI requests made that the page is still loading. */
+function loadingThreadSuggestionIds(
   requests: readonly CommentAiRequest[],
   threadId: string,
   awaitedSuggestionIds: ReadonlySet<string>,
 ) {
-  return requests.some(
-    (request) =>
-      request.threadId === threadId &&
-      loadingRequestSuggestion(request, awaitedSuggestionIds),
-  );
+  return requests.flatMap((request) => {
+    const suggestionId = request.result?.suggestionId;
+    return request.threadId === threadId &&
+      request.status === "suggested" &&
+      suggestionId &&
+      awaitedSuggestionIds.has(suggestionId)
+      ? [suggestionId]
+      : [];
+  });
 }
 
 /** Whether a thread's tab is on the page but not open. */
@@ -2743,11 +2736,11 @@ export function CommentsSidebar({
         ) ||
         Boolean(
           commentAi &&
-          loadingThreadSuggestion(
+          loadingThreadSuggestionIds(
             commentAi.requests,
             threadId,
             awaitedSuggestionIds,
-          ),
+          ).length > 0,
         );
       if (
         thread &&
@@ -3070,18 +3063,13 @@ export function CommentsSidebar({
     const aiWorking = Boolean(
       commentAi && isCommentAiWorkingOn(commentAi, thread.threadId),
     );
-    const aiSuggestionLoading = loadingRequestSuggestion(
-      aiRequest,
-      awaitedSuggestionIds,
-    );
-    const threadSuggestionLoading = Boolean(
-      commentAi &&
-      loadingThreadSuggestion(
-        commentAi.requests,
-        thread.threadId,
-        awaitedSuggestionIds,
-      ),
-    );
+    const loadingSuggestionIds = commentAi
+      ? loadingThreadSuggestionIds(
+          commentAi.requests,
+          thread.threadId,
+          awaitedSuggestionIds,
+        )
+      : [];
     const suggestionProps = (members: ResourceSuggestion[]) => {
       const proposalId = members.length > 1 ? members[0]?.proposalId : null;
       const pendingMembers = suggestions.filter(
@@ -3093,7 +3081,7 @@ export function CommentsSidebar({
       // the last group with any left offers to resolve, and none while an
       // edit is still loading.
       const pendingElsewhere =
-        threadSuggestionLoading ||
+        loadingSuggestionIds.length > 0 ||
         embedded.some(
           (suggestion) =>
             suggestion.status === "pending" && !members.includes(suggestion),
@@ -3375,11 +3363,15 @@ export function CommentsSidebar({
                   continuation={continuation}
                 />
               ) : null}
-              {aiSuggestionLoading && !showsRequestSuggestion ? (
+              {/* Any request's edit still loading holds the thread open, so the
+                  thread shows it loading and, once a read fails, a retry. */}
+              {loadingSuggestionIds.some(
+                (id) => !embedded.some((suggestion) => suggestion.id === id),
+              ) ? (
                 <ThreadSuggestionPlaceholder
                   onRetry={
-                    unreadableSuggestionIds.has(
-                      aiRequest?.result?.suggestionId ?? "",
+                    loadingSuggestionIds.some((id) =>
+                      unreadableSuggestionIds.has(id),
                     )
                       ? onRetrySuggestionRead
                       : undefined

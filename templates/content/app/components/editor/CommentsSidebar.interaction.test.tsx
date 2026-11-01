@@ -767,23 +767,40 @@ describe("comment review interactions", () => {
     });
 
     it("offers no resolve while an earlier request's edit is still loading", () => {
-      render("one", [thread("one")], "inline", {
-        suggestions: [asked("first", "pending"), asked("second", "pending")],
-        onDecideSuggestionProposal: decide,
-        decidingSuggestion: () => deciding,
-        commentAi: commentAiWithRequests([
-          suggestedRequest(
-            "earlier",
-            "request-earlier",
-            "2026-10-20T11:00:00Z",
-          ),
-          { ...suggestedRequest("first"), status: "replied" },
-        ]),
-        awaitedSuggestionIds: new Set(["earlier"]),
-      });
+      const retryRead = vi.fn();
+      const showEarlier = (unreadable: ReadonlySet<string>) =>
+        render("one", [thread("one")], "inline", {
+          suggestions: [asked("first", "pending"), asked("second", "pending")],
+          onDecideSuggestionProposal: decide,
+          decidingSuggestion: () => deciding,
+          commentAi: commentAiWithRequests([
+            suggestedRequest(
+              "earlier",
+              "request-earlier",
+              "2026-10-20T11:00:00Z",
+            ),
+            { ...suggestedRequest("first"), status: "replied" },
+          ]),
+          awaitedSuggestionIds: new Set(["earlier"]),
+          unreadableSuggestionIds: unreadable,
+          onRetrySuggestionRead: retryRead,
+        });
+
+      showEarlier(new Set());
       expect(
         container.querySelector("[data-suggestion-accept-resolve]"),
       ).toBeNull();
+      expect(
+        container.querySelector("[data-thread-suggestion-placeholder]"),
+      ).not.toBeNull();
+
+      // The thread stays open on its read, so a failed one offers a retry.
+      showEarlier(new Set(["earlier"]));
+      const failed = container.querySelector(
+        '[data-thread-suggestion-placeholder="failed"]',
+      );
+      act(() => failed?.querySelector("button")?.click());
+      expect(retryRead).toHaveBeenCalled();
     });
 
     it("leaves the thread open when its AI adds an edit during the accept", () => {

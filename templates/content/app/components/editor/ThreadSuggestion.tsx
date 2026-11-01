@@ -269,10 +269,6 @@ export function ThreadSuggestionBody({
   );
 }
 
-/**
- * Holds a thread suggestion's place, under the reply that announced it, until
- * the suggestion itself loads.
- */
 /** Holds a suggestion's place while it loads, or offers a retry once its read fails. */
 export function ThreadSuggestionPlaceholder({
   onRetry,
