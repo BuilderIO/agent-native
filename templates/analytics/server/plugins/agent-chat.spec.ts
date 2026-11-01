@@ -952,7 +952,7 @@ function guardContext(params: {
   } = {
     messages: [userMessage(params.userText)],
     requestText: params.requestText ?? params.userText,
-    runStartedAt: params.runStartedAt,
+    runStartedAt: params.runStartedAt ?? Date.UTC(2026, 9, 15, 19, 0),
     assistantContent: [],
     text: params.draftText,
     toolCalls: params.toolCalls ?? [],
@@ -5179,7 +5179,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 });
 
 describe("realDataFinalGuard", () => {
-  const today = new Date();
+  const today = new Date(Date.UTC(2026, 9, 15, 19, 0));
   const todayUtc = new Date(
     Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
   );
