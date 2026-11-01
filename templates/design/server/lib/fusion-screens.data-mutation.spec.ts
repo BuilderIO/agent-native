@@ -47,6 +47,7 @@ vi.mock("@agent-native/core/collab", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => values,
+  or: (...values: unknown[]) => values,
   eq: (left: unknown, right: unknown) => ({ left, right }),
   sql: vi.fn(),
 }));
@@ -310,7 +311,11 @@ describe("fusion screen designs.data mutation", () => {
         from: vi.fn(() => ({
           where: vi.fn(() => ({
             limit: vi.fn(async () => [
-              { id: "raced-home", filename: "home.html" },
+              {
+                id: "raced-home",
+                filename: "home.html",
+                content: "https://example.test/",
+              },
             ]),
           })),
         })),

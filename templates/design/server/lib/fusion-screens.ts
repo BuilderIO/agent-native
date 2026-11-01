@@ -4,7 +4,7 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -239,7 +239,8 @@ export async function upsertFusionScreens(args: {
     }
     if (!existing) {
       // Under the design's lock, so a bind running at the same time (the
-      // open and the editor's first sync) can't insert this screen twice.
+      // open and the editor's first sync) can't insert this screen twice,
+      // even with a different URL: it is matched by URL or by name.
       const racedFile = await withDesignSourceMutationTransaction(
         designId,
         async (tx) => {
@@ -247,17 +248,29 @@ export async function upsertFusionScreens(args: {
             .select({
               id: schema.designFiles.id,
               filename: schema.designFiles.filename,
+              content: schema.designFiles.content,
             })
             .from(schema.designFiles)
             .where(
               and(
                 eq(schema.designFiles.designId, designId),
-                eq(schema.designFiles.content, url),
+                or(
+                  eq(schema.designFiles.content, url),
+                  eq(schema.designFiles.filename, filename),
+                ),
               ),
             )
             .limit(1);
           const raced = rows[0] as (typeof rows)[number] | undefined;
-          if (raced) return raced;
+          if (raced) {
+            if (raced.content.trim() !== url) {
+              await tx
+                .update(schema.designFiles)
+                .set({ content: url, updatedAt: now })
+                .where(eq(schema.designFiles.id, raced.id));
+            }
+            return raced;
+          }
           await tx.insert(schema.designFiles).values({
             id: fileId,
             designId,
@@ -273,6 +286,13 @@ export async function upsertFusionScreens(args: {
       if (racedFile) {
         fileId = racedFile.id;
         filename = racedFile.filename;
+        if (racedFile.content.trim() !== url) {
+          if (await hasCollabState(fileId)) {
+            await applyText(fileId, url, "content", "agent");
+          } else {
+            await seedFromText(fileId, url);
+          }
+        }
       } else {
         await seedFromText(fileId, url);
       }
