@@ -79,8 +79,9 @@ const IMAGE_BYTE_FIELD_KEYS = new Set([
 ]);
 // URL schemes are case-insensitive: `DATA:image/png;base64,...` is still bytes.
 const DATA_SCHEME = /data:/i;
+// A malformed header must stop before another data: prefix.
 const EMBEDDED_DATA_URL =
-  /\bdata:(?:[\w.+-]+\/[\w.+-]+)?(?:;[^,;\s"'<>]*)*,[^\s"'<>)\]]+/gi;
+  /\bdata:(?:[\w.+-]+\/[\w.+-]+)?(?:;[^,;:\s"'<>]*)*,[^\s"'<>)\]]+/gi;
 
 function hasInlineByteProperty(json: string): boolean {
   for (const match of json.matchAll(/"((?:\\.|[^"\\])*)"\s*:/g)) {
