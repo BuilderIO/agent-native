@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const adhocAnalysisSkill = readFileSync(
   new URL("../../.agents/skills/adhoc-analysis/SKILL.md", import.meta.url),
@@ -964,6 +964,16 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard dbt fallback disclosure", () => {
+  // These fixtures read "last month" as September 2026, so the clock stays in
+  // October 2026 or every relative-date case fails once the month turns.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-24T12:00:00Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const dbtNotFound = {
     name: "query-dbt-semantic-metric",
     isError: false,
@@ -5209,6 +5219,18 @@ describe("realDataFinalGuard", () => {
       .toISOString()
       .slice(0, 10),
   };
+  const lastMonthRange = {
+    startDate: new Date(
+      Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth() - 1, 1),
+    )
+      .toISOString()
+      .slice(0, 10),
+    endDate: new Date(
+      Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), 0),
+    )
+      .toISOString()
+      .slice(0, 10),
+  };
 
   function dbtMetricCall(
     timeRange: {
@@ -7003,10 +7025,7 @@ describe("realDataFinalGuard", () => {
   });
 
   it("requires a separate partial disclosure for every incomplete dbt metric", () => {
-    const resultRange = {
-      startDate: "2026-09-01",
-      endDate: "2026-09-30",
-    };
+    const resultRange = lastMonthRange;
     const result = realDataFinalGuard(
       guardContext({
         userText: "Compare active accounts and activation rate last month.",
@@ -7069,10 +7088,7 @@ describe("realDataFinalGuard", () => {
   });
 
   it("does not let a partial disclosure release a different unresolved metric", () => {
-    const resultRange = {
-      startDate: "2026-09-01",
-      endDate: "2026-09-30",
-    };
+    const resultRange = lastMonthRange;
     const result = realDataFinalGuard(
       guardContext({
         userText: "Compare active accounts and activation rate last month.",
