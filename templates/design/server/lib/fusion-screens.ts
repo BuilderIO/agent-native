@@ -173,7 +173,7 @@ export async function upsertFusionScreens(args: {
   for (let index = 0; index < paths.length; index += 1) {
     const path = paths[index]!;
     const screenUrl = new URL(path.replace(/^\/+/, ""), resolutionBase);
-    const url = originRelativeBase
+    let url = originRelativeBase
       ? `${screenUrl.pathname}${screenUrl.search}`
       : screenUrl.toString();
     const preferredFilename = screenFilename(path);
@@ -262,15 +262,7 @@ export async function upsertFusionScreens(args: {
             )
             .limit(1);
           const raced = rows[0] as (typeof rows)[number] | undefined;
-          if (raced && isAppScreenFile(raced)) {
-            if (raced.content.trim() !== url) {
-              await tx
-                .update(schema.designFiles)
-                .set({ content: url, updatedAt: now })
-                .where(eq(schema.designFiles.id, raced.id));
-            }
-            return raced;
-          }
+          if (raced && isAppScreenFile(raced)) return raced;
           // A user's own file that took the name meanwhile is never adopted:
           // the screen gets a fresh name instead.
           if (raced) {
@@ -290,15 +282,11 @@ export async function upsertFusionScreens(args: {
         },
       );
       if (racedFile) {
+        // Taken as it is, URL included, so its file and metadata agree; a
+        // later sync re-points it if this bind's URL was the newer one.
         fileId = racedFile.id;
         filename = racedFile.filename;
-        if (racedFile.content.trim() !== url) {
-          if (await hasCollabState(fileId)) {
-            await applyText(fileId, url, "content", "agent");
-          } else {
-            await seedFromText(fileId, url);
-          }
-        }
+        url = racedFile.content.trim();
       } else {
         await seedFromText(fileId, url);
       }
