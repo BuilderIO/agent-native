@@ -16,7 +16,9 @@ export type FetchTransport = typeof fetch | object;
 type MarkedFetch = typeof fetch & { [TRANSPORT]?: () => FetchTransport };
 
 const MAX_WRAPPER_DEPTH = 16;
-const bearerTransports = new Map<string, object>();
+// Only the token requests carry now: a rotated-out token is not kept, and
+// one that comes back is a new transport.
+let currentBearer: { token: string; transport: object } | undefined;
 
 export function markFetchTransport(
   wrapper: typeof fetch,
@@ -35,12 +37,12 @@ export function markPassThroughFetch(
 
 /** The transport of requests that carry this bearer token. */
 export function bearerTransport(token: string): object {
-  let transport = bearerTransports.get(token);
-  if (!transport) {
-    transport = {};
-    bearerTransports.set(token, transport);
-  }
-  return transport;
+  if (currentBearer?.token !== token) currentBearer = { token, transport: {} };
+  return currentBearer.transport;
+}
+
+export function _bearerTokensHeldForTests(): string[] {
+  return currentBearer ? [currentBearer.token] : [];
 }
 
 /** The transport a request sent with this fetch goes out on now. */
