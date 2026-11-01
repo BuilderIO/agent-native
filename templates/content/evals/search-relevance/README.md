@@ -56,13 +56,13 @@ ids appear in the results.
 
 - `access` cases must always pass, unconditionally. This is not
   baseline-relative.
-- `known-item` and `passage`: the test fails if the current top-3 hit rate
-  or MRR drops below the recorded baseline by more than a small float
-  epsilon (`0.005`).
-- `typo` and `question` are report-only (`gating: false` in
-  `baseline.json`) because neither the scan nor the index corrects typos
-  or satisfies an AND-of-every-word match against a natural question yet.
-  Later phases flip these to gating once search targets them.
+- `known-item`, `passage`, and `typo`: the test fails if the current top-3
+  hit rate or MRR drops below the recorded baseline by more than a small
+  float epsilon (`0.005`). Typo cases gate since `search-documents` gained
+  its typo pass.
+- `question` is report-only (`gating: false` in `baseline.json`) because
+  search doesn't yet satisfy an AND-of-every-word match against a natural
+  question. A later phase flips it to gating once search targets it.
 
 ## Running
 

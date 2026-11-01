@@ -267,7 +267,7 @@ interface BaselineFile {
 const GATING: Record<SearchEvalCaseClass, boolean> = {
   "known-item": true,
   passage: true,
-  typo: false,
+  typo: true,
   question: false,
   access: true,
 };
@@ -397,12 +397,12 @@ describe("search relevance eval", () => {
     ).toEqual([]);
   });
 
-  it("does not regress known-item or passage relevance versus the recorded baseline", () => {
+  it("does not regress known-item, passage, or typo relevance versus the recorded baseline", () => {
     if (UPDATE_BASELINE) return;
     const recorded: BaselineFile = JSON.parse(
       readFileSync(BASELINE_PATH, "utf8"),
     );
-    for (const cls of ["known-item", "passage"] as const) {
+    for (const cls of ["known-item", "passage", "typo"] as const) {
       const current = currentBaseline.classes[cls];
       const baseline = recorded.classes[cls];
       expect(
@@ -416,8 +416,8 @@ describe("search relevance eval", () => {
     }
   });
 
-  it("keeps typo and question classes marked report-only", () => {
-    expect(currentBaseline.classes.typo.gating).toBe(false);
+  it("gates typo cases and keeps question cases report-only", () => {
+    expect(currentBaseline.classes.typo.gating).toBe(true);
     expect(currentBaseline.classes.question.gating).toBe(false);
   });
 });
