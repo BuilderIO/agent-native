@@ -1,5 +1,9 @@
 import { apiBaseUrl, isApiBaseUrl } from "./api-path.js";
-import { markPassThroughFetch } from "./fetch-transport.js";
+import {
+  fetchTransport,
+  markFetchTransport,
+  type FetchTransport,
+} from "./fetch-transport.js";
 
 let installed = false;
 
@@ -84,6 +88,37 @@ export function installBackendXhr(
   xhr.prototype.open = patchedOpen as XMLHttpRequest["open"];
 }
 
+// Requests this wrapper sends to the app server carry the credentials of the
+// transport underneath, such as embed auth's bearer, but go to the server's
+// origin with its cookies. So they are a transport of their own: one per
+// (transport underneath, server origin), which a token change underneath
+// changes and which never equals the page's own transport.
+const backendTransports = new WeakMap<
+  FetchTransport,
+  Map<string | undefined, object>
+>();
+
+export function backendTransport(
+  underlying: FetchTransport,
+  apiBase: string | undefined,
+): object {
+  const origin =
+    apiBase !== undefined && URL.canParse(apiBase)
+      ? new URL(apiBase).origin
+      : apiBase;
+  let byOrigin = backendTransports.get(underlying);
+  if (!byOrigin) {
+    byOrigin = new Map();
+    backendTransports.set(underlying, byOrigin);
+  }
+  let transport = byOrigin.get(origin);
+  if (!transport) {
+    transport = {};
+    byOrigin.set(origin, transport);
+  }
+  return transport;
+}
+
 export function ensureBackendFetchInterceptor(): void {
   if (installed || typeof window === "undefined") return;
   if (typeof window.fetch !== "function" || !apiBaseUrl()) return;
@@ -98,8 +133,9 @@ export function ensureBackendFetchInterceptor(): void {
     );
     return originalFetch(nextInput, nextInit);
   }) as typeof fetch;
-  // Same credentials as the fetch underneath, such as embed auth's bearer.
-  markPassThroughFetch(patchedFetch, pageFetch);
+  markFetchTransport(patchedFetch, () =>
+    backendTransport(fetchTransport(pageFetch), apiBaseUrl()),
+  );
   win.fetch = patchedFetch;
   if (typeof win.XMLHttpRequest === "function") {
     installBackendXhr(win.XMLHttpRequest, () => win.location.href);
