@@ -9,6 +9,7 @@ import { getSsrSessionBootstrapScriptBody } from "../shared/ssr-session-bootstra
 import {
   fetchAuthSessionStatus,
   invalidateClientStatusRequests,
+  SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
 import {
   _resetEmbedAuthForTests,
@@ -211,6 +212,52 @@ describe("session reads over a cookie and a bearer transport", () => {
     });
     // The head's request answers it; nothing more is sent.
     expect(network).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops the head's cookie read held for a later caller once it outlives a cached session answer", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(1_000_000);
+      runSessionHeadScript();
+      await window.__agentNativeSessionBootstrap;
+      vi.stubGlobal("fetch", installEmbedRuntime(network));
+      await fetchAuthSessionStatus();
+      expect(network).toHaveBeenCalledTimes(2);
+
+      // Just inside the answer's lifetime, the held read still answers.
+      vi.setSystemTime(1_000_000 + SESSION_RESULT_LIFETIME_MS - 1);
+      expect(window.__agentNativeSessionBootstrap).toBeDefined();
+
+      vi.setSystemTime(1_000_000 + SESSION_RESULT_LIFETIME_MS);
+      vi.stubGlobal("fetch", network);
+      await expect(fetchAuthSessionStatus()).resolves.toEqual({
+        state: "available",
+        value: { userId: "cookie-user" },
+      });
+      // Read again rather than taken from the head's aged answer.
+      expect(network).toHaveBeenCalledTimes(3);
+      expect(sentWith(2).credentials).toBe("same-origin");
+      expect(window.__agentNativeSessionBootstrap).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still answers a later caller from the head's read inside a cached answer's lifetime", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(1_000_000);
+      runSessionHeadScript();
+      await window.__agentNativeSessionBootstrap;
+      vi.setSystemTime(1_000_000 + SESSION_RESULT_LIFETIME_MS - 1);
+      await expect(fetchAuthSessionStatus()).resolves.toEqual({
+        state: "available",
+        value: { userId: "cookie-user" },
+      });
+      expect(network).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not answer a cookie caller with the MCP host runtime's bearer session, or the reverse, while either is fresh", async () => {

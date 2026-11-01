@@ -10,6 +10,7 @@ import {
   ENVIRONMENT_BETA_HOSTS,
 } from "./environment-lanes.js";
 import {
+  recordSessionBootstrapAnswerScript,
   recordSessionInvalidationMarkerScript,
   SESSION_BOOTSTRAP_FETCH_GLOBAL,
   SESSION_NAVIGATION_FLAG,
@@ -118,6 +119,10 @@ export function getSsrBetaRedirectScriptBody(
         return { state: 'unavailable' };
       });
       if (sharesAppRead) {
+        read = read.then(function (result) {
+          ${recordSessionBootstrapAnswerScript()}
+          return result;
+        });
         window[${JSON.stringify(SESSION_BOOTSTRAP_FETCH_GLOBAL)}] = window.fetch;
         window.__agentNativeSessionBootstrap = read;
       }

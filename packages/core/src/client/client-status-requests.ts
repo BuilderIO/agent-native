@@ -1,4 +1,7 @@
-import { SESSION_BOOTSTRAP_FETCH_GLOBAL } from "../shared/ssr-session-bootstrap.js";
+import {
+  SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL,
+  SESSION_BOOTSTRAP_FETCH_GLOBAL,
+} from "../shared/ssr-session-bootstrap.js";
 import { agentNativePath } from "./api-path.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import { fetchTransport } from "./fetch-transport.js";
@@ -147,18 +150,28 @@ function statusRequestKey(
 function forgetSessionBootstrap(): void {
   delete window.__agentNativeSessionBootstrap;
   delete window[SESSION_BOOTSTRAP_FETCH_GLOBAL];
+  delete window[SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL];
 }
 
 /**
  * The shell's session read, taken once, by the first caller on the transport
  * it went out on. A caller on any other transport reads the session for
- * itself and leaves the shell's read for one that matches.
+ * itself and leaves the shell's read for one that matches, for as long as a
+ * cached session answer would last: an older answer is dropped, not taken.
  */
 function takeSessionBootstrap(
   options?: ClientStatusRequestOptions,
 ): Promise<ClientStatusResult<unknown>> | undefined {
   const bootstrap = window.__agentNativeSessionBootstrap;
   if (!bootstrap) return undefined;
+  const answeredAt = window[SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL];
+  if (
+    typeof answeredAt === "number" &&
+    Date.now() - answeredAt >= SESSION_RESULT_LIFETIME_MS
+  ) {
+    forgetSessionBootstrap();
+    return undefined;
+  }
   const bootstrapFetch = window[SESSION_BOOTSTRAP_FETCH_GLOBAL];
   if (typeof bootstrapFetch !== "function") {
     forgetSessionBootstrap();

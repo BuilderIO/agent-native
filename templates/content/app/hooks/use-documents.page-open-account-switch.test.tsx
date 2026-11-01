@@ -297,3 +297,123 @@ describe("an account switch in another tab while the app code downloads", () => 
     queryClient.clear();
   });
 });
+
+// The same load with no switch: the session is read again later, when the
+// browser regains focus after the answer's lifetime, and names A again. The
+// page stays accepted throughout and the tab keeps its title.
+describe("a routine session re-check that names the same account", () => {
+  let container: HTMLDivElement;
+  let root: Root | null;
+
+  beforeEach(() => {
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    server.account = "a";
+    server.sessionReads = [];
+    server.calls = [];
+    window.history.replaceState(null, "", "/page/doc-1");
+    document.cookie = "an_session_hint=1; path=/";
+    vi.stubGlobal("fetch", vi.fn(serverFetch));
+    container = document.createElement("div");
+    document.body.append(container);
+    root = null;
+  });
+
+  afterEach(() => {
+    delete (window.document as { title?: string }).title;
+    const mounted = root;
+    if (mounted) act(() => mounted.unmount());
+    container.remove();
+    delete (window as { __agentNativeSessionBootstrap?: unknown })
+      .__agentNativeSessionBootstrap;
+    delete (window as { __contentStartupPageRead?: unknown })
+      .__contentStartupPageRead;
+    document.cookie = "an_session_hint=; path=/; max-age=0";
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the page accepted and the tab's title while the session is read again", async () => {
+    const { getSsrSessionBootstrapScriptBody } =
+      await import("@agent-native/core/shared/ssr-session-bootstrap");
+    const { startupPageReadScript } = await import("../lib/page-open-reads");
+    const headScripts = [
+      getSsrSessionBootstrapScriptBody(SESSION_PATH),
+      startupPageReadScript(PAGE_READ_URL),
+    ];
+    vi.resetModules();
+    for (const script of headScripts) new Function(script)();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const { useSession } =
+      await import("@agent-native/core/client/use-session");
+    const { RequireSession } = await import("@agent-native/toolkit/app/auth");
+    const { startPageOpenDocumentReads, usePageOpenDocument } =
+      await import("./use-documents");
+    const { usePageTabTitle } = await import("./use-page-tab-title");
+
+    const tabTitles: string[] = [];
+    let tabTitle = "Content";
+    Object.defineProperty(window.document, "title", {
+      configurable: true,
+      get: () => tabTitle,
+      set: (value: string) => {
+        tabTitle = value;
+        tabTitles.push(value);
+      },
+    });
+
+    const queryClient = new QueryClient();
+    const accepted: boolean[] = [];
+    function Page() {
+      useSession();
+      const { query, fetchedForThisOpen } = usePageOpenDocument("doc-1", {});
+      const pageTitle = (query.data as Document | undefined)?.title;
+      const isAccepted = !query.isError && fetchedForThisOpen;
+      usePageTabTitle(
+        pageTitle === undefined ? null : `${pageTitle} — Content`,
+        isAccepted,
+      );
+      accepted.push(isAccepted);
+      return null;
+    }
+
+    startPageOpenDocumentReads(queryClient, "doc-1", {}, { fromLoad: true });
+    const app = createRoot(container);
+    root = app;
+    await act(async () => {
+      app.render(
+        <QueryClientProvider client={queryClient}>
+          <RequireSession redirect={false}>
+            <Page />
+          </RequireSession>
+        </QueryClientProvider>,
+      );
+    });
+    await vi.waitFor(() => expect(tabTitle).toBe("a's page — Content"));
+    const acceptedAt = accepted.length;
+    const titledAt = tabTitles.length;
+
+    // Focus after the answer's lifetime: the session is read again, as A.
+    const later = Date.now() + 60_000;
+    vi.spyOn(Date, "now").mockReturnValue(later);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(server.sessionReads).toEqual(["a", "a"]));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(accepted.slice(acceptedAt).every(Boolean)).toBe(true);
+    expect(tabTitles.slice(titledAt)).toEqual([]);
+    expect(tabTitle).toBe("a's page — Content");
+    // The page was not read again either.
+    expect(server.calls.filter((call) => call.name === "get-document")).toEqual(
+      [],
+    );
+    queryClient.clear();
+  });
+});

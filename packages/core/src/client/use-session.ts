@@ -117,6 +117,7 @@ const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 let cachedSession: ClientAuthSession | null | undefined;
 let cachedSessionAt = 0;
 let sessionRequest: Promise<SessionRead> | undefined;
+let sessionRequestTransport: FetchTransport | undefined;
 let trackedSessionIdentity: string | null | undefined;
 let trackedSessionAuthUserId: string | undefined;
 let sessionGeneration = 0;
@@ -284,6 +285,7 @@ function resetSessionCache(): void {
   cachedSessionAt = 0;
   cachedEvidence = undefined;
   sessionRequest = undefined;
+  sessionRequestTransport = undefined;
   clearTimeout(staleSessionRecheck);
   staleSessionRecheck = undefined;
   if (before !== "replaced") notifyFirstSessionReadAnswer();
@@ -307,8 +309,15 @@ function invalidateSessionCache(): Promise<void> {
   return notifySessionSubscribers();
 }
 
+// A routine re-check asks the server again but keeps the identity this tab
+// accepts while it is out: requests sent as that identity stay shown, and an
+// answer naming the same identity changes nothing. Only an answer naming
+// someone else, a switch of transport, or an explicit invalidation replaces
+// it.
 function rereadSession(): void {
-  resetSessionCache();
+  cachedSessionAt = 0;
+  clearTimeout(staleSessionRecheck);
+  staleSessionRecheck = undefined;
   expireClientStatusResult(SESSION_STATUS_PATH);
   void notifySessionSubscribers();
 }
@@ -635,6 +644,20 @@ function fetchSharedSession(): Promise<SessionRead> {
   if (agentNativeApiDisabledReason()) {
     return Promise.resolve({ state: "resolved", session: null });
   }
+  // The status read takes the shell's answer only over this same transport,
+  // so this is the transport the answer was read over either way.
+  const transport = currentFetchTransport();
+  // An answer read over another transport names whoever that transport's
+  // credentials did, not whom this caller's requests go out as: once an embed
+  // signs the page's requests with its bearer token they are B's, even while
+  // the cookie read said A. Neither that answer nor a read still out on that
+  // transport is reused; the session is read again over this one.
+  if (
+    (cachedSessionIdentity && cachedSessionIdentity.transport !== transport) ||
+    (sessionRequest && sessionRequestTransport !== transport)
+  ) {
+    resetSessionCache();
+  }
   if (hasFreshSessionCache()) {
     return Promise.resolve({
       state: "resolved",
@@ -646,9 +669,6 @@ function fetchSharedSession(): Promise<SessionRead> {
   const requestGeneration = sessionGeneration;
   const firstRead = firstSessionReadUnsent;
   firstSessionReadUnsent = false;
-  // The status read takes the shell's answer only over this same transport,
-  // so this is the transport the answer was read over either way.
-  const transport = currentFetchTransport();
   let request: Promise<SessionRead>;
   const requestResult = (async (): Promise<SessionRead> => {
     try {
@@ -674,12 +694,22 @@ function fetchSharedSession(): Promise<SessionRead> {
           ? null
           : (data as AuthSessionResponse & ClientAuthSession);
       const answerBefore = firstSessionReadAnswer();
+      const scope = sessionScope(session);
+      // A re-check that names the identity already accepted changes nothing:
+      // whatever was accepted, the first read's answer included, still is.
+      const sameIdentity =
+        !firstRead &&
+        cachedSessionIdentity?.scope === scope &&
+        cachedSessionIdentity.transport === transport;
+      const identityBefore = cachedSessionIdentity;
       cachedSession = session;
-      cachedSessionIdentity = { scope: sessionScope(session), transport };
-      if (firstRead) firstSessionReadIdentity = cachedSessionIdentity;
+      if (!sameIdentity) {
+        cachedSessionIdentity = { scope, transport };
+        if (firstRead) firstSessionReadIdentity = cachedSessionIdentity;
+        cachedSessionFromFirstRead = firstRead;
+        if (!firstRead) firstSessionReadReplaced = true;
+      }
       cachedSessionAt = Date.now();
-      cachedSessionFromFirstRead = firstRead;
-      if (!firstRead) firstSessionReadReplaced = true;
       cachedEvidence = session
         ? "signed_in"
         : result.state === "unavailable"
@@ -689,7 +719,7 @@ function fetchSharedSession(): Promise<SessionRead> {
       if (firstSessionReadAnswer() !== answerBefore) {
         notifyFirstSessionReadAnswer();
       }
-      notifySessionReadIdentity();
+      if (cachedSessionIdentity !== identityBefore) notifySessionReadIdentity();
       return { state: "resolved", session };
     } catch {
       return { state: "unreadable" };
@@ -700,6 +730,7 @@ function fetchSharedSession(): Promise<SessionRead> {
   });
 
   sessionRequest = request;
+  sessionRequestTransport = transport;
 
   return sessionRequest;
 }
