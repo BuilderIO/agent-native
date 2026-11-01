@@ -62,21 +62,32 @@ const budgets = JSON.parse(
   readFileSync(new URL("./runtime-budget.json", import.meta.url), "utf8"),
 ) as BudgetFile;
 
-function seedDesign(): string {
+function seedDesign(url: string): string {
+  const args = [
+    "exec",
+    "tsx",
+    "e2e/fixtures/seed-perf-stress-design.ts",
+    "--base-url",
+    url,
+    "--copies",
+    String(budgets.copies),
+    "--title",
+    "Runtime budget",
+  ];
+  // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
+  // shell. Quote each argument there so the title stays one argument. cmd.exe
+  // still expands %NAME% inside quotes and can't escape a quote, so refuse those.
+  const windows = process.platform === "win32";
+  const unsafe = windows ? args.find((arg) => /["%]/.test(arg)) : undefined;
+  if (unsafe !== undefined) {
+    throw new Error(
+      `cmd.exe would change ${JSON.stringify(unsafe)}: pass a --base-url without a quote or percent sign on Windows.`,
+    );
+  }
   const output = execFileSync(
-    "pnpm",
-    [
-      "exec",
-      "tsx",
-      "e2e/fixtures/seed-perf-stress-design.ts",
-      "--base-url",
-      baseUrl!,
-      "--copies",
-      String(budgets.copies),
-      "--title",
-      "Runtime budget",
-    ],
-    { cwd: designRoot, encoding: "utf8" },
+    windows ? ["pnpm", ...args].map((arg) => `"${arg}"`).join(" ") : "pnpm",
+    windows ? [] : args,
+    { cwd: designRoot, encoding: "utf8", shell: windows },
   );
   const id = /^design (\S+) /m.exec(output)?.[1];
   if (!id) throw new Error(`seeding printed no design id:\n${output}`);
@@ -100,7 +111,7 @@ async function postAction(name: string, input: unknown): Promise<unknown> {
   return response.json();
 }
 
-if (!values.design) seededDesignId = seedDesign();
+if (!values.design) seededDesignId = seedDesign(baseUrl);
 const designId = values.design ?? seededDesignId!;
 const sessionStartedAt = Date.now();
 

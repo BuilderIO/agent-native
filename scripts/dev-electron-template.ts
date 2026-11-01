@@ -2,6 +2,8 @@
 
 import { spawn } from "node:child_process";
 
+import { pnpmCommand } from "./lib/pnpm-command.ts";
+
 const [appName, portText, delayText] = process.argv.slice(2);
 const port = Number(portText);
 const delayMs = Number(delayText);
@@ -21,15 +23,15 @@ if (
 
 await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const child = spawn(pnpm, ["--dir", `templates/${appName}`, "exec", "vite"], {
+const pnpm = pnpmCommand(["--dir", `templates/${appName}`, "exec", "vite"]);
+const child = spawn(pnpm.command, pnpm.args, {
   cwd: process.cwd(),
   env: {
     ...process.env,
     APP_NAME: appName,
     PORT: String(port),
   },
-  shell: process.platform === "win32",
+  shell: pnpm.shell,
   stdio: "inherit",
 });
 

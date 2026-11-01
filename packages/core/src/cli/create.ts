@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "child_process";
+import { execFileSync, execSync, spawnSync } from "child_process";
 import fs from "fs";
 import { Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -818,7 +818,8 @@ function workspaceAppNameForTemplateSelection(templateName: string): string {
 
 function hasPnpm(): boolean {
   try {
-    execFileSync("pnpm", ["--version"], { stdio: "ignore" });
+    // Through a shell, so Windows finds the pnpm.cmd shim.
+    execSync("pnpm --version", { stdio: "ignore" });
     return true;
   } catch {
     return false;

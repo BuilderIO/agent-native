@@ -42,6 +42,11 @@ import {
   GUARD_EXIT_COULD_NOT_RUN,
   requireAddedLines,
 } from "./lib/changed-lines.mjs";
+import {
+  pnpmCommand,
+  type PnpmCommand,
+  WINDOWS_COMMAND_LINE_LIMIT,
+} from "./lib/pnpm-command.ts";
 
 const GUARD_NAME = "guard:strict-lint";
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -152,6 +157,41 @@ export function oxlintArgs(files: string[]): string[] {
   ];
 }
 
+/**
+ * Splits files into oxlint runs of at most BATCH_SIZE. On Windows pnpm runs
+ * through cmd.exe, so a run there also ends before its command line passes
+ * WINDOWS_COMMAND_LINE_LIMIT, the length that fits cmd.exe's limit.
+ */
+export function lintBatches(
+  files: string[],
+  platform: NodeJS.Platform = process.platform,
+): string[][] {
+  const lineLimit =
+    platform === "win32"
+      ? WINDOWS_COMMAND_LINE_LIMIT
+      : Number.POSITIVE_INFINITY;
+  const baseLength = pnpmCommand(oxlintArgs([]), platform).command.length;
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  let length = baseLength;
+  for (const file of files) {
+    // Each file adds its two quotes and the space before it.
+    const added = file.length + 3;
+    if (
+      batch.length > 0 &&
+      (batch.length >= BATCH_SIZE || length + added > lineLimit)
+    ) {
+      batches.push(batch);
+      batch = [];
+      length = baseLength;
+    }
+    batch.push(file);
+    length += added;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
+}
+
 function couldNotRun(reason: string): never {
   console.error(`${GUARD_NAME}: could not run - ${reason}`);
   process.exit(GUARD_EXIT_COULD_NOT_RUN);
@@ -169,12 +209,18 @@ function main() {
   }
 
   const findings: StrictLintFinding[] = [];
-  for (let i = 0; i < files.length; i += BATCH_SIZE) {
-    const batch = files.slice(i, i + BATCH_SIZE);
-    const run = spawnSync("pnpm", oxlintArgs(batch), {
+  for (const batch of lintBatches(files)) {
+    let pnpm: PnpmCommand;
+    try {
+      pnpm = pnpmCommand(oxlintArgs(batch));
+    } catch (error) {
+      couldNotRun((error as Error).message);
+    }
+    const run = spawnSync(pnpm.command, pnpm.args, {
       cwd: rootDir,
       encoding: "utf8",
       maxBuffer: 256 * 1024 * 1024,
+      shell: pnpm.shell,
     });
     if (run.error) couldNotRun(`could not start oxlint: ${run.error.message}`);
     // Exit 1 just means "errors found"; anything else with no JSON is a crash.
