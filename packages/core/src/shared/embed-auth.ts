@@ -27,7 +27,7 @@ export const MAX_FETCH_WRAPPER_DEPTH = 16;
  * credentials that change later. Undefined when a mark throws.
  */
 export function fetchTransportScript(fetchExpression: string): string {
-  return `(function(t){try{var k=Symbol.for(${JSON.stringify(FETCH_TRANSPORT_SYMBOL_KEY)});for(var i=0;i<${MAX_FETCH_WRAPPER_DEPTH};i++){if(typeof t!=="function")break;var m=t[k];if(typeof m!=="function")break;t=m()}return t}catch(e){return undefined}})(${fetchExpression})`;
+  return `(function(t){try{var k=Symbol.for(${JSON.stringify(FETCH_TRANSPORT_SYMBOL_KEY)});for(var i=0;i<${MAX_FETCH_WRAPPER_DEPTH};i++){if(typeof t!=="function")break;var m=t[k];if(typeof m!=="function")break;t=m()}return t}catch(e){return undefined}})(${fetchExpression})`; // coercion-ok: no transport is a read the app makes itself, never a shared answer.
 }
 export const MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER =
   "x-agent-native-widget-session-expired";
