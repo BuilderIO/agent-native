@@ -3,8 +3,9 @@
 The macOS app links [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp)
 0.4.1 for on-device transcription with Whisper and Parakeet. It builds ggml,
 miniz and Silero VAD's segmentation code into the same native library. Model
-files are downloaded at runtime and are not part of the app; Parakeet's notice
-and license follow because the app downloads and runs it.
+files are downloaded at runtime and are not part of the app; the notices and
+licenses for Silero VAD and Parakeet follow because the app downloads and runs
+them.
 
 ## transcribe.cpp
 
@@ -86,6 +87,19 @@ THE SOFTWARE.
 ```
 
 ## Silero VAD
+
+transcribe.cpp builds Silero VAD's segmentation code into the native library,
+and Clips downloads the F32 GGUF conversion of the Silero VAD v6.2 weights
+([handy-computer/silero-vad-v6.2-gguf](https://huggingface.co/handy-computer/silero-vad-v6.2-gguf))
+to tell a silent dictation from speech.
+
+```
+Modifications: handy-computer converted https://github.com/snakers4/silero-vad
+at commit 5cd7945 to GGUF for transcribe.cpp
+(https://github.com/handy-computer/transcribe.cpp). Conversion repackages the
+weights, renaming and re-laying-out tensors. The weights were not retrained or
+fine-tuned.
+```
 
 ```
 MIT License

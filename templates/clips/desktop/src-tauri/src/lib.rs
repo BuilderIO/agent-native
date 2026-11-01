@@ -33,6 +33,7 @@ mod screen_memory_transcript;
 mod sentry_report;
 mod shortcuts;
 mod silence_detector;
+mod silero_vad;
 mod speech_capture_ownership;
 mod state;
 mod system_audio;
@@ -391,6 +392,7 @@ pub fn run() {
             parakeet_model::parakeet_model_status,
             parakeet_model::parakeet_model_prepare,
             parakeet_model::parakeet_model_release,
+            silero_vad::speech_detector_prepare,
             permission_status::check_permission_statuses,
             logfile::frontend_log,
             logfile::open_logs,

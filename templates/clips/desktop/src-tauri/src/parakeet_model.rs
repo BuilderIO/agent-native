@@ -11,22 +11,11 @@ use tauri::AppHandle;
 #[cfg(target_os = "macos")]
 use tauri::Emitter;
 
-use crate::model_download::downloaded_mb;
 #[cfg(target_os = "macos")]
 use crate::model_download::{download_verified, VerifiedDownload, DOWNLOAD_CANCELLED};
+use crate::model_download::{downloaded_mb, PinnedFile};
 
-// Only the macOS build downloads the file; elsewhere just its size is shown.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub(crate) struct ParakeetFile {
-    pub url: &'static str,
-    pub filename: &'static str,
-    pub sha256: &'static str,
-    pub size_bytes: u64,
-    /// Decimal megabytes, the unit Finder and the download page use.
-    pub size_mb: u64,
-}
-
-pub(crate) const PARAKEET_MODEL: ParakeetFile = ParakeetFile {
+pub(crate) const PARAKEET_MODEL: PinnedFile = PinnedFile {
     url: "https://huggingface.co/handy-computer/parakeet-unified-en-0.6b-gguf/resolve/843b1b175ace04f5a89d379c79e2518c0d065b25/parakeet-unified-en-0.6b-Q8_0.gguf",
     filename: "parakeet-unified-en-0.6b-Q8_0.gguf",
     sha256: "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
