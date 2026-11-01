@@ -961,13 +961,15 @@ export function startPageOpenDocumentReads(
       { method: "GET" },
     );
   // The load's head script may already have sent this read; a failed one is
-  // sent again here, so its error comes from the app's own request.
+  // sent again here, so its error comes from the app's own request. Its age
+  // counts from when the script sent it.
   const startupRead = beforeSession
     ? takeStartupPageRead(documentId, context)
     : null;
+  const startedAt = startupRead?.startedAt;
   const readPage = () =>
     (pageRead ??= startupRead
-      ? startupRead.then((answer) =>
+      ? startupRead.answer.then((answer) =>
           answer.ok ? (answer.value as PageOpenDocumentRead) : sendPageRead(),
         )
       : sendPageRead());
@@ -992,7 +994,7 @@ export function startPageOpenDocumentReads(
       },
       retry: false,
     },
-    { beforeSession },
+    { beforeSession, ...(startedAt === undefined ? {} : { startedAt }) },
   );
   if (widgetBridgeActive) return;
   if (readsDraft) {
@@ -1017,7 +1019,7 @@ export function startPageOpenDocumentReads(
           );
         },
       },
-      { beforeSession },
+      { beforeSession, ...(startedAt === undefined ? {} : { startedAt }) },
     );
   }
   // The review reads are not tracked as this open's reads, so one sent before

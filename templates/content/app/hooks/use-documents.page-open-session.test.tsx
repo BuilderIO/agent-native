@@ -253,6 +253,61 @@ describe("a page read sent before the session is known", () => {
       expect(reads("get-preview-document-draft")).toBe(0);
     });
 
+    it("is never the page when another account's session answered before the app took it", async () => {
+      server.account = "b";
+      session.set("replaced");
+      const seen: string[] = [];
+      const unsubscribe = queryClient.getQueryCache().subscribe(() => {
+        for (const query of queryClient.getQueryCache().getAll()) {
+          seen.push(JSON.stringify(query.state.data ?? null));
+        }
+      });
+
+      startPageOpenDocumentReads(
+        queryClient,
+        "doc-1",
+        {},
+        { beforeSession: true },
+      );
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Page),
+          ),
+        );
+      });
+
+      await vi.waitFor(() =>
+        expect(last).toMatchObject({
+          fetchedForThisOpen: true,
+          title: "b's page",
+          draft: "b's draft",
+        }),
+      );
+      unsubscribe();
+      expect(seen.join("\n")).not.toContain("a's");
+      expect(reads("get-document")).toBe(1);
+    });
+
+    it("is read again when the app takes it after its freshness ran out", async () => {
+      const realNow = Date.now.bind(Date);
+      // The head read finished; the app code arrives a minute later.
+      const dateNow = vi
+        .spyOn(Date, "now")
+        .mockImplementation(() => realNow() + 60_000);
+      try {
+        await loadAndMount();
+        await act(async () => session.set("first-read"));
+
+        expect(reads("get-document")).toBe(1);
+        expect(last).toMatchObject({ fetchedForThisOpen: true });
+      } finally {
+        dateNow.mockRestore();
+      }
+    });
+
     it("is dropped like any read sent before the session when another account answers", async () => {
       await loadAndMount();
       server.account = "b";
