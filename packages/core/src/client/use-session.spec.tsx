@@ -11,6 +11,7 @@ const analyticsMocks = vi.hoisted(() => ({
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
 
+import { EMBED_TOKEN_QUERY_PARAM } from "../shared/embed-auth.js";
 import { fetchAuthSessionStatus } from "./client-status-requests.js";
 import { FETCH_TRANSPORT_CHANGED_EVENT } from "./fetch-transport.js";
 import {
@@ -1603,6 +1604,58 @@ describe("sessionReadIdentityStatus", () => {
     expect(module.sessionReadIdentityStatus(module.sessionReadIdentity())).toBe(
       "current",
     );
+  });
+
+  it("hears an embed token change under the backend wrapper as a new transport", async () => {
+    const module = await freshSessionModule();
+    const embedAuth = await import("./embed-auth.js");
+    const backend = await import("./backend-fetch.js");
+    const transports = await import("./fetch-transport.js");
+    const config = window as Window & { __AGENT_NATIVE_CONFIG__?: unknown };
+    const reads = heldSessionReads();
+    sessionStorage.clear();
+    window.history.replaceState(null, "", "/page/doc-1");
+    config.__AGENT_NATIVE_CONFIG__ = { apiBaseUrl: "https://api.example.com" };
+    vi.stubGlobal("fetch", reads.fetcher);
+    try {
+      // The client bootstrap's order: embed auth, then the backend wrapper.
+      embedAuth.ensureEmbedAuthFetchInterceptor();
+      backend.ensureBackendFetchInterceptor();
+      expect(globalThis.fetch).not.toBe(reads.fetcher);
+      // No token: both send requests on as the page's own.
+      expect(transports.fetchTransport(globalThis.fetch)).toBe(reads.fetcher);
+      await mountProbe(module);
+      await reads.answerAs("user-a");
+      const overCookies = module.sessionReadIdentity();
+      expect(module.sessionReadIdentityStatus(overCookies)).toBe("current");
+
+      // A token arrives underneath the backend wrapper.
+      window.history.replaceState(
+        null,
+        "",
+        `/page/doc-1?${EMBED_TOKEN_QUERY_PARAM}=token-b`,
+      );
+      const withToken = transports.fetchTransport(globalThis.fetch);
+      expect(withToken).not.toBe(reads.fetcher);
+      expect(transports.fetchTransport(globalThis.fetch)).toBe(withToken);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(reads.fetcher).toHaveBeenCalledTimes(2);
+      expect(module.sessionReadIdentityStatus(overCookies)).toBe("pending");
+      await reads.answerAs("user-b");
+
+      expect(module.sessionReadIdentityStatus(overCookies)).toBe("stale");
+      expect(
+        module.sessionReadIdentityStatus(module.sessionReadIdentity()),
+      ).toBe("current");
+    } finally {
+      embedAuth._resetEmbedAuthForTests();
+      backend._resetBackendFetchForTests();
+      delete config.__AGENT_NATIVE_CONFIG__;
+      sessionStorage.clear();
+      window.history.replaceState(null, "", "/");
+    }
   });
 
   it("drops a read the head sent with the first session read once that read is replaced", async () => {

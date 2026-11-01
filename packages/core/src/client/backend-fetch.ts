@@ -1,4 +1,5 @@
 import { apiBaseUrl, isApiBaseUrl } from "./api-path.js";
+import { markPassThroughFetch } from "./fetch-transport.js";
 
 let installed = false;
 
@@ -87,7 +88,8 @@ export function ensureBackendFetchInterceptor(): void {
   if (installed || typeof window === "undefined") return;
   if (typeof window.fetch !== "function" || !apiBaseUrl()) return;
   const win = window;
-  const originalFetch = win.fetch.bind(win);
+  const pageFetch = win.fetch;
+  const originalFetch = pageFetch.bind(win);
   const patchedFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const [nextInput, nextInit] = withBackendRequest(
       input,
@@ -96,6 +98,8 @@ export function ensureBackendFetchInterceptor(): void {
     );
     return originalFetch(nextInput, nextInit);
   }) as typeof fetch;
+  // Same credentials as the fetch underneath, such as embed auth's bearer.
+  markPassThroughFetch(patchedFetch, pageFetch);
   win.fetch = patchedFetch;
   if (typeof win.XMLHttpRequest === "function") {
     installBackendXhr(win.XMLHttpRequest, () => win.location.href);
