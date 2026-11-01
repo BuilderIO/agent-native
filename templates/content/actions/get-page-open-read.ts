@@ -1,4 +1,5 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import { getCurrentPollBaseline } from "@agent-native/core/server";
 import { z } from "zod";
 
 import type { ContentDatabaseViewConfig } from "../shared/api.js";
@@ -61,11 +62,24 @@ async function readOpeningCollection(
   };
 }
 
+// Where the change feed stood before anything here was read, as the poll
+// endpoint's cursor: every change at or before it is in this answer, so the
+// page counts as possibly unseen only the changes after it. Without one, the
+// page counts every change it has heard of.
+async function readSyncCursor(): Promise<string | undefined> {
+  try {
+    return (await getCurrentPollBaseline()).cursor;
+  } catch {
+    // coercion-ok: the answer stands without a cursor; the page then treats every change it heard as unseen.
+    return undefined;
+  }
+}
+
 // It returns get-document's answer and the collection reads' own answers.
 // guard:allow-no-output-schema — none of the reads it returns declares one.
 export default defineAction({
   description:
-    "Read what opening one page shows first: the page as get-document returns it with the reader's unsaved draft and, for a collection page, its first rows and the reader's personal view. The page editor sends this when it opens a page.",
+    "Read what opening one page shows first: the page as get-document returns it with the reader's unsaved draft and, for a collection page, its first rows and the reader's personal view, plus the change feed's cursor from before the read. The page editor sends this when it opens a page.",
   schema: z.object({
     id: z.string().describe("Stable document ID of the page being opened."),
     databaseId: z
@@ -93,6 +107,7 @@ export default defineAction({
   readOnly: true,
   agentTool: false,
   run: async (args, ctx) => {
+    const syncCursor = await readSyncCursor();
     const document = await getDocument.run(
       {
         id: args.id,
@@ -106,9 +121,12 @@ export default defineAction({
     );
     // A collection's own page shows its table, whichever collection the
     // address opens it in; any other page, a row included, shows no table.
-    if (!document.database) return { document };
+    if (!document.database) {
+      return { document, ...(syncCursor ? { syncCursor } : {}) };
+    }
     return {
       document,
+      ...(syncCursor ? { syncCursor } : {}),
       collection: await readOpeningCollection(
         document.id,
         document.database,

@@ -1,4 +1,5 @@
 import { currentActionQueryCacheBinding } from "@agent-native/core/client/use-action";
+import { syncInvalidationsAfter } from "@agent-native/core/client/use-db-sync";
 import {
   sessionReadIdentityStatus,
   type SessionReadIdentity,
@@ -34,8 +35,10 @@ import {
 // the reader's draft, and for a collection's own page the reads its table
 // sends first. Each collection part is the answer its own action gives, and a
 // part that could not be read is left out for the page to read itself.
+// `syncCursor` is where the change feed stood before the server read.
 export type PageOpenReadAnswer = {
   document: Document & { previewDraft?: PreviewDocumentDraftResponse };
+  syncCursor?: string;
   collection?: {
     database?: unknown;
     personalView?: ContentDatabasePersonalViewResponse;
@@ -71,12 +74,16 @@ export function openingDatabaseQueryKey(documentId: string) {
 // A change to one collection part alone leaves the page's answer standing,
 // but that part of it is older than the change.
 // A read the document head sent went out before this tab could watch for
-// changes. A part it finds already marked invalidated may have changed after
-// the request left, so that part is treated as changed while it was out.
+// changes. Its watch starts from the change feed's cursor its answer names:
+// what sync invalidated after that cursor, before the watch began, is played
+// into the watch when the answer lands (`answeredAt`). A part it finds already
+// marked invalidated may have changed after the request left too, so that
+// part is treated as changed while it was out.
 export type PageOpenReadOwner = {
   startedAt: number;
   identity: SessionReadIdentity;
   stillOwns: () => boolean;
+  answeredAt: (syncCursor: string | undefined) => void;
   invalidatedWhileOut: (queryKey: QueryKey) => boolean;
   // Called once the read has answered or failed; it stops watching.
   finished: () => void;
@@ -146,6 +153,13 @@ export function pageOpenReadOwner(
   return {
     startedAt,
     identity,
+    answeredAt: (syncCursor) => {
+      if (watchedSinceSent) return;
+      // Unknown, as when the log no longer reaches back that far: every
+      // part counts as changed.
+      const replayed = syncInvalidationsAfter(queryClient, syncCursor) ?? [{}];
+      watch.filters.push(...replayed.map(({ queryKey }) => ({ queryKey })));
+    },
     invalidatedWhileOut: (partKey) =>
       watch.queryHashes.has(hashKey(partKey)) ||
       watch.filters.some((filters) => invalidationReaches(filters, partKey)) ||
@@ -183,9 +197,13 @@ export function seedPageOpenCollection(
   queryClient: QueryClient,
   documentId: string,
   collection: NonNullable<PageOpenReadAnswer["collection"]>,
-  { owner }: { owner?: PageOpenReadOwner } = {},
+  {
+    owner,
+    syncCursor,
+  }: { owner?: PageOpenReadOwner; syncCursor?: string } = {},
 ) {
   if (owner && !owner.stillOwns()) return;
+  owner?.answeredAt(syncCursor);
   const readStartedAt = owner?.startedAt ?? Date.now();
   const seeds: Array<[QueryKey, unknown]> = [];
   if (collection.database !== undefined) {

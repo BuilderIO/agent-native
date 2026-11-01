@@ -1029,10 +1029,11 @@ export function startPageOpenDocumentReads(
           startedAt,
         );
         return readPage(signal)
-          .then(({ document, collection }) => {
+          .then(({ document, collection, syncCursor }) => {
             if (collection) {
               seedPageOpenCollection(queryClient, documentId, collection, {
                 owner,
+                syncCursor,
               });
             }
             const { previewDraft: _previewDraft, ...page } = document;

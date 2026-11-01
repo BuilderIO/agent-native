@@ -324,6 +324,103 @@ function cursorForEvents(events: readonly SyncEvent[]): SyncCursor | undefined {
   return cursor;
 }
 
+// The invalidations sync has asked of each query client, each with the
+// cursor of the newest event behind it, so a read whose answer names the sync
+// cursor its server read at can be told which came after that read: those
+// asked before anything watched for it included. An event from this tab
+// itself has no cursor, so what it asked counts as after every read.
+type LoggedSyncInvalidation = {
+  after: SyncCursor | "local";
+  filters: SyncInvalidationFilters;
+};
+
+/** What a logged sync invalidation asked: a key prefix, or every query. */
+export type SyncInvalidationFilters = { queryKey?: readonly unknown[] };
+
+const SYNC_INVALIDATION_LOG_LIMIT = 200;
+const syncInvalidationLogs = new WeakMap<
+  object,
+  {
+    entries: LoggedSyncInvalidation[];
+    // The newest of the entries no longer kept.
+    dropped?: SyncCursor | "local";
+  }
+>();
+
+function isLoggedAfter(
+  after: SyncCursor | "local",
+  readAt: SyncCursor | undefined,
+): boolean {
+  return (
+    after === "local" ||
+    readAt === undefined ||
+    compareSyncCursors(after, readAt) > 0
+  );
+}
+
+function logSyncInvalidations(
+  queryClient: object,
+  events: readonly SyncEvent[],
+  filters: readonly InvalidateFilters[],
+): void {
+  if (filters.length === 0) return;
+  const local = events.some(
+    (event) => !(typeof event.version === "number" && event.version > 0),
+  );
+  const after = local ? "local" : (cursorForEvents(events) ?? "local");
+  let log = syncInvalidationLogs.get(queryClient);
+  if (!log) {
+    log = { entries: [] };
+    syncInvalidationLogs.set(queryClient, log);
+  }
+  for (const requested of filters) {
+    // A predicate decides by the query itself, so it is kept as reaching
+    // every query.
+    log.entries.push({
+      after,
+      filters:
+        requested.queryKey && !requested.predicate
+          ? { queryKey: requested.queryKey }
+          : {},
+    });
+  }
+  while (log.entries.length > SYNC_INVALIDATION_LOG_LIMIT) {
+    const dropped = log.entries.shift();
+    if (!dropped) break;
+    if (
+      log.dropped === undefined ||
+      (log.dropped !== "local" &&
+        (dropped.after === "local" ||
+          compareSyncCursors(dropped.after, log.dropped) > 0))
+    ) {
+      log.dropped = dropped.after;
+    }
+  }
+}
+
+/**
+ * The invalidations sync has asked of `queryClient` for changes after
+ * `cursor`, the sync cursor a server read at (as the poll endpoint encodes
+ * it), however long before the caller started watching. With no cursor, all
+ * of them. Undefined when that cannot be told: the cursor is unreadable, or
+ * invalidations that may be after it are no longer kept.
+ */
+export function syncInvalidationsAfter(
+  queryClient: object,
+  cursor?: string,
+): SyncInvalidationFilters[] | undefined {
+  const readAt = cursor === undefined ? undefined : decodeSyncCursor(cursor);
+  if (cursor !== undefined && readAt === undefined) return undefined;
+  const log = syncInvalidationLogs.get(queryClient);
+  if (!log) return [];
+  if (log.dropped !== undefined && isLoggedAfter(log.dropped, readAt)) {
+    return undefined;
+  }
+  return log.entries
+    .filter((entry) => isLoggedAfter(entry.after, readAt))
+    .map((entry) => entry.filters);
+}
+
 function isSyncEventAfterCursor(
   event: SyncEvent,
   cursor: SyncCursor,
@@ -1604,6 +1701,7 @@ export function useDbSync(
       const invalidating = relevant.filter((e) => e.source !== "awareness");
 
       if (invalidating.length > 0 && queryClient) {
+        const asked: InvalidateFilters[] = [];
         const hasPendingTrailingRefresh = (
           filters: InvalidateFilters | undefined,
           predicateIdentity?: (query: Query) => boolean,
@@ -1627,6 +1725,7 @@ export function useDbSync(
           });
 
         const invalidateWithoutCancel = (requested?: InvalidateFilters) => {
+          asked.push(requested ?? {});
           const callerPredicate = requested?.predicate;
           const normalizedFilters: InvalidateFilters = {
             ...requested,
@@ -1783,6 +1882,7 @@ export function useDbSync(
             }
           }
         }
+        logSyncInvalidations(queryClient, invalidating, asked);
       }
 
       for (const evt of events) {
