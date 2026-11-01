@@ -112,6 +112,17 @@ export function padRect(r: Rect, pad = 4): Rect {
 
 const GEOMETRY_TOLERANCE = 1;
 
+/** Computed values an anchored or centred ancestor derives from its own height. */
+const ANCESTOR_REFLOW_PROPS = new Set([
+  "top",
+  "bottom",
+  "transform",
+  "transform-origin",
+  "x",
+  "y",
+  "height",
+]);
+
 /** Unknown rects and subpixel noise cannot waive the outside-pixel check. */
 export const resized = (a: Rect | null, b: Rect | null) =>
   !!a &&
@@ -898,6 +909,55 @@ export function outsideChangesFor(
     }
     return Math.abs(siblingShift - expectedShift) <= GEOMETRY_TOLERANCE;
   };
+  // An ancestor that grows with the edited block (a bottom-anchored or centred
+  // wrapper) reflows its own box and everything laid out inside it.
+  const matchAfter = (record: SnapRecord) =>
+    (record.stableKey
+      ? afterRecordsByStableKey.get(record.stableKey)
+      : undefined) ?? afterRecordsByKey.get(record.key);
+  const containsRect = (outer: Rect, inner: Rect) =>
+    outer.x <= inner.x + GEOMETRY_TOLERANCE &&
+    outer.y <= inner.y + GEOMETRY_TOLERANCE &&
+    outer.x + outer.width >= inner.x + inner.width - GEOMETRY_TOLERANCE &&
+    outer.y + outer.height >= inner.y + inner.height - GEOMETRY_TOLERANCE;
+  const reflowedAncestors: Array<{ before: SnapRecord; after: SnapRecord }> =
+    [];
+  if (targetResized && before.editedRect && after.editedRect) {
+    const targetGrowth = after.editedRect.height - before.editedRect.height;
+    for (const record of before.records) {
+      const current = matchAfter(record);
+      if (
+        current &&
+        containsRect(record.rect, before.editedRect) &&
+        containsRect(current.rect, after.editedRect) &&
+        Math.abs(current.rect.height - record.rect.height - targetGrowth) <=
+          GEOMETRY_TOLERANCE
+      ) {
+        reflowedAncestors.push({ before: record, after: current });
+      }
+    }
+  }
+  const followsAncestorReflow = (change: StyleDelta) => {
+    const beforeRecord = beforeRecords.get(change.key);
+    const afterRecord = beforeRecord && matchAfter(beforeRecord);
+    if (!beforeRecord || !afterRecord) return false;
+    return reflowedAncestors.some((ancestor) => {
+      if (ancestor.before.key === beforeRecord.key) {
+        return ANCESTOR_REFLOW_PROPS.has(change.prop);
+      }
+      if (change.prop !== "x" && change.prop !== "y") return false;
+      const axis = change.prop;
+      return (
+        containsRect(ancestor.before.rect, beforeRecord.rect) &&
+        containsRect(ancestor.after.rect, afterRecord.rect) &&
+        Math.abs(
+          beforeRecord.rect[axis] -
+            ancestor.before.rect[axis] -
+            (afterRecord.rect[axis] - ancestor.after.rect[axis]),
+        ) <= GEOMETRY_TOLERANCE
+      );
+    });
+  };
   const copiedMarkers = copiedMarkerRecords();
   const normalizedOutside = {
     ...outside,
@@ -909,9 +969,10 @@ export function outsideChangesFor(
     ),
   };
   const changes = [
-    ...outside.deltas,
+    ...outside.deltas.filter((change) => !followsAncestorReflow(change)),
     ...outside.geometry.filter(
       (change) =>
+        !followsAncestorReflow(change) &&
         !followsNaturalReflow(change) &&
         !followsImportedTextObjectReflow(change),
     ),

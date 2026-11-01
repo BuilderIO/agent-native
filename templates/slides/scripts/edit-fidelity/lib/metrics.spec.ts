@@ -546,6 +546,66 @@ describe("outsideChangesFor", () => {
     expect(outsideChangesFor(before, after).changes).toEqual([]);
   });
 
+  describe("anchored ancestor that grows with the edited block", () => {
+    const wrapper = (
+      y: number,
+      height: number,
+      transform: string,
+    ): SnapRecord => ({
+      ...rec("box:div#0", { transform, top: `${y}px` }),
+      rect: { x: 48, y, width: 270, height },
+    });
+    const label = (y: number): SnapRecord => ({
+      ...rec("text:div#0", {}),
+      rect: { x: 48, y, width: 120, height: 19 },
+    });
+    const bystander = (x: number): SnapRecord => ({
+      ...rec("box:div#1", {}),
+      rect: { x, y: 160, width: 220, height: 30 },
+    });
+    const before = edited(
+      [
+        wrapper(312, 150, "matrix(1, 0, 0, 1, 0, -74.875)"),
+        label(314),
+        bystander(420),
+      ],
+      { x: 48, y: 380, width: 270, height: 70 },
+      false,
+    );
+
+    it("does not flag the ancestor or content laid out inside it", () => {
+      const after = edited(
+        [
+          wrapper(164, 248, "matrix(1, 0, 0, 1, 0, -124.125)"),
+          label(166),
+          bystander(420),
+        ],
+        { x: 48, y: 232, width: 270, height: 168 },
+        false,
+      );
+
+      expect(outsideChangesFor(before, after).changes).toEqual([]);
+    });
+
+    it("still flags a bystander outside the ancestor that moved", () => {
+      const after = edited(
+        [
+          wrapper(164, 248, "matrix(1, 0, 0, 1, 0, -124.125)"),
+          label(166),
+          bystander(460),
+        ],
+        { x: 48, y: 232, width: 270, height: 168 },
+        false,
+      );
+
+      expect(
+        outsideChangesFor(before, after).changes.some(
+          (change) => "prop" in change && change.prop === "x",
+        ),
+      ).toBe(true);
+    });
+  });
+
   it("keeps independent and unverified geometry changes as failures", () => {
     const before = edited([sibling(0, 20)], {
       x: 0,
