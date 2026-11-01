@@ -26,6 +26,22 @@ pub(crate) fn downloaded_mb(bytes: u64, size_bytes: u64, size_mb: u64) -> u64 {
     bytes.saturating_mul(size_mb) / size_bytes.max(1)
 }
 
+fn digest_string(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The SHA-256 of a file already on disk, as lowercase hexadecimal.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn file_sha256(path: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+
+    let mut file =
+        std::fs::File::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).map_err(|e| format!("read {}: {e}", path.display()))?;
+    Ok(digest_string(&hasher.finalize()))
+}
+
 pub(crate) fn partial_download_path(path: &Path) -> PathBuf {
     let mut partial = path.as_os_str().to_owned();
     partial.push(".tmp");
@@ -103,11 +119,7 @@ pub(crate) async fn download_verified(
             download.size_bytes
         ));
     }
-    let digest: String = hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let digest = digest_string(&hasher.finalize());
     if digest != download.sha256 {
         let _ = std::fs::remove_file(&tmp);
         return Err(format!(

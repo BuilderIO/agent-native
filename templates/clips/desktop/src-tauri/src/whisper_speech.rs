@@ -92,7 +92,7 @@ pub async fn whisper_transcription_start(
     let engine = resolve_local_engine(
         engine.as_deref(),
         dictation,
-        crate::parakeet_model::is_ready(),
+        crate::parakeet_model::is_ready(&app),
     )
     .map_err(str::to_owned)?;
     if engine == LocalEngine::Whisper && !crate::config::feature_config(&app).whisper_model_enabled
@@ -1197,9 +1197,18 @@ mod macos {
             return Err(START_SUPERSEDED.into());
         }
         eprintln!("[whisper] {owner:?} transcription runs on {engine:?}");
-        let (model, needs_warm_up) = match engine {
-            LocalEngine::Whisper => cached_model(&app).map(|model| (model, false)),
-            LocalEngine::Parakeet => crate::parakeet_model::resident_model(&app),
+        // A Parakeet dictation only ever starts on a warmed-up model no other
+        // live pass holds, taken without waiting; otherwise it is turned away
+        // before any audio is captured and dictates with Apple Speech.
+        let lease = if engine == LocalEngine::Parakeet && owner == SessionOwner::Dictation {
+            Some(crate::parakeet_model::dictation_lease(&app).map_err(str::to_owned)?)
+        } else {
+            None
+        };
+        let model = match (&lease, engine) {
+            (Some(lease), _) => Ok(lease.model().clone()),
+            (None, LocalEngine::Whisper) => cached_model(&app),
+            (None, LocalEngine::Parakeet) => crate::parakeet_model::resident_model(&app),
         }
         .map_err(|e| {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
@@ -1217,14 +1226,12 @@ mod macos {
         let _ = language;
         let lang: Option<String> = None;
 
-        let live = if engine == LocalEngine::Parakeet && owner == SessionOwner::Dictation {
-            Some(Arc::new(LiveDictation::new(
-                model.clone(),
+        let live = match lease {
+            Some(lease) => Some(Arc::new(LiveDictation::new(
+                lease,
                 crate::parakeet_model::model_path(&app)?,
-                needs_warm_up,
-            )))
-        } else {
-            None
+            ))),
+            None => None,
         };
 
         let session_start = Instant::now();
@@ -1572,6 +1579,37 @@ mod macos {
         }
     }
 
+    /// Whether a stop aimed at `target` reaches a run started as `current`.
+    fn stop_reaches(target: Option<u64>, current: Option<u64>, replace_older: bool) -> bool {
+        match (target, current) {
+            (Some(id), Some(current_id)) => current_id == id || (replace_older && current_id < id),
+            (Some(_), None) => false,
+            (None, _) => true,
+        }
+    }
+
+    /// Run IDs and dictations, for [`finalizing_slot`].
+    type FinalizingRuns = Mutex<Vec<(Option<u64>, Arc<LiveDictation>)>>;
+
+    /// Parakeet dictations past release that are still producing their text.
+    /// They have left the session slot, so a cancel looks for them here.
+    fn finalizing_slot() -> &'static FinalizingRuns {
+        static SLOT: OnceLock<FinalizingRuns> = OnceLock::new();
+        SLOT.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    /// Keeps one dictation in [`finalizing_slot`] until its text is ready.
+    struct Finalizing(Arc<LiveDictation>);
+
+    impl Drop for Finalizing {
+        fn drop(&mut self) {
+            finalizing_slot()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .retain(|(_, live)| !Arc::ptr_eq(live, &self.0));
+        }
+    }
+
     pub fn stop(
         app: &AppHandle,
         owner: Option<SessionOwner>,
@@ -1587,6 +1625,21 @@ mod macos {
         let mut slot = session_slot()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Done under the session lock, which a release holds while it moves
+        // its dictation here, so a cancel can't slip between the two. It comes
+        // before the run checks below: a cancelled dictation can still be
+        // finalizing after a newer run has begun.
+        if discard && owner != Some(SessionOwner::Meeting) {
+            for (finalizing_run, live) in finalizing_slot()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .iter()
+            {
+                if stop_reaches(run_id, *finalizing_run, replace_older) {
+                    live.discard();
+                }
+            }
+        }
         if let Some(run_id) = run_id {
             if replace_older {
                 if latest.latest_run_id != Some(run_id)
@@ -1611,18 +1664,23 @@ mod macos {
         }
         let session = if slot.as_ref().is_some_and(|current| {
             owner.map_or(true, |owner| current.owner == owner)
-                && match (run_id, current.run_id) {
-                    (Some(id), Some(current_id)) => {
-                        current_id == id || (replace_older && current_id < id)
-                    }
-                    (Some(_), None) => false,
-                    (None, _) => true,
-                }
+                && stop_reaches(run_id, current.run_id, replace_older)
         }) {
             slot.take()
         } else {
             None
         };
+        let finalizing = session
+            .as_ref()
+            .and_then(|session| session.mic.live.clone().map(|live| (session.run_id, live)))
+            .filter(|_| !discard)
+            .map(|(run_id, live)| {
+                finalizing_slot()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push((run_id, live.clone()));
+                Finalizing(live)
+            });
         drop(slot);
         drop(latest);
         let Some(mut session) = session else {
@@ -1645,9 +1703,9 @@ mod macos {
                 live.discard();
                 return Ok(None);
             }
-            return live
-                .finish(&session.mic.audio_tap(), released, &session.mic.done)
-                .map(Some);
+            let transcript = live.finish(&session.mic.audio_tap(), released);
+            drop(finalizing);
+            return transcript.map(Some);
         }
         let deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
@@ -1672,11 +1730,23 @@ mod macos {
             begin_run_authority, begin_run_result, buffer_start_after_drain, cancel_run_authority,
             clean_transcript, partial_inference_due, partial_inference_timestamp, resample_to_16k,
             run_is_current, session_start_error, should_use_combined_sck_capture,
-            split_mic_capture_options, start_native_capture_without_authority_lock,
+            split_mic_capture_options, start_native_capture_without_authority_lock, stop_reaches,
             timeline_start_for_offset, utterance_finalize_due, IncrementalResample, LocalEngine,
             RunAuthority, SessionOwner, START_SUPERSEDED,
         };
         use crate::native_speech::macos::MicVoiceProcessingMode;
+
+        #[test]
+        fn a_stop_reaches_its_own_run_and_replaces_only_older_ones() {
+            assert!(stop_reaches(Some(7), Some(7), false));
+            assert!(!stop_reaches(Some(7), Some(6), false));
+            assert!(stop_reaches(Some(7), Some(6), true));
+            assert!(!stop_reaches(Some(7), Some(8), true));
+            assert!(!stop_reaches(Some(7), None, true));
+            // Shutdown stops with no run ID and reaches everything.
+            assert!(stop_reaches(None, Some(7), false));
+            assert!(stop_reaches(None, None, false));
+        }
 
         #[test]
         fn a_failed_dictation_start_does_not_block_a_later_meeting_start() {

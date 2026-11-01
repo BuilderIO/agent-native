@@ -48,6 +48,7 @@ import {
   SettingsSelect,
   SettingsValueTrigger,
 } from "@/components/settings/settings-ui";
+import { ThirdPartyNotices } from "@/components/settings/ThirdPartyNotices";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog as UiAlertDialog,
@@ -6964,7 +6965,7 @@ function Setup({
     voiceEngine === "parakeet" &&
     isMacPlatform() &&
     parakeetStatusShows(parakeet.status, parakeet.statusError);
-  const [noticesError, setNoticesError] = useState<string | null>(null);
+  const [noticesOpen, setNoticesOpen] = useState(false);
   const {
     catalog: whisperModels,
     status: whisperStatus,
@@ -7616,14 +7617,6 @@ function Setup({
     .replace(/^https?:\/\//, "")
     .replace(/\/+$/, "");
 
-  function openThirdPartyNotices() {
-    setNoticesError(null);
-    invoke("open_third_party_notices").catch((err) => {
-      console.error("[settings] could not open acknowledgements:", err);
-      setNoticesError(String(err));
-    });
-  }
-
   function selectEngine(engine: VoiceEngine) {
     onVoiceEngineChange(engine);
     if (engine === "whisper" && !whisperModelEnabled) whisper.setEnabled(true);
@@ -8006,15 +7999,17 @@ function Setup({
             <SettingsRow
               label="Acknowledgements"
               control={
-                <SettingsActionButton onClick={openThirdPartyNotices}>
-                  View
-                </SettingsActionButton>
+                <>
+                  <SettingsActionButton onClick={() => setNoticesOpen(true)}>
+                    View
+                  </SettingsActionButton>
+                  <ThirdPartyNotices
+                    open={noticesOpen}
+                    onOpenChange={setNoticesOpen}
+                  />
+                </>
               }
-            >
-              {noticesError ? (
-                <p className="text-xs text-destructive">{noticesError}</p>
-              ) : null}
-            </SettingsRow>
+            />
           ) : null}
         </SettingsGroup>
 

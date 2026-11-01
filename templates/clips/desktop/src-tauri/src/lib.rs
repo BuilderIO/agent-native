@@ -56,8 +56,8 @@ use state::{
     VoiceWakePopover,
 };
 use util::{
-    configure_overlay_behavior, is_recording_active, open_third_party_notices,
-    present_interactive_window, restart_after_update, set_capture_excluded,
+    configure_overlay_behavior, is_recording_active, present_interactive_window,
+    read_third_party_notices, restart_after_update, set_capture_excluded,
 };
 
 pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
@@ -390,7 +390,7 @@ pub fn run() {
             logfile::frontend_log,
             logfile::open_logs,
             restart_after_update,
-            open_third_party_notices,
+            read_third_party_notices,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
@@ -614,6 +614,8 @@ pub fn run() {
             }
             if let tauri::RunEvent::Exit = _event {
                 whisper_speech::shutdown(_app_handle);
+                #[cfg(target_os = "macos")]
+                transcribe_engine::LOCAL_MODEL.clear();
                 native_speech::shutdown();
                 let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
                 native_screen::kill_active_screencapture_child(&state);

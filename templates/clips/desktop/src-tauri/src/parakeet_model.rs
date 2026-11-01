@@ -37,34 +37,80 @@ static DOWNLOADING: AtomicBool = AtomicBool::new(false);
 static DOWNLOADED_BYTES: AtomicU64 = AtomicU64::new(0);
 static CANCEL_DOWNLOAD: AtomicBool = AtomicBool::new(false);
 static PREPARING: AtomicBool = AtomicBool::new(false);
-/// Set once the file has loaded and warmed up in this launch. Dictation only
-/// picks Parakeet after that, so a missing or broken file falls back to Apple
-/// Speech instead of failing a dictation.
-static READY: AtomicBool = AtomicBool::new(false);
 static LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
+
+/// What a dictation start gets back when Parakeet can't take it right now.
+/// The frontend matches this exact string and dictates with Apple Speech.
+pub(crate) const NOT_READY: &str = "parakeet-model-not-ready";
 
 pub(crate) fn model_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(crate::whisper_model::models_dir(app)?.join(PARAKEET_MODEL.filename))
 }
 
-fn is_complete_on_disk(path: &Path) -> bool {
-    std::fs::metadata(path)
-        .map(|m| m.len() == PARAKEET_MODEL.size_bytes)
-        .unwrap_or(false)
+/// Whether the whole file is on disk. A missing file is `Ok(false)`; a file
+/// whose metadata can't be read is an error, not a missing file.
+fn is_complete_on_disk(path: &Path) -> Result<bool, String> {
+    match std::fs::metadata(path) {
+        Ok(metadata) => Ok(metadata.len() == PARAKEET_MODEL.size_bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!(
+            "could not read the Parakeet model file at {}: {error}",
+            path.display()
+        )),
+    }
 }
 
-pub(crate) fn is_ready() -> bool {
-    READY.load(Ordering::SeqCst)
+/// Parakeet is ready once the shared slot holds it warmed up. Anything that
+/// takes the slot from it (Whisper for Screen Memory or a meeting, or a
+/// retired copy a stuck live pass still holds) makes it not ready again, so
+/// Settings and dictation never trust a model that is gone.
+pub(crate) fn is_ready(app: &AppHandle) -> bool {
+    model_path(app).is_ok_and(|path| crate::transcribe_engine::LOCAL_MODEL.holds_warm(&path))
 }
 
-/// The Parakeet model, loading it into the shared slot if something else is
-/// resident. The flag is true when this call did the loading, so the caller
-/// knows the model has not warmed up.
+/// The Parakeet model for a meeting's one-shot runs, loading it into the
+/// shared slot if something else is resident.
 #[cfg(target_os = "macos")]
-pub(crate) fn resident_model(app: &AppHandle) -> Result<(transcribe_cpp::Model, bool), String> {
+pub(crate) fn resident_model(app: &AppHandle) -> Result<transcribe_cpp::Model, String> {
     crate::transcribe_engine::LOCAL_MODEL
         .get_or_load(&model_path(app)?)
+        .map(|(model, _)| model)
         .map_err(|e| format!("parakeet {e}"))
+}
+
+/// The warmed-up Parakeet model for one dictation's live stream, without
+/// waiting or loading, so capture can start the moment this returns.
+///
+/// When it isn't there, the dictation gets [`NOT_READY`] before any audio is
+/// recorded and runs on Apple Speech, and Parakeet reloads in the background
+/// for the next one. Loading here instead would either hold up capture (the
+/// first words are lost) or start capture on a load that might fail, with
+/// nothing that could still transcribe the audio already spoken.
+#[cfg(target_os = "macos")]
+pub(crate) fn dictation_lease(
+    app: &AppHandle,
+) -> Result<crate::transcribe_engine::StreamLease, &'static str> {
+    let path = model_path(app).map_err(|error| {
+        eprintln!("[parakeet] {error}");
+        NOT_READY
+    })?;
+    crate::transcribe_engine::LOCAL_MODEL
+        .try_lease_warm(&path)
+        .map_err(|refused| {
+            eprintln!(
+                "[parakeet] model {} at dictation start; dictating with Apple Speech and reloading",
+                refused.as_str()
+            );
+            // The Settings hook downloads a missing file; starting a 731 MB
+            // download from a key press is not this path's call. An
+            // unreadable file goes through prepare so Settings shows why.
+            if !matches!(is_complete_on_disk(&path), Ok(false)) {
+                if let Err(error) = start_prepare(app.clone(), true) {
+                    eprintln!("[parakeet] reload failed to start: {error}");
+                }
+            }
+            NOT_READY
+        })
 }
 
 #[cfg(target_os = "macos")]
@@ -115,9 +161,9 @@ pub async fn parakeet_model_status(app: AppHandle) -> Result<ParakeetStatus, Str
         });
     }
     let downloading = DOWNLOADING.load(Ordering::SeqCst);
-    let on_disk = is_complete_on_disk(&model_path(&app)?);
+    let on_disk = is_complete_on_disk(&model_path(&app)?)?;
     let state = status_state(
-        is_ready(),
+        is_ready(&app),
         downloading,
         PREPARING.load(Ordering::SeqCst),
         on_disk,
@@ -145,7 +191,7 @@ pub async fn parakeet_model_status(app: AppHandle) -> Result<ParakeetStatus, Str
 pub async fn parakeet_model_prepare(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        start_prepare(app)
+        start_prepare(app, false)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -154,13 +200,17 @@ pub async fn parakeet_model_prepare(app: AppHandle) -> Result<(), String> {
     }
 }
 
+/// `reclaim` is for a dictation that found the resident copy held by an
+/// earlier live pass: prepare then waits for that pass to hand it back, or
+/// retires it and loads a fresh copy, even though the slot still counts as
+/// ready.
 #[cfg(target_os = "macos")]
-fn start_prepare(app: AppHandle) -> Result<(), String> {
+fn start_prepare(app: AppHandle, reclaim: bool) -> Result<(), String> {
     CANCEL_DOWNLOAD.store(false, Ordering::SeqCst);
     if PREPARING.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
-    if is_ready() && crate::transcribe_engine::LOCAL_MODEL.holds(&model_path(&app)?) {
+    if !reclaim && is_ready(&app) {
         PREPARING.store(false, Ordering::SeqCst);
         let _ = app.emit("parakeet:model-ready", ());
         return Ok(());
@@ -194,8 +244,7 @@ fn start_prepare(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn parakeet_model_release(app: AppHandle) -> Result<(), String> {
     CANCEL_DOWNLOAD.store(true, Ordering::SeqCst);
-    READY.store(false, Ordering::SeqCst);
-    // The slot stays locked while a model loads, which can take a second.
+    // Release waits for a load in progress, which can take a second.
     #[cfg(target_os = "macos")]
     {
         let path = model_path(&app)?;
@@ -217,31 +266,75 @@ pub async fn parakeet_model_release(app: AppHandle) -> Result<(), String> {
 async fn prepare(app: &AppHandle) -> Result<(), String> {
     let path = ensure_downloaded(app).await?;
     let started = std::time::Instant::now();
-    let loaded = tauri::async_runtime::spawn_blocking(move || {
-        let (model, _) = crate::transcribe_engine::LOCAL_MODEL
-            .get_or_load(&path)
-            .map_err(|e| format!("parakeet {e}"))?;
-        crate::transcribe_engine::warm_up_parakeet(&model)
-    })
-    .await
-    .map_err(|e| format!("parakeet load task failed: {e}"))?;
-    loaded?;
+    let load_path = path.clone();
+    let loaded = tauri::async_runtime::spawn_blocking(move || load_and_warm_up(&load_path))
+        .await
+        .map_err(|e| format!("parakeet load task failed: {e}"))?;
+    if let Err(error) = loaded {
+        // A copy that loaded but failed its warm-up must not stay resident.
+        crate::transcribe_engine::LOCAL_MODEL.release(&path)?;
+        return Err(discard_if_damaged(path, error).await);
+    }
     if CANCEL_DOWNLOAD.load(Ordering::SeqCst) {
-        crate::transcribe_engine::LOCAL_MODEL.release(&model_path(app)?)?;
+        crate::transcribe_engine::LOCAL_MODEL.release(&path)?;
         return Err(DOWNLOAD_CANCELLED.to_owned());
     }
-    READY.store(true, Ordering::SeqCst);
-    eprintln!(
-        "[parakeet] loaded and warmed up in {} ms",
-        started.elapsed().as_millis()
-    );
+    eprintln!("[parakeet] ready in {} ms", started.elapsed().as_millis());
     Ok(())
+}
+
+/// Loads Parakeet into the shared slot if it isn't there and warms up a copy
+/// that hasn't been, holding the copy as a live stream would so no dictation
+/// starts on it halfway through.
+#[cfg(target_os = "macos")]
+fn load_and_warm_up(path: &Path) -> Result<(), String> {
+    let lease = crate::transcribe_engine::LOCAL_MODEL
+        .lease_for_stream(path)
+        .map_err(|e| format!("parakeet {e}"))?;
+    if !lease.is_warm() {
+        crate::transcribe_engine::warm_up_parakeet(lease.model())?;
+        lease.mark_warm();
+    }
+    Ok(())
+}
+
+/// A file of the right size that won't load or warm up may be damaged, and
+/// only a fresh download fixes that, so a file that fails its checksum is
+/// deleted and Retry downloads it again. One that passes is kept: the fault
+/// is elsewhere, and deleting it would cost a 731 MB download for nothing.
+#[cfg(target_os = "macos")]
+async fn discard_if_damaged(path: PathBuf, error: String) -> String {
+    let checked = tauri::async_runtime::spawn_blocking(move || {
+        remove_if_damaged(&path, PARAKEET_MODEL.sha256)
+    })
+    .await
+    .map_err(|e| format!("checksum task failed: {e}"))
+    .and_then(|checked| checked);
+    match checked {
+        Ok(true) => error,
+        Ok(false) => {
+            eprintln!("[parakeet] the model file failed its checksum and was deleted");
+            format!("{error}; the model file was damaged and has been deleted, so Retry downloads it again")
+        }
+        Err(check_error) => format!("{error}; checking the model file failed: {check_error}"),
+    }
+}
+
+/// Whether the file at `path` matches `sha256`; one that doesn't is deleted.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn remove_if_damaged(path: &Path, sha256: &str) -> Result<bool, String> {
+    let intact = crate::model_download::file_sha256(path)? == sha256;
+    if !intact {
+        std::fs::remove_file(path)
+            .map_err(|e| format!("could not delete the damaged file: {e}"))?;
+    }
+    Ok(intact)
 }
 
 #[cfg(target_os = "macos")]
 async fn ensure_downloaded(app: &AppHandle) -> Result<PathBuf, String> {
     let path = model_path(app)?;
-    if is_complete_on_disk(&path) {
+    if is_complete_on_disk(&path)? {
         return Ok(path);
     }
     if DOWNLOADING.swap(true, Ordering::SeqCst) {
@@ -283,6 +376,50 @@ mod tests {
             PARAKEET_MODEL.size_mb,
             PARAKEET_MODEL.size_bytes / 1_000_000
         );
+    }
+
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "clips-parakeet-model-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_missing_file_is_not_an_unreadable_one() {
+        let dir = scratch_dir("on-disk");
+        assert_eq!(is_complete_on_disk(&dir.join("absent.gguf")), Ok(false));
+
+        let short = dir.join("short.gguf");
+        std::fs::write(&short, b"GGUF").unwrap();
+        assert_eq!(is_complete_on_disk(&short), Ok(false));
+
+        // A path through a file can't be read, which is not the same as the
+        // model being absent.
+        let error = is_complete_on_disk(&short.join("model.gguf")).unwrap_err();
+        assert!(error.contains("could not read"), "{error}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_that_fails_its_checksum_is_deleted_and_a_good_one_kept() {
+        let dir = scratch_dir("checksum");
+        let file = dir.join("model.gguf");
+        // SHA-256 of "abc".
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+        std::fs::write(&file, b"abc").unwrap();
+        assert_eq!(remove_if_damaged(&file, abc), Ok(true));
+        assert!(file.exists());
+
+        std::fs::write(&file, b"abd").unwrap();
+        assert_eq!(remove_if_damaged(&file, abc), Ok(false));
+        assert!(!file.exists());
+
+        assert!(remove_if_damaged(&file, abc).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -5,7 +5,9 @@
 //! whichever copy the linker kept, so new local engines belong here too.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, Once};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, Once, PoisonError};
+use std::time::{Duration, Instant};
 
 use transcribe_cpp::{
     Backend, CommitPolicy, Error, Model, ModelOptions, ParakeetBufferedStreamOptions, RunExtension,
@@ -23,68 +25,237 @@ const PARAKEET_STREAM_LEFT_MS: i32 = 5_600;
 const PARAKEET_STREAM_CHUNK_MS: i32 = 560;
 const PARAKEET_STREAM_RIGHT_MS: i32 = 560;
 
+/// How long a live stream gets to hand its model back before the slot stops
+/// waiting, retires that copy and loads a fresh one.
+pub(crate) const MODEL_HANDBACK_WAIT: Duration = Duration::from_millis(500);
+
 /// The one resident local model. Whisper and Parakeet share it, so the app
 /// never holds both in memory; asking for the other one swaps it.
-pub(crate) static LOCAL_MODEL: ModelSlot = ModelSlot::new();
+pub(crate) static LOCAL_MODEL: ModelSlot = ModelSlot::new(load_model);
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// One loaded model file. Asking for a different path replaces it, so
 /// switching models frees the previous one.
-pub(crate) struct ModelSlot(Mutex<Option<(PathBuf, Model)>>);
+///
+/// A live stream on a model refuses every other run on it with `Busy`, and a
+/// native call that never returns keeps the model's compute lock for good. So
+/// a copy with a stream on it is handed to nobody else: callers wait for the
+/// stream to give it back, or the slot retires that copy and loads another.
+pub(crate) struct ModelSlot<M: Clone = Model> {
+    load: fn(&Path) -> Result<M, String>,
+    /// Held while a model loads, so loads never overlap and a caller that
+    /// only looks at the resident copy never waits behind one.
+    loading: Mutex<()>,
+    resident: Mutex<Option<Resident<M>>>,
+}
 
-impl ModelSlot {
-    pub(crate) const fn new() -> Self {
-        Self(Mutex::new(None))
+#[derive(Clone)]
+struct Resident<M> {
+    path: PathBuf,
+    model: M,
+    /// True while a [`StreamLease`] on this copy is out.
+    streaming: Arc<AtomicBool>,
+    /// True once a warm-up has run on this copy.
+    warm: Arc<AtomicBool>,
+}
+
+impl<M: Clone> Resident<M> {
+    fn lease(&self) -> StreamLease<M> {
+        StreamLease {
+            model: self.model.clone(),
+            streaming: self.streaming.clone(),
+            warm: self.warm.clone(),
+        }
+    }
+}
+
+/// Sole use of a model for one live stream. The slot hands the model to
+/// nobody else until this is dropped, so drop it only once the stream and its
+/// session are gone.
+pub(crate) struct StreamLease<M: Clone = Model> {
+    model: M,
+    streaming: Arc<AtomicBool>,
+    warm: Arc<AtomicBool>,
+}
+
+impl<M: Clone> StreamLease<M> {
+    pub(crate) fn model(&self) -> &M {
+        &self.model
     }
 
-    /// The model at `path`, loaded on first use. The flag is true when this
-    /// call did the loading.
-    pub(crate) fn get_or_load(&self, path: &Path) -> Result<(Model, bool), String> {
-        let mut slot = self.0.lock().map_err(|e| e.to_string())?;
-        if let Some((loaded_path, model)) = slot.as_ref() {
-            if loaded_path == path {
-                return Ok((model.clone(), false));
+    pub(crate) fn is_warm(&self) -> bool {
+        self.warm.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn mark_warm(&self) {
+        self.warm.store(true, Ordering::SeqCst);
+    }
+}
+
+impl<M: Clone> Drop for StreamLease<M> {
+    fn drop(&mut self) {
+        self.streaming.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Why the slot could not lend a model to a live stream straight away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LeaseRefused {
+    /// Another model, or none, is resident, or one is loading.
+    NotLoaded,
+    /// Loaded, but no warm-up has run on it yet.
+    Cold,
+    /// Another live stream still holds it.
+    InUse,
+}
+
+impl LeaseRefused {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            LeaseRefused::NotLoaded => "not loaded",
+            LeaseRefused::Cold => "not warmed up",
+            LeaseRefused::InUse => "still held by an earlier live pass",
+        }
+    }
+}
+
+impl<M: Clone> ModelSlot<M> {
+    pub(crate) const fn new(load: fn(&Path) -> Result<M, String>) -> Self {
+        Self {
+            load,
+            loading: Mutex::new(()),
+            resident: Mutex::new(None),
+        }
+    }
+
+    /// The model at `path` for one-shot runs, loaded on first use. The flag
+    /// is true when this call did the loading.
+    pub(crate) fn get_or_load(&self, path: &Path) -> Result<(M, bool), String> {
+        let _loading = lock(&self.loading);
+        if let Some(resident) = self.free_copy(path) {
+            return Ok((resident.model, false));
+        }
+        Ok((self.load_into_slot(path, false)?.model, true))
+    }
+
+    /// Sole use of the model at `path` for a live stream, loading it if
+    /// needed. Check [`StreamLease::is_warm`] before relying on its speed.
+    pub(crate) fn lease_for_stream(&self, path: &Path) -> Result<StreamLease<M>, String> {
+        let _loading = lock(&self.loading);
+        if let Some(resident) = self.free_copy(path) {
+            if resident
+                .streaming
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                return Ok(resident.lease());
             }
         }
-        // Free the old model before loading the new one, so a swap never
-        // briefly holds both.
-        *slot = None;
-        let model = load_model(path)?;
-        *slot = Some((path.to_path_buf(), model.clone()));
-        Ok((model, true))
+        Ok(self.load_into_slot(path, true)?.lease())
     }
 
-    pub(crate) fn holds(&self, path: &Path) -> bool {
-        self.0.lock().is_ok_and(|slot| {
-            slot.as_ref()
-                .is_some_and(|(loaded_path, _)| loaded_path == path)
-        })
+    /// The resident model at `path` for a live stream, only if it has warmed
+    /// up and no other stream holds it. Never waits and never loads, so a
+    /// caller can start capturing audio the moment this returns.
+    pub(crate) fn try_lease_warm(&self, path: &Path) -> Result<StreamLease<M>, LeaseRefused> {
+        let resident = lock(&self.resident);
+        let current = resident
+            .as_ref()
+            .filter(|resident| resident.path == path)
+            .ok_or(LeaseRefused::NotLoaded)?;
+        if !current.warm.load(Ordering::SeqCst) {
+            return Err(LeaseRefused::Cold);
+        }
+        current
+            .streaming
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map_err(|_| LeaseRefused::InUse)?;
+        Ok(current.lease())
+    }
+
+    pub(crate) fn holds_warm(&self, path: &Path) -> bool {
+        lock(&self.resident)
+            .as_ref()
+            .is_some_and(|resident| resident.path == path && resident.warm.load(Ordering::SeqCst))
     }
 
     /// Unloads the model at `path` if it is the resident one. Sessions that
     /// still hold it keep it alive until they finish.
     pub(crate) fn release(&self, path: &Path) -> Result<bool, String> {
-        let mut slot = self.0.lock().map_err(|e| e.to_string())?;
-        if slot
+        let _loading = lock(&self.loading);
+        let mut resident = lock(&self.resident);
+        if resident
             .as_ref()
-            .is_some_and(|(loaded_path, _)| loaded_path == path)
+            .is_some_and(|resident| resident.path == path)
         {
-            *slot = None;
+            *resident = None;
             return Ok(true);
         }
         Ok(false)
     }
 
+    /// Drops the resident copy, whatever it is. ggml's Metal backend aborts
+    /// the process in `exit` while any model is still alive, so the app
+    /// clears the slot as it quits.
+    pub(crate) fn clear(&self) {
+        let _loading = lock(&self.loading);
+        lock(&self.resident).take();
+    }
+
     /// Loads `path` only when no model is resident, so a background prewarm
     /// never evicts a model someone asked for. `None` means it left the slot
     /// alone.
-    pub(crate) fn load_if_empty(&self, path: &Path) -> Result<Option<Model>, String> {
-        let mut slot = self.0.lock().map_err(|e| e.to_string())?;
-        if slot.is_some() {
+    pub(crate) fn load_if_empty(&self, path: &Path) -> Result<Option<M>, String> {
+        let _loading = lock(&self.loading);
+        if lock(&self.resident).is_some() {
             return Ok(None);
         }
-        let model = load_model(path)?;
-        *slot = Some((path.to_path_buf(), model.clone()));
-        Ok(Some(model))
+        Ok(Some(self.load_into_slot(path, false)?.model))
+    }
+
+    /// The resident copy of `path` once no stream holds it, or `None` when
+    /// another file (or nothing) is resident. A stream gets
+    /// [`MODEL_HANDBACK_WAIT`] to hand the copy back; after that the copy is
+    /// retired, so the slot never keeps a model a stuck stream is holding.
+    /// Call with `loading` held.
+    fn free_copy(&self, path: &Path) -> Option<Resident<M>> {
+        let deadline = Instant::now() + MODEL_HANDBACK_WAIT;
+        loop {
+            let mut resident = lock(&self.resident);
+            let current = resident.as_ref().filter(|resident| resident.path == path)?;
+            if !current.streaming.load(Ordering::SeqCst) {
+                return Some(current.clone());
+            }
+            if Instant::now() >= deadline {
+                eprintln!(
+                    "[models] a live pass still holds {}; retiring that copy",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                );
+                *resident = None;
+                return None;
+            }
+            drop(resident);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Replaces the resident model with a fresh copy of `path`, already
+    /// leased to a stream when `leased`. Call with `loading` held.
+    fn load_into_slot(&self, path: &Path, leased: bool) -> Result<Resident<M>, String> {
+        // Free the old model before loading the new one, so a swap never
+        // briefly holds both.
+        *lock(&self.resident) = None;
+        let resident = Resident {
+            path: path.to_path_buf(),
+            model: (self.load)(path)?,
+            streaming: Arc::new(AtomicBool::new(leased)),
+            warm: Arc::new(AtomicBool::new(false)),
+        };
+        *lock(&self.resident) = Some(resident.clone());
+        Ok(resident)
     }
 }
 
@@ -247,6 +418,136 @@ pub(crate) fn warm_up_parakeet(model: &Model) -> Result<(), String> {
 pub(crate) mod tests {
     use super::*;
 
+    /// A stand-in model: which file it came from and which load made it.
+    type FakeModel = (PathBuf, u64);
+
+    fn fake_load(path: &Path) -> Result<FakeModel, String> {
+        use std::sync::atomic::AtomicU64;
+        static LOADS: AtomicU64 = AtomicU64::new(0);
+        if path.ends_with("broken.gguf") {
+            return Err("model load failed: not a GGUF".into());
+        }
+        if path.ends_with("slow.gguf") {
+            std::thread::sleep(Duration::from_millis(300));
+        }
+        Ok((path.to_path_buf(), LOADS.fetch_add(1, Ordering::SeqCst)))
+    }
+
+    fn warm_slot(path: &Path) -> (ModelSlot<FakeModel>, FakeModel) {
+        let slot = ModelSlot::new(fake_load);
+        let lease = slot.lease_for_stream(path).unwrap();
+        lease.mark_warm();
+        let model = lease.model().clone();
+        drop(lease);
+        (slot, model)
+    }
+
+    #[test]
+    fn a_copy_a_live_stream_holds_is_lent_to_no_one_else() {
+        let path = Path::new("parakeet.gguf");
+        let (slot, model) = warm_slot(path);
+        let live = slot.try_lease_warm(path).unwrap();
+        assert_eq!(live.model(), &model);
+        assert_eq!(
+            slot.try_lease_warm(path).err(),
+            Some(LeaseRefused::InUse),
+            "a second dictation must not stream on the same copy"
+        );
+        drop(live);
+        assert_eq!(slot.try_lease_warm(path).unwrap().model(), &model);
+    }
+
+    #[test]
+    fn a_run_waits_for_a_live_stream_to_hand_its_copy_back() {
+        let path = Path::new("parakeet.gguf");
+        let (slot, model) = warm_slot(path);
+        let live = slot.try_lease_warm(path).unwrap();
+        let handback = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            drop(live);
+        });
+        let started = Instant::now();
+        let (run_model, loaded) = slot.get_or_load(path).unwrap();
+        handback.join().unwrap();
+        assert!(!loaded);
+        assert_eq!(run_model, model);
+        assert!(started.elapsed() >= Duration::from_millis(90));
+        assert!(slot.holds_warm(path));
+    }
+
+    #[test]
+    fn a_copy_a_stuck_stream_never_hands_back_is_retired() {
+        let path = Path::new("parakeet.gguf");
+        let (slot, stuck_model) = warm_slot(path);
+        let stuck = slot.try_lease_warm(path).unwrap();
+
+        let started = Instant::now();
+        let (run_model, loaded) = slot.get_or_load(path).unwrap();
+        assert!(loaded, "the run needs a copy no stream holds");
+        assert_ne!(run_model, stuck_model);
+        assert!(started.elapsed() >= MODEL_HANDBACK_WAIT);
+        // The stuck copy is gone from the slot, and the fresh one hasn't
+        // warmed up, so dictation waits for a reload instead of using either.
+        assert!(!slot.holds_warm(path));
+        assert_eq!(slot.try_lease_warm(path).err(), Some(LeaseRefused::Cold));
+
+        // The stuck stream finally giving up its old copy changes nothing.
+        drop(stuck);
+        assert_eq!(slot.get_or_load(path).unwrap(), (run_model, false));
+    }
+
+    #[test]
+    fn reclaiming_for_a_stream_retires_a_stuck_copy_and_loads_a_cold_one() {
+        let path = Path::new("parakeet.gguf");
+        let (slot, stuck_model) = warm_slot(path);
+        let _stuck = slot.try_lease_warm(path).unwrap();
+        let fresh = slot.lease_for_stream(path).unwrap();
+        assert_ne!(fresh.model(), &stuck_model);
+        assert!(!fresh.is_warm());
+        fresh.mark_warm();
+        drop(fresh);
+        assert!(slot.try_lease_warm(path).is_ok());
+    }
+
+    #[test]
+    fn a_dictation_start_never_waits_for_a_load() {
+        let slot: &'static ModelSlot<FakeModel> = Box::leak(Box::new(ModelSlot::new(fake_load)));
+        let path = Path::new("slow.gguf");
+        let loading = std::thread::spawn(move || slot.lease_for_stream(path).map(|_| ()));
+        std::thread::sleep(Duration::from_millis(50));
+        let asked = Instant::now();
+        assert_eq!(
+            slot.try_lease_warm(path).err(),
+            Some(LeaseRefused::NotLoaded)
+        );
+        assert!(asked.elapsed() < Duration::from_millis(100));
+        loading.join().unwrap().unwrap();
+        assert_eq!(slot.try_lease_warm(path).err(), Some(LeaseRefused::Cold));
+    }
+
+    #[test]
+    fn another_model_or_a_failed_load_leaves_parakeet_not_ready() {
+        let parakeet = Path::new("parakeet.gguf");
+        let (slot, _) = warm_slot(parakeet);
+        assert!(slot.holds_warm(parakeet));
+
+        slot.get_or_load(Path::new("whisper-base.gguf")).unwrap();
+        assert!(!slot.holds_warm(parakeet));
+        assert_eq!(
+            slot.try_lease_warm(parakeet).err(),
+            Some(LeaseRefused::NotLoaded)
+        );
+
+        let broken = Path::new("broken.gguf");
+        assert!(slot.lease_for_stream(broken).is_err());
+        for path in [broken, Path::new("whisper-base.gguf")] {
+            assert_eq!(
+                slot.try_lease_warm(path).err(),
+                Some(LeaseRefused::NotLoaded)
+            );
+        }
+    }
+
     /// Transcribes a recording with a downloaded model, either a GGUF or a
     /// whisper.cpp `.bin`. Run with `CLIPS_TEST_WHISPER_MODEL=<model file>
     /// CLIPS_TEST_WHISPER_WAV=<16 kHz mono 16-bit .wav>
@@ -259,7 +560,7 @@ pub(crate) mod tests {
         let samples = read_pcm16_wav(Path::new(&test_env("CLIPS_TEST_WHISPER_WAV")));
         let expected = test_env("CLIPS_TEST_WHISPER_TEXT");
 
-        let slot = ModelSlot::new();
+        let slot = ModelSlot::new(load_model);
         let (model, loaded) = slot.get_or_load(Path::new(&model_path)).unwrap();
         assert!(loaded);
         assert!(!slot.get_or_load(Path::new(&model_path)).unwrap().1);
@@ -273,14 +574,17 @@ pub(crate) mod tests {
             .map(|(_, _, text)| text.trim())
             .collect::<Vec<_>>()
             .join(" ");
+        // Timings and counts only: these tests may run on someone's own
+        // recordings, whose words must not reach a log.
         eprintln!(
-            "[{}] {:.1}s of audio in {} ms: {segments:?}",
+            "[{}] {:.1}s of audio in {} ms, {} segments",
             model.backend(),
             samples.len() as f32 / 16_000.0,
             started.elapsed().as_millis(),
+            segments.len(),
         );
 
-        assert_eq!(words(&text), words(&expected));
+        assert_eq!(word_errors(&expected, &text), 0, "word errors");
 
         // A slip in time units shows up as times ten times too large or small.
         let audio_ms = samples.len() as i64 * 1000 / 16_000;
@@ -315,11 +619,11 @@ pub(crate) mod tests {
 
         for (name, samples) in [("silence", vec![0.0; 5 * 16_000]), ("noise", noise)] {
             let segments = transcribe_whisper(&mut session, &samples, None).unwrap();
-            assert!(segments.is_empty(), "{name}: {segments:?}");
+            assert!(segments.is_empty(), "{name}: {} segments", segments.len());
         }
     }
 
-    fn test_env(name: &str) -> String {
+    pub(crate) fn test_env(name: &str) -> String {
         std::env::var(name).unwrap_or_else(|_| panic!("set {name}; see the test's doc comment"))
     }
 
@@ -330,22 +634,55 @@ pub(crate) mod tests {
             .collect()
     }
 
-    /// Transcribes a real recording with the downloaded Parakeet model, once in
-    /// one pass and once live, fed as fast as it was spoken. Run with
+    /// Word substitutions, deletions and insertions between two texts,
+    /// ignoring case and punctuation.
+    pub(crate) fn word_errors(reference: &str, hypothesis: &str) -> usize {
+        let (reference, hypothesis) = (words(reference), words(hypothesis));
+        let mut previous: Vec<usize> = (0..=hypothesis.len()).collect();
+        for (r, reference_word) in reference.iter().enumerate() {
+            let mut current = vec![r + 1; hypothesis.len() + 1];
+            for (h, hypothesis_word) in hypothesis.iter().enumerate() {
+                current[h + 1] = (previous[h + 1] + 1)
+                    .min(current[h] + 1)
+                    .min(previous[h] + usize::from(reference_word != hypothesis_word));
+            }
+            previous = current;
+        }
+        previous[hypothesis.len()]
+    }
+
+    /// Word errors per reference word.
+    pub(crate) fn word_error_rate(reference: &str, hypothesis: &str) -> f64 {
+        word_errors(reference, hypothesis) as f64 / words(reference).len().max(1) as f64
+    }
+
+    #[test]
+    fn word_errors_count_substitutions_deletions_and_insertions() {
+        assert_eq!(word_errors("Hello, world.", "hello world"), 0);
+        assert_eq!(word_errors("the cat sat", "the bat sat"), 1);
+        assert_eq!(word_errors("the cat sat", "the sat"), 1);
+        assert_eq!(word_errors("the cat sat", "the cat sat down"), 1);
+        assert_eq!(word_errors("", "anything"), 1);
+        assert_eq!(word_error_rate("one two three four", "one two four"), 0.25);
+    }
+
+    /// Transcribes a recording with the downloaded Parakeet model, once in one
+    /// pass and once live, fed as fast as it was spoken, and compares both
+    /// with the reference and with each other. Run with
     /// `CLIPS_TEST_PARAKEET_MODEL=<model .gguf> CLIPS_TEST_PARAKEET_WAV=<16 kHz
-    /// mono 16-bit .wav> cargo test --lib transcribe_engine -- --ignored
-    /// --nocapture`; add `CLIPS_TEST_PARAKEET_PACE=fast` to feed it at once.
+    /// mono 16-bit .wav> CLIPS_TEST_PARAKEET_TEXT=<what it says> cargo test
+    /// --release --lib transcribe_engine -- --ignored --nocapture`; add
+    /// `CLIPS_TEST_PARAKEET_PACE=fast` to feed it at once. Prints timings and
+    /// word error rates, never the text.
     #[test]
     #[ignore = "needs the downloaded Parakeet model and a WAV file"]
     fn transcribes_a_wav_file_with_parakeet_offline_and_live() {
         use std::time::{Duration, Instant};
 
-        let model_path = std::env::var("CLIPS_TEST_PARAKEET_MODEL")
-            .expect("set CLIPS_TEST_PARAKEET_MODEL to the Parakeet model file");
-        let wav_path = std::env::var("CLIPS_TEST_PARAKEET_WAV")
-            .expect("set CLIPS_TEST_PARAKEET_WAV to a 16 kHz mono 16-bit WAV");
+        let model_path = test_env("CLIPS_TEST_PARAKEET_MODEL");
+        let samples = read_pcm16_wav(Path::new(&test_env("CLIPS_TEST_PARAKEET_WAV")));
+        let reference = test_env("CLIPS_TEST_PARAKEET_TEXT");
         let realtime = std::env::var("CLIPS_TEST_PARAKEET_PACE").as_deref() != Ok("fast");
-        let samples = read_pcm16_wav(Path::new(&wav_path));
         let audio = Duration::from_secs_f64(samples.len() as f64 / 16_000.0);
 
         let started = Instant::now();
@@ -369,9 +706,10 @@ pub(crate) mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         eprintln!(
-            "offline: {:.1}s of audio in {} ms: {offline_text}",
+            "offline: {:.1}s of audio in {} ms, {} segments",
             audio.as_secs_f64(),
-            started.elapsed().as_millis()
+            started.elapsed().as_millis(),
+            segments.len()
         );
 
         let started = Instant::now();
@@ -404,14 +742,26 @@ pub(crate) mod tests {
             started
                 .elapsed()
                 .saturating_sub(if realtime { audio } else { Duration::ZERO });
+        let offline_wer = word_error_rate(&reference, &offline_text);
+        let live_wer = word_error_rate(&reference, &live_text);
+        let live_vs_offline = word_errors(&offline_text, &live_text);
         eprintln!(
-            "live ({}): final text {} ms after the audio ended, {partials} partials: {live_text}",
+            "live ({}): final text {} ms after the audio ended, {partials} partials",
             if realtime { "real-time" } else { "fast" },
             after_audio.as_millis()
         );
+        eprintln!(
+            "WER against the reference: offline {:.1}%, live {:.1}%; live differs from offline by {live_vs_offline} words",
+            offline_wer * 100.0,
+            live_wer * 100.0
+        );
 
-        assert!(!offline_text.is_empty());
-        assert!(!live_text.is_empty());
+        assert!(offline_wer <= 0.05, "offline WER {offline_wer:.3}");
+        assert!(live_wer <= 0.05, "live WER {live_wer:.3}");
+        assert!(
+            live_vs_offline * 50 <= words(&offline_text).len(),
+            "live and offline differ by {live_vs_offline} words"
+        );
         let audio_ms = audio.as_millis() as i64;
         for (start_ms, end_ms, _) in &segments {
             assert!(0 <= *start_ms && start_ms <= end_ms && *end_ms <= audio_ms + 1000);

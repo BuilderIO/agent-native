@@ -880,6 +880,45 @@ describe("desktop voice dictation runs", () => {
       );
     });
 
+    it("discards a dictation cancelled while it is still transcribing", async () => {
+      const warn = vi.spyOn(console, "warn");
+      let rejectStop!: (reason: string) => void;
+      tauri.invoke.mockImplementation((command, args) => {
+        if (command === "audio_transcription_stop") {
+          if ((args as { discard?: boolean }).discard) {
+            rejectStop("parakeet-dictation-discarded");
+            return Promise.resolve(undefined);
+          }
+          return new Promise((_, reject) => {
+            rejectStop = reject;
+          });
+        }
+        return Promise.resolve(undefined);
+      });
+      const started = await startDictation("parakeet");
+      dispose = started.dispose;
+      await release();
+      await settle();
+      expect(stateChanges().at(-1)).toMatchObject({ state: "processing" });
+
+      await dispatch("voice:cancel");
+      await settle();
+
+      expect(tauri.invoke).toHaveBeenCalledWith("audio_transcription_stop", {
+        owner: "dictation",
+        runId: started.runId,
+        discard: true,
+      });
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+      expect(warn).not.toHaveBeenCalledWith(
+        "[voice-dictation] Parakeet stop failed:",
+        expect.anything(),
+      );
+    });
+
     it("fails the run when the stop call returns no transcript", async () => {
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       const started = await startDictation("parakeet");
