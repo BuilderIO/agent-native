@@ -1115,12 +1115,18 @@ export function DocumentToolbar({
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
-  // Until the first successful status answer the toolbar can't tell a
-  // linked page from an unlinked one, so the Notion item waits instead of
-  // offering a link. A failed read counts as waiting too: linking a page
-  // that's already linked pulls Notion over local edits.
-  const notionStatusPending = isConnected && notionStatusApplies && !syncStatus;
+  // Until a status read succeeds the toolbar can't tell a linked page from
+  // an unlinked one, so the Notion item waits instead of offering a link. A
+  // failed read counts as waiting too, even with an earlier answer cached:
+  // linking a page that's already linked pulls Notion over local edits.
+  const notionStatusPending =
+    isConnected && notionStatusApplies && (!syncStatus || syncStatusFailed);
   const notionStatusChecking = notionStatusPending && syncStatusFetching;
+  // A read that fails while the Notion popover is open closes it, so its link
+  // form can't act on the stale answer (and it doesn't reopen on a retry).
+  useEffect(() => {
+    if (notionStatusPending) setOpen(false);
+  }, [notionStatusPending]);
   const hasConflict = syncStatus?.hasConflict ?? false;
   const isWorking =
     linkDocument.isPending ||
@@ -1847,7 +1853,7 @@ export function DocumentToolbar({
               if (nextOpen) {
                 setPageActionsOpened(true);
                 // Reopening the menu retries a status read that failed.
-                if (syncStatusFailed && !syncStatus) void refetchSyncStatus();
+                if (syncStatusFailed) void refetchSyncStatus();
                 flushPendingPageActionsRestore();
                 pageActionsPreservationFrameRef.current = requestAnimationFrame(
                   () => {
@@ -2130,7 +2136,10 @@ export function DocumentToolbar({
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 {canEdit && !isLocalFileDocument ? (
-                  <Popover open={open} onOpenChange={setOpen}>
+                  <Popover
+                    open={open && !notionStatusPending}
+                    onOpenChange={setOpen}
+                  >
                     <PopoverTrigger asChild>
                       <button
                         type="button"

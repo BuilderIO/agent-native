@@ -156,13 +156,20 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
             results: requests.map(({ action }) => ({
               status: 200,
               body:
-                action === "connect-notion-status" ? { connected: true } : {},
+                action === "connect-notion-status"
+                  ? { connected: true }
+                  : action === "search-notion-pages"
+                    ? { results: [] }
+                    : {},
             })),
           });
         }
         mocks.fetchUrls.push(href);
         if (href.includes("connect-notion-status")) {
           return json({ connected: true });
+        }
+        if (href.includes("search-notion-pages")) {
+          return json({ results: [] });
         }
         if (href.includes("refresh-notion-sync-status")) {
           return new Promise<Response>((resolve) => {
@@ -236,6 +243,59 @@ describe("DocumentToolbar's Notion item before the sync status loads", () => {
 
     expect(notionItem()?.textContent.trim()).toBe(
       "editor.toolbar.linkToNotion",
+    );
+  });
+
+  it("stops offering the link when a later status read fails, until a retry succeeds", async () => {
+    const unlinked = { connected: true, pageId: null, hasConflict: false };
+    await renderToolbar();
+    await openPageActions();
+    await act(async () => answerStatus(unlinked));
+    await vi.waitFor(() =>
+      expect(notionItem()?.textContent.trim()).toBe(
+        "editor.toolbar.linkToNotion",
+      ),
+    );
+
+    // The link form is open when a background refetch fails: the cached
+    // "unlinked" answer may be stale, so the form closes.
+    await act(async () => notionItem()?.click());
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain(
+        "editor.toolbar.linkToNotionPage",
+      ),
+    );
+    await act(async () => {
+      void queryClient.refetchQueries({
+        queryKey: ["action", "refresh-notion-sync-status"],
+      });
+    });
+    await vi.waitFor(() => expect(statusRequests()).toHaveLength(2));
+    await act(async () =>
+      answerStatus({ error: "Notion is unavailable" }, 500),
+    );
+    await vi.waitFor(() => expect(notionItem()?.disabled).toBe(true));
+    expect(notionItem()?.textContent.trim()).toBe("editor.toolbar.notionSync");
+    await vi.waitFor(() =>
+      expect(document.body.textContent).not.toContain(
+        "editor.toolbar.linkToNotion",
+      ),
+    );
+
+    // Reopening the page actions retries, and a success offers it again.
+    await openPageActions();
+    await openPageActions();
+    await vi.waitFor(() => expect(statusRequests()).toHaveLength(3));
+    expect(notionItem()?.disabled).toBe(true);
+    await act(async () => answerStatus(unlinked));
+    await vi.waitFor(() => expect(notionItem()?.disabled).toBe(false));
+    expect(notionItem()?.textContent.trim()).toBe(
+      "editor.toolbar.linkToNotion",
+    );
+    // The link form closed with the failure and stays closed.
+    await act(async () => Promise.resolve());
+    expect(document.body.textContent).not.toContain(
+      "editor.toolbar.linkToNotionPage",
     );
   });
 

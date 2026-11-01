@@ -65,6 +65,12 @@ describe("NotionSyncBar's link form", () => {
       .map((query) => query.state.status);
   }
 
+  function refetchStatus() {
+    return queryClient.refetchQueries({
+      queryKey: ["action", "refresh-notion-sync-status"],
+    });
+  }
+
   function buttonLabels() {
     return Array.from(container.querySelectorAll("button")).map((button) =>
       button.textContent.trim(),
@@ -131,6 +137,32 @@ describe("NotionSyncBar's link form", () => {
     };
     await renderBar();
 
+    await vi.waitFor(() =>
+      expect(buttonLabels()).toContain("editor.toolbar.linkPage"),
+    );
+    expect(container.querySelector("input")).not.toBeNull();
+  });
+
+  it("hides the link form when a later status read fails, until a retry succeeds", async () => {
+    const unlinked = { connected: true, pageId: null, hasConflict: false };
+    mocks.status = { body: unlinked, code: 200 };
+    await renderBar();
+    await vi.waitFor(() =>
+      expect(buttonLabels()).toContain("editor.toolbar.linkPage"),
+    );
+
+    // A refetch fails: the cached "unlinked" answer may be stale.
+    mocks.status = { body: { error: "Notion is unavailable" }, code: 500 };
+    await act(async () => refetchStatus());
+    expect(statusQueryStates()).toEqual(["error"]);
+    await vi.waitFor(() =>
+      expect(buttonLabels()).not.toContain("editor.toolbar.linkPage"),
+    );
+    expect(container.querySelector("input")).toBeNull();
+
+    mocks.status = { body: unlinked, code: 200 };
+    await act(async () => refetchStatus());
+    expect(statusQueryStates()).toEqual(["success"]);
     await vi.waitFor(() =>
       expect(buttonLabels()).toContain("editor.toolbar.linkPage"),
     );

@@ -35,8 +35,14 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
   const t = useT();
   const queryClient = useQueryClient();
   const { data: connection } = useNotionConnection();
-  const { data: syncStatus, isLoading: syncLoading } =
-    useDocumentSyncStatus(documentId);
+  const {
+    data: syncStatus,
+    isError: syncStatusFailed,
+    isLoading: syncLoading,
+  } = useDocumentSyncStatus(documentId);
+  // The last answer counts only while the latest read succeeded: after a
+  // failed refetch the page may have been linked since.
+  const knownStatus = syncStatusFailed ? undefined : syncStatus;
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);
@@ -182,18 +188,18 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
           <p className="mt-0.5 text-xs text-muted-foreground">
             {!connection?.connected
               ? t("editor.toolbar.connectNotionWorkspaceToLink")
-              : !syncStatus
+              : !knownStatus
                 ? null
-                : syncStatus.pageId
-                  ? syncStatus.lastSyncedAt
+                : knownStatus.pageId
+                  ? knownStatus.lastSyncedAt
                     ? t("editor.toolbar.linkedToPageLastSynced", {
-                        pageId: syncStatus.pageId,
+                        pageId: knownStatus.pageId,
                         date: new Date(
-                          syncStatus.lastSyncedAt,
+                          knownStatus.lastSyncedAt,
                         ).toLocaleString(),
                       })
                     : t("editor.toolbar.linkedToPage", {
-                        pageId: syncStatus.pageId,
+                        pageId: knownStatus.pageId,
                       })
                   : t("editor.toolbar.pasteNotionPageUrlOrIdToLink")}
           </p>
@@ -222,10 +228,11 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
           </Button>
         ) : (
           <>
-            {/* Without a status answer the bar can't tell a linked page from
-                an unlinked one, and linking a linked page pulls Notion over
-                local edits, so it offers no link form until one arrives. */}
-            {!syncStatus ? null : !syncStatus.pageId ? (
+            {/* Without a successful status read the bar can't tell a linked
+                page from an unlinked one, and linking a linked page pulls
+                Notion over local edits, so it offers no link form until a
+                read succeeds. */}
+            {!knownStatus ? null : !knownStatus.pageId ? (
               <>
                 <Input
                   size="sm"
@@ -246,9 +253,9 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
               </>
             ) : (
               <>
-                {syncStatus.pageUrl && (
+                {knownStatus.pageUrl && (
                   <a
-                    href={syncStatus.pageUrl}
+                    href={knownStatus.pageUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
