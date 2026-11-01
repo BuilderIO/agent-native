@@ -34,6 +34,10 @@ vi.mock("@shared/nfm", async (importOriginal) => {
 });
 
 import {
+  createCommentHighlightPlugin,
+  setCommentHighlights,
+} from "./CommentHighlight";
+import {
   createSuggestionHighlightPlugin,
   isProvisionalDraftSpec,
   suggestionDecisionHoldsHistory,
@@ -1040,6 +1044,25 @@ describe("SuggestionHighlight", () => {
       }
     });
 
+    it("spells out where a link on a suggested line points", () => {
+      const flat = [list("bulletList", listItem("One"))];
+      const { view, mount } = mounted(flat, [
+        lineAfter(
+          flat,
+          "One",
+          "- One\n- [Docs](https://docs.test)",
+          "\n- [Docs](https://docs.test)",
+        ),
+      ]);
+      try {
+        expect(
+          mount.querySelector(".suggestion-block-widget")?.textContent,
+        ).toBe("Docs (https://docs.test)");
+      } finally {
+        view.destroy();
+      }
+    });
+
     it("draws a suggested bullet beside a numbered list, never inside it", () => {
       const numbered = [list("orderedList", listItem("One"), listItem("Two"))];
       const inside = mounted(numbered, [
@@ -1928,6 +1951,82 @@ describe("settling suggestions", () => {
       frozen.applyTransaction(frozen.tr.insertText("x", 3)).state.doc
         .textContent,
     ).toBe("Before after");
+  });
+
+  it("keeps the comment highlight of the words it replaces on the new words", () => {
+    const view = new EditorView(document.createElement("div"), {
+      state: EditorState.create({
+        doc: doc("Before after"),
+        plugins: [
+          createCommentHighlightPlugin(),
+          createSuggestionHighlightPlugin(),
+        ],
+      }),
+    });
+    try {
+      setCommentHighlights(view, {
+        specs: [{ threadId: "thread", from: 1, to: 13 }],
+        activeId: "thread",
+      });
+      view.dispatch(
+        view.state.tr.setMeta(suggestionHighlightKey, {
+          specs: [settling],
+          activeId: null,
+        }),
+      );
+      const highlight = view.dom.querySelector(
+        ".suggestion-settling-text .comment-highlight",
+      );
+      expect(highlight?.textContent).toBe("Later");
+      expect(highlight?.className).toBe(
+        "comment-highlight comment-highlight--active",
+      );
+      expect(highlight?.getAttribute("data-comment-thread")).toBe("thread");
+
+      setCommentHighlights(view, { activeId: null, hoveredId: "thread" });
+      expect(
+        view.dom.querySelector(".suggestion-settling-text .comment-highlight")
+          ?.className,
+      ).toBe("comment-highlight comment-highlight--hovered");
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it("draws the open card's thread when several highlight the words it replaces", () => {
+    const view = new EditorView(document.createElement("div"), {
+      state: EditorState.create({
+        doc: doc("Before after"),
+        plugins: [
+          createCommentHighlightPlugin(),
+          createSuggestionHighlightPlugin(),
+        ],
+      }),
+    });
+    try {
+      setCommentHighlights(view, {
+        specs: [
+          { threadId: "first", from: 1, to: 7 },
+          { threadId: "second", from: 1, to: 7 },
+        ],
+        activeId: "second",
+      });
+      view.dispatch(
+        view.state.tr.setMeta(suggestionHighlightKey, {
+          specs: [settling],
+          activeId: null,
+        }),
+      );
+      const highlight = view.dom.querySelector(
+        ".suggestion-settling-text .comment-highlight",
+      );
+      expect(highlight?.getAttribute("data-comment-thread")).toBe("second");
+      expect(highlight?.className).toBe(
+        "comment-highlight comment-highlight--active",
+      );
+    } finally {
+      view.destroy();
+    }
   });
 
   it("holds undo and redo while a decision saves", () => {

@@ -1116,6 +1116,46 @@ describe("document editor layout", () => {
       presented.slice(1).map((part) => part.settlementReadbackContent),
     ).toEqual([readback, readback]);
   });
+  it("draws a draft that mostly rewrites a paragraph as it draws once saved", () => {
+    const before =
+      "It turns out that a lot of people in town had the same problem, and the response was much bigger than expected.";
+    const after =
+      "Plenty of neighbors had the same problem, and the shelf grew.";
+    const operation = markdownSuggestionOperation(before, after);
+    if (!operation) throw new Error("no operation");
+    const from = operation.anchor.from;
+    const drawn = (
+      presentations: ReturnType<typeof suggestionPresentations> | null,
+    ) =>
+      presentations?.map(({ beforeText, afterText }) => [
+        beforeText,
+        afterText,
+      ]);
+    const draft = preciseDraftSuggestionPresentations(
+      {
+        id: "editing",
+        operations: [operation],
+        anchor: {
+          from,
+          to: from + operation.after.changedText.length,
+          prefix: "",
+          suffix: "",
+        },
+      } as never,
+      after,
+    );
+    const saved = suggestionPresentations(
+      { id: "saved", status: "pending", operations: [operation] },
+      before,
+    );
+    expect(drawn(draft)).toEqual([
+      [
+        "It turns out that a lot of people in town had the same problem, and the response was much bigger than expected",
+        "Plenty of neighbors had the same problem, and the shelf grew",
+      ],
+    ]);
+    expect(drawn(draft)).toEqual(drawn(saved));
+  });
   it("maps multi-hunk draft previews through the parent anchor into the current draft", () => {
     const before =
       "Old red lanterns shine through the western pines. Nearby insects glow softly.";

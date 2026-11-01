@@ -934,6 +934,120 @@ export function markdownSuggestionOperation(
   );
 }
 
+const MAX_REWRITE_WORDS = 2_000;
+
+function visibleWords(markdown: string): string[] {
+  return (
+    markdown
+      .replace(/\]\([^)]*\)/gu, "]")
+      .replace(/<[^>]*>/gu, " ")
+      .match(/[\p{L}\p{M}\p{N}]+/gu) ?? []
+  );
+}
+
+function commonWordCount(left: string[], right: string[]): number {
+  const cells = right.map((word) => ({ word, kept: 0 }));
+  let kept = 0;
+  for (const word of left) {
+    let diagonal = 0;
+    kept = 0;
+    for (const cell of cells) {
+      const above = cell.kept;
+      cell.kept = cell.word === word ? diagonal + 1 : Math.max(above, kept);
+      diagonal = above;
+      kept = cell.kept;
+    }
+  }
+  return kept;
+}
+
+/**
+ * Whether a change strikes and inserts more words than it keeps. Diffed word
+ * by word, such a change strikes and inserts every few words, so neither
+ * version can be read; it reads as the old text struck and the new inserted.
+ */
+export function mostlyRewritten(before: string, after: string): boolean {
+  const words = visibleWords(before);
+  const rewritten = visibleWords(after);
+  if (words.length + rewritten.length > MAX_REWRITE_WORDS) return false;
+  const kept = commonWordCount(words, rewritten);
+  return words.length + rewritten.length - 2 * kept > kept;
+}
+
+/**
+ * One operation for the paragraph a line's word-sized operations mostly
+ * rewrite, or null when they leave most of it as it was.
+ */
+function rewrittenParagraph(
+  before: string,
+  group: MarkdownSuggestionOperation[],
+): MarkdownSuggestionOperation | null {
+  if (group.length < 2) return null;
+  const from = Math.min(...group.map(({ anchor }) => anchor.from));
+  const to = Math.max(...group.map(({ anchor }) => anchor.to));
+  const inserted = group.reduceRight(
+    (text, operation) =>
+      text.slice(0, operation.anchor.from - from) +
+      operation.after.changedText +
+      text.slice(operation.anchor.to - from),
+    before.slice(from, to),
+  );
+  const lineStart = before.lastIndexOf("\n", from - 1) + 1;
+  const lineStop = before.indexOf("\n", to);
+  const lineTo = lineStop < 0 ? before.length : lineStop;
+  if (
+    !mostlyRewritten(
+      before.slice(lineStart, lineTo),
+      before.slice(lineStart, from) + inserted + before.slice(to, lineTo),
+    )
+  )
+    return null;
+  return operationForChange(before, from, to, inserted, 0);
+}
+
+/**
+ * Joins the word-sized operations of each paragraph they mostly rewrite into
+ * one. A light edit keeps its word-sized operations, so "fix this throughout"
+ * stays one decision per occurrence.
+ */
+export function joinRewrittenParagraphs(
+  before: string,
+  operations: MarkdownSuggestionOperation[],
+): MarkdownSuggestionOperation[] {
+  const groups: MarkdownSuggestionOperation[][] = [];
+  let group: MarkdownSuggestionOperation[] | null = null;
+  let lineEnd = -1;
+  for (const operation of operations) {
+    const inLine =
+      operation.kind !== "set_inline_mark" &&
+      !operation.before.changedText.includes("\n") &&
+      !operation.after.changedText.includes("\n");
+    if (inLine && group && operation.anchor.from < lineEnd) {
+      group.push(operation);
+      continue;
+    }
+    group = [operation];
+    groups.push(group);
+    const end = before.indexOf("\n", operation.anchor.to);
+    lineEnd = inLine ? (end < 0 ? before.length : end) : -1;
+  }
+  const result: MarkdownSuggestionOperation[] = [];
+  let joined = false;
+  for (const line of groups) {
+    const rewrite = rewrittenParagraph(before, line);
+    if (rewrite) {
+      result.push(rewrite);
+      joined = true;
+    } else {
+      result.push(...line);
+    }
+  }
+  if (!joined) return operations;
+  return isolateSiblingAnchorContexts(
+    result.map((operation, ordinal) => ({ ...operation, ordinal })),
+  );
+}
+
 export function markdownSuggestionOperationsForFindReplace(input: {
   before: string;
   find: string;
@@ -964,28 +1078,31 @@ export function markdownSuggestionOperationsForFindReplace(input: {
   ) {
     return [operationForChange(before, start, start + find.length, replace, 0)];
   }
-  return operations;
+  return joinRewrittenParagraphs(before, operations);
 }
 
 /**
  * Splits several non-overlapping find/replace edits against one source the
- * way one edit is split. Each operation's anchor context stops at its
- * neighbors, so accepting one never rewrites the text another is found by.
+ * way one edit is split, and joins a paragraph they rewrite between them.
+ * Each operation's anchor context stops at its neighbors, so accepting one
+ * never rewrites the text another is found by.
  */
 export function markdownSuggestionOperationsForFindReplaceEdits(input: {
   before: string;
   edits: ReadonlyArray<{ find: string; replace: string; start: number }>;
 }): MarkdownSuggestionOperation[] {
   return isolateSiblingAnchorContexts(
-    input.edits
-      .flatMap((edit) =>
-        markdownSuggestionOperationsForFindReplace({
-          before: input.before,
-          ...edit,
-        }),
-      )
-      .sort((left, right) => left.anchor.from - right.anchor.from)
-      .map((operation, ordinal) => ({ ...operation, ordinal })),
+    joinRewrittenParagraphs(
+      input.before,
+      input.edits
+        .flatMap((edit) =>
+          markdownSuggestionOperationsForFindReplace({
+            before: input.before,
+            ...edit,
+          }),
+        )
+        .sort((left, right) => left.anchor.from - right.anchor.from),
+    ).map((operation, ordinal) => ({ ...operation, ordinal })),
   );
 }
 

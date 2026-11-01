@@ -2218,6 +2218,43 @@ describe("live suggestion presentation", () => {
       editor.destroy();
     }
   });
+  it.each([
+    ["keeps", "[Echo](https://example.test)", "Echo now"],
+    ["adds", "[Echo](https://new.test)", "Echo (https://new.test) now"],
+  ])(
+    "spells out a link's destination only when a rewrite %s it",
+    (_label, link, inserted) => {
+      const before = "Say [Echo](https://example.test) here.";
+      const beforeText = "Say [Echo](https://example.test) here";
+      const afterText = `${link} now`;
+      const after = `${afterText}.`;
+      const editor = createSuggestionEditor(before);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: "rewrite",
+          kind: "replace_text",
+          beforeText,
+          afterText,
+          beforePresentation: {
+            source: before,
+            from: 0,
+            to: beforeText.length,
+          },
+          afterPresentation: { source: after, from: 0, to: afterText.length },
+          anchor: { from: 0, prefix: "", suffix: "." },
+          presentation: "canonical",
+        });
+        if (!spec) throw new Error("The rewrite has no highlight");
+        setSuggestionHighlights(editor.view, { specs: [spec] });
+        expect(
+          editor.view.dom.querySelector(".suggestion-proposed-text")
+            ?.textContent,
+        ).toBe(inserted);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
   it("leaves stale split context unavailable rather than preferring a partially matching target", () => {
     const editor = createSuggestionEditor("BBBB target x\nC target y");
     try {

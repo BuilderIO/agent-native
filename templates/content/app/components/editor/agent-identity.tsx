@@ -7,8 +7,9 @@ import { cn } from "@/lib/utils";
 
 /**
  * One identity for an AI participant in a comment thread: the provider's short
- * name (the visible author), a readable model name (the detail), and the
- * engine used to look up the shared provider logo.
+ * name (the logo's label), and the engine used to look up the shared provider
+ * logo. The visible author is the readable model name, `modelDisplayName`, so
+ * a reply is signed with the name its request chip and status already used.
  */
 export interface AgentModelIdentity {
   provider: string;
@@ -43,7 +44,7 @@ export function resolveAgentModelIdentity(
   return provider ? { provider, ...PROVIDERS[provider] } : null;
 }
 
-/** The visible author name for an AI participant, e.g. "Claude". */
+/** The provider name for an AI participant, e.g. "Claude". */
 export function agentDisplayName(model: string | null | undefined): string {
   return resolveAgentModelIdentity(model)?.shortName ?? "AI";
 }

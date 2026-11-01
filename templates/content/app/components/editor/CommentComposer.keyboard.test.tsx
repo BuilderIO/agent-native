@@ -207,13 +207,13 @@ describe("CommentComposer rich recipient", () => {
     const options = [...(popover?.querySelectorAll("button") ?? [])];
     // Each row is its label then its description; people carry a decorative
     // initial avatar until their photo loads.
+    // People come first, then each agent once, the selected one leading.
     expect(options.map((option) => option.textContent)).toEqual([
-      "AIGPT-5.6 Luna",
+      "AAlicealice@example.test",
       "GPT-5.6 LunaBuilder",
       "Claude Sonnet 5Anthropic",
-      "AAlicealice@example.test",
     ]);
-    expect(options[0]?.querySelector("img")).not.toBeNull();
+    expect(options[1]?.querySelector("img")).not.toBeNull();
     expect(popover?.textContent).toContain("Alice");
     expect(popover?.textContent).not.toContain("Files");
     expect(
@@ -311,11 +311,11 @@ describe("CommentComposer rich recipient", () => {
     );
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
-    await typeRichEditorText(editor(), "@");
+    await typeRichEditorText(editor(), "@ai");
     const aiOption = document.querySelector<HTMLButtonElement>(
       '[data-agent-native-composer-popover="true"] [data-mention-index="0"]',
     );
-    expect(aiOption?.textContent).toContain("AI");
+    expect(aiOption?.textContent).toContain("GPT-5.6 Luna");
     onAiDraftChange.mockClear();
 
     await act(async () => aiOption?.click());

@@ -17,13 +17,66 @@ describe("wordDiff", () => {
   });
 
   it("keeps unchanged words between separate changes", () => {
-    expect(wordDiff("hold the view briefly", "hold this view longer")).toEqual([
+    expect(
+      wordDiff(
+        "hold the view briefly while the page settles",
+        "hold this view longer while the page settles",
+      ),
+    ).toEqual([
       { kind: "same", text: "hold " },
       { kind: "removed", text: "the " },
       { kind: "added", text: "this " },
       { kind: "same", text: "view " },
-      { kind: "removed", text: "briefly" },
-      { kind: "added", text: "longer" },
+      { kind: "removed", text: "briefly " },
+      { kind: "added", text: "longer " },
+      { kind: "same", text: "while the page settles" },
+    ]);
+  });
+
+  it("reads a mostly rewritten line as the old text struck and the new inserted", () => {
+    expect(
+      wordDiff(
+        "It turns out that a lot of people in town had the same problem, and the response was much bigger than expected.",
+        "Plenty of neighbors had the same problem, and the shelf grew.",
+      ),
+    ).toEqual([
+      {
+        kind: "removed",
+        text: "It turns out that a lot of people in town had the same problem, and the response was much bigger than expected.",
+      },
+      {
+        kind: "added",
+        text: "Plenty of neighbors had the same problem, and the shelf grew.",
+      },
+    ]);
+    expect(wordDiff("hold the view briefly", "hold this view longer")).toEqual([
+      { kind: "same", text: "hold " },
+      { kind: "removed", text: "the view briefly" },
+      { kind: "added", text: "this view longer" },
+    ]);
+  });
+
+  it("decides paragraph by paragraph, as the page does", () => {
+    const kept =
+      "Stable context unchanged for many words in a separate paragraph.";
+    expect(
+      wordDiff(
+        `It turns out that a lot of people in town had the same problem, and the response was much bigger than expected.\n\n${kept}\n\nThe red bird sang.`,
+        `Plenty of neighbors had the same problem, and the shelf grew.\n\n${kept}\n\nThe blue bird sang.`,
+      ),
+    ).toEqual([
+      {
+        kind: "removed",
+        text: "It turns out that a lot of people in town had the same problem, and the response was much bigger than expected.\n\n",
+      },
+      {
+        kind: "added",
+        text: "Plenty of neighbors had the same problem, and the shelf grew.\n\n",
+      },
+      { kind: "same", text: `${kept}\n\nThe ` },
+      { kind: "removed", text: "red " },
+      { kind: "added", text: "blue " },
+      { kind: "same", text: "bird sang." },
     ]);
   });
 
