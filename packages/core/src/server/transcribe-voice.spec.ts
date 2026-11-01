@@ -132,6 +132,44 @@ describe("transcribe-voice Builder provider gate", () => {
     }
   });
 
+  it("accepts the desktop app's request that WebKit marks cross-site", async () => {
+    state.hasGatewayCredential = true;
+    getSession.mockResolvedValue({ email: "native@example.com" });
+    vi.stubEnv("NODE_ENV", "production");
+    const event = {
+      headers: {
+        host: "clips.example.com",
+        origin: "tauri://localhost",
+        "sec-fetch-site": "cross-site",
+        authorization: "Bearer test-native-session",
+      },
+      node: {},
+    };
+    try {
+      await expect(post(event)).resolves.toEqual({ text: "hello" });
+      expect(transcribeWithBuilder).toHaveBeenCalledOnce();
+    } finally {
+      getSession.mockResolvedValue(null);
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("rejects a web page's cross-site request", async () => {
+    const event = {
+      headers: {
+        host: "clips.example.com",
+        origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
+      },
+      node: {},
+    };
+    await expect(post(event)).resolves.toEqual({
+      error: "Cross-origin request rejected",
+    });
+    expect(state.status).toBe(403);
+    expect(transcribeWithBuilder).not.toHaveBeenCalled();
+  });
+
   it("gives a visitor the one line when no lane resolves on a credits site", async () => {
     state.hasGatewayCredential = false;
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
