@@ -8,17 +8,17 @@ pub(crate) enum LocalEngine {
     Parakeet,
 }
 
-/// Dictation asks for Parakeet only after it has loaded, so a request that
-/// finds it unready fails and the caller uses Apple Speech. Meetings fall back
-/// to Whisper instead, as they did before Parakeet existed.
+/// A dictation that asks for Parakeet always gets it here: whether the model
+/// can take it is the dictation start's call, which turns it away to Apple
+/// Speech with a reason and starts Parakeet's recovery. A meeting uses
+/// Parakeet once the file is on disk, and Whisper until then.
 pub(crate) fn resolve_local_engine(
     requested: Option<&str>,
     dictation: bool,
-    parakeet_ready: bool,
+    meeting_can_use_parakeet: impl FnOnce() -> bool,
 ) -> Result<LocalEngine, &'static str> {
     match requested {
-        Some("parakeet") if parakeet_ready => Ok(LocalEngine::Parakeet),
-        Some("parakeet") if dictation => Err("parakeet-model-not-ready"),
+        Some("parakeet") if dictation || meeting_can_use_parakeet() => Ok(LocalEngine::Parakeet),
         Some("parakeet") | Some("whisper") | None => Ok(LocalEngine::Whisper),
         Some(_) => Err("unknown-transcription-engine"),
     }
@@ -89,11 +89,9 @@ pub async fn whisper_transcription_start(
     engine: Option<String>,
 ) -> Result<(), String> {
     let dictation = owner.as_deref() != Some("meeting");
-    let engine = resolve_local_engine(
-        engine.as_deref(),
-        dictation,
-        crate::parakeet_model::is_ready(&app),
-    )
+    let engine = resolve_local_engine(engine.as_deref(), dictation, || {
+        crate::parakeet_model::meeting_can_use(&app)
+    })
     .map_err(str::to_owned)?;
     if engine == LocalEngine::Whisper && !crate::config::feature_config(&app).whisper_model_enabled
     {
@@ -173,11 +171,19 @@ pub async fn whisper_transcription_stop(
     }
 }
 
+/// For quitting: ends the live transcription and cancels every dictation
+/// still producing its text and every native run in flight. Workers hand
+/// their models back as they stop; the caller waits for that on the slot.
 pub fn shutdown(app: &AppHandle) {
     #[cfg(target_os = "macos")]
-    if let Err(error) = macos::stop(app, None, None, false, true) {
-        eprintln!("[whisper] shutdown stop failed: {error}");
+    {
+        crate::transcribe_engine::quit_token().cancel();
+        if let Err(error) = macos::stop(app, None, None, false, true) {
+            eprintln!("[whisper] shutdown stop failed: {error}");
+        }
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
 }
 
 #[tauri::command]
@@ -208,7 +214,6 @@ mod macos {
 
     use serde::Serialize;
     use tauri::{AppHandle, Emitter};
-    use transcribe_cpp::Model;
 
     use super::{DictationTranscript, LocalEngine};
     use crate::capture_audio_bus::{
@@ -227,7 +232,7 @@ mod macos {
         RawSckAudioCapture,
     };
     use crate::transcribe_engine::{
-        open_session, transcribe_parakeet, transcribe_whisper, LOCAL_MODEL,
+        open_session, transcribe_parakeet, transcribe_whisper, RunLease, LOCAL_MODEL, QUITTING,
     };
     use crate::whisper_model::{ensure_model, model_file, remove_superseded_legacy_model};
 
@@ -284,29 +289,31 @@ mod macos {
         buffer_start: Instant,
     }
 
-    fn cached_model(app: &AppHandle) -> Result<Model, String> {
+    /// Whisper for one-shot runs. Drop the lease only after every session
+    /// opened on its model.
+    fn whisper_lease(app: &AppHandle) -> Result<RunLease<'static>, String> {
         let path = model_file(app)?;
-        let (model, loaded) = LOCAL_MODEL
-            .get_or_load(&path)
+        let (lease, loaded) = LOCAL_MODEL
+            .lease_for_run(&path)
             .map_err(|e| format!("whisper {e}"))?;
         if loaded {
             remove_superseded_legacy_model(app, &path);
         }
-        Ok(model)
+        Ok(lease)
     }
 
     /// Loads Whisper at launch unless another model got there first, so a
     /// Parakeet user is not left holding both.
     pub fn prewarm(app: &AppHandle) -> Result<(), String> {
         let path = model_file(app)?;
-        let Some(model) = LOCAL_MODEL
+        let Some(lease) = LOCAL_MODEL
             .load_if_empty(&path)
             .map_err(|e| format!("whisper {e}"))?
         else {
             return Ok(());
         };
         remove_superseded_legacy_model(app, &path);
-        open_session(&model).map_err(|e| format!("whisper {e}"))?;
+        open_session(lease.model()).map_err(|e| format!("whisper {e}"))?;
         Ok(())
     }
 
@@ -317,7 +324,8 @@ mod macos {
     ) -> Result<Vec<super::OfflineTranscriptSegment>, String> {
         const CHUNK_SAMPLES: usize = 25 * 16_000;
 
-        let mut session = open_session(&cached_model(app)?).map_err(|e| format!("whisper {e}"))?;
+        let lease = whisper_lease(app)?;
+        let mut session = open_session(lease.model()).map_err(|e| format!("whisper {e}"))?;
         let mut segments = Vec::new();
         for (chunk_index, chunk) in samples.chunks(CHUNK_SAMPLES).enumerate() {
             let chunk_offset_ms = chunk_index as i64 * 25_000;
@@ -431,15 +439,21 @@ mod macos {
         echo_guard: Option<Arc<EchoGuard>>,
     }
 
+    /// What a stream's worker transcribes with: a Parakeet dictation's live
+    /// pass, or one-shot runs on a leased model.
+    enum StreamWork {
+        Live(Arc<LiveDictation>),
+        Runs(RunLease<'static>),
+    }
+
     impl WhisperStream {
         fn new(
             app: AppHandle,
             source: &'static str,
             src_rate: f64,
             language: Option<String>,
-            model: Model,
+            work: StreamWork,
             engine: LocalEngine,
-            live: Option<Arc<LiveDictation>>,
             stream_start: Instant,
             emit_partials: bool,
             echo_guard: Option<Arc<EchoGuard>>,
@@ -449,7 +463,10 @@ mod macos {
             let stream = Arc::new(WhisperStream {
                 source,
                 engine,
-                live,
+                live: match &work {
+                    StreamWork::Live(live) => Some(live.clone()),
+                    StreamWork::Runs(_) => None,
+                },
                 run_id,
                 src_rate: AtomicU32::new(src_rate as u32),
                 language,
@@ -467,9 +484,9 @@ mod macos {
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
-                match worker_stream.live.clone() {
-                    Some(live) => live_worker(&worker_stream, &live),
-                    None => worker(worker_stream, model),
+                match work {
+                    StreamWork::Live(live) => live_worker(&worker_stream, &live),
+                    StreamWork::Runs(lease) => worker(worker_stream, lease),
                 }
                 done.store(true, Ordering::SeqCst);
             });
@@ -768,8 +785,10 @@ mod macos {
         (have_secs > 0.4 && silence > Duration::from_millis(800)) || have_secs > 25.0
     }
 
-    fn worker(stream: Arc<WhisperStream>, model: Model) {
-        let mut session = match open_session(&model) {
+    /// Drops `lease` only after its session, which is what keeps a live
+    /// stream off the copy until this worker's last run is done.
+    fn worker(stream: Arc<WhisperStream>, lease: RunLease<'static>) {
+        let mut session = match open_session(lease.model()) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[whisper-{}] {e}", stream.source);
@@ -1187,52 +1206,63 @@ mod macos {
             eprintln!("[whisper] stopping the previous transcription failed: {error}");
         }
 
+        let mut engine = engine;
         if engine == LocalEngine::Whisper {
-            ensure_model(&app).await.map_err(|e| {
-                let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
-                e
-            })?;
+            ensure_whisper(&app).await?;
         }
+        if !run_is_current_now(owner, run_id) {
+            return Err(START_SUPERSEDED.into());
+        }
+        let pill_error = |e: String| {
+            let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
+            e
+        };
+        // A Parakeet dictation only ever starts on a warmed-up model nothing
+        // else holds, taken without waiting; otherwise it is turned away
+        // before any audio is captured and dictates with Apple Speech. A
+        // meeting may wait for Parakeet to load, and uses Whisper if it can't.
+        let (mic_work, sys_lease) = match (engine, owner) {
+            (LocalEngine::Parakeet, SessionOwner::Dictation) => {
+                if capture_system {
+                    return Err("a Parakeet dictation does not transcribe system audio".into());
+                }
+                let lease = crate::parakeet_model::dictation_lease(&app)?;
+                open_session(lease.model()).map_err(|e| pill_error(format!("parakeet {e}")))?;
+                let live = LiveDictation::new(lease, crate::parakeet_model::model_path(&app)?);
+                (StreamWork::Live(Arc::new(live)), None)
+            }
+            (LocalEngine::Parakeet, SessionOwner::Meeting) => {
+                let lease = match crate::parakeet_model::meeting_lease(&app).await {
+                    Ok(lease) => lease,
+                    Err(error) if error == QUITTING => return Err(error),
+                    Err(error) => {
+                        eprintln!("[whisper] {error}; the meeting transcribes with Whisper");
+                        if !crate::config::feature_config(&app).whisper_model_enabled {
+                            return Err("whisper-model-disabled".into());
+                        }
+                        engine = LocalEngine::Whisper;
+                        ensure_whisper(&app).await?;
+                        whisper_lease(&app).map_err(pill_error)?
+                    }
+                };
+                open_session(lease.model()).map_err(|e| pill_error(format!("whisper {e}")))?;
+                let sys_lease = capture_system.then(|| lease.share()).transpose()?;
+                (StreamWork::Runs(lease), sys_lease)
+            }
+            (LocalEngine::Whisper, _) => {
+                let lease = whisper_lease(&app).map_err(pill_error)?;
+                open_session(lease.model()).map_err(|e| pill_error(format!("whisper {e}")))?;
+                let sys_lease = capture_system.then(|| lease.share()).transpose()?;
+                (StreamWork::Runs(lease), sys_lease)
+            }
+        };
         if !run_is_current_now(owner, run_id) {
             return Err(START_SUPERSEDED.into());
         }
         eprintln!("[whisper] {owner:?} transcription runs on {engine:?}");
-        // A Parakeet dictation only ever starts on a warmed-up model no other
-        // live pass holds, taken without waiting; otherwise it is turned away
-        // before any audio is captured and dictates with Apple Speech.
-        let lease = if engine == LocalEngine::Parakeet && owner == SessionOwner::Dictation {
-            Some(crate::parakeet_model::dictation_lease(&app).map_err(str::to_owned)?)
-        } else {
-            None
-        };
-        let model = match (&lease, engine) {
-            (Some(lease), _) => Ok(lease.model().clone()),
-            (None, LocalEngine::Whisper) => cached_model(&app),
-            (None, LocalEngine::Parakeet) => crate::parakeet_model::resident_model(&app),
-        }
-        .map_err(|e| {
-            let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
-            e
-        })?;
-        open_session(&model).map_err(|e| {
-            let msg = format!("whisper {e}");
-            let _ = app.emit("pill:error", serde_json::json!({ "error": msg }));
-            msg
-        })?;
-        if !run_is_current_now(owner, run_id) {
-            return Err(START_SUPERSEDED.into());
-        }
 
         let _ = language;
         let lang: Option<String> = None;
-
-        let live = match lease {
-            Some(lease) => Some(Arc::new(LiveDictation::new(
-                lease,
-                crate::parakeet_model::model_path(&app)?,
-            ))),
-            None => None,
-        };
 
         let session_start = Instant::now();
         let echo_guard = capture_system.then(|| Arc::new(EchoGuard::new()));
@@ -1241,23 +1271,21 @@ mod macos {
             "mic",
             48000.0,
             lang.clone(),
-            model.clone(),
+            mic_work,
             engine,
-            live,
             session_start,
             emit_partials,
             echo_guard.clone(),
             run_id,
         );
-        let sys_stream = capture_system.then(|| {
+        let sys_stream = sys_lease.map(|lease| {
             WhisperStream::new(
                 app.clone(),
                 "system",
                 48000.0,
                 lang.clone(),
-                model.clone(),
+                StreamWork::Runs(lease),
                 engine,
-                None,
                 session_start,
                 emit_partials,
                 echo_guard.clone(),
@@ -1537,6 +1565,13 @@ mod macos {
             if capture_system { " + system" } else { "" }
         );
         Ok(())
+    }
+
+    async fn ensure_whisper(app: &AppHandle) -> Result<(), String> {
+        ensure_model(app).await.map(|_| ()).map_err(|e| {
+            let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
+            e
+        })
     }
 
     pub fn reset_timeline(owner: Option<SessionOwner>, run_id: Option<u64>, offset: Duration) {
@@ -2109,30 +2144,28 @@ mod macos {
 mod tests {
     use super::{resolve_local_engine, LocalEngine};
 
+    /// A dictation always reaches the start that can turn it away with a
+    /// reason and recover Parakeet, however the model is doing.
     #[test]
-    fn dictation_uses_parakeet_only_once_it_is_ready() {
+    fn a_parakeet_dictation_always_reaches_the_parakeet_start() {
         assert_eq!(
-            resolve_local_engine(Some("parakeet"), true, true),
+            resolve_local_engine(Some("parakeet"), true, || panic!("not a meeting")),
             Ok(LocalEngine::Parakeet)
-        );
-        assert_eq!(
-            resolve_local_engine(Some("parakeet"), true, false),
-            Err("parakeet-model-not-ready")
         );
     }
 
     #[test]
-    fn meetings_fall_back_to_whisper_until_parakeet_is_ready() {
+    fn meetings_use_whisper_until_parakeet_is_on_disk() {
         assert_eq!(
-            resolve_local_engine(Some("parakeet"), false, true),
+            resolve_local_engine(Some("parakeet"), false, || true),
             Ok(LocalEngine::Parakeet)
         );
         assert_eq!(
-            resolve_local_engine(Some("parakeet"), false, false),
+            resolve_local_engine(Some("parakeet"), false, || false),
             Ok(LocalEngine::Whisper)
         );
         assert_eq!(
-            resolve_local_engine(None, false, true),
+            resolve_local_engine(None, false, || true),
             Ok(LocalEngine::Whisper)
         );
     }
@@ -2140,7 +2173,7 @@ mod tests {
     #[test]
     fn an_unknown_engine_is_an_error_not_whisper() {
         assert_eq!(
-            resolve_local_engine(Some("parakeat"), true, true),
+            resolve_local_engine(Some("parakeat"), true, || true),
             Err("unknown-transcription-engine")
         );
     }

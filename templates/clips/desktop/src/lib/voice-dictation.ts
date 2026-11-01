@@ -64,9 +64,42 @@ type FlowProcessingStage =
   | "cleaning"
   | "pasting"
   | "saving-history";
+/** Why a dictation that asked for Parakeet ran on Apple Speech. */
+export type ParakeetUnavailableReason =
+  | "missing"
+  | "downloading"
+  | "loading"
+  | "busy"
+  | "failed";
+
+const PARAKEET_UNAVAILABLE_REASONS = new Map<string, ParakeetUnavailableReason>(
+  [
+    ["missing", "missing"],
+    ["downloading", "downloading"],
+    ["loading", "loading"],
+    // Evicted from memory; it is loading again.
+    ["unloaded", "loading"],
+    ["busy", "busy"],
+    ["failed", "failed"],
+  ],
+);
+
+/**
+ * The reason in a Parakeet start's `parakeet-model-not-ready:<reason>`
+ * refusal, or null for any other error, including a refusal with a reason
+ * this build doesn't know.
+ */
+export function parakeetUnavailableReason(
+  error: unknown,
+): ParakeetUnavailableReason | null {
+  const reason = /parakeet-model-not-ready:([a-z]+)/.exec(String(error))?.[1];
+  return PARAKEET_UNAVAILABLE_REASONS.get(reason ?? "") ?? null;
+}
+
 interface FlowStateDetails {
   runId?: number;
   failure?: DictationFailure;
+  engineFallback?: ParakeetUnavailableReason;
   insertion?: DictationInsertion | null;
   recoverable?: boolean;
   historySaved?: boolean;
@@ -139,6 +172,8 @@ interface VoiceSession extends DictationHistoryContext {
   finalizationStage?: DictationFinalizationStage;
   finalizationPromise?: Promise<DictationFinalizationResult>;
   nativeFinalizeTimer?: number;
+  /** Set when this dictation asked for Parakeet and got Apple Speech. */
+  engineFallback?: ParakeetUnavailableReason;
 }
 
 type DictationTimingPhase = "release" | "finalization" | "cleanup" | "paste";
@@ -1062,8 +1097,9 @@ export function installDesktopVoiceDictation(
           historySaved: true,
           cleanupFailed: result.cleanupFailed,
           backtrackFailed: result.backtrackFailed,
+          engineFallback: target.engineFallback,
         },
-        result.insertion === "copied" ? 1_800 : 1_200,
+        result.insertion === "copied" || target.engineFallback ? 1_800 : 1_200,
       );
       return result;
     })();
@@ -1289,6 +1325,7 @@ export function installDesktopVoiceDictation(
     runId: number,
     cleanupProvider?: ServerVoiceProvider,
     triggerSource?: VoiceShortcutSource,
+    engineFallback?: ParakeetUnavailableReason,
   ) => {
     console.log("[voice-dictation] startNative: invoke native_speech_start");
     try {
@@ -1320,6 +1357,7 @@ export function installDesktopVoiceDictation(
         cancelled: false,
         cleanupProvider: cleanupProvider ?? null,
         historyId: newDictationHistoryId(),
+        engineFallback,
       };
       session = next;
       try {
@@ -1416,19 +1454,20 @@ export function installDesktopVoiceDictation(
           engine,
         });
       } catch (err) {
-        // Parakeet is still downloading or loading; Apple Speech covers
-        // dictation until it is ready.
+        // Parakeet can't take this dictation (downloading, loading, busy or
+        // failed); Apple Speech covers it while Parakeet recovers.
+        const unavailable =
+          engine === "parakeet" ? parakeetUnavailableReason(err) : null;
         if (
-          engine === "parakeet" &&
-          String(err).includes("parakeet-model-not-ready") &&
+          unavailable &&
           !disposed &&
           !stopRequestedBeforeReady &&
           lifecycle.isActive(runId)
         ) {
           console.info(
-            "[voice-dictation] Parakeet is not ready yet; dictating with Apple Speech",
+            `[voice-dictation] Parakeet ${unavailable}; dictating with Apple Speech`,
           );
-          await startNative(runId, cleanupProvider, triggerSource);
+          await startNative(runId, cleanupProvider, triggerSource, unavailable);
           return;
         }
         throw err;

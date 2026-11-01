@@ -5,14 +5,14 @@
 //! whichever copy the linker kept, so new local engines belong here too.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Once, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Once, OnceLock, PoisonError, TryLockError};
 use std::time::{Duration, Instant};
 
 use transcribe_cpp::{
-    Backend, CommitPolicy, Error, Model, ModelOptions, ParakeetBufferedStreamOptions, RunExtension,
-    RunOptions, Session, SessionOptions, StreamExtension, StreamOptions, TimestampKind,
-    WhisperRunOptions,
+    Backend, CancelToken, CommitPolicy, Error, Model, ModelOptions, ParakeetBufferedStreamOptions,
+    RunExtension, RunOptions, Session, SessionOptions, StreamExtension, StreamOptions,
+    TimestampKind, WhisperRunOptions,
 };
 
 const SESSION_THREADS: i32 = 2;
@@ -25,9 +25,15 @@ const PARAKEET_STREAM_LEFT_MS: i32 = 5_600;
 const PARAKEET_STREAM_CHUNK_MS: i32 = 560;
 const PARAKEET_STREAM_RIGHT_MS: i32 = 560;
 
-/// How long a live stream gets to hand its model back before the slot stops
+/// How long a copy's holder gets to hand it back before the slot stops
 /// waiting, retires that copy and loads a fresh one.
 pub(crate) const MODEL_HANDBACK_WAIT: Duration = Duration::from_millis(500);
+
+/// What a refused load or lease says once the app has started quitting.
+pub(crate) const QUITTING: &str = "local-model-quitting";
+
+/// What a live stream's lease says when one-shot runs hold the copy.
+pub(crate) const IN_USE: &str = "local-model-in-use";
 
 /// The one resident local model. Whisper and Parakeet share it, so the app
 /// never holds both in memory; asking for the other one swaps it.
@@ -40,64 +46,220 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// One loaded model file. Asking for a different path replaces it, so
 /// switching models frees the previous one.
 ///
-/// A live stream on a model refuses every other run on it with `Busy`, and a
+/// transcribe.cpp refuses a run on a model while a stream is live on it
+/// (`Busy`), holds a new stream back until a run in flight returns, and a
 /// native call that never returns keeps the model's compute lock for good. So
-/// a copy with a stream on it is handed to nobody else: callers wait for the
-/// stream to give it back, or the slot retires that copy and loads another.
+/// every use of a copy goes through a lease: a live stream gets the copy to
+/// itself, one-shot runs share it (transcribe.cpp queues them), and a caller
+/// that finds the copy held either waits for it to be handed back or the
+/// slot retires that copy and loads another. Only a copy a live stream holds
+/// is ever retired: runs end on their own (or when cancelled), and a meeting's
+/// can rightly hold the copy for hours, so a second copy loaded beside them
+/// would only double the memory.
 pub(crate) struct ModelSlot<M: Clone = Model> {
     load: fn(&Path) -> Result<M, String>,
     /// Held while a model loads, so loads never overlap and a caller that
     /// only looks at the resident copy never waits behind one.
     loading: Mutex<()>,
     resident: Mutex<Option<Resident<M>>>,
+    /// Every lease out, on the resident copy or a retired one.
+    leases: Leases,
+    /// Called whenever the resident model changes, so Settings can refresh.
+    on_change: OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 #[derive(Clone)]
 struct Resident<M> {
     path: PathBuf,
     model: M,
-    /// True while a [`StreamLease`] on this copy is out.
-    streaming: Arc<AtomicBool>,
-    /// True once a warm-up has run on this copy.
-    warm: Arc<AtomicBool>,
+    copy: Arc<CopyUse>,
 }
 
-impl<M: Clone> Resident<M> {
-    fn lease(&self) -> StreamLease<M> {
-        StreamLease {
-            model: self.model.clone(),
-            streaming: self.streaming.clone(),
-            warm: self.warm.clone(),
+/// Who holds one loaded copy.
+#[derive(Default)]
+struct CopyUse {
+    /// [`STREAMING`] while a live stream holds the copy, otherwise how many
+    /// one-shot runs do.
+    holders: AtomicUsize,
+    /// True once a warm-up has run on this copy.
+    warm: AtomicBool,
+}
+
+const STREAMING: usize = usize::MAX;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HoldKind {
+    Stream,
+    Run,
+}
+
+impl CopyUse {
+    fn held_by_runs(&self) -> bool {
+        !matches!(self.holders.load(Ordering::SeqCst), 0 | STREAMING)
+    }
+
+    fn try_take(&self, kind: HoldKind) -> bool {
+        match kind {
+            HoldKind::Stream => self
+                .holders
+                .compare_exchange(0, STREAMING, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok(),
+            HoldKind::Run => self
+                .holders
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |held| {
+                    if held == STREAMING {
+                        None
+                    } else {
+                        Some(held + 1)
+                    }
+                })
+                .is_ok(),
         }
+    }
+
+    fn give_back(&self, kind: HoldKind) {
+        match kind {
+            HoldKind::Stream => self.holders.store(0, Ordering::SeqCst),
+            HoldKind::Run => {
+                self.holders.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+    }
+}
+
+/// The count of leases out, which quitting waits on, and whether the slot
+/// still lends at all. One lock covers both, so no lease can slip out after
+/// quitting has counted.
+struct Leases {
+    state: Mutex<LeaseState>,
+    returned: Condvar,
+}
+
+struct LeaseState {
+    out: usize,
+    closed: bool,
+}
+
+impl Leases {
+    const fn new() -> Self {
+        Self {
+            state: Mutex::new(LeaseState {
+                out: 0,
+                closed: false,
+            }),
+            returned: Condvar::new(),
+        }
+    }
+
+    fn open(&self) -> bool {
+        let mut state = lock(&self.state);
+        if state.closed {
+            return false;
+        }
+        state.out += 1;
+        true
+    }
+
+    fn give_back(&self) {
+        let mut state = lock(&self.state);
+        state.out -= 1;
+        if state.out == 0 {
+            self.returned.notify_all();
+        }
+    }
+
+    fn is_closed(&self) -> bool {
+        lock(&self.state).closed
+    }
+
+    fn close(&self) {
+        lock(&self.state).closed = true;
+    }
+
+    /// Waits until every lease is back or `deadline` passes, and returns how
+    /// many are still out.
+    fn wait_until_all_back(&self, deadline: Instant) -> usize {
+        let mut state = lock(&self.state);
+        while state.out > 0 {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            state = self
+                .returned
+                .wait_timeout(state, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        state.out
+    }
+}
+
+/// One caller's hold on a copy, handed back when it drops.
+struct Hold<'a> {
+    copy: Arc<CopyUse>,
+    kind: HoldKind,
+    leases: &'a Leases,
+}
+
+impl Drop for Hold<'_> {
+    fn drop(&mut self) {
+        self.copy.give_back(self.kind);
+        self.leases.give_back();
     }
 }
 
 /// Sole use of a model for one live stream. The slot hands the model to
 /// nobody else until this is dropped, so drop it only once the stream and its
 /// session are gone.
-pub(crate) struct StreamLease<M: Clone = Model> {
+pub(crate) struct StreamLease<'a, M: Clone = Model> {
     model: M,
-    streaming: Arc<AtomicBool>,
-    warm: Arc<AtomicBool>,
+    hold: Hold<'a>,
 }
 
-impl<M: Clone> StreamLease<M> {
+impl<M: Clone> StreamLease<'_, M> {
     pub(crate) fn model(&self) -> &M {
         &self.model
     }
 
     pub(crate) fn is_warm(&self) -> bool {
-        self.warm.load(Ordering::SeqCst)
+        self.hold.copy.warm.load(Ordering::SeqCst)
     }
 
     pub(crate) fn mark_warm(&self) {
-        self.warm.store(true, Ordering::SeqCst);
+        self.hold.copy.warm.store(true, Ordering::SeqCst);
     }
 }
 
-impl<M: Clone> Drop for StreamLease<M> {
-    fn drop(&mut self) {
-        self.streaming.store(false, Ordering::SeqCst);
+/// A model for one-shot runs, shared with other runs but with no live
+/// stream. Drop it only once every session opened on its model is gone: a
+/// stream started on the copy while one of those sessions is still running
+/// would be refused or held back by transcribe.cpp.
+pub(crate) struct RunLease<'a, M: Clone = Model> {
+    model: M,
+    hold: Hold<'a>,
+}
+
+impl<'a, M: Clone> RunLease<'a, M> {
+    pub(crate) fn model(&self) -> &M {
+        &self.model
+    }
+
+    /// Another run lease on the same copy, for a second worker.
+    pub(crate) fn share(&self) -> Result<RunLease<'a, M>, String> {
+        if !self.hold.leases.open() {
+            return Err(QUITTING.to_owned());
+        }
+        // A run already holds the copy, so no stream can: this always takes.
+        let taken = self.hold.copy.try_take(HoldKind::Run);
+        debug_assert!(taken);
+        Ok(RunLease {
+            model: self.model.clone(),
+            hold: Hold {
+                copy: self.hold.copy.clone(),
+                kind: HoldKind::Run,
+                leases: self.hold.leases,
+            },
+        })
     }
 }
 
@@ -108,8 +270,12 @@ pub(crate) enum LeaseRefused {
     NotLoaded,
     /// Loaded, but no warm-up has run on it yet.
     Cold,
-    /// Another live stream still holds it.
-    InUse,
+    /// A live stream still holds it.
+    Streaming,
+    /// One-shot runs hold it.
+    Running,
+    /// The app is quitting.
+    Quitting,
 }
 
 impl LeaseRefused {
@@ -117,7 +283,9 @@ impl LeaseRefused {
         match self {
             LeaseRefused::NotLoaded => "not loaded",
             LeaseRefused::Cold => "not warmed up",
-            LeaseRefused::InUse => "still held by an earlier live pass",
+            LeaseRefused::Streaming => "still held by an earlier live pass",
+            LeaseRefused::Running => "held by a one-shot transcription",
+            LeaseRefused::Quitting => "closed because the app is quitting",
         }
     }
 }
@@ -128,134 +296,217 @@ impl<M: Clone> ModelSlot<M> {
             load,
             loading: Mutex::new(()),
             resident: Mutex::new(None),
+            leases: Leases::new(),
+            on_change: OnceLock::new(),
         }
+    }
+
+    /// Calls `on_change` whenever the resident model is loaded, swapped,
+    /// retired or released. Only the first call takes effect.
+    pub(crate) fn set_on_change(&self, on_change: impl Fn() + Send + Sync + 'static) {
+        let _ = self.on_change.set(Box::new(on_change));
+    }
+
+    fn changed(&self) {
+        if let Some(on_change) = self.on_change.get() {
+            on_change();
+        }
+    }
+
+    fn hold(&self, copy: &Arc<CopyUse>, kind: HoldKind) -> Result<Hold<'_>, LeaseRefused> {
+        if !self.leases.open() {
+            return Err(LeaseRefused::Quitting);
+        }
+        if !copy.try_take(kind) {
+            self.leases.give_back();
+            return Err(if copy.held_by_runs() {
+                LeaseRefused::Running
+            } else {
+                LeaseRefused::Streaming
+            });
+        }
+        Ok(Hold {
+            copy: copy.clone(),
+            kind,
+            leases: &self.leases,
+        })
     }
 
     /// The model at `path` for one-shot runs, loaded on first use. The flag
     /// is true when this call did the loading.
-    pub(crate) fn get_or_load(&self, path: &Path) -> Result<(M, bool), String> {
+    pub(crate) fn lease_for_run(&self, path: &Path) -> Result<(RunLease<'_, M>, bool), String> {
         let _loading = lock(&self.loading);
-        if let Some(resident) = self.free_copy(path) {
-            return Ok((resident.model, false));
+        if let Some((model, hold)) = self.hold_resident(path, HoldKind::Run)? {
+            return Ok((RunLease { model, hold }, false));
         }
-        Ok((self.load_into_slot(path, false)?.model, true))
+        let (model, hold) = self.load_into_slot(path, HoldKind::Run)?;
+        Ok((RunLease { model, hold }, true))
     }
 
     /// Sole use of the model at `path` for a live stream, loading it if
-    /// needed. Check [`StreamLease::is_warm`] before relying on its speed.
-    pub(crate) fn lease_for_stream(&self, path: &Path) -> Result<StreamLease<M>, String> {
+    /// needed, or [`IN_USE`] while one-shot runs hold it. Check
+    /// [`StreamLease::is_warm`] before relying on its speed.
+    pub(crate) fn lease_for_stream(&self, path: &Path) -> Result<StreamLease<'_, M>, String> {
         let _loading = lock(&self.loading);
-        if let Some(resident) = self.free_copy(path) {
-            if resident
-                .streaming
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                return Ok(resident.lease());
-            }
-        }
-        Ok(self.load_into_slot(path, true)?.lease())
+        let (model, hold) = match self.hold_resident(path, HoldKind::Stream)? {
+            Some(held) => held,
+            None => self.load_into_slot(path, HoldKind::Stream)?,
+        };
+        Ok(StreamLease { model, hold })
     }
 
     /// The resident model at `path` for a live stream, only if it has warmed
-    /// up and no other stream holds it. Never waits and never loads, so a
-    /// caller can start capturing audio the moment this returns.
-    pub(crate) fn try_lease_warm(&self, path: &Path) -> Result<StreamLease<M>, LeaseRefused> {
+    /// up and nothing else holds it. Never waits and never loads, so a caller
+    /// can start capturing audio the moment this returns.
+    pub(crate) fn try_lease_warm(&self, path: &Path) -> Result<StreamLease<'_, M>, LeaseRefused> {
         let resident = lock(&self.resident);
         let current = resident
             .as_ref()
             .filter(|resident| resident.path == path)
             .ok_or(LeaseRefused::NotLoaded)?;
-        if !current.warm.load(Ordering::SeqCst) {
+        if !current.copy.warm.load(Ordering::SeqCst) {
             return Err(LeaseRefused::Cold);
         }
-        current
-            .streaming
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .map_err(|_| LeaseRefused::InUse)?;
-        Ok(current.lease())
+        let hold = self.hold(&current.copy, HoldKind::Stream)?;
+        Ok(StreamLease {
+            model: current.model.clone(),
+            hold,
+        })
     }
 
     pub(crate) fn holds_warm(&self, path: &Path) -> bool {
-        lock(&self.resident)
-            .as_ref()
-            .is_some_and(|resident| resident.path == path && resident.warm.load(Ordering::SeqCst))
+        lock(&self.resident).as_ref().is_some_and(|resident| {
+            resident.path == path && resident.copy.warm.load(Ordering::SeqCst)
+        })
     }
 
     /// Unloads the model at `path` if it is the resident one. Sessions that
     /// still hold it keep it alive until they finish.
     pub(crate) fn release(&self, path: &Path) -> Result<bool, String> {
         let _loading = lock(&self.loading);
-        let mut resident = lock(&self.resident);
-        if resident
-            .as_ref()
-            .is_some_and(|resident| resident.path == path)
-        {
-            *resident = None;
-            return Ok(true);
+        let released = {
+            let mut resident = lock(&self.resident);
+            let matches = resident
+                .as_ref()
+                .is_some_and(|resident| resident.path == path);
+            if matches {
+                *resident = None;
+            }
+            matches
+        };
+        if released {
+            self.changed();
         }
-        Ok(false)
-    }
-
-    /// Drops the resident copy, whatever it is. ggml's Metal backend aborts
-    /// the process in `exit` while any model is still alive, so the app
-    /// clears the slot as it quits.
-    pub(crate) fn clear(&self) {
-        let _loading = lock(&self.loading);
-        lock(&self.resident).take();
+        Ok(released)
     }
 
     /// Loads `path` only when no model is resident, so a background prewarm
     /// never evicts a model someone asked for. `None` means it left the slot
     /// alone.
-    pub(crate) fn load_if_empty(&self, path: &Path) -> Result<Option<M>, String> {
+    pub(crate) fn load_if_empty(&self, path: &Path) -> Result<Option<RunLease<'_, M>>, String> {
         let _loading = lock(&self.loading);
         if lock(&self.resident).is_some() {
             return Ok(None);
         }
-        Ok(Some(self.load_into_slot(path, false)?.model))
+        let (model, hold) = self.load_into_slot(path, HoldKind::Run)?;
+        Ok(Some(RunLease { model, hold }))
     }
 
-    /// The resident copy of `path` once no stream holds it, or `None` when
-    /// another file (or nothing) is resident. A stream gets
-    /// [`MODEL_HANDBACK_WAIT`] to hand the copy back; after that the copy is
-    /// retired, so the slot never keeps a model a stuck stream is holding.
-    /// Call with `loading` held.
-    fn free_copy(&self, path: &Path) -> Option<Resident<M>> {
+    /// For quitting: lends and loads nothing more, waits up to `wait` for
+    /// every lease to come back and any load to finish, then drops the
+    /// resident copy. Callers cancel the work holding leases first.
+    ///
+    /// ggml's Metal backend keeps its device in a C++ static whose destructor
+    /// asserts that every Metal buffer is gone, so `exit` aborts the process
+    /// while any model or session is alive. A native call that never returns
+    /// can't be made to let go of its model from inside the process; `Err`
+    /// says what was still out, and the caller must then end the process
+    /// without running static destructors.
+    pub(crate) fn shut_down(&self, wait: Duration) -> Result<(), String> {
+        self.leases.close();
+        let deadline = Instant::now() + wait;
+        let out = self.leases.wait_until_all_back(deadline);
+        let loads_done = loop {
+            if !matches!(self.loading.try_lock(), Err(TryLockError::WouldBlock)) {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        lock(&self.resident).take();
+        match (out, loads_done) {
+            (0, true) => Ok(()),
+            (0, false) => Err("a model load is still running".to_owned()),
+            (out, true) => Err(format!("{out} model leases are still out")),
+            (out, false) => Err(format!(
+                "{out} model leases are still out and a model load is still running"
+            )),
+        }
+    }
+
+    /// Takes a `kind` hold on the resident copy of `path`, or `None` when
+    /// another file (or nothing) is resident. A live stream holding the copy
+    /// gets [`MODEL_HANDBACK_WAIT`] to hand it back; after that the copy is
+    /// retired, so the slot never keeps a model a stuck stream is holding. A
+    /// stream asking for a copy runs hold gets [`IN_USE`] at once. Call with
+    /// `loading` held.
+    fn hold_resident(&self, path: &Path, kind: HoldKind) -> Result<Option<(M, Hold<'_>)>, String> {
         let deadline = Instant::now() + MODEL_HANDBACK_WAIT;
         loop {
             let mut resident = lock(&self.resident);
-            let current = resident.as_ref().filter(|resident| resident.path == path)?;
-            if !current.streaming.load(Ordering::SeqCst) {
-                return Some(current.clone());
+            let Some(current) = resident.as_ref().filter(|resident| resident.path == path) else {
+                return Ok(None);
+            };
+            match self.hold(&current.copy, kind) {
+                Ok(hold) => return Ok(Some((current.model.clone(), hold))),
+                Err(LeaseRefused::Quitting) => return Err(QUITTING.to_owned()),
+                Err(LeaseRefused::Running) if kind == HoldKind::Stream => {
+                    return Err(IN_USE.to_owned())
+                }
+                Err(_) => {}
             }
             if Instant::now() >= deadline {
                 eprintln!(
-                    "[models] a live pass still holds {}; retiring that copy",
+                    "[models] an earlier transcription still holds {}; retiring that copy",
                     path.file_name().unwrap_or_default().to_string_lossy()
                 );
                 *resident = None;
-                return None;
+                drop(resident);
+                self.changed();
+                return Ok(None);
             }
             drop(resident);
             std::thread::sleep(Duration::from_millis(10));
         }
     }
 
-    /// Replaces the resident model with a fresh copy of `path`, already
-    /// leased to a stream when `leased`. Call with `loading` held.
-    fn load_into_slot(&self, path: &Path, leased: bool) -> Result<Resident<M>, String> {
+    /// Replaces the resident model with a fresh copy of `path`, with a `kind`
+    /// hold already on it. Call with `loading` held.
+    fn load_into_slot(&self, path: &Path, kind: HoldKind) -> Result<(M, Hold<'_>), String> {
+        if self.leases.is_closed() {
+            return Err(QUITTING.to_owned());
+        }
         // Free the old model before loading the new one, so a swap never
         // briefly holds both.
-        *lock(&self.resident) = None;
-        let resident = Resident {
+        let previous = lock(&self.resident).take();
+        if previous.is_some() {
+            drop(previous);
+            self.changed();
+        }
+        let model = (self.load)(path)?;
+        let copy = Arc::new(CopyUse::default());
+        // Refused only when the app started quitting during the load; the
+        // fresh copy is then dropped here rather than kept for exit.
+        let hold = self.hold(&copy, kind).map_err(|_| QUITTING.to_owned())?;
+        *lock(&self.resident) = Some(Resident {
             path: path.to_path_buf(),
-            model: (self.load)(path)?,
-            streaming: Arc::new(AtomicBool::new(leased)),
-            warm: Arc::new(AtomicBool::new(false)),
-        };
-        *lock(&self.resident) = Some(resident.clone());
-        Ok(resident)
+            model: model.clone(),
+            copy,
+        });
+        self.changed();
+        Ok((model, hold))
     }
 }
 
@@ -274,14 +525,23 @@ pub(crate) fn load_model(path: &Path) -> Result<Model, String> {
     Model::load_with(path, &options).map_err(|e| format!("model load failed: {e}"))
 }
 
+/// Cancelled once the app starts quitting. Every session starts with it, so
+/// quitting can stop the runs of callers that install no token of their own.
+pub(crate) fn quit_token() -> &'static CancelToken {
+    static TOKEN: OnceLock<CancelToken> = OnceLock::new();
+    TOKEN.get_or_init(CancelToken::new)
+}
+
 pub(crate) fn open_session(model: &Model) -> Result<Session, String> {
     let options = SessionOptions {
         n_threads: SESSION_THREADS,
         ..SessionOptions::default()
     };
-    model
+    let mut session = model
         .session_with(&options)
-        .map_err(|e| format!("session init failed: {e}"))
+        .map_err(|e| format!("session init failed: {e}"))?;
+    session.set_cancel_token(quit_token());
+    Ok(session)
 }
 
 /// A window the model rates more likely than this to hold no speech is
@@ -416,10 +676,13 @@ pub(crate) fn warm_up_parakeet(model: &Model) -> Result<(), String> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::sync::Weak;
+
     use super::*;
 
-    /// A stand-in model: which file it came from and which load made it.
-    type FakeModel = (PathBuf, u64);
+    /// A stand-in model: which file it came from and which load made it. A
+    /// test can keep a `Weak` to it to see whether it was freed.
+    type FakeModel = Arc<(PathBuf, u64)>;
 
     fn fake_load(path: &Path) -> Result<FakeModel, String> {
         use std::sync::atomic::AtomicU64;
@@ -430,7 +693,13 @@ pub(crate) mod tests {
         if path.ends_with("slow.gguf") {
             std::thread::sleep(Duration::from_millis(300));
         }
-        Ok((path.to_path_buf(), LOADS.fetch_add(1, Ordering::SeqCst)))
+        if path.ends_with("hung.gguf") {
+            std::thread::sleep(Duration::from_millis(1_500));
+        }
+        Ok(Arc::new((
+            path.to_path_buf(),
+            LOADS.fetch_add(1, Ordering::SeqCst),
+        )))
     }
 
     fn warm_slot(path: &Path) -> (ModelSlot<FakeModel>, FakeModel) {
@@ -442,6 +711,12 @@ pub(crate) mod tests {
         (slot, model)
     }
 
+    fn leaked_warm_slot(path: &'static Path) -> &'static ModelSlot<FakeModel> {
+        let slot: &'static ModelSlot<FakeModel> = Box::leak(Box::new(ModelSlot::new(fake_load)));
+        slot.lease_for_stream(path).unwrap().mark_warm();
+        slot
+    }
+
     #[test]
     fn a_copy_a_live_stream_holds_is_lent_to_no_one_else() {
         let path = Path::new("parakeet.gguf");
@@ -450,7 +725,7 @@ pub(crate) mod tests {
         assert_eq!(live.model(), &model);
         assert_eq!(
             slot.try_lease_warm(path).err(),
-            Some(LeaseRefused::InUse),
+            Some(LeaseRefused::Streaming),
             "a second dictation must not stream on the same copy"
         );
         drop(live);
@@ -459,20 +734,63 @@ pub(crate) mod tests {
 
     #[test]
     fn a_run_waits_for_a_live_stream_to_hand_its_copy_back() {
-        let path = Path::new("parakeet.gguf");
-        let (slot, model) = warm_slot(path);
+        let path: &'static Path = Path::new("parakeet.gguf");
+        let slot = leaked_warm_slot(path);
         let live = slot.try_lease_warm(path).unwrap();
+        let model = live.model().clone();
         let handback = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(100));
             drop(live);
         });
         let started = Instant::now();
-        let (run_model, loaded) = slot.get_or_load(path).unwrap();
+        let (run, loaded) = slot.lease_for_run(path).unwrap();
         handback.join().unwrap();
         assert!(!loaded);
-        assert_eq!(run_model, model);
+        assert_eq!(run.model(), &model);
         assert!(started.elapsed() >= Duration::from_millis(90));
         assert!(slot.holds_warm(path));
+    }
+
+    #[test]
+    fn runs_share_a_copy() {
+        let path = Path::new("whisper-base.gguf");
+        let slot = ModelSlot::new(fake_load);
+        let (first, loaded) = slot.lease_for_run(path).unwrap();
+        assert!(loaded);
+        let started = Instant::now();
+        let (second, loaded) = slot.lease_for_run(path).unwrap();
+        assert!(!loaded);
+        assert_eq!(first.model(), second.model());
+        let shared = second.share().unwrap();
+        assert_eq!(shared.model(), first.model());
+        assert!(started.elapsed() < MODEL_HANDBACK_WAIT);
+    }
+
+    /// Dictation A's live pass failed and its whole-recording run is still
+    /// computing when dictation B starts. B must not stream on that copy,
+    /// where transcribe.cpp would hold B's stream behind A's run or refuse a
+    /// run with `Busy`; B is turned away at once (it dictates with Apple
+    /// Speech). Nothing loads a second copy beside A's, and once A's run is
+    /// done the copy, still warm, goes to the next dictation.
+    #[test]
+    fn a_whole_recording_run_keeps_the_next_dictation_off_its_copy() {
+        let path = Path::new("parakeet.gguf");
+        let (slot, model) = warm_slot(path);
+        let (a_fallback, loaded) = slot.lease_for_run(path).unwrap();
+        assert!(!loaded);
+
+        let asked = Instant::now();
+        assert_eq!(
+            slot.try_lease_warm(path).err(),
+            Some(LeaseRefused::Running),
+            "B must not get the copy A's run is computing on"
+        );
+        assert_eq!(slot.lease_for_stream(path).err().as_deref(), Some(IN_USE));
+        assert!(asked.elapsed() < Duration::from_millis(50));
+        assert!(slot.holds_warm(path), "A's copy stays resident");
+
+        drop(a_fallback);
+        assert_eq!(slot.try_lease_warm(path).unwrap().model(), &model);
     }
 
     #[test]
@@ -482,18 +800,22 @@ pub(crate) mod tests {
         let stuck = slot.try_lease_warm(path).unwrap();
 
         let started = Instant::now();
-        let (run_model, loaded) = slot.get_or_load(path).unwrap();
+        let (run, loaded) = slot.lease_for_run(path).unwrap();
         assert!(loaded, "the run needs a copy no stream holds");
-        assert_ne!(run_model, stuck_model);
+        assert_ne!(run.model(), &stuck_model);
         assert!(started.elapsed() >= MODEL_HANDBACK_WAIT);
         // The stuck copy is gone from the slot, and the fresh one hasn't
         // warmed up, so dictation waits for a reload instead of using either.
         assert!(!slot.holds_warm(path));
         assert_eq!(slot.try_lease_warm(path).err(), Some(LeaseRefused::Cold));
+        let run_model = run.model().clone();
+        drop(run);
 
         // The stuck stream finally giving up its old copy changes nothing.
         drop(stuck);
-        assert_eq!(slot.get_or_load(path).unwrap(), (run_model, false));
+        let (again, loaded) = slot.lease_for_run(path).unwrap();
+        assert!(!loaded);
+        assert_eq!(again.model(), &run_model);
     }
 
     #[test]
@@ -531,7 +853,7 @@ pub(crate) mod tests {
         let (slot, _) = warm_slot(parakeet);
         assert!(slot.holds_warm(parakeet));
 
-        slot.get_or_load(Path::new("whisper-base.gguf")).unwrap();
+        drop(slot.lease_for_run(Path::new("whisper-base.gguf")).unwrap());
         assert!(!slot.holds_warm(parakeet));
         assert_eq!(
             slot.try_lease_warm(parakeet).err(),
@@ -548,6 +870,110 @@ pub(crate) mod tests {
         }
     }
 
+    #[test]
+    fn every_change_to_the_resident_model_is_announced() {
+        let changes: &'static AtomicUsize = Box::leak(Box::new(AtomicUsize::new(0)));
+        let slot = ModelSlot::new(fake_load);
+        slot.set_on_change(move || {
+            changes.fetch_add(1, Ordering::SeqCst);
+        });
+        let parakeet = Path::new("parakeet.gguf");
+        drop(slot.lease_for_stream(parakeet).unwrap());
+        assert_eq!(changes.load(Ordering::SeqCst), 1, "loaded");
+        drop(slot.lease_for_run(Path::new("whisper-base.gguf")).unwrap());
+        assert_eq!(changes.load(Ordering::SeqCst), 3, "evicted, then loaded");
+        assert!(slot.release(Path::new("whisper-base.gguf")).unwrap());
+        assert_eq!(changes.load(Ordering::SeqCst), 4, "released");
+        assert!(!slot.release(parakeet).unwrap());
+        assert_eq!(changes.load(Ordering::SeqCst), 4);
+    }
+
+    /// Quitting while a live stream and a whole-recording run are working:
+    /// both are given time to finish, every copy is freed, and nothing new is
+    /// lent or loaded afterwards.
+    #[test]
+    fn quitting_waits_for_live_and_offline_work_then_frees_every_copy() {
+        let parakeet: &'static Path = Path::new("parakeet.gguf");
+        let slot = leaked_warm_slot(parakeet);
+        let live = slot.try_lease_warm(parakeet).unwrap();
+        let live_model = Arc::downgrade(live.model());
+        // The run waits out the stream, retires its copy and loads another.
+        let (fallback, _) = slot.lease_for_run(parakeet).unwrap();
+        let fallback_model = Arc::downgrade(fallback.model());
+        assert!(!Weak::ptr_eq(&live_model, &fallback_model));
+        let workers = [
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(100));
+                drop(live);
+            }),
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(200));
+                drop(fallback);
+            }),
+        ];
+
+        let started = Instant::now();
+        assert_eq!(slot.shut_down(Duration::from_secs(2)), Ok(()));
+        assert!(started.elapsed() >= Duration::from_millis(190));
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        assert!(live_model.upgrade().is_none());
+        assert!(fallback_model.upgrade().is_none());
+
+        assert_eq!(
+            slot.try_lease_warm(parakeet).err(),
+            Some(LeaseRefused::NotLoaded)
+        );
+        assert_eq!(
+            slot.lease_for_run(parakeet).err().as_deref(),
+            Some(QUITTING)
+        );
+        assert_eq!(
+            slot.lease_for_stream(parakeet).err().as_deref(),
+            Some(QUITTING)
+        );
+    }
+
+    /// Quitting during a load waits for it, and the copy it produces is
+    /// dropped instead of being kept for exit.
+    #[test]
+    fn quitting_during_a_load_frees_the_copy_it_loads() {
+        let slot: &'static ModelSlot<FakeModel> = Box::leak(Box::new(ModelSlot::new(fake_load)));
+        let loading = std::thread::spawn(move || {
+            slot.lease_for_stream(Path::new("slow.gguf"))
+                .map(|lease| Arc::downgrade(lease.model()))
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(slot.shut_down(Duration::from_secs(2)), Ok(()));
+        assert_eq!(loading.join().unwrap().err().as_deref(), Some(QUITTING));
+        assert!(!slot.holds_warm(Path::new("slow.gguf")));
+    }
+
+    /// A holder that never returns, or a load that never finishes, can't hold
+    /// quitting up for longer than its wait, and is reported rather than
+    /// passed off as a clean shutdown.
+    #[test]
+    fn quitting_gives_up_on_a_stuck_holder_or_load_after_its_wait() {
+        let parakeet = Path::new("parakeet.gguf");
+        let (slot, _) = warm_slot(parakeet);
+        let _stuck = slot.try_lease_warm(parakeet).unwrap();
+        let started = Instant::now();
+        let error = slot.shut_down(Duration::from_millis(200)).unwrap_err();
+        assert!(started.elapsed() < Duration::from_millis(400));
+        assert!(error.contains("1 model leases are still out"), "{error}");
+
+        let hung: &'static ModelSlot<FakeModel> = Box::leak(Box::new(ModelSlot::new(fake_load)));
+        let loading =
+            std::thread::spawn(move || hung.lease_for_run(Path::new("hung.gguf")).map(|_| ()));
+        std::thread::sleep(Duration::from_millis(50));
+        let started = Instant::now();
+        let error = hung.shut_down(Duration::from_millis(200)).unwrap_err();
+        assert!(started.elapsed() < Duration::from_millis(400));
+        assert!(error.contains("a model load is still running"), "{error}");
+        assert_eq!(loading.join().unwrap().err().as_deref(), Some(QUITTING));
+    }
+
     /// Transcribes a recording with a downloaded model, either a GGUF or a
     /// whisper.cpp `.bin`. Run with `CLIPS_TEST_WHISPER_MODEL=<model file>
     /// CLIPS_TEST_WHISPER_WAV=<16 kHz mono 16-bit .wav>
@@ -561,12 +987,13 @@ pub(crate) mod tests {
         let expected = test_env("CLIPS_TEST_WHISPER_TEXT");
 
         let slot = ModelSlot::new(load_model);
-        let (model, loaded) = slot.get_or_load(Path::new(&model_path)).unwrap();
+        let (lease, loaded) = slot.lease_for_run(Path::new(&model_path)).unwrap();
         assert!(loaded);
-        assert!(!slot.get_or_load(Path::new(&model_path)).unwrap().1);
+        assert!(!slot.lease_for_run(Path::new(&model_path)).unwrap().1);
+        let model = lease.model();
         assert_eq!(model.arch(), "whisper");
 
-        let mut session = open_session(&model).unwrap();
+        let mut session = open_session(model).unwrap();
         let started = std::time::Instant::now();
         let segments = transcribe_whisper(&mut session, &samples, None).unwrap();
         let text = segments

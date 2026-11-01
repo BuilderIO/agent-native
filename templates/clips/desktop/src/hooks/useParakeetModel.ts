@@ -22,6 +22,8 @@ const PARAKEET_STATUS_EVENTS = [
   "parakeet:model-ready",
   "parakeet:model-error",
   "parakeet:model-cancelled",
+  // A load, an eviction by Whisper, or a reload a dictation started.
+  "parakeet:model-status-changed",
 ] as const;
 
 export function prepareParakeetModel(): void {

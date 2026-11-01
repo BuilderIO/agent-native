@@ -63,6 +63,11 @@ use util::{
 pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 
 const POPOVER_BLUR_GUARD: Duration = Duration::from_millis(1500);
+/// How long quitting waits for transcription workers to hand their models
+/// back. A cancelled run stops at its next step and a load takes a second or
+/// two, so only a native call that never returns runs past this.
+#[cfg(target_os = "macos")]
+const MODEL_QUIT_WAIT: Duration = Duration::from_secs(3);
 const POPOVER_BLUR_SETTLE: Duration = Duration::from_millis(100);
 #[cfg(any(target_os = "macos", test))]
 const MACOS_CONTROL_CENTER_BUNDLE_IDENTIFIER: &str = "com.apple.controlcenter";
@@ -503,6 +508,8 @@ pub fn run() {
             adhoc_meetings_watcher::spawn_watcher(app.handle().clone());
             notifications::watch_meeting_notification_acks(app.handle());
             remote_flags::spawn_watcher(app.handle().clone());
+            #[cfg(target_os = "macos")]
+            parakeet_model::announce_slot_changes(app.handle());
 
             #[cfg(target_os = "macos")]
             {
@@ -613,13 +620,27 @@ pub fn run() {
                 }
             }
             if let tauri::RunEvent::Exit = _event {
+                parakeet_model::shutdown();
                 whisper_speech::shutdown(_app_handle);
                 #[cfg(target_os = "macos")]
-                transcribe_engine::LOCAL_MODEL.clear();
+                let models_freed = transcribe_engine::LOCAL_MODEL.shut_down(MODEL_QUIT_WAIT);
                 native_speech::shutdown();
                 let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
                 native_screen::kill_active_screencapture_child(&state);
                 mic_attribution::shutdown();
+                // ggml's Metal device is a C++ static whose destructor asserts
+                // every Metal buffer is gone, so `exit` aborts while a native
+                // call that never returned still holds a model. Everything
+                // above has cleaned up; skip the static destructors.
+                #[cfg(target_os = "macos")]
+                if let Err(error) = models_freed {
+                    eprintln!(
+                        "[models] {error} {} ms into quitting; exiting without static destructors",
+                        MODEL_QUIT_WAIT.as_millis()
+                    );
+                    // SAFETY: `_exit` ends the process at once; nothing runs after it.
+                    unsafe { libc::_exit(0) };
+                }
             }
         });
 }

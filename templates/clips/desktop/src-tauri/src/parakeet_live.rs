@@ -71,7 +71,7 @@ struct LiveAudio {
 pub(crate) struct LiveDictation {
     /// The model, lent to this dictation's live stream alone. The worker
     /// drops it as it ends, which is what hands the model back.
-    lease: Mutex<Option<StreamLease>>,
+    lease: Mutex<Option<StreamLease<'static>>>,
     /// Where the whole-recording pass gets its model.
     slot: &'static ModelSlot,
     model_path: PathBuf,
@@ -95,7 +95,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl LiveDictation {
     /// `lease` must hold a model that has warmed up.
-    pub(crate) fn new(lease: StreamLease, model_path: PathBuf) -> Self {
+    pub(crate) fn new(lease: StreamLease<'static>, model_path: PathBuf) -> Self {
         Self {
             lease: Mutex::new(Some(lease)),
             slot: &LOCAL_MODEL,
@@ -326,17 +326,21 @@ impl LiveDictation {
     /// audio at pauses itself, so no word is split at a fixed window edge.
     fn transcribe_recording(&self, samples: &[f32]) -> Result<String, String> {
         // The slot hands over a copy only once no live stream holds it, and
-        // retires one a stuck stream never gives back.
-        let (model, loaded) = self
+        // retires one a stuck stream never gives back. The lease keeps the
+        // next dictation's live pass off this copy until the session is gone.
+        let (lease, loaded) = self
             .slot
-            .get_or_load(&self.model_path)
+            .lease_for_run(&self.model_path)
             .map_err(|e| format!("parakeet {e}"))?;
         if loaded {
             eprintln!("[parakeet] loaded a fresh copy for the whole-recording pass");
         }
-        let mut session = open_session(&model)?;
-        session.set_cancel_token(&self.discarded);
-        let result = transcribe_parakeet(&mut session, samples);
+        let result = {
+            let mut session = open_session(lease.model())?;
+            session.set_cancel_token(&self.discarded);
+            transcribe_parakeet(&mut session, samples)
+        };
+        drop(lease);
         if self.is_discarded() {
             return Err(DISCARDED.to_owned());
         }
@@ -603,7 +607,7 @@ mod tests {
 
     impl Drop for TestModel {
         fn drop(&mut self) {
-            self.slot.clear();
+            let _ = self.slot.release(&self.path);
         }
     }
 
@@ -733,7 +737,7 @@ mod tests {
 
         assert_eq!(
             model.slot.try_lease_warm(&model.path).err(),
-            Some(crate::transcribe_engine::LeaseRefused::InUse)
+            Some(crate::transcribe_engine::LeaseRefused::Streaming)
         );
         let started = Instant::now();
         let fresh = model.slot.lease_for_stream(&model.path).unwrap();
@@ -762,37 +766,172 @@ mod tests {
         drop(stuck);
     }
 
-    /// The whole-recording pass on a recording longer than a minute, with a
-    /// word spoken across the 60 s mark, must keep every word there; cutting
-    /// the audio into fixed one-minute windows loses or repeats words at the
-    /// cut. Run with `CLIPS_TEST_PARAKEET_LONG_WAV=<16 kHz mono 16-bit wav
-    /// over 60 s> CLIPS_TEST_PARAKEET_LONG_TEXT=<what it says>` and the model
-    /// variable above. Prints timings and word error rates, never the text.
-    #[test]
-    #[ignore = "needs the Parakeet model and a recording over a minute long"]
-    fn the_whole_recording_pass_keeps_the_words_across_the_minute_mark() {
-        let model = load_test_model(
-            "CLIPS_TEST_PARAKEET_LONG_WAV",
-            "CLIPS_TEST_PARAKEET_LONG_TEXT",
+    /// Runs `finish` for `live` on its own thread, as a release does.
+    fn spawn_finish(
+        live: &Arc<LiveDictation>,
+        capture: &Capture,
+    ) -> std::thread::JoinHandle<Result<DictationTranscript, String>> {
+        let live = live.clone();
+        let (buf, src_rate, running) = (
+            capture.buf.clone(),
+            capture.src_rate.clone(),
+            capture.running.clone(),
         );
+        std::thread::spawn(move || {
+            let tap = AudioTap {
+                buf: &buf,
+                src_rate: &src_rate,
+                running: &running,
+            };
+            live.finish(&tap, Instant::now())
+        })
+    }
+
+    /// The recording placed so its middle falls on the 60 s mark, after
+    /// silence, with a second of silence after it. Cutting the audio into
+    /// fixed one-minute windows splits this phrase.
+    fn across_the_minute_mark(phrase: &[f32]) -> Vec<f32> {
+        let lead = SAMPLE_RATE * 60 - phrase.len() / 2;
         assert!(
-            model.speech.len() > SAMPLE_RATE * 60,
-            "the recording must pass 60 s"
+            lead + phrase.len() > SAMPLE_RATE * 60 && phrase.len() > SAMPLE_RATE,
+            "the phrase must cross the minute mark"
         );
+        let mut fixture = vec![0.0; lead];
+        fixture.extend_from_slice(phrase);
+        fixture.extend(std::iter::repeat_n(0.0, SAMPLE_RATE));
+        fixture
+    }
+
+    /// The whole-recording pass must not lose or repeat a word at the minute
+    /// mark: the recording is placed so it crosses 60 s, and the pass over
+    /// that must give exactly the words the recording gives on its own. Uses
+    /// the same variables as the tests above, with a recording of 2 to 50
+    /// seconds. Prints word error counts, never the text.
+    #[test]
+    #[ignore = "needs the Parakeet model and a WAV file"]
+    fn the_whole_recording_pass_keeps_a_phrase_spoken_across_the_minute_mark() {
+        let model = test_model();
+        assert!(model.speech.len() < SAMPLE_RATE * 50, "use a shorter WAV");
+        let fixture = across_the_minute_mark(&model.speech);
         let live = model.dictation(None);
         // The lease is never used for a live pass here; dropping it hands
         // the model to the whole-recording pass.
         drop(lock(&live.lease).take());
 
+        let alone = live.transcribe_recording(&model.speech).unwrap();
         let started = Instant::now();
-        let text = live.transcribe_recording(&model.speech).unwrap();
-        let wer = word_error_rate(&model.reference, &text);
+        let across = live.transcribe_recording(&fixture).unwrap();
+        let seam_errors = crate::transcribe_engine::tests::word_errors(&alone, &across);
         eprintln!(
-            "whole recording: {:.1}s of audio in {} ms, WER {:.1}%",
-            model.speech.len() as f64 / SAMPLE_RATE as f64,
+            "whole recording: {:.1}s of audio in {} ms; {seam_errors} words differ from the phrase alone; WER {:.1}% alone, {:.1}% across the mark",
+            fixture.len() as f64 / SAMPLE_RATE as f64,
             started.elapsed().as_millis(),
+            word_error_rate(&model.reference, &alone) * 100.0,
+            word_error_rate(&model.reference, &across) * 100.0,
+        );
+        assert_eq!(seam_errors, 0, "the minute mark cost words");
+        assert!(word_error_rate(&model.reference, &across) <= 0.05);
+    }
+
+    /// Dictation A's live pass fails, so it is transcribing the whole
+    /// recording when dictation B starts, before A's run returns. B must not
+    /// meet transcribe.cpp's `Busy`: it is turned away (and dictates with
+    /// Apple Speech), and once A is done the next dictation's live pass works
+    /// on the same copy. Uses the same variables as the tests above.
+    #[test]
+    #[ignore = "needs the Parakeet model and a WAV file"]
+    fn a_dictation_started_while_the_last_one_still_computes_never_meets_busy() {
+        let model = test_model();
+        // Long enough that A's whole-recording run takes a while.
+        let a_audio = as_captured(&across_the_minute_mark(&model.speech));
+
+        let a = model.dictation(Some(DebugMode::Fail));
+        let a_capture = Capture::new();
+        lock(&a_capture.buf).extend_from_slice(&a_audio);
+        a_capture.running.store(false, Ordering::SeqCst);
+        spawn_worker(&a, &a_capture).join().unwrap();
+        let a_finish = spawn_finish(&a, &a_capture);
+        // A's finish takes its run lease within moments of starting, and its
+        // run over a minute of audio lasts far longer than this.
+        std::thread::sleep(Duration::from_millis(100));
+
+        let b_start = model.slot.try_lease_warm(&model.path);
+        let a_was_computing = !a_finish.is_finished();
+        match b_start {
+            Err(crate::transcribe_engine::LeaseRefused::Running) => {}
+            Err(other) => panic!("B was refused for the wrong reason: {}", other.as_str()),
+            Ok(_) => panic!("B was lent the copy A's run is computing on"),
+        }
+        assert!(a_was_computing, "B must start before A's run returns");
+        a.discard();
+        match a_finish.join().unwrap() {
+            Err(error) => assert_eq!(error, DISCARDED),
+            Ok(_) => panic!("the cancelled dictation returned a transcript"),
+        }
+
+        // A's copy comes back warm, so the next dictation streams on it.
+        assert!(model.slot.holds_warm(&model.path));
+
+        let c = model.dictation(None);
+        let c_capture = Capture::new();
+        let c_worker = spawn_worker(&c, &c_capture);
+        speak(&c_capture, &as_captured(&model.speech), 1);
+        let transcript = c.finish(&c_capture.tap(), Instant::now()).unwrap();
+        c_worker.join().unwrap();
+        let wer = word_error_rate(&model.reference, &transcript.text);
+        eprintln!(
+            "next dictation: {} pass, WER {:.1}%",
+            transcript.pass.as_str(),
             wer * 100.0
         );
-        assert!(wer <= 0.01, "WER {wer:.3}");
+        assert_eq!(transcript.pass, DictationPass::Live);
+        assert!(wer <= 0.05, "WER {wer:.3}");
+    }
+
+    /// Quitting while one dictation is still being spoken and the previous
+    /// one is transcribing its whole recording: cancelling both and waiting
+    /// on the slot must end with every lease back well within the quit
+    /// wait. Uses the same variables as the tests above.
+    #[test]
+    #[ignore = "needs the Parakeet model and a WAV file"]
+    fn quitting_stops_live_and_whole_recording_passes() {
+        let model = test_model();
+        let captured = as_captured(&model.speech);
+
+        let finishing = model.dictation(Some(DebugMode::Fail));
+        let finishing_capture = Capture::new();
+        lock(&finishing_capture.buf)
+            .extend_from_slice(&as_captured(&across_the_minute_mark(&model.speech)));
+        finishing_capture.running.store(false, Ordering::SeqCst);
+        spawn_worker(&finishing, &finishing_capture).join().unwrap();
+
+        let speaking = model.dictation(None);
+        let speaking_capture = Capture::new();
+        let speaking_worker = spawn_worker(&speaking, &speaking_capture);
+        lock(&speaking_capture.buf).extend_from_slice(&captured[..captured.len() / 2]);
+        std::thread::sleep(Duration::from_millis(300));
+
+        // Its run waits out the live pass, retires that copy and loads one.
+        let finish = spawn_finish(&finishing, &finishing_capture);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while model.slot.holds_warm(&model.path) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(
+            !finish.is_finished(),
+            "the whole-recording run must still be computing at the quit"
+        );
+
+        let quit = Instant::now();
+        speaking.discard();
+        finishing.discard();
+        let shut = model.slot.shut_down(Duration::from_secs(5));
+        let quit_ms = quit.elapsed().as_millis();
+        speaking_worker.join().unwrap();
+        assert!(finish.join().unwrap().is_err());
+        eprintln!("quit: every lease back {quit_ms} ms after the cancel");
+        assert_eq!(shut, Ok(()));
+        assert!(quit_ms < 2_000, "quitting took {quit_ms} ms");
     }
 }

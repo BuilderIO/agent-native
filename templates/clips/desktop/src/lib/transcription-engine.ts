@@ -6,9 +6,9 @@ import { allocateVoiceRunId } from "./voice-dictation-lifecycle";
 export type TranscriptSource = "mic" | "system";
 export type TranscriptionEngine = "whisper" | "macos-native";
 /**
- * A model the on-device engine runs instead of Whisper when it is loaded.
- * The engine falls back to Whisper when it is not, so meetings never wait on
- * a download.
+ * A model the on-device engine runs instead of Whisper. A meeting waits for
+ * it to load, and uses Whisper when its file isn't downloaded or fails to
+ * load, so a meeting never waits on a download.
  */
 export type LocalTranscriptionModel = "parakeet";
 

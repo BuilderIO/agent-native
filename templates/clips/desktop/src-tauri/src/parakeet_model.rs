@@ -39,9 +39,86 @@ static CANCEL_DOWNLOAD: AtomicBool = AtomicBool::new(false);
 static PREPARING: AtomicBool = AtomicBool::new(false);
 static LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
 
-/// What a dictation start gets back when Parakeet can't take it right now.
-/// The frontend matches this exact string and dictates with Apple Speech.
+/// What a dictation start gets back when Parakeet can't take it right now,
+/// followed by `:` and an [`Unavailable`] reason. The frontend matches the
+/// prefix, dictates with Apple Speech and shows the reason.
 pub(crate) const NOT_READY: &str = "parakeet-model-not-ready";
+
+/// Settings refreshes Parakeet's status when this arrives.
+#[cfg(target_os = "macos")]
+const STATUS_CHANGED: &str = "parakeet:model-status-changed";
+
+/// How long a meeting start waits for a Parakeet load already under way
+/// before asking the slot itself.
+#[cfg(target_os = "macos")]
+const MEETING_LOAD_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Why a dictation can't run on Parakeet right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unavailable {
+    /// The file isn't on disk and no download is running.
+    Missing,
+    Downloading,
+    /// Loading or warming up.
+    Loading,
+    /// On disk but not in memory: never loaded yet, or Whisper took its
+    /// place. It reloads in the background.
+    Unloaded,
+    /// An earlier dictation's live pass still holds it. A prepare waits for
+    /// it to be handed back, and retires a copy that never is.
+    Held,
+    /// An earlier dictation's whole-recording pass, or a meeting, is
+    /// transcribing on it; it comes back when that ends.
+    Busy,
+    /// The last download or load failed; Settings shows why and offers Retry.
+    Failed,
+}
+
+impl Unavailable {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Unavailable::Missing => "missing",
+            Unavailable::Downloading => "downloading",
+            Unavailable::Loading => "loading",
+            Unavailable::Unloaded => "unloaded",
+            Unavailable::Held | Unavailable::Busy => "busy",
+            Unavailable::Failed => "failed",
+        }
+    }
+
+    /// Whether a dictation that met this should start a prepare. One already
+    /// running, a busy copy that comes back by itself, and a failure the user
+    /// retries from Settings don't.
+    fn starts_prepare(self) -> bool {
+        matches!(
+            self,
+            Unavailable::Missing | Unavailable::Loading | Unavailable::Unloaded | Unavailable::Held
+        )
+    }
+}
+
+/// Why the slot turned a dictation away, given what else is going on.
+/// `on_disk` is `Err` when the file's metadata can't be read.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn unavailable(
+    refused: crate::transcribe_engine::LeaseRefused,
+    downloading: bool,
+    preparing: bool,
+    failed: bool,
+    on_disk: &Result<bool, String>,
+) -> Unavailable {
+    use crate::transcribe_engine::LeaseRefused;
+    match refused {
+        LeaseRefused::Streaming => Unavailable::Held,
+        LeaseRefused::Running => Unavailable::Busy,
+        _ if downloading => Unavailable::Downloading,
+        _ if preparing => Unavailable::Loading,
+        _ if failed || on_disk.is_err() => Unavailable::Failed,
+        _ if matches!(on_disk, Ok(false)) => Unavailable::Missing,
+        LeaseRefused::Cold => Unavailable::Loading,
+        LeaseRefused::NotLoaded | LeaseRefused::Quitting => Unavailable::Unloaded,
+    }
+}
 
 pub(crate) fn model_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(crate::whisper_model::models_dir(app)?.join(PARAKEET_MODEL.filename))
@@ -68,49 +145,105 @@ pub(crate) fn is_ready(app: &AppHandle) -> bool {
     model_path(app).is_ok_and(|path| crate::transcribe_engine::LOCAL_MODEL.holds_warm(&path))
 }
 
-/// The Parakeet model for a meeting's one-shot runs, loading it into the
-/// shared slot if something else is resident.
+/// Whether a meeting can use Parakeet: the whole file is on disk. A meeting
+/// that can't uses Whisper, and the reason is logged.
+pub(crate) fn meeting_can_use(app: &AppHandle) -> bool {
+    match model_path(app).and_then(|path| is_complete_on_disk(&path)) {
+        Ok(true) => true,
+        Ok(false) => {
+            eprintln!("[parakeet] not downloaded; the meeting transcribes with Whisper");
+            false
+        }
+        Err(error) => {
+            eprintln!("[parakeet] {error}; the meeting transcribes with Whisper");
+            false
+        }
+    }
+}
+
+/// Tells Settings whenever the shared slot loads, swaps or drops a model, so
+/// an eviction shows up without a restart.
 #[cfg(target_os = "macos")]
-pub(crate) fn resident_model(app: &AppHandle) -> Result<transcribe_cpp::Model, String> {
-    crate::transcribe_engine::LOCAL_MODEL
-        .get_or_load(&model_path(app)?)
-        .map(|(model, _)| model)
-        .map_err(|e| format!("parakeet {e}"))
+pub(crate) fn announce_slot_changes(app: &AppHandle) {
+    let app = app.clone();
+    crate::transcribe_engine::LOCAL_MODEL.set_on_change(move || {
+        let _ = app.emit(STATUS_CHANGED, ());
+    });
 }
 
 /// The warmed-up Parakeet model for one dictation's live stream, without
 /// waiting or loading, so capture can start the moment this returns.
 ///
-/// When it isn't there, the dictation gets [`NOT_READY`] before any audio is
-/// recorded and runs on Apple Speech, and Parakeet reloads in the background
-/// for the next one. Loading here instead would either hold up capture (the
-/// first words are lost) or start capture on a load that might fail, with
-/// nothing that could still transcribe the audio already spoken.
+/// When it isn't there, the dictation gets [`NOT_READY`] and the reason before
+/// any audio is recorded and runs on Apple Speech, and Parakeet downloads or
+/// reloads in the background for the next one. Loading here instead would
+/// either hold up capture (the first words are lost) or start capture on a
+/// load that might fail, with nothing that could still transcribe the audio
+/// already spoken.
 #[cfg(target_os = "macos")]
 pub(crate) fn dictation_lease(
     app: &AppHandle,
-) -> Result<crate::transcribe_engine::StreamLease, &'static str> {
+) -> Result<crate::transcribe_engine::StreamLease<'static>, String> {
+    use crate::transcribe_engine::{LeaseRefused, LOCAL_MODEL, QUITTING};
     let path = model_path(app).map_err(|error| {
-        eprintln!("[parakeet] {error}");
-        NOT_READY
+        eprintln!("[parakeet] {error}; dictating with Apple Speech");
+        format!("{NOT_READY}:{}", Unavailable::Failed.as_str())
     })?;
-    crate::transcribe_engine::LOCAL_MODEL
-        .try_lease_warm(&path)
-        .map_err(|refused| {
-            eprintln!(
-                "[parakeet] model {} at dictation start; dictating with Apple Speech and reloading",
-                refused.as_str()
-            );
-            // The Settings hook downloads a missing file; starting a 731 MB
-            // download from a key press is not this path's call. An
-            // unreadable file goes through prepare so Settings shows why.
-            if !matches!(is_complete_on_disk(&path), Ok(false)) {
-                if let Err(error) = start_prepare(app.clone(), true) {
-                    eprintln!("[parakeet] reload failed to start: {error}");
-                }
-            }
-            NOT_READY
-        })
+    let refused = match LOCAL_MODEL.try_lease_warm(&path) {
+        Ok(lease) => return Ok(lease),
+        Err(LeaseRefused::Quitting) => return Err(QUITTING.to_owned()),
+        Err(refused) => refused,
+    };
+    let reason = unavailable(
+        refused,
+        DOWNLOADING.load(Ordering::SeqCst),
+        PREPARING.load(Ordering::SeqCst),
+        last_error().is_some(),
+        &is_complete_on_disk(&path),
+    );
+    eprintln!(
+        "[parakeet] {} at dictation start (model {}); dictating with Apple Speech",
+        reason.as_str(),
+        refused.as_str()
+    );
+    if reason.starts_prepare() {
+        if let Err(error) = start_prepare(app.clone(), reason == Unavailable::Held) {
+            eprintln!("[parakeet] prepare failed to start: {error}");
+        }
+    }
+    Err(format!("{NOT_READY}:{}", reason.as_str()))
+}
+
+/// The Parakeet model for a meeting's one-shot runs. A meeting may wait for
+/// Parakeet to load, since it starts once and its first words are buffered;
+/// an error here sends it to Whisper.
+#[cfg(target_os = "macos")]
+pub(crate) async fn meeting_lease(
+    app: &AppHandle,
+) -> Result<crate::transcribe_engine::RunLease<'static>, String> {
+    let path = model_path(app)?;
+    let asked = std::time::Instant::now();
+    while PREPARING.load(Ordering::SeqCst) && asked.elapsed() < MEETING_LOAD_WAIT {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let (lease, loaded) = tauri::async_runtime::spawn_blocking(move || {
+        crate::transcribe_engine::LOCAL_MODEL.lease_for_run(&path)
+    })
+    .await
+    .map_err(|e| format!("parakeet load task failed: {e}"))?
+    .map_err(|e| format!("parakeet {e}"))?;
+    eprintln!(
+        "[parakeet] meeting runs on Parakeet ({}, after {} ms)",
+        if loaded { "loaded" } else { "resident" },
+        asked.elapsed().as_millis()
+    );
+    Ok(lease)
+}
+
+/// For quitting: stops a download (its partial file is deleted) and lets a
+/// prepare end at its next step.
+pub(crate) fn shutdown() {
+    CANCEL_DOWNLOAD.store(true, Ordering::SeqCst);
 }
 
 #[cfg(target_os = "macos")]
@@ -216,6 +349,7 @@ fn start_prepare(app: AppHandle, reclaim: bool) -> Result<(), String> {
         return Ok(());
     }
     set_last_error(None);
+    let _ = app.emit(STATUS_CHANGED, ());
     tauri::async_runtime::spawn(async move {
         let result = prepare(&app).await;
         PREPARING.store(false, Ordering::SeqCst);
@@ -225,6 +359,15 @@ fn start_prepare(app: AppHandle, reclaim: bool) -> Result<(), String> {
             }
             Err(error) if error == DOWNLOAD_CANCELLED => {
                 let _ = app.emit("parakeet:model-cancelled", ());
+            }
+            // Neither is a failure: a busy copy comes back when its runs end,
+            // and a quitting app prepares nothing.
+            Err(error)
+                if error == crate::transcribe_engine::IN_USE
+                    || error == crate::transcribe_engine::QUITTING =>
+            {
+                eprintln!("[parakeet] prepare stopped: {error}");
+                let _ = app.emit(STATUS_CHANGED, ());
             }
             Err(error) => {
                 eprintln!("[parakeet] prepare failed: {error}");
@@ -271,6 +414,14 @@ async fn prepare(app: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("parakeet load task failed: {e}"))?;
     if let Err(error) = loaded {
+        // A warm-up the quit cancelled says nothing about the file.
+        if crate::transcribe_engine::quit_token().is_cancelled() {
+            return Err(crate::transcribe_engine::QUITTING.to_owned());
+        }
+        if error == crate::transcribe_engine::IN_USE || error == crate::transcribe_engine::QUITTING
+        {
+            return Err(error);
+        }
         // A copy that loaded but failed its warm-up must not stay resident.
         crate::transcribe_engine::LOCAL_MODEL.release(&path)?;
         return Err(discard_if_damaged(path, error).await);
@@ -288,9 +439,7 @@ async fn prepare(app: &AppHandle) -> Result<(), String> {
 /// starts on it halfway through.
 #[cfg(target_os = "macos")]
 fn load_and_warm_up(path: &Path) -> Result<(), String> {
-    let lease = crate::transcribe_engine::LOCAL_MODEL
-        .lease_for_stream(path)
-        .map_err(|e| format!("parakeet {e}"))?;
+    let lease = crate::transcribe_engine::LOCAL_MODEL.lease_for_stream(path)?;
     if !lease.is_warm() {
         crate::transcribe_engine::warm_up_parakeet(lease.model())?;
         lease.mark_warm();
@@ -420,6 +569,77 @@ mod tests {
 
         assert!(remove_if_damaged(&file, abc).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_dictation_turned_away_says_why_and_whether_parakeet_recovers() {
+        use crate::transcribe_engine::LeaseRefused::{Cold, NotLoaded, Running, Streaming};
+        let on_disk = Ok(true);
+        let absent = Ok(false);
+        let unreadable = Err("could not read".to_owned());
+        let cases = [
+            // Whisper took the slot, or nothing loaded it yet.
+            (
+                unavailable(NotLoaded, false, false, false, &on_disk),
+                Unavailable::Unloaded,
+            ),
+            (
+                unavailable(Cold, false, false, false, &on_disk),
+                Unavailable::Loading,
+            ),
+            (
+                unavailable(NotLoaded, false, true, false, &on_disk),
+                Unavailable::Loading,
+            ),
+            (
+                unavailable(NotLoaded, true, true, false, &absent),
+                Unavailable::Downloading,
+            ),
+            (
+                unavailable(NotLoaded, false, false, false, &absent),
+                Unavailable::Missing,
+            ),
+            (
+                unavailable(Streaming, false, false, false, &on_disk),
+                Unavailable::Held,
+            ),
+            (
+                unavailable(Running, false, false, false, &on_disk),
+                Unavailable::Busy,
+            ),
+            (
+                unavailable(NotLoaded, false, false, true, &absent),
+                Unavailable::Failed,
+            ),
+            (
+                unavailable(NotLoaded, false, false, false, &unreadable),
+                Unavailable::Failed,
+            ),
+        ];
+        for (got, want) in cases {
+            assert_eq!(got, want);
+        }
+        let recovering: Vec<_> = [
+            Unavailable::Missing,
+            Unavailable::Downloading,
+            Unavailable::Loading,
+            Unavailable::Unloaded,
+            Unavailable::Held,
+            Unavailable::Busy,
+            Unavailable::Failed,
+        ]
+        .into_iter()
+        .filter(|reason| reason.starts_prepare())
+        .collect();
+        assert_eq!(
+            recovering,
+            [
+                Unavailable::Missing,
+                Unavailable::Loading,
+                Unavailable::Unloaded,
+                Unavailable::Held
+            ]
+        );
     }
 
     #[test]

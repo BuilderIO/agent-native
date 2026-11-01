@@ -2219,6 +2219,13 @@ const messages = {
     flowOriginalTranscript: "元の文字起こしを表示",
     flowCleanupSkipped: "テキストの整理を省略し、元の文章を保持しました",
     flowBacktrackSkipped: "テキスト編集を省略し、認識した文章を保持しました",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet は未ダウンロード",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet をダウンロード中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet を読み込み中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet は使用中",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Parakeet を読み込めませんでした",
     flowCancelDictation: "音声入力をキャンセル",
     flowCopying: "文字起こしをコピーしています…",
     aiProcessed: "AI処理済み",
