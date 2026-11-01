@@ -10,8 +10,9 @@ use tauri::{
 
 use crate::dlog;
 use crate::util::{
-    build_overlay_url, configure_overlay_behavior, raise_to_status_level, set_capture_excluded,
-    show_without_activation, start_topmost_reassert_loop, tray_monitor_physical_rect,
+    build_overlay_url, configure_overlay_behavior, configure_recording_overlay,
+    raise_to_status_level, set_capture_excluded, show_without_activation,
+    start_topmost_reassert_loop, tray_monitor_physical_rect,
 };
 
 const PILL_LABEL: &str = "recording-pill";
@@ -385,6 +386,8 @@ fn build_pill_window(app: &AppHandle, expanded: bool) -> Result<WebviewWindow, S
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
     set_capture_excluded(&win);
+    // Prewarm builds the pill long before it is shown, so convert it at creation.
+    configure_recording_overlay(&win);
     Ok(win)
 }
 
@@ -430,7 +433,6 @@ pub async fn recording_pill_show(
 
     PILL_EXPANDED.store(false, Ordering::SeqCst);
     let win = build_pill_window(&app, false)?;
-    configure_overlay_behavior(&win);
     show_without_activation(&win);
     raise_to_status_level(&win);
     start_pill_hover_tracking(&app);
