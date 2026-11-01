@@ -117,6 +117,24 @@ describe("settings shell bridge", () => {
     expect(bridge.appAreas.map((area) => area.id)).toEqual(["recordings"]);
   });
 
+  it("routes opted-in tabs to shared settings pages and exposes their details", () => {
+    const notionDetails = createElement("section", null, "Notion settings");
+    const tabs = [
+      tab("notion-settings", {
+        settingsTarget: { page: "integrations", sub: "notion" },
+        integrationDetails: { notion: notionDetails },
+      }),
+      tab("ordinary-settings"),
+    ];
+
+    const { pages } = deriveBridgedAppPages(tabs, CORE_SETTINGS_PAGES, Stub);
+    const bridge = createSettingsBridge({ extraTabs: tabs });
+
+    expect(pages.map((page) => page.id)).toEqual(["ordinary-settings"]);
+    expect(bridge.integrationDetailContent("notion")).toBe(notionDetails);
+    expect(bridge.integrationDetailContent("figma")).toBeUndefined();
+  });
+
   it("keeps app-provided labs", () => {
     const bridge = createSettingsBridge({
       labs: [{ key: "clips.meetings", displayName: "Meetings" }],

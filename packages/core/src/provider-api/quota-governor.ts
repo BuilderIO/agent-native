@@ -134,6 +134,7 @@ export function createProviderRequestDedupeKey(input: {
   url: string;
   body?: BodyInit;
   headers?: Record<string, string>;
+  maxBytes?: number;
 }): string | undefined {
   const method = input.method.toUpperCase();
   if (method !== "GET" && method !== "HEAD") return undefined;
@@ -147,6 +148,12 @@ export function createProviderRequestDedupeKey(input: {
         : input.body == null
           ? null
           : "[body]",
+    // Two reads of the same URL with different byte caps return different
+    // bodies, so they must never share one in-flight response.
+    maxBytes:
+      typeof input.maxBytes === "number" && Number.isFinite(input.maxBytes)
+        ? Math.floor(input.maxBytes)
+        : null,
   });
 }
 

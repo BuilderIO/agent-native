@@ -40,6 +40,7 @@ export {
   serializeWorkspaceConnection,
   summarizeWorkspaceConnectionProviderForApp,
   summarizeWorkspaceConnectionProviderReadiness,
+  setWorkspaceConnectionAgentDiscoveryPreference,
   upsertWorkspaceConnectionGrant,
   upsertWorkspaceConnection,
   type ListWorkspaceConnectionProviderCatalogForAppOptions,
