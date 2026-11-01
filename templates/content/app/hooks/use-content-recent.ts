@@ -375,11 +375,25 @@ export function useContentVisitRecorder() {
   }, []);
 }
 
+// The account and organization a visit is stored under, as
+// record-content-visit's `accountKey`, from the org query's cached answer.
+function cachedContentVisitAccountKey(
+  queryClient: ReturnType<typeof useQueryClient>,
+): string | undefined {
+  const org = queryClient.getQueryData<ReturnType<typeof useOrg>["data"]>([
+    "org-me",
+  ]);
+  // An answer without an account isn't one to store a visit under.
+  if (!org?.email) return undefined;
+  return JSON.stringify([org.email.trim().toLowerCase(), org.orgId ?? null]);
+}
+
 export function useRecordContentVisit(
   target: ContentRecentTarget | null,
   enabled: boolean,
 ) {
   const record = useContentVisitRecorder();
+  const queryClient = useQueryClient();
   const targetRef = useRef(target);
   targetRef.current = target;
   const key = target ? contentRecentVisitKey(target) : null;
@@ -389,9 +403,31 @@ export function useRecordContentVisit(
     if (recordedKey.current === key || !targetRef.current) return;
     recordedKey.current = key;
     const visited = targetRef.current;
+    // The visit belongs to the account and organization the page knows of
+    // when it opens, or learns of first. Read from the cache rather than
+    // subscribed to, so the page doesn't render again when they load.
+    let accountKey = cachedContentVisitAccountKey(queryClient);
+    const stopWatching = accountKey
+      ? undefined
+      : queryClient.getQueryCache().subscribe(() => {
+          accountKey ??= cachedContentVisitAccountKey(queryClient);
+          if (accountKey) stopWatching?.();
+        });
     // Nothing on the page being opened waits on Recent's order, so the write
     // waits for the load to settle. It isn't cancelled when the page closes:
-    // a page opened and left still counts as visited.
-    scheduleAfterStartup(() => record(visited));
-  }, [enabled, key, record]);
+    // a page opened and left still counts as visited. It is dropped if the
+    // account or organization changed meanwhile, or is being read again
+    // after a switch: the server would store it under the new one.
+    scheduleAfterStartup(() => {
+      stopWatching?.();
+      if (queryClient.getQueryState(["org-me"])?.isInvalidated) return;
+      if (
+        accountKey !== undefined &&
+        cachedContentVisitAccountKey(queryClient) !== accountKey
+      ) {
+        return;
+      }
+      record(visited);
+    });
+  }, [enabled, key, queryClient, record]);
 }

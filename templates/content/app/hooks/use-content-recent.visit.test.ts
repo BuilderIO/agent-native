@@ -74,6 +74,11 @@ describe("useRecordContentVisit", () => {
     container = document.createElement("div");
     root = createRoot(container);
     queryClient = new QueryClient();
+    // The signed-in account and organization, as the org query caches them.
+    queryClient.setQueryData(["org-me"], {
+      email: "me@example.com",
+      orgId: "org-1",
+    });
   });
 
   afterEach(() => {
@@ -106,6 +111,69 @@ describe("useRecordContentVisit", () => {
     const settle = mocks.scheduled.shift();
     if (!settle) throw new Error("the visit wasn't scheduled");
     settle();
+    expect(mocks.mutate).toHaveBeenCalledWith({ documentId: "a" });
+  });
+
+  function settleAll() {
+    for (const settle of mocks.scheduled.splice(0)) settle();
+  }
+
+  it("drops a visit when the organization changes before it's sent", () => {
+    render("a");
+    expect(mocks.scheduled).toHaveLength(1);
+
+    queryClient.setQueryData(["org-me"], {
+      email: "me@example.com",
+      orgId: "org-2",
+    });
+    settleAll();
+
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("drops a visit when the account changes or signs out before it's sent", () => {
+    render("a");
+    queryClient.setQueryData(["org-me"], {
+      email: "someone@example.com",
+      orgId: "org-1",
+    });
+    settleAll();
+    render("b");
+    queryClient.removeQueries({ queryKey: ["org-me"] });
+    settleAll();
+
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("drops a visit while the organization is being read again after a switch", async () => {
+    render("a");
+    await queryClient.invalidateQueries({ queryKey: ["org-me"] });
+    settleAll();
+
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the organization the page learns of first, even after it opens", () => {
+    queryClient.removeQueries({ queryKey: ["org-me"] });
+    render("a");
+    queryClient.setQueryData(["org-me"], {
+      email: "me@example.com",
+      orgId: "org-1",
+    });
+    queryClient.setQueryData(["org-me"], {
+      email: "me@example.com",
+      orgId: "org-2",
+    });
+    settleAll();
+
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("sends a visit when the organization stays unknown", () => {
+    queryClient.removeQueries({ queryKey: ["org-me"] });
+    render("a");
+    settleAll();
+
     expect(mocks.mutate).toHaveBeenCalledWith({ documentId: "a" });
   });
 
