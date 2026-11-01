@@ -2181,14 +2181,11 @@ export function installDesktopVoiceDictation(
   const endReleaseTail = (target: VoiceSession) => {
     target.releaseTailTimer = undefined;
     if (target.nativeFinalizationStarted) return;
-    if (!isRunActive(target) || session !== target) {
+    if (!isRunActive(target) || lingeringSession !== target) {
       discardEngineRecording(target, "release tail");
       cleanup(target);
       return;
     }
-    lingeringSession = target;
-    session = null;
-    releaseStart(target.runId);
     stopTracks(target);
     if (target.kind === "parakeet") {
       void finishParakeet(target);
@@ -2270,6 +2267,11 @@ export function installDesktopVoiceDictation(
         transitionRun(current.runId, "finalizing", "processing", "finalizing");
         stopMeter(current);
         const target = current;
+        // Released now, though still recording: a press during the tail
+        // meets a run that is finalizing, not one it has to wait out.
+        if (session === target) session = null;
+        lingeringSession = target;
+        releaseStart(target.runId);
         target.releaseTailTimer = window.setTimeout(
           () => endReleaseTail(target),
           RELEASE_TAIL_MS,

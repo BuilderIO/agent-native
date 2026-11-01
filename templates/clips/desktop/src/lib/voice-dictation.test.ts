@@ -1268,6 +1268,34 @@ describe("desktop voice dictation runs", () => {
     );
 
     it.each(onDeviceKinds)(
+      "drops a %s press and release that both land in the last hold's release tail",
+      async (kind) => {
+        engineStopReturns("silent");
+        const runId = await startRun(kind);
+        await vi.advanceTimersByTimeAsync(501);
+        await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 501 });
+        await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS / 4);
+        await dispatch("voice:shortcut-start", { source: "fn" });
+        await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS / 4);
+        await dispatch("voice:shortcut-stop", {
+          source: "fn",
+          heldMs: RELEASE_TAIL_MS / 4,
+        });
+        await vi.advanceTimersByTimeAsync(5_000);
+        await settle();
+
+        expect(
+          tauri.invoke.mock.calls.filter(
+            ([command]) => command === startCommand(kind),
+          ),
+        ).toHaveLength(1);
+        expect(stateChanges().filter((state) => state.runId !== runId)).toEqual(
+          [],
+        );
+      },
+    );
+
+    it.each(onDeviceKinds)(
       "leaves no trace of a %s tap shorter than 300 ms",
       async (kind) => {
         if (kind === "parakeet") parakeetReturns("recognized words");
