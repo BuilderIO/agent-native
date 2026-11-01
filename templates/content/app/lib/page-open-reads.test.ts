@@ -7,6 +7,7 @@ const session = vi.hoisted(() => {
   let answer: Answer = "first-read";
   return {
     listeners,
+    transport: {},
     get: () => answer,
     // Like the session store: listeners hear the change in the same task.
     set(next: Answer) {
@@ -25,11 +26,28 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
     typeof import("@agent-native/core/client/use-session")
   >()),
   firstSessionReadAnswer: () => session.get(),
-  subscribeFirstSessionReadAnswer: (listener: () => void) => {
+  // Like the session store: a read sent while the load's first session read
+  // is out belongs to that read, and is current only if it answers. These
+  // specs never switch the session after it, so a later read is current.
+  sessionReadIdentity: (options: { sentWithFirstSessionRead?: boolean } = {}) =>
+    options.sentWithFirstSessionRead || session.get() === "pending"
+      ? { sentWith: "first-read", transport: session.transport }
+      : { sentWith: "answered", scope: "a", transport: session.transport },
+  sessionReadIdentityStatus: (identity: { sentWith: string }) =>
+    identity.sentWith === "answered"
+      ? "current"
+      : session.get() === "pending"
+        ? "pending"
+        : session.get() === "first-read"
+          ? "current"
+          : "stale",
+  subscribeSessionReadIdentity: (listener: () => void) => {
     session.listeners.add(listener);
     return () => session.listeners.delete(listener);
   },
 }));
+
+import { sessionReadIdentity } from "@agent-native/core/client/use-session";
 
 import { contentActionInvalidatePredicate } from "../hooks/content-action-refresh";
 import {
@@ -42,7 +60,7 @@ import {
   retirePageOpenReads,
   spoilPageOpenReads,
   startPageOpenRead,
-  whenReadsBeforeSessionKept,
+  whenReadIdentityCurrent,
 } from "./page-open-reads";
 
 const queryKey = ["action", "get-document", { id: "doc-1" }] as const;
@@ -357,18 +375,11 @@ describe("page open reads", () => {
     async function startLandedBeforeSession() {
       const pageRead = vi.fn().mockResolvedValue({ id: "doc-1", by: "a" });
       const draftRead = vi.fn().mockResolvedValue({ draft: "a's draft" });
-      startPageOpenRead(
-        queryClient,
-        "doc-1",
-        { queryKey, queryFn: pageRead },
-        { beforeSession: true },
-      );
-      startPageOpenRead(
-        queryClient,
-        "doc-1",
-        { queryKey: draftKey, queryFn: draftRead },
-        { beforeSession: true },
-      );
+      startPageOpenRead(queryClient, "doc-1", { queryKey, queryFn: pageRead });
+      startPageOpenRead(queryClient, "doc-1", {
+        queryKey: draftKey,
+        queryFn: draftRead,
+      });
       await vi.waitFor(() =>
         expect(queryClient.getQueryData(draftKey)).toBeTruthy(),
       );
@@ -419,12 +430,10 @@ describe("page open reads", () => {
 
     it("joins a read still in flight while the session read is out", () => {
       const page = deferred<unknown>();
-      startPageOpenRead(
-        queryClient,
-        "doc-1",
-        { queryKey, queryFn: () => page.promise },
-        { beforeSession: true },
-      );
+      startPageOpenRead(queryClient, "doc-1", {
+        queryKey,
+        queryFn: () => page.promise,
+      });
 
       const claim = claimPageOpenRead(queryClient, queryKey);
 
@@ -489,12 +498,10 @@ describe("page open reads", () => {
 
     it("cancels a read still in flight when another session read answers", async () => {
       const page = deferred<unknown>();
-      startPageOpenRead(
-        queryClient,
-        "doc-1",
-        { queryKey, queryFn: () => page.promise },
-        { beforeSession: true },
-      );
+      startPageOpenRead(queryClient, "doc-1", {
+        queryKey,
+        queryFn: () => page.promise,
+      });
 
       session.set("replaced");
       page.resolve({ id: "doc-1", by: "a" });
@@ -506,12 +513,10 @@ describe("page open reads", () => {
 
     it("is not held when the session answered before it was sent", async () => {
       session.set("first-read");
-      startPageOpenRead(
-        queryClient,
-        "doc-1",
-        { queryKey, queryFn: vi.fn().mockResolvedValue({ id: "doc-1" }) },
-        { beforeSession: true },
-      );
+      startPageOpenRead(queryClient, "doc-1", {
+        queryKey,
+        queryFn: vi.fn().mockResolvedValue({ id: "doc-1" }),
+      });
 
       expect(
         isAwaitingSession(claimPageOpenRead(queryClient, queryKey).read),
@@ -520,7 +525,7 @@ describe("page open reads", () => {
 
     it("runs work that waits on the session only when the load's own read keeps the reads", () => {
       const kept = vi.fn();
-      whenReadsBeforeSessionKept(queryClient, kept);
+      whenReadIdentityCurrent(queryClient, sessionReadIdentity(), kept);
       expect(kept).not.toHaveBeenCalled();
       session.set("first-read");
       expect(kept).toHaveBeenCalledTimes(1);
@@ -528,7 +533,7 @@ describe("page open reads", () => {
       session.reset("pending");
       const other = new QueryClient();
       const dropped = vi.fn();
-      whenReadsBeforeSessionKept(other, dropped);
+      whenReadIdentityCurrent(other, sessionReadIdentity(), dropped);
       session.set("replaced");
       expect(dropped).not.toHaveBeenCalled();
     });

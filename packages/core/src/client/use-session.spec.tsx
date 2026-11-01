@@ -1253,6 +1253,122 @@ describe("firstSessionReadAnswer", () => {
   });
 });
 
+describe("sessionReadIdentityStatus", () => {
+  type SessionModule = Awaited<ReturnType<typeof freshSessionModule>>;
+
+  // A session endpoint that answers each read when told to.
+  function heldSessionReads() {
+    const pending: Array<(response: Response) => void> = [];
+    const fetcher = vi.fn(
+      () => new Promise<Response>((resolve) => pending.push(resolve)),
+    ) as unknown as typeof fetch;
+    async function answerAs(user: string) {
+      await act(async () => {
+        await vi.waitFor(() => expect(pending.length).toBeGreaterThan(0));
+        pending.shift()?.(
+          jsonResponse({ userId: user, email: `${user}@x.test` }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    return { fetcher, answerAs };
+  }
+
+  async function mountProbe(module: SessionModule) {
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("holds a read sent before the first answer until it, then keeps it for that account only", async () => {
+    const module = await freshSessionModule();
+    const reads = heldSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    const beforeAnswer = module.sessionReadIdentity();
+    const heard: string[] = [];
+    module.subscribeSessionReadIdentity(() =>
+      heard.push(module.sessionReadIdentityStatus(beforeAnswer)),
+    );
+
+    await mountProbe(module);
+    expect(module.sessionReadIdentityStatus(beforeAnswer)).toBe("pending");
+    await reads.answerAs("user-a");
+    expect(module.sessionReadIdentityStatus(beforeAnswer)).toBe("current");
+    expect(heard).toEqual(["current"]);
+
+    const afterAnswer = module.sessionReadIdentity();
+    await act(async () => {
+      void module.notifySessionInvalidated();
+    });
+    const duringReread = module.sessionReadIdentity();
+    expect(module.sessionReadIdentityStatus(afterAnswer)).toBe("pending");
+    expect(module.sessionReadIdentityStatus(duringReread)).toBe("pending");
+    await reads.answerAs("user-b");
+
+    expect(module.sessionReadIdentityStatus(beforeAnswer)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(afterAnswer)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(duringReread)).toBe("current");
+  });
+
+  it("keeps a read current when the session is read again as the same account", async () => {
+    const module = await freshSessionModule();
+    const reads = heldSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    await mountProbe(module);
+    await reads.answerAs("user-a");
+    const read = module.sessionReadIdentity();
+
+    await act(async () => {
+      void module.notifySessionInvalidated();
+    });
+    await reads.answerAs("user-a");
+
+    expect(module.sessionReadIdentityStatus(read)).toBe("current");
+  });
+
+  it("drops a read sent over another transport than the session was read over", async () => {
+    const module = await freshSessionModule();
+    const cookieReads = heldSessionReads();
+    const bearerReads = heldSessionReads();
+    vi.stubGlobal("fetch", cookieReads.fetcher);
+    const overCookies = module.sessionReadIdentity();
+    const overBearer = module.sessionReadIdentity({
+      fetch: bearerReads.fetcher,
+    });
+
+    vi.stubGlobal("fetch", bearerReads.fetcher);
+    await mountProbe(module);
+    await bearerReads.answerAs("user-b");
+
+    expect(module.sessionReadIdentityStatus(overCookies)).toBe("stale");
+    expect(module.sessionReadIdentityStatus(overBearer)).toBe("current");
+  });
+
+  it("drops a read the head sent with the first session read once that read is replaced", async () => {
+    const module = await freshSessionModule();
+    const reads = heldSessionReads();
+    vi.stubGlobal("fetch", reads.fetcher);
+    const headRead = module.sessionReadIdentity({
+      sentWithFirstSessionRead: true,
+    });
+    await mountProbe(module);
+
+    await act(async () => {
+      void module.notifySessionInvalidated();
+    });
+    expect(module.sessionReadIdentityStatus(headRead)).toBe("stale");
+    await reads.answerAs("user-a");
+    await reads.answerAs("user-a");
+
+    expect(module.sessionReadIdentityStatus(headRead)).toBe("stale");
+  });
+});
+
 describe("a peer tab's invalidation broadcast before this tab listened", () => {
   const KEY = "agent-native:session-invalidated";
 

@@ -220,12 +220,7 @@ describe("an account switch in another tab while the app code downloads", () => 
     }
 
     // What the load does when the app code runs, then the real session gate.
-    startPageOpenDocumentReads(
-      queryClient,
-      "doc-1",
-      {},
-      { beforeSession: true },
-    );
+    startPageOpenDocumentReads(queryClient, "doc-1", {}, { fromLoad: true });
     const app = createRoot(container);
     root = app;
     await act(async () => {

@@ -25,6 +25,7 @@ const session = vi.hoisted(() => {
   let answer: Answer = "pending";
   return {
     listeners,
+    transport: {},
     get: () => answer,
     set(next: Answer) {
       answer = next;
@@ -42,7 +43,22 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
     typeof import("@agent-native/core/client/use-session")
   >()),
   firstSessionReadAnswer: () => session.get(),
-  subscribeFirstSessionReadAnswer: (listener: () => void) => {
+  // Like the session store: a read sent while the load's first session read
+  // is out belongs to that read, and is current only if it answers. These
+  // specs never switch the session after it, so a later read is current.
+  sessionReadIdentity: (options: { sentWithFirstSessionRead?: boolean } = {}) =>
+    options.sentWithFirstSessionRead || session.get() === "pending"
+      ? { sentWith: "first-read", transport: session.transport }
+      : { sentWith: "answered", scope: "a", transport: session.transport },
+  sessionReadIdentityStatus: (identity: { sentWith: string }) =>
+    identity.sentWith === "answered"
+      ? "current"
+      : session.get() === "pending"
+        ? "pending"
+        : session.get() === "first-read"
+          ? "current"
+          : "stale",
+  subscribeSessionReadIdentity: (listener: () => void) => {
     session.listeners.add(listener);
     return () => session.listeners.delete(listener);
   },
@@ -133,12 +149,7 @@ describe("a page read sent before the session is known", () => {
   }
 
   async function loadAndMount() {
-    startPageOpenDocumentReads(
-      queryClient,
-      "doc-1",
-      {},
-      { beforeSession: true },
-    );
+    startPageOpenDocumentReads(queryClient, "doc-1", {}, { fromLoad: true });
     await act(async () => {
       root.render(
         createElement(
@@ -263,12 +274,7 @@ describe("a page read sent before the session is known", () => {
         }
       });
 
-      startPageOpenDocumentReads(
-        queryClient,
-        "doc-1",
-        {},
-        { beforeSession: true },
-      );
+      startPageOpenDocumentReads(queryClient, "doc-1", {}, { fromLoad: true });
       await act(async () => {
         root.render(
           createElement(
@@ -303,12 +309,7 @@ describe("a page read sent before the session is known", () => {
       )();
       const takenAt = Date.now();
 
-      startPageOpenDocumentReads(
-        queryClient,
-        "doc-1",
-        {},
-        { beforeSession: true },
-      );
+      startPageOpenDocumentReads(queryClient, "doc-1", {}, { fromLoad: true });
       await act(async () => {
         root.render(
           createElement(

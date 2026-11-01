@@ -71,7 +71,7 @@ export function startLoadReads(
       databaseId: search.get("databaseId"),
       databaseDocumentId: search.get("databaseDocumentId"),
     },
-    { beforeSession: true },
+    { fromLoad: true },
   );
 }
 
