@@ -72,7 +72,7 @@ import {
   isDocumentCreationPending,
 } from "../lib/optimistic-document";
 import {
-  loadDatabaseViewId,
+  pageOpenReadOwner,
   seedPageOpenCollection,
   type PageOpenReadAnswer,
 } from "../lib/page-open-collection";
@@ -944,7 +944,14 @@ export function startPageOpenDocumentReads(
   queryClient: QueryClient,
   documentId: string,
   context: DocumentQueryContext = {},
-  { beforeSession = false }: { beforeSession?: boolean } = {},
+  {
+    beforeSession = false,
+    databaseViewId = null,
+  }: {
+    beforeSession?: boolean;
+    // The collection view the opened address names, if any.
+    databaseViewId?: string | null;
+  } = {},
 ) {
   trackDocumentReadFailures(queryClient);
   const queryKey = documentQueryKey(documentId, context);
@@ -958,11 +965,11 @@ export function startPageOpenDocumentReads(
   // own. Each read takes that answer once: a refetch through any of their keys
   // sends its own request rather than replaying this one.
   let pageRead: Promise<PageOpenReadAnswer> | null = null;
-  const databaseViewId = beforeSession ? loadDatabaseViewId() : null;
   // A chat widget's ticket may call only the reads its connector lists, and
   // get-page-open-read isn't one of them, so a widget reads the page alone.
   const widgetHost = widgetBridgeActive || isOpenAiMcpAppHost();
-  const sendPageRead = (): Promise<PageOpenReadAnswer> =>
+  // The page query's own signal, so a page read it drops is cancelled.
+  const sendPageRead = (signal?: AbortSignal): Promise<PageOpenReadAnswer> =>
     widgetHost
       ? callAction<PageOpenReadAnswer["document"]>(
           "get-document",
@@ -970,7 +977,7 @@ export function startPageOpenDocumentReads(
             ...documentReadParams(documentId, context),
             ...(readsDraft ? { includePreviewDraft: true } : {}),
           },
-          { method: "GET" },
+          { method: "GET", ...(signal ? { signal } : {}) },
         ).then((document) => ({ document }))
       : callAction<PageOpenReadAnswer>(
           "get-page-open-read",
@@ -979,7 +986,7 @@ export function startPageOpenDocumentReads(
             ...(databaseViewId ? { databaseViewId } : {}),
             ...(readsDraft ? { includePreviewDraft: true } : {}),
           },
-          { method: "GET" },
+          { method: "GET", ...(signal ? { signal } : {}) },
         );
   // The load's head script may already have sent this read; a failed or
   // stalled one is sent again here, so its error comes from the app's own
@@ -988,10 +995,10 @@ export function startPageOpenDocumentReads(
     ? takeStartupPageRead(documentId, context)
     : null;
   const startedAt = startupRead?.startedAt;
-  const readPage = () =>
+  const readPage = (signal?: AbortSignal) =>
     (pageRead ??= startupRead
-      ? readFromStartupPageRead(startupRead, sendPageRead)
-      : sendPageRead());
+      ? readFromStartupPageRead(startupRead, () => sendPageRead(signal))
+      : sendPageRead(signal));
   let documentTaken = false;
   const documentReadStarted = startPageOpenRead(
     queryClient,
@@ -1007,10 +1014,17 @@ export function startPageOpenDocumentReads(
           );
         }
         documentTaken = true;
-        return readPage().then(({ document, collection }) => {
+        const owner = pageOpenReadOwner(
+          queryClient,
+          queryKey,
+          signal,
+          startedAt,
+        );
+        return readPage(signal).then(({ document, collection }) => {
           if (collection) {
             seedPageOpenCollection(queryClient, documentId, collection, {
               beforeSession,
+              owner,
             });
           }
           const { previewDraft: _previewDraft, ...page } = document;

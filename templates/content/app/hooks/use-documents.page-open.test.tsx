@@ -337,6 +337,26 @@ describe("page open document reads", () => {
     ]);
   });
 
+  it("asks an in-app open of a collection view link for that view, not the view of the page it leaves", async () => {
+    window.history.replaceState(null, "", "/page/doc-1?viewId=other");
+    try {
+      startPageOpenDocumentReads(
+        queryClient,
+        "col-1",
+        { databaseId: "db-1" },
+        { databaseViewId: "builder" },
+      );
+
+      await vi.waitFor(() => expect(readsOfPage()).toBe(1));
+      expect(server.calls[0]).toMatchObject({
+        name: "get-page-open-read",
+        params: { id: "col-1", databaseId: "db-1", databaseViewId: "builder" },
+      });
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
   it("starts all document editor page-open data reads", async () => {
     startPageOpenDocumentReads(queryClient, "doc-1");
 

@@ -78,7 +78,7 @@ import {
 } from "../components/editor/database/DatabaseView";
 import { useContentDatabase } from "../hooks/use-content-database";
 import {
-  loadDatabaseViewId,
+  addressDatabaseViewId,
   openingDatabaseQueryKey,
   seedPageOpenCollection,
   type PageOpenReadAnswer,
@@ -168,9 +168,39 @@ describe("a collection page's reads in its page-open read", () => {
     expect(queryClient.getQueryCache().getAll()).toEqual([]);
   });
 
-  it("leave a part the page has already read to that read", async () => {
+  it("replace a part read before this open's read, such as on an earlier visit", async () => {
+    const earlier = Date.now() - 60_000;
+    queryClient.setQueryData(
+      rowsKey,
+      { items: [], stale: 1 },
+      {
+        updatedAt: earlier,
+      },
+    );
+    queryClient.setQueryData(
+      personalViewKey,
+      { databaseId: "db-1", stale: 1 },
+      { updatedAt: earlier },
+    );
+
+    seedPageOpenCollection(queryClient, "page-1", collection, {
+      owner: { startedAt: Date.now() - 1_000, stillOwns: () => true },
+    });
+
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(rowsKey)).toEqual(collection.rows?.page),
+    );
+    expect(queryClient.getQueryData(personalViewKey)).toEqual(
+      collection.personalView,
+    );
+    expect(server.calls).toEqual([]);
+  });
+
+  it("leave a part read since this open's read started to that read", async () => {
     queryClient.setQueryData(personalViewKey, { databaseId: "db-1", own: 1 });
-    seedPageOpenCollection(queryClient, "page-1", collection);
+    seedPageOpenCollection(queryClient, "page-1", collection, {
+      owner: { startedAt: Date.now() - 1_000, stillOwns: () => true },
+    });
 
     await vi.waitFor(() =>
       expect(queryClient.getQueryData(rowsKey)).toBeDefined(),
@@ -179,6 +209,14 @@ describe("a collection page's reads in its page-open read", () => {
       databaseId: "db-1",
       own: 1,
     });
+  });
+
+  it("are not seeded once the read's owner is gone", () => {
+    seedPageOpenCollection(queryClient, "page-1", collection, {
+      owner: { startedAt: Date.now(), stillOwns: () => false },
+    });
+
+    expect(queryClient.getQueryCache().getAll()).toEqual([]);
   });
 
   describe("the table that refreshes on every mount", () => {
@@ -320,20 +358,18 @@ const overrides = (
 });
 
 describe("the view a page's address selects", () => {
-  afterEach(() => window.history.replaceState(null, "", "/"));
-
   it.each([
     ["/page/p?databaseViewId=%20board%20", "board"],
     ["/page/p?viewId=list&databaseViewId=board", "list"],
     ["/page/p?viewId=%20&databaseViewId=board", "board"],
     ["/page/p", null],
   ])("is read from %s as the table reads it", (address, expected) => {
-    window.history.replaceState(null, "", address);
-    expect(loadDatabaseViewId()).toBe(expected);
-    expect(loadDatabaseViewId()).toBe(
+    const search = new URL(address, "https://content.test").search;
+    expect(addressDatabaseViewId(search)).toBe(expected);
+    expect(addressDatabaseViewId(search)).toBe(
       requestedDatabaseViewId(
-        new URLSearchParams(window.location.search).get("viewId"),
-        new URLSearchParams(window.location.search).get("databaseViewId"),
+        new URLSearchParams(search).get("viewId"),
+        new URLSearchParams(search).get("databaseViewId"),
       ),
     );
   });

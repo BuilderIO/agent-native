@@ -265,14 +265,14 @@ describe("startLoadReads", () => {
     startLoadReads(new QueryClient(), {
       key: "load-1",
       pathname: "/page/NXqMwg3WOBAQ",
-      search: "?databaseId=db-1",
+      search: "?databaseId=db-1&viewId=builder",
     });
 
     expect(pageReads).toHaveBeenCalledWith(
       expect.any(QueryClient),
       "NXqMwg3WOBAQ",
       { databaseId: "db-1", databaseDocumentId: null },
-      { beforeSession: true },
+      { beforeSession: true, databaseViewId: "builder" },
     );
     expect(landings()).toBe(0);
   });
@@ -288,7 +288,7 @@ describe("startLoadReads", () => {
       expect.any(QueryClient),
       "last-page",
       { databaseId: null, databaseDocumentId: null },
-      { beforeSession: true },
+      { beforeSession: true, databaseViewId: null },
     );
     expect(landings()).toBe(1);
   });

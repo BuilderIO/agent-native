@@ -1,3 +1,4 @@
+import { currentActionQueryCacheBinding } from "@agent-native/core/client/use-action";
 import { firstSessionReadAnswer } from "@agent-native/core/client/use-session";
 import type {
   ContentDatabasePersonalViewResponse,
@@ -35,15 +36,14 @@ export type PageOpenReadAnswer = {
   };
 };
 
-// The collection view a page's address selects, as the collection's table
-// reads it: an exact `viewId` first, then the remembered selection
-// (DATABASE_VIEW_SELECTION_SEARCH_PARAM). Only the load's own read knows the
-// address it opens; any other open leaves the view to the table.
-export function loadDatabaseViewId(): string | null {
-  if (typeof window === "undefined") return null;
-  const search = new URLSearchParams(window.location.search);
+// The collection view an address selects, as the collection's table reads
+// it: an exact `viewId` first, then the remembered selection
+// (DATABASE_VIEW_SELECTION_SEARCH_PARAM). Each open passes the address it is
+// opening, which during an in-app navigation is not yet the window's.
+export function addressDatabaseViewId(search: string): string | null {
+  const params = new URLSearchParams(search);
   return (
-    search.get("viewId")?.trim() || search.get("databaseViewId")?.trim() || null
+    params.get("viewId")?.trim() || params.get("databaseViewId")?.trim() || null
   );
 }
 
@@ -55,20 +55,60 @@ export function openingDatabaseQueryKey(documentId: string) {
   ] as const;
 }
 
+// Whom a page-open read was sent for: the page query that sent it, the
+// browser cache's binding to an account and organization, and the session.
+// An account or organization switch removes or rebinds all three, so a read
+// that answers afterwards belongs to an identity this tab no longer shows.
+export type PageOpenReadOwner = {
+  startedAt: number;
+  stillOwns: () => boolean;
+};
+
+export function pageOpenReadOwner(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+  signal: AbortSignal,
+  startedAt = Date.now(),
+): PageOpenReadOwner {
+  const queryCache = queryClient.getQueryCache();
+  const query = queryCache.find({ queryKey, exact: true });
+  const binding = currentActionQueryCacheBinding();
+  const session = firstSessionReadAnswer();
+  return {
+    startedAt,
+    stillOwns: () =>
+      !signal.aborted &&
+      query !== undefined &&
+      queryCache.find({ queryKey, exact: true }) === query &&
+      // A read sent before the cache was first bound is checked by its query
+      // and session alone; a binding that untrusted reads must not join
+      // removes their queries.
+      (binding === undefined || currentActionQueryCacheBinding() === binding) &&
+      !(session !== "replaced" && firstSessionReadAnswer() === "replaced"),
+  };
+}
+
 /**
  * Puts the collection parts of a page-open read where the collection's table
  * looks for them, as reads made for this open. Read before the session was
  * known, they are held like the page read: dropped if another account's
- * session answers, and never seeded once one has. A part the page has already
- * read, or is reading, is left to that read.
+ * session answers, and never seeded once one has. Nothing is seeded once the
+ * read's owner is gone. A part being read now, or read since this open's read
+ * started, is left to that read; one read earlier, say on a previous visit, is
+ * replaced.
  */
 export function seedPageOpenCollection(
   queryClient: QueryClient,
   documentId: string,
   collection: NonNullable<PageOpenReadAnswer["collection"]>,
-  { beforeSession = false }: { beforeSession?: boolean } = {},
+  {
+    beforeSession = false,
+    owner,
+  }: { beforeSession?: boolean; owner?: PageOpenReadOwner } = {},
 ) {
   if (beforeSession && firstSessionReadAnswer() === "replaced") return;
+  if (owner && !owner.stillOwns()) return;
+  const readStartedAt = owner?.startedAt ?? Date.now();
   const seeds: Array<[QueryKey, unknown]> = [];
   if (collection.database !== undefined) {
     seeds.push([openingDatabaseQueryKey(documentId), collection.database]);
@@ -101,7 +141,9 @@ export function seedPageOpenCollection(
     const query = queryClient.getQueryCache().find({ queryKey, exact: true });
     if (
       query &&
-      (query.state.data !== undefined || query.state.fetchStatus !== "idle")
+      (query.state.fetchStatus !== "idle" ||
+        (query.state.data !== undefined &&
+          query.state.dataUpdatedAt >= readStartedAt))
     ) {
       continue;
     }
