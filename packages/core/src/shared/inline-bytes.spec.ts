@@ -226,15 +226,40 @@ describe("stripInlineBytes", () => {
 
   it("scrubs data URLs embedded in any other string", () => {
     const stored = stripInlineBytes(
-      { text: `before ${PIXELS} after`, metadata: "metadata: kept" },
+      {
+        text: `before ${PIXELS} after`,
+        metadata: "metadata: kept",
+        encodedParameter: "data:text/plain;name=report%3Aone;base64,QQ==",
+        colonParameter: "data:image/png;name=a:b;base64,QQ==",
+        schemeParameter: "data:image/png;name=data:note;base64,QQ==",
+        invalidPrefix: `data:invalid:${PIXELS} after`,
+      },
       "reject",
     );
 
     expect(stored).toEqual({
       text: "before [inline image/png data omitted] after",
       metadata: "metadata: kept",
+      encodedParameter: "[inline text/plain data omitted]",
+      colonParameter: "[inline image/png data omitted]",
+      schemeParameter: "[inline image/png data omitted]",
+      invalidPrefix: "data:invalid:[inline image/png data omitted] after",
     });
   });
+
+  it.each(["data:;", "data:;name="])(
+    "preserves repeated malformed %s prefixes without stalling",
+    (prefix) => {
+      const text = prefix.repeat(32_000);
+      const started = performance.now();
+      const stored = stripInlineBytes({ text }, "reject");
+      const elapsed = performance.now() - started;
+
+      expect(stored).toEqual({ text });
+      expect(elapsed).toBeLessThan(1_000);
+    },
+    30_000,
+  );
 
   it("scrubs data URLs whatever the case of the scheme", () => {
     const upper = PIXELS.replace(/^data:/, "DATA:");

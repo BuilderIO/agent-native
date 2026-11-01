@@ -79,8 +79,9 @@ const IMAGE_BYTE_FIELD_KEYS = new Set([
 ]);
 // URL schemes are case-insensitive: `DATA:image/png;base64,...` is still bytes.
 const DATA_SCHEME = /data:/i;
-const EMBEDDED_DATA_URL =
-  /\bdata:[\w.+-]+\/[\w.+-]+(?:;[^,;\s"'<>]*)*,[^\s"'<>)\]]*/gi;
+const EMBEDDED_DATA_URL_START = /\bdata:((?:[\w.+-]+\/[\w.+-]+)?)(?=[;,])/gi;
+const DATA_URL_HEADER_END = /[,\s"'<>]/g;
+const DATA_URL_PAYLOAD = /[^\s"'<>)\]]+/y;
 
 function hasInlineByteProperty(json: string): boolean {
   for (const match of json.matchAll(/"((?:\\.|[^"\\])*)"\s*:/g)) {
@@ -167,13 +168,41 @@ function inlineMediaType(
 }
 
 function scrubString(value: string): string {
-  return DATA_SCHEME.test(value)
-    ? value.replace(EMBEDDED_DATA_URL, (match) => {
-        const mediaType = /^data:([^;,]+)/i.exec(match)?.[1] ?? "unknown";
-        return `[inline ${mediaType.toLowerCase()} data omitted]`;
-      })
-    : value;
+  const parts: string[] = [];
+  let copiedThrough = 0;
+  if (DATA_SCHEME.test(value)) {
+    EMBEDDED_DATA_URL_START.lastIndex = 0;
+    for (
+      let match = EMBEDDED_DATA_URL_START.exec(value);
+      match !== null;
+      match = EMBEDDED_DATA_URL_START.exec(value)
+    ) {
+      DATA_URL_HEADER_END.lastIndex = EMBEDDED_DATA_URL_START.lastIndex;
+      const headerEnd = DATA_URL_HEADER_END.exec(value);
+      if (headerEnd === null) break;
+      // Skip inspected header spans so nested prefixes cannot trigger rescans.
+      EMBEDDED_DATA_URL_START.lastIndex = headerEnd.index + 1;
+      if (headerEnd[0] !== ",") continue;
+      DATA_URL_PAYLOAD.lastIndex = headerEnd.index + 1;
+      const payload = DATA_URL_PAYLOAD.exec(value);
+      if (payload === null) continue;
+
+      parts.push(
+        value.slice(copiedThrough, match.index),
+        `[inline ${(match[1] || "text/plain").toLowerCase()} data omitted]`,
+      );
+      copiedThrough = DATA_URL_PAYLOAD.lastIndex;
+      EMBEDDED_DATA_URL_START.lastIndex = copiedThrough;
+    }
+    if (parts.length > 0) {
+      parts.push(value.slice(copiedThrough));
+    }
+  }
+  // raw-sql-ok: this returns projected text with omission markers, not SQL syntax.
+  return parts.length === 0 ? value : parts.join("");
 }
+
+export { scrubString as stripInlineDataUrls };
 
 function sanitize(
   value: unknown,
