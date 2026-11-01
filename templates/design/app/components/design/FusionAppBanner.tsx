@@ -58,7 +58,7 @@ export function FusionAppBanner({
   }, [canSync, runSync, status]);
 
   // A check that failed for this editor (e.g. no Builder access) isn't saved
-  // to the app, so it shows only here while the app is starting.
+  // to the app, so it shows only in this editor's banner.
   const checkError =
     syncMutation.data?.status === "error" ? syncMutation.data.message : null;
 
@@ -85,13 +85,15 @@ export function FusionAppBanner({
     );
   }
 
-  if (status === "error") {
+  // A failed app, or a working one this editor's check couldn't reach.
+  if (status === "error" || checkError) {
     return (
       <div className="pointer-events-auto absolute left-1/2 top-2 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-lg border border-border/60 bg-background/95 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm">
         <IconAlertTriangle className="size-3.5 shrink-0 text-destructive" />
         <span className="min-w-0 flex-1 truncate text-destructive">
           {
-            statusMessage ||
+            checkError ||
+              statusMessage ||
               "Couldn't build your app" /* i18n-ignore fusion app banner, flag-gated feature */
           }
         </span>

@@ -107,7 +107,7 @@ export default defineAction({
       // credentials): a failed check, not a failed app.
       status: "error" as const,
       message: err instanceof Error ? err.message : String(err),
-      checkFailed: true,
+      errorSource: "request" as const,
     }));
     // The container is up before its dev server serves, and a screen loaded
     // in between never gets the editor bridge: it is still starting until then.
@@ -134,9 +134,10 @@ export default defineAction({
 
     if (result.status === "error") {
       const statusMessage = result.message ?? "Container provisioning failed";
-      // A check that failed, or any error over an app that was working, is
-      // this caller's to see: it doesn't mark the app failed for everyone.
-      if ("checkFailed" in result || fusionApp.status === "ready") {
+      // Only the container failing marks the app failed for everyone. A
+      // failed request (e.g. this caller's Builder credentials), or any
+      // error over an app that was working, is this caller's to see.
+      if (result.errorSource !== "container" || fusionApp.status === "ready") {
         return { status: "error" as const, message: statusMessage };
       }
       await mutateDesignData({

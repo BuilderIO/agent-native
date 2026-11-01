@@ -48,6 +48,12 @@ export interface EnsureFusionContainerResult {
   status: "ready" | "provisioning" | "error";
   url?: string;
   message?: string;
+  /**
+   * For an error: whether the container reported it failed (`container`), or
+   * the request to Builder failed (`request`, e.g. this caller's credentials
+   * were rejected), which says nothing about the container.
+   */
+  errorSource?: "container" | "request";
 }
 
 export interface SendFusionMessageResult {
@@ -283,6 +289,7 @@ export async function ensureFusionContainer(
       const text = await response.text().catch(() => "");
       return {
         status: "error",
+        errorSource: "request",
         message:
           text.slice(0, 500) || `ensure-container failed (${response.status})`,
       };
@@ -310,13 +317,16 @@ export async function ensureFusionContainer(
     }
     return {
       status: "error",
+      errorSource: "request",
       message: error instanceof Error ? error.message : String(error),
     };
   } finally {
     clearTimeout(timer);
   }
 
-  if (errorMessage) return { status: "error", message: errorMessage };
+  if (errorMessage) {
+    return { status: "error", errorSource: "container", message: errorMessage };
+  }
   if (readyUrl) return { status: "ready", url: readyUrl, message: lastMessage };
   return { status: "provisioning", message: lastMessage };
 }
