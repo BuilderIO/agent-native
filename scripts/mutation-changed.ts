@@ -187,6 +187,8 @@ const SOURCE_TEXT_READ =
 const REPO_ROOT_HARNESS = /advertised-catalog\.harness/;
 const RELATIVE_SPECIFIER =
   /(?:\bfrom|\bimport)\s*\(?\s*["'](\.\.?\/[^"']+)["']/g;
+const RELATIVE_FILE_URL =
+  /\bnew\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url/g;
 
 /**
  * Whether a spec can run against Stryker's sandbox copy of Core. A spec that
@@ -200,6 +202,10 @@ const RELATIVE_SPECIFIER =
 function runsInSandbox(text: string, directory: string): boolean {
   if (SOURCE_TEXT_READ.test(text) || REPO_ROOT_HARNESS.test(text)) return false;
   for (const [, specifier] of text.matchAll(RELATIVE_SPECIFIER)) {
+    if (specifier === undefined) continue;
+    if (path.posix.join(directory, specifier).startsWith("../")) return false;
+  }
+  for (const [, specifier] of text.matchAll(RELATIVE_FILE_URL)) {
     if (specifier === undefined) continue;
     if (path.posix.join(directory, specifier).startsWith("../")) return false;
   }

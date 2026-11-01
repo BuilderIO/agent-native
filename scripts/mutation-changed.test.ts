@@ -158,6 +158,30 @@ test("skips specs that import the repo-root catalog harness", () => {
   );
 });
 
+test("keeps Core fixture readers while excluding file URLs outside the sandbox", () => {
+  const listing = [
+    "plugin.spec.ts",
+    "plugin.guidance.spec.ts",
+    "plugin.fixture.spec.ts",
+    "plugin.ts",
+  ];
+  const files = {
+    "src/server/plugin.spec.ts": `import { start } from "./plugin";`,
+    "src/server/plugin.guidance.spec.ts": `import { start } from "./plugin"; await readFile(new URL("../../../.agents/skills/example/SKILL.md", import.meta.url), "utf8");`,
+    "src/server/plugin.fixture.spec.ts": `import { start } from "./plugin"; await readFile(new URL("../fixtures/example.md", import.meta.url), "utf8");`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/server/plugin.ts:1-2"], () => listing, readFrom(files)),
+    {
+      include: [
+        "src/server/plugin.fixture.spec.ts",
+        "src/server/plugin.spec.ts",
+      ],
+      missing: [],
+    },
+  );
+});
+
 test("reports a file whose only specs cannot run in the sandbox as missing", () => {
   const listing = ["plugin.surface.spec.ts", "plugin.ts"];
   const files = {

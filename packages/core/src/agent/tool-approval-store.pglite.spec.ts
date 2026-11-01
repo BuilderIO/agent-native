@@ -147,10 +147,8 @@ beforeEach(async () => {
 
 describe("tool approvals bound to the arguments that run", () => {
   it("uses opaque keyed row values and refuses a grant after key rotation", async () => {
-    const previousAppName = process.env.APP_NAME;
-    const previousKey = process.env.SECRETS_ENCRYPTION_KEY;
-    process.env.APP_NAME = "";
-    process.env.SECRETS_ENCRYPTION_KEY = "synthetic-approval-key-a";
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("SECRETS_ENCRYPTION_KEY", "synthetic-approval-key-a");
     try {
       const grant = { ...call, argumentsHash: "known-argument-digest" };
       const approvalId = await createAgentToolApproval(grant);
@@ -169,11 +167,11 @@ describe("tool approvals bound to the arguments that run", () => {
       expect(row.rows[0]?.arguments_hash).not.toBe(
         hashAgentToolApprovalKey(grant.argumentsHash),
       );
-      process.env.SECRETS_ENCRYPTION_KEY = "synthetic-approval-key-b";
+      vi.stubEnv("SECRETS_ENCRYPTION_KEY", "synthetic-approval-key-b");
       await expect(
         consumeAgentToolApproval({ ...grant, approvalId }),
       ).resolves.toBe(false);
-      process.env.SECRETS_ENCRYPTION_KEY = "synthetic-approval-key-a";
+      vi.stubEnv("SECRETS_ENCRYPTION_KEY", "synthetic-approval-key-a");
       await expect(
         resolveAgentToolApprovalTurnId({
           ...scope,
@@ -188,10 +186,7 @@ describe("tool approvals bound to the arguments that run", () => {
         consumeAgentToolApproval({ ...grant, approvalId }),
       ).resolves.toBe(false);
     } finally {
-      if (previousAppName === undefined) delete process.env.APP_NAME;
-      else process.env.APP_NAME = previousAppName;
-      if (previousKey === undefined) delete process.env.SECRETS_ENCRYPTION_KEY;
-      else process.env.SECRETS_ENCRYPTION_KEY = previousKey;
+      vi.unstubAllEnvs();
     }
   });
 

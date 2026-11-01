@@ -1,7 +1,6 @@
 import { createHash, randomFillSync } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
-import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -11498,27 +11497,7 @@ describe("createProductionAgentHandler", () => {
     });
   });
 
-  it("terminalizes a preclaimed row when turn persistence fails", () => {
-    const source = readFileSync(
-      new URL("./production-agent.ts", import.meta.url),
-      "utf8",
-    );
-    const preparation = source.slice(
-      source.indexOf("if (options.onRunPrepared"),
-      source.indexOf("// ─── Durable-background dispatch decision"),
-    );
-
-    expect(preparation).toContain("await options.onRunPrepared");
-    expect(preparation).toContain("if (foregroundRunRowInserted)");
-    expect(preparation).toContain('updateRunStatusIfRunning(runId, "errored")');
-    expect(preparation).toContain(
-      'setRunTerminalReason(runId, "run_preparation_failed")',
-    );
-    expect(preparation).toMatch(
-      /setRunError\(\s*runId,\s*"run_preparation_failed",\s*error instanceof Error \? error\.message : String\(error\)/,
-    );
-    expect(preparation).toContain("throw error");
-  });
+  // oracle-change: the unchanged preparation source contract moved intact to the dedicated source-only spec.
 });
 
 describe("filterActionsByAllowedNames", () => {
