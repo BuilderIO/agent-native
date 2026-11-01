@@ -57,6 +57,11 @@ export function FusionAppBanner({
     return () => window.clearInterval(interval);
   }, [canSync, runSync, status]);
 
+  // A check that failed for this editor (e.g. no Builder access) isn't saved
+  // to the app, so it shows only here while the app is starting.
+  const checkError =
+    syncMutation.data?.status === "error" ? syncMutation.data.message : null;
+
   if (status === "building") {
     return (
       <div className="pointer-events-auto absolute left-1/2 top-2 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-lg border border-border/60 bg-background/95 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur-sm">
@@ -71,6 +76,11 @@ export function FusionAppBanner({
             ? ` ${statusMessage}`
             : ""}
         </span>
+        {checkError ? (
+          <span className="min-w-0 truncate text-destructive">
+            {checkError}
+          </span>
+        ) : null}
       </div>
     );
   }

@@ -103,10 +103,11 @@ export default defineAction({
       branchName: fusionApp.branchName,
       timeoutMs: 20_000,
     }).catch((err: unknown) => ({
-      // Reaching Builder failed (e.g. no Builder credentials): show it
-      // instead of polling a starting app forever.
+      // Reaching Builder failed (e.g. this caller has no Builder
+      // credentials): a failed check, not a failed app.
       status: "error" as const,
       message: err instanceof Error ? err.message : String(err),
+      checkFailed: true,
     }));
     // The container is up before its dev server serves, and a screen loaded
     // in between never gets the editor bridge: it is still starting until then.
@@ -133,10 +134,9 @@ export default defineAction({
 
     if (result.status === "error") {
       const statusMessage = result.message ?? "Container provisioning failed";
-      // A failed check (an unreachable or erroring Builder API) says little
-      // about an app that was working: report it to this caller without
-      // marking the app failed for everyone.
-      if (fusionApp.status === "ready") {
+      // A check that failed, or any error over an app that was working, is
+      // this caller's to see: it doesn't mark the app failed for everyone.
+      if ("checkFailed" in result || fusionApp.status === "ready") {
         return { status: "error" as const, message: statusMessage };
       }
       await mutateDesignData({
