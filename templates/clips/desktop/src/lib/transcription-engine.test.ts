@@ -395,7 +395,7 @@ describe("in-flight partials", () => {
 });
 
 describe("meeting microphone capture", () => {
-  it("starts without VoiceProcessingIO so call apps keep control of mic gain", async () => {
+  it("starts Whisper on the selected microphone with system audio", async () => {
     await startTranscriptionEngine({
       mic: { deviceId: "mic-1", label: "Built-in Microphone" },
     });
@@ -406,14 +406,13 @@ describe("meeting microphone capture", () => {
       micDeviceId: "mic-1",
       micDeviceLabel: "Built-in Microphone",
       captureSystem: true,
-      voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
       runId: expect.any(Number),
     });
   });
 
-  it("keeps VoiceProcessingIO off when meeting transcription resumes", async () => {
+  it("resumes Whisper on the same microphone", async () => {
     await restartTranscriptionEngine("whisper", {
       deviceId: "mic-1",
       label: "Built-in Microphone",
@@ -425,7 +424,6 @@ describe("meeting microphone capture", () => {
       micDeviceId: "mic-1",
       micDeviceLabel: "Built-in Microphone",
       captureSystem: true,
-      voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
       runId: expect.any(Number),
@@ -444,7 +442,6 @@ describe("meeting microphone capture", () => {
       micDeviceId: "mic-1",
       micDeviceLabel: "Built-in Microphone",
       captureSystem: true,
-      voiceProcessing: false,
       emitPartials: false,
       owner: "meeting",
       runId: expect.any(Number),
@@ -618,7 +615,6 @@ describe("meeting microphone capture", () => {
       micDeviceId: null,
       micDeviceLabel: null,
       captureSystem: true,
-      voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
       runId: expect.any(Number),

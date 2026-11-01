@@ -280,7 +280,6 @@ export async function restartTranscriptionEngine(
   engine: TranscriptionEngine,
   mic?: MicSelection,
   captureSystem: boolean = true,
-  voiceProcessing: boolean = false,
   emitPartials: boolean = true,
   runId: number = allocateVoiceRunId(),
 ): Promise<void> {
@@ -291,7 +290,6 @@ export async function restartTranscriptionEngine(
       micDeviceId: mic?.deviceId || null,
       micDeviceLabel: mic?.label || null,
       captureSystem,
-      voiceProcessing,
       emitPartials,
       owner: "meeting",
       runId,
@@ -310,13 +308,11 @@ export async function restartTranscriptionEngine(
 export async function startTranscriptionEngine(opts: {
   mic?: MicSelection;
   captureSystem?: boolean;
-  voiceProcessing?: boolean;
   emitPartials?: boolean;
   runId?: number;
   canContinue?: () => boolean;
 }): Promise<TranscriptionEngine> {
   const captureSystem = opts.captureSystem ?? true;
-  const voiceProcessing = opts.voiceProcessing ?? false;
   const emitPartials = opts.emitPartials ?? true;
   const runId = opts.runId ?? allocateVoiceRunId();
   const assertCanContinue = () => {
@@ -330,7 +326,6 @@ export async function startTranscriptionEngine(opts: {
       "whisper",
       opts.mic,
       captureSystem,
-      voiceProcessing,
       emitPartials,
       runId,
     );
@@ -357,7 +352,6 @@ export async function startTranscriptionEngine(opts: {
           "whisper",
           undefined,
           captureSystem,
-          voiceProcessing,
           emitPartials,
           runId,
         );
@@ -380,7 +374,6 @@ export async function startTranscriptionEngine(opts: {
         "macos-native",
         fallbackMic,
         true,
-        false,
         true,
         runId,
       );

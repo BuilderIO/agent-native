@@ -576,7 +576,7 @@ describe("meeting transcription pause and resume", () => {
 
     await dispatch("clips:recorder-resume");
     const resumedRunId = mocks.restartTranscriptionEngine.mock
-      .calls[0][5] as number;
+      .calls[0][4] as number;
     expect(resumedRunId).toEqual(expect.any(Number));
     expect(resumedRunId).not.toBe(pausedRunId);
 
@@ -627,7 +627,7 @@ describe("meeting transcription pause and resume", () => {
     await dispatch("clips:recorder-resume");
 
     const resumedRunId = mocks.restartTranscriptionEngine.mock
-      .calls[0][5] as number;
+      .calls[0][4] as number;
     expect(resumedRunId).not.toBe(pausedRunId);
     emitFinal(resumedRunId, "final during resume startup");
     resumeStart.resolve();

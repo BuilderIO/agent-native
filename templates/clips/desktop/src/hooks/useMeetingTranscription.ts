@@ -778,7 +778,6 @@ export function useMeetingTranscription({
         }
         const enginePromise = startTranscriptionEngine({
           mic: { deviceId: selectedMicId, label: selectedMicLabel },
-          voiceProcessing: false,
           runId: session.audioRunId,
           canContinue: sessionIsActive,
         });
@@ -856,7 +855,6 @@ export function useMeetingTranscription({
                 label: selectedMicLabel,
               },
               true,
-              false,
               true,
               runId,
             );
