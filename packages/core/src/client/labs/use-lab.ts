@@ -43,6 +43,7 @@ export function useLabState(lab: LabReference): {
     undefined,
     {
       enabled: status === "authenticated",
+      batchFirstFetch: true,
     },
   );
   const state = query.data?.[key];
@@ -93,6 +94,7 @@ export function useLabStates(): LabStates {
     undefined,
     {
       enabled: status === "authenticated",
+      batchFirstFetch: true,
     },
   );
   return query.data ?? {};

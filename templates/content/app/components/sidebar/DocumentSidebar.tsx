@@ -1358,7 +1358,7 @@ export function DocumentSidebar({
   const sidebarStateQuery = useActionQuery(
     "get-content-sidebar-state",
     sidebarStateArgs,
-    { enabled: Boolean(sidebarStateArgs) },
+    { enabled: Boolean(sidebarStateArgs), batchFirstFetch: true },
   );
   const updateSidebarState = useActionMutation<
     unknown,

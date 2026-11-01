@@ -65,7 +65,10 @@ import {
 } from "./embed-auth.js";
 import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
-import { currentSessionIdentity } from "./session-identity.js";
+import {
+  currentSessionIdentity,
+  onSessionIdentityPublished,
+} from "./session-identity.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
 export { actionErrorCode };
@@ -263,10 +266,60 @@ let uiCapabilityRequest: Promise<void> | undefined;
 let uiCapability: { identity: string | null | undefined; at: number } | null =
   null;
 
+// The capability is a cookie the browser keeps across reloads, so the tab
+// remembers when it minted one and a reload inside the reuse window skips the
+// mint. A cookie that went away anyway costs one retry: the server answers
+// `ui_capability_required` and the write re-mints.
+function uiCapabilityStorageKey(): string {
+  return `agent-native:ui-capability:${agentNativePath("/_agent-native/ui-capability")}`;
+}
+
+function identityFingerprint(identity: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < identity.length; index += 1) {
+    hash ^= identity.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function readRememberedUiCapability(identity: string): number | undefined {
+  try {
+    const raw = globalThis.sessionStorage.getItem(uiCapabilityStorageKey());
+    if (!raw) return undefined;
+    const remembered = JSON.parse(raw) as { identity?: unknown; at?: unknown };
+    return remembered.identity === identityFingerprint(identity) &&
+      typeof remembered.at === "number"
+      ? remembered.at
+      : undefined;
+  } catch {
+    // coercion-ok: storage that can't be read means nothing is remembered,
+    // and the next write mints as it would have on a first load.
+    return undefined;
+  }
+}
+
+function rememberUiCapability(identity: string, at: number): void {
+  try {
+    globalThis.sessionStorage.setItem(
+      uiCapabilityStorageKey(),
+      JSON.stringify({ identity: identityFingerprint(identity), at }),
+    );
+  } catch {
+    // coercion-ok: storage that is full, blocked or missing (outside a browser)
+    // only costs the mint after a reload; the in-memory capability still applies.
+  }
+}
+
 function hasFreshUiCapability(): boolean {
+  const identity = currentSessionIdentity();
+  if (uiCapability === null && typeof identity === "string") {
+    const at = readRememberedUiCapability(identity);
+    if (at !== undefined) uiCapability = { identity, at };
+  }
   return (
     uiCapability !== null &&
-    uiCapability.identity === currentSessionIdentity() &&
+    uiCapability.identity === identity &&
     Date.now() - uiCapability.at < UI_CAPABILITY_REUSE_MS
   );
 }
@@ -274,6 +327,11 @@ function hasFreshUiCapability(): boolean {
 /** Drop the remembered capability so the next call that needs one mints it. */
 export function forgetUiActionCapability(): void {
   uiCapability = null;
+  try {
+    globalThis.sessionStorage.removeItem(uiCapabilityStorageKey());
+  } catch {
+    // coercion-ok: storage that can't be reached holds nothing to forget.
+  }
 }
 
 // The mint is shared by concurrent callers, so one caller's abort rejects only
@@ -301,6 +359,9 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
         throw new Error("Could not establish the browser UI capability.");
       }
       uiCapability = { identity, at: Date.now() };
+      if (typeof identity === "string") {
+        rememberUiCapability(identity, uiCapability.at);
+      }
     });
     return Promise.race([response, timedOut]).finally(() => {
       clearTimeout(timer);
@@ -317,6 +378,23 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       .finally(() => signal.removeEventListener("abort", onAbort));
   });
 }
+
+// A doc's first open sends several writes at once, and each one waits on the
+// mint. Minting when the session is first known moves that wait off the writes.
+onSessionIdentityPublished(() => {
+  if (
+    typeof window === "undefined" ||
+    agentNativeApiDisabledReason() ||
+    isEmbedAuthActive() ||
+    typeof currentSessionIdentity() !== "string" ||
+    hasFreshUiCapability()
+  ) {
+    return;
+  }
+  ensureUiActionCapability().catch(() => {
+    // The first write that needs the capability mints it again.
+  });
+});
 
 /**
  * Every write from the signed-in app carries the UI capability, so an action
@@ -1322,22 +1400,36 @@ export function recordActionQueryBrowserPersist(
 }
 
 const UNBATCHED_REFETCHES_META_KEY = "actionUnbatchedRefetches";
+const BATCHED_FIRST_FETCH_META_KEY = "actionBatchedFirstFetch";
 
 /**
  * A first fetch is what the page is waiting on, so it goes alone. On
  * serverless a batch runs all its items on one database connection and
  * answers only when the slowest is done. Only a refetch of data already on
- * screen shares a batch. A query holds the options of whichever observer
- * rendered last, so an opt-out is read from every observer, not from the
- * query function that happens to run.
+ * screen shares a batch, or a first fetch its readers so far all marked as
+ * one nothing on first paint waits for (a reader that mounts after the fetch
+ * starts doesn't see it). A query holds the options of whichever observer
+ * rendered last, so opt-ins and opt-outs are read from every observer, not
+ * from the query function that happens to run.
  */
 function canBatchActionQueryFetch(query: Query | undefined): boolean {
-  return (
-    query?.state.data !== undefined &&
-    !query.observers.some(
+  if (!query) return false;
+  const observers = query.observers;
+  if (
+    observers.some(
       (observer) =>
         observer.options.meta?.[UNBATCHED_REFETCHES_META_KEY] === true,
     )
+  ) {
+    return false;
+  }
+  return (
+    query.state.data !== undefined ||
+    (observers.length > 0 &&
+      observers.every(
+        (observer) =>
+          observer.options.meta?.[BATCHED_FIRST_FETCH_META_KEY] === true,
+      ))
   );
 }
 
@@ -1365,6 +1457,12 @@ export function useActionQuery<
      * than waiting on the other reads in their batch.
      */
     batchRefetches?: boolean;
+    /**
+     * Set true for a read nothing on first paint waits for, such as a sidebar
+     * list or a status badge, so its first fetch shares a request with the
+     * other GETs in its tick instead of taking a request of its own.
+     */
+    batchFirstFetch?: boolean;
   },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
@@ -1376,6 +1474,7 @@ export function useActionQuery<
     queryKeyScope,
     resources,
     batchRefetches,
+    batchFirstFetch,
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
@@ -1456,13 +1555,16 @@ export function useActionQuery<
         ? callerEnabled(query)
         : callerEnabled !== false;
     },
-    ...(resources || batchRefetches === false
+    ...(resources || batchRefetches === false || batchFirstFetch
       ? {
           meta: {
             ...restOptions.meta,
             ...(resources ? { [ACTION_RESOURCES_META_KEY]: resources } : {}),
             ...(batchRefetches === false
               ? { [UNBATCHED_REFETCHES_META_KEY]: true }
+              : {}),
+            ...(batchFirstFetch
+              ? { [BATCHED_FIRST_FETCH_META_KEY]: true }
               : {}),
           },
         }

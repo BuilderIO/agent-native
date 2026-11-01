@@ -15,7 +15,7 @@ export function useFeatureFlag(key: string): boolean {
   const query = useActionQuery<EvaluatedFeatureFlags>(
     "get-feature-flags" as never,
     undefined,
-    { enabled: status === "authenticated" },
+    { enabled: status === "authenticated", batchFirstFetch: true },
   );
   if (RETIRED_ENABLED_FLAG_KEYS.has(key)) return true;
   return featureFlagValue(evaluatedFeatureFlagValues(query.data), key);
@@ -42,7 +42,7 @@ export function useFeatureFlagState(key: string): FeatureFlagState {
   const query = useActionQuery<EvaluatedFeatureFlags>(
     "get-feature-flags" as never,
     undefined,
-    { enabled: status === "authenticated" },
+    { enabled: status === "authenticated", batchFirstFetch: true },
   );
   if (RETIRED_ENABLED_FLAG_KEYS.has(key)) {
     return { status: "ready", enabled: true };
@@ -67,7 +67,7 @@ export function useFeatureFlags(): Record<string, boolean> {
   const query = useActionQuery<EvaluatedFeatureFlags>(
     "get-feature-flags" as never,
     undefined,
-    { enabled: status === "authenticated" },
+    { enabled: status === "authenticated", batchFirstFetch: true },
   );
   return evaluatedFeatureFlagValues(query.data);
 }

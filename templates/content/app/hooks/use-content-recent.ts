@@ -86,6 +86,7 @@ export function useContentRecent(
   const query = useActionQuery("get-content-recent", args, {
     enabled: (options.enabled ?? true) && Boolean(scopeKey) && !org.isFetching,
     placeholderData: undefined,
+    batchFirstFetch: true,
   });
   const [refreshingScopes, setRefreshingScopes] = useState<Set<string>>(
     () => new Set(),

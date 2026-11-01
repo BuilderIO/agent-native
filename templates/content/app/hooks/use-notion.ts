@@ -107,6 +107,7 @@ export function useNotionConnection() {
     {
       staleTime: 30_000,
       enabled: !inWidget,
+      batchFirstFetch: true,
     },
   );
 }

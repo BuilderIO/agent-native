@@ -13,3 +13,17 @@ export function currentSessionIdentity(): string | null | undefined {
 export function recordSessionIdentity(value: string | null | undefined): void {
   identity = value;
 }
+
+let publishedListener: (() => void) | undefined;
+
+/**
+ * Runs after the session resolver publishes a session it read, so a module the
+ * resolver can't import (it imports the resolver) can act on a known sign-in.
+ */
+export function onSessionIdentityPublished(listener: () => void): void {
+  publishedListener = listener;
+}
+
+export function notifySessionIdentityPublished(): void {
+  publishedListener?.();
+}

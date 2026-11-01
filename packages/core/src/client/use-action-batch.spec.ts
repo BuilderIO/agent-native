@@ -92,7 +92,7 @@ function batchedActions(calls: RecordedCall[]): string[] | undefined {
 type QuerySpec = readonly [
   name: string,
   params?: Record<string, unknown>,
-  options?: { batchRefetches?: boolean },
+  options?: { batchRefetches?: boolean; batchFirstFetch?: boolean },
 ];
 
 const roots: Root[] = [];
@@ -256,6 +256,61 @@ describe("action GET batching", () => {
       `POST ${BATCH_URL}`,
     ]);
     expect(batchedActions(calls)).toEqual(["get-a", "get-b"]);
+  });
+
+  it("sends first fetches that nothing on first paint waits for as one request", async () => {
+    const { calls } = stubFetch((call) =>
+      call.url === BATCH_URL
+        ? batchResponses(call, (index) => ({ status: 200, body: { index } }))
+        : jsonResponse({}),
+    );
+
+    const { states } = await mountQueries([
+      ["get-sidebar-state", undefined, { batchFirstFetch: true }],
+      ["get-recent", undefined, { batchFirstFetch: true }],
+      ["get-document", { id: "doc-1" }],
+    ]);
+
+    expect(calls.map(requestLine).sort()).toEqual([
+      "GET /_agent-native/actions/get-document?id=doc-1",
+      `POST ${BATCH_URL}`,
+    ]);
+    expect(batchedActions(calls)).toEqual(["get-sidebar-state", "get-recent"]);
+    expect(states().map((state) => state?.status)).toEqual([
+      "success",
+      "success",
+      "success",
+    ]);
+  });
+
+  it("sends a first fetch alone when the reader that starts it has not opted in", async () => {
+    const { calls } = stubFetch(answerBatches);
+
+    await mountQueries([
+      ["get-a", undefined, { batchFirstFetch: true }],
+      ["get-b"],
+      ["get-b", undefined, { batchFirstFetch: true }],
+    ]);
+
+    expect(calls.map(requestLine).sort()).toEqual([
+      "GET /_agent-native/actions/get-a",
+      "GET /_agent-native/actions/get-b",
+    ]);
+  });
+
+  it("keeps a first fetch alone when a reader opts out of batching", async () => {
+    const { calls } = stubFetch(answerBatches);
+
+    await mountQueries([
+      ["get-a", undefined, { batchFirstFetch: true, batchRefetches: false }],
+      ["get-a", undefined, { batchFirstFetch: true }],
+      ["get-b", undefined, { batchFirstFetch: true }],
+    ]);
+
+    expect(calls.map(requestLine).sort()).toEqual([
+      "GET /_agent-native/actions/get-a",
+      "GET /_agent-native/actions/get-b",
+    ]);
   });
 
   it("keeps refetches of a query that opts out of batching on their own requests", async () => {

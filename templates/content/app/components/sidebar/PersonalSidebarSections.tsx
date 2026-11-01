@@ -175,6 +175,7 @@ export function PersonalSidebarSections({
   const stateArgs = contentSpaceActionArgs(spaceId);
   const state = useActionQuery("get-content-sidebar-state", stateArgs, {
     enabled: Boolean(stateArgs),
+    batchFirstFetch: true,
   });
   const recent = useContentRecent(spaceId ?? undefined, {
     enabled: Boolean(spaceId),
