@@ -16,8 +16,11 @@ text available quickly in the focused app.
   press; the flow bar, its states, and the start sound wait until the hold
   passes 300 ms.
 - A hold the voice detector finds silent ends as no speech at once, unless
-  the engine has already recognized words in it. When the detector cannot
-  run, the recording takes the normal path; it never counts as silence.
+  the engine has already recognized words where the detector heard possible
+  speech. When the detector cannot run, the recording takes the normal path;
+  it never counts as silence.
+- A Local Whisper stop that fails or stalls ends as an error that offers the
+  text so far, never as a normal paste or as no speech.
 - Keep the recording indicator compact and visible above the current desktop
   app. Use the same color, type, spacing, and motion tokens as Clips recording.
 - Show clear listening, processing, delivered, and recoverable-error states.

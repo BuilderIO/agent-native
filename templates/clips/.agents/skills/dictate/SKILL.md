@@ -135,9 +135,14 @@ press under 300 ms is dropped without a trace. While the key is held, Silero
 VAD (a 1.2 MB model downloaded once dictation is on, run on the CPU apart
 from the speech model) scores the audio; a silent hold ends as no speech at release instead of
 after the engine's timeout. If the detector is missing or fails, the dictation
-takes the normal path. Each dictation logs one `[vad]` line with the verdict
-and `press_to_first_sample_ms`, the time from key press to the first mic
-sample.
+takes the normal path. For Local Whisper, the stop also says whether the text
+already sent stands: after a silent hold it is dropped unless a word in it was
+said where the detector heard possible speech. A Whisper stop that fails or
+stalls ends as a provider error that offers the text so far, never as no
+speech. A Whisper dictation opens the mic before its model loads, so words
+said meanwhile are kept. Each dictation logs one `[vad]` line with the verdict
+and one `[dictation]` line with `press_to_first_audio_ms`, the time from key
+press to the first mic audio (`none` when no key press started it).
 
 Agents must **never** wire dictation start/stop server-side. Desktop key
 listeners and the mobile capture UI own those user gestures.
