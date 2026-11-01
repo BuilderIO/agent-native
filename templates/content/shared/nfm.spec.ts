@@ -7,6 +7,7 @@ import {
   docToNfm,
   inspectNfmFidelity,
   nfmToDoc,
+  parseNfmWithLosses,
 } from "./nfm";
 
 function found<T>(value: T | null | undefined): T {
@@ -1158,6 +1159,159 @@ describe("bug fixes — reliability sweep", () => {
         "</details>",
       );
       expect(canonicalizeNfm(nfm)).toBe(nfm);
+    });
+  });
+
+  describe("titled toggles", () => {
+    // A Toggle whose title is its first child rather than `summary`.
+    const titledToggleDoc = (attrs: Record<string, unknown>): any => ({
+      type: "doc",
+      content: [
+        {
+          type: "notionToggle",
+          attrs: { summary: "", open: false, color: null, ...attrs },
+          content: [
+            {
+              type: "notionToggleSummary",
+              content: [
+                { type: "text", text: "Plan", marks: [{ type: "bold" }] },
+                { type: "text", text: " for <today> " },
+                {
+                  type: "text",
+                  text: "here",
+                  marks: [{ type: "link", attrs: { href: "https://x" } }],
+                },
+              ],
+            },
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "Body" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    // The title as nfmToDoc reads it back.
+    const titleOf = (doc: any) => {
+      const [title, ...body] = doc.content[0].content;
+      return { summary: doc.content[0].attrs.summary, title, body };
+    };
+
+    it("writes the title as the summary's inline Markdown, marked, and reads it back as the title", () => {
+      const doc = titledToggleDoc({});
+      const nfm = docToNfm(doc);
+      expect(nfm).toBe(
+        L(
+          '<details markdown="1">',
+          "<summary>**Plan** for \\<today\\> [here](https://x)</summary>",
+          "\tBody",
+          "</details>",
+        ),
+      );
+      const reread = nfmToDoc(nfm);
+      expect(titleOf(reread)).toEqual({
+        summary: "",
+        title: doc.content[0].content[0],
+        body: [doc.content[0].content[1]],
+      });
+      expect(docToNfm(reread)).toBe(nfm);
+    });
+
+    it("writes a titled toggle heading's title as its heading text, marked", () => {
+      const doc = titledToggleDoc({ headingLevel: 2, open: true });
+      const nfm = docToNfm(doc);
+      expect(nfm).toBe(
+        L(
+          '## **Plan** for \\<today\\> [here](https://x) {toggle="true" markdown="1"}',
+          "\tBody",
+        ),
+      );
+      const reread = nfmToDoc(nfm);
+      expect(titleOf(reread).title).toEqual(doc.content[0].content[0]);
+      expect(docToNfm(reread)).toBe(nfm);
+    });
+
+    it("keeps an empty title and an empty body", () => {
+      const nfm = L(
+        '<details markdown="1">',
+        "<summary></summary>",
+        "</details>",
+      );
+      const reread = nfmToDoc(nfm);
+      expect(reread.content).toEqual([
+        expect.objectContaining({ content: [{ type: "notionToggleSummary" }] }),
+      ]);
+      expect(docToNfm(reread)).toBe(nfm);
+    });
+
+    it("still reads an unmarked summary into `summary`, as written", () => {
+      const nfm = L(
+        "<details>",
+        "<summary>**Plan** stays as typed</summary>",
+        "\tBody",
+        "</details>",
+      );
+      const reread = nfmToDoc(nfm);
+      expect(reread.content).toEqual([
+        expect.objectContaining({
+          attrs: expect.objectContaining({
+            summary: "**Plan** stays as typed",
+          }),
+          content: [expect.objectContaining({ type: "paragraph" })],
+        }),
+      ]);
+      expect(docToNfm(reread)).toBe(nfm);
+    });
+
+    it("reports a `markdown` value it doesn't know and reads the summary as written", () => {
+      const nfm = L(
+        '<details markdown="0">',
+        "<summary>**Plan**</summary>",
+        "</details>",
+      );
+      const { doc, losses } = parseNfmWithLosses(nfm);
+      expect(losses.map((loss) => loss.kind)).toContain("dropped-attribute");
+      expect(doc.content).toEqual([
+        expect.objectContaining({
+          attrs: expect.objectContaining({ summary: "**Plan**" }),
+        }),
+      ]);
+    });
+
+    it("reads a toggle heading's `data-markdown` as another attribute, not the marker", () => {
+      const { doc, losses } = parseNfmWithLosses(
+        '## **Plan** {toggle="true" data-markdown="1"}',
+      );
+      expect(losses.map((loss) => loss.kind)).toContain("dropped-attribute");
+      expect(doc.content).toEqual([
+        expect.objectContaining({
+          attrs: expect.objectContaining({ summary: "**Plan**" }),
+        }),
+      ]);
+    });
+
+    it("writes a title's line break on the summary's one line", () => {
+      const doc: any = {
+        type: "doc",
+        content: [
+          {
+            type: "notionToggle",
+            attrs: { summary: "", open: false, color: null },
+            content: [
+              {
+                type: "notionToggleSummary",
+                content: [{ type: "text", text: "a\nb" }],
+              },
+            ],
+          },
+        ],
+      };
+      const nfm = docToNfm(doc);
+      expect(nfm).toBe(
+        L('<details markdown="1">', "<summary>a b</summary>", "</details>"),
+      );
+      expect(docToNfm(nfmToDoc(nfm))).toBe(nfm);
     });
   });
 

@@ -39,6 +39,7 @@ import {
   trimSelectionRange,
   type CommentTextAnchor,
 } from "./comment-anchors";
+import { rangeTouchesToggleTitle } from "./extensions/NotionExtensions";
 import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
 export type CommentRange = { from: number; to: number };
@@ -777,8 +778,15 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     openLinkInput();
   };
 
-  const items = [
-    { type: "text-style" as const },
+  // A toggle's title can't become another kind of block.
+  const styleItems = [
+    ...(rangeTouchesToggleTitle(
+      editor.state.doc,
+      editor.state.selection.from,
+      editor.state.selection.to,
+    )
+      ? []
+      : [{ type: "text-style" as const }]),
     ...(selectionHasColorableText(
       editor.state,
       editor.state.selection.from,
@@ -786,7 +794,10 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     )
       ? [{ type: "color" as const }]
       : []),
-    { type: "divider" as const },
+  ];
+  const items = [
+    ...styleItems,
+    ...(styleItems.length > 0 ? [{ type: "divider" as const }] : []),
     {
       icon: IconBold,
       title: t("editor.bold"),

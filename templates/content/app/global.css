@@ -1287,6 +1287,46 @@
   margin-top: 0;
 }
 
+/* A titled Toggle's title is the first block of its content, beside the
+   chevron, and a closed Toggle hides the blocks after it. */
+.content-toggle--titled {
+  position: relative;
+  padding-left: calc(1rem + 0.5em);
+}
+
+.content-toggle--titled > .content-toggle__chevron {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.content-toggle__title {
+  font-weight: 500;
+}
+
+.content-toggle--titled:not(.content-toggle--open)
+  > .content-toggle__content
+  > [data-node-view-content-react]
+  > :not(.content-toggle__title) {
+  display: none;
+}
+
+.content-editor .content-toggle__title.is-empty::before,
+.content-toggle--title-empty
+  > .content-toggle__content
+  > [data-node-view-content-react]
+  > .content-toggle__title::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+}
+
 div[data-notion-callout] {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

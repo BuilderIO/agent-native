@@ -143,6 +143,22 @@ describe("generated Content editor structural schema", () => {
 
   it("normalizes and converts every NFM node kind identically", () => {
     const json = nfmToDoc(ALL_NFM_NODE_KINDS_FIXTURE);
+    // Markdown makes a Toggle with its title in `summary` until every client
+    // reads titles, so the fixture adds a titled one by hand.
+    json.content!.push({
+      type: "notionToggle",
+      attrs: { open: true },
+      content: [
+        {
+          type: "notionToggleSummary",
+          content: [{ type: "text", text: "Titled toggle" }],
+        },
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "Titled toggle body" }],
+        },
+      ],
+    });
     const nodeTypes = new Set<string>();
     const markTypes = new Set<string>();
     const visit = (node: PMNode) => {

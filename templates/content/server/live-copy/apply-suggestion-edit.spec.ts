@@ -191,6 +191,26 @@ describe("applySuggestionEdit", () => {
     expect(after[after.length - 1]).toBe(before[before.length - 1]);
   });
 
+  it("keeps a toggle's rich title when it changes the block after it", () => {
+    const doc = seededDoc(
+      [
+        '<details markdown="1">',
+        "<summary>**Plan** for today</summary>",
+        "\tBody",
+        "</details>",
+        "The budget is $60.",
+      ].join("\n"),
+    );
+    const body = bodyOf(doc);
+    const [toggle] = doc.getXmlFragment("default").toArray() as Y.XmlElement[];
+    expect(accept(doc, suggestion(body, "$60", "$75"))).toBeUndefined();
+    expect(bodyOf(doc)).toBe(body.replace("$60", "$75"));
+    expect(doc.getXmlFragment("default").get(0)).toBe(toggle);
+    expect((toggle!.get(0) as Y.XmlElement).nodeName).toBe(
+      "notionToggleSummary",
+    );
+  });
+
   it("refuses to replace text a second time once the replaced text is gone", () => {
     const doc = seededDoc(page);
     const operation = suggestion(bodyOf(doc), "sets the scene", "opens");

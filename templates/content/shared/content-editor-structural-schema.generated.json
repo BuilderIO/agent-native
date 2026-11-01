@@ -47,9 +47,15 @@
           "default": 0
         }
       ],
-      "content": "block*",
+      "content": "notionToggleSummary? block*",
       "group": "block",
       "draggable": true,
+      "defining": true
+    },
+    {
+      "name": "notionToggleSummary",
+      "attrs": [],
+      "content": "inline*",
       "defining": true
     },
     {
