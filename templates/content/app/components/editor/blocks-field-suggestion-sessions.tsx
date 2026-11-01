@@ -911,6 +911,43 @@ export function useBlocksFieldSuggestions({
   }, []);
 
   /**
+   * Reads the tabs' text afresh, trying again while that fails for as long
+   * as one of `sessions` is still its tab's. Reports whether it was read.
+   */
+  const reread = useCallback(
+    async (sessions: FieldSession[]) => {
+      const current = () =>
+        sessions.some(
+          (session) => sessionsRef.current.get(session.fieldId) === session,
+        );
+      let delay = 0;
+      for (;;) {
+        try {
+          await queryClient.refetchQueries(
+            {
+              queryKey: ["action", "list-document-properties", { documentId }],
+            },
+            { throwOnError: true },
+          );
+          return true;
+        } catch (error) {
+          if (!current()) return false;
+          if (delay === 0) {
+            toast.error(tRef.current("empty.genericError"), {
+              description: actionErrorMessage(error) ?? undefined,
+            });
+          }
+          delay = nextSuggestionAutosaveRetryDelay(delay);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          // Suggesting mode ended, or the page closed, meanwhile.
+          if (!current()) return false;
+        }
+      }
+    },
+    [documentId, queryClient],
+  );
+
+  /**
    * Runs a decision on tabs' suggestions: their drafts are saved first, and
    * afterwards the tabs read their text again and start new drafts on it.
    */
@@ -927,15 +964,18 @@ export function useBlocksFieldSuggestions({
           if (session && !(await save(session, { autosave: false }))) return;
         }
         await run();
-        await queryClient.refetchQueries({
-          queryKey: ["action", "list-document-properties", { documentId }],
-        });
+        const decided = [...new Set(fieldIds)].flatMap(
+          (fieldId) => sessionsRef.current.get(fieldId) ?? [],
+        );
+        // A tab restarted on its cached text would miss an accepted edit and
+        // save its next draft on an old base. Until the text is read, the
+        // tabs keep their old drafts, which have nothing unsaved.
+        if (!(await reread(decided))) return;
         let restarted = false;
-        for (const fieldId of new Set(fieldIds)) {
-          const session = sessionsRef.current.get(fieldId);
-          if (!session) continue;
+        for (const session of decided) {
+          if (sessionsRef.current.get(session.fieldId) !== session) continue;
           if (session.timer) clearTimeout(session.timer);
-          sessionsRef.current.delete(fieldId);
+          sessionsRef.current.delete(session.fieldId);
           restarted = true;
         }
         if (restarted) bump();
@@ -949,7 +989,7 @@ export function useBlocksFieldSuggestions({
         setDecidingFields(NO_FIELDS);
       }
     },
-    [bump, documentId, queryClient, save],
+    [bump, reread, save],
   );
 
   const decide = useCallback(

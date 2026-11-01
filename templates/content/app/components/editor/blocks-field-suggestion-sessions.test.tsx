@@ -241,11 +241,95 @@ describe("useBlocksFieldSuggestions", () => {
         observedRevision: 1,
       }),
     );
-    expect(refetchQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "list-document-properties", { documentId: "doc-1" }],
-    });
+    expect(refetchQueries).toHaveBeenCalledWith(
+      {
+        queryKey: [
+          "action",
+          "list-document-properties",
+          { documentId: "doc-1" },
+        ],
+      },
+      { throwOnError: true },
+    );
     expect(latest.provider.sessions.has("notes")).toBe(false);
     expect(latest.deciding).toBe(false);
+  });
+
+  it("keeps a decided tab's draft until the tab's text is read afresh", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.decideSuggestion.mockResolvedValue({});
+      await render(true, []);
+      await draftInTab();
+      await act(async () => {
+        await latest.flushAll();
+      });
+      const created = first(firstSaved());
+      await render(true, [created]);
+      const refetchQueries = vi
+        .spyOn(queryClient, "refetchQueries")
+        .mockRejectedValueOnce(new Error("Network down"));
+
+      let decision = Promise.resolve();
+      await act(async () => {
+        decision = latest.decide(created, "accepted");
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      // Restarted on the cached text, the tab would miss the accepted edit.
+      expect(mocks.decideSuggestion).toHaveBeenCalledTimes(1);
+      expect(mocks.toastError).toHaveBeenCalledTimes(1);
+      expect(latest.provider.sessions.has("notes")).toBe(true);
+      expect(latest.deciding).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+        await decision;
+      });
+      expect(refetchQueries).toHaveBeenCalledTimes(2);
+      expect(latest.provider.sessions.has("notes")).toBe(false);
+      expect(latest.deciding).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops rereading a decided tab once Suggesting mode ends", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.decideSuggestion.mockResolvedValue({});
+      await render(true, []);
+      await draftInTab();
+      await act(async () => {
+        await latest.flushAll();
+      });
+      const created = first(firstSaved());
+      await render(true, [created]);
+      const refetchQueries = vi
+        .spyOn(queryClient, "refetchQueries")
+        .mockRejectedValue(new Error("Network down"));
+
+      let decision = Promise.resolve();
+      await act(async () => {
+        decision = latest.decide(created, "accepted");
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(latest.deciding).toBe(true);
+
+      await render(false, [created]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+        await decision;
+      });
+      expect(refetchQueries).toHaveBeenCalledTimes(1);
+      expect(latest.deciding).toBe(false);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60000);
+      });
+      expect(refetchQueries).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps Suggesting mode when a tab's draft can't be saved", async () => {
