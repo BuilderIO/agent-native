@@ -256,6 +256,12 @@ unavailable for local-file, source-owned, externally linked, or trashed Pages,
 Collection Pages, Pages with inline databases, and collection-item Pages without
 an accessible primary Blocks field.
 
+People can also suggest edits in a collection page's other Blocks field tabs.
+Those suggestions use adapter kind `content.blocks-field-markdown`: each
+operation's `targetId` is the field's ID, and `baseRevision` reads
+`blocks-field:<fieldId>:<revision>`. Decide one as above; accepting it writes
+only that field. `suggest-document-edit` suggests on the page body only.
+
 ```bash
 pnpm action suggest-document-edit --id abc123 \
   --baseRevision 'body:0:sha256:…' --idempotencyKey '<uuid>' \

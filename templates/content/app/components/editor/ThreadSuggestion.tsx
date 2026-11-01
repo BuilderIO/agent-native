@@ -25,6 +25,8 @@ type ThreadSuggestionProps = {
   /** A decision, or an AI revision in this thread, is still in flight. */
   busy: (suggestion: ResourceSuggestion) => boolean;
   conflict: (suggestion: ResourceSuggestion) => boolean;
+  /** Accepting it needs more access than this person has; rejecting doesn't. */
+  acceptBlocked?: (suggestion: ResourceSuggestion) => boolean;
   onDecide: (
     suggestion: ResourceSuggestion,
     decision: SuggestionDecision,
@@ -82,6 +84,7 @@ function ThreadSuggestionEdit({
   canDecide,
   busy,
   conflict,
+  acceptBlocked,
   onDecide,
   showStatus,
 }: {
@@ -89,6 +92,7 @@ function ThreadSuggestionEdit({
   canDecide: boolean;
   busy: boolean;
   conflict: boolean;
+  acceptBlocked: boolean;
   onDecide: (decision: SuggestionDecision) => void;
   showStatus: boolean;
 }) {
@@ -123,7 +127,7 @@ function ThreadSuggestionEdit({
         <div className="float-end -me-1 -mt-0.5 ms-1 flex">
           <SuggestionDecisionButtons
             disabled={busy}
-            acceptDisabled={conflict}
+            acceptDisabled={conflict || acceptBlocked}
             onDecide={onDecide}
           />
         </div>
@@ -184,6 +188,7 @@ export function ThreadSuggestionBody({
   canDecide,
   busy,
   conflict,
+  acceptBlocked = () => false,
   onDecide,
   onDecideRemaining,
   defaultExpanded = false,
@@ -209,6 +214,7 @@ export function ThreadSuggestionBody({
       canDecide={canDecide}
       busy={busy(suggestion)}
       conflict={conflict(suggestion)}
+      acceptBlocked={acceptBlocked(suggestion)}
       onDecide={(decision) => onDecide(suggestion, decision)}
       showStatus={!sharedStatus}
     />
@@ -228,7 +234,7 @@ export function ThreadSuggestionBody({
           expanded={expanded}
           onExpandedChange={setExpanded}
           deciding={pending.some(busy)}
-          acceptDisabled={pending.some(conflict)}
+          acceptDisabled={pending.some(conflict) || pending.some(acceptBlocked)}
           canDecide={canDecide && !!onDecideRemaining}
           onDecide={(decision) => onDecideRemaining?.(decision)}
         >

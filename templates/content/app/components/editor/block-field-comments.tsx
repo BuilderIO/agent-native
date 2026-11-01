@@ -1,4 +1,5 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
+import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import {
   createContext,
   useCallback,
@@ -26,6 +27,7 @@ import {
   type CommentBlockTarget,
 } from "./comment-block-anchors";
 import type { PendingCommentSelection } from "./CommentsSidebar";
+import type { DraftSuggestion } from "./suggestions/draft-session";
 
 /**
  * The Blocks field tabs a page shows, as comments need them. A field id of
@@ -203,6 +205,7 @@ function reviewTarget(
   threads: readonly CommentThread[] | undefined,
   selectedThreadId: string | null,
   suggestionId: string | null,
+  suggestionFieldId: (suggestionId: string) => string | null,
 ): ReviewTarget | null {
   if (selectedThreadId) {
     const thread = threads?.find(
@@ -218,10 +221,9 @@ function reviewTarget(
     };
   }
   if (suggestionId) {
-    // Suggestions edit the page body only.
     return {
       key: `suggestion:${suggestionId}`,
-      fieldId: null,
+      fieldId: suggestionFieldId(suggestionId),
       attribute: "data-suggestion-id",
       id: suggestionId,
     };
@@ -286,8 +288,10 @@ export function useBlockFieldComments({
   /** The page shows Blocks fields, so the body waits for them to load. */
   expectsBlockFields: boolean;
   threads: readonly CommentThread[] | undefined;
+  /** Every tab's suggestions, the body's included. */
   suggestions: readonly ResourceSuggestion[];
-  draftSuggestions: readonly unknown[];
+  draftSuggestions: readonly DraftSuggestion[];
+  /** The body's suggestions its editor shows. */
   anchoredSuggestionIds: readonly string[] | null | undefined;
   selectedThreadId: string | null;
   selectedSuggestionId: string | null;
@@ -316,6 +320,12 @@ export function useBlockFieldComments({
     threads,
     selectedThreadId,
     selectedSuggestionId ?? focusSuggestionId,
+    (suggestionId) => {
+      const suggestion =
+        suggestions.find((candidate) => candidate.id === suggestionId) ??
+        draftSuggestions.find((candidate) => candidate.id === suggestionId);
+      return suggestion ? suggestionBlocksFieldId(suggestion) : null;
+    },
   );
   const targetKey = target?.key ?? null;
   const targetFieldId = target?.fieldId;
@@ -385,6 +395,20 @@ export function useBlockFieldComments({
     () => commentRailThreads(allThreads as CommentThread[], openFieldId),
     [allThreads, openFieldId],
   );
+  const railSuggestions = useMemo(
+    () =>
+      suggestions.filter(
+        (suggestion) => suggestionBlocksFieldId(suggestion) === openFieldId,
+      ),
+    [openFieldId, suggestions],
+  );
+  const railDraftSuggestions = useMemo(
+    () =>
+      draftSuggestions.filter(
+        (suggestion) => suggestionBlocksFieldId(suggestion) === openFieldId,
+      ),
+    [draftSuggestions, openFieldId],
+  );
 
   const pendingFieldId = pendingComment?.property
     ? undefined
@@ -451,8 +475,9 @@ export function useBlockFieldComments({
     bodyPendingHighlight,
     /** The open tab's threads, and Property threads, for the margin. */
     railThreads,
-    /** Suggestions edit the body, so only its tab shows them in the margin. */
-    railShowsSuggestions: openFieldId === null,
+    /** The open tab's suggestions, for the margin. */
+    railSuggestions,
+    railDraftSuggestions,
     provider,
   };
 }

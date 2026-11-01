@@ -32,6 +32,7 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
   commentMentionsForText,
@@ -1092,6 +1093,11 @@ interface CommentsSidebarOptions {
     decision: SuggestionDecision,
   ) => void;
   canDecideSuggestions?: boolean;
+  /**
+   * Accepting a tab's suggestion writes its Collection's field, so it also
+   * takes edit access to the Collection. Rejecting one writes nothing.
+   */
+  canDecideFieldSuggestions?: boolean;
   decidingSuggestion?: (suggestionId: string) => boolean;
   onDecideSuggestion?: (
     suggestion: ResourceSuggestion,
@@ -1180,6 +1186,7 @@ export function CommentsSidebar({
   onMaterializeDraft,
   onDecideDraftSuggestion,
   canDecideSuggestions = false,
+  canDecideFieldSuggestions = false,
   decidingSuggestion = () => false,
   onDecideSuggestion,
   onDecideSuggestionProposal,
@@ -1756,20 +1763,24 @@ export function CommentsSidebar({
     suggestions,
     threads,
   ]);
-  // Suggestions edit the page body, so they sit in its tab.
-  const historyBodyTabShown =
-    activeHistoryTab === null || activeHistoryTab === commentTabKey(null);
   // Suggested edits point at text and carry no @mentions of their own.
   const historyShowsSuggestions =
     historyKind !== "comments" &&
-    historyBodyTabShown &&
     (historyTarget === "all" || historyTarget === "text") &&
     !historyMentionsMe;
+  // A suggestion sits in the tab it edits.
+  const historyTabShowsSuggestion = useCallback(
+    (suggestion: Parameters<typeof suggestionBlocksFieldId>[0]) =>
+      activeHistoryTab === null ||
+      commentTabKey(suggestionBlocksFieldId(suggestion)) === activeHistoryTab,
+    [activeHistoryTab],
+  );
   const historySuggestions = useMemo(() => {
     if (!historyShowsSuggestions) return [];
     return suggestions.filter((suggestion) => {
       if (historyKind === "all" && embeddedSuggestionIds.has(suggestion.id))
         return false;
+      if (!historyTabShowsSuggestion(suggestion)) return false;
       const unresolved =
         suggestion.status === "pending" || suggestion.status === "stale";
       if (historyStatus === "open" && !unresolved) {
@@ -1789,6 +1800,7 @@ export function CommentsSidebar({
     historySearch,
     historyShowsSuggestions,
     historyStatus,
+    historyTabShowsSuggestion,
     suggestions,
   ]);
   const historyDraftSuggestions = useMemo(() => {
@@ -1797,6 +1809,7 @@ export function CommentsSidebar({
     return draftSuggestions.filter(
       (suggestion) =>
         (!historyAuthor || suggestion.authorEmail === historyAuthor) &&
+        historyTabShowsSuggestion(suggestion) &&
         suggestionMatchesSearch(suggestion, historySearch),
     );
   }, [
@@ -1805,6 +1818,7 @@ export function CommentsSidebar({
     historySearch,
     historyShowsSuggestions,
     historyStatus,
+    historyTabShowsSuggestion,
   ]);
   // Comments someone just posted on the page stay in view even when their
   // filters would hide them, until they change the filters.
@@ -2450,7 +2464,9 @@ export function CommentsSidebar({
     const hiddenTabIds = new Set<string>();
     for (const thread of measuredThreads) {
       const fieldId =
-        "suggestion" in thread ? null : commentThreadFieldId(thread);
+        "suggestion" in thread
+          ? suggestionBlocksFieldId(thread.suggestion)
+          : commentThreadFieldId(thread);
       const position = findThreadPosition(
         "suggestion" in thread ? thread.suggestion.id : thread.threadId,
         "suggestion" in thread ? null : thread.quotedText,
@@ -2881,6 +2897,12 @@ export function CommentsSidebar({
     );
   };
 
+  // Whoever decides on the page's suggestions can reject a tab's, which
+  // writes nothing. Accepting one writes its Collection's field, which the
+  // server lets only the Collection's editors do.
+  const acceptBlocked = (suggestion: ResourceSuggestion | DraftSuggestion) =>
+    !canDecideFieldSuggestions && suggestionBlocksFieldId(suggestion) !== null;
+
   const renderFoldedStack = (
     stack: CommentStack<CommentThread>,
     layoutId: string,
@@ -2953,6 +2975,7 @@ export function CommentsSidebar({
         canDecide: canDecideSuggestions,
         busy: suggestionBusy,
         conflict: isUnplaceable,
+        acceptBlocked,
         onDecide: (
           suggestion: ResourceSuggestion,
           decision: SuggestionDecision,
@@ -3274,6 +3297,7 @@ export function CommentsSidebar({
         unplaceable={isUnplaceable(suggestion)}
         canComment={canComment}
         canDecide={canDecideSuggestions}
+        acceptDisabled={acceptBlocked(suggestion)}
         deciding={suggestionBusy(suggestion)}
         onActivate={() => {
           if (presentation !== "history") onActivateSuggestion?.(suggestion.id);
@@ -3305,7 +3329,9 @@ export function CommentsSidebar({
       expanded={expandedProposalIds.has(proposalId)}
       onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
-      acceptDisabled={members.some(isUnplaceable)}
+      acceptDisabled={
+        members.some(isUnplaceable) || members.some(acceptBlocked)
+      }
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
         onDecideSuggestionProposal?.(
@@ -3346,6 +3372,7 @@ export function CommentsSidebar({
         hoveredSuggestionId === suggestion.id
       }
       canDecide={canDecideSuggestions}
+      acceptDisabled={acceptBlocked(suggestion)}
       deciding={decidingSuggestion(suggestion.id)}
       onActivate={() => onActivateSuggestion?.(suggestion.id)}
       onMaterialize={onMaterializeDraft}
@@ -3650,7 +3677,10 @@ export function CommentsSidebar({
                 (entry): CommentTabPlacement =>
                   entry.kind === "comment"
                     ? commentThreadPlacement(entry.thread)
-                    : { fieldId: null, fieldName: null },
+                    : {
+                        fieldId: suggestionBlocksFieldId(entry.suggestion),
+                        fieldName: null,
+                      },
               ).map((group) => (
                 <Fragment key={`tab:${group.key}`}>
                   <h3
@@ -4160,6 +4190,7 @@ function DraftSuggestionThreadView({
   suggestion,
   isActive,
   canDecide,
+  acceptDisabled,
   deciding,
   onActivate,
   onMaterialize,
@@ -4181,6 +4212,8 @@ function DraftSuggestionThreadView({
   suggestion: DraftSuggestion;
   isActive: boolean;
   canDecide: boolean;
+  /** Accepting needs more access than this person has; rejecting doesn't. */
+  acceptDisabled: boolean;
   deciding: boolean;
   onActivate: () => void;
   onMaterialize?: (
@@ -4271,6 +4304,7 @@ function DraftSuggestionThreadView({
               disabled={
                 isSaving || deciding || (!onDecideDraft && !onMaterialize)
               }
+              acceptDisabled={acceptDisabled}
               onDecide={(decision) => {
                 if (onDecideDraft) {
                   onDecideDraft(suggestion, decision);
@@ -4304,6 +4338,7 @@ function SuggestionThreadView({
   unplaceable,
   canComment,
   canDecide,
+  acceptDisabled,
   deciding,
   onActivate,
   onExpansionChange,
@@ -4334,6 +4369,8 @@ function SuggestionThreadView({
   unplaceable: boolean;
   canComment: boolean;
   canDecide: boolean;
+  /** Accepting needs more access than this person has; rejecting doesn't. */
+  acceptDisabled: boolean;
   deciding: boolean;
   onActivate: () => void;
   onExpansionChange: (expanded: boolean) => void;
@@ -4641,6 +4678,7 @@ function SuggestionThreadView({
           canDecide && suggestion.status === "pending" ? (
             <SuggestionDecisionButtons
               disabled={deciding}
+              acceptDisabled={acceptDisabled}
               onDecide={onDecide}
             />
           ) : null
