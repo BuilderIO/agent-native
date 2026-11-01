@@ -462,21 +462,24 @@ mod macos {
         }
     }
 
-    /// Whether a dictation's last pass runs. A silent verdict at release
-    /// skips it, unless a pass recognized words in audio the speech check
-    /// scored as possible speech: the verdict is then wrong, and the last pass
-    /// is what keeps the end of the dictation. Words from audio it scored as
-    /// silence are Whisper's own invention, and never outweigh the verdict.
+    /// Whether a dictation's last pass runs, and its words stand. A silent
+    /// verdict at release skips the pass and discards the words, unless a
+    /// word was recognized in audio the speech check scored as possible
+    /// speech: the verdict is then wrong, and the last pass is what keeps the
+    /// end of the dictation. Words from audio it scored as silence are
+    /// Whisper's own invention, and never outweigh the verdict.
     #[derive(Default)]
     struct LastPass {
         /// Set at release by a silent verdict, to where it heard possible speech.
         silent_verdict: OnceLock<Vec<Range<Duration>>>,
-        /// The audio behind each pass that recognized words.
+        /// Where the recognized words were said, from each segment's timestamps.
         worded: Mutex<Vec<Range<Duration>>>,
     }
 
     impl LastPass {
-        /// The text a pass over `heard` recognized, if any, noting it as words.
+        /// The text a pass over `heard` recognized, if any. Each segment with
+        /// words is noted where it falls in `heard`: a whole pass would let a
+        /// moment of possible speech vouch for every word around it.
         fn recognize(
             &self,
             raw_segs: &[(i64, i64, String)],
@@ -490,14 +493,28 @@ mod macos {
                 .collect::<Vec<_>>()
                 .join(" ");
             let clean = clean_transcript(&joined, engine)?;
+            let at = |offset_ms: i64| {
+                let offset = Duration::from_millis(offset_ms.max(0) as u64);
+                (heard.start + offset).min(heard.end)
+            };
             let mut worded = self.worded.lock().unwrap_or_else(PoisonError::into_inner);
-            match worded.last_mut() {
-                // Partials re-read one growing buffer, so most spans join the last.
-                Some(last) if last.start <= heard.end && heard.start <= last.end => {
-                    last.start = last.start.min(heard.start);
-                    last.end = last.end.max(heard.end);
+            for (start_ms, end_ms, text) in raw_segs {
+                if clean_transcript(text, engine).is_none() {
+                    continue;
                 }
-                _ => worded.push(heard),
+                let said = at(*start_ms)..at(*end_ms);
+                // Partials re-read one growing buffer, so most segments land on
+                // one already noted.
+                match worded
+                    .iter_mut()
+                    .find(|noted| noted.start <= said.end && said.start <= noted.end)
+                {
+                    Some(noted) => {
+                        noted.start = noted.start.min(said.start);
+                        noted.end = noted.end.max(said.end);
+                    }
+                    None => worded.push(said),
+                }
             }
             Some(clean)
         }
@@ -2012,6 +2029,10 @@ mod macos {
             vec![(0, 900, text.to_owned())]
         }
 
+        fn said(start_ms: i64, end_ms: i64, text: &str) -> Vec<(i64, i64, String)> {
+            vec![(start_ms, end_ms, text.to_owned())]
+        }
+
         fn ms(range: Range<u64>) -> Range<Duration> {
             Duration::from_millis(range.start)..Duration::from_millis(range.end)
         }
@@ -2021,12 +2042,19 @@ mod macos {
             let last_pass = LastPass::default();
             // Partials with words while the key is held, over quiet speech
             // Silero scored too briefly to call heard, then the release tail.
-            let said = segment(" and the second point ");
             assert!(last_pass
-                .recognize(&said, LocalEngine::Whisper, ms(0..800))
+                .recognize(
+                    &said(300, 800, " and the second "),
+                    LocalEngine::Whisper,
+                    ms(0..800)
+                )
                 .is_some());
             assert!(last_pass
-                .recognize(&said, LocalEngine::Whisper, ms(0..1_200))
+                .recognize(
+                    &said(300, 1_200, " and the second point "),
+                    LocalEngine::Whisper,
+                    ms(0..1_200)
+                )
                 .is_some());
             assert!(last_pass
                 .recognize(&segment(""), LocalEngine::Whisper, ms(0..1_400))
@@ -2051,6 +2079,56 @@ mod macos {
             last_pass.note_silent_verdict(vec![ms(1_600..1_632)]);
             assert!(!last_pass.runs());
             assert!(!last_pass_due(true, &last_pass, 8_000));
+        }
+
+        #[test]
+        fn a_blip_of_possible_speech_does_not_vouch_for_words_said_after_it() {
+            let last_pass = LastPass::default();
+            // A cough early in the buffer, then a second of room noise that
+            // Whisper turned into a word.
+            assert!(last_pass
+                .recognize(
+                    &said(1_100, 1_900, " Okay. "),
+                    LocalEngine::Whisper,
+                    ms(0..2_000)
+                )
+                .is_some());
+            last_pass.note_silent_verdict(vec![ms(96..160)]);
+            assert!(!last_pass.runs());
+
+            // The same blip under a segment that covers it does count.
+            let spoken = LastPass::default();
+            assert!(spoken
+                .recognize(&said(40, 700, " No. "), LocalEngine::Whisper, ms(0..2_000))
+                .is_some());
+            spoken.note_silent_verdict(vec![ms(96..160)]);
+            assert!(spoken.runs());
+        }
+
+        #[test]
+        fn a_segment_is_placed_by_where_its_buffer_starts_in_the_recording() {
+            let last_pass = LastPass::default();
+            // An utterance finalized earlier drained the first 4 s.
+            assert!(last_pass
+                .recognize(
+                    &said(0, 600, " Done. "),
+                    LocalEngine::Whisper,
+                    ms(4_000..5_000)
+                )
+                .is_some());
+            last_pass.note_silent_verdict(vec![ms(200..264)]);
+            assert!(!last_pass.runs());
+
+            let later = LastPass::default();
+            assert!(later
+                .recognize(
+                    &said(0, 600, " Done. "),
+                    LocalEngine::Whisper,
+                    ms(4_000..5_000)
+                )
+                .is_some());
+            later.note_silent_verdict(vec![ms(4_200..4_264)]);
+            assert!(later.runs());
         }
 
         #[test]
