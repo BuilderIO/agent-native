@@ -2271,12 +2271,16 @@ export function CommentsSidebar({
       return null;
     const thread = threads?.find((t) => t.threadId === threadId);
     if (!thread || thread.resolved || !threadCanComment(thread)) return null;
+    // What the request sends, and only that: a retry of the same request must
+    // match it, and a Clip reply carries no mentions.
     const payload = JSON.stringify({
       documentId,
       threadId,
       parentId: thread.comments[0]?.id,
       content: replyText.trim(),
-      mentions: mentionsJsonFor(replyText, replyMentions, agent),
+      ...(thread.clip
+        ? {}
+        : { mentions: mentionsJsonFor(replyText, replyMentions, agent) }),
     });
     const clientOperationId =
       replyDrafts.retryOperationId(threadId, payload) ?? crypto.randomUUID();

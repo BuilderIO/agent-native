@@ -337,7 +337,7 @@ describe("a Clip comment in the margin", () => {
       expect(sentKey()).not.toBe(key);
     });
 
-    it("sends a reply Clips may have saved under the same key", async () => {
+    async function openClipReply() {
       const thread = clipThread(true);
       let replies!: ReturnType<typeof useCommentReplyDrafts>;
       function Margin() {
@@ -368,6 +368,11 @@ describe("a Clip comment in the margin", () => {
             "reply button",
           ).click(),
         );
+      return { thread, replies: () => replies, composer, send };
+    }
+
+    it("sends a reply Clips may have saved under the same key", async () => {
+      const { composer, send } = await openClipReply();
       await setRichEditorValue(composer(), "Agreed");
       await send();
       const key = sentKey();
@@ -381,6 +386,26 @@ describe("a Clip comment in the margin", () => {
         content: "Agreed",
         idempotencyKey: key,
       });
+    });
+
+    it("keeps a reply's key when only mentions Clips never gets change", async () => {
+      const { thread, replies, composer, send } = await openClipReply();
+      await setRichEditorValue(composer(), "Agreed @Ben");
+      await send();
+      const key = sentKey();
+
+      await respond(502, { error: "clips_unreachable" });
+      await act(async () =>
+        replies().setMentions(thread.threadId, [
+          { email: "ben@example.test", name: "Ben" },
+        ]),
+      );
+      await send();
+      expect(lastRequest().body).toMatchObject({
+        content: "Agreed @Ben",
+        idempotencyKey: key,
+      });
+      expect(lastRequest().body).not.toHaveProperty("mentions");
     });
   });
 
