@@ -195,6 +195,24 @@ describe("session reads over a cookie and a bearer transport", () => {
     });
   });
 
+  it("keeps the head's cookie read for a cookie caller that comes after a bearer caller", async () => {
+    runSessionHeadScript();
+    vi.stubGlobal("fetch", installEmbedRuntime(network));
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "bearer-user" },
+    });
+    expect(network).toHaveBeenCalledTimes(2);
+
+    vi.stubGlobal("fetch", network);
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "cookie-user" },
+    });
+    // The head's request answers it; nothing more is sent.
+    expect(network).toHaveBeenCalledTimes(2);
+  });
+
   it("does not answer a cookie caller with the MCP host runtime's bearer session, or the reverse, while either is fresh", async () => {
     // A transplant installs the runtime before the app's head scripts run,
     // so the head read itself goes out with the bearer token.
