@@ -199,8 +199,8 @@ export default defineAction({
             ? writeFusionApp(current, {
                 ...app,
                 ...(previewUrl ? { previewUrl } : {}),
+                ...(statusMessage === undefined ? {} : { statusMessage }),
                 status,
-                statusMessage,
                 updatedAt: now,
               })
             : current;

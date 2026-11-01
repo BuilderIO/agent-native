@@ -3,6 +3,7 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -109,13 +110,9 @@ async function designHasBinding(
   designId: string,
   screens: readonly FusionScreenResult[],
 ): Promise<boolean> {
-  const rows = await getDb()
-    .select({ data: schema.designs.data })
-    .from(schema.designs)
-    .where(eq(schema.designs.id, designId))
-    .limit(1);
-  const design = rows[0] as (typeof rows)[number] | undefined;
-  if (!design) return false;
+  const access = await resolveAccess("design", designId);
+  if (!access) return false;
+  const design = access.resource as typeof schema.designs.$inferSelect;
   return isBound(parseDesignDataBlob(design.data), screens);
 }
 

@@ -30,6 +30,7 @@ const state = vi.hoisted(() => {
     hasCollabState: vi.fn(),
     applyText: vi.fn(),
     nanoid: vi.fn(),
+    resolveAccess: vi.fn(),
   };
 });
 
@@ -47,6 +48,10 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("nanoid", () => ({ nanoid: state.nanoid }));
 
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: state.resolveAccess,
+}));
+
 vi.mock("../db/index.js", () => ({
   getDb: () => state.db,
   schema: {
@@ -55,7 +60,6 @@ vi.mock("../db/index.js", () => ({
       designId: "designFiles.designId",
       filename: "designFiles.filename",
     },
-    designs: { id: "designs.id", data: "designs.data" },
   },
 }));
 
@@ -68,6 +72,7 @@ import { upsertFusionScreens } from "./fusion-screens.js";
 beforeEach(() => {
   vi.clearAllMocks();
   state.existingFiles = [];
+  state.resolveAccess.mockResolvedValue(null);
   state.data = {
     concurrentTokenWrite: { keep: true },
     canvasFrames: {
@@ -231,9 +236,7 @@ describe("fusion screen designs.data mutation", () => {
         ),
       })),
     });
-    state.db.select
-      .mockImplementationOnce(selectWithLimit)
-      .mockImplementationOnce(selectWithLimit);
+    state.db.select.mockImplementationOnce(selectWithLimit);
     const set = vi.fn(() => ({ where: vi.fn(async () => undefined) }));
     state.db.update.mockImplementationOnce(() => ({ set }));
     state.hasCollabState.mockResolvedValue(false);
@@ -275,20 +278,9 @@ describe("fusion screen designs.data mutation", () => {
         },
       },
     };
-    const rows = state.existingFiles;
-    // One read lists the design's files, the other reads the design row.
-    const selectWithLimit = () => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() =>
-          Object.assign(Promise.resolve(rows), {
-            limit: vi.fn(async () => [{ data: JSON.stringify(bound) }]),
-          }),
-        ),
-      })),
+    state.resolveAccess.mockResolvedValue({
+      resource: { data: JSON.stringify(bound) },
     });
-    state.db.select
-      .mockImplementationOnce(selectWithLimit)
-      .mockImplementationOnce(selectWithLimit);
 
     const result = await upsertFusionScreens({
       designId: "design-1",
