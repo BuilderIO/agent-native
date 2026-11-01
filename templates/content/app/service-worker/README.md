@@ -6,9 +6,12 @@ the build's JavaScript and CSS.
 
 ## What it keeps
 
-- The HTML shell of the app's own routes (`/page/:id`, `/home`, …), one copy per route and browser language list
-  (the two lists used last on each route), since the server renders the shell in the language `Accept-Language`
-  asks for. Neither the browser's HTTP cache
+- The HTML shell of the app's own routes (`/page/:id`, `/home`, …). A route's URLs share one copy while the server
+  answers them alike; once two answer differently, every URL that shared it keeps its own. A query gets its own
+  copy, since routes read it while rendering (`/trash?preview=…&full=1`), and each page keeps the two queries used
+  last besides its copy without one. Every copy is kept per browser language list (the two lists used last on each
+  page), since the server renders the shell in the language `Accept-Language` asks for; when the worker asks the
+  server itself, it sends that header built from the same list. Neither the browser's HTTP cache
   nor Netlify's CDN (which varies this HTML by query only) keeps a copy per language, so right after a browser's
   language changes the network can still answer in the old one, and the worker keeps what it was given until the
   next navigation brings the right one. The server renders that HTML for

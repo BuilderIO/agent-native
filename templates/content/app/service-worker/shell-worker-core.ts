@@ -92,6 +92,8 @@ interface ShellBuildRecord extends ShellBuildFile {
 interface ShellAnswer {
   number: number;
   url: URL;
+  /** The browser's language list the page was asked for in. */
+  languages: readonly string[];
   route: ShellRoute;
   html: string;
   response: Response;
@@ -101,13 +103,21 @@ const STATE_PATH = "/__content-shell/state";
 const BUILD_PATH_PREFIX = "/__content-shell/build/";
 const PAGE_PATH_PREFIX = "/__content-shell/page/";
 // `<prefix><version>/<language list>/<key>`, as `pageKey` writes it.
-const PAGE_KEY_PATH = /^\/__content-shell\/page\/([^/]+)\/[^/]+\/([^/]+)$/;
+const PAGE_KEY_PATH = /^\/__content-shell\/page\/([^/]+)\/([^/]+)\/([^/]+)$/;
+// The URLs (path and query) a kept shell came from, newest first and
+// separated by spaces, which a URL's path and normalized query never contain.
 const PAGE_SOURCE_HEADER = "x-content-shell-source";
 const PAGE_RENDERED_AT_HEADER = "x-content-shell-rendered-at";
 const PAGE_STORED_AT_HEADER = "x-content-shell-stored-at";
 // Each page of a build keeps its shell in this many language lists, the ones
 // used last.
 const LANGUAGES_PER_PAGE = 2;
+// Besides its shell without a query, each page of a build keeps this many
+// with one, the queries used last.
+const QUERIES_PER_PAGE = 2;
+// A route's shared shell remembers this many of the URLs it came from, so
+// each keeps a copy if the route's URLs start answering differently.
+const SOURCES_PER_SHELL = 8;
 // The worker downloads build files behind the app's own requests, this many at
 // a time across all its downloads.
 const DOWNLOAD_SLOTS = 2;
@@ -347,14 +357,63 @@ async function runPool<T>(
 
 interface PageKey {
   version: string;
+  language: string;
   /** `route:<route id>` for a route's shared shell, `path:<pathname>` for one URL's. */
   key: string;
+  /** The page's normalized query, empty without one. */
+  search: string;
 }
 
 function parsePageKey(href: string): PageKey | undefined {
-  const [, version, key] = PAGE_KEY_PATH.exec(new URL(href).pathname) ?? [];
-  if (!version || !key) return undefined;
-  return { version, key: decodeURIComponent(key) };
+  const [, version, language, encoded] =
+    PAGE_KEY_PATH.exec(new URL(href).pathname) ?? [];
+  if (!version || !language || !encoded) return undefined;
+  const [key = "", ...search] = decodeURIComponent(encoded).split("?");
+  return {
+    version,
+    language: decodeURIComponent(language),
+    key,
+    search: search.join("?"),
+  };
+}
+
+/** How a page key names a browser language list. */
+function languageKey(languages: readonly string[]): string {
+  return languages.join(",") || "*";
+}
+
+/**
+ * A URL's query as the server reads it: decoded and sorted by name, so the
+ * same parameters in another order or spelling name the same page.
+ */
+function pageSearch(url: URL): string {
+  const params = new URLSearchParams(url.search);
+  params.sort();
+  return params.toString();
+}
+
+/** The page a URL asks the server for: its path and normalized query. */
+function pageIdentity(url: URL): string {
+  const search = pageSearch(url);
+  return search ? `${url.pathname}?${search}` : url.pathname;
+}
+
+/** The URLs a kept shell came from, newest first. */
+function pageSources(page: Response): string[] {
+  return (page.headers.get(PAGE_SOURCE_HEADER) ?? "")
+    .split(" ")
+    .filter(Boolean);
+}
+
+/** Accept-Language as a browser writes it from its language list. */
+function acceptLanguage(languages: readonly string[]): string {
+  return languages
+    .map((language, index) =>
+      index === 0
+        ? language
+        : `${language};q=${Math.max(0.1, 1 - index / 10).toFixed(1)}`,
+    )
+    .join(",");
 }
 
 interface DownloadOptions {
@@ -475,17 +534,24 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     builds.set(record.version, record);
   }
 
+  /**
+   * Where a page's shell is kept. The server renders the shell in the
+   * language the browser's Accept-Language asks for, so each language list
+   * (`languageKey`) keeps its own.
+   */
   function pageKey(
     build: ShellBuildRecord,
     route: ShellRoute,
     url: URL,
+    language: string,
   ): string {
-    const key = build.varyingRoutes.includes(route.id)
+    const base = build.varyingRoutes.includes(route.id)
       ? `path:${url.pathname}`
       : `route:${route.id}`;
-    // The server renders the shell in the language the browser's
-    // Accept-Language asks for, so each language list keeps its own.
-    const language = env.languages().join(",") || "*";
+    // Routes read their query while rendering (`?preview=` on /trash,
+    // `?viewId=` on a page), so each query keeps its own shell.
+    const search = pageSearch(url);
+    const key = search ? `${base}?${search}` : base;
     return absolute(
       `${PAGE_PATH_PREFIX}${build.version}/${encodeURIComponent(language)}/${encodeURIComponent(key)}`,
     );
@@ -503,12 +569,13 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
   async function cachedPage(
     build: ShellBuildRecord | undefined,
     url: URL,
+    languages: readonly string[],
   ): Promise<Response | undefined> {
     if (!build) return undefined;
     const route = matchShellRoute(url.pathname, build.routes);
     if (!route?.app) return undefined;
     const pages = await openCache(SHELL_CACHE_NAMES.pages);
-    return pages.match(pageKey(build, route, url));
+    return pages.match(pageKey(build, route, url, languageKey(languages)));
   }
 
   /** Runs `task` in one of the worker's `DOWNLOAD_SLOTS`, waiting for one if need be. */
@@ -682,10 +749,29 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     }
   }
 
+  /** Deletes all but the `keep` copies stored last. */
+  async function dropOldest(
+    pages: Cache,
+    copies: readonly Request[],
+    keep: number,
+  ): Promise<void> {
+    const stored: { request: Request; storedAt: number }[] = [];
+    for (const request of copies) {
+      const copy = await pages.match(request);
+      stored.push({
+        request,
+        storedAt: Number(copy?.headers.get(PAGE_STORED_AT_HEADER)) || 0,
+      });
+    }
+    stored.sort((first, second) => second.storedAt - first.storedAt);
+    for (const { request } of stored.slice(keep)) await pages.delete(request);
+  }
+
   /**
-   * Stores a page's shell and drops its copies in older language lists, so
-   * each page of a build keeps the `LANGUAGES_PER_PAGE` used last. Every
-   * navigation stores its page again, which is what marks it used.
+   * Stores a page's shell and drops its copies in older language lists and
+   * for older queries, so each page of a build keeps the `LANGUAGES_PER_PAGE`
+   * and the `QUERIES_PER_PAGE` used last, besides its shell without a query.
+   * Every navigation stores its page again, which is what marks it used.
    */
   async function putPage(
     pages: Cache,
@@ -695,7 +781,8 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     await pages.put(href, page);
     const stored = parsePageKey(href);
     if (!stored) return;
-    const others: { request: Request; storedAt: number }[] = [];
+    const otherLanguages: Request[] = [];
+    const otherQueries: Request[] = [];
     for (const request of await pages.keys()) {
       const other = parsePageKey(request.url);
       if (
@@ -705,68 +792,113 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
       ) {
         continue;
       }
-      const copy = await pages.match(request);
-      others.push({
-        request,
-        storedAt: Number(copy?.headers.get(PAGE_STORED_AT_HEADER)) || 0,
-      });
+      if (other.search === stored.search) {
+        otherLanguages.push(request);
+      } else if (
+        stored.search &&
+        other.search &&
+        other.language === stored.language
+      ) {
+        otherQueries.push(request);
+      }
     }
-    others.sort((first, second) => second.storedAt - first.storedAt);
-    for (const { request } of others.slice(LANGUAGES_PER_PAGE - 1)) {
-      await pages.delete(request);
-    }
+    await dropOldest(pages, otherLanguages, LANGUAGES_PER_PAGE - 1);
+    await dropOldest(pages, otherQueries, QUERIES_PER_PAGE - 1);
   }
 
   async function storePage(
     build: ShellBuildRecord,
-    { url, route, html, response }: ShellAnswer,
+    { url, languages, route, html, response }: ShellAnswer,
   ): Promise<void> {
     const pages = await openCache(SHELL_CACHE_NAMES.pages);
-    const headers = new Headers(response.headers);
-    headers.set(PAGE_SOURCE_HEADER, url.pathname);
+    const identity = pageIdentity(url);
     const now = env.now();
+    const headers = new Headers(response.headers);
     headers.set(
       PAGE_RENDERED_AT_HEADER,
       String(now - responseAgeMs(response, now)),
     );
     headers.set(PAGE_STORED_AT_HEADER, String(now));
-    const page = () =>
-      new Response(html, {
+    const page = (sources: readonly string[]) => {
+      const kept = new Headers(headers);
+      kept.set(PAGE_SOURCE_HEADER, sources.join(" "));
+      return new Response(html, {
         status: 200,
         statusText: response.statusText,
-        headers,
+        headers: kept,
       });
-    const key = pageKey(build, route, url);
-    if (!build.varyingRoutes.includes(route.id)) {
-      // Every URL of a route shares one shell while their HTML matches. Two
-      // URLs answering differently in one build mean the HTML depends on the
-      // URL, so from then on each URL keeps its own copy.
-      const shared = await pages.match(key);
-      const source = shared?.headers.get(PAGE_SOURCE_HEADER);
+    };
+    const language = languageKey(languages);
+    const key = pageKey(build, route, url, language);
+    if (build.varyingRoutes.includes(route.id)) {
+      await putPage(pages, key, page([identity]));
+      return;
+    }
+    // Every URL of a route shares one shell while their HTML matches. Two
+    // URLs answering differently in one build mean the HTML depends on the
+    // URL, so from then on each URL keeps its own copy.
+    const shared = await pages.match(key);
+    const others = (shared ? pageSources(shared) : []).filter(
+      (source) => source !== identity,
+    );
+    if (others.length > 0 && (await shared?.text()) !== html) {
+      const record = {
+        ...build,
+        varyingRoutes: [...build.varyingRoutes, route.id],
+      };
+      await writeBuild(record);
+      await unsharePages(pages, record, route);
+      await putPage(
+        pages,
+        pageKey(record, route, url, language),
+        page([identity]),
+      );
+      return;
+    }
+    await putPage(
+      pages,
+      key,
+      page([identity, ...others].slice(0, SOURCES_PER_SHELL)),
+    );
+  }
+
+  /**
+   * A route's URLs answer differently now (`record` lists it as varying):
+   * every URL a shared copy of the route came from, in any language list or
+   * query, keeps that copy as its own. The URL whose answer showed the
+   * difference stores that answer over its copy right after.
+   */
+  async function unsharePages(
+    pages: Cache,
+    record: ShellBuildRecord,
+    route: ShellRoute,
+  ): Promise<void> {
+    for (const request of await pages.keys()) {
+      const stored = parsePageKey(request.url);
       if (
-        shared &&
-        source !== url.pathname &&
-        (await shared.clone().text()) !== html
+        stored?.version !== record.version ||
+        stored.key !== `route:${route.id}`
       ) {
-        await pages.delete(key);
-        const record = {
-          ...build,
-          varyingRoutes: [...build.varyingRoutes, route.id],
-        };
-        await writeBuild(record);
-        // The URL the shared copy came from keeps it as its own.
-        if (source) {
-          await putPage(
-            pages,
-            pageKey(record, route, new URL(source, origin)),
-            shared,
-          );
-        }
-        await putPage(pages, pageKey(record, route, url), page());
-        return;
+        continue;
+      }
+      const shared = await pages.match(request);
+      await pages.delete(request);
+      if (!shared) continue;
+      const html = await shared.text();
+      for (const source of pageSources(shared)) {
+        const headers = new Headers(shared.headers);
+        headers.set(PAGE_SOURCE_HEADER, source);
+        await putPage(
+          pages,
+          pageKey(record, route, new URL(source, origin), stored.language),
+          new Response(html, {
+            status: shared.status,
+            statusText: shared.statusText,
+            headers,
+          }),
+        );
       }
     }
-    await putPage(pages, key, page());
   }
 
   /**
@@ -1093,17 +1225,28 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     await fillOpenBuilds();
   }
 
-  /** The server's own answer for a page, past the browser's HTTP cache and without cookies. */
-  function fetchFromServer(url: URL): Promise<Response> {
+  /**
+   * The server's own answer for a page, past the browser's HTTP cache and
+   * without cookies, in the languages its shell is kept under.
+   */
+  function fetchFromServer(
+    url: URL,
+    languages: readonly string[],
+  ): Promise<Response> {
+    const headers: Record<string, string> = { accept: "text/html" };
+    if (languages.length > 0) {
+      headers["accept-language"] = acceptLanguage(languages);
+    }
     return env.fetch(url.href, {
       cache: "no-cache",
       credentials: "omit",
-      headers: { accept: "text/html" },
+      headers,
     });
   }
 
   async function updateFrom(
     url: URL,
+    languages: readonly string[],
     response: Response,
     fromServer: boolean,
   ): Promise<void> {
@@ -1114,7 +1257,7 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     }
     pendingAnswers.add(number);
     try {
-      await applyAnswer(url, response, fromServer, number);
+      await applyAnswer(url, languages, response, fromServer, number);
     } finally {
       pendingAnswers.delete(number);
       forgetSettledRetirements();
@@ -1123,6 +1266,7 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
 
   async function applyAnswer(
     url: URL,
+    languages: readonly string[],
     response: Response,
     fromServer: boolean,
     number: number,
@@ -1136,7 +1280,12 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
       // keeps the HTML of the build before a deploy for its max-age. Only the
       // server's own answer may switch builds, or the worker would switch
       // back after every deploy.
-      await updateFrom(url, await fetchFromServer(url), true);
+      await updateFrom(
+        url,
+        languages,
+        await fetchFromServer(url, languages),
+        true,
+      );
       return;
     }
     const known = await readBuild(version);
@@ -1144,7 +1293,14 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     // A visit to a public page never downloads the app.
     const route = matchShellRoute(url.pathname, file.routes);
     if (!route?.app) return;
-    const answer: ShellAnswer = { number, url, route, html, response };
+    const answer: ShellAnswer = {
+      number,
+      url,
+      languages,
+      route,
+      html,
+      response,
+    };
     if (known && version === state.current) {
       await publish(known, answer);
       return;
@@ -1166,11 +1322,12 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
   /** Bring the kept shell up to date from a page's answer. */
   async function revalidate(
     url: URL,
+    languages: readonly string[],
     response: Response,
     fromServer = false,
   ): Promise<void> {
     try {
-      await updateFrom(url, response, fromServer);
+      await updateFrom(url, languages, response, fromServer);
     } finally {
       // Awaited inside the event's waitUntil, so the browser can't stop the
       // worker halfway through removing itself. A build whose file is
@@ -1197,10 +1354,11 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
   async function offlineShell(
     versions: (string | undefined)[],
     url: URL,
+    languages: readonly string[],
   ): Promise<Response | undefined> {
     try {
       for (const version of versions) {
-        const page = await cachedPage(await readBuild(version), url);
+        const page = await cachedPage(await readBuild(version), url, languages);
         if (page) return page;
       }
     } catch (error) {
@@ -1215,6 +1373,9 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     url: URL,
   ): Promise<Response> {
     const network = networkResponse(event);
+    // The languages the browser asks for this navigation in, for the shell
+    // it gets and the one its answer is kept as.
+    const languages = env.languages();
     let state: ShellState = {};
     let cached: Response | undefined;
     try {
@@ -1223,7 +1384,7 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
       if (current) {
         const route = matchShellRoute(url.pathname, current.routes);
         if (!route?.app) return network;
-        cached = await cachedPage(current, url);
+        cached = await cachedPage(current, url, languages);
       }
     } catch (error) {
       // coercion-ok: a kept shell only saves the round trip, so when the
@@ -1235,7 +1396,7 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     if (cached && isReusable(cached)) {
       event.waitUntil(
         network
-          .then((response) => revalidate(url, response))
+          .then((response) => revalidate(url, languages, response))
           .catch(reportWorkerError),
       );
       return cached;
@@ -1246,11 +1407,14 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     } catch (error) {
       // Offline, a kept shell boots however old it is, or else the previous
       // build's, since the files of both are kept.
-      const fallback = cached ?? (await offlineShell([state.previous], url));
+      const fallback =
+        cached ?? (await offlineShell([state.previous], url, languages));
       if (fallback) return fallback;
       throw error;
     }
-    event.waitUntil(revalidate(url, response.clone()).catch(reportWorkerError));
+    event.waitUntil(
+      revalidate(url, languages, response.clone()).catch(reportWorkerError),
+    );
     return response;
   }
 
@@ -1289,6 +1453,7 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
       const fallback = await offlineShell(
         [state.current, state.previous],
         page,
+        env.languages(),
       );
       if (fallback) return fallback;
       throw error;
@@ -1383,8 +1548,14 @@ export function createShellWorker(env: ShellWorkerEnvironment) {
     // The tab's build is recorded before any network work, so a deploy found
     // meanwhile can't drop its files.
     const noted = client ? await noteClient(client.id, client.version) : true;
+    const languages = env.languages();
     try {
-      await revalidate(url, await fetchFromServer(url), true);
+      await revalidate(
+        url,
+        languages,
+        await fetchFromServer(url, languages),
+        true,
+      );
     } finally {
       // On a first visit there was no state to record the tab in yet.
       if (!noted && client) await noteClient(client.id, client.version);

@@ -15,6 +15,7 @@ const ORIGIN = "https://content.test";
 const ROUTES: ShellRoute[] = [
   { id: "routes/_app.page.$id", pattern: "/page/:id", app: true },
   { id: "routes/_app.home", pattern: "/home", app: true },
+  { id: "routes/_app.trash", pattern: "/trash", app: true },
   { id: "routes/p.$id", pattern: "/p/:id", app: false },
 ];
 const PUBLIC_HTML = "public, max-age=600, stale-while-revalidate=604800";
@@ -303,6 +304,73 @@ describe("app navigations", () => {
     server.routes.set("/page/c", offline);
     expect((await navigate("/page/a")).text).toBe(a.html());
     expect((await navigate("/page/c")).text).toBe(a.html("only-c"));
+  });
+
+  it("keeps the shell of every URL that shared it once another answers differently", async () => {
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+    // The same HTML again, from a second URL.
+    await visitAndSettle("/page/b");
+    server.routes.set("/page/c", () => htmlResponse(a.html("only-c")));
+    await visitAndSettle("/page/c");
+
+    for (const path of ["/page/a", "/page/b", "/page/c"]) {
+      server.routes.set(path, offline);
+    }
+    expect((await navigate("/page/a")).text).toBe(a.html());
+    expect((await navigate("/page/b")).text).toBe(a.html());
+    expect((await navigate("/page/c")).text).toBe(a.html("only-c"));
+  });
+
+  it("never answers one query with the shell another query got", async () => {
+    server.deploy(a);
+    server.routes.set("/trash?preview=a&full=1", () =>
+      htmlResponse(a.html("<p>preview a</p>")),
+    );
+    server.routes.set("/trash?preview=b&full=1", () =>
+      htmlResponse(a.html("<p>preview b</p>")),
+    );
+    expect(await visitAndSettle("/trash?preview=a&full=1")).toBe(
+      a.html("<p>preview a</p>"),
+    );
+    expect(await visitAndSettle("/trash?preview=b&full=1")).toBe(
+      a.html("<p>preview b</p>"),
+    );
+
+    // Each keeps its own, whatever order the parameters come in.
+    server.routes.set("/trash?preview=a&full=1", offline);
+    server.routes.set("/trash?preview=b&full=1", offline);
+    server.routes.set("/trash", offline);
+    expect((await navigate("/trash?full=1&preview=a")).text).toBe(
+      a.html("<p>preview a</p>"),
+    );
+    expect((await navigate("/trash?preview=b&full=1")).text).toBe(
+      a.html("<p>preview b</p>"),
+    );
+  });
+
+  it("keeps a page's shell for the two queries used last, and the one without", async () => {
+    server.deploy(a);
+    server.routes.set("/trash", () => htmlResponse(a.html("<p>trash</p>")));
+    await visitAndSettle("/trash");
+    for (const preview of ["a", "b", "c"]) {
+      now += 1000;
+      server.routes.set(`/trash?preview=${preview}`, () =>
+        htmlResponse(a.html(`<p>preview ${preview}</p>`)),
+      );
+      await visitAndSettle(`/trash?preview=${preview}`);
+    }
+    expect(await cachePaths(SHELL_CACHE_NAMES.pages)).toHaveLength(3);
+
+    for (const path of ["", "?preview=a", "?preview=b", "?preview=c"]) {
+      server.routes.set(`/trash${path}`, offline);
+    }
+    expect((await navigate("/trash")).text).toBe(a.html("<p>trash</p>"));
+    expect((await navigate("/trash?preview=c")).text).toBe(
+      a.html("<p>preview c</p>"),
+    );
+    // The oldest query's copy is gone, so that page goes to the network.
+    await expect(navigate("/trash?preview=a")).rejects.toThrow("offline");
   });
 
   it("serves the cached shell when the network is gone", async () => {
@@ -1115,6 +1183,41 @@ describe("when the server stops letting a page be shared", () => {
 
 describe("languages", () => {
   const a = makeBuild("a");
+  const b = makeBuild("b");
+  // The server renders French only when Accept-Language asks for it.
+  const asksForFrench = (init?: RequestInit) =>
+    /^fr\b/.test(new Headers(init?.headers).get("accept-language") ?? "");
+
+  it("asks the server for the browser's languages when it adopts a page", async () => {
+    languages = ["fr-FR", "fr"];
+    server.deploy(a);
+    server.routes.set("/home", (init) =>
+      htmlResponse(asksForFrench(init) ? a.html("<p>fr</p>") : a.html()),
+    );
+    await worker.adopt(`${ORIGIN}/home`);
+    const htmlCall = fetchCalls.find((call) => call.url === "/home");
+    expect(new Headers(htmlCall?.init?.headers).get("accept-language")).toBe(
+      "fr-FR,fr;q=0.9",
+    );
+
+    server.routes.set("/home", hang);
+    expect((await navigate("/home")).text).toBe(a.html("<p>fr</p>"));
+  });
+
+  it("asks the server for the browser's languages when it goes past the HTTP cache", async () => {
+    languages = ["fr-FR", "fr"];
+    server.deploy(a);
+    await visitAndSettle("/page/a");
+    server.deploy(b);
+    server.routes.set("/page/a", (init) =>
+      htmlResponse(b.html(asksForFrench(init) ? "<p>fr</p>" : "")),
+    );
+    await visitAndSettle("/page/a");
+    expect((await worker.readState()).current).toBe(b.version);
+
+    server.routes.set("/page/a", hang);
+    expect((await navigate("/page/a")).text).toBe(b.html("<p>fr</p>"));
+  });
 
   it("keeps a shell per browser language, as the server renders one", async () => {
     server.deploy(a);
@@ -1128,6 +1231,23 @@ describe("languages", () => {
     expect((await navigate("/page/a")).text).toBe(a.html("<p>fr</p>"));
     languages = ["en-US", "en"];
     expect((await navigate("/page/a")).text).toBe(a.html());
+  });
+
+  it("keeps a URL's shell in every language once the route's URLs answer differently", async () => {
+    languages = ["fr-FR", "fr"];
+    server.deploy(a);
+    server.html = a.html("<p>fr</p>");
+    await visitAndSettle("/page/a");
+    languages = ["en-US", "en"];
+    server.html = a.html();
+    await visitAndSettle("/page/a");
+    server.routes.set("/page/c", () => htmlResponse(a.html("only-c")));
+    await visitAndSettle("/page/c");
+
+    server.routes.set("/page/a", offline);
+    expect((await navigate("/page/a")).text).toBe(a.html());
+    languages = ["fr-FR", "fr"];
+    expect((await navigate("/page/a")).text).toBe(a.html("<p>fr</p>"));
   });
 
   it("keeps each page's shell in the two language lists used last", async () => {
