@@ -1857,6 +1857,19 @@ export function installDesktopVoiceDictation(
       } else {
         discardEngineRecording(current, "cancel");
       }
+    } else if (current.kind === "parakeet") {
+      // A released Parakeet run is still transcribing on the model; without
+      // this it would keep the model busy for the next dictation.
+      invoke("audio_transcription_stop", {
+        owner: "dictation",
+        runId: current.runId,
+        discard: true,
+      }).catch((err) => {
+        console.warn(
+          "[voice-dictation] audio_transcription_stop (cancel) failed:",
+          err,
+        );
+      });
     }
     cleanup(current);
     emit("voice:partial-transcript", { text: "", runId: current.runId }).catch(
@@ -1877,7 +1890,9 @@ export function installDesktopVoiceDictation(
           { owner: "dictation", runId: target.runId },
         );
       } catch (err) {
-        console.warn("[voice-dictation] Parakeet stop failed:", err);
+        if (!target.cancelled) {
+          console.warn("[voice-dictation] Parakeet stop failed:", err);
+        }
         if (lifecycle.isActive(target.runId)) failRun(target.runId, "provider");
         cleanup(target);
         return;

@@ -112,6 +112,9 @@ offers. A new Mac install whose dictation language is English starts on it;
 existing installs keep their engine. The model downloads when Parakeet is the
 chosen engine and dictation is on, with progress under Settings > Dictation >
 Transcription engine, and Apple Speech handles dictation until it has loaded.
+A dictation never waits for the model: if it isn't loaded, warmed up and free
+when the key goes down, that dictation runs on Apple Speech while Parakeet
+reloads in the background.
 Meetings use Parakeet too when it is the chosen engine and loaded, and Whisper
 otherwise. Only one of the two models stays loaded at a time.
 
