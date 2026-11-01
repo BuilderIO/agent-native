@@ -55,15 +55,31 @@ const UNSUPPORTED_ACCEPT_MESSAGE =
 const INLINE_DATABASE_MESSAGE =
   "Tabs containing inline databases cannot receive suggestions yet.";
 
+/**
+ * A tab suggestion that no retry can save, refused as a client error so a
+ * tab's autosave stops rather than trying it again.
+ */
+function invalidSuggestion(message: string): never {
+  fail(message, { statusCode: 422, errorCode: "suggestion_invalid" });
+}
+
+function operationMarkdown(value: unknown, label: "before" | "after") {
+  try {
+    return markdownPayload(value, label).markdown;
+  } catch (error) {
+    invalidSuggestion(error instanceof Error ? error.message : String(error));
+  }
+}
+
 function fieldOperation(operations: SuggestionOperation[]) {
   const operation = firstRow(operations);
   if (operations.length !== 1 || !operation) {
-    throw new Error(
+    invalidSuggestion(
       "Content v1 accepts one independently reviewable edit per suggestion",
     );
   }
   if (!CONTENT_SUGGESTION_OPERATION_KINDS.includes(operation.kind)) {
-    throw new Error(
+    invalidSuggestion(
       `Unsupported Content suggestion operation: ${operation.kind}`,
     );
   }
@@ -73,13 +89,13 @@ function fieldOperation(operations: SuggestionOperation[]) {
     !operation.targetId ||
     operation.targetId === "body"
   ) {
-    throw new Error(
+    invalidSuggestion(
       "A tab suggestion must name its Blocks field in targetId and use the version 1 grammar",
     );
   }
-  const before = markdownPayload(operation.before, "before").markdown;
-  const after = markdownPayload(operation.after, "after").markdown;
-  if (before === after) throw new Error("A suggestion must change the tab");
+  const before = operationMarkdown(operation.before, "before");
+  const after = operationMarkdown(operation.after, "after");
+  if (before === after) invalidSuggestion("A suggestion must change the tab");
   return { operation, fieldId: operation.targetId, before, after };
 }
 
@@ -217,7 +233,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
   version: 1,
   async validateProposal(input) {
     if (input.resourceType !== "document") {
-      throw new Error("Content suggestions are only available for Pages");
+      invalidSuggestion("Content suggestions are only available for Pages");
     }
     // Ask AI answers on the body's thread; tabs don't take them yet.
     if (input.metadata?.commentAiRequestId !== undefined) {
@@ -231,19 +247,21 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
     );
     const base = parseBlocksFieldSuggestionRevision(input.baseRevision);
     if (!base || base.propertyId !== fieldId) {
-      throw new Error(
+      invalidSuggestion(
         "A tab suggestion's base revision must name the field it edits",
       );
     }
     const tx = (input.ctx?.transaction as DbExec | undefined) ?? getDbExec();
-    const page = (
-      await tx.execute(
-        sql`SELECT trashed_at FROM documents WHERE id = ${sql.value(input.resourceId)}`,
-      )
-    ).rows[0];
-    if (!page) throw new Error("Document not found");
-    if (page.trashed_at)
-      throw new Error("Trashed Pages cannot receive suggestions");
+    const db = contentDb(tx);
+    // A missing or trashed Page is refused as a tab's own save refuses it.
+    assertEditableDocument(
+      firstRow(
+        await db
+          .select({ trashedAt: schema.documents.trashedAt })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, input.resourceId)),
+      ),
+    );
     const { databaseId } = await readSuggestionField(
       tx,
       input.resourceId,
@@ -251,7 +269,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
     );
     // A tab whose text the Collection's source owns can't take one, since
     // accepting it would be refused.
-    await writableField(contentDb(tx), databaseId, fieldId);
+    await writableField(db, databaseId, fieldId);
     const revision = await storedFieldRevision(tx, input.resourceId, fieldId);
     const content = String(
       (

@@ -2250,9 +2250,10 @@ function AdditionalBlockEditor({
           return "failed";
         return (await onSaveContent(markdown)) ? "persisted" : "failed";
       }}
-      // A decision on the tab's suggestions ends its draft, so the tab takes
-      // no typing until it restarts on the decided text.
-      editable={session ? !suggestionEditor?.deciding : canEdit}
+      // A decision on the tab's suggestions, or the page's last save before
+      // Suggesting mode ends, ends its draft, so the tab takes no typing
+      // until it restarts or leaves Suggesting mode.
+      editable={session ? !suggestionEditor?.readOnly : canEdit}
       suggesting={!!session}
       suggestions={visuals}
       activeSuggestionId={suggestionEditor?.activeSuggestionId}

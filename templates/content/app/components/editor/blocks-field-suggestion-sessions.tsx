@@ -127,6 +127,8 @@ type BlocksFieldSuggestionsValue = {
   visuals: (fieldId: string, markdown: string) => VisualEditorSuggestion[];
   /** Tabs whose suggestions are being accepted or rejected. */
   decidingFields: ReadonlySet<string>;
+  /** The page is saving every draft to leave Suggesting mode or the page. */
+  leaving: boolean;
   activeSuggestionId: string | null;
   onActivateSuggestion: ((suggestionId: string) => void) | undefined;
   onHoverSuggestion: ((suggestionId: string | null) => void) | undefined;
@@ -186,7 +188,11 @@ export function useBlocksFieldSuggestionEditor(fieldId: string) {
   return {
     suggesting: value.suggesting,
     session: value.sessions.get(fieldId) ?? null,
-    deciding: value.decidingFields.has(fieldId),
+    /**
+     * The tab takes no typing: a decision on its suggestions, or the page's
+     * last save before Suggesting mode ends, would leave what's typed unsaved.
+     */
+    readOnly: value.leaving || value.decidingFields.has(fieldId),
     visuals,
     activeSuggestionId: value.activeSuggestionId,
     ...handlers,
@@ -246,6 +252,7 @@ function sameIds(left: readonly string[] | undefined, right: string[]) {
 export function useBlocksFieldSuggestions({
   documentId,
   suggesting,
+  saving,
   authorEmail,
   saved,
   presentations,
@@ -258,6 +265,8 @@ export function useBlocksFieldSuggestions({
   documentId: string;
   /** The page is in Suggesting mode. */
   suggesting: boolean;
+  /** The page is saving its own suggestions on its way out of Suggesting mode or off the page. */
+  saving: boolean;
   authorEmail: string | null;
   /** The page's saved suggestions, freshest copy of each. */
   saved: readonly ResourceSuggestion[];
@@ -305,6 +314,7 @@ export function useBlocksFieldSuggestions({
   const [decidingFields, setDecidingFields] =
     useState<ReadonlySet<string>>(NO_FIELDS);
   const decidingRef = useRef(false);
+  const [flushing, setFlushing] = useState(false);
   const [anchors, setAnchors] = useState<ReadonlyMap<string, string[]>>(
     () => new Map(),
   );
@@ -748,6 +758,7 @@ export function useBlocksFieldSuggestions({
       replacementIntent,
       visuals,
       decidingFields,
+      leaving: flushing || saving,
       activeSuggestionId,
       onActivateSuggestion,
       onHoverSuggestion,
@@ -758,24 +769,35 @@ export function useBlocksFieldSuggestions({
       change,
       decidingFields,
       derived.sessions,
+      flushing,
       onActivateSuggestion,
       onAnchorsChange,
       onHoverSuggestion,
       replacementIntent,
+      saving,
       start,
       suggesting,
       visuals,
     ],
   );
 
-  /** Saves every tab's draft; false when one couldn't be. */
+  /**
+   * Saves every tab's draft before the page leaves Suggesting mode or the
+   * page; false when one couldn't be. The tabs take no typing meanwhile, so
+   * nothing typed after a tab's save is left to a session that has ended.
+   */
   const flushAll = useCallback(async () => {
-    const results = await Promise.all(
-      [...sessionsRef.current.values()].map((session) =>
-        save(session, { autosave: false }),
-      ),
-    );
-    return results.every(Boolean);
+    setFlushing(true);
+    try {
+      const results = await Promise.all(
+        [...sessionsRef.current.values()].map((session) =>
+          save(session, { autosave: false }),
+        ),
+      );
+      return results.every(Boolean);
+    } finally {
+      setFlushing(false);
+    }
   }, [save]);
 
   /** The saved copy of a draft, once its tab's draft is saved. */
@@ -802,19 +824,27 @@ export function useBlocksFieldSuggestions({
     [save],
   );
 
-  /** The freshest copy of a saved suggestion this page knows. */
+  /**
+   * The freshest copy of a saved suggestion this page knows: the highest
+   * revision among a tab's own save of it and the list, which has someone
+   * else's amendment first.
+   */
   const freshest = useCallback((suggestion: ResourceSuggestion) => {
+    let freshestCopy = suggestion;
+    const consider = (candidate: ResourceSuggestion | undefined) => {
+      if (
+        candidate?.id === suggestion.id &&
+        candidate.revision > freshestCopy.revision
+      )
+        freshestCopy = candidate;
+    };
     for (const session of sessionsRef.current.values()) {
-      for (const entry of session.entries.values()) {
-        if (entry.suggestion.id === suggestion.id) return entry.suggestion;
-      }
+      for (const entry of session.entries.values()) consider(entry.suggestion);
     }
-    const listed = savedRef.current.find(
-      (candidate) => candidate.id === suggestion.id,
+    consider(
+      savedRef.current.find((candidate) => candidate.id === suggestion.id),
     );
-    return listed && listed.revision > suggestion.revision
-      ? listed
-      : suggestion;
+    return freshestCopy;
   }, []);
 
   /**

@@ -535,6 +535,40 @@ describe("suggestions on a Blocks field tab", () => {
     ).rejects.toMatchObject({ errorCode: "PROPERTY_NOT_WRITABLE" });
   });
 
+  it("refuses a suggestion no retry can save as a client error, so autosave stops", async () => {
+    const seeded = await seedRow("permanent", "Body.", "Notes to keep.");
+    const before = await fieldState(
+      seeded.row,
+      seeded.databaseId,
+      seeded.notesId,
+    );
+    const base = blocksFieldSuggestionRevision(seeded.notesId, before.revision);
+    const edit = tabEdit(seeded.notesId, before.content, "Notes, edited.");
+
+    await expect(
+      suggest(
+        seeded.row,
+        base,
+        [{ ...edit, after: { markdown: before.content, changedText: "" } }],
+        "permanent-no-change",
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "suggestion_invalid",
+    });
+
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, seeded.row));
+    await expect(
+      suggest(seeded.row, base, [edit], "permanent-trashed"),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      errorCode: "DOCUMENT_NOT_FOUND",
+    });
+  });
+
   it("lets only the Collection's editors accept a tab suggestion", async () => {
     const seeded = await seedRow("row-editor", "Body.", "Notes to keep.");
     const before = await fieldState(

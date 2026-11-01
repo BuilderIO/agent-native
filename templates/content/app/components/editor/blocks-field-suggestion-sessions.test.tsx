@@ -92,11 +92,13 @@ describe("useBlocksFieldSuggestions", () => {
 
   function Harness(props: {
     suggesting: boolean;
+    saving: boolean;
     saved: ResourceSuggestion[];
   }) {
     latest = useBlocksFieldSuggestions({
       documentId: "doc-1",
       suggesting: props.suggesting,
+      saving: props.saving,
       authorEmail: "suggester@example.test",
       saved: props.saved,
       presentations: () => [],
@@ -107,13 +109,17 @@ describe("useBlocksFieldSuggestions", () => {
     return null;
   }
 
-  async function render(suggesting: boolean, saved: ResourceSuggestion[]) {
+  async function render(
+    suggesting: boolean,
+    saved: ResourceSuggestion[],
+    { saving = false }: { saving?: boolean } = {},
+  ) {
     await act(async () => {
       root.render(
         createElement(
           QueryClientProvider,
           { client: queryClient },
-          createElement(Harness, { suggesting, saved }),
+          createElement(Harness, { suggesting, saving, saved }),
         ),
       );
     });
@@ -345,5 +351,59 @@ describe("useBlocksFieldSuggestions", () => {
     });
     expect(latest.provider.decidingFields.size).toBe(0);
     expect(latest.deciding).toBe(false);
+  });
+
+  it("keeps the tabs from typing while the page saves to leave Suggesting mode", async () => {
+    let finish: ((value: unknown) => void) | undefined;
+    const creation = mocks.createProposal.getMockImplementation();
+    mocks.createProposal.mockImplementationOnce(
+      (request: Parameters<NonNullable<typeof creation>>[0]) =>
+        new Promise((resolve) => {
+          finish = () => resolve(creation?.(request));
+        }),
+    );
+    await render(true, []);
+    await draftInTab();
+    expect(latest.provider.leaving).toBe(false);
+
+    // The tabs' own saves first, then the page body's.
+    let flushed: Promise<boolean> | undefined;
+    await act(async () => {
+      flushed = latest.flushAll();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    expect(latest.provider.leaving).toBe(true);
+    await act(async () => {
+      finish?.(undefined);
+      await flushed;
+    });
+    expect(latest.provider.leaving).toBe(false);
+
+    await render(true, [], { saving: true });
+    expect(latest.provider.leaving).toBe(true);
+    await render(true, []);
+    expect(latest.provider.leaving).toBe(false);
+  });
+
+  it("decides on the newest revision of a tab suggestion someone else amended", async () => {
+    mocks.decideSuggestion.mockResolvedValue({});
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    // The tab's own copy is revision 1; the list has someone's amendment.
+    const amended = { ...created, revision: 2 };
+    await render(true, [amended]);
+
+    await act(async () => {
+      await latest.decide(created, "accepted");
+    });
+
+    expect(mocks.decideSuggestion).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "saved-0", observedRevision: 2 }),
+    );
   });
 });

@@ -320,6 +320,7 @@ describe("DocumentBlockFields suggestion boundary", () => {
       onHoverSuggestion: vi.fn(),
       onAnchorsChange: vi.fn(),
       decidingFields: new Set<string>(),
+      leaving: false,
     };
     const renderWith = async (suggesting: boolean) => {
       await act(async () => {
@@ -394,6 +395,16 @@ describe("DocumentBlockFields suggestion boundary", () => {
     provider.decidingFields = new Set();
     await renderWith(true);
     expect(mocks.editorProps).toMatchObject({ editable: true });
+    // So does the page's last save before Suggesting mode ends.
+    provider.leaving = true;
+    await renderWith(true);
+    expect(mocks.editorProps).toMatchObject({
+      editable: false,
+      suggesting: true,
+    });
+    provider.leaving = false;
+    await renderWith(true);
+    expect(mocks.editorProps).toMatchObject({ editable: true });
 
     // The session ends with Suggesting mode; the tab shows its text again.
     provider.sessions = new Map();
@@ -433,6 +444,7 @@ describe("DocumentBlockFields suggestion boundary", () => {
       onHoverSuggestion: vi.fn(),
       onAnchorsChange: vi.fn(),
       decidingFields: new Set<string>(),
+      leaving: false,
     };
     const renderWith = async (suggesting: boolean) => {
       await act(async () => {

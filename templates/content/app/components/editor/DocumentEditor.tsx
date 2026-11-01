@@ -6245,6 +6245,7 @@ function PageEditorSessionBody({
   const fieldSuggestions = useBlocksFieldSuggestions({
     documentId,
     suggesting: isSuggesting,
+    saving: isSubmittingSuggestions,
     authorEmail: session?.email ?? null,
     saved: allSavedSuggestions,
     presentations: documentEditorSuggestionPresentations,
