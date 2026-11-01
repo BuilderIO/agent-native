@@ -339,15 +339,15 @@ function watchPageHide(): void {
 
 function flushOnPageHide(): void {
   pageHidden = true;
-  // A keepalive write still waiting for an earlier write to its key would
-  // never start once the page is gone, so it goes now, alongside that write.
-  // It's numbered after the earlier one, so the server skips the earlier one
-  // if it lands last. A delete keeps waiting: the server keeps no record of
-  // one, so the earlier write landing after it would bring the row back.
+  // A keepalive write or delete still waiting for an earlier write to its key
+  // would never start once the page is gone, so it goes now, alongside that
+  // write. It's numbered after the earlier one, so the server skips the
+  // earlier one if it lands last. The server keeps no record of a delete,
+  // though, so an earlier write landing after one brings the row back.
   // Nothing goes ahead of a compare-and-set or a signalled write.
   for (const entry of [...queuedReplacements.values()]) {
     if (unsettledBarriers.has(requestKey(entry.key))) continue;
-    if (entry.replacement.keepalive && entry.replacement.method === "PUT") {
+    if (entry.replacement.keepalive) {
       // Its caller hears how it went through entry.result, once the earlier
       // write settles.
       startReplacement(entry).catch(() => {});

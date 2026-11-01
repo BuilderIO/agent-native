@@ -1465,7 +1465,7 @@ describe("client application-state helpers", () => {
       ]);
     });
 
-    it("leaves a queued delete waiting when the page hides", async () => {
+    it("sends a queued keepalive delete when the page hides", async () => {
       const { fresh, listeners, fetchMock } = await hidingPage();
       let commitOlder!: () => void;
       fetchMock.mockImplementationOnce(
@@ -1482,15 +1482,20 @@ describe("client application-state helpers", () => {
       await Promise.resolve();
       for (const listener of listeners.pagehide ?? []) listener();
 
-      // Sent now, the delete could land first and the older write would bring
-      // the row back, since the server keeps no record of a delete.
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // Left waiting, the delete would never be sent once the page is gone.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        method: "DELETE",
+        keepalive: true,
+        headers: expect.objectContaining({
+          "X-Agent-Native-App-State-Seq": "2",
+        }),
+      });
 
       commitOlder();
       await older;
       await deletion;
       expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "DELETE" });
     });
 
     it("sends a write made while the page is hidden at once, with keepalive", async () => {
