@@ -97,7 +97,19 @@ export function tableFetch(origin: string, routes: Map<string, Route>) {
     calls.push({ url: key, init });
     const route = routes.get(key) ?? routes.get(url.pathname);
     if (!route) return new Response("missing", { status: 404 });
-    return route(init);
+    // An aborted request rejects at once, as a real fetch does, even while
+    // the route is still answering.
+    const signal = init?.signal;
+    if (!signal) return route(init);
+    signal.throwIfAborted();
+    return Promise.race([
+      Promise.resolve(route(init)),
+      new Promise<never>((_resolve, reject) =>
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        }),
+      ),
+    ]);
   };
   return { fetch, calls };
 }

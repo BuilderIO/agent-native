@@ -35,7 +35,11 @@ export interface ShellWorkerScope {
       includeUncontrolled: boolean;
     }): Promise<readonly { readonly id: string }[]>;
   };
-  readonly navigator: { readonly languages: readonly string[] };
+  readonly navigator: {
+    readonly languages: readonly string[];
+    /** Network Information; absent outside Chromium. */
+    readonly connection?: { readonly saveData?: boolean };
+  };
   fetch(input: Request | string, init?: RequestInit): Promise<Response>;
   skipWaiting(): Promise<void>;
   addEventListener(

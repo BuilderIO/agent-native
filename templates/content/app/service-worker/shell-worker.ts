@@ -22,6 +22,7 @@ const worker = createShellWorker({
       })
     ).map((client) => client.id),
   languages: () => scope.navigator.languages,
+  saveData: () => scope.navigator.connection?.saveData === true,
 });
 
 scope.addEventListener("install", (event) => {
@@ -66,7 +67,7 @@ scope.addEventListener("message", (event) => {
       : undefined;
   if (data?.type === SHELL_RUNNING_MESSAGE && client) {
     event.waitUntil(
-      worker.noteClient(client.id, client.version).catch((error: unknown) => {
+      worker.pageLoaded(client.id, client.version).catch((error: unknown) => {
         console.warn("[content-shell] could not note the tab's build", error);
       }),
     );

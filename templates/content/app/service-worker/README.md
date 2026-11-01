@@ -6,22 +6,33 @@ the build's JavaScript and CSS.
 
 ## What it keeps
 
-- The HTML shell of the app's own routes (`/page/:id`, `/home`, …), one copy per route and browser language list,
-  since the server renders the shell in the language `Accept-Language` asks for. Neither the browser's HTTP cache
+- The HTML shell of the app's own routes (`/page/:id`, `/home`, …), one copy per route and browser language list
+  (the two lists used last on each route), since the server renders the shell in the language `Accept-Language`
+  asks for. Neither the browser's HTTP cache
   nor Netlify's CDN (which varies this HTML by query only) keeps a copy per language, so right after a browser's
   language changes the network can still answer in the old one, and the worker keeps what it was given until the
   next navigation brings the right one. The server renders that HTML for
   anonymous visitors only, with `Cache-Control: public` (the `guard:ssr-cache-shell` check keeps it that way), so
   the copy holds no account data. The worker also refuses any HTML marked `private`, `no-store` or `no-cache`, or
   varying on cookies, and fetches the copy it keeps without cookies. When the server starts answering a route that
-  way (SSR caching turned off, say), the worker deletes that route's kept shells.
+  way (SSR caching turned off, say), the worker deletes that route's kept shells, and no download that started
+  before that answer can bring one back.
 - The build's hashed files under `/assets/`: every file the shell boots (the React Router manifest, the client
-  entry, every route module), cached before that build's shell is used, then the rest of the build, lazy chunks
-  included, downloaded two at a time behind the page. Chrome answers `/assets/*` straight from this cache without
-  running the worker, so a file the worker didn't download itself is never kept.
+  entry, every route module), cached before that build's shell is used, then, once a page has loaded, the rest of
+  the current build, lazy chunks included. Chrome answers `/assets/*` straight from this cache without running the
+  worker, so a file the worker didn't download itself is never kept. A file that comes back as HTML, or with a
+  content type that doesn't fit its extension (a host's catch-all route answering a missing file), is never kept,
+  and a build with a boot file that comes back that way never becomes current.
 - Files of the current build, the one before it, and the build of every open tab: each tab reports its build when
-  it loads and when it's shown again, and keeps that build's files until it closes or goes a day without
-  reporting. Only the current and previous builds keep shells to answer navigations with.
+  it loads and when it's shown again, and keeps that build's files until it closes (or, if the browser can't list
+  its open tabs, for a day after its last report). Only the current and previous builds keep shells to answer
+  navigations with.
+
+The worker downloads at most two build files at a time, at low priority, behind the app's own requests. Only the
+current build downloads the rest of its files: a new build's boot files stop it, and it starts again on the next
+page load.
+Under `Save-Data` (the navigation's header or `navigator.connection.saveData`) the worker downloads only boot files,
+so lazy chunks load from the network as they would without it.
 
 It never keeps `/_agent-native/*` responses (API, auth, collaboration) or anything that isn't a GET. Page data
 stays in the app's own IndexedDB cache, which is scoped by signed-in user.
@@ -43,11 +54,14 @@ A kept shell answers first only as long as the server's `Cache-Control` lets a b
 plus `stale-while-revalidate`, today 10 minutes plus 7 days), counted from when the server rendered it (its `Age`,
 or its `Date` for a copy the browser's HTTP cache kept), so a returning visitor never boots an older build than
 their HTTP cache could. Past that the network goes first, and the kept copy answers only offline. If Cache Storage
-fails, the network answers, as it would without the worker.
+fails, the network answers, as it would without the worker, and the worker goes on from what Cache Storage last
+stored.
 
 If the page finds its build out of date anyway (route chunk recovery, `__agent-native-chunk-recovery`), the worker stops serving
 that build and the navigation goes to the network. Offline, that navigation gets the page's kept shell instead of
-the browser's error page; recovery's 10-second cooldown stops a second reload if a file is still missing.
+the browser's error page; recovery's 10-second cooldown stops a second reload if a file is still missing. Only a
+marked navigation to one of the current build's app routes counts: on a public page, an unknown path or a
+framework endpoint the marker changes nothing.
 
 ## Where it runs
 
