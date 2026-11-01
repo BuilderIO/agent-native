@@ -402,7 +402,8 @@ describe("page open reads", () => {
       expect(claim.adoption).toBe("fresh");
       expect(isAwaitingSession(claim.read)).toBe(true);
       const unsubscribe = mount(queryKey, pageRead);
-      if (!claim.read) throw new Error("expected the load's read to be claimed");
+      if (!claim.read)
+        throw new Error("expected the load's read to be claimed");
       releasePageOpenRead(queryClient, queryKey, claim.read);
 
       session.set("first-read");
@@ -440,7 +441,8 @@ describe("page open reads", () => {
       const unsubscribeDraft = mount(draftKey, () =>
         Promise.resolve({ draft: "b's draft" }),
       );
-      if (!claim.read) throw new Error("expected the load's read to be claimed");
+      if (!claim.read)
+        throw new Error("expected the load's read to be claimed");
       releasePageOpenRead(queryClient, queryKey, claim.read);
 
       session.set("replaced");
