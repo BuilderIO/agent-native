@@ -810,10 +810,15 @@ mod macos {
         let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
         // Stopping delivers the capture's last buffers after the loop's final
         // poll, so speech heard only there must still count.
+        let polled = if stream.reset_generation.load(Ordering::SeqCst) == seen_reset_generation {
+            last_raw_len
+        } else {
+            0
+        };
         let had_voice = had_voice
             || unpolled_voice(
                 &raw,
-                last_raw_len,
+                polled,
                 src_rate.max(1.0) as f32,
                 mic_voice_activity.as_mut(),
             );
