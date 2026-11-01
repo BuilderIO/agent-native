@@ -21,6 +21,11 @@ let latestEventRows: Array<{
   transcript_order?: number | null;
   event_data: string;
 }> = [];
+let currentTurnEventRows: Array<{
+  run_id: string;
+  seq: number;
+  event_data: string;
+}> = [];
 let connectionRequestRows: Array<{ event_data: string }> = [];
 let hasLaterSameTurnRun = false;
 let staleSelectRows: Array<{ id: string }> = [];
@@ -171,6 +176,13 @@ const mockDb: any = {
       )
     ) {
       return { rows: latestEventRows, rowsAffected: 0 };
+    }
+    if (
+      /SELECT e\.run_id AS run_id, e\.seq AS seq, e\.event_data AS event_data\s+FROM agent_run_events e\s+JOIN agent_runs r/i.test(
+        rawSql,
+      )
+    ) {
+      return { rows: currentTurnEventRows, rowsAffected: 0 };
     }
     if (
       /SELECT id,\s*EXISTS \(/i.test(rawSql) &&
@@ -391,6 +403,7 @@ const {
   claimBackgroundRun,
   terminalEventForAbortReason,
   persistRunCheckpointEvent,
+  persistedRunEventData,
   reconcileTerminalRunFromEvents,
   setRunTerminalReason,
   setRunTerminalReasonIfStatus,
@@ -459,6 +472,7 @@ describe("run store", () => {
     evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     execCalls.length = 0;
     latestEventRows = [];
+    currentTurnEventRows = [];
     connectionRequestRows = [];
     hasLaterSameTurnRun = false;
     staleSelectRows = [];
@@ -843,6 +857,98 @@ describe("run store", () => {
     expect(JSON.parse(stored)).toMatchObject({
       result: "saved [inline image/png data omitted]",
       images: [{ label: "shot", omitted: "inline-bytes" }],
+    });
+  });
+
+  it("omits marked private event content while retaining default event payloads", () => {
+    const body = "synthetic-private-body-sentinel";
+    const privateEvent = JSON.parse(
+      persistedRunEventData(
+        JSON.stringify({
+          type: "tool_done",
+          omitFromPersistedHistory: true,
+          id: "call-private",
+          tool: "read-private-message",
+          input: { threadId: "thread-safe-id", body },
+          argumentsHash: "sensitive-argument-hash",
+          result: body,
+          chatUIResult: { body },
+          artifacts: [{ body }],
+        }),
+      ),
+    );
+
+    expect(JSON.stringify(privateEvent)).not.toContain(body);
+    expect(JSON.stringify(privateEvent)).not.toContain(
+      "sensitive-argument-hash",
+    );
+    expect(privateEvent).toMatchObject({
+      type: "tool_done",
+      omitFromPersistedHistory: true,
+      id: "call-private",
+      tool: "read-private-message",
+      input: {},
+      result: "[Private content omitted]",
+    });
+    expect(privateEvent).not.toHaveProperty("chatUIResult");
+    expect(privateEvent).not.toHaveProperty("artifacts");
+
+    const ordinaryEvent = {
+      type: "tool_done",
+      id: "call-ordinary",
+      tool: "ordinary-read",
+      input: { query: "normal input" },
+      result: "normal result",
+    };
+    expect(
+      JSON.parse(persistedRunEventData(JSON.stringify(ordinaryEvent))),
+    ).toEqual(ordinaryEvent);
+  });
+
+  it("keeps private rich-event placeholders readable during turn recovery", async () => {
+    const sentinel = "synthetic-private-rich-event-sentinel";
+    const event = {
+      type: "rich_event",
+      omitFromPersistedHistory: true,
+      event: {
+        namespace: "private-source-namespace",
+        name: "private-source-event",
+        data: { note: sentinel },
+      },
+    };
+
+    await insertRunEvent("run-private-rich-event", 4, JSON.stringify(event));
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3];
+    if (typeof stored !== "string") {
+      throw new Error("private rich event was not inserted into the journal");
+    }
+    const storedEvent = JSON.parse(stored) as Record<string, unknown>;
+    expect(JSON.stringify(storedEvent)).not.toContain(sentinel);
+    expect(JSON.stringify(storedEvent)).not.toContain(
+      "private-source-namespace",
+    );
+    expect(JSON.stringify(storedEvent)).not.toContain("private-source-event");
+
+    currentTurnEventRows = [
+      { run_id: "run-private-rich-event", seq: 4, event_data: stored },
+    ];
+    const recovered = await getCurrentTurnEventsForThread(
+      "thread-test",
+      "turn-test",
+    );
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]).toMatchObject({
+      type: "rich_event",
+      omitFromPersistedHistory: true,
+      event: {
+        namespace: "agent-native",
+        name: "private-content-omitted",
+        data: {},
+      },
     });
   });
 

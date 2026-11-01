@@ -195,6 +195,81 @@ describe("settings store", () => {
     expect(await getSetting("new-counter")).toEqual({ value: 8 });
   });
 
+  it("defers transaction notifications and preserves rollback", async () => {
+    const { getSettingsEmitter, publishSettingChange } =
+      await import("./store.js");
+    const events: unknown[] = [];
+    const listener = (event: unknown) => events.push(event);
+    getSettingsEmitter().on("settings", listener);
+    try {
+      await pglite.exec("BEGIN");
+      await mutateSetting("transactional", () => ({ value: 1 }), {
+        transaction: rawClient,
+      });
+      expect(events).toEqual([]);
+      await pglite.exec("ROLLBACK");
+      expect(await getSetting("transactional")).toBeNull();
+
+      await pglite.exec("BEGIN");
+      await mutateSetting("transactional", () => ({ value: 2 }), {
+        transaction: rawClient,
+      });
+      await pglite.exec("COMMIT");
+      expect(events).toEqual([]);
+      publishSettingChange("transactional");
+      expect(events).toHaveLength(1);
+      expect(await getSetting("transactional")).toEqual({ value: 2 });
+    } finally {
+      getSettingsEmitter().off("settings", listener);
+    }
+  });
+
+  it("moves a legacy user setting inside the same transaction", async () => {
+    const { mutateUserSetting, getUserSetting, publishUserSettingChange } =
+      await import("./user-settings.js");
+    const { getSettingsEmitter } = await import("./store.js");
+    const events: unknown[] = [];
+    const listener = (event: unknown) => events.push(event);
+    getSettingsEmitter().on("settings", listener);
+    try {
+      await putSetting("u:Mixed@Example.test:preference", { value: 1 });
+      events.length = 0;
+      await pglite.exec("BEGIN");
+      await mutateUserSetting(
+        "Mixed@Example.test",
+        "preference",
+        () => ({ value: 2 }),
+        { transaction: rawClient },
+      );
+      await pglite.exec("ROLLBACK");
+      expect(await getSetting("u:Mixed@Example.test:preference")).toEqual({
+        value: 1,
+      });
+      expect(await getSetting("u:mixed@example.test:preference")).toBeNull();
+      await pglite.exec("BEGIN");
+      await mutateUserSetting(
+        "Mixed@Example.test",
+        "preference",
+        () => ({ value: 2 }),
+        { transaction: rawClient },
+      );
+      await pglite.exec("COMMIT");
+      publishUserSettingChange("Mixed@Example.test", "preference");
+      expect(events).toEqual([
+        expect.objectContaining({
+          type: "change",
+          key: "u:mixed@example.test:preference",
+        }),
+      ]);
+      expect(await getUserSetting("Mixed@Example.test", "preference")).toEqual({
+        value: 2,
+      });
+      expect(await getSetting("u:Mixed@Example.test:preference")).toBeNull();
+    } finally {
+      getSettingsEmitter().off("settings", listener);
+    }
+  });
+
   it("does not write or publish a change when the updater returns the stored value", async () => {
     const { getSettingsEmitter } = await import("./store.js");
     const events: unknown[] = [];

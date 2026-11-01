@@ -7,9 +7,12 @@ import {
   getSettings,
   mutateSetting,
   putSetting,
+  publishSettingChange,
+  invalidateSettingRequestCache,
   deleteSettingIfValue,
   type StoreReadOptions,
   type StoreWriteOptions,
+  type StoreMutationOptions,
 } from "./store.js";
 
 function userKey(email: string, key: string): string {
@@ -99,13 +102,23 @@ export async function mutateUserSetting(
   updater: (
     current: Record<string, unknown> | null,
   ) => Record<string, unknown> | Promise<Record<string, unknown>>,
-  options?: StoreWriteOptions,
+  options?: StoreMutationOptions,
 ): Promise<Record<string, unknown>> {
   try {
     return await mutateUserSettingValue(email, key, updater, options);
   } finally {
-    afterUserSettingWrite(key);
+    if (!options?.transaction) afterUserSettingWrite(key);
   }
+}
+
+export function publishUserSettingChange(
+  email: string,
+  key: string,
+  options?: StoreWriteOptions,
+): void {
+  invalidateSettingRequestCache(legacyUserKey(email, key));
+  publishSettingChange(userKey(email, key), options);
+  afterUserSettingWrite(key);
 }
 
 async function mutateUserSettingValue(
@@ -114,7 +127,7 @@ async function mutateUserSettingValue(
   updater: (
     current: Record<string, unknown> | null,
   ) => Record<string, unknown> | Promise<Record<string, unknown>>,
-  options?: StoreWriteOptions,
+  options?: StoreMutationOptions,
 ): Promise<Record<string, unknown>> {
   const normalized = userKey(email, key);
   const legacy = legacyUserKey(email, key);
@@ -131,7 +144,10 @@ async function mutateUserSettingValue(
       const legacyCurrent =
         legacy === normalized
           ? null
-          : await getSetting(legacy, { bypassCache: true });
+          : await getSetting(legacy, {
+              bypassCache: true,
+              transaction: options?.transaction,
+            });
       migratedLegacy = legacyCurrent !== null;
       migratedLegacyValue = legacyCurrent;
       return updater(legacyCurrent);
@@ -147,7 +163,13 @@ async function mutateUserSettingValue(
     !migratedLegacyValue ||
     !(await deleteSettingIfValue(legacy, migratedLegacyValue, options))
   ) {
-    if (await getSetting(legacy, { bypassCache: true })) return result;
+    if (
+      await getSetting(legacy, {
+        bypassCache: true,
+        transaction: options?.transaction,
+      })
+    )
+      return result;
     const removed = await deleteSettingIfValue(normalized, result, options);
     if (!removed) {
       return result;

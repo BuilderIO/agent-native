@@ -228,6 +228,8 @@ export interface ActionRunContext {
   runId?: string;
   turnId?: string;
   toolCallId?: string;
+  /** Marks calls made after a private action in this agent turn. */
+  omitFromPersistedHistory?: true;
   /**
    * The approval the agent loop ran this call under, for approval gates to
    * check. Audit rows read approval from the invocation's execution frame,
@@ -1033,6 +1035,10 @@ interface DefineActionWithSchema<
    *  codes, private data) is never painted from disk on a revisit. Defaults to
    *  persisting. */
   persistInBrowser?: boolean;
+  /** `false` keeps this action's arguments and result out of persisted chat
+   *  history, execution journals, and traces. The live turn still receives the
+   *  full result. Following assistant content in that turn is omitted too. */
+  persistInChatHistory?: boolean;
   /** Names the shareable resource a mutating call changes so the `action`
    *  change event also reaches every collaborator who can read it, not only the
    *  actor. Without it other open sessions are never told and show stale data
@@ -1150,6 +1156,7 @@ interface DefineActionWithParams<
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
   changeEvents?: boolean;
   persistInBrowser?: boolean;
+  persistInChatHistory?: boolean;
   changeResource?: (
     input: InferParams<TParams>,
     result: TReturn,
@@ -1203,6 +1210,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly changeEvents?: boolean;
   readonly persistInBrowser?: boolean;
+  readonly persistInChatHistory?: boolean;
   readonly changeResource?: (
     input: TInput,
     result: TReturn,
@@ -1503,17 +1511,33 @@ export function defineAction(options: any) {
     typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
 
   const auditConfig = normalizeAuditConfig(options.audit);
-  const finalRun = resolveAuditAttach(auditConfig, readOnly)
-    ? wrapRunWithAudit(run, auditConfig)
+  const actionIsPrivate = options.persistInChatHistory === false;
+  const effectiveAuditConfig = actionIsPrivate
+    ? {
+        ...(auditConfig ?? {}),
+        recordInputs: false,
+        target: undefined,
+        summary: undefined,
+      }
+    : auditConfig;
+  const finalRun = resolveAuditAttach(effectiveAuditConfig, readOnly)
+    ? wrapRunWithAudit(run, effectiveAuditConfig, actionIsPrivate)
     : run;
   const trackedRun = wrapRunWithServicePrincipalGrant(
-    wrapRunWithActionTracking(finalRun, readOnly),
+    wrapRunWithActionTracking(finalRun, readOnly, {
+      includeOutputId: options.persistInChatHistory !== false,
+    }),
   );
   const invalidCallRun = wrapRunWithActionTracking(
-    resolveAuditAttach(auditConfig, readOnly)
-      ? wrapRunWithAudit(throwInvalidCallError, auditConfig)
+    resolveAuditAttach(effectiveAuditConfig, readOnly)
+      ? wrapRunWithAudit(
+          throwInvalidCallError,
+          effectiveAuditConfig,
+          actionIsPrivate,
+        )
       : throwInvalidCallError,
     readOnly,
+    { includeOutputId: options.persistInChatHistory !== false },
   );
 
   const toolCallable: boolean | undefined =
@@ -1651,6 +1675,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof options.persistInBrowser === "boolean"
       ? { persistInBrowser: options.persistInBrowser }
+      : {}),
+    ...(typeof options.persistInChatHistory === "boolean"
+      ? { persistInChatHistory: options.persistInChatHistory }
       : {}),
     ...(typeof options.changeResource === "function"
       ? { changeResource: options.changeResource }
@@ -1798,6 +1825,7 @@ function wrapRunWithServicePrincipalGrant(
 function wrapRunWithAudit(
   run: (args: any, ctx?: ActionRunContext) => any,
   auditConfig: ActionAuditConfig | undefined,
+  actionIsPrivate: boolean,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   return async function auditedRun(args: any, ctx?: ActionRunContext) {
     // The run consumes the preparation, and its handler may change `args`.
@@ -1817,16 +1845,36 @@ function wrapRunWithAudit(
         import("./audit/record.js"),
         import("./audit/attribution.js"),
       ]);
+      const omitFromPersistedHistory =
+        actionIsPrivate || ctx?.omitFromPersistedHistory === true;
+      const effectiveAuditConfig = omitFromPersistedHistory
+        ? {
+            ...(auditConfig ?? {}),
+            recordInputs: false,
+            target: undefined,
+            summary: undefined,
+          }
+        : auditConfig;
       const call = {
-        config: auditConfig,
-        args: recorded,
+        config: effectiveAuditConfig,
+        args: omitFromPersistedHistory ? {} : recorded,
         ctx,
         attribution: auditAttribution(ctx),
       };
       await recordActionAudit(
         threw
-          ? { ...call, status: "error", error }
-          : { ...call, status: "success", result },
+          ? {
+              ...call,
+              status: "error",
+              error: omitFromPersistedHistory
+                ? new Error("Private content omitted")
+                : error,
+            }
+          : {
+              ...call,
+              status: "success",
+              ...(!omitFromPersistedHistory ? { result } : {}),
+            },
       );
     } catch {
       // Recorder failed to load/run — never affect the action.

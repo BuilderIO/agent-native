@@ -640,6 +640,7 @@ export async function instrumentAgentLoop(opts: {
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
     runId?: string;
+    historyPrivacyState?: { private: boolean };
   };
   runId: string;
   threadId: string | null;
@@ -765,6 +766,8 @@ export async function instrumentAgentLoop(opts: {
   }> = [];
   let modelDispatchCount = 0;
   let pendingModelInputDispatched = false;
+  const privateModelRoundTrips = new Set<number>();
+  let privateTurn = loopOpts.historyPrivacyState?.private === true;
   const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
   const inferModelDispatchFromOutput = () => {
     if (pendingModelInputDispatched) return;
@@ -776,6 +779,7 @@ export async function instrumentAgentLoop(opts: {
   };
   let pendingModelInput: unknown[] | undefined;
   let pendingModelInputStartedAt: number | undefined;
+  let pendingModelInputOmitted = false;
   type CostCalculator = (
     inputTokens: number,
     outputTokens: number,
@@ -891,6 +895,7 @@ export async function instrumentAgentLoop(opts: {
     errorMessage: string,
   ): void => {
     const tripIndex = modelRoundTrips.length;
+    if (privateTurn) privateModelRoundTrips.add(tripIndex);
     modelRoundTrips.push({
       spanId: spanId(),
       start,
@@ -961,7 +966,25 @@ export async function instrumentAgentLoop(opts: {
   let cutOffReason: string | null = null;
 
   const instrumentedOutcome = (outcome: AgentLoopOutcome): void => {
-    terminalOutcome = outcome;
+    const safeOutcome: AgentLoopOutcome = !privateTurn
+      ? outcome
+      : outcome.state === "completed"
+        ? outcome
+        : outcome.state === "canceled"
+          ? { state: "canceled", message: "Private content omitted" }
+          : outcome.state === "input_required"
+            ? {
+                state: "input_required",
+                code: "private_content_omitted",
+                message: "Private content omitted",
+              }
+            : {
+                state: "failed",
+                code: "private_content_omitted",
+                retryable: false,
+                message: "Private content omitted",
+              };
+    terminalOutcome = safeOutcome;
     if (outcome.state === "completed" || outcome.state === "input_required") {
       // A stop that waits on the user is a pause, not a failure; `paused` is
       // derived from the outcome at finalization. An error event that arrives
@@ -970,25 +993,29 @@ export async function instrumentAgentLoop(opts: {
       errorMessage = null;
     } else {
       runStatus = "error";
-      errorMessage = redactCapturedError(
-        outcome.state === "canceled"
-          ? (outcome.message ?? "Agent run was canceled.")
-          : outcome.message,
-      );
+      errorMessage = privateTurn
+        ? "Private content omitted"
+        : redactCapturedError(
+            outcome.state === "canceled"
+              ? (outcome.message ?? "Agent run was canceled.")
+              : outcome.message,
+          );
     }
     runMetadata = {
       ...(runMetadata ?? {}),
       terminal_state: outcome.state,
-      ...("code" in outcome ? { terminal_code: outcome.code } : {}),
-      ...(outcome.state === "input_required"
+      ...(!privateTurn && "code" in outcome
+        ? { terminal_code: outcome.code }
+        : {}),
+      ...(!privateTurn && outcome.state === "input_required"
         ? { terminal_message: redactCapturedError(outcome.message) }
         : {}),
-      ...(outcome.state === "failed"
+      ...(!privateTurn && outcome.state === "failed"
         ? { terminal_retryable: outcome.retryable }
         : {}),
     };
     try {
-      loopOpts.onOutcome?.(outcome);
+      loopOpts.onOutcome?.(safeOutcome);
     } catch {
       // Observability adapters cannot alter the agent run.
     }
@@ -999,7 +1026,17 @@ export async function instrumentAgentLoop(opts: {
       if (event.type === "text" || event.type === "tool_start") {
         inferModelDispatchFromOutput();
       }
-      if (config.capturePrompts && event.type === "text") {
+      const omitEventContent =
+        privateTurn || event.omitFromPersistedHistory === true;
+      if (omitEventContent) {
+        const currentIndex = modelRoundTrips.length - 1;
+        if (currentIndex >= 0) privateModelRoundTrips.add(currentIndex);
+        privateTurn = true;
+        if (event.omitFromPersistedHistory !== true) {
+          event = { ...event, omitFromPersistedHistory: true };
+        }
+      }
+      if (config.capturePrompts && event.type === "text" && !omitEventContent) {
         appendBoundedAssistantText(assistantTextCapture, event.text);
         const roundTrip = currentRoundTrip();
         if (roundTrip) {
@@ -1014,20 +1051,28 @@ export async function instrumentAgentLoop(opts: {
         cutOffReason = null;
       } else if (event.type === "auto_continue") {
         const reason = event.reason || "auto_continue";
-        cutOffReason = reason;
-        if (!EXPECTED_CONTINUATION_REASONS.has(reason)) {
+        const expected = EXPECTED_CONTINUATION_REASONS.has(reason);
+        cutOffReason =
+          privateTurn && !expected ? "private_content_omitted" : reason;
+        if (!expected) {
           runStatus = "error";
-          errorMessage = redactCapturedError(
-            `Agent run was cut off before finishing (${reason}).`,
-          );
+          errorMessage = privateTurn
+            ? "Private content omitted"
+            : redactCapturedError(
+                `Agent run was cut off before finishing (${reason}).`,
+              );
         }
       } else if (event.type === "error") {
         runStatus = "error";
-        errorMessage = redactCapturedError(event.error);
-        errorCode = event.errorCode;
+        errorMessage = omitEventContent
+          ? "Private content omitted"
+          : redactCapturedError(event.error);
+        errorCode = omitEventContent ? undefined : event.errorCode;
       } else if (event.type === "tripwire") {
         runStatus = "error";
-        errorMessage = redactCapturedError(event.reason);
+        errorMessage = omitEventContent
+          ? "Private content omitted"
+          : redactCapturedError(event.reason);
       } else if (event.type === "loop_limit") {
         runStatus = "error";
         errorMessage = "Agent stopped at the loop limit";
@@ -1053,6 +1098,11 @@ export async function instrumentAgentLoop(opts: {
             pendingModelInput = undefined;
             pendingModelInputStartedAt = undefined;
             pendingModelInputDispatched = true;
+            pendingModelInputOmitted = false;
+            const currentIndex = modelRoundTrips.length - 1;
+            if (pendingModelInputOmitted) {
+              privateModelRoundTrips.add(currentIndex);
+            }
             startOtelModelSpan(tripIndex);
           }
         } else if (modelStreamOpenedAt !== null) {
@@ -1063,7 +1113,9 @@ export async function instrumentAgentLoop(opts: {
           if (trip) {
             trip.end = end;
             if (event.reason) trip.stopReason = event.reason;
-            if (event.errorCode) trip.errorCode = event.errorCode;
+            if (event.errorCode && !omitEventContent) {
+              trip.errorCode = event.errorCode;
+            }
           }
           if (event.reason === undefined || event.reason === "error") {
             modelSpansAwaitingFinalError.add(tripIndex);
@@ -1096,7 +1148,7 @@ export async function instrumentAgentLoop(opts: {
           ...(event.id ? { callId: event.id } : {}),
           startMs: Date.now(),
           toolName: event.tool,
-          input: event.input,
+          input: event.omitFromPersistedHistory === true ? {} : event.input,
           otelSpan: null,
         };
         pendingTools.set(counter, entry);
@@ -1167,14 +1219,19 @@ export async function instrumentAgentLoop(opts: {
 
         // Local spans keep the error text; tracking keeps only its class.
         const toolErrorMessage =
-          isError && config.captureToolResults
+          isError &&
+          config.captureToolResults &&
+          event.omitFromPersistedHistory !== true
             ? sanitizeToolErrorMessage(event.result)
             : null;
         const persistedErrorMessage = isError
-          ? (toolErrorMessage ?? toolErrorSignature(event.result))
+          ? event.omitFromPersistedHistory === true
+            ? null
+            : (toolErrorMessage ?? toolErrorSignature(event.result))
           : null;
 
         const tracking = toolCallTracking(event, isError);
+        if (privateTurn) delete tracking.invalid_paths;
         if (
           counter !== undefined &&
           counter < MAX_TRACKED_GENERATION_TOOL_CALLS &&
@@ -1214,12 +1271,17 @@ export async function instrumentAgentLoop(opts: {
         }
 
         const spanMetadataFields: Record<string, unknown> = {};
-        if (config.captureToolArgs && pending) {
+        if (
+          config.captureToolArgs &&
+          pending &&
+          event.omitFromPersistedHistory !== true
+        ) {
           spanMetadataFields.input = redactSensitiveFields(pending.input);
         }
         if (
           !isError &&
           config.captureToolResults &&
+          event.omitFromPersistedHistory !== true &&
           typeof event.result === "string"
         ) {
           spanMetadataFields.output = sanitizeToolErrorMessage(event.result);
@@ -1293,12 +1355,14 @@ export async function instrumentAgentLoop(opts: {
               "Model attempt failed before streaming and was retried.",
             );
           }
-          const capturedMessages = config.capturePrompts
-            ? prepareCapturedModelInput(messages)
-            : undefined;
+          const capturedMessages =
+            config.capturePrompts && !privateTurn
+              ? prepareCapturedModelInput(messages)
+              : undefined;
           pendingModelInput = Array.isArray(capturedMessages)
             ? capturedMessages
             : undefined;
+          pendingModelInputOmitted = privateTurn;
           pendingModelInputStartedAt = attemptStartedAt;
           pendingModelInputDispatched = false;
           return loopOpts.onModelInput?.(messages);
@@ -1325,16 +1389,21 @@ export async function instrumentAgentLoop(opts: {
     if (err instanceof IncompleteAgentRunError) usage = err.usage;
     const classification = opts.classifyError?.(err) ?? null;
     runStatus = classification?.status ?? "error";
-    errorMessage = redactCapturedError(
-      classification?.errorMessage === undefined
-        ? (err?.message ?? String(err))
-        : classification.errorMessage,
-    );
+    errorMessage = privateTurn
+      ? "Private content omitted"
+      : redactCapturedError(
+          classification?.errorMessage === undefined
+            ? (err?.message ?? String(err))
+            : classification.errorMessage,
+        );
     errorHttpStatus = httpStatusFromError(err);
-    errorCode = typeof err?.errorCode === "string" ? err.errorCode : undefined;
+    errorCode =
+      !privateTurn && typeof err?.errorCode === "string"
+        ? err.errorCode
+        : undefined;
     const errorMetadata = classification?.metadata ?? null;
     runMetadata =
-      runMetadata || errorMetadata
+      !privateTurn && (runMetadata || errorMetadata)
         ? { ...(runMetadata ?? {}), ...(errorMetadata ?? {}) }
         : null;
     throw err;
@@ -1430,7 +1499,7 @@ export async function instrumentAgentLoop(opts: {
           const interruptedMetadata: Record<string, unknown> = {
             [TOOL_ERROR_DETAIL_METADATA_KEY]: "full",
           };
-          if (config.captureToolArgs) {
+          if (config.captureToolArgs && !privateTurn) {
             interruptedMetadata.input = redactSensitiveFields(pending.input);
           }
           spans.push({
@@ -1542,31 +1611,47 @@ export async function instrumentAgentLoop(opts: {
           .filter(({ trip }) => trip.dispatchStarted);
         const generations =
           dispatchedRoundTrips.length > 0
-            ? dispatchedRoundTrips.map(({ trip, index }, generationIndex) => ({
-                spanId: trip.spanId,
-                model: trip.usage?.model ?? runUsage.model,
-                createdAt: trip.start,
-                endedAt: trip.end,
-                latencyMs: Math.max(0, trip.end - trip.start),
-                callUsage: trip.usage,
-                stopReason: trip.stopReason,
-                errorMessage: trip.errorMessage,
-                tokensKnown: trip.usage !== undefined,
-                input: trip.input,
-                assistantText: trip.assistantText.parts.join(""),
-                assistantTextTruncated: trip.assistantText.truncated,
-                toolSpans: collectedToolSpans.filter(
-                  (span) => toolSpanRoundTrip.get(span.id) === index,
-                ),
-                toolDetails: [...generationToolCalls.entries()]
-                  .filter(
-                    ([counter]) => toolCounterRoundTrip.get(counter) === index,
-                  )
-                  .sort(([a], [b]) => a - b)
-                  .map(([, detail]) => detail),
-                isFirst: generationIndex === 0,
-                isLast: generationIndex === dispatchedRoundTrips.length - 1,
-              }))
+            ? dispatchedRoundTrips.map(({ trip, index }, generationIndex) => {
+                const omitContent =
+                  privateModelRoundTrips.has(index) ||
+                  (privateTurn &&
+                    generationIndex === dispatchedRoundTrips.length - 1);
+                return {
+                  spanId: trip.spanId,
+                  model: trip.usage?.model ?? runUsage.model,
+                  createdAt: trip.start,
+                  endedAt: trip.end,
+                  latencyMs: Math.max(0, trip.end - trip.start),
+                  callUsage: trip.usage,
+                  stopReason: trip.stopReason,
+                  errorMessage: omitContent ? null : trip.errorMessage,
+                  tokensKnown: trip.usage !== undefined,
+                  input: omitContent ? undefined : trip.input,
+                  assistantText: omitContent
+                    ? ""
+                    : trip.assistantText.parts.join(""),
+                  assistantTextTruncated: omitContent
+                    ? false
+                    : trip.assistantText.truncated,
+                  toolSpans: omitContent
+                    ? []
+                    : collectedToolSpans.filter(
+                        (span) => toolSpanRoundTrip.get(span.id) === index,
+                      ),
+                  toolDetails: omitContent
+                    ? []
+                    : [...generationToolCalls.entries()]
+                        .filter(
+                          ([counter]) =>
+                            toolCounterRoundTrip.get(counter) === index,
+                        )
+                        .sort(([a], [b]) => a - b)
+                        .map(([, detail]) => detail),
+                  privateContentOmitted: omitContent,
+                  isFirst: generationIndex === 0,
+                  isLast: generationIndex === dispatchedRoundTrips.length - 1,
+                };
+              })
             : modelDispatchCount > 0
               ? [
                   {
@@ -1578,18 +1663,26 @@ export async function instrumentAgentLoop(opts: {
                     callUsage: usage,
                     stopReason: undefined as string | undefined,
                     tokensKnown: usageReported,
-                    input:
-                      pendingModelInput ??
-                      (config.capturePrompts
-                        ? prepareCapturedModelInput(requestMessages)
-                        : requestMessages),
-                    assistantText: assistantTextCapture.parts.join(""),
-                    assistantTextTruncated: assistantTextCapture.truncated,
+                    input: privateTurn
+                      ? undefined
+                      : (pendingModelInput ??
+                        (config.capturePrompts
+                          ? prepareCapturedModelInput(requestMessages)
+                          : requestMessages)),
+                    assistantText: privateTurn
+                      ? ""
+                      : assistantTextCapture.parts.join(""),
+                    assistantTextTruncated: privateTurn
+                      ? false
+                      : assistantTextCapture.truncated,
                     errorMessage: undefined,
-                    toolSpans: collectedToolSpans,
-                    toolDetails: [...generationToolCalls.entries()]
-                      .sort(([a], [b]) => a - b)
-                      .map(([, detail]) => detail),
+                    toolSpans: privateTurn ? [] : collectedToolSpans,
+                    toolDetails: privateTurn
+                      ? []
+                      : [...generationToolCalls.entries()]
+                          .sort(([a], [b]) => a - b)
+                          .map(([, detail]) => detail),
+                    privateContentOmitted: privateTurn,
                     isFirst: true,
                     isLast: true,
                   },
@@ -1630,15 +1723,17 @@ export async function instrumentAgentLoop(opts: {
             generation.stopReason === "max_tokens" ||
             (generationStatus === "error" &&
               generation.assistantText.length > 0);
-          const generationContent = buildGenerationContent({
-            config,
-            messages: generation.input,
-            assistantText: generation.assistantText,
-            assistantTextTruncated:
-              generation.assistantTextTruncated || assistantTextIncomplete,
-            toolSpans: generation.toolSpans,
-            toolCallIds: toolSpanCallId,
-          });
+          const generationContent = generation.privateContentOmitted
+            ? {}
+            : buildGenerationContent({
+                config,
+                messages: generation.input,
+                assistantText: generation.assistantText,
+                assistantTextTruncated:
+                  generation.assistantTextTruncated || assistantTextIncomplete,
+                toolSpans: generation.toolSpans,
+                toolCallIds: toolSpanCallId,
+              });
           const capturedContent = config.capturePrompts
             ? {
                 ...(generationContent.aiInput !== undefined
@@ -1997,7 +2092,7 @@ export async function instrumentAgentLoop(opts: {
         await Promise.all(
           [...pendingOtelModelSpans.values()].map((entry) => entry.spanPromise),
         );
-        if (usage && modelRoundTrips.length === 0) {
+        if (usage && modelRoundTrips.length === 0 && modelDispatchCount > 0) {
           const aggregateLlmSpan = await withAgentSpanContext(otelRunSpan, () =>
             startAgentSpan(
               `chat ${loopOpts.model}`,

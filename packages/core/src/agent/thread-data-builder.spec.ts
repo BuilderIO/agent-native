@@ -1078,6 +1078,32 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("clears all rejected text across completed tools when requested", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Rejected earlier text" } },
+      {
+        seq: 1,
+        event: {
+          type: "tool_start",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      { seq: 2, event: { type: "tool_done", tool: "query", result: "1" } },
+      { seq: 3, event: { type: "text", text: "Rejected later text" } },
+      { seq: 4, event: { type: "clear", allText: true } },
+      { seq: 5, event: { type: "text", text: "Corrected answer" } },
+    ];
+    expect(buildAssistantMessage(events, "run-clear-all")?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "query",
+        result: "1",
+      }),
+      { type: "text", text: "Corrected answer" },
+    ]);
+  });
+
   it("ignores a trailing clear so a rebuild cannot wipe the transcript", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "Here is the answer" } },

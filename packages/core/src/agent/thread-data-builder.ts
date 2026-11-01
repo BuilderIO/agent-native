@@ -72,6 +72,7 @@ interface ContentPart {
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   chatUIResult?: unknown;
+  omitFromPersistedHistory?: true;
   activity?: boolean;
   approval?: {
     approvalKey: string;
@@ -337,7 +338,16 @@ export function buildAssistantMessage(
   for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
       if (index > lastNonClearIndex) continue;
-      clearAssistantDraftContent(content);
+      clearAssistantDraftContent(content, event.allText === true);
+      continue;
+    }
+
+    if (
+      event.omitFromPersistedHistory === true &&
+      event.type !== "tool_start" &&
+      event.type !== "tool_done" &&
+      event.type !== "approval_required"
+    ) {
       continue;
     }
 
@@ -366,7 +376,10 @@ export function buildAssistantMessage(
       const toolCallId =
         explicitToolCallId ||
         (runId ? `${runId}:tc_${toolCallCounter}` : `tc_${toolCallCounter}`);
-      const args = replayedToolInput(event.input);
+      const args =
+        event.omitFromPersistedHistory === true
+          ? {}
+          : replayedToolInput(event.input);
       content.push({
         type: "tool-call",
         toolCallId,
@@ -376,6 +389,9 @@ export function buildAssistantMessage(
         ...(executionStepId ? { executionStepId } : {}),
         ...(event.inputFingerprint
           ? { inputFingerprint: event.inputFingerprint }
+          : {}),
+        ...(event.omitFromPersistedHistory === true
+          ? { omitFromPersistedHistory: true }
           : {}),
       });
       continue;
@@ -493,10 +509,16 @@ export function buildAssistantMessage(
             continue;
           }
         }
-        part.result = event.result ?? "";
         if (executionStepId) part.executionStepId = executionStepId;
         if (event.inputFingerprint) {
           part.inputFingerprint = event.inputFingerprint;
+        }
+        part.result =
+          event.omitFromPersistedHistory === true
+            ? "[Private content omitted]"
+            : (event.result ?? "");
+        if (event.omitFromPersistedHistory === true) {
+          part.omitFromPersistedHistory = true;
         }
         // Older journals have approval_required but no pause marker on tool_done.
         const inferredLegacyPause =
@@ -520,11 +542,13 @@ export function buildAssistantMessage(
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
         }
-        if (event.artifacts !== undefined) part.artifacts = event.artifacts;
-        if (event.mcpApp) part.mcpApp = event.mcpApp;
-        if (event.chatUI) part.chatUI = event.chatUI;
-        if (event.chatUI && event.chatUIResult !== undefined) {
-          part.chatUIResult = event.chatUIResult;
+        if (event.omitFromPersistedHistory !== true) {
+          if (event.artifacts !== undefined) part.artifacts = event.artifacts;
+          if (event.mcpApp) part.mcpApp = event.mcpApp;
+          if (event.chatUI) part.chatUI = event.chatUI;
+          if (event.chatUI && event.chatUIResult !== undefined) {
+            part.chatUIResult = event.chatUIResult;
+          }
         }
       }
       continue;
@@ -555,7 +579,12 @@ export function buildAssistantMessage(
       if (event.errorCode === "run_timeout" && event.recoverable) {
         continue;
       }
-      const normalized = normalizeChatError(event.error, event.errorCode);
+      const normalized = normalizeChatError(
+        event.omitFromPersistedHistory === true
+          ? "Private content omitted"
+          : event.error,
+        event.errorCode,
+      );
       runError = {
         message: normalized.message,
         ...(event.errorCode ? { errorCode: event.errorCode } : {}),
@@ -724,7 +753,10 @@ export function buildSteeredUserMessage(
   };
 }
 
-function clearAssistantDraftContent(content: ContentPart[]): void {
+function clearAssistantDraftContent(
+  content: ContentPart[],
+  allText = false,
+): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
@@ -733,7 +765,8 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
       part.activity !== true &&
       part.result !== undefined
     ) {
-      return;
+      if (!allText) return;
+      continue;
     }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
@@ -1331,6 +1364,9 @@ function assistantReplayContent(
       ...(typeof part.inputFingerprint === "string"
         ? { inputFingerprint: part.inputFingerprint }
         : {}),
+      ...(part.omitFromPersistedHistory === true
+        ? { omitFromPersistedHistory: true as const }
+        : {}),
     });
     const result = replayedToolResult(part);
     results.push({
@@ -1353,6 +1389,9 @@ function assistantReplayContent(
           : {}),
       ...(part.isError === true || result.outcome === "unknown"
         ? { isError: true }
+        : {}),
+      ...(part.omitFromPersistedHistory === true
+        ? { omitFromPersistedHistory: true as const }
         : {}),
     });
   }
@@ -1400,6 +1439,19 @@ export function threadDataToEngineMessages(
   for (const [index, entry] of entries.entries()) {
     const m = entry?.message ?? entry;
     if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
+    if (m.omitFromPersistedHistory === true) {
+      messages.push({
+        role: m.role,
+        content: [
+          {
+            type: "text",
+            text: "[Private content omitted]",
+            omitFromPersistedHistory: true,
+          },
+        ],
+      });
+      continue;
+    }
     const text = threadMessageTextForEngine(m);
     if (replaysTools(m)) {
       if (toolPayloadAllowed.has(index)) {
@@ -1833,6 +1885,7 @@ export interface MergeThreadDataOptions {
   preserveExistingTopLevelKeys?: boolean;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
   trustedRunSequenceResetIds?: ReadonlySet<string>;
+  privateActionNames?: ReadonlySet<string>;
 }
 
 export interface ThreadAnnotationSnapshotConflict {
@@ -4180,6 +4233,299 @@ function pruneClaimedQueuedMessages(repo: any): any {
   };
 }
 
+const PRIVATE_SNAPSHOT_IDENTITY_FIELDS = new Set([
+  "id",
+  "type",
+  "role",
+  "status",
+  "runId",
+  "threadId",
+  "messageId",
+  "activeMessageId",
+  "toolCallId",
+  "invocationId",
+  "sequence",
+  "lastSequence",
+  "occurredAt",
+  "createdAt",
+  "startedAt",
+  "completedAt",
+  "updatedAt",
+  "parentId",
+  "turnId",
+  "isError",
+  "approvalPause",
+  "completedSideEffect",
+  "durationMs",
+  "elapsedSeconds",
+  "progress",
+  "size",
+  "mediaType",
+  "format",
+  "version",
+  "sequenceByRun",
+  "activeRunIds",
+  "parentTaskId",
+  "assignedAgentId",
+  "agentId",
+  "agentCallId",
+  "taskId",
+  "widgetId",
+  "itemId",
+  "approvalId",
+  "optionId",
+  "expiresAt",
+  "count",
+  "inputTokens",
+  "outputTokens",
+  "totalTokens",
+  "cost",
+  "currency",
+  "omitFromPersistedHistory",
+]);
+
+function privateActionName(
+  record: any,
+  names: ReadonlySet<string>,
+): string | null {
+  const candidates = [
+    record?.toolName,
+    record?.name,
+    record?.action,
+    record?.toolCall?.name,
+    record?.invocation?.action,
+  ];
+  return (
+    candidates.find(
+      (candidate): candidate is string =>
+        typeof candidate === "string" && names.has(candidate),
+    ) ?? null
+  );
+}
+
+function collectPrivateSnapshotContext(
+  value: unknown,
+  actionNames: ReadonlySet<string>,
+  runIds: Set<string>,
+  messageIds: Set<string>,
+  foundPrivateContent: { value: boolean },
+  inheritedRunId?: string,
+  inheritedMessageId?: string,
+): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectPrivateSnapshotContext(
+        entry,
+        actionNames,
+        runIds,
+        messageIds,
+        foundPrivateContent,
+        inheritedRunId,
+        inheritedMessageId,
+      );
+    }
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  const record = value as Record<string, any>;
+  const runId =
+    (typeof record.runId === "string" && record.runId) || inheritedRunId;
+  const messageId =
+    (record.role === "assistant" && typeof record.id === "string"
+      ? record.id
+      : undefined) ??
+    (typeof record.messageId === "string" ? record.messageId : undefined) ??
+    inheritedMessageId;
+  if (
+    privateActionName(record, actionNames) ||
+    record.omitFromPersistedHistory === true
+  ) {
+    foundPrivateContent.value = true;
+    if (runId) runIds.add(runId);
+    const identifiedMessageId =
+      messageId ?? record.message?.id ?? record.toolCall?.messageId;
+    if (typeof identifiedMessageId === "string") {
+      messageIds.add(identifiedMessageId);
+    }
+  }
+  for (const child of Object.values(record)) {
+    collectPrivateSnapshotContext(
+      child,
+      actionNames,
+      runIds,
+      messageIds,
+      foundPrivateContent,
+      runId,
+      messageId,
+    );
+  }
+}
+
+function omitPrivateSnapshotContent(
+  value: unknown,
+  privateRunIds: ReadonlySet<string>,
+  privateMessageIds: ReadonlySet<string>,
+  actionNames: ReadonlySet<string>,
+  inheritedPrivate = false,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      omitPrivateSnapshotContent(
+        entry,
+        privateRunIds,
+        privateMessageIds,
+        actionNames,
+        inheritedPrivate,
+      ),
+    );
+  }
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, any>;
+  const privateMessage =
+    typeof record.id === "string" && privateMessageIds.has(record.id);
+  const privateRun =
+    (typeof record.runId === "string" && privateRunIds.has(record.runId)) ||
+    (typeof record.metadata?.runId === "string" &&
+      privateRunIds.has(record.metadata.runId)) ||
+    (typeof record.metadata?.custom?.runId === "string" &&
+      privateRunIds.has(record.metadata.custom.runId)) ||
+    (typeof record.id === "string" && privateRunIds.has(record.id)) ||
+    inheritedPrivate ||
+    privateMessage ||
+    record.omitFromPersistedHistory === true ||
+    privateActionName(record, actionNames) !== null;
+  if (!privateRun) {
+    return Object.fromEntries(
+      Object.entries(record).map(([key, child]) => [
+        key,
+        omitPrivateSnapshotContent(
+          child,
+          privateRunIds,
+          privateMessageIds,
+          actionNames,
+          false,
+        ),
+      ]),
+    );
+  }
+  return {
+    ...Object.fromEntries(
+      Object.entries(record)
+        .filter(([key]) => PRIVATE_SNAPSHOT_IDENTITY_FIELDS.has(key))
+        .map(([key, child]) => [
+          key,
+          omitPrivateSnapshotContent(
+            child,
+            privateRunIds,
+            privateMessageIds,
+            actionNames,
+            true,
+          ),
+        ]),
+    ),
+    omitFromPersistedHistory: true,
+  };
+}
+
+function collectPrivateSnapshotContextForRepos(
+  repos: readonly unknown[],
+  actionNames: ReadonlySet<string>,
+): {
+  runIds: Set<string>;
+  messageIds: Set<string>;
+  foundPrivateContent: boolean;
+} {
+  const privateRunIds = new Set<string>();
+  const privateMessageIds = new Set<string>();
+  const foundPrivateContent = { value: false };
+  for (const candidate of repos) {
+    collectPrivateSnapshotContext(
+      candidate,
+      actionNames,
+      privateRunIds,
+      privateMessageIds,
+      foundPrivateContent,
+    );
+    const agentKit = (candidate as any)?.agentKit;
+    for (const [messageId, runId] of snapshotMessageRunIds(agentKit)) {
+      if (privateRunIds.has(runId)) privateMessageIds.add(messageId);
+    }
+  }
+  return {
+    runIds: privateRunIds,
+    messageIds: privateMessageIds,
+    foundPrivateContent: foundPrivateContent.value,
+  };
+}
+
+/** True when a snapshot contains a marked private action or its redacted turn. */
+export function hasPrivateActionHistory(
+  repo: unknown,
+  actionNames: ReadonlySet<string>,
+  relatedRepos: readonly unknown[] = [],
+): boolean {
+  return collectPrivateSnapshotContextForRepos(
+    [repo, ...relatedRepos],
+    actionNames,
+  ).foundPrivateContent;
+}
+
+/** Whether each private run is represented by an assistant message in the projection. */
+export function hasPrivateRunProjections(
+  repo: unknown,
+  privateRunIds: readonly string[],
+): boolean {
+  if (!repo || typeof repo !== "object") return false;
+  const record = repo as Record<string, unknown>;
+  if (!Array.isArray(record.messages)) return false;
+  const messageRuns = snapshotMessageRunIds(record.agentKit);
+  const projected = new Set<string>();
+  for (const entry of record.messages) {
+    if (!entry || typeof entry !== "object") continue;
+    const outer = entry as Record<string, unknown>;
+    const value = outer.message ?? entry;
+    if (!value || typeof value !== "object") continue;
+    const message = value as Record<string, unknown>;
+    if (message.role !== "assistant") continue;
+    const metadata =
+      message.metadata && typeof message.metadata === "object"
+        ? (message.metadata as Record<string, unknown>)
+        : undefined;
+    const custom =
+      metadata?.custom && typeof metadata.custom === "object"
+        ? (metadata.custom as Record<string, unknown>)
+        : undefined;
+    const runId =
+      message.runId ??
+      metadata?.runId ??
+      custom?.runId ??
+      (typeof message.id === "string"
+        ? messageRuns.get(message.id)
+        : undefined);
+    if (typeof runId === "string") projected.add(runId);
+  }
+  return privateRunIds.every((id) => projected.has(id));
+}
+
+/** Redacts client snapshots for private actions before a route can store them. */
+export function sanitizeThreadDataForPrivateActions(
+  repo: any,
+  actionNames: ReadonlySet<string>,
+  relatedRepos: readonly unknown[] = [],
+): any {
+  const context = collectPrivateSnapshotContextForRepos(
+    [repo, ...relatedRepos],
+    actionNames,
+  );
+  if (!context.foundPrivateContent) return repo;
+  return omitPrivateSnapshotContent(
+    repo,
+    context.runIds,
+    context.messageIds,
+    actionNames,
+  );
+}
+
 export function mergeThreadDataForClientSave(
   existingRepo: any,
   incomingRepo: any,
@@ -4189,8 +4535,20 @@ export function mergeThreadDataForClientSave(
     options.preserveExistingQueuedMessages ?? true;
   const preserveExistingTopLevelKeys =
     options.preserveExistingTopLevelKeys ?? true;
-  const existingNormalized = normalizeThreadRepository(existingRepo);
-  const incomingNormalized = normalizeThreadRepository(incomingRepo);
+  let existingNormalized = normalizeThreadRepository(existingRepo);
+  let incomingNormalized = normalizeThreadRepository(incomingRepo);
+  if (options.privateActionNames?.size) {
+    existingNormalized = sanitizeThreadDataForPrivateActions(
+      existingNormalized,
+      options.privateActionNames,
+      [incomingNormalized],
+    );
+    incomingNormalized = sanitizeThreadDataForPrivateActions(
+      incomingNormalized,
+      options.privateActionNames,
+      [existingNormalized],
+    );
+  }
   const merged =
     incomingNormalized && typeof incomingNormalized === "object"
       ? { ...incomingNormalized }

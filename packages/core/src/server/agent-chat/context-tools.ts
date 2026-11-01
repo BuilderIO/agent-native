@@ -13,6 +13,111 @@ import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import { getRequestRunContext } from "../request-context.js";
 import { createOpenSettingsPageTool } from "./open-settings-page-tool.js";
 
+function isDataWidgetRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeDataWidgetToolInput(args: unknown): unknown {
+  if (!isDataWidgetRecord(args)) return args;
+  let normalizedArgs = args;
+  const table = args.table;
+  if (isDataWidgetRecord(table) && Array.isArray(table.columns)) {
+    const columns = table.columns;
+    const rows = table.rows;
+    if (Array.isArray(rows) && !rows.every(isDataWidgetRecord)) {
+      const keys = columns.map((column) => {
+        if (!isDataWidgetRecord(column) || typeof column.key !== "string") {
+          throw new ActionInputValidationError(
+            "Each table column needs a key before its rows can be rendered.",
+          );
+        }
+        return column.key;
+      });
+      if (new Set(keys).size !== keys.length) {
+        throw new ActionInputValidationError(
+          "Table column keys must be distinct.",
+        );
+      }
+      const normalizedRows = rows.map((row, index) => {
+        if (!Array.isArray(row) || row.length !== keys.length) {
+          throw new ActionInputValidationError(
+            `Table row ${index + 1} must provide one value for each column, in column order.`,
+          );
+        }
+        return Object.fromEntries(
+          keys.map((key, valueIndex) => [key, row[valueIndex]]),
+        );
+      });
+      normalizedArgs = { ...args, table: { ...table, rows: normalizedRows } };
+    }
+  }
+
+  const chartSeries = normalizedArgs.chartSeries;
+  if (!isDataWidgetRecord(chartSeries) || !Array.isArray(chartSeries.points)) {
+    return normalizedArgs;
+  }
+
+  const xKey = chartSeries.xKey;
+  const series = chartSeries.series;
+  if (typeof xKey !== "string" || !Array.isArray(series)) return normalizedArgs;
+
+  const seriesKeys = series.map((item) => {
+    if (!isDataWidgetRecord(item) || typeof item.key !== "string") {
+      throw new ActionInputValidationError(
+        "Each chart series needs a key before its points can be rendered.",
+      );
+    }
+    return item.key;
+  });
+  if (
+    new Set(seriesKeys).size !== seriesKeys.length ||
+    seriesKeys.includes(xKey)
+  ) {
+    throw new ActionInputValidationError(
+      "Chart xKey and series keys must be distinct.",
+    );
+  }
+  if (chartSeries.points.length === 0) {
+    throw new ActionInputValidationError(
+      "A chart needs at least one complete point.",
+    );
+  }
+
+  const data = chartSeries.points.map((point, index) => {
+    if (
+      !isDataWidgetRecord(point) ||
+      typeof point.xValue !== "string" ||
+      !point.xValue.trim()
+    ) {
+      throw new ActionInputValidationError(
+        `Chart point ${index + 1} needs a non-empty xValue and one numeric value per series.`,
+      );
+    }
+    const values = point.values;
+    if (
+      !Array.isArray(values) ||
+      values.length !== seriesKeys.length ||
+      values.some(
+        (value) => typeof value !== "number" || !Number.isFinite(value),
+      )
+    ) {
+      throw new ActionInputValidationError(
+        `Chart point ${index + 1} must provide one finite numeric value for each series, in series order.`,
+      );
+    }
+    return Object.fromEntries([
+      [xKey, point.xValue],
+      ...seriesKeys.map((key, valueIndex) => [key, values[valueIndex]]),
+    ]);
+  });
+
+  const { points: _points, ...chartSeriesWithoutPoints } = chartSeries;
+  return {
+    ...normalizedArgs,
+    chartSeries: { ...chartSeriesWithoutPoints, data },
+  };
+}
+
 export const FRAMEWORK_CONTEXT_SECTIONS: Record<string, string> = {
   embeds: `### Inline Embeds
 
@@ -552,7 +657,12 @@ function createAskQuestionTool(): ActionEntry {
   return { ...entry, run: action.run };
 }
 
-export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
+export function createDataWidgetActionEntries(
+  validateDataWidget?: (
+    input: Parameters<ActionEntry["run"]>[0],
+    context: Parameters<ActionEntry["run"]>[1],
+  ) => void | Promise<void>,
+): Record<string, ActionEntry> {
   return frameworkMcpTools({
     "render-data-widget": {
       readOnly: true,
@@ -711,8 +821,13 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
           required: ["widget"],
         },
       },
-      run: async (args) =>
-        clampDataWidgetRows(dataWidgetResultSchema.parse(args)),
+      run: async (args, context) => {
+        const result = dataWidgetResultSchema.parse(
+          normalizeDataWidgetToolInput(args),
+        );
+        await validateDataWidget?.(args, context);
+        return clampDataWidgetRows(result);
+      },
     },
   });
 }

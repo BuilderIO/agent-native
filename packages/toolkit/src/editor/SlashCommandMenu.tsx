@@ -181,11 +181,13 @@ export function createImageSlashCommand(
 
 export interface SlashCommandMenuProps {
   editor: Editor;
+  heading?: string;
   items?: SlashCommandItem[];
 }
 
 export function SlashCommandMenu({
   editor,
+  heading = "Blocks",
   items = DEFAULT_SLASH_COMMANDS,
 }: SlashCommandMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -337,7 +339,7 @@ export function SlashCommandMenu({
       onMouseDown={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="an-rich-md-slash-heading">Blocks</div>
+      <div className="an-rich-md-slash-heading">{heading}</div>
       {filteredCommands.map((command, index) => (
         <button
           key={command.title}

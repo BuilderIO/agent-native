@@ -549,6 +549,17 @@ export const agentRunsStore = defineStore({
         );
       },
     },
+    {
+      name: "retained-private-thread-runs",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS agent_thread_private_runs (
+        thread_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        PRIMARY KEY (thread_id, run_id)
+      )`,
+      ],
+    },
   ],
 });
 
@@ -4358,13 +4369,211 @@ export async function getRunAbortState(
   };
 }
 
-function persistedRunEventData(
+function omitPersistedRunEventContent(event: Record<string, any>) {
+  const base = {
+    type: event.type,
+    omitFromPersistedHistory: true,
+  };
+  switch (event.type) {
+    case "text":
+    case "thinking":
+      return { ...base, text: "" };
+    case "suggestions":
+      return { ...base, suggestions: [] };
+    case "rich_event":
+      return {
+        ...base,
+        event: {
+          namespace: "agent-native",
+          name: "private-content-omitted",
+          data: {},
+        },
+      };
+    case "model_stream":
+      return {
+        ...base,
+        status: event.status,
+      };
+    case "activity":
+      return {
+        ...base,
+        label: "Private content omitted",
+        ...(typeof event.tool === "string" ? { tool: event.tool } : {}),
+        ...(typeof event.id === "string" ? { id: event.id } : {}),
+      };
+    case "tool_input_start":
+      return {
+        ...base,
+        ...(typeof event.tool === "string" ? { tool: event.tool } : {}),
+        ...(typeof event.id === "string" ? { id: event.id } : {}),
+      };
+    case "tool_input_delta":
+      return {
+        ...base,
+        ...(typeof event.tool === "string" ? { tool: event.tool } : {}),
+        ...(typeof event.id === "string" ? { id: event.id } : {}),
+        text: "",
+      };
+    case "tool_start":
+      return {
+        ...base,
+        tool: event.tool,
+        ...(typeof event.id === "string" ? { id: event.id } : {}),
+        input: {},
+      };
+    case "tool_done":
+      return {
+        ...base,
+        tool: event.tool,
+        ...(typeof event.id === "string" ? { id: event.id } : {}),
+        input: {},
+        result: "[Private content omitted]",
+        ...(typeof event.isError === "boolean"
+          ? { isError: event.isError }
+          : {}),
+        ...(typeof event.completedSideEffect === "boolean"
+          ? { completedSideEffect: event.completedSideEffect }
+          : {}),
+        ...(event.approvalPause === true ? { approvalPause: true } : {}),
+        ...(event.outcomeUnknown === true ? { outcomeUnknown: true } : {}),
+        ...(event.replayed === true ? { replayed: true } : {}),
+      };
+    case "approval_required":
+      return {
+        ...base,
+        tool: event.tool,
+        input: {},
+        approvalKey: approvalKeyForHistory(event.approvalKey),
+        ...(event.allowPersistentApproval === false
+          ? { allowPersistentApproval: false }
+          : {}),
+        ...(typeof event.toolCallId === "string"
+          ? { toolCallId: event.toolCallId }
+          : {}),
+        ...(typeof event.askId === "string" ? { askId: event.askId } : {}),
+      };
+    case "connection_required":
+      return {
+        ...base,
+        requestId: event.requestId,
+        provider: event.provider,
+        reason: event.reason,
+        ...(typeof event.appId === "string" ? { appId: event.appId } : {}),
+      };
+    case "agent_call":
+      return {
+        ...base,
+        agent: event.agent,
+        status: event.status,
+        ...(typeof event.agentCallId === "string"
+          ? { agentCallId: event.agentCallId }
+          : {}),
+        ...(typeof event.taskId === "string" ? { taskId: event.taskId } : {}),
+        ...(typeof event.durationMs === "number"
+          ? { durationMs: event.durationMs }
+          : {}),
+        ...(typeof event.terminalCode === "string"
+          ? { terminalCode: event.terminalCode }
+          : {}),
+      };
+    case "agent_call_progress":
+      return {
+        ...base,
+        agent: event.agent,
+        state: "private_content_omitted",
+        elapsedSeconds: event.elapsedSeconds,
+        detail: "",
+        ...(typeof event.agentCallId === "string"
+          ? { agentCallId: event.agentCallId }
+          : {}),
+      };
+    case "agent_call_text":
+      return {
+        ...base,
+        agent: event.agent,
+        text: "",
+        ...(typeof event.agentCallId === "string"
+          ? { agentCallId: event.agentCallId }
+          : {}),
+      };
+    case "agent_call_activity":
+      return {
+        ...base,
+        agent: event.agent,
+        snapshot: {},
+        ...(typeof event.agentCallId === "string"
+          ? { agentCallId: event.agentCallId }
+          : {}),
+      };
+    case "agent_task":
+      return {
+        ...base,
+        taskId: event.taskId,
+        threadId: event.threadId,
+        description: "",
+        status: event.status,
+      };
+    case "agent_task_update":
+      return {
+        ...base,
+        taskId: event.taskId,
+        preview: "",
+      };
+    case "agent_task_complete":
+      return { ...base, taskId: event.taskId, summary: "" };
+    case "done":
+      return {
+        ...base,
+        ...(event.reason ? { reason: event.reason } : {}),
+      };
+    case "error":
+      return {
+        ...base,
+        error: "Private content omitted",
+        ...(event.recoverable === true ? { recoverable: true } : {}),
+        ...(event.providerRetryable === true
+          ? { providerRetryable: true }
+          : {}),
+      };
+    case "loop_limit":
+      return {
+        ...base,
+        ...(typeof event.maxIterations === "number"
+          ? { maxIterations: event.maxIterations }
+          : {}),
+      };
+    case "tripwire":
+      return {
+        ...base,
+        reason: "Private content omitted",
+      };
+    case "auto_continue":
+      return {
+        ...base,
+        reason: event.reason,
+        ...(typeof event.maxIterations === "number"
+          ? { maxIterations: event.maxIterations }
+          : {}),
+      };
+    default:
+      return base;
+  }
+}
+
+export function persistedRunEventData(
   eventData: string,
   inputSource?: "execution",
   parsedEvent?: Record<string, unknown> & { type: string },
 ): string {
-  const stripped = stripInlineBytesFromJson(eventData, "placeholder");
   const original = parsedEvent ?? JSON.parse(eventData);
+  if (
+    original &&
+    typeof original === "object" &&
+    original.omitFromPersistedHistory === true
+  ) {
+    return JSON.stringify(omitPersistedRunEventContent(original));
+  }
+  const stripped = stripInlineBytesFromJson(eventData, "placeholder");
   if (original.type === "approval_required") {
     return JSON.stringify({
       ...(stripped === eventData ? original : JSON.parse(stripped)),
@@ -5179,6 +5388,64 @@ export interface AgentRunSummary {
   diagStage: string | null;
   threadProjectionErrorCode: string | null;
   inFlightSince: number | null;
+}
+
+export async function recordThreadPrivateRun(
+  threadId: string,
+  runId: string,
+): Promise<void> {
+  await ensureRunTables();
+  await getDbExec().execute({
+    sql: `INSERT INTO agent_thread_private_runs (thread_id, run_id) VALUES (?, ?) ON CONFLICT (thread_id, run_id) DO NOTHING`,
+    args: [threadId, runId],
+  });
+}
+
+/** Caller must establish thread access before invoking this query. */
+export async function getThreadPrivateHistoryState(threadId: string): Promise<{
+  hasPrivateHistory: boolean;
+  projectionPending: boolean;
+  privateRunIds: string[];
+}> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT
+      EXISTS (
+        SELECT 1 FROM agent_thread_private_runs p WHERE p.thread_id = ?
+        UNION ALL
+        SELECT 1 FROM agent_runs r JOIN agent_run_events e ON e.run_id = r.id
+        WHERE r.thread_id = ? AND e.event_data::jsonb @> '{"omitFromPersistedHistory":true}'::jsonb
+      ) AS has_private_history,
+      ARRAY(SELECT p.run_id FROM agent_thread_private_runs p WHERE p.thread_id = ?
+        UNION SELECT r.id FROM agent_runs r JOIN agent_run_events e ON e.run_id = r.id
+        WHERE r.thread_id = ? AND e.event_data::jsonb @> '{"omitFromPersistedHistory":true}'::jsonb) AS private_run_ids,
+      EXISTS (
+        SELECT 1 FROM agent_runs r WHERE r.thread_id = ?
+        AND (r.thread_projection_pending IS TRUE OR r.thread_projection_error_code IS NOT NULL)
+      ) AS projection_pending`,
+    args: [threadId, threadId, threadId, threadId, threadId],
+  });
+  const row = rows[0] as
+    | {
+        has_private_history?: unknown;
+        projection_pending?: unknown;
+        private_run_ids?: unknown;
+      }
+    | undefined;
+  if (
+    !row ||
+    typeof row.has_private_history !== "boolean" ||
+    typeof row.projection_pending !== "boolean" ||
+    !Array.isArray(row.private_run_ids) ||
+    !row.private_run_ids.every((id) => typeof id === "string")
+  ) {
+    throw new Error("Could not read thread privacy provenance");
+  }
+  return {
+    hasPrivateHistory: row.has_private_history,
+    projectionPending: row.projection_pending,
+    privateRunIds: row.private_run_ids as string[],
+  };
 }
 
 export async function listRunsForThread(

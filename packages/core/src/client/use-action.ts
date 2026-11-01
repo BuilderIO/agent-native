@@ -191,6 +191,7 @@ export interface ClientActionCallOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   headers?: Record<string, string>;
+  beforeSend?: () => Promise<void>;
   /** Set when the action is declared `uiOnly`, so its first request carries the UI capability. */
   uiOnly?: boolean;
   /** Sees each HTTP response, e.g. to pass to `recordActionQueryBrowserPersist`. */
@@ -242,6 +243,7 @@ export interface ActionFetchOptions {
   responseType?: "blob";
   includeRequestSource?: boolean;
   headers?: Record<string, string>;
+  beforeSend?: () => Promise<void>;
   uiOnly?: boolean;
 }
 
@@ -399,6 +401,28 @@ function canBatchActionGet(options?: InternalActionFetchOptions): boolean {
   );
 }
 
+function waitForActionSend(
+  gate: () => Promise<void>,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal) return gate();
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve()
+      .then(() => {
+        throwIfAborted(signal);
+        return gate();
+      })
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 async function performActionFetch<T>(
   name: string,
   method: string,
@@ -488,8 +512,9 @@ async function performActionFetch<T>(
   let readError: unknown;
   try {
     try {
-      const send = () =>
-        method === "GET" && canBatchActionGet(options)
+      const sendRequest = () => {
+        throwIfAborted(controller?.signal);
+        return method === "GET" && canBatchActionGet(options)
           ? fetchActionGet({
               name,
               query,
@@ -499,6 +524,13 @@ async function performActionFetch<T>(
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
             })
           : fetch(url, init);
+      };
+      const send = () =>
+        options?.beforeSend
+          ? waitForActionSend(options.beforeSend, controller?.signal).then(
+              sendRequest,
+            )
+          : sendRequest();
       const capability = presentUiCapability(
         method,
         options,
@@ -928,6 +960,7 @@ export function callAction<
     includeRequestSource: false,
     headers: options.headers,
     uiOnly: options.uiOnly,
+    beforeSend: options.beforeSend,
     onResponse: options.onResponse,
   });
 }
@@ -944,6 +977,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
     headers: options.headers,
     responseType: "blob",
     uiOnly: options.uiOnly,
+    beforeSend: options.beforeSend,
     onResponse: options.onResponse,
   });
 }
@@ -1351,6 +1385,8 @@ export function useActionQuery<
     UseQueryOptions<TResult extends undefined ? ActionResult<TName> : TResult>,
     "queryKey" | "queryFn"
   > & {
+    method?: "GET" | "POST";
+    beforeSend?: () => Promise<void>;
     queryKeyScope?: readonly unknown[];
     /**
      * The resource types this query reads (matching a write's `resources` and a
@@ -1376,6 +1412,8 @@ export function useActionQuery<
     queryKeyScope,
     resources,
     batchRefetches,
+    method = "GET",
+    beforeSend,
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
@@ -1401,9 +1439,10 @@ export function useActionQuery<
       let lastResponse: Response | undefined;
       let result: R;
       try {
-        result = await actionFetch<R>(actionName, "GET", params, {
+        result = await actionFetch<R>(actionName, method, params, {
           signal,
-          batch: canBatchActionQueryFetch(query),
+          beforeSend,
+          batch: method === "GET" && canBatchActionQueryFetch(query),
           onResponse: (response) => {
             lastResponse = response;
           },

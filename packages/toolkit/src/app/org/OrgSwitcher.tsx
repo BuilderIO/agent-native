@@ -81,6 +81,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 export interface OrgSwitcherUtilityLink {
   id: string;
@@ -470,6 +471,7 @@ export function OrgSwitcher({
   const { enabled: demoModeEnabled } = useDemoModeStatus();
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [compactTooltipOpen, setCompactTooltipOpen] = useState(false);
   const pendingOrgSwitchRef = useRef<
     | { kind: "explicit"; orgId: string; closedEarly: boolean }
     | { kind: "personal-recovery"; orgId: string }
@@ -583,7 +585,13 @@ export function OrgSwitcher({
   const handleSignOut = async () => {
     if (signingOut) return;
     setSigningOut(true);
-    await signOut();
+    try {
+      await signOut();
+    } catch {
+      toast.error(t("agentChat.auth.logOutFailed"));
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   const handleCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -1025,13 +1033,27 @@ export function OrgSwitcher({
         {!hideBuilderCreditNotice && <BuilderCreditNotice compact={compact} />}
         <DropdownMenu open={open} onOpenChange={handleOpenChange}>
           {compact ? (
-            // The menu trigger has to sit directly on the button: both Radix
-            // slots merge their props into the same DOM node, and a provider
-            // between them would swallow the click that opens the menu.
             <TooltipProvider delayDuration={0}>
-              <Tooltip>
+              <Tooltip
+                open={compactTooltipOpen}
+                onOpenChange={setCompactTooltipOpen}
+              >
                 <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+                  <span
+                    className="inline-flex"
+                    onFocusCapture={() => setCompactTooltipOpen(true)}
+                    onBlurCapture={(event) => {
+                      if (
+                        !event.currentTarget.contains(
+                          event.relatedTarget as Node | null,
+                        )
+                      ) {
+                        setCompactTooltipOpen(false);
+                      }
+                    }}
+                  >
+                    <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   <span className="block font-medium">{displayName}</span>

@@ -234,9 +234,9 @@ export interface PromptComposerProps {
    */
   extensionTools?: boolean;
   /** Programmatically seed the composer with plain text. */
-  initialText?: string;
+  initialText?: string | undefined;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
-  initialTextKey?: string | number;
+  initialTextKey?: string | number | undefined;
   /** Let an explicit host handoff replace a saved draft. */
   initialTextOverridesSavedDraft?: boolean;
   /** Skip onTextChange notifications caused only by initial draft setup. */

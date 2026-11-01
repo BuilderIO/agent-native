@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { setCookie, type H3Event } from "h3";
+import { createError, setCookie, type H3Event } from "h3";
 
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -47,6 +47,17 @@ const EMPTY_CONTEXT: OrgContext = {
 };
 const ORG_SCOPE_RESOLUTION_UNAVAILABLE_KEY =
   "__anOrgScopeResolutionUnavailable";
+const ORG_SCOPE_FORBIDDEN_KEY = "__anOrgScopeForbidden";
+
+export function hasForbiddenOrgScope(event: {
+  context?: Record<string, unknown>;
+}): boolean {
+  return event.context?.[ORG_SCOPE_FORBIDDEN_KEY] === true;
+}
+
+function markForbiddenOrgScope(event: H3Event): void {
+  (event.context as Record<string, unknown>)[ORG_SCOPE_FORBIDDEN_KEY] = true;
+}
 
 export function hasOrgScopeResolutionUnavailable(event: {
   context?: Record<string, unknown>;
@@ -462,6 +473,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     selectedOrgId &&
     !memberships.some((membership) => membership.orgId === selectedOrgId)
   ) {
+    markForbiddenOrgScope(event);
     return { email, orgId: null, orgName: null, role: null };
   }
   if (selectedOrgId && memberships.some((m) => m.orgId === selectedOrgId)) {
@@ -579,8 +591,10 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
       args: [sessionOrgId, email.toLowerCase()],
     });
     if (pending.rows.length > 0) {
+      markForbiddenOrgScope(event);
       return { email, orgId: null, orgName: null, role: null };
     }
+    markForbiddenOrgScope(event);
     return { email, orgId: null, orgName: null, role: null };
   }
 
@@ -590,6 +604,9 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     autoCreateDefaultOrgEnabled()
   ) {
     const created = await tryCreateDefaultOrg(exec, email, session, event);
+    if (created === "memberships-refreshed") {
+      return resolveOrgContextUncached(event);
+    }
     if (created) return created;
     // Creation failed (race / DB error); fall through with an empty org context
     // so non-blocking invite/domain UI can still surface recovery options.
@@ -597,6 +614,26 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   }
 
   if (memberships.length === 0) {
+    if (
+      !isDelegatedOrgMember &&
+      getAppConfig().access.orgCreation === "closed" &&
+      session.emailVerified === true &&
+      isBootstrapAdmin(email) &&
+      (await bootstrapEmptyOrganizationForRequest(email, event))
+    ) {
+      const refreshed = await loadMembershipsUncached(email);
+      if (!refreshed?.length) {
+        markOrgScopeResolutionUnavailable(event);
+        return { email, orgId: null, orgName: null, role: null };
+      }
+      updateMembershipsForEvent(event, email, refreshed);
+      return resolveOrgContextUncached(event);
+    }
+    if (
+      !autoCreateDefaultOrgEnabled() &&
+      !hasOrgScopeResolutionUnavailable(event)
+    )
+      markForbiddenOrgScope(event);
     return { email, orgId: null, orgName: null, role: null };
   }
 
@@ -867,6 +904,56 @@ export async function createOrganization(
   return { id, name: trimmedName, role, a2aSecret, createdAt };
 }
 
+async function bootstrapEmptyOrganizationForRequest(
+  rawEmail: string,
+  event: H3Event,
+): Promise<boolean> {
+  const email = rawEmail.trim().toLowerCase();
+  const config = getAppConfig();
+  const name = config.app.name ?? config.app.id ?? "Agent-Native";
+  const identity = config.app.workspaceId ?? config.app.id ?? name;
+  const id = `bootstrap-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
+  const now = Date.now();
+  const { randomBytes } = await import("node:crypto");
+  const exec = getDbExec();
+  const inserted = await exec.execute({
+    sql: `WITH new_org AS (
+            INSERT INTO organizations (id, name, created_by, created_at, a2a_secret)
+            SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM organizations)
+            ON CONFLICT (id) DO NOTHING RETURNING id
+          )
+          INSERT INTO org_members (id, org_id, email, role, joined_at)
+          SELECT ?, id, ?, 'owner', ? FROM new_org RETURNING org_id`,
+    args: [
+      id,
+      name,
+      email,
+      now,
+      randomBytes(32).toString("base64url"),
+      nanoid(),
+      email,
+      now,
+    ],
+  });
+  if (inserted.rows.length) {
+    invalidateMemberOrgCaches();
+    await setActiveOrgId(
+      email,
+      id,
+      "bootstrap admin organization access",
+      event,
+    );
+    return true;
+  }
+  // A concurrent request may have created this same admin's membership.
+  const memberships = await loadMembershipsUncached(email);
+  if (memberships === null) {
+    markOrgScopeResolutionUnavailable(event);
+    return false;
+  }
+  return memberships.length > 0;
+}
+
 export async function bootstrapAdminOrganization(
   rawEmail: string,
   event?: H3Event,
@@ -1024,28 +1111,54 @@ async function tryCreateDefaultOrg(
   email: string,
   session: { name?: string } | null,
   event: H3Event,
-): Promise<OrgContext | null> {
+): Promise<OrgContext | "memberships-refreshed" | null> {
   await getSetting("__init").catch(() => null);
 
   const claimKey = `u:${email.toLowerCase()}:auto-create-claim`;
 
-  if (!(await acquireClaim(exec, claimKey))) return null;
-
-  // Pending-invite check happens INSIDE the claim so the window where a
-  // newly-arrived invitation can be missed is narrowed to a single SQL
-  // round-trip. (A still-narrower window would require a transaction
-  // spanning org_invitations and settings — out of scope.)
-  if (await hasPendingInvitation(exec, email)) {
-    await releaseClaim(exec, claimKey);
-    return null;
-  }
-
-  if (await hasDomainMatch(exec, email)) {
-    await releaseClaim(exec, claimKey);
-    return null;
+  if (!(await acquireClaim(exec, claimKey))) {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const memberships = await loadMembershipsUncached(email);
+      if (memberships === null) break;
+      if (memberships.length > 0) {
+        updateMembershipsForEvent(event, email, memberships);
+        return "memberships-refreshed";
+      }
+    }
+    throw createError({
+      statusCode: 503,
+      statusMessage: "Organization setup is still in progress",
+    });
   }
 
   try {
+    // A request may have read zero memberships before another instance finished.
+    const existing = await loadMembershipsUncached(email);
+    if (existing === null) {
+      throw createError({
+        statusCode: 503,
+        statusMessage: "Organization membership unavailable",
+      });
+    }
+    if (existing.length > 0) {
+      await releaseClaim(exec, claimKey);
+      updateMembershipsForEvent(event, email, existing);
+      return "memberships-refreshed";
+    }
+
+    // Check invitations while holding the claim to narrow the race window.
+    if (await hasPendingInvitation(exec, email)) {
+      await releaseClaim(exec, claimKey);
+      return null;
+    }
+
+    if (await hasDomainMatch(exec, email)) {
+      await releaseClaim(exec, claimKey);
+      return null;
+    }
+
     const orgId = nanoid();
     const orgName = defaultOrgName(email, session);
     const now = Date.now();
@@ -1096,9 +1209,9 @@ async function tryCreateDefaultOrg(
     }
 
     return { email, orgId, orgName, role: "owner" };
-  } catch {
+  } catch (error) {
     await releaseClaim(exec, claimKey);
-    return null;
+    throw error;
   }
 }
 

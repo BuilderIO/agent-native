@@ -86,6 +86,10 @@ export interface SettingsTabItem {
    * Ignored by today's tabs.
    */
   settingsPlacement?: "page" | "app-area";
+  /** Route this legacy tab to an existing Settings page or sub-page. */
+  settingsTarget?: { page: string; sub?: string | null };
+  /** App-owned sections rendered on matching shared integration detail pages. */
+  integrationDetails?: Readonly<Record<string, ReactNode>>;
   /**
    * For a core tab whose page the redesigned Settings shell rebuilt: the
    * template-supplied part of `content` that page still renders, since the

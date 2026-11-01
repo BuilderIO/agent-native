@@ -38,6 +38,7 @@ import {
 } from "../secrets/storage.js";
 import {
   listWorkspaceConnections,
+  normalizeOAuthScope,
   upsertWorkspaceConnection,
   upsertWorkspaceConnectionGrant,
 } from "../workspace-connections/store.js";
@@ -149,6 +150,9 @@ export interface WorkspaceProviderOAuthFlow {
   orgId?: string;
   appId: string;
   scope: WorkspaceProviderOAuthScope;
+  requestedScopes?: string[];
+  optionalScopes?: string[];
+  targetAccountEmail?: string;
   returnUrl?: string;
   salesforceLoginUrl?: string;
   sigmaApiBaseUrl?: string;
@@ -183,6 +187,20 @@ function isWorkspaceProviderOAuthFlow(
     typeof flow.appId === "string" &&
     flow.appId.length > 0 &&
     isWorkspaceProviderOAuthScope(flow.scope) &&
+    (flow.requestedScopes === undefined ||
+      (Array.isArray(flow.requestedScopes) &&
+        flow.requestedScopes.length > 0 &&
+        flow.requestedScopes.every(
+          (scope) => typeof scope === "string" && scope.length > 0,
+        ) &&
+        new Set(flow.requestedScopes).size === flow.requestedScopes.length)) &&
+    (flow.optionalScopes === undefined ||
+      (Array.isArray(flow.optionalScopes) &&
+        flow.optionalScopes.every(
+          (scope) => typeof scope === "string" && scope.length > 0,
+        ))) &&
+    (flow.targetAccountEmail === undefined ||
+      isTargetAccountEmail(flow.targetAccountEmail)) &&
     (flow.returnUrl === undefined || typeof flow.returnUrl === "string") &&
     (flow.salesforceLoginUrl === undefined ||
       typeof flow.salesforceLoginUrl === "string") &&
@@ -306,6 +324,32 @@ export async function handleWorkspaceProviderOAuthStart(
     return oauthFlowFailure(event, 403, WORKSPACE_OAUTH_ADMIN_ERROR);
   }
   const provider = requiredProvider(providerId);
+  const requestedScopes = parseRequestedWorkspaceOAuthScopes(
+    query.requestedScopes,
+    provider.oauth!.scopes,
+  );
+  if (requestedScopes === null) {
+    return oauthFlowFailure(
+      event,
+      400,
+      "Requested OAuth scopes are invalid or unsupported.",
+    );
+  }
+  const optionalScopes = parseRequestedWorkspaceOAuthScopes(
+    query.optionalScopes,
+    provider.oauth!.scopes,
+  );
+  if (optionalScopes === null) {
+    return oauthFlowFailure(
+      event,
+      400,
+      "Optional OAuth scopes are invalid or unsupported.",
+    );
+  }
+  const targetAccountEmail = text(query.targetAccountEmail);
+  if (targetAccountEmail && !isTargetAccountEmail(targetAccountEmail)) {
+    return oauthFlowFailure(event, 400, "Target account email is invalid.");
+  }
   const salesforceLoginUrl =
     providerId === "salesforce"
       ? resolveSalesforceOAuthLoginUrl(text(query.environment))
@@ -390,6 +434,9 @@ export async function handleWorkspaceProviderOAuthStart(
         orgId,
         appId,
         scope: orgContext.oauthScope,
+        ...(requestedScopes ? { requestedScopes } : {}),
+        ...(optionalScopes ? { optionalScopes } : {}),
+        ...(targetAccountEmail ? { targetAccountEmail } : {}),
         ...(returnUrl ? { returnUrl } : {}),
         ...(salesforceLoginUrl ? { salesforceLoginUrl } : {}),
         expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
@@ -436,7 +483,7 @@ export async function handleWorkspaceProviderOAuthStart(
       }
       setCookie(
         event,
-        flowCookieName(providerId),
+        flowCookieName(providerId, flowId),
         encryptSecretValue(JSON.stringify(flow)),
         {
           httpOnly: true,
@@ -452,9 +499,9 @@ export async function handleWorkspaceProviderOAuthStart(
         redirectUri,
         state,
         challenge,
-        loginHint: session.email,
-        includeGrantedScopes:
-          providerId !== "google_calendar" && providerId !== "google_sheets",
+        loginHint: targetAccountEmail ?? session.email,
+        includeGrantedScopes: sharesGoogleTokenRow(provider),
+        ...(requestedScopes ? { requestedScopes } : {}),
         ...(providerId === "sigma"
           ? {
               authorizationUrl: flow.sigmaAuthorizationUrl,
@@ -482,7 +529,41 @@ export async function handleWorkspaceProviderOAuthCallback(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
-  const storedFlow = readStoredFlow(event, providerId);
+  const query = getQuery(event);
+  const code = text(query.code);
+  const stateParam = text(query.state);
+  const providerError = text(query.error);
+  if (providerError) {
+    return oauthFlowFailure(
+      event,
+      400,
+      "OAuth authorization was not completed.",
+    );
+  }
+  if (!code || !stateParam) {
+    return oauthFlowFailure(
+      event,
+      400,
+      "OAuth callback is missing code or state.",
+    );
+  }
+  const state = decodeOAuthState(stateParam, "");
+  if (!state.ok) {
+    logOAuthStateDecodeFailure(event, state.reason, providerId);
+    return oauthFlowFailure(
+      event,
+      400,
+      "OAuth state rejected: state is missing, malformed, or has an invalid signature. Start the connection again.",
+    );
+  }
+  if (!state.flowId) {
+    return oauthFlowFailure(
+      event,
+      400,
+      "OAuth state rejected: state is missing, malformed, or has an invalid signature. Start the connection again.",
+    );
+  }
+  const storedFlow = readStoredFlow(event, providerId, state.flowId);
   if (!storedFlow.flow) {
     return oauthFlowFailure(
       event,
@@ -510,34 +591,6 @@ export async function handleWorkspaceProviderOAuthCallback(
   if (!orgId) {
     return oauthFlowFailure(event, 403, WORKSPACE_OAUTH_ADMIN_ERROR);
   }
-  const query = getQuery(event);
-  const code = text(query.code);
-  const stateParam = text(query.state);
-  const providerError = text(query.error);
-  if (providerError) {
-    return oauthFlowFailure(
-      event,
-      400,
-      "OAuth authorization was not completed.",
-    );
-  }
-  if (!code || !stateParam) {
-    return oauthFlowFailure(
-      event,
-      400,
-      "OAuth callback is missing code or state.",
-    );
-  }
-  deleteCookie(event, flowCookieName(providerId), { path: "/" });
-  const state = decodeOAuthState(stateParam, "");
-  if (!state.ok) {
-    logOAuthStateDecodeFailure(event, state.reason, providerId);
-    return oauthFlowFailure(
-      event,
-      400,
-      "OAuth state rejected: state is missing, malformed, or has an invalid signature. Start the connection again.",
-    );
-  }
   const stateError = workspaceProviderOAuthFlowInvalidReason({
     flow,
     state,
@@ -552,6 +605,7 @@ export async function handleWorkspaceProviderOAuthCallback(
       `OAuth state rejected: ${stateError}. Start the connection again.`,
     );
   }
+  deleteCookie(event, storedFlow.cookieName, { path: "/" });
   const provider = requiredProvider(providerId);
   return runWithRequestContext(
     { userEmail: session.email, orgId },
@@ -614,10 +668,26 @@ export async function handleWorkspaceProviderOAuthCallback(
           `${provider.label} OAuth did not return an accessible account.`,
         );
       }
+      const targetAccountEmail = flow.targetAccountEmail?.toLowerCase();
+      if (
+        targetAccountEmail &&
+        !identities.some(
+          (identity) => identity.accountId.toLowerCase() === targetAccountEmail,
+        )
+      ) {
+        return oauthFlowFailure(
+          event,
+          400,
+          `Choose ${flow.targetAccountEmail} on Google's account screen to reconnect it.`,
+        );
+      }
       const existingConnections = await listWorkspaceConnections({
         provider: providerId,
         includeDisabled: true,
       });
+      const googleGrant = sharesGoogleTokenRow(provider)
+        ? resolveGoogleGrant(tokens, flow, provider)
+        : null;
       let sigmaConnectionId: string | undefined;
       for (const identity of identities) {
         const accountId = scopedOAuthAccountId(
@@ -629,7 +699,9 @@ export async function handleWorkspaceProviderOAuthCallback(
           await saveOAuthTokens(
             provider.oauth!.provider,
             accountId,
-            tokens,
+            googleGrant
+              ? { ...tokens, scope: [...googleGrant.heldScopes].join(" ") }
+              : tokens,
             session.email,
           );
         } catch (error) {
@@ -658,12 +730,17 @@ export async function handleWorkspaceProviderOAuthCallback(
                       allowedApp.toLowerCase() === flow.appId.toLowerCase(),
                   )),
         );
-        const scopes = mergeWorkspaceOAuthValues(
-          identity.scopes ?? [],
-          tokenScopes(tokens, provider.oauth!.scopes),
-        );
+        const scopes =
+          googleGrant?.scopes ??
+          mergeWorkspaceOAuthValues(
+            identity.scopes ?? [],
+            tokenScopes(tokens, flow.requestedScopes ?? provider.oauth!.scopes),
+          );
         const connectionConfig = {
           credentialMode: "oauth",
+          ...(googleGrant?.missingScopes.length
+            ? { missingScopes: googleGrant.missingScopes }
+            : {}),
           ...(providerId === "hubspot" ||
           providerId === "salesforce" ||
           providerId === "jira"
@@ -684,7 +761,7 @@ export async function handleWorkspaceProviderOAuthCallback(
           label: `${provider.label}: ${identity.label}`,
           accountId,
           accountLabel: identity.label,
-          status: "connected",
+          status: googleGrant?.missingRequired ? "needs_reauth" : "connected",
           scopes,
           allowedApps:
             providerId === "sigma"
@@ -700,7 +777,9 @@ export async function handleWorkspaceProviderOAuthCallback(
               : (existing?.allowedUsers ?? []),
           config: connectionConfig,
           lastCheckedAt: new Date(),
-          lastError: null,
+          lastError: googleGrant?.missingScopes.length
+            ? "Google granted only part of the requested access."
+            : null,
         });
         if (providerId === "sigma") sigmaConnectionId = connection.id;
         await upsertWorkspaceConnectionGrant({
@@ -710,6 +789,13 @@ export async function handleWorkspaceProviderOAuthCallback(
           scopes,
           config: connectionConfig,
         });
+        if (googleGrant) {
+          await dropGoogleScopesTokenLacks(
+            connection.id,
+            accountId,
+            googleGrant.heldScopes,
+          );
+        }
       }
       const returnPath =
         flow.returnUrl ??
@@ -736,10 +822,18 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   authorizationUrl?: string;
   loginHint?: string;
   includeGrantedScopes?: boolean;
+  requestedScopes?: readonly string[];
   resource?: string;
 }): string {
   if (!input.provider.oauth)
     throw new Error("Provider does not support OAuth.");
+  const scopes = input.requestedScopes ?? input.provider.oauth.scopes;
+  if (
+    input.requestedScopes &&
+    !isAllowedWorkspaceOAuthScopes(scopes, input.provider.oauth.scopes)
+  ) {
+    throw new Error("Requested OAuth scopes are invalid or unsupported.");
+  }
   const url = new URL(
     input.authorizationUrl ?? input.provider.oauth.authorizationUrl,
   );
@@ -771,8 +865,8 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
     url.searchParams.set("prompt", "consent select_account");
     if (input.loginHint) url.searchParams.set("login_hint", input.loginHint);
   }
-  if (input.provider.oauth.scopes.length) {
-    url.searchParams.set("scope", input.provider.oauth.scopes.join(" "));
+  if (scopes.length) {
+    url.searchParams.set("scope", scopes.join(" "));
   }
   if (input.resource) url.searchParams.set("resource", input.resource);
   if (input.provider.id === "notion") url.searchParams.set("owner", "user");
@@ -1301,28 +1395,62 @@ function requiredProvider(
 function readStoredFlow(
   event: H3Event,
   provider: GenericWorkspaceOAuthProvider,
-): { flow: WorkspaceProviderOAuthFlow | null; reason: string } {
-  const encrypted = getCookie(event, flowCookieName(provider));
-  if (!encrypted) return { flow: null, reason: "is missing" };
+  flowId: string,
+): {
+  flow: WorkspaceProviderOAuthFlow | null;
+  reason: string;
+  cookieName: string;
+} {
+  const scopedCookieName = flowCookieName(provider, flowId);
+  const scopedEncrypted = getCookie(event, scopedCookieName);
+  const legacyCookieName = legacyFlowCookieName(provider);
+  const encrypted = scopedEncrypted ?? getCookie(event, legacyCookieName);
+  const cookieName = scopedEncrypted ? scopedCookieName : legacyCookieName;
+  if (!encrypted) return { flow: null, reason: "is missing", cookieName };
   let decrypted: string;
   try {
     decrypted = decryptSecretValue(encrypted);
   } catch {
-    return { flow: null, reason: "could not be decrypted" };
+    return { flow: null, reason: "could not be decrypted", cookieName };
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(decrypted);
   } catch {
-    return { flow: null, reason: "is malformed" };
+    return { flow: null, reason: "is malformed", cookieName };
   }
   const parsedRecord = record(parsed);
   if (parsedRecord && !isWorkspaceProviderOAuthScope(parsedRecord.scope)) {
-    return { flow: null, reason: "has an invalid scope" };
+    return { flow: null, reason: "has an invalid scope", cookieName };
+  }
+  if (parsedRecord?.requestedScopes !== undefined) {
+    const providerConfig =
+      typeof parsedRecord.provider === "string" &&
+      SUPPORTED_PROVIDERS.has(
+        parsedRecord.provider as GenericWorkspaceOAuthProvider,
+      )
+        ? getWorkspaceConnectionProvider(
+            parsedRecord.provider as GenericWorkspaceOAuthProvider,
+          )
+        : undefined;
+    if (
+      !Array.isArray(parsedRecord.requestedScopes) ||
+      !providerConfig?.oauth ||
+      !isAllowedWorkspaceOAuthScopes(
+        parsedRecord.requestedScopes,
+        providerConfig.oauth.scopes,
+      )
+    ) {
+      return {
+        flow: null,
+        reason: "has invalid requested scopes",
+        cookieName,
+      };
+    }
   }
   return isWorkspaceProviderOAuthFlow(parsed)
-    ? { flow: parsed, reason: "is valid" }
-    : { flow: null, reason: "is malformed" };
+    ? { flow: parsed, reason: "is valid", cookieName }
+    : { flow: null, reason: "is malformed", cookieName };
 }
 
 export function workspaceProviderOAuthFlowInvalidReason(input: {
@@ -1737,6 +1865,94 @@ export function tokenScopes(
   return [...fallback];
 }
 
+function sharesGoogleTokenRow(provider: WorkspaceConnectionProvider): boolean {
+  return provider.oauth?.provider === "google";
+}
+
+/**
+ * Gmail, Calendar and every other `google` connection for an account share one
+ * token row, so each connect must return the account's whole grant
+ * (include_granted_scopes) or it takes access away from the others. A connection
+ * then records only the scopes its own flow wants, read from Google's token
+ * response: the row holds the whole grant, and an app's scope check must not see
+ * another connection's scopes.
+ */
+function resolveGoogleGrant(
+  tokens: Record<string, unknown>,
+  flow: WorkspaceProviderOAuthFlow,
+  provider: WorkspaceConnectionProvider,
+) {
+  const requested = flow.requestedScopes ?? provider.oauth!.scopes;
+  const optional = flow.optionalScopes ?? [];
+  const heldScopes = new Set(
+    (text(tokens.scope) ?? "")
+      .split(/[ ,]+/)
+      .filter(Boolean)
+      .map(normalizeOAuthScope),
+  );
+  const missingScopes = requested.filter((scope) => !heldScopes.has(scope));
+  return {
+    heldScopes,
+    scopes: mergeWorkspaceOAuthValues(requested, optional).filter((scope) =>
+      heldScopes.has(scope),
+    ),
+    missingScopes,
+    missingRequired: missingScopes.some((scope) => !optional.includes(scope)),
+  };
+}
+
+async function dropGoogleScopesTokenLacks(
+  connectionId: string,
+  accountId: string,
+  heldScopes: ReadonlySet<string>,
+): Promise<void> {
+  const connections = await listWorkspaceConnections({ includeDisabled: true });
+  for (const sibling of connections) {
+    if (
+      sibling.id === connectionId ||
+      sibling.accountId !== accountId ||
+      getWorkspaceConnectionProvider(sibling.provider)?.oauth?.provider !==
+        "google"
+    ) {
+      continue;
+    }
+    const scopes = sibling.scopes.filter((scope) =>
+      heldScopes.has(normalizeOAuthScope(scope)),
+    );
+    if (scopes.length === sibling.scopes.length) continue;
+    await upsertWorkspaceConnection({ ...sibling, scopes });
+  }
+}
+
+function isTargetAccountEmail(value: unknown): value is string {
+  return (
+    typeof value === "string" && value.length <= 320 && value.includes("@")
+  );
+}
+
+function parseRequestedWorkspaceOAuthScopes(
+  value: unknown,
+  allowedScopes: readonly string[],
+): string[] | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length > 2_048) return null;
+  const scopes = value.trim().split(/\s+/).filter(Boolean);
+  return isAllowedWorkspaceOAuthScopes(scopes, allowedScopes) ? scopes : null;
+}
+
+function isAllowedWorkspaceOAuthScopes(
+  scopes: readonly unknown[],
+  allowedScopes: readonly string[],
+): scopes is readonly string[] {
+  return (
+    scopes.length > 0 &&
+    scopes.length <= allowedScopes.length &&
+    scopes.every((scope) => typeof scope === "string" && scope.length > 0) &&
+    new Set(scopes).size === scopes.length &&
+    scopes.every((scope) => allowedScopes.includes(scope as string))
+  );
+}
+
 export function mergeWorkspaceOAuthValues(
   existing: readonly string[],
   incoming: readonly string[],
@@ -1865,7 +2081,14 @@ async function resolveProviderClientCredentials(
   return [clientId, clientSecret];
 }
 
-function flowCookieName(provider: GenericWorkspaceOAuthProvider): string {
+function flowCookieName(
+  provider: GenericWorkspaceOAuthProvider,
+  flowId: string,
+): string {
+  return `an_workspace_oauth_${provider}_${flowId}`;
+}
+
+function legacyFlowCookieName(provider: GenericWorkspaceOAuthProvider): string {
   return `an_workspace_oauth_${provider}`;
 }
 

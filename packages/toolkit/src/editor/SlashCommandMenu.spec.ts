@@ -2,13 +2,58 @@
 
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import { describe, expect, it } from "vitest";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, expect, it, vi } from "vitest";
 
+import { SlashCommandMenu } from "./SlashCommandMenu.js";
 import {
   DEFAULT_SLASH_COMMANDS,
   filterSlashCommandItems,
   focusEditorInInsertedBlock,
 } from "./SlashCommandMenu.js";
+
+describe("SlashCommandMenu heading", () => {
+  it.each([
+    [undefined, "Blocks"],
+    ["Insert block", "Insert block"],
+  ])("renders heading %s", async (heading, expected) => {
+    const editorElement = document.createElement("div");
+    const menuElement = document.createElement("div");
+    document.body.append(editorElement, menuElement);
+    const editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+    });
+    const root = createRoot(menuElement);
+    vi.spyOn(editor.view, "coordsAtPos").mockReturnValue(
+      new DOMRect(10, 10, 1, 10),
+    );
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(SlashCommandMenu, {
+            editor,
+            ...(heading === undefined ? {} : { heading }),
+          }),
+        );
+      });
+      await act(async () => {
+        editor.commands.insertContent("/");
+      });
+
+      expect(
+        document.querySelector(".an-rich-md-slash-heading")?.textContent,
+      ).toBe(expected);
+    } finally {
+      act(() => root.unmount());
+      editor.destroy();
+      editorElement.remove();
+      menuElement.remove();
+    }
+  });
+});
 
 describe("filterSlashCommandItems", () => {
   it("hides commands whose editor extensions are disabled", () => {

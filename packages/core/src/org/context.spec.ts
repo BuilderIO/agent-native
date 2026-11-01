@@ -6,6 +6,7 @@ const mockGetUserSetting = vi.fn();
 const mockPutUserSetting = vi.fn();
 const mockGetSetting = vi.fn();
 const mockAppStatePut = vi.fn();
+const mockValidateFederatedMembership = vi.fn();
 
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
@@ -26,6 +27,10 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
 }));
 vi.mock("../application-state/store.js", () => ({
   appStatePut: (...args: any[]) => mockAppStatePut(...args),
+}));
+vi.mock("./federation.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./federation.js")>()),
+  validateFederatedOrganizationMembership: mockValidateFederatedMembership,
 }));
 
 import { markVerifiedServiceIdentityForEvent } from "../server/request-context.js";
@@ -92,6 +97,7 @@ function queueSelect(...rows: any[][]) {
 describe("getOrgContext", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockValidateFederatedMembership.mockReset();
     mockExecute.mockResolvedValue({ rows: [] });
     mockGetUserSetting.mockResolvedValue(null);
     mockGetSetting.mockResolvedValue(null);
@@ -1032,6 +1038,7 @@ describe("getOrgContext", () => {
         [], // memberships
         [], // domain auto-join lookup
         [], // acquireClaim INSERT settings
+        [], // recheck memberships under claim
         [{ "1": 1 }], // hasPendingInvitation -> has one
       );
       mockExecute.mockResolvedValueOnce({ rows: [] });
@@ -1074,7 +1081,152 @@ describe("getOrgContext", () => {
       );
     });
 
-    it("bails (null org) when the auto-create claim is lost to a concurrent request", async () => {
+    it.each(["claim winner", "claim waiter"])(
+      "selects the active workspace after a membership recheck (%s)",
+      async (path) => {
+        mockGetSession.mockResolvedValue({ email: "race@example.test" });
+        mockGetUserSetting.mockResolvedValue({ orgId: "org-b" });
+        let membershipReads = 0;
+        mockExecute.mockImplementation(async ({ sql }) => {
+          if (sql.includes("FROM org_members m")) {
+            membershipReads++;
+            return {
+              rows:
+                membershipReads === 1
+                  ? []
+                  : [
+                      { orgId: "org-a", orgName: "A", role: "owner" },
+                      { orgId: "org-b", orgName: "B", role: "member" },
+                    ],
+            };
+          }
+          if (sql.includes("INSERT INTO settings") && path === "claim waiter")
+            throw new Error("duplicate key");
+          if (sql.includes("UPDATE settings SET value"))
+            return { rows: [], rowsAffected: 0 };
+          return { rows: [] };
+        });
+        expect(await getOrgContext(EVENT)).toMatchObject({
+          orgId: "org-b",
+          role: "member",
+        });
+      },
+    );
+
+    it.each(["claim winner", "claim waiter"])(
+      "validates a newly observed federated membership (%s)",
+      async (path) => {
+        mockGetSession.mockResolvedValue({ email: "race@example.test" });
+        mockValidateFederatedMembership.mockResolvedValue({
+          active: true,
+          role: "member",
+        });
+        let membershipReads = 0;
+        mockExecute.mockImplementation(async ({ sql }) => {
+          if (sql.includes("FROM org_members m")) {
+            membershipReads++;
+            return {
+              rows:
+                membershipReads === 1
+                  ? []
+                  : [
+                      {
+                        orgId: "f",
+                        orgName: "Federated",
+                        role: "owner",
+                        identityAuthority: "https://identity.example.test",
+                        identityId: "f",
+                      },
+                    ],
+            };
+          }
+          if (sql.includes("INSERT INTO settings") && path === "claim waiter")
+            throw new Error("duplicate key");
+          if (sql.includes("UPDATE settings SET value"))
+            return { rows: [], rowsAffected: 0 };
+          return { rows: [] };
+        });
+        expect(await getOrgContext(EVENT)).toMatchObject({
+          orgId: "f",
+          role: "member",
+        });
+        expect(mockValidateFederatedMembership).toHaveBeenCalledWith(EVENT, {
+          orgId: "f",
+          email: "race@example.test",
+        });
+      },
+    );
+
+    it("releases the claim when the membership recheck fails transiently", async () => {
+      mockGetSession.mockResolvedValue({ email: "race@example.test" });
+      let membershipReads = 0;
+      mockExecute.mockImplementation(async ({ sql }) => {
+        if (sql.includes("FROM org_members m") && ++membershipReads === 2) {
+          throw Object.assign(new Error("connection failure"), {
+            code: "08006",
+          });
+        }
+        return { rows: [] };
+      });
+      await expect(getOrgContext(EVENT)).rejects.toMatchObject({
+        code: "08006",
+      });
+      expect(mockExecute).toHaveBeenCalledWith({
+        sql: expect.stringContaining("DELETE FROM settings"),
+        args: ["u:race@example.test:auto-create-claim"],
+      });
+    });
+
+    it("waits for concurrent workspace creation before resolving requests", async () => {
+      mockGetSession.mockResolvedValue({ email: "race@example.test" });
+      let org: { orgId: string; orgName: string } | undefined;
+      let membershipReady = false;
+      let claimHeld = false;
+      let enterInsert!: () => void;
+      let finishInsert!: () => void;
+      const inserting = new Promise<void>((resolve) => (enterInsert = resolve));
+      const finish = new Promise<void>((resolve) => (finishInsert = resolve));
+      mockExecute.mockImplementation(async ({ sql, args }) => {
+        if (sql.includes("FROM org_members m")) {
+          return { rows: membershipReady ? [{ ...org, role: "owner" }] : [] };
+        }
+        if (sql.includes("INSERT INTO settings")) {
+          if (claimHeld) throw new Error("duplicate key");
+          claimHeld = true;
+        } else if (sql.includes("UPDATE settings SET value")) {
+          return { rows: [], rowsAffected: 0 };
+        } else if (sql.includes("INSERT INTO organizations")) {
+          org = { orgId: args[0], orgName: args[1] };
+        } else if (sql.includes("INSERT INTO org_members")) {
+          enterInsert();
+          await finish;
+          membershipReady = true;
+        }
+        return { rows: [] };
+      });
+      const first = getOrgContext(makeEvent());
+      await inserting;
+      const others = [getOrgContext(makeEvent()), getOrgContext(makeEvent())];
+      let settled = false;
+      const all = Promise.all(others).then((result) => {
+        settled = true;
+        return result;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      try {
+        expect(settled).toBe(false);
+      } finally {
+        finishInsert();
+      }
+      const [created, ...concurrent] = [await first, ...(await all)];
+      expect(created.orgId).toBeTruthy();
+      expect(concurrent.map((ctx) => ctx.orgId)).toEqual([
+        created.orgId,
+        created.orgId,
+      ]);
+    });
+
+    it("fails closed when a concurrent auto-create claim never completes", async () => {
       process.env.AUTO_CREATE_DEFAULT_ORG = "1";
       mockGetSession.mockResolvedValue({
         email: "racer@startup.dev",
@@ -1088,8 +1240,9 @@ describe("getOrgContext", () => {
         ),
       );
       mockExecute.mockResolvedValueOnce({ rowsAffected: 0 });
-      const ctx = await getOrgContext(EVENT);
-      expect(ctx.orgId).toBeNull();
+      await expect(getOrgContext(EVENT)).rejects.toMatchObject({
+        statusCode: 503,
+      });
       expect(mockPutUserSetting).not.toHaveBeenCalled();
     });
 
@@ -1108,6 +1261,7 @@ describe("getOrgContext", () => {
         ),
       );
       mockExecute.mockResolvedValueOnce({ rowsAffected: 1 });
+      mockExecute.mockResolvedValueOnce({ rows: [] });
       mockExecute.mockResolvedValueOnce({ rows: [] });
       mockExecute.mockResolvedValueOnce({ rows: [] });
       mockExecute.mockResolvedValueOnce({ rows: [] });
@@ -1131,6 +1285,7 @@ describe("getOrgContext", () => {
         email: "maybe-invited@startup.dev",
         emailVerified: true,
       });
+      mockExecute.mockResolvedValueOnce({ rows: [] });
       mockExecute.mockResolvedValueOnce({ rows: [] });
       mockExecute.mockResolvedValueOnce({ rows: [] });
       mockExecute.mockResolvedValueOnce({ rows: [] });

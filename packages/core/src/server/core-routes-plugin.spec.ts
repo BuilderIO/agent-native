@@ -181,7 +181,9 @@ describe("OAuth popup waiting route", () => {
     expect(response.headers.get("cross-origin-opener-policy")).toBe(
       "unsafe-none",
     );
-    expect(await response.text()).not.toContain("script");
+    const html = await response.text();
+    expect(html).not.toContain("script");
+    expect(html).not.toContain("style");
   });
 
   it("notifies the same-origin opener after a workspace OAuth return", async () => {
