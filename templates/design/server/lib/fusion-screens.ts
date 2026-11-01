@@ -11,6 +11,7 @@ import {
   parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
+import { parseDesignDataBlob } from "../../shared/full-app.js";
 import { getDb, schema } from "../db/index.js";
 import { withDesignSourceMutationTransaction } from "../source-workspace.js";
 import { mutateDesignData } from "./design-data-mutation.js";
@@ -82,6 +83,42 @@ function uniqueFilename(path: string, used: Set<string>): string {
   return filename;
 }
 
+function isBound(
+  current: Record<string, unknown>,
+  screens: readonly FusionScreenResult[],
+): boolean {
+  const frames = parseCanvasFrameGeometryById(current.canvasFrames);
+  const metadata = isRecord(current.screenMetadata)
+    ? current.screenMetadata
+    : {};
+  return screens.every((screen) => {
+    const entry = metadata[screen.fileId];
+    return (
+      Boolean(frames[screen.fileId]) &&
+      isRecord(entry) &&
+      entry.sourceType === "fusion" &&
+      entry.previewState === "live" &&
+      entry.url === screen.url &&
+      entry.previewUrl === screen.url &&
+      entry.path === screen.path
+    );
+  });
+}
+
+async function designHasBinding(
+  designId: string,
+  screens: readonly FusionScreenResult[],
+): Promise<boolean> {
+  const rows = await getDb()
+    .select({ data: schema.designs.data })
+    .from(schema.designs)
+    .where(eq(schema.designs.id, designId))
+    .limit(1);
+  const design = rows[0] as (typeof rows)[number] | undefined;
+  if (!design) return false;
+  return isBound(parseDesignDataBlob(design.data), screens);
+}
+
 export async function upsertFusionScreens(args: {
   designId: string;
   previewUrl: string;
@@ -126,6 +163,7 @@ export async function upsertFusionScreens(args: {
   const now = new Date().toISOString();
 
   const results: FusionScreenResult[] = [];
+  let filesUnchanged = true;
 
   const originRelativeBase = previewUrl.startsWith("/");
   const baseWithSlash = previewUrl.endsWith("/")
@@ -167,7 +205,8 @@ export async function upsertFusionScreens(args: {
     const unchanged =
       existing !== undefined &&
       existing.filename === filename &&
-      (existing.content ?? "").trim() === url;
+      existing.content.trim() === url;
+    if (!unchanged) filesUnchanged = false;
     if (existing && !unchanged) {
       const updated = await withDesignSourceMutationTransaction(
         designId,
@@ -217,6 +256,11 @@ export async function upsertFusionScreens(args: {
     }
 
     results.push({ fileId, filename, path, url, title, width, height });
+  }
+
+  // Re-opening an app whose screens are already placed writes nothing.
+  if (filesUnchanged && (await designHasBinding(designId, results))) {
+    return { screens: results, placedFrames: [] };
   }
 
   let placedFrames: Array<{
@@ -289,23 +333,7 @@ export async function upsertFusionScreens(args: {
         updatedAt,
       };
     },
-    isApplied: (current) => {
-      const frames = parseCanvasFrameGeometryById(current.canvasFrames);
-      const metadata = isRecord(current.screenMetadata)
-        ? current.screenMetadata
-        : {};
-      return results.every((screen) => {
-        const entry = metadata[screen.fileId];
-        return (
-          Boolean(frames[screen.fileId]) &&
-          isRecord(entry) &&
-          entry.sourceType === "fusion" &&
-          entry.url === screen.url &&
-          entry.previewUrl === screen.url &&
-          entry.path === screen.path
-        );
-      });
-    },
+    isApplied: (current) => isBound(current, results),
   });
 
   return { screens: results, placedFrames };

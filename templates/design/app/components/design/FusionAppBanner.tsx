@@ -1,8 +1,8 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { APP_STARTING_MESSAGE } from "@shared/full-app";
 import { IconAlertTriangle, IconRefresh } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef } from "react";
 
-import { APP_STARTING_MESSAGE } from "@shared/full-app";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -31,8 +31,12 @@ export function FusionAppBanner({
     if (syncInFlightRef.current) return;
     syncInFlightRef.current = true;
     syncMutateRef.current(
-      { designId } as any,
-      { onSettled: () => (syncInFlightRef.current = false) } as any,
+      { designId },
+      {
+        onSettled: () => {
+          syncInFlightRef.current = false;
+        },
+      },
     );
   }, [designId]);
   // A container saved as ready may have gone to sleep since: check it once

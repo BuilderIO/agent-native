@@ -55,6 +55,7 @@ vi.mock("../db/index.js", () => ({
       designId: "designFiles.designId",
       filename: "designFiles.filename",
     },
+    designs: { id: "designs.id", data: "designs.data" },
   },
 }));
 
@@ -250,5 +251,52 @@ describe("fusion screen designs.data mutation", () => {
       expect.objectContaining({ fileId: "app-home", filename: "home-2.html" }),
     ]);
     expect(state.insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing when the screens are already bound to the URL", async () => {
+    state.existingFiles = [
+      {
+        id: "app-home",
+        filename: "home.html",
+        content: "https://example.test/",
+      },
+    ];
+    const bound = {
+      canvasFrames: {
+        "app-home": { x: 0, y: 0, width: 800, height: 600, z: 0 },
+      },
+      screenMetadata: {
+        "app-home": {
+          sourceType: "fusion",
+          previewState: "live",
+          url: "https://example.test/",
+          previewUrl: "https://example.test/",
+          path: "/",
+        },
+      },
+    };
+    state.db.select.mockImplementationOnce(() => ({
+      from: vi.fn(() => ({ where: vi.fn(async () => state.existingFiles) })),
+    }));
+    state.db.select.mockImplementationOnce(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(async () => [{ data: JSON.stringify(bound) }]),
+        })),
+      })),
+    }));
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+    });
+
+    expect(result.screens).toEqual([
+      expect.objectContaining({ fileId: "app-home", filename: "home.html" }),
+    ]);
+    expect(state.db.update).not.toHaveBeenCalled();
+    expect(state.insertChain.values).not.toHaveBeenCalled();
+    expect(state.mutateDesignData).not.toHaveBeenCalled();
   });
 });

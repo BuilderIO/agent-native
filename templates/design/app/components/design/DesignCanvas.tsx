@@ -2705,7 +2705,6 @@ export function DesignCanvas({
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
   }, [externalPreviewUrl, runtimeVerificationRequest]);
-  const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
     registerLiveEditPreview &&
     usesLiveEditInjectedBridge &&
@@ -8712,7 +8711,6 @@ export function DesignCanvas({
           }
         </div>
       ) : localhostPreviewUnavailable ||
-        waitingForEditableExternalSnapshot ||
         liveEditBridgeConfigurationPending ||
         (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
         sameOriginBridgePending ||

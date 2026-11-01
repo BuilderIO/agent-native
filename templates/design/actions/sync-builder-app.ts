@@ -88,6 +88,15 @@ export default defineAction({
       });
     }
 
+    // A local session's app runs on the user's machine, not in a container.
+    if (fusionApp.projectId === "local") {
+      return {
+        status: fusionApp.status,
+        ...(fusionApp.previewUrl ? { previewUrl: fusionApp.previewUrl } : {}),
+        pendingEditCount: await countPendingEdits(design),
+      };
+    }
+
     const ensureStartedAt = Date.now();
     const container = await ensureFusionContainer({
       projectId: fusionApp.projectId,
@@ -195,25 +204,30 @@ export default defineAction({
     });
 
     const statusMessage = result.message ?? "Container is ready";
-    await mutateDesignData({
-      designId,
-      mutate: (current) =>
-        writeFusionApp(current, {
-          ...(readFusionApp(current) ?? fusionApp),
-          previewUrl,
-          status: "ready",
-          statusMessage,
-          updatedAt: now,
-        }),
-      isApplied: (current) => {
-        const persisted = readFusionApp(current);
-        return (
-          persisted?.previewUrl === previewUrl &&
-          persisted.status === "ready" &&
-          persisted.statusMessage === statusMessage
-        );
-      },
-    });
+    const alreadyReady =
+      fusionApp.status === "ready" &&
+      fusionApp.previewUrl === previewUrl &&
+      fusionApp.statusMessage === statusMessage;
+    if (!alreadyReady)
+      await mutateDesignData({
+        designId,
+        mutate: (current) =>
+          writeFusionApp(current, {
+            ...(readFusionApp(current) ?? fusionApp),
+            previewUrl,
+            status: "ready",
+            statusMessage,
+            updatedAt: now,
+          }),
+        isApplied: (current) => {
+          const persisted = readFusionApp(current);
+          return (
+            persisted?.previewUrl === previewUrl &&
+            persisted.status === "ready" &&
+            persisted.statusMessage === statusMessage
+          );
+        },
+      });
 
     const pendingEditCount = await countPendingEdits(design);
 
