@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getSsrSessionBootstrapScriptBody } from "../shared/ssr-session-bootstrap.js";
 import {
+  _resetBackendFetchForTests,
+  ensureBackendFetchInterceptor,
+} from "./backend-fetch.js";
+import {
   expireClientStatusResult,
   fetchAgentEngineStatus,
   fetchAuthSessionStatus,
@@ -415,6 +419,48 @@ describe("client status requests", () => {
       value: { userId: "user-b", email: "user-b@example.com" },
     });
     expect(signed).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not answer the app server's session read from the static shell's read", async () => {
+    // The shell reads the session from the page's own origin, with its
+    // cookies. The app server is on another origin, so once the backend
+    // wrapper is installed the app's read goes there, with that origin's.
+    const pageFetch = vi.fn(async () =>
+      jsonResponse({ userId: "user-a", email: "user-a@example.com" }),
+    );
+    vi.stubGlobal("fetch", pageFetch);
+    new Function(
+      "window",
+      "document",
+      "AbortController",
+      "setTimeout",
+      "clearTimeout",
+      "fetch",
+      getSsrSessionBootstrapScriptBody("/session", "an_hint"),
+    )(window, { cookie: "an_hint=1" }, undefined, () => 1, vi.fn(), pageFetch);
+    expect(pageFetch).toHaveBeenCalledOnce();
+
+    const config = window as Window & { __AGENT_NATIVE_CONFIG__?: unknown };
+    config.__AGENT_NATIVE_CONFIG__ = { apiBaseUrl: "https://api.example.com" };
+    try {
+      ensureBackendFetchInterceptor();
+      expect(globalThis.fetch).not.toBe(pageFetch);
+
+      await fetchAuthSessionStatus();
+      expect(pageFetch).toHaveBeenCalledTimes(2);
+      const [input, init] = pageFetch.mock.calls[1] as unknown as [
+        RequestInfo | URL,
+        RequestInit | undefined,
+      ];
+      const sentTo = input instanceof Request ? input.url : String(input);
+      expect(new URL(sentTo, window.location.href).origin).toBe(
+        "https://api.example.com",
+      );
+      expect(init?.credentials).toBe("include");
+    } finally {
+      _resetBackendFetchForTests();
+      delete config.__AGENT_NATIVE_CONFIG__;
+    }
   });
 
   it("discards an unconsumed session bootstrap when session status is invalidated", async () => {

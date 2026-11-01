@@ -1622,8 +1622,11 @@ describe("sessionReadIdentityStatus", () => {
       embedAuth.ensureEmbedAuthFetchInterceptor();
       backend.ensureBackendFetchInterceptor();
       expect(globalThis.fetch).not.toBe(reads.fetcher);
-      // No token: both send requests on as the page's own.
-      expect(transports.fetchTransport(globalThis.fetch)).toBe(reads.fetcher);
+      // No token: the backend wrapper's requests are its own transport, still
+      // the same one on every request.
+      const overServer = transports.fetchTransport(globalThis.fetch);
+      expect(overServer).not.toBe(reads.fetcher);
+      expect(transports.fetchTransport(globalThis.fetch)).toBe(overServer);
       await mountProbe(module);
       await reads.answerAs("user-a");
       const overCookies = module.sessionReadIdentity();
@@ -1637,6 +1640,7 @@ describe("sessionReadIdentityStatus", () => {
       );
       const withToken = transports.fetchTransport(globalThis.fetch);
       expect(withToken).not.toBe(reads.fetcher);
+      expect(withToken).not.toBe(overServer);
       expect(transports.fetchTransport(globalThis.fetch)).toBe(withToken);
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
