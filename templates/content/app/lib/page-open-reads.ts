@@ -612,11 +612,12 @@ export function takeStartupPageRead(
 
 // The page from the head script's read, or from the app's own read when the
 // head read failed or is still out after a short wait. Once the app has sent
-// its own read, the first of the two to answer is the page. It fails only once
-// both have failed, with the app's own request's error.
+// its own read, the first of the two to answer is the page, and a head answer
+// that comes first cancels the app's request. It fails only once both have
+// failed, with the app's own request's error.
 export function readFromStartupPageRead<T>(
   startupRead: { answer: Promise<StartupPageReadAnswer> },
-  sendOwnRead: () => Promise<T>,
+  sendOwnRead: (signal: AbortSignal) => Promise<T>,
   waitMs = STARTUP_PAGE_READ_WAIT_MS,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -624,6 +625,7 @@ export function readFromStartupPageRead<T>(
     let ownRead: Promise<T> | null = null;
     let ownFailure: { error: unknown } | null = null;
     let headFailed = false;
+    const ownAbort = new AbortController();
     const settle = (finish: () => void) => {
       if (settled) return;
       settled = true;
@@ -632,7 +634,7 @@ export function readFromStartupPageRead<T>(
     };
     const sendOwn = () => {
       if (ownRead || settled) return;
-      ownRead = sendOwnRead();
+      ownRead = sendOwnRead(ownAbort.signal);
       ownRead.then(
         (value) => settle(() => resolve(value)),
         (error: unknown) => {
@@ -644,7 +646,10 @@ export function readFromStartupPageRead<T>(
     const wait = setTimeout(sendOwn, waitMs);
     void startupRead.answer.then((answer) => {
       if (answer.ok) {
-        settle(() => resolve(answer.value as T));
+        settle(() => {
+          resolve(answer.value as T);
+          ownAbort.abort();
+        });
         return;
       }
       headFailed = true;

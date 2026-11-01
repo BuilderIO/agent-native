@@ -321,6 +321,41 @@ describe("the app's page from the head script's read", () => {
     await expect(page).resolves.toBe("head");
   });
 
+  it("cancels the app's own read when the head read answers first", async () => {
+    vi.useFakeTimers();
+    const head = headRead();
+    const signals: AbortSignal[] = [];
+    const ownRead = vi.fn((signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise<string>(() => {});
+    });
+    const page = readFromStartupPageRead(head.taken, ownRead);
+
+    await vi.advanceTimersByTimeAsync(STARTUP_PAGE_READ_WAIT_MS);
+    expect(signals[0]?.aborted).toBe(false);
+
+    head.answer({ ok: true, value: "head" });
+    await expect(page).resolves.toBe("head");
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it("leaves the app's own read alone when it answers first", async () => {
+    vi.useFakeTimers();
+    const head = headRead();
+    const signals: AbortSignal[] = [];
+    const ownRead = vi.fn(async (signal: AbortSignal) => {
+      signals.push(signal);
+      return "own";
+    });
+    const page = readFromStartupPageRead(head.taken, ownRead);
+
+    await vi.advanceTimersByTimeAsync(STARTUP_PAGE_READ_WAIT_MS);
+    await expect(page).resolves.toBe("own");
+    head.answer({ ok: true, value: "head" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signals[0]?.aborted).toBe(false);
+  });
+
   it("is the head read's answer when the app's own read fails first", async () => {
     vi.useFakeTimers();
     const head = headRead();

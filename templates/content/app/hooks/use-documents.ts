@@ -1017,7 +1017,11 @@ export function startPageOpenDocumentReads(
   const identity = startupRead?.identity ?? sessionReadIdentity();
   const readPage = (signal?: AbortSignal) =>
     (pageRead ??= startupRead
-      ? readFromStartupPageRead(startupRead, () => sendPageRead(signal))
+      ? readFromStartupPageRead(startupRead, (ownSignal) =>
+          sendPageRead(
+            signal ? AbortSignal.any([signal, ownSignal]) : ownSignal,
+          ),
+        )
       : sendPageRead(signal));
   let documentTaken = false;
   let owner: PageOpenReadOwner | undefined;
