@@ -1061,7 +1061,7 @@ describe("one session read per page load", () => {
       jsonResponse({ error: "unexpected fetch" }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    window.__agentNativeSessionBootstrapFetch = fetchMock;
+    window.__agentNativeSessionBootstrapTransport = fetchMock;
     window.__agentNativeSessionBootstrap = Promise.resolve({
       state: "available",
       value: { userId: "user-9", email: "bootstrap@example.com" },
@@ -1340,7 +1340,7 @@ describe("sessionReadIdentityStatus", () => {
     vi.stubGlobal("fetch", cookieReads.fetcher);
     const overCookies = module.sessionReadIdentity();
     const overBearer = module.sessionReadIdentity({
-      fetch: bearerReads.fetcher,
+      transport: bearerReads.fetcher,
     });
 
     vi.stubGlobal("fetch", bearerReads.fetcher);
@@ -1684,7 +1684,7 @@ describe("a peer tab's invalidation broadcast before this tab listened", () => {
   afterEach(() => {
     delete window.__agentNativeSessionBootstrap;
     delete window.__agentNativeSessionBootstrapInvalidation;
-    delete window.__agentNativeSessionBootstrapFetch;
+    delete window.__agentNativeSessionBootstrapTransport;
     window.localStorage.removeItem(KEY);
   });
 
@@ -1702,7 +1702,7 @@ describe("a peer tab's invalidation broadcast before this tab listened", () => {
       jsonResponse({ userId: "user-b", email: "b@x.test" }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    window.__agentNativeSessionBootstrapFetch = fetchMock;
+    window.__agentNativeSessionBootstrapTransport = fetchMock;
     const module = await freshSessionModule();
     const heard: string[] = [];
     module.subscribeFirstSessionReadAnswer(() =>

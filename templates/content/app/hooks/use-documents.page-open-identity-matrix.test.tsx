@@ -178,8 +178,8 @@ describe("a page-open read sent as A is never used once the session is B's", () 
     container.remove();
     delete (window as { __agentNativeSessionBootstrap?: unknown })
       .__agentNativeSessionBootstrap;
-    delete (window as { __agentNativeSessionBootstrapFetch?: unknown })
-      .__agentNativeSessionBootstrapFetch;
+    delete (window as { __agentNativeSessionBootstrapTransport?: unknown })
+      .__agentNativeSessionBootstrapTransport;
     delete (window as { __contentStartupPageRead?: unknown })
       .__contentStartupPageRead;
     window.localStorage.clear();

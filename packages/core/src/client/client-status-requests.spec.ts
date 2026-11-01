@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getSsrSessionBootstrapScriptBody } from "../shared/ssr-session-bootstrap.js";
 import {
   expireClientStatusResult,
   fetchAgentEngineStatus,
@@ -12,7 +13,11 @@ import {
   invalidateClientStatusRequests,
   SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
-import { markPassThroughFetch } from "./fetch-transport.js";
+import {
+  bearerTransport,
+  markFetchTransport,
+  markPassThroughFetch,
+} from "./fetch-transport.js";
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -74,14 +79,14 @@ describe("client status requests", () => {
   beforeEach(() => {
     invalidateClientStatusRequests();
     delete window.__agentNativeSessionBootstrap;
-    delete window.__agentNativeSessionBootstrapFetch;
+    delete window.__agentNativeSessionBootstrapTransport;
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
   afterEach(() => {
     delete window.__agentNativeSessionBootstrap;
-    delete window.__agentNativeSessionBootstrapFetch;
+    delete window.__agentNativeSessionBootstrapTransport;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -340,7 +345,7 @@ describe("client status requests", () => {
       jsonResponse({ error: "unexpected fetch" }),
     );
     vi.stubGlobal("fetch", fetch);
-    window.__agentNativeSessionBootstrapFetch = fetch;
+    window.__agentNativeSessionBootstrapTransport = fetch;
     window.__agentNativeSessionBootstrap = Promise.resolve({
       state: "available",
       value: { userId: "user-1", email: "user@example.com" },
@@ -359,7 +364,7 @@ describe("client status requests", () => {
       jsonResponse({ error: "unexpected fetch" }),
     );
     vi.stubGlobal("fetch", pageFetch);
-    window.__agentNativeSessionBootstrapFetch = pageFetch;
+    window.__agentNativeSessionBootstrapTransport = pageFetch;
     window.__agentNativeSessionBootstrap = Promise.resolve({
       state: "available",
       value: { userId: "user-1", email: "user@example.com" },
@@ -379,6 +384,37 @@ describe("client status requests", () => {
     });
     expect(pageFetch).not.toHaveBeenCalled();
     expect(wrapped).not.toHaveBeenCalled();
+  });
+
+  it("does not answer from the static shell's read once the token it was sent with has changed", async () => {
+    // The page's fetch is a wrapper that signs each request with the embed
+    // token it holds when the request is sent.
+    let token = "token-a";
+    const signed = vi.fn(async () => {
+      const user = token === "token-a" ? "user-a" : "user-b";
+      return jsonResponse({ userId: user, email: `${user}@example.com` });
+    });
+    markFetchTransport(signed, () => bearerTransport(token));
+    vi.stubGlobal("fetch", signed);
+    new Function(
+      "window",
+      "document",
+      "AbortController",
+      "setTimeout",
+      "clearTimeout",
+      "fetch",
+      getSsrSessionBootstrapScriptBody("/session", "an_hint"),
+    )(window, { cookie: "an_hint=1" }, undefined, () => 1, vi.fn(), signed);
+    expect(signed).toHaveBeenCalledOnce();
+
+    // The token changes before the app takes the shell's read.
+    token = "token-b";
+
+    await expect(fetchAuthSessionStatus()).resolves.toEqual({
+      state: "available",
+      value: { userId: "user-b", email: "user-b@example.com" },
+    });
+    expect(signed).toHaveBeenCalledTimes(2);
   });
 
   it("discards an unconsumed session bootstrap when session status is invalidated", async () => {

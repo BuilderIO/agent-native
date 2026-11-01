@@ -1,4 +1,7 @@
 import { safeJsonForHtml } from "./agent-readable-resource.js";
+import { fetchTransportScript } from "./embed-auth.js";
+
+export { fetchTransportScript };
 
 export const SSR_SESSION_BOOTSTRAP_MARKER =
   'data-agent-native-session-bootstrap="1"';
@@ -20,12 +23,13 @@ export const SESSION_BOOTSTRAP_INVALIDATION_GLOBAL =
   "__agentNativeSessionBootstrapInvalidation";
 
 /**
- * The `fetch` the early session read went out on. Its answer is for callers
- * on the same transport: a page that later signs requests another way (the
- * embed runtime's bearer token, cookies omitted) reads for itself.
+ * The transport the early session read went out on (`fetchTransport`),
+ * resolved as it was sent. Its answer is for callers on the same transport: a
+ * page that later signs requests another way (the embed runtime's bearer
+ * token, cookies omitted) reads for itself.
  */
-export const SESSION_BOOTSTRAP_FETCH_GLOBAL =
-  "__agentNativeSessionBootstrapFetch";
+export const SESSION_BOOTSTRAP_TRANSPORT_GLOBAL =
+  "__agentNativeSessionBootstrapTransport";
 
 /**
  * When the early session read answered. Held for a later caller, its answer
@@ -69,7 +73,7 @@ declare global {
   interface Window {
     [SESSION_NAVIGATION_FLAG]?: string;
     [SESSION_BOOTSTRAP_INVALIDATION_GLOBAL]?: string;
-    [SESSION_BOOTSTRAP_FETCH_GLOBAL]?: typeof fetch;
+    [SESSION_BOOTSTRAP_TRANSPORT_GLOBAL]?: unknown;
     [SESSION_BOOTSTRAP_ANSWERED_AT_GLOBAL]?: number;
   }
 }
@@ -174,7 +178,7 @@ export function getSsrSessionBootstrapScriptBody(
   };
   if (controller) requestInit.signal = controller.signal;
   ${recordSessionInvalidationMarkerScript()}
-  window[${JSON.stringify(SESSION_BOOTSTRAP_FETCH_GLOBAL)}] = fetch;
+  window[${JSON.stringify(SESSION_BOOTSTRAP_TRANSPORT_GLOBAL)}] = ${fetchTransportScript("fetch")};
   window.__agentNativeSessionBootstrap = fetch(${safeJsonForHtml(sessionPath)}, requestInit).then(function (response) {
     if (!response.ok) return { state: "unavailable", status: response.status };
     return response.json().then(function (value) {

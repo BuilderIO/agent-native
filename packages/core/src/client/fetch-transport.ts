@@ -5,17 +5,20 @@
  * a value that stands for the credentials it adds instead, such as one
  * bearer token. An unmarked wrapper is a transport of its own.
  */
-import { FETCH_TRANSPORT_CHANGED_EVENT } from "../shared/embed-auth.js";
+import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  FETCH_TRANSPORT_SYMBOL_KEY,
+  MAX_FETCH_WRAPPER_DEPTH,
+} from "../shared/embed-auth.js";
 
 export { FETCH_TRANSPORT_CHANGED_EVENT };
 
-const TRANSPORT = Symbol.for("agent-native.fetch.transport");
+const TRANSPORT = Symbol.for(FETCH_TRANSPORT_SYMBOL_KEY);
 
 export type FetchTransport = typeof fetch | object;
 
 type MarkedFetch = typeof fetch & { [TRANSPORT]?: () => FetchTransport };
 
-const MAX_WRAPPER_DEPTH = 16;
 // Only the token requests carry now: a rotated-out token is not kept, and
 // one that comes back is a new transport.
 let currentBearer: { token: string; transport: object } | undefined;
@@ -48,7 +51,7 @@ export function _bearerTokensHeldForTests(): string[] {
 /** The transport a request sent with this fetch goes out on now. */
 export function fetchTransport(fetcher: typeof fetch): FetchTransport {
   let current: FetchTransport = fetcher;
-  for (let depth = 0; depth < MAX_WRAPPER_DEPTH; depth += 1) {
+  for (let depth = 0; depth < MAX_FETCH_WRAPPER_DEPTH; depth += 1) {
     if (typeof current !== "function") break;
     const transport = (current as MarkedFetch)[TRANSPORT];
     if (typeof transport !== "function") break;

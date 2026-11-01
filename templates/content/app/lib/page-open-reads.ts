@@ -4,6 +4,7 @@ import {
   subscribeSessionReadIdentity,
   type SessionReadIdentity,
 } from "@agent-native/core/client/use-session";
+import { fetchTransportScript } from "@agent-native/core/shared/ssr-session-bootstrap";
 import {
   hashKey,
   type FetchQueryOptions,
@@ -361,8 +362,9 @@ type StartupPageRead = {
   // When the request left, so its age counts from the read, not from the
   // moment the app code takes it.
   startedAt: number;
-  // The fetch it went out on, beside the shell's session read.
-  fetch: typeof fetch;
+  // The transport it went out on, beside the shell's session read, resolved
+  // as it was sent (`fetchTransport`).
+  transport: unknown;
   answer: Promise<StartupPageReadAnswer>;
 };
 
@@ -416,7 +418,9 @@ export function startupPageReadScript(
   }
   return `(function(){try{if(window.top!==window)return;var h=document.cookie.split(";").some(function(e){e=e.trim();var s=e.indexOf("=");if(s<1||e.slice(s+1)!=="1")return false;var n=e.slice(0,s);return n==="an_session_hint"||(n.indexOf("an_session_")===0&&n.slice(-5)==="_hint")});if(!h)return;var l=location.pathname,b=${JSON.stringify(basePath)};if(b&&l.indexOf(b+"/")===0)l=l.slice(b.length);var m=/^\\/page\\/([^/]+)\\/?$/.exec(l);if(!m)return;var q=new URLSearchParams(location.search),e=q.get("embedded");if(e==="1"||e==="true")return;var id=decodeURIComponent(m[1]),d=q.get("databaseId"),dd=q.get("databaseDocumentId"),p=new URLSearchParams();p.set("id",id);if(d)p.set("databaseId",d);if(dd)p.set("databaseDocumentId",dd);p.set("includePreviewDraft","true");var c=typeof AbortController==="function"?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},${STARTUP_PAGE_READ_TIMEOUT_MS}),i={credentials:"same-origin",cache:"no-store",headers:${JSON.stringify(headers)}};if(c)i.signal=c.signal;var f=function(){return{ok:false}};window[${JSON.stringify(
     STARTUP_PAGE_READ_GLOBAL,
-  )}]={id:id,databaseId:d,databaseDocumentId:dd,startedAt:Date.now(),fetch:fetch,answer:fetch(${JSON.stringify(
+  )}]={id:id,databaseId:d,databaseDocumentId:dd,startedAt:Date.now(),transport:${fetchTransportScript(
+    "fetch",
+  )},answer:fetch(${JSON.stringify(
     actionUrl,
   )}+"?"+p.toString(),i).then(function(r){return r.ok?r.json().then(function(v){return{ok:true,value:v}},f):f()},f).then(function(a){clearTimeout(t);return a})}}catch(e){}})();`; // coercion-ok: a script that cannot send leaves the read to the app.
 }
@@ -439,13 +443,19 @@ export function takeStartupPageRead(
   ) {
     return null;
   }
-  if (typeof read.fetch !== "function") return null;
+  const transport = read.transport;
+  if (
+    typeof transport !== "function" &&
+    (typeof transport !== "object" || transport === null)
+  ) {
+    return null;
+  }
   // The script read the page with the cookies the load's first session read
-  // went out with, over the page's fetch as it was then. It is the page only
-  // for that session, and only if the app would read it over the same
-  // transport, since the app's own read can take its place.
+  // went out with, over the transport the page's fetch had then. It is the
+  // page only for that session, and only if the app would read it over the
+  // same transport, since the app's own read can take its place.
   const identity = sessionReadIdentity({
-    fetch: read.fetch,
+    transport,
     sentWithFirstSessionRead: true,
   });
   if (sessionReadIdentityStatus(identity) === "stale") return null;
