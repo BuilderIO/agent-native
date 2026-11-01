@@ -5,10 +5,13 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  moveCachedRecentVisitToTop,
-  useRecordContentVisit,
-} from "./use-content-recent";
+import { useRecordContentVisit } from "./use-content-recent";
+
+type VisitResult = {
+  recorded: true;
+  visitedAt?: string;
+  accountKey?: string;
+};
 
 const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
@@ -53,64 +56,6 @@ function entry(documentId: string, visitedAt: string, viewId?: string) {
   };
 }
 
-describe("moveCachedRecentVisitToTop", () => {
-  it("moves a cached entry to the top without asking for a refetch", () => {
-    const queryClient = new QueryClient();
-    const key = ["action", "get-content-recent", { scopeKey: "s" }];
-    queryClient.setQueryData(key, {
-      scopeKey: "s",
-      entries: [
-        entry("a", "2026-10-31T10:00:00.000Z"),
-        entry("b", "2026-10-30T10:00:00.000Z"),
-      ],
-    });
-
-    expect(
-      moveCachedRecentVisitToTop(
-        queryClient,
-        { documentId: "b" },
-        "2026-10-31T11:00:00.000Z",
-      ),
-    ).toBe(true);
-    expect(
-      (
-        queryClient.getQueryData(key) as {
-          entries: Array<{ target: { documentId: string }; visitedAt: string }>;
-        }
-      ).entries.map((e) => [e.target.documentId, e.visitedAt]),
-    ).toEqual([
-      ["b", "2026-10-31T11:00:00.000Z"],
-      ["a", "2026-10-31T10:00:00.000Z"],
-    ]);
-  });
-
-  it("asks for a refetch when a list lacks the entry or shows another view", () => {
-    const queryClient = new QueryClient();
-    queryClient.setQueryData(
-      ["action", "get-content-recent", { scopeKey: "s" }],
-      {
-        scopeKey: "s",
-        entries: [entry("a", "2026-10-31T10:00:00.000Z", "view-1")],
-      },
-    );
-
-    expect(
-      moveCachedRecentVisitToTop(
-        queryClient,
-        { documentId: "a", databaseId: "db-a", viewId: "view-2" },
-        "2026-10-31T11:00:00.000Z",
-      ),
-    ).toBe(false);
-    expect(
-      moveCachedRecentVisitToTop(
-        queryClient,
-        { documentId: "new" },
-        "2026-10-31T11:00:00.000Z",
-      ),
-    ).toBe(false);
-  });
-});
-
 describe("useRecordContentVisit", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -154,27 +99,143 @@ describe("useRecordContentVisit", () => {
     expect(mocks.scheduled).toHaveLength(1);
 
     render(null);
-    const settle = mocks.scheduled[0];
+    const settle = mocks.scheduled.shift();
     if (!settle) throw new Error("the visit wasn't scheduled");
     settle();
     expect(mocks.mutate).toHaveBeenCalledWith({ documentId: "a" });
   });
 
-  it("refetches Recent only when the visited page isn't in it", () => {
+  function recentKey(orgId: string | null, spaceId?: string) {
+    const scopeKey = JSON.stringify(["me@example.com", orgId, spaceId ?? null]);
+    return [
+      "action",
+      "get-content-recent",
+      { scopeKey, ...(spaceId ? { spaceId } : {}) },
+    ];
+  }
+
+  function cache(key: unknown[], entries: Array<ReturnType<typeof entry>>) {
+    const args = key[2] as { scopeKey: string };
+    queryClient.setQueryData(key, { scopeKey: args.scopeKey, entries });
+  }
+
+  function order(key: unknown[]) {
+    return (
+      queryClient.getQueryData(key) as {
+        entries: Array<{ target: { documentId: string }; visitedAt: string }>;
+      }
+    ).entries.map((e) => [e.target.documentId, e.visitedAt]);
+  }
+
+  // The server answers with the time it stored and the account it stored it
+  // under; answers can arrive in any order.
+  const ORG_1 = JSON.stringify(["me@example.com", "org-1"]);
+  function answer(
+    documentId: string,
+    result: VisitResult,
+    target: object = { documentId },
+  ) {
+    mocks.onSuccess?.({ accountKey: ORG_1, ...result }, target);
+  }
+
+  it("moves a page already in Recent to the server's visit time without a refetch", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    queryClient.setQueryData(
-      ["action", "get-content-recent", { scopeKey: "s" }],
-      {
-        scopeKey: "s",
-        entries: [entry("a", "2026-10-31T10:00:00.000Z")],
-      },
-    );
+    const key = recentKey("org-1");
+    cache(key, [
+      entry("a", "2026-10-31T10:00:00.000Z"),
+      entry("b", "2026-10-30T10:00:00.000Z"),
+    ]);
+    render("b");
+
+    answer("b", { recorded: true, visitedAt: "2026-10-31T11:00:00.000Z" });
+
+    expect(order(key)).toEqual([
+      ["b", "2026-10-31T11:00:00.000Z"],
+      ["a", "2026-10-31T10:00:00.000Z"],
+    ]);
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the later visit on top when the answers arrive in reverse order", () => {
+    const key = recentKey("org-1");
+    cache(key, [
+      entry("z", "2026-10-31T10:00:00.000Z"),
+      entry("x", "2026-10-31T08:00:00.000Z"),
+      entry("y", "2026-10-31T07:00:00.000Z"),
+    ]);
+    render("x");
+
+    // x was visited first, then y; y's answer comes back first.
+    answer("y", { recorded: true, visitedAt: "2026-10-31T12:00:02.000Z" });
+    answer("x", { recorded: true, visitedAt: "2026-10-31T12:00:01.000Z" });
+
+    expect(order(key)).toEqual([
+      ["y", "2026-10-31T12:00:02.000Z"],
+      ["x", "2026-10-31T12:00:01.000Z"],
+      ["z", "2026-10-31T10:00:00.000Z"],
+    ]);
+  });
+
+  it("ignores an answer older than the visit the list already shows", () => {
+    const key = recentKey("org-1");
+    cache(key, [
+      entry("b", "2026-10-31T12:00:00.000Z"),
+      entry("a", "2026-10-31T11:00:00.000Z"),
+    ]);
     render("a");
 
-    mocks.onSuccess?.({ recorded: true }, { documentId: "a" });
-    expect(invalidate).not.toHaveBeenCalled();
-    mocks.onSuccess?.({ recorded: true }, { documentId: "b" });
-    expect(invalidate).toHaveBeenCalledWith({
+    answer("a", { recorded: true, visitedAt: "2026-10-31T10:00:00.000Z" });
+
+    expect(order(key)).toEqual([
+      ["b", "2026-10-31T12:00:00.000Z"],
+      ["a", "2026-10-31T11:00:00.000Z"],
+    ]);
+  });
+
+  it("reorders the organization's own lists and leaves another organization's alone", () => {
+    const own = recentKey("org-1");
+    const ownSpace = recentKey("org-1", "space-1");
+    const other = recentKey("org-2");
+    const lists = [
+      entry("a", "2026-10-31T10:00:00.000Z"),
+      entry("b", "2026-10-30T10:00:00.000Z"),
+    ];
+    cache(own, lists);
+    cache(ownSpace, lists);
+    cache(other, lists);
+    render("b");
+
+    answer("b", { recorded: true, visitedAt: "2026-10-31T11:00:00.000Z" });
+
+    const moved = [
+      ["b", "2026-10-31T11:00:00.000Z"],
+      ["a", "2026-10-31T10:00:00.000Z"],
+    ];
+    expect(order(own)).toEqual(moved);
+    expect(order(ownSpace)).toEqual(moved);
+    expect(order(other)).toEqual([
+      ["a", "2026-10-31T10:00:00.000Z"],
+      ["b", "2026-10-30T10:00:00.000Z"],
+    ]);
+  });
+
+  it("refetches Recent when a list lacks the page or shows another of its views", () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    cache(recentKey("org-1"), [
+      entry("a", "2026-10-31T10:00:00.000Z", "view-1"),
+    ]);
+    render("new");
+
+    answer("new", { recorded: true, visitedAt: "2026-10-31T11:00:00.000Z" });
+    expect(invalidate).toHaveBeenCalledTimes(1);
+
+    answer(
+      "a",
+      { recorded: true, visitedAt: "2026-10-31T11:00:00.000Z" },
+      { documentId: "a", databaseId: "db-a", viewId: "view-2" },
+    );
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenLastCalledWith({
       queryKey: ["action", "get-content-recent"],
     });
   });

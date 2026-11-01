@@ -283,17 +283,25 @@ export function useRemoveContentRecent() {
 }
 
 /**
- * Moves a visited entry to the top of every cached Recent list that already
- * shows it for the same view, as the server just did. Returns false when some
- * cached list lacks it: that list needs the server's title and icon.
+ * Gives a visited entry the server's visit time in every cached Recent list
+ * of the account and organization it was stored under, and moves it to its
+ * place by that time, as the server just did. An answer older than the visit
+ * a list already shows changes nothing, so answers that arrive out of order
+ * keep the later visit first. Lists of another organization are left alone:
+ * the server keeps Recent per organization. Returns false when one of those
+ * lists lacks the entry: that list needs the server's title and icon.
  */
-export function moveCachedRecentVisitToTop(
+export function moveCachedRecentVisit(
   queryClient: ReturnType<typeof useQueryClient>,
   target: ContentRecentTarget,
   visitedAt: string,
+  accountKey: string,
 ): boolean {
   const key = contentRecentTargetKey(target);
   const visitKey = contentRecentVisitKey(target);
+  // A scope key is `[email, orgId, spaceId]` as JSON and the account key is
+  // `[email, orgId]`, so the account's lists in every space share this prefix.
+  const scopePrefix = `${accountKey.slice(0, -1)},`;
   let complete = true;
   for (const [
     cachedKey,
@@ -301,7 +309,7 @@ export function moveCachedRecentVisitToTop(
   ] of queryClient.getQueriesData<ContentRecentQueryData>({
     queryKey: ["action", "get-content-recent"],
   })) {
-    if (!data) continue;
+    if (!data?.scopeKey.startsWith(scopePrefix)) continue;
     const entry = data.entries.find(
       (candidate) => contentRecentTargetKey(candidate.target) === key,
     );
@@ -309,12 +317,13 @@ export function moveCachedRecentVisitToTop(
       complete = false;
       continue;
     }
+    if (entry.visitedAt >= visitedAt) continue;
+    const rest = data.entries.filter((candidate) => candidate !== entry);
+    const at = rest.findIndex((candidate) => candidate.visitedAt < visitedAt);
+    rest.splice(at < 0 ? rest.length : at, 0, { ...entry, visitedAt });
     queryClient.setQueryData<ContentRecentQueryData>(cachedKey, {
       ...data,
-      entries: [
-        { ...entry, visitedAt },
-        ...data.entries.filter((candidate) => candidate !== entry),
-      ].slice(0, CONTENT_RECENT_LIMIT),
+      entries: rest.slice(0, CONTENT_RECENT_LIMIT),
     });
   }
   return complete;
@@ -325,15 +334,18 @@ export function useContentVisitRecorder() {
   const t = useT();
   const mutation = useActionMutation("record-content-visit", {
     skipActionQueryInvalidation: true,
-    onSuccess: (_result, target) => {
+    onSuccess: (result, target) => {
       // Reopening a page already in Recent only reorders the list, so it
-      // skips the refetch; a first visit still reads the new entry.
+      // skips the refetch; a first visit still reads the new entry. An
+      // answer without a visit time comes from an older server.
+      const { visitedAt, accountKey } = result as {
+        visitedAt?: unknown;
+        accountKey?: unknown;
+      };
       if (
-        !moveCachedRecentVisitToTop(
-          queryClient,
-          target,
-          new Date().toISOString(),
-        )
+        typeof visitedAt !== "string" ||
+        typeof accountKey !== "string" ||
+        !moveCachedRecentVisit(queryClient, target, visitedAt, accountKey)
       ) {
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-content-recent"],

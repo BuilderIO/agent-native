@@ -1035,8 +1035,15 @@ export function DocumentToolbar({
     false,
   );
   const { data: connection } = useNotionConnection();
-  const { data: syncStatus } = useDocumentSyncStatus(
-    !inWidget && canEdit && !isLocalFileDocument ? documentId : null,
+  // The sync status loads after the page settles, or as soon as the page
+  // actions open, since the Notion item there depends on it.
+  const [pageActionsOpened, setPageActionsOpened] = useState(false);
+  const notionStatusApplies = !inWidget && canEdit && !isLocalFileDocument;
+  const { data: syncStatus, isError: syncStatusFailed } = useDocumentSyncStatus(
+    notionStatusApplies ? documentId : null,
+    {
+      now: pageActionsOpened,
+    },
   );
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
@@ -1106,6 +1113,10 @@ export function DocumentToolbar({
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
+  // Until the first status answer the toolbar can't tell a linked page from
+  // an unlinked one, so the Notion item waits instead of offering a link.
+  const notionStatusPending =
+    isConnected && notionStatusApplies && !syncStatus && !syncStatusFailed;
   const hasConflict = syncStatus?.hasConflict ?? false;
   const isWorking =
     linkDocument.isPending ||
@@ -1830,6 +1841,7 @@ export function DocumentToolbar({
             onOpenChange={(nextOpen) => {
               pageActionsOpenRef.current = nextOpen;
               if (nextOpen) {
+                setPageActionsOpened(true);
                 flushPendingPageActionsRestore();
                 pageActionsPreservationFrameRef.current = requestAnimationFrame(
                   () => {
@@ -2116,10 +2128,11 @@ export function DocumentToolbar({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className="flex min-h-7 w-full items-center gap-2 rounded-[8px] px-2 py-1 text-sm leading-5 text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        disabled={notionStatusPending}
+                        className="flex min-h-7 w-full items-center gap-2 rounded-[8px] px-2 py-1 text-sm leading-5 text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                       >
                         <span className="min-w-0 flex-1 truncate text-start">
-                          {isLinked
+                          {isLinked || notionStatusPending
                             ? t("editor.toolbar.notionSync")
                             : isConnected
                               ? t("editor.toolbar.linkToNotion")

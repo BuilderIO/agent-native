@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { mutateUserSetting } from "@agent-native/core/settings";
 
 import {
@@ -35,6 +36,17 @@ export default defineAction({
           canonicalEntry,
         ),
     );
-    return { recorded: true };
+    // The client orders its cached Recent lists by the stored time, as the
+    // server orders the stored list, and only the lists of the account and
+    // organization the visit was stored under: their scope keys (see
+    // get-content-recent) start with this account key.
+    return {
+      recorded: true,
+      visitedAt: entry.visitedAt,
+      accountKey: JSON.stringify([
+        ctx.userEmail.trim().toLowerCase(),
+        getRequestOrgId() ?? null,
+      ]),
+    };
   },
 });

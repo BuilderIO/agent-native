@@ -135,7 +135,10 @@ export function documentSyncRefetchIntervalMs(
   return autoSync ? 2_000 : 30_000;
 }
 
-export function useDocumentSyncStatus(documentId: string | null) {
+export function useDocumentSyncStatus(
+  documentId: string | null,
+  options: { now?: boolean } = {},
+) {
   const queryClient = useQueryClient();
   const lastObservedSyncedAtRef = useRef<string | null>(null);
   const normalizedDocumentId = documentId?.trim() || null;
@@ -144,7 +147,8 @@ export function useDocumentSyncStatus(documentId: string | null) {
     false,
   );
   // The status only feeds the sync bar and conflict banner, and the call
-  // is a write, so it waits for the page load to settle.
+  // is a write, so it waits for the page load to settle unless a caller
+  // is showing it now.
   const startupSettled = useAfterStartup();
   const query = useQuery<DocumentSyncStatus>({
     queryKey: normalizedDocumentId
@@ -157,7 +161,7 @@ export function useDocumentSyncStatus(documentId: string | null) {
         autoSync,
       });
     },
-    enabled: !!normalizedDocumentId && startupSettled,
+    enabled: !!normalizedDocumentId && (startupSettled || !!options.now),
     refetchInterval: (query) =>
       documentSyncRefetchIntervalMs(query.state.data, autoSync),
   });
