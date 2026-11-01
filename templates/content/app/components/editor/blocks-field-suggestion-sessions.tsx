@@ -1005,7 +1005,9 @@ export function useBlocksFieldSuggestions({
   /**
    * Drops a tab's refused draft and starts the tab again from its saved
    * text, read afresh: a draft is most often refused because that text
-   * changed under it. Its suggestions saved before stay.
+   * changed under it. Its suggestions saved before stay. If the text can't
+   * be read, the draft stays too, since a draft restarted on the old text
+   * would be refused again.
    */
   const discard = useCallback(
     async (fieldId: string) => {
@@ -1014,13 +1016,18 @@ export function useBlocksFieldSuggestions({
       decidingRef.current = true;
       setDecidingFields(new Set([fieldId]));
       try {
-        await queryClient.refetchQueries({
-          queryKey: ["action", "list-document-properties", { documentId }],
-        });
-      } finally {
+        await queryClient.refetchQueries(
+          { queryKey: ["action", "list-document-properties", { documentId }] },
+          { throwOnError: true },
+        );
         if (session.timer) clearTimeout(session.timer);
         if (sessionsRef.current.get(fieldId) === session)
           sessionsRef.current.delete(fieldId);
+      } catch (error) {
+        toast.error(tRef.current("empty.genericError"), {
+          description: actionErrorMessage(error) ?? undefined,
+        });
+      } finally {
         decidingRef.current = false;
         setDecidingFields(NO_FIELDS);
         bump();

@@ -293,9 +293,16 @@ describe("useBlocksFieldSuggestions", () => {
     });
 
     // The tab reads its text afresh, then starts a new draft on it.
-    expect(refetchQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "list-document-properties", { documentId: "doc-1" }],
-    });
+    expect(refetchQueries).toHaveBeenCalledWith(
+      {
+        queryKey: [
+          "action",
+          "list-document-properties",
+          { documentId: "doc-1" },
+        ],
+      },
+      { throwOnError: true },
+    );
     expect(latest.provider.sessions.has("notes")).toBe(false);
     expect(latest.refusedDrafts).toEqual([]);
     let saved = false;
@@ -304,6 +311,41 @@ describe("useBlocksFieldSuggestions", () => {
     });
     expect(saved).toBe(true);
     expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a tab's refused draft when its text can't be read afresh", async () => {
+    mocks.createProposal.mockRejectedValue(
+      Object.assign(new Error("The tab changed"), {
+        status: 409,
+        errorCode: "suggestion_conflict",
+      }),
+    );
+    const refetchQueries = vi
+      .spyOn(queryClient, "refetchQueries")
+      .mockRejectedValueOnce(new Error("Network down"));
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+
+    await act(async () => {
+      await latest.discard("notes");
+    });
+
+    // Restarted on the cached text, the draft would only be refused again.
+    expect(mocks.toastError).toHaveBeenCalled();
+    expect(latest.provider.sessions.has("notes")).toBe(true);
+    expect(latest.refusedDrafts).toEqual([
+      { fieldId: "notes", draft: "Original notes, revised." },
+    ]);
+
+    await act(async () => {
+      await latest.discard("notes");
+    });
+    expect(refetchQueries).toHaveBeenCalledTimes(2);
+    expect(latest.provider.sessions.has("notes")).toBe(false);
+    expect(latest.refusedDrafts).toEqual([]);
   });
 
   it("saves what a tab hadn't when the page leaves Suggesting mode", async () => {
