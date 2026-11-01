@@ -387,9 +387,7 @@ function shardMetadata(specs: readonly string[], shardCount: number) {
     path.join(REPO_ROOT, "scripts/lib/mutation-shard-runner.mts"),
     "utf8",
   );
-  const runId = process.env.GITHUB_RUN_ID
-    ? `${process.env.GITHUB_RUN_ID}/${process.env.GITHUB_RUN_ATTEMPT}`
-    : process.env.MUTATION_RUN_ID;
+  const runId = process.env.GITHUB_RUN_ID ?? process.env.MUTATION_RUN_ID;
   if (!runId)
     throw new Error(
       "Sharded mutation reports require a shared MUTATION_RUN_ID outside Actions",
@@ -411,20 +409,58 @@ function shardMetadata(specs: readonly string[], shardCount: number) {
   };
 }
 
+export function selectMutationShardArtifacts(names: readonly string[]) {
+  const selected = new Map<
+    number,
+    { shardIndex: number; attempt: number; relativePath: string }
+  >();
+  const seen = new Set<string>();
+  for (const name of names) {
+    if (seen.has(name)) throw new Error(`Duplicate mutation artifact: ${name}`);
+    seen.add(name);
+    const flat = /^shard-(0|[1-9]\d*)\.json$/.exec(name);
+    const archived = /^mutation-owner-(0|[1-9]\d*)-([1-9]\d*)$/.exec(name);
+    const matched = flat ?? archived;
+    if (!matched)
+      throw new Error(`Unexpected mutation artifact entry: ${name}`);
+    const shardIndex = Number(matched[1]);
+    const attempt = archived ? Number(archived[2]) : 0;
+    if (!Number.isSafeInteger(shardIndex) || !Number.isSafeInteger(attempt))
+      throw new Error(`Invalid mutation artifact index or attempt: ${name}`);
+    const previous = selected.get(shardIndex);
+    if (!previous || attempt > previous.attempt)
+      selected.set(shardIndex, {
+        shardIndex,
+        attempt,
+        relativePath: flat ? name : `${name}/shard-${shardIndex}.json`,
+      });
+  }
+  return [...selected.values()].sort((a, b) => a.shardIndex - b.shardIndex);
+}
+
 async function aggregateReports(
   directory: string,
   specs: readonly string[],
 ): Promise<number> {
-  const entries = readdirSync(directory, { withFileTypes: true });
-  if (
-    entries.some(
-      (entry) => !entry.isFile() || !/^shard-\d+\.json$/.test(entry.name),
+  const entries = readdirSync(directory);
+  const selected = selectMutationShardArtifacts(entries);
+  const receipts: unknown[] = selected.map((entry) => {
+    const receipt: unknown = JSON.parse(
+      readFileSync(path.join(directory, entry.relativePath), "utf8"),
+    );
+    if (
+      !receipt ||
+      typeof receipt !== "object" ||
+      !("shardIndex" in receipt) ||
+      receipt.shardIndex !== entry.shardIndex
     )
-  ) {
-    throw new Error("Mutation artifact directory contains an unexpected entry");
-  }
-  const receipts: unknown[] = entries.map((entry) =>
-    JSON.parse(readFileSync(path.join(directory, entry.name), "utf8")),
+      throw new Error(
+        `Mutation artifact worker does not match its name: ${entry.relativePath}`,
+      );
+    return receipt;
+  });
+  console.log(
+    `mutation-changed: selected ${selected.length} newest worker receipts; ${entries.length - selected.length} superseded artifacts are not used.`,
   );
   const merged = aggregateShardReceipts(
     receipts,

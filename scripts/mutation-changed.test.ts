@@ -7,6 +7,7 @@ import {
   contiguousRanges,
   mutateSpecs,
   mutationShardCount,
+  selectMutationShardArtifacts,
   namedSpecs,
   survivingMutants,
 } from "./mutation-changed.ts";
@@ -16,6 +17,48 @@ const repoRoot = path.resolve(
   "..",
 );
 const absolute = (repoPath: string) => path.join(repoRoot, repoPath);
+
+test("reuses successful workers across attempts and selects the newest rerun", () => {
+  assert.deepEqual(
+    selectMutationShardArtifacts([
+      "mutation-owner-1-2",
+      "mutation-owner-0-1",
+      "mutation-owner-1-1",
+    ]),
+    [
+      {
+        shardIndex: 0,
+        attempt: 1,
+        relativePath: "mutation-owner-0-1/shard-0.json",
+      },
+      {
+        shardIndex: 1,
+        attempt: 2,
+        relativePath: "mutation-owner-1-2/shard-1.json",
+      },
+    ],
+  );
+});
+
+test("supports local receipts and rejects ambiguous artifact entries", () => {
+  assert.deepEqual(selectMutationShardArtifacts(["shard-0.json"]), [
+    { shardIndex: 0, attempt: 0, relativePath: "shard-0.json" },
+  ]);
+  for (const name of [
+    "mutation-owner-0-0",
+    "mutation-owner-01-2",
+    "../shard-0.json",
+    "unexpected.json",
+  ])
+    assert.throws(
+      () => selectMutationShardArtifacts([name]),
+      /Unexpected mutation artifact/,
+    );
+  assert.throws(
+    () => selectMutationShardArtifacts(["shard-0.json", "shard-0.json"]),
+    /Duplicate mutation artifact/,
+  );
+});
 
 test("bounds mutation workers to the complete changed-line workload", () => {
   assert.equal(mutationShardCount([]), 1);

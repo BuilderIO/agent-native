@@ -2182,6 +2182,7 @@ jobs:
         with:
           name: mutation-owner-${{ matrix.index }}-${{ github.run_attempt }}
           path: .tmp/mutation-shards/shard-${{ matrix.index }}.json
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 
@@ -2220,9 +2221,9 @@ jobs:
         if: needs.mutation-plan.outputs.has_ranges == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: mutation-owner-*-${{ github.run_attempt }}
+          pattern: mutation-owner-*
           path: .tmp/mutation-shards
-          merge-multiple: true
+          merge-multiple: false
       - name: Verify complete inventories and the original global threshold
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
