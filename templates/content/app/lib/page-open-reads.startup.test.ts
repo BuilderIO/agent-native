@@ -220,7 +220,26 @@ describe("the app's page from the head script's read", () => {
     await expect(page).resolves.toBe("head");
   });
 
-  it("fails with the app's own read's error when the head read has not answered", async () => {
+  it("is the head read's answer when the app's own read fails first", async () => {
+    vi.useFakeTimers();
+    const head = headRead();
+    const ownRead = vi.fn(() => Promise.reject(new Error("Failed to fetch")));
+    const page = readFromStartupPageRead(head.taken, ownRead);
+    let settled: unknown = "pending";
+    page.then(
+      (value) => (settled = value),
+      (error: unknown) => (settled = error),
+    );
+
+    await vi.advanceTimersByTimeAsync(STARTUP_PAGE_READ_WAIT_MS);
+    expect(ownRead).toHaveBeenCalledTimes(1);
+    expect(settled).toBe("pending");
+
+    head.answer({ ok: true, value: "head" });
+    await expect(page).resolves.toBe("head");
+  });
+
+  it("fails with the app's own read's error once both reads have failed", async () => {
     vi.useFakeTimers();
     const head = headRead();
     const ownRead = vi.fn(() =>
@@ -230,6 +249,21 @@ describe("the app's page from the head script's read", () => {
     const settled = expect(page).rejects.toThrow("Document not found");
 
     await vi.advanceTimersByTimeAsync(STARTUP_PAGE_READ_WAIT_MS);
+    head.answer({ ok: false });
     await settled;
+  });
+
+  it("fails with the app's own read's error when the head read failed first", async () => {
+    vi.useFakeTimers();
+    const head = headRead();
+    const ownRead = vi.fn(() =>
+      Promise.reject(new Error("Document not found")),
+    );
+    const page = readFromStartupPageRead(head.taken, ownRead);
+    const settled = expect(page).rejects.toThrow("Document not found");
+
+    head.answer({ ok: false });
+    await settled;
+    expect(ownRead).toHaveBeenCalledTimes(1);
   });
 });

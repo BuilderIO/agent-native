@@ -395,8 +395,8 @@ export function takeStartupPageRead(
 
 // The page from the head script's read, or from the app's own read when the
 // head read failed or is still out after a short wait. Once the app has sent
-// its own read, the first of the two to answer is the page, and an error comes
-// from the app's own request.
+// its own read, the first of the two to answer is the page. It fails only once
+// both have failed, with the app's own request's error.
 export function readFromStartupPageRead<T>(
   startupRead: TakenStartupPageRead,
   sendOwnRead: () => Promise<T>,
@@ -405,6 +405,8 @@ export function readFromStartupPageRead<T>(
   return new Promise<T>((resolve, reject) => {
     let settled = false;
     let ownRead: Promise<T> | null = null;
+    let ownFailure: { error: unknown } | null = null;
+    let headFailed = false;
     const settle = (finish: () => void) => {
       if (settled) return;
       settled = true;
@@ -416,12 +418,21 @@ export function readFromStartupPageRead<T>(
       ownRead = sendOwnRead();
       ownRead.then(
         (value) => settle(() => resolve(value)),
-        (error: unknown) => settle(() => reject(error)),
+        (error: unknown) => {
+          ownFailure = { error };
+          if (headFailed) settle(() => reject(error));
+        },
       );
     };
     const wait = setTimeout(sendOwn, waitMs);
     void startupRead.answer.then((answer) => {
-      if (answer.ok) settle(() => resolve(answer.value as T));
+      if (answer.ok) {
+        settle(() => resolve(answer.value as T));
+        return;
+      }
+      headFailed = true;
+      const failure = ownFailure;
+      if (failure) settle(() => reject(failure.error));
       else sendOwn();
     });
   });
