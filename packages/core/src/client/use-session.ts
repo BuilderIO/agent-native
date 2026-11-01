@@ -1,7 +1,12 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 
 import type { AuthSession, AuthSessionResponse } from "../server/auth.js";
-import { navigateForSession as navigateForSessionOnce } from "../shared/ssr-session-bootstrap.js";
+import {
+  navigateForSession as navigateForSessionOnce,
+  readSessionInvalidationMarker,
+  SESSION_BOOTSTRAP_INVALIDATION_GLOBAL,
+  SESSION_INVALIDATION_STORAGE_KEY,
+} from "../shared/ssr-session-bootstrap.js";
 import { setSentryUser, trackEvent, trackSessionStatus } from "./analytics.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import {
@@ -107,7 +112,6 @@ const SESSION_CACHE_TTL_MS = SESSION_RESULT_LIFETIME_MS;
 const SESSION_RETRY_BUDGET_MS = 30_000;
 const SESSION_RETRY_BASE_DELAY_MS = 500;
 const SESSION_RETRY_MAX_DELAY_MS = 5_000;
-const SESSION_INVALIDATION_STORAGE_KEY = "agent-native:session-invalidated";
 const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 let cachedSession: ClientAuthSession | null | undefined;
 let cachedSessionAt = 0;
@@ -355,6 +359,22 @@ function installSessionInvalidationListeners(): void {
       revalidateStaleSession();
     }
   });
+  // A peer tab's broadcast that landed before this listener existed was not
+  // heard, but it changed the stored marker. The early session read in the
+  // document head, and every read sent beside it, then went out with cookies
+  // that may name the account before the change: none of them is this tab's
+  // first read any more, and the session is read again.
+  if (
+    firstSessionReadAnswer() !== "replaced" &&
+    bootstrapInvalidationMissed()
+  ) {
+    void invalidateSessionCache();
+  }
+}
+
+function bootstrapInvalidationMissed(): boolean {
+  const recorded = window[SESSION_BOOTSTRAP_INVALIDATION_GLOBAL];
+  return recorded !== undefined && recorded !== readSessionInvalidationMarker();
 }
 
 /**

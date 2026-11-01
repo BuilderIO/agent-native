@@ -6,6 +6,38 @@ export const SSR_SESSION_BOOTSTRAP_MARKER =
 export const SSR_SESSION_BOOTSTRAP_TIMEOUT_MS = 15_000;
 
 /**
+ * Written by a tab that changes the session (sign-in, sign-out, a reset), so
+ * every other tab hears a `storage` event and reads its session again.
+ */
+export const SESSION_INVALIDATION_STORAGE_KEY =
+  "agent-native:session-invalidated";
+
+/**
+ * The invalidation marker as it stood when the early session read went out.
+ * A tab that broadcast in between was not heard: nothing listened yet.
+ */
+export const SESSION_BOOTSTRAP_INVALIDATION_GLOBAL =
+  "__agentNativeSessionBootstrapInvalidation";
+
+/** The current invalidation marker, or "" when none is stored or readable. */
+export function readSessionInvalidationMarker(): string {
+  try {
+    return window.localStorage.getItem(SESSION_INVALIDATION_STORAGE_KEY) ?? "";
+  } catch {
+    // coercion-ok: storage this page cannot read carries no broadcast either.
+    return "";
+  }
+}
+
+/**
+ * The same statement for the inline scripts that start the early session
+ * read, run just before the read is sent.
+ */
+export function recordSessionInvalidationMarkerScript(): string {
+  return `try { window[${JSON.stringify(SESSION_BOOTSTRAP_INVALIDATION_GLOBAL)}] = window.localStorage.getItem(${JSON.stringify(SESSION_INVALIDATION_STORAGE_KEY)}) || ""; } catch (error) { window[${JSON.stringify(SESSION_BOOTSTRAP_INVALIDATION_GLOBAL)}] = ""; }`;
+}
+
+/**
  * Claimed by the first session-driven navigation of a document: the sign-in
  * gate, the sign-in page leaving for the app, the beta lane switch, or the
  * inline root-home and lane scripts. One page load never leaves for two
@@ -16,6 +48,7 @@ export const SESSION_NAVIGATION_FLAG = "__agentNativeNavigationStarted";
 declare global {
   interface Window {
     [SESSION_NAVIGATION_FLAG]?: string;
+    [SESSION_BOOTSTRAP_INVALIDATION_GLOBAL]?: string;
   }
 }
 
@@ -118,6 +151,7 @@ export function getSsrSessionBootstrapScriptBody(
     headers: { Accept: "application/json" }
   };
   if (controller) requestInit.signal = controller.signal;
+  ${recordSessionInvalidationMarkerScript()}
   window.__agentNativeSessionBootstrap = fetch(${safeJsonForHtml(sessionPath)}, requestInit).then(function (response) {
     if (!response.ok) return { state: "unavailable", status: response.status };
     return response.json().then(function (value) {

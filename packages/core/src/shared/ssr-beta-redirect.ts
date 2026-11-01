@@ -10,6 +10,7 @@ import {
   ENVIRONMENT_BETA_HOSTS,
 } from "./environment-lanes.js";
 import {
+  recordSessionInvalidationMarkerScript,
   SESSION_NAVIGATION_FLAG,
   SESSION_NAVIGATION_RELEASED_EVENT,
   SESSION_NAVIGATION_STALL_MS,
@@ -99,6 +100,7 @@ export function getSsrBetaRedirectScriptBody(
     var sharesAppRead = probePath === ${safeJsonForHtml(sessionPath)};
     var read = sharesAppRead ? window.__agentNativeSessionBootstrap : undefined;
     if (!read) {
+      if (sharesAppRead) ${recordSessionInvalidationMarkerScript()}
       read = window.fetch(probePath, {
         credentials: 'same-origin',
         cache: 'no-store',

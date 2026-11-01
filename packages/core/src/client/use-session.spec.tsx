@@ -1252,6 +1252,64 @@ describe("firstSessionReadAnswer", () => {
   });
 });
 
+describe("a peer tab's invalidation broadcast before this tab listened", () => {
+  const KEY = "agent-native:session-invalidated";
+
+  afterEach(() => {
+    delete window.__agentNativeSessionBootstrap;
+    delete window.__agentNativeSessionBootstrapInvalidation;
+    window.localStorage.removeItem(KEY);
+  });
+
+  // The head read the session as A and recorded the marker it saw; the app
+  // code then loads, with the marker as `storedNow` says.
+  async function loadAfterHeadRead(storedNow: string) {
+    window.localStorage.setItem(KEY, "signed-in-earlier");
+    window.__agentNativeSessionBootstrapInvalidation = "signed-in-earlier";
+    window.__agentNativeSessionBootstrap = Promise.resolve({
+      state: "available",
+      value: { userId: "user-a", email: "a@x.test" },
+    });
+    window.localStorage.setItem(KEY, storedNow);
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ userId: "user-b", email: "b@x.test" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const module = await freshSessionModule();
+    const heard: string[] = [];
+    module.subscribeFirstSessionReadAnswer(() =>
+      heard.push(module.firstSessionReadAnswer()),
+    );
+    function Gate() {
+      const { session, isLoading } = module.useSession();
+      return <>{isLoading ? "loading" : (session?.email ?? "signed-out")}</>;
+    }
+    await act(async () => {
+      root.render(<Gate />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return { module, fetchMock, heard };
+  }
+
+  it("replaces the head's session read and reads the session again", async () => {
+    const { module, fetchMock, heard } =
+      await loadAfterHeadRead("signed-in-as-b");
+
+    expect(heard[0]).toBe("replaced");
+    expect(module.firstSessionReadAnswer()).toBe("replaced");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toBe("b@x.test");
+  });
+
+  it("keeps the head's session read when no broadcast came in between", async () => {
+    const { module, fetchMock } = await loadAfterHeadRead("signed-in-earlier");
+
+    expect(module.firstSessionReadAnswer()).toBe("first-read");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(container.textContent).toBe("a@x.test");
+  });
+});
+
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
