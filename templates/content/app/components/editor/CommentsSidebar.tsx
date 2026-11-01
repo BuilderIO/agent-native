@@ -32,6 +32,7 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import type { CommentAiRequest } from "@shared/comment-ai";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
   commentMentionsForText,
@@ -407,6 +408,17 @@ function measureThreadQuotes(
     if (quote) quotes.set(threadId, quote);
   }
   return quotes;
+}
+
+/** Whether the request's AI finished an edit the page is still loading. */
+function loadingRequestSuggestion(
+  request: CommentAiRequest | undefined,
+  awaitedSuggestionIds: ReadonlySet<string>,
+) {
+  return (
+    request?.status === "suggested" &&
+    awaitedSuggestionIds.has(request.result?.suggestionId ?? "")
+  );
 }
 
 /** Whether a thread's tab is on the page but not open. */
@@ -2708,9 +2720,6 @@ export function CommentsSidebar({
     for (const threadId of settled) {
       const thread = threads.find((item) => item.threadId === threadId);
       const requested = resolveOnAccept.get(threadId) ?? [];
-      const request = commentAi
-        ? latestCommentAiRequest(commentAi.requests, threadId)
-        : undefined;
       // A failed or refused accept leaves an edit pending, and an edit can
       // also end rejected or withdrawn; the thread then stays open. So does
       // an edit its AI made while the accept was in flight, loaded or still
@@ -2719,8 +2728,12 @@ export function CommentsSidebar({
         (threadSuggestions.get(threadId) ?? []).some(
           (suggestion) => suggestion.status === "pending",
         ) ||
-        (request?.status === "suggested" &&
-          awaitedSuggestionIds.has(request.result?.suggestionId ?? ""));
+        loadingRequestSuggestion(
+          commentAi
+            ? latestCommentAiRequest(commentAi.requests, threadId)
+            : undefined,
+          awaitedSuggestionIds,
+        );
       if (
         thread &&
         !thread.resolved &&
@@ -3042,6 +3055,10 @@ export function CommentsSidebar({
     const aiWorking = Boolean(
       commentAi && isCommentAiWorkingOn(commentAi, thread.threadId),
     );
+    const aiSuggestionLoading = loadingRequestSuggestion(
+      aiRequest,
+      awaitedSuggestionIds,
+    );
     const suggestionProps = (members: ResourceSuggestion[]) => {
       const proposalId = members.length > 1 ? members[0]?.proposalId : null;
       const pendingMembers = suggestions.filter(
@@ -3050,11 +3067,14 @@ export function CommentsSidebar({
           suggestion.status === "pending",
       );
       // Resolving takes the thread's other pending edits out of it, so only
-      // the last group with any left offers to resolve.
-      const pendingElsewhere = embedded.some(
-        (suggestion) =>
-          suggestion.status === "pending" && !members.includes(suggestion),
-      );
+      // the last group with any left offers to resolve, and none while an
+      // edit is still loading.
+      const pendingElsewhere =
+        aiSuggestionLoading ||
+        embedded.some(
+          (suggestion) =>
+            suggestion.status === "pending" && !members.includes(suggestion),
+        );
       return {
         suggestions: members,
         canDecide: canDecideSuggestions,
@@ -3332,13 +3352,11 @@ export function CommentsSidebar({
                   continuation={continuation}
                 />
               ) : null}
-              {aiRequest?.status === "suggested" &&
-              !showsRequestSuggestion &&
-              awaitedSuggestionIds.has(aiRequest.result?.suggestionId ?? "") ? (
+              {aiSuggestionLoading && !showsRequestSuggestion ? (
                 <ThreadSuggestionPlaceholder
                   onRetry={
                     unreadableSuggestionIds.has(
-                      aiRequest.result?.suggestionId ?? "",
+                      aiRequest?.result?.suggestionId ?? "",
                     )
                       ? onRetrySuggestionRead
                       : undefined

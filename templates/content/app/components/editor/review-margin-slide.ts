@@ -35,7 +35,7 @@ export function useReviewMarginSlide(
       from === to ||
       !lead ||
       !("animate" in moving) ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
     )
       return;
     const landed = lead.getBoundingClientRect().left;

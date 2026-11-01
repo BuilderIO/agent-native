@@ -735,6 +735,30 @@ describe("comment review interactions", () => {
       ).toHaveLength(1);
     });
 
+    it("offers no resolve while its AI's newer edit is still loading", () => {
+      const showLoading = (awaited: ReadonlySet<string>) =>
+        render("one", [thread("one")], "inline", {
+          suggestions: [asked("first", "pending"), asked("second", "pending")],
+          onDecideSuggestionProposal: decide,
+          decidingSuggestion: () => deciding,
+          commentAi: suggestedCommentAi("fresh"),
+          awaitedSuggestionIds: awaited,
+        });
+
+      showLoading(new Set(["fresh"]));
+      expect(
+        container.querySelector("[data-thread-suggestion-placeholder]"),
+      ).not.toBeNull();
+      expect(
+        container.querySelector("[data-suggestion-accept-resolve]"),
+      ).toBeNull();
+
+      showLoading(new Set());
+      expect(
+        container.querySelector("[data-suggestion-accept-resolve]"),
+      ).not.toBeNull();
+    });
+
     it("leaves the thread open when its AI adds an edit during the accept", () => {
       show("pending");
       const button = container.querySelector<HTMLButtonElement>(
