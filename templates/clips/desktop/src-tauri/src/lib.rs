@@ -32,6 +32,8 @@ mod silence_detector;
 mod speech_capture_ownership;
 mod state;
 mod system_audio;
+#[cfg(target_os = "macos")]
+mod transcribe_engine;
 mod tray;
 mod tray_meetings;
 mod util;
