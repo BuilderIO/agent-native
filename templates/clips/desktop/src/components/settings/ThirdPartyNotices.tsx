@@ -39,7 +39,7 @@ export function parseNotices(markdown: string): NoticeBlock[] {
       }
       continue;
     }
-    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    const heading = /^#{1,6}\s+/.exec(line)?.[0];
     if (line.startsWith("```")) {
       endParagraph();
       code = [];
@@ -47,8 +47,8 @@ export function parseNotices(markdown: string): NoticeBlock[] {
       endParagraph();
       blocks.push({
         kind: "heading",
-        level: heading[1].length,
-        text: heading[2].trim(),
+        level: heading.trim().length,
+        text: line.slice(heading.length).trim(),
       });
     } else if (line.trim()) {
       paragraph.push(line.trim());
@@ -69,15 +69,14 @@ function openLink(href: string) {
 }
 
 function withLinks(text: string): ReactNode[] {
-  const parts: ReactNode[] = [];
-  const link = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
-  let last = 0;
-  for (const match of text.matchAll(link)) {
-    const [whole, label, href] = match;
-    parts.push(text.slice(last, match.index));
-    parts.push(
+  // Splitting on a capturing pattern leaves each link at an odd index.
+  return text.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\))/).map((part, index) => {
+    if (index % 2 === 0) return part;
+    const middle = part.indexOf("](");
+    const href = part.slice(middle + 2, -1);
+    return (
       <a
-        key={match.index}
+        key={index}
         href={href}
         className="text-primary underline underline-offset-2"
         onClick={(event) => {
@@ -86,13 +85,10 @@ function withLinks(text: string): ReactNode[] {
           openLink(href);
         }}
       >
-        {label}
-      </a>,
+        {part.slice(1, middle)}
+      </a>
     );
-    last = match.index + whole.length;
-  }
-  parts.push(text.slice(last));
-  return parts;
+  });
 }
 
 function NoticeBlockView({ block }: { block: NoticeBlock }) {
