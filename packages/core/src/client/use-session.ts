@@ -15,6 +15,7 @@ import {
   invalidateClientStatusRequest,
   SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
+import { fetchTransport, type FetchTransport } from "./fetch-transport.js";
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 import { recordSessionIdentity } from "./session-identity.js";
 
@@ -127,6 +128,11 @@ let cachedSessionFromFirstRead = false;
 // Set once a retry or a reset replaces the first read, answered or not.
 let firstSessionReadReplaced = false;
 const firstSessionReadAnswerListeners = new Set<() => void>();
+// Who the session this tab holds names, and the transport its read went out
+// on; and the same for the load's first session read once it has answered.
+let cachedSessionIdentity: AnsweredReadIdentity | undefined;
+let firstSessionReadIdentity: AnsweredReadIdentity | undefined;
+const sessionReadIdentityListeners = new Set<() => void>();
 let sessionInvalidationListenersInstalled = false;
 let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
 let signingOut = false;
@@ -274,12 +280,14 @@ function resetSessionCache(): void {
   cachedSessionFromFirstRead = false;
   firstSessionReadReplaced = true;
   cachedSession = undefined;
+  cachedSessionIdentity = undefined;
   cachedSessionAt = 0;
   cachedEvidence = undefined;
   sessionRequest = undefined;
   clearTimeout(staleSessionRecheck);
   staleSessionRecheck = undefined;
   if (before !== "replaced") notifyFirstSessionReadAnswer();
+  notifySessionReadIdentity();
 }
 
 function notifySessionSubscribers(): Promise<void> {
@@ -453,6 +461,130 @@ function notifyFirstSessionReadAnswer(): void {
   }
 }
 
+type AnsweredReadIdentity = { scope: string; transport: FetchTransport };
+
+/**
+ * Who a request was sent as. The server answers it for the account the
+ * cookies named when it left, or for the credentials its transport added, and
+ * the request cannot tell which that was. It records instead the session read
+ * those cookies belong to, and the transport it went out on, so the answer can
+ * be checked against the session this tab accepts. See
+ * {@link sessionReadIdentityStatus}.
+ */
+export type SessionReadIdentity = {
+  readonly transport: FetchTransport;
+} & (
+  | // Sent before the load's first session read answered, with the cookies
+    // that read carried.
+    { readonly sentWith: "first-read" }
+  // Sent while the session this tab held named `scope`.
+  | { readonly sentWith: "answered"; readonly scope: string }
+  // Sent while a later session read was out, so with the cookies that read
+  // carries.
+  | { readonly sentWith: "reread"; readonly generation: number }
+);
+
+export type SessionReadIdentityStatus = "pending" | "current" | "stale";
+
+function sessionScope(session: AuthSession | null): string {
+  return session
+    ? JSON.stringify([session.userId ?? session.email, session.orgId ?? null])
+    : "signed-out";
+}
+
+const NO_FETCH_TRANSPORT = {};
+
+function currentFetchTransport(): FetchTransport {
+  return typeof globalThis.fetch === "function"
+    ? fetchTransport(globalThis.fetch)
+    : NO_FETCH_TRANSPORT;
+}
+
+/**
+ * The identity a request sent now goes out under: `fetch` is the one it is
+ * sent with (the page's own by default). A request the document head sent
+ * beside the shell's session read passes `sentWithFirstSessionRead`.
+ */
+export function sessionReadIdentity(
+  options: { fetch?: typeof fetch; sentWithFirstSessionRead?: boolean } = {},
+): SessionReadIdentity {
+  const transport = options.fetch
+    ? fetchTransport(options.fetch)
+    : currentFetchTransport();
+  if (options.sentWithFirstSessionRead) {
+    return { sentWith: "first-read", transport };
+  }
+  if (cachedSessionIdentity) {
+    return {
+      sentWith: "answered",
+      scope: cachedSessionIdentity.scope,
+      transport,
+    };
+  }
+  if (!firstSessionReadReplaced) return { sentWith: "first-read", transport };
+  return { sentWith: "reread", generation: sessionGeneration, transport };
+}
+
+/**
+ * Whether a request sent under `identity` was answered for the session this
+ * tab accepts now: `"current"` when it was sent as the same person over the
+ * same transport, `"stale"` when it was not, or can no longer be known to have
+ * been, and `"pending"` while the session read that decides it is out. Only a
+ * `"current"` answer may be shown.
+ */
+export function sessionReadIdentityStatus(
+  identity: SessionReadIdentity,
+): SessionReadIdentityStatus {
+  let scope: string;
+  if (identity.sentWith === "first-read") {
+    // Replaced before it answered: whoever the cookies named then is unknown.
+    if (!firstSessionReadIdentity) {
+      return firstSessionReadReplaced ? "stale" : "pending";
+    }
+    // Sent beside the first read, but not over its transport: the first
+    // read's answer says nothing about whom this one was answered for.
+    if (identity.transport !== firstSessionReadIdentity.transport) {
+      return "stale";
+    }
+    scope = firstSessionReadIdentity.scope;
+  } else if (identity.sentWith === "reread") {
+    if (identity.generation !== sessionGeneration) return "stale";
+    if (!cachedSessionIdentity) return "pending";
+    scope = cachedSessionIdentity.scope;
+  } else {
+    scope = identity.scope;
+  }
+  if (!cachedSessionIdentity) return "pending";
+  return scope === cachedSessionIdentity.scope &&
+    identity.transport === cachedSessionIdentity.transport
+    ? "current"
+    : "stale";
+}
+
+/**
+ * Calls `listener` each time the session this tab holds changes, in the same
+ * task as the change and before any `useSession` consumer re-renders, so a
+ * request whose identity has gone stale is dropped before anything shows it.
+ */
+export function subscribeSessionReadIdentity(listener: () => void): () => void {
+  sessionReadIdentityListeners.add(listener);
+  return () => {
+    sessionReadIdentityListeners.delete(listener);
+  };
+}
+
+function notifySessionReadIdentity(): void {
+  for (const listener of [...sessionReadIdentityListeners]) {
+    try {
+      listener();
+    } catch (error) {
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
+  }
+}
+
 const UNAUTHORIZED_RECHECK_MIN_INTERVAL_MS = 5_000;
 let lastUnauthorizedRecheckAt = 0;
 
@@ -514,6 +646,9 @@ function fetchSharedSession(): Promise<SessionRead> {
   const requestGeneration = sessionGeneration;
   const firstRead = firstSessionReadUnsent;
   firstSessionReadUnsent = false;
+  // The status read takes the shell's answer only over this same transport,
+  // so this is the transport the answer was read over either way.
+  const transport = currentFetchTransport();
   let request: Promise<SessionRead>;
   const requestResult = (async (): Promise<SessionRead> => {
     try {
@@ -540,6 +675,8 @@ function fetchSharedSession(): Promise<SessionRead> {
           : (data as AuthSessionResponse & ClientAuthSession);
       const answerBefore = firstSessionReadAnswer();
       cachedSession = session;
+      cachedSessionIdentity = { scope: sessionScope(session), transport };
+      if (firstRead) firstSessionReadIdentity = cachedSessionIdentity;
       cachedSessionAt = Date.now();
       cachedSessionFromFirstRead = firstRead;
       if (!firstRead) firstSessionReadReplaced = true;
@@ -552,6 +689,7 @@ function fetchSharedSession(): Promise<SessionRead> {
       if (firstSessionReadAnswer() !== answerBefore) {
         notifyFirstSessionReadAnswer();
       }
+      notifySessionReadIdentity();
       return { state: "resolved", session };
     } catch {
       return { state: "unreadable" };

@@ -17,18 +17,19 @@ const server = vi.hoisted(() => ({
   held: [] as Array<(value: unknown) => void>,
 }));
 
+// The account whose session this tab accepts, or null while it is unknown.
 const session = vi.hoisted(() => {
-  type Answer = "pending" | "first-read" | "replaced";
   const listeners = new Set<() => void>();
-  let answer: Answer = "first-read";
+  let account: string | null = "a";
   return {
-    get: () => answer,
-    set(next: Answer) {
-      answer = next;
+    transport: {},
+    get: () => account,
+    set(next: string | null) {
+      account = next;
       for (const listener of [...listeners]) listener();
     },
     reset() {
-      answer = "first-read";
+      account = "a";
       listeners.clear();
     },
     listeners,
@@ -39,8 +40,23 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/use-session")
   >()),
-  firstSessionReadAnswer: () => session.get(),
-  subscribeFirstSessionReadAnswer: (listener: () => void) => {
+  // Like the session store: a read is sent as the account the tab holds,
+  // and is current only while the tab still holds it.
+  sessionReadIdentity: () =>
+    session.get() === null
+      ? { sentWith: "first-read", transport: session.transport }
+      : {
+          sentWith: "answered",
+          scope: session.get(),
+          transport: session.transport,
+        },
+  sessionReadIdentityStatus: (identity: { sentWith: string; scope?: string }) =>
+    session.get() === null
+      ? "pending"
+      : identity.sentWith === "first-read" || identity.scope === session.get()
+        ? "current"
+        : "stale",
+  subscribeSessionReadIdentity: (listener: () => void) => {
     session.listeners.add(listener);
     return () => session.listeners.delete(listener);
   },
@@ -151,7 +167,7 @@ describe("a page-open read answered after the tab changed identity", () => {
     [
       "account",
       () => {
-        session.set("replaced");
+        session.set("b");
         return scope("b", "org-1");
       },
     ],

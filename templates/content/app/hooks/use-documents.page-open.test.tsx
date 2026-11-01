@@ -26,6 +26,39 @@ const server = vi.hoisted(() => ({
     Promise.resolve(pageOrDraft(name, params)),
 }));
 
+// The session these opens run under. It has answered unless a spec says not.
+const session = vi.hoisted(() => {
+  type Answer = "pending" | "first-read";
+  const listeners = new Set<() => void>();
+  let answer: Answer = "first-read";
+  return {
+    listeners,
+    transport: {},
+    get: () => answer,
+    reset(next: Answer) {
+      answer = next;
+      listeners.clear();
+    },
+  };
+});
+
+vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-session")
+  >()),
+  sessionReadIdentity: (options: { sentWithFirstSessionRead?: boolean } = {}) =>
+    options.sentWithFirstSessionRead || session.get() === "pending"
+      ? { sentWith: "first-read", transport: session.transport }
+      : { sentWith: "answered", scope: "a", transport: session.transport },
+  sessionReadIdentityStatus: (identity: { sentWith: string }) =>
+    identity.sentWith === "answered" || session.get() === "first-read"
+      ? "current"
+      : "pending",
+  subscribeSessionReadIdentity: (listener: () => void) => {
+    session.listeners.add(listener);
+    return () => session.listeners.delete(listener);
+  },
+}));
 vi.mock("@agent-native/core/client/agent-chat", () => openAiHost);
 vi.mock("@agent-native/core/client/host", async (importOriginal) => {
   const actual =
@@ -157,6 +190,7 @@ describe("page open document reads", () => {
   };
 
   beforeEach(() => {
+    session.reset("first-read");
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -383,12 +417,8 @@ describe("page open document reads", () => {
   });
 
   it("leaves comments and suggestions to the page when the session is not known yet", async () => {
-    startPageOpenDocumentReads(
-      queryClient,
-      "doc-1",
-      {},
-      { beforeSession: true },
-    );
+    session.reset("pending");
+    startPageOpenDocumentReads(queryClient, "doc-1", {}, { fromLoad: true });
 
     await vi.waitFor(() => expect(server.calls).toHaveLength(1));
     await new Promise((resolve) => setTimeout(resolve, 0));

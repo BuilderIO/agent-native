@@ -1,5 +1,8 @@
 import { currentActionQueryCacheBinding } from "@agent-native/core/client/use-action";
-import { firstSessionReadAnswer } from "@agent-native/core/client/use-session";
+import {
+  sessionReadIdentityStatus,
+  type SessionReadIdentity,
+} from "@agent-native/core/client/use-session";
 import type {
   ContentDatabasePersonalViewResponse,
   ContentDatabaseTableQuery,
@@ -60,14 +63,16 @@ export function openingDatabaseQueryKey(documentId: string) {
 }
 
 // Whom a page-open read was sent for: the page query that sent it, the
-// browser cache's binding to an account and organization, and the session.
-// An account or organization switch removes or rebinds all three, so a read
-// that answers afterwards belongs to an identity this tab no longer shows.
+// browser cache's binding to an account and organization, and the identity
+// it was sent as. An account or organization switch removes, rebinds or
+// replaces all three, so a read that answers afterwards belongs to someone
+// this tab no longer shows.
 // A read spoiled by a change while it was out is no one's current answer.
 // A change to one collection part alone leaves the page's answer standing,
 // but that part of it is older than the change.
 export type PageOpenReadOwner = {
   startedAt: number;
+  identity: SessionReadIdentity;
   stillOwns: () => boolean;
   invalidatedWhileOut: (queryKey: QueryKey) => boolean;
   // Called once the read has answered or failed; it stops watching.
@@ -122,18 +127,19 @@ export function pageOpenReadOwner(
   queryClient: QueryClient,
   queryKey: QueryKey,
   signal: AbortSignal,
+  identity: SessionReadIdentity,
   startedAt = Date.now(),
 ): PageOpenReadOwner {
   const queryCache = queryClient.getQueryCache();
   const query = queryCache.find({ queryKey, exact: true });
   const binding = currentActionQueryCacheBinding();
-  const session = firstSessionReadAnswer();
   const read = trackedPageOpenRead(queryClient, queryKey);
   const watches = invalidationWatches(queryClient);
   const watch: InvalidationWatch = { filters: [], queryHashes: new Set() };
   watches.add(watch);
   return {
     startedAt,
+    identity,
     invalidatedWhileOut: (partKey) =>
       watch.queryHashes.has(hashKey(partKey)) ||
       watch.filters.some((filters) => invalidationReaches(filters, partKey)),
@@ -147,33 +153,30 @@ export function pageOpenReadOwner(
       !query.state.isInvalidated &&
       read?.invalidated !== true &&
       // A read sent before the cache was first bound is checked by its query
-      // and session alone; a binding that untrusted reads must not join
+      // and identity alone; a binding that untrusted reads must not join
       // removes their queries.
       (binding === undefined || currentActionQueryCacheBinding() === binding) &&
-      !(session !== "replaced" && firstSessionReadAnswer() === "replaced"),
+      sessionReadIdentityStatus(identity) !== "stale",
   };
 }
 
 /**
  * Puts the collection parts of a page-open read where the collection's table
- * looks for them, as reads made for this open. Read before the session was
- * known, they are held like the page read: dropped if another account's
- * session answers, and never seeded once one has. Nothing is seeded once the
+ * looks for them, as reads made for this open. They carry the page read's
+ * identity, so they are held like it: dropped if the session turns out to be
+ * someone else's, and never seeded once it has. Nothing is seeded once the
  * read's owner is gone. A part being read now, read since this open's read
- * started, or invalidated while it was out, is left to its own read; one read
- * earlier, say on a previous visit, is replaced.
+ * started, or invalidated while it was out, is left to its own read; one
+ * read earlier, say on a previous visit, is replaced.
  */
 export function seedPageOpenCollection(
   queryClient: QueryClient,
   documentId: string,
   collection: NonNullable<PageOpenReadAnswer["collection"]>,
-  {
-    beforeSession = false,
-    owner,
-  }: { beforeSession?: boolean; owner?: PageOpenReadOwner } = {},
+  { owner }: { owner?: PageOpenReadOwner } = {},
 ) {
-  if (beforeSession && firstSessionReadAnswer() === "replaced") return;
   if (owner && !owner.stillOwns()) return;
+  if (owner && sessionReadIdentityStatus(owner.identity) === "stale") return;
   const readStartedAt = owner?.startedAt ?? Date.now();
   const seeds: Array<[QueryKey, unknown]> = [];
   if (collection.database !== undefined) {
@@ -219,7 +222,10 @@ export function seedPageOpenCollection(
       queryClient,
       documentId,
       { queryKey, queryFn: () => Promise.resolve(value), retry: false },
-      { beforeSession, startedAt: readStartedAt },
+      {
+        ...(owner ? { identity: owner.identity } : {}),
+        startedAt: readStartedAt,
+      },
     );
   }
 }

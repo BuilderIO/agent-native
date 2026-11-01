@@ -1,6 +1,8 @@
 import {
-  firstSessionReadAnswer,
-  subscribeFirstSessionReadAnswer,
+  sessionReadIdentity,
+  sessionReadIdentityStatus,
+  subscribeSessionReadIdentity,
+  type SessionReadIdentity,
 } from "@agent-native/core/client/use-session";
 import {
   hashKey,
@@ -27,78 +29,112 @@ export type PageOpenRead = {
   // manual success and never counts: a read cancelled by an optimistic update
   // leaves the older cached body behind with a fresh timestamp.
   landed: boolean;
-  // Sent before the session was known, with whatever account the cookies
-  // named then. Cleared once the load's first session read answers for it.
-  beforeSession: boolean;
+  // Who the read was sent as. It is shown only while that is the session
+  // this tab accepts (`sessionReadIdentityStatus` is "current").
+  identity: SessionReadIdentity;
 };
 
 export type PageOpenReadAdoption = "fresh" | "pending" | "none";
 
 const readsByClient = new WeakMap<QueryClient, Map<string, PageOpenRead>>();
 
-// Reads sent before the session was known, claimed or not, until the load's
-// first session read answers: they are kept when it does, and dropped when a
-// retry or an invalidation answers instead. Each waits on the answer, so the
-// claim does not have to.
-type HeldForSession = {
-  reads: Map<string, { queryKey: QueryKey; read: PageOpenRead }>;
-  whenKept: Array<() => void>;
+// Every read is checked against the session this tab accepts, claimed or
+// not, until it has been handed to its component under the session it was
+// sent as. One whose session is replaced by another account's, or that went
+// out over another transport, is dropped before the app shows it. Work that
+// must not run as another account waits here too.
+type WatchedReads = {
+  reads: Map<PageOpenRead, { queryKey: QueryKey; handedOver: boolean }>;
+  waiting: Array<{ identity: SessionReadIdentity; run: () => void }>;
   unsubscribe: () => void;
 };
-const heldByClient = new WeakMap<QueryClient, HeldForSession>();
+const watchedByClient = new WeakMap<QueryClient, WatchedReads>();
 
-function holdForSession(queryClient: QueryClient): HeldForSession {
-  let held = heldByClient.get(queryClient);
-  if (!held) {
-    const created: HeldForSession = {
+function watchReads(queryClient: QueryClient): WatchedReads {
+  let watched = watchedByClient.get(queryClient);
+  if (!watched) {
+    const created: WatchedReads = {
       reads: new Map(),
-      whenKept: [],
-      unsubscribe: subscribeFirstSessionReadAnswer(() =>
-        settleHeldReads(queryClient),
+      waiting: [],
+      unsubscribe: subscribeSessionReadIdentity(() =>
+        settleReadIdentities(queryClient),
       ),
     };
-    heldByClient.set(queryClient, created);
-    held = created;
+    watchedByClient.set(queryClient, created);
+    watched = created;
   }
-  return held;
+  return watched;
 }
 
 // Runs before the app behind the session gate is shown: the session store
-// calls it in the task that answers, ahead of its own subscribers.
-function settleHeldReads(queryClient: QueryClient) {
-  const answer = firstSessionReadAnswer();
-  if (answer === "pending") return;
-  const held = heldByClient.get(queryClient);
-  if (!held) return;
-  heldByClient.delete(queryClient);
-  held.unsubscribe();
-  if (answer === "first-read") {
-    for (const { read } of held.reads.values()) read.beforeSession = false;
-    for (const kept of held.whenKept) kept();
-    return;
+// calls it in the task that changes the session, ahead of its own subscribers.
+function settleReadIdentities(queryClient: QueryClient) {
+  const watched = watchedByClient.get(queryClient);
+  if (!watched) return;
+  for (const [read, { queryKey, handedOver }] of watched.reads) {
+    const status = sessionReadIdentityStatus(read.identity);
+    if (status === "stale") {
+      watched.reads.delete(read);
+      dropRead(queryClient, queryKey, read);
+    } else if (status === "current" && handedOver) {
+      watched.reads.delete(read);
+    }
   }
-  dropReadsBeforeSession(queryClient, held);
+  const ready: Array<() => void> = [];
+  watched.waiting = watched.waiting.filter(({ identity, run }) => {
+    const status = sessionReadIdentityStatus(identity);
+    if (status === "current") ready.push(run);
+    return status === "pending";
+  });
+  if (watched.reads.size === 0 && watched.waiting.length === 0) {
+    watched.unsubscribe();
+    watchedByClient.delete(queryClient);
+  }
+  for (const run of ready) run();
 }
 
-// Runs `callback` once the load's first session read keeps the reads sent
-// before it, and never if another read answers instead. Once the session is
-// known, a read sent now is like any other, so it runs at once.
-export function whenReadsBeforeSessionKept(
+// Not the session this tab accepts: none of it is shown, and a component
+// already holding it reads it again.
+function dropRead(
   queryClient: QueryClient,
+  queryKey: QueryKey,
+  read: PageOpenRead,
+) {
+  const reads = openReads(queryClient);
+  const queryHash = hashKey(queryKey);
+  if (reads.get(queryHash) === read) reads.delete(queryHash);
+  void queryClient.resetQueries({ queryKey, exact: true });
+}
+
+function handOver(queryClient: QueryClient, read: PageOpenRead) {
+  const watched = watchedByClient.get(queryClient);
+  const entry = watched?.reads.get(read);
+  if (!entry) return;
+  entry.handedOver = true;
+  settleReadIdentities(queryClient);
+}
+
+// Runs `callback` once a request sent as `identity` is known to have been
+// answered for the session this tab accepts, and never if it was not.
+export function whenReadIdentityCurrent(
+  queryClient: QueryClient,
+  identity: SessionReadIdentity,
   callback: () => void,
 ) {
-  if (firstSessionReadAnswer() === "pending") {
-    holdForSession(queryClient).whenKept.push(callback);
-  } else {
-    callback();
+  const status = sessionReadIdentityStatus(identity);
+  if (status === "current") callback();
+  else if (status === "pending") {
+    watchReads(queryClient).waiting.push({ identity, run: callback });
   }
 }
 
-// Whether this read went out before the session was known and the load's
-// first session read has not answered yet. It may hold another account's
-// page, so nothing may be shown from it until that read answers.
+// Whether nothing may be shown from this read yet: the session read that
+// decides whom it was answered for is still out. A read found to be someone
+// else's has already been dropped and is being read again.
 export function isAwaitingSession(read: PageOpenRead | null) {
-  return read?.beforeSession === true && firstSessionReadAnswer() === "pending";
+  return (
+    read !== null && sessionReadIdentityStatus(read.identity) === "pending"
+  );
 }
 
 function openReads(queryClient: QueryClient) {
@@ -109,6 +145,11 @@ function openReads(queryClient: QueryClient) {
     queryClient.getQueryCache().subscribe((event) => {
       if (event.type === "removed") {
         reads!.delete(event.query.queryHash);
+        const watched = watchedByClient.get(queryClient)?.reads;
+        for (const [read, { queryKey }] of watched ?? []) {
+          if (hashKey(queryKey) === event.query.queryHash)
+            watched?.delete(read);
+        }
         return;
       }
       if (event.type !== "updated") return;
@@ -129,9 +170,9 @@ export function startPageOpenRead<TData>(
   documentId: string,
   options: FetchQueryOptions<TData, Error, TData, QueryKey>,
   {
-    beforeSession = false,
+    identity = sessionReadIdentity(),
     startedAt = Date.now(),
-  }: { beforeSession?: boolean; startedAt?: number } = {},
+  }: { identity?: SessionReadIdentity; startedAt?: number } = {},
 ): boolean {
   const reads = openReads(queryClient);
   const queryHash = hashKey(options.queryKey);
@@ -157,24 +198,18 @@ export function startPageOpenRead<TData>(
   if (query?.state.isInvalidated) {
     query.setState({ ...query.state, isInvalidated: false });
   }
-  // Once the session has answered, a read sent now carries the cookies
-  // that answer belongs to, like any other read.
-  const heldForSession =
-    beforeSession && firstSessionReadAnswer() === "pending";
   const read: PageOpenRead = {
     documentId,
     startedAt,
     invalidated: false,
     landed: false,
-    beforeSession: heldForSession,
+    identity,
   };
   reads.set(queryHash, read);
-  if (heldForSession) {
-    holdForSession(queryClient).reads.set(queryHash, {
-      queryKey: options.queryKey,
-      read,
-    });
-  }
+  watchReads(queryClient).reads.set(read, {
+    queryKey: options.queryKey,
+    handedOver: false,
+  });
   void queryClient.prefetchQuery({ ...options, staleTime: 0 });
   return true;
 }
@@ -203,12 +238,11 @@ export function claimPageOpenRead(
   const queryHash = hashKey(queryKey);
   const read = reads.get(queryHash);
   if (!read) return { adoption: "none", read: null };
-  // Settled reads were already kept or dropped; one still held is adopted,
-  // and the session's answer decides it before anything shows it.
-  if (read.beforeSession && firstSessionReadAnswer() === "replaced") {
-    settleHeldReads(queryClient);
-    reads.delete(queryHash);
-    void queryClient.resetQueries({ queryKey, exact: true });
+  // A read still waiting on the session is adopted, and the session's answer
+  // decides it before anything shows it. One sent as someone else is not.
+  if (sessionReadIdentityStatus(read.identity) === "stale") {
+    watchedByClient.get(queryClient)?.reads.delete(read);
+    dropRead(queryClient, queryKey, read);
     return { adoption: "none", read: null };
   }
   const query = queryClient.getQueryCache().get(queryHash);
@@ -238,20 +272,6 @@ export function claimPageOpenRead(
   return { adoption, read };
 }
 
-// The session that answered is not the one the load asked alongside these
-// reads, so they may hold another account's page or draft. None of them is
-// shown, and a component already holding one reads it again.
-function dropReadsBeforeSession(
-  queryClient: QueryClient,
-  held: HeldForSession,
-) {
-  const reads = openReads(queryClient);
-  for (const [queryHash, { queryKey, read }] of held.reads) {
-    if (reads.get(queryHash) === read) reads.delete(queryHash);
-    void queryClient.resetQueries({ queryKey, exact: true });
-  }
-}
-
 // Called once the claiming component is subscribed. A read spoiled after it
 // was claimed is replaced by a fresh one.
 export function releasePageOpenRead(
@@ -262,6 +282,7 @@ export function releasePageOpenRead(
   const reads = openReads(queryClient);
   const queryHash = hashKey(queryKey);
   if (reads.get(queryHash) === read) reads.delete(queryHash);
+  handOver(queryClient, read);
   if (!read.invalidated) return;
   void queryClient.cancelQueries({ queryKey, exact: true });
   void queryClient.refetchQueries({ queryKey, exact: true });
@@ -272,7 +293,10 @@ export function adoptPageOpenRead(
   queryKey: QueryKey,
 ): PageOpenReadAdoption {
   const { adoption, read } = claimPageOpenRead(queryClient, queryKey);
-  if (read) openReads(queryClient).delete(hashKey(queryKey));
+  if (read) {
+    openReads(queryClient).delete(hashKey(queryKey));
+    handOver(queryClient, read);
+  }
   return adoption;
 }
 
@@ -320,11 +344,14 @@ type StartupPageRead = {
   // When the request left, so its age counts from the read, not from the
   // moment the app code takes it.
   startedAt: number;
+  // The fetch it went out on, beside the shell's session read.
+  fetch: typeof fetch;
   answer: Promise<StartupPageReadAnswer>;
 };
 
 export type TakenStartupPageRead = {
   startedAt: number;
+  identity: SessionReadIdentity;
   answer: Promise<StartupPageReadAnswer>;
 };
 
@@ -372,7 +399,7 @@ export function startupPageReadScript(
   }
   return `(function(){try{if(window.top!==window)return;var h=document.cookie.split(";").some(function(e){e=e.trim();var s=e.indexOf("=");if(s<1||e.slice(s+1)!=="1")return false;var n=e.slice(0,s);return n==="an_session_hint"||(n.indexOf("an_session_")===0&&n.slice(-5)==="_hint")});if(!h)return;var l=location.pathname,b=${JSON.stringify(basePath)};if(b&&l.indexOf(b+"/")===0)l=l.slice(b.length);var m=/^\\/page\\/([^/]+)\\/?$/.exec(l);if(!m)return;var q=new URLSearchParams(location.search),e=q.get("embedded");if(e==="1"||e==="true")return;var id=decodeURIComponent(m[1]),d=q.get("databaseId"),dd=q.get("databaseDocumentId"),p=new URLSearchParams();p.set("id",id);if(d)p.set("databaseId",d);if(dd)p.set("databaseDocumentId",dd);var v=(q.get("viewId")||"").trim()||(q.get("databaseViewId")||"").trim();if(v)p.set("databaseViewId",v);p.set("includePreviewDraft","true");var c=typeof AbortController==="function"?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},${STARTUP_PAGE_READ_TIMEOUT_MS}),i={credentials:"same-origin",cache:"no-store",headers:${JSON.stringify(headers)}};if(c)i.signal=c.signal;var f=function(){return{ok:false}};window[${JSON.stringify(
     STARTUP_PAGE_READ_GLOBAL,
-  )}]={id:id,databaseId:d,databaseDocumentId:dd,startedAt:Date.now(),answer:fetch(${JSON.stringify(
+  )}]={id:id,databaseId:d,databaseDocumentId:dd,startedAt:Date.now(),fetch:fetch,answer:fetch(${JSON.stringify(
     actionUrl,
   )}+"?"+p.toString(),i).then(function(r){return r.ok?r.json().then(function(v){return{ok:true,value:v}},f):f()},f).then(function(a){clearTimeout(t);return a})}}catch(e){}})();`; // coercion-ok: a script that cannot send leaves the read to the app.
 }
@@ -395,15 +422,23 @@ export function takeStartupPageRead(
   ) {
     return null;
   }
+  if (typeof read.fetch !== "function") return null;
   // The script read the page with the cookies the load's first session read
-  // went out with. Once another session read has answered, the cookies may
-  // name another account, so the answer is that account's page or nobody's.
-  if (firstSessionReadAnswer() === "replaced") return null;
+  // went out with, over the page's fetch as it was then. It is the page only
+  // for that session, and only if the app would read it over the same
+  // transport, since the app's own read can take its place.
+  const identity = sessionReadIdentity({
+    fetch: read.fetch,
+    sentWithFirstSessionRead: true,
+  });
+  if (sessionReadIdentityStatus(identity) === "stale") return null;
+  if (identity.transport !== sessionReadIdentity().transport) return null;
   if (!(Date.now() - read.startedAt < PAGE_OPEN_READ_TTL_MS)) return null;
   return {
     startedAt: read.startedAt,
+    identity,
     answer: read.answer.then((answer) =>
-      firstSessionReadAnswer() === "replaced" ? { ok: false } : answer,
+      sessionReadIdentityStatus(identity) === "stale" ? { ok: false } : answer,
     ),
   };
 }
@@ -413,7 +448,7 @@ export function takeStartupPageRead(
 // its own read, the first of the two to answer is the page. It fails only once
 // both have failed, with the app's own request's error.
 export function readFromStartupPageRead<T>(
-  startupRead: TakenStartupPageRead,
+  startupRead: { answer: Promise<StartupPageReadAnswer> },
   sendOwnRead: () => Promise<T>,
   waitMs = STARTUP_PAGE_READ_WAIT_MS,
 ): Promise<T> {

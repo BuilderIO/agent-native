@@ -272,7 +272,7 @@ describe("startLoadReads", () => {
       expect.any(QueryClient),
       "NXqMwg3WOBAQ",
       { databaseId: "db-1", databaseDocumentId: null },
-      { beforeSession: true, databaseViewId: "builder" },
+      { fromLoad: true, databaseViewId: "builder" },
     );
     expect(landings()).toBe(0);
   });
@@ -288,7 +288,7 @@ describe("startLoadReads", () => {
       expect.any(QueryClient),
       "last-page",
       { databaseId: null, databaseDocumentId: null },
-      { beforeSession: true, databaseViewId: null },
+      { fromLoad: true, databaseViewId: null },
     );
     expect(landings()).toBe(1);
   });

@@ -73,7 +73,7 @@ export function startLoadReads(
       databaseDocumentId: search.get("databaseDocumentId"),
     },
     {
-      beforeSession: true,
+      fromLoad: true,
       databaseViewId: addressDatabaseViewId(location.search),
     },
   );

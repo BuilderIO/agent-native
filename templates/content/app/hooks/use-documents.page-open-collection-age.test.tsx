@@ -17,8 +17,8 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/use-session")
   >()),
-  firstSessionReadAnswer: () => "first-read",
-  subscribeFirstSessionReadAnswer: () => () => {},
+  // The session these reads were sent as is the one the tab accepts.
+  sessionReadIdentityStatus: () => "current",
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   isOpenAiMcpAppHost: () => false,

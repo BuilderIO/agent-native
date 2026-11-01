@@ -26,6 +26,7 @@ const session = vi.hoisted(() => {
   const listeners = new Set<() => void>();
   let answer: Answer = "first-read";
   return {
+    transport: {},
     get: () => answer,
     set(next: Answer) {
       answer = next;
@@ -43,8 +44,21 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/use-session")
   >()),
-  firstSessionReadAnswer: () => session.get(),
-  subscribeFirstSessionReadAnswer: (listener: () => void) => {
+  // Like the session store: a read sent while the load's first session read
+  // is out belongs to that read, and is current only if it answers.
+  sessionReadIdentity: () =>
+    session.get() === "pending"
+      ? { sentWith: "first-read", transport: session.transport }
+      : { sentWith: "answered", scope: "a", transport: session.transport },
+  sessionReadIdentityStatus: (identity: { sentWith: string }) =>
+    identity.sentWith === "answered"
+      ? "current"
+      : session.get() === "pending"
+        ? "pending"
+        : session.get() === "first-read"
+          ? "current"
+          : "stale",
+  subscribeSessionReadIdentity: (listener: () => void) => {
     session.listeners.add(listener);
     return () => session.listeners.delete(listener);
   },
@@ -82,7 +96,20 @@ import {
   openingDatabaseQueryKey,
   seedPageOpenCollection,
   type PageOpenReadAnswer,
+  type PageOpenReadOwner,
 } from "./page-open-collection";
+
+// The owner of a page-open read sent as the current session.
+function owner(fields: Partial<PageOpenReadOwner> = {}): PageOpenReadOwner {
+  return {
+    startedAt: Date.now() - 1_000,
+    identity: { sentWith: "answered", scope: "a", transport: {} },
+    stillOwns: () => true,
+    invalidatedWhileOut: () => false,
+    finished: () => {},
+    ...fields,
+  };
+}
 
 const deepestFirst: ContentDatabaseSort = {
   key: "depth",
@@ -143,9 +170,7 @@ describe("a collection page's reads in its page-open read", () => {
 
   it("are dropped with the page read when another account's session answers", async () => {
     session.reset("pending");
-    seedPageOpenCollection(queryClient, "page-1", collection, {
-      beforeSession: true,
-    });
+    seedPageOpenCollection(queryClient, "page-1", collection);
     await vi.waitFor(() =>
       expect(queryClient.getQueryData(rowsKey)).toBeDefined(),
     );
@@ -162,7 +187,7 @@ describe("a collection page's reads in its page-open read", () => {
   it("are never seeded once another account's session has answered", () => {
     session.reset("replaced");
     seedPageOpenCollection(queryClient, "page-1", collection, {
-      beforeSession: true,
+      owner: owner({ identity: { sentWith: "first-read", transport: {} } }),
     });
 
     expect(queryClient.getQueryCache().getAll()).toEqual([]);
@@ -184,12 +209,7 @@ describe("a collection page's reads in its page-open read", () => {
     );
 
     seedPageOpenCollection(queryClient, "page-1", collection, {
-      owner: {
-        startedAt: Date.now() - 1_000,
-        stillOwns: () => true,
-        invalidatedWhileOut: () => false,
-        finished: () => {},
-      },
+      owner: owner(),
     });
 
     await vi.waitFor(() =>
@@ -204,12 +224,7 @@ describe("a collection page's reads in its page-open read", () => {
   it("leave a part read since this open's read started to that read", async () => {
     queryClient.setQueryData(personalViewKey, { databaseId: "db-1", own: 1 });
     seedPageOpenCollection(queryClient, "page-1", collection, {
-      owner: {
-        startedAt: Date.now() - 1_000,
-        stillOwns: () => true,
-        invalidatedWhileOut: () => false,
-        finished: () => {},
-      },
+      owner: owner(),
     });
 
     await vi.waitFor(() =>
@@ -223,12 +238,7 @@ describe("a collection page's reads in its page-open read", () => {
 
   it("are not seeded once the read's owner is gone", () => {
     seedPageOpenCollection(queryClient, "page-1", collection, {
-      owner: {
-        startedAt: Date.now(),
-        stillOwns: () => false,
-        invalidatedWhileOut: () => false,
-        finished: () => {},
-      },
+      owner: owner({ stillOwns: () => false }),
     });
 
     expect(queryClient.getQueryCache().getAll()).toEqual([]);
