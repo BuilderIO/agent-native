@@ -167,6 +167,7 @@ function inlineMediaType(
 }
 
 function scrubString(value: string): string {
+  // raw-sql-ok: this builds an inline-media omission marker, not SQL syntax.
   return DATA_SCHEME.test(value)
     ? value.replace(EMBEDDED_DATA_URL, (match) => {
         const mediaType = /^data:([^;,]+)/i.exec(match)?.[1] ?? "text/plain";
