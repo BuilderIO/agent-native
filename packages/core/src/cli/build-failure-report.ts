@@ -50,7 +50,9 @@ export function scrubStderrTail(stderr: string): string {
  * The error and context for a build step that exited non-zero. The message
  * names only the step: the app or template is a tag, so one failing step is one
  * issue instead of one issue per app (and a private app name never lands in an
- * issue title).
+ * issue title). A step ended by a signal (typically the OS or CI out-of-memory
+ * kill) is the environment's doing, not a build error, so it gets its own
+ * message and issue instead of burying real build failures.
  */
 export function buildStepFailureReport(input: BuildStepFailureInput): {
   error: Error;
@@ -58,7 +60,11 @@ export function buildStepFailureReport(input: BuildStepFailureInput): {
   extra: Record<string, unknown>;
 } {
   return {
-    error: new Error(`Build step "${input.label}" failed`),
+    error: new Error(
+      input.signal
+        ? `Build step "${input.label}" killed by ${input.signal}`
+        : `Build step "${input.label}" failed`,
+    ),
     tags: {
       source: "build-step",
       buildStep: input.label,

@@ -32,6 +32,26 @@ describe("buildStepFailureReport", () => {
     expect(b.tags).toMatchObject({ template: "content" });
   });
 
+  it("reports a signal-killed step separately from a failed one", () => {
+    const killed = buildStepFailureReport({
+      label: "deploy-build",
+      exitCode: 1,
+      signal: "SIGKILL",
+      stderrTail: "",
+    });
+    const failed = buildStepFailureReport({
+      label: "deploy-build",
+      exitCode: 1,
+      signal: null,
+      stderrTail: "",
+    });
+
+    expect(killed.error.message).toBe(
+      'Build step "deploy-build" killed by SIGKILL',
+    );
+    expect(failed.error.message).toBe('Build step "deploy-build" failed');
+  });
+
   it("carries the exit code, signal, and a scrubbed stderr tail", () => {
     const report = buildStepFailureReport({
       label: "deploy-build",
