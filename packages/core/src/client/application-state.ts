@@ -388,17 +388,17 @@ async function sendBatch(
   } finally {
     keepalive.release();
   }
-  if (batchRouteAbsent(response)) {
-    batchWritesUnsupported = true;
-    void response.body?.cancel().catch(() => {});
-    for (const entry of entries) sendEach(entry, wantKeepalive);
-    return;
-  }
   // From here the route may have written: an answer that can't be read or
   // doesn't make sense is an error for every caller, never a reason to send
   // the writes again over whatever has changed since.
   let results: BatchWriteResult[];
   try {
+    if (batchRouteAbsent(response)) {
+      batchWritesUnsupported = true;
+      void response.body?.cancel().catch(() => {});
+      for (const entry of entries) sendEach(entry, wantKeepalive);
+      return;
+    }
     results = response.ok
       ? parseBatchResults(await response.text(), entries.length, operation)
       : await parseAppStateResponse<never>(response, operation);
@@ -424,10 +424,22 @@ async function sendBatch(
 // it answers 404 or 405, or hands the POST to the app's pages, which answer
 // with HTML. The route marks its own answers and always answers JSON.
 function batchRouteAbsent(response: Response): boolean {
-  if (response.headers.get(APP_STATE_BATCH_ROUTE_HEADER) === "1") return false;
+  if (responseHeader(response, APP_STATE_BATCH_ROUTE_HEADER) === "1") {
+    return false;
+  }
   if (response.status === 404 || response.status === 405) return true;
-  const type = response.headers.get("content-type") ?? "";
+  const type = responseHeader(response, "content-type") ?? "";
   return response.ok && !/\bjson\b/i.test(type);
+}
+
+function responseHeader(response: Response, name: string): string | null {
+  try {
+    return response.headers.get(name);
+  } catch {
+    // coercion-ok: a response stand-in without headers (some test doubles)
+    // reads as one that doesn't carry the header.
+    return null;
+  }
 }
 
 function parseBatchResults(
