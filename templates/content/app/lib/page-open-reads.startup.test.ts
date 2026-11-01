@@ -2,7 +2,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { startupPageReadScript, takeStartupPageRead } from "./page-open-reads";
+import {
+  PAGE_OPEN_READ_TTL_MS,
+  startupPageReadScript,
+  takeStartupPageRead,
+} from "./page-open-reads";
 
 const ACTION_URL = "/_agent-native/actions/get-page-open-read";
 
@@ -62,7 +66,7 @@ describe("the load's page read from the document head", () => {
       takeStartupPageRead("doc-1", {
         databaseId: "db-1",
         databaseDocumentId: "dbdoc-1",
-      }),
+      })?.answer,
     ).resolves.toEqual({
       ok: true,
       value: { id: "doc-1", title: "Harbor survey" },
@@ -106,7 +110,7 @@ describe("the load's page read from the document head", () => {
     openLoad("/page/doc-1");
     runHeadScript();
 
-    await expect(takeStartupPageRead("doc-1", {})).resolves.toEqual({
+    await expect(takeStartupPageRead("doc-1", {})?.answer).resolves.toEqual({
       ok: false,
     });
   });
@@ -116,9 +120,30 @@ describe("the load's page read from the document head", () => {
     openLoad("/page/doc-1");
     runHeadScript();
 
-    await expect(takeStartupPageRead("doc-1", {})).resolves.toEqual({
+    await expect(takeStartupPageRead("doc-1", {})?.answer).resolves.toEqual({
       ok: false,
     });
+  });
+
+  it("keeps its age from when it was sent, and is not the answer once that has run out", () => {
+    const realNow = Date.now.bind(Date);
+    openLoad("/page/doc-1");
+    const sentAt = realNow();
+    runHeadScript();
+    // The app code arrives after the read's freshness has run out.
+    const dateNow = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() => sentAt + PAGE_OPEN_READ_TTL_MS);
+    try {
+      expect(takeStartupPageRead("doc-1", {})).toBeNull();
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    runHeadScript();
+    const taken = takeStartupPageRead("doc-1", {});
+    expect(taken?.startedAt).toBeGreaterThanOrEqual(sentAt);
+    expect(taken?.startedAt).toBeLessThanOrEqual(realNow());
   });
 
   it("is not sent without the session hint", () => {

@@ -128,7 +128,10 @@ export function startPageOpenRead<TData>(
   queryClient: QueryClient,
   documentId: string,
   options: FetchQueryOptions<TData, Error, TData, QueryKey>,
-  { beforeSession = false }: { beforeSession?: boolean } = {},
+  {
+    beforeSession = false,
+    startedAt = Date.now(),
+  }: { beforeSession?: boolean; startedAt?: number } = {},
 ): boolean {
   const reads = openReads(queryClient);
   const queryHash = hashKey(options.queryKey);
@@ -160,7 +163,7 @@ export function startPageOpenRead<TData>(
     beforeSession && firstSessionReadAnswer() === "pending";
   const read: PageOpenRead = {
     documentId,
-    startedAt: Date.now(),
+    startedAt,
     invalidated: false,
     landed: false,
     beforeSession: heldForSession,
@@ -301,6 +304,14 @@ type StartupPageRead = {
   id: string;
   databaseId: string | null;
   databaseDocumentId: string | null;
+  // When the request left, so its age counts from the read, not from the
+  // moment the app code takes it.
+  startedAt: number;
+  answer: Promise<StartupPageReadAnswer>;
+};
+
+export type TakenStartupPageRead = {
+  startedAt: number;
   answer: Promise<StartupPageReadAnswer>;
 };
 
@@ -310,10 +321,39 @@ declare global {
   }
 }
 
-export function startupPageReadScript(actionUrl: string): string {
-  return `(function(){try{if(window.top!==window)return;var h=document.cookie.split(";").some(function(e){e=e.trim();var s=e.indexOf("=");if(s<1||e.slice(s+1)!=="1")return false;var n=e.slice(0,s);return n==="an_session_hint"||(n.indexOf("an_session_")===0&&n.slice(-5)==="_hint")});if(!h)return;var m=/\\/page\\/([^/]+)\\/?$/.exec(location.pathname);if(!m)return;var q=new URLSearchParams(location.search),e=q.get("embedded");if(e==="1"||e==="true")return;var id=decodeURIComponent(m[1]),d=q.get("databaseId"),dd=q.get("databaseDocumentId"),p=new URLSearchParams();p.set("id",id);if(d)p.set("databaseId",d);if(dd)p.set("databaseDocumentId",dd);var v=(q.get("viewId")||"").trim()||(q.get("databaseViewId")||"").trim();if(v)p.set("databaseViewId",v);p.set("includePreviewDraft","true");var c=typeof AbortController==="function"?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},${STARTUP_PAGE_READ_TIMEOUT_MS}),i={credentials:"same-origin",cache:"no-store",headers:{Accept:"application/json","Content-Type":"application/json","X-Agent-Native-Frontend":"1"}};if(c)i.signal=c.signal;var f=function(){return{ok:false}};window[${JSON.stringify(
+declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
+
+// The action routes refuse an in-app request from another build's code, by
+// this version. The head script is part of the shell, so it sends the shell's
+// own build, which is the build of the app code that shell loads.
+function buildClientCompatibilityVersion(): string {
+  if (typeof __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__ === "string") {
+    return __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__;
+  }
+  return (
+    (
+      globalThis as typeof globalThis & {
+        __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__?: string;
+      }
+    ).__AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__ ?? ""
+  );
+}
+
+export function startupPageReadScript(
+  actionUrl: string,
+  compatibilityVersion = buildClientCompatibilityVersion(),
+): string {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "X-Agent-Native-Frontend": "1",
+  };
+  if (compatibilityVersion) {
+    headers["X-Agent-Native-Client-Compatibility"] = compatibilityVersion;
+  }
+  return `(function(){try{if(window.top!==window)return;var h=document.cookie.split(";").some(function(e){e=e.trim();var s=e.indexOf("=");if(s<1||e.slice(s+1)!=="1")return false;var n=e.slice(0,s);return n==="an_session_hint"||(n.indexOf("an_session_")===0&&n.slice(-5)==="_hint")});if(!h)return;var m=/\\/page\\/([^/]+)\\/?$/.exec(location.pathname);if(!m)return;var q=new URLSearchParams(location.search),e=q.get("embedded");if(e==="1"||e==="true")return;var id=decodeURIComponent(m[1]),d=q.get("databaseId"),dd=q.get("databaseDocumentId"),p=new URLSearchParams();p.set("id",id);if(d)p.set("databaseId",d);if(dd)p.set("databaseDocumentId",dd);var v=(q.get("viewId")||"").trim()||(q.get("databaseViewId")||"").trim();if(v)p.set("databaseViewId",v);p.set("includePreviewDraft","true");var c=typeof AbortController==="function"?new AbortController():null,t=setTimeout(function(){if(c)c.abort()},${STARTUP_PAGE_READ_TIMEOUT_MS}),i={credentials:"same-origin",cache:"no-store",headers:${JSON.stringify(headers)}};if(c)i.signal=c.signal;var f=function(){return{ok:false}};window[${JSON.stringify(
     STARTUP_PAGE_READ_GLOBAL,
-  )}]={id:id,databaseId:d,databaseDocumentId:dd,answer:fetch(${JSON.stringify(
+  )}]={id:id,databaseId:d,databaseDocumentId:dd,startedAt:Date.now(),answer:fetch(${JSON.stringify(
     actionUrl,
   )}+"?"+p.toString(),i).then(function(r){return r.ok?r.json().then(function(v){return{ok:true,value:v}},f):f()},f).then(function(a){clearTimeout(t);return a})}}catch(e){}})();`; // coercion-ok: a script that cannot send leaves the read to the app.
 }
@@ -324,7 +364,7 @@ export function takeStartupPageRead(
     databaseId?: string | null;
     databaseDocumentId?: string | null;
   },
-): Promise<StartupPageReadAnswer> | null {
+): TakenStartupPageRead | null {
   if (typeof window === "undefined") return null;
   const read = window[STARTUP_PAGE_READ_GLOBAL];
   if (!read) return null;
@@ -336,5 +376,15 @@ export function takeStartupPageRead(
   ) {
     return null;
   }
-  return read.answer;
+  // The script read the page with the cookies the load's first session read
+  // went out with. Once another session read has answered, the cookies may
+  // name another account, so the answer is that account's page or nobody's.
+  if (firstSessionReadAnswer() === "replaced") return null;
+  if (!(Date.now() - read.startedAt < PAGE_OPEN_READ_TTL_MS)) return null;
+  return {
+    startedAt: read.startedAt,
+    answer: read.answer.then((answer) =>
+      firstSessionReadAnswer() === "replaced" ? { ok: false } : answer,
+    ),
+  };
 }
