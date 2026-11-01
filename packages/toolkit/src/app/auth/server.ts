@@ -64,14 +64,15 @@ type RequestHooks = {
   ): unknown;
 };
 
-// The app's own API calls go to its framework routes and never load the
-// renderers. Any read of a page outside them, or of the old sign-in path,
-// loads them first, whatever the client (a browser, a link preview, the
-// deploy's cache check), because the sign-in page it may get is cached for
-// every visitor. So does a browser navigation, a form post included, which
-// names a document or iframe destination or accepts HTML. The path is the one
-// the auth guard routes by, so an escaped character, a custom framework route
-// prefix or the app's base path reads the same here as there.
+// API calls, to `/api` or the app's framework routes, never load the
+// renderers: the auth guard answers them with JSON, never a page. Any read of
+// a page outside them, or of the old sign-in path, loads them first, whatever
+// the client (a browser, a link preview, the deploy's cache check), because
+// the sign-in page it may get is cached for every visitor. So does a browser
+// navigation, a form post included, which names a document or iframe
+// destination or accepts HTML. The path is the one the auth guard routes by,
+// so an escaped character, a custom framework route prefix or the app's base
+// path reads the same here as there.
 function needsRenderers(event: RequestHookEvent): boolean {
   const { method, headers } = event.req;
   const fetchDest = headers.get("sec-fetch-dest")?.toLowerCase();
@@ -81,9 +82,12 @@ function needsRenderers(event: RequestHookEvent): boolean {
   const path = getAuthGuardPath(event);
   // The guard turns this path away; loading anyway costs one import.
   if (path === null) return true;
-  return (
-    path === SIGN_IN_LEGACY_ENTRY_PATH ||
-    !path.startsWith(`${FRAMEWORK_INTERNAL_ROUTE_PREFIX}/`)
+  return path === SIGN_IN_LEGACY_ENTRY_PATH || !isApiPath(path);
+}
+
+function isApiPath(path: string): boolean {
+  return [FRAMEWORK_INTERNAL_ROUTE_PREFIX, "/api"].some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
   );
 }
 

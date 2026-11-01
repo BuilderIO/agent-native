@@ -78,8 +78,20 @@ describe("Toolkit auth plugin's lazy sign-in renderer", () => {
       }),
     );
     await onRequest(request("POST", "/api/webhooks/github", { accept: "*/*" }));
+    await onRequest(request("GET", "/api/documents", { accept: "*/*" }));
+    await onRequest(request("HEAD", "/api/health", {}));
+    await onRequest(request("GET", "/api", { accept: "*/*" }));
+    await onRequest(request("GET", "/_agent-native", { accept: "*/*" }));
 
     expect(signInHtml()).toContain('data-agent-native-auth-fallback="true"');
+  });
+
+  it("loads for a page whose path only starts like the API's", async () => {
+    const { onRequest, signInHtml } = await installPlugin();
+
+    await onRequest(request("GET", "/apis", { accept: "*/*" }));
+
+    expect(signInHtml()).toContain('id="login-form"');
   });
 
   it.each([
@@ -148,6 +160,7 @@ describe("Toolkit auth plugin's lazy sign-in renderer", () => {
         accept: "*/*",
       }),
     );
+    await onRequest(request("GET", `${base}/api/documents`, { accept: "*/*" }));
     expect(signInHtml()).toContain('data-agent-native-auth-fallback="true"');
 
     await onRequest(request("GET", `${base}/login`, { accept: "*/*" }));
