@@ -1,6 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { captureClientException } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { redactBrowserDiagnosticString } from "@shared/browser-diagnostics";
 import {
   errorMessage,
@@ -555,15 +555,15 @@ export class RecorderEngine {
       chunkIntervalMs: options.chunkIntervalMs ?? DEFAULT_CHUNK_MS,
       uploadUrl:
         options.uploadUrl ??
-        `${appBasePath()}/api/uploads/${options.recordingId}/chunk`,
+        appApiPath(`/api/uploads/${options.recordingId}/chunk`),
       abortUrl:
         options.abortUrl ??
-        `${appBasePath()}/api/uploads/${options.recordingId}/abort`,
+        appApiPath(`/api/uploads/${options.recordingId}/abort`),
       resetUrl:
         options.resetUrl ??
         (options.uploadUrl
           ? options.uploadUrl.replace(/\/chunk(?:\?.*)?$/, "/reset-chunks")
-          : `${appBasePath()}/api/uploads/${options.recordingId}/reset-chunks`),
+          : appApiPath(`/api/uploads/${options.recordingId}/reset-chunks`)),
       ...options,
       maxUploadBytes: options.maxUploadBytes ?? MAX_UPLOAD_BYTES,
     };
@@ -1087,7 +1087,7 @@ export class RecorderEngine {
       target.resetUrl ??
       (target.uploadUrl.endsWith("/chunk")
         ? target.uploadUrl.slice(0, -"/chunk".length) + "/reset-chunks"
-        : `${appBasePath()}/api/uploads/${target.recordingId}/reset-chunks`);
+        : appApiPath(`/api/uploads/${target.recordingId}/reset-chunks`));
     this.opts.uploadMode = target.uploadMode ?? "buffered";
     this.opts.maxUploadBytes = target.maxUploadBytes ?? MAX_UPLOAD_BYTES;
     this.uploadAttemptId = null;
@@ -2133,7 +2133,9 @@ export class RecorderEngine {
     if (!recordingId || recordingId === "__pending__") return null;
 
     const attemptId = this.uploadAttemptId ?? crypto.randomUUID();
-    const resumeUrl = `${appBasePath()}/api/uploads/${recordingId}/resume?attemptId=${encodeURIComponent(attemptId)}`;
+    const resumeUrl = appApiPath(
+      `/api/uploads/${recordingId}/resume?attemptId=${encodeURIComponent(attemptId)}`,
+    );
     let response: Response;
     try {
       response = await fetch(resumeUrl, {

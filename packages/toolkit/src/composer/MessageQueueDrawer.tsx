@@ -562,8 +562,14 @@ export function MessageQueueDrawer({
                     </Tooltip>
                   ) : null}
                 </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex h-6 min-w-0 items-center text-sm leading-5 text-foreground">
+                <div
+                  data-agent-message-queue-body="true"
+                  className="min-w-0 flex-1"
+                >
+                  <div
+                    data-agent-message-queue-text="true"
+                    className="flex h-6 min-w-0 items-center text-sm leading-5 text-foreground"
+                  >
                     <span className="min-w-0 truncate">
                       {renderText ? renderText(item) : item.text}
                     </span>

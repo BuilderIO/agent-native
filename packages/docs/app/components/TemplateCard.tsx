@@ -16,6 +16,24 @@ export { trackEvent };
 
 export const templates = [
   {
+    name: "Design",
+    slug: "design",
+    cliCommand:
+      "npx @agent-native/core@latest create my-design-app --template design",
+    demoUrl: "https://design.agent-native.com",
+    color: "#F472B6",
+    screenshot: TEMPLATE_SCREENSHOTS.design,
+  },
+  {
+    name: "Slides",
+    slug: "slides",
+    cliCommand:
+      "npx @agent-native/core@latest create my-slides-app --template slides",
+    demoUrl: "https://slides.agent-native.com",
+    color: "#f59e0b",
+    screenshot: TEMPLATE_SCREENSHOTS.slides,
+  },
+  {
     name: "Clips",
     slug: "clips",
     cliCommand:
@@ -33,15 +51,6 @@ export const templates = [
     screenshot: TEMPLATE_SCREENSHOTS.plan,
   },
   {
-    name: "Design",
-    slug: "design",
-    cliCommand:
-      "npx @agent-native/core@latest create my-design-app --template design",
-    demoUrl: "https://design.agent-native.com",
-    color: "#F472B6",
-    screenshot: TEMPLATE_SCREENSHOTS.design,
-  },
-  {
     name: "Content",
     slug: "content",
     cliCommand:
@@ -49,15 +58,6 @@ export const templates = [
     demoUrl: "https://content.agent-native.com",
     color: "#7928ca",
     screenshot: TEMPLATE_SCREENSHOTS.content,
-  },
-  {
-    name: "Slides",
-    slug: "slides",
-    cliCommand:
-      "npx @agent-native/core@latest create my-slides-app --template slides",
-    demoUrl: "https://slides.agent-native.com",
-    color: "#f59e0b",
-    screenshot: TEMPLATE_SCREENSHOTS.slides,
   },
   {
     name: "Analytics",
@@ -136,9 +136,9 @@ export type Template = (typeof templates)[number];
 export const featuredTemplates = [
   "design",
   "slides",
+  "clips",
   "analytics",
   "calendar",
-  "clips",
   "mail",
   "assets",
   "content",

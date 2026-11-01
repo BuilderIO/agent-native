@@ -1951,6 +1951,71 @@ function findUnsafeSqlSources(
   return result;
 }
 
+function findUnsafeExecuteSources(
+  expression: ts.Expression,
+  analysis: SqlAnalysis,
+): Set<ts.Node> {
+  const value = unwrapExecuteExpression(expression);
+  if (
+    !ts.isObjectLiteralExpression(value) ||
+    !value.properties.some(
+      (property) =>
+        ts.isPropertyAssignment(property) && isSqlPropertyName(property.name),
+    )
+  ) {
+    return findUnsafeSqlSources(
+      expression,
+      analysis,
+      new Set(),
+      new Set(),
+      true,
+    );
+  }
+  return unionSources(
+    ...value.properties.flatMap((property) => {
+      if (ts.isPropertyAssignment(property)) {
+        if (ts.isIdentifier(property.name) && property.name.text === "args")
+          return [];
+        if (ts.isStringLiteral(property.name) && property.name.text === "args")
+          return [];
+        return [
+          findUnsafeSqlSources(
+            property.initializer,
+            analysis,
+            new Set(),
+            new Set(),
+            true,
+          ),
+        ];
+      }
+      if (ts.isShorthandPropertyAssignment(property)) {
+        if (property.name.text === "args") return [];
+        return [
+          findUnsafeSqlSources(
+            property.name,
+            analysis,
+            new Set(),
+            new Set(),
+            true,
+          ),
+        ];
+      }
+      if (ts.isSpreadAssignment(property)) {
+        return [
+          findUnsafeSqlSources(
+            property.expression,
+            analysis,
+            new Set(),
+            new Set(),
+            true,
+          ),
+        ];
+      }
+      return [];
+    }),
+  );
+}
+
 function computeUnsafeSqlSources(
   expression: ts.Expression,
   analysis: SqlAnalysis,
@@ -2529,8 +2594,19 @@ function executeWrapperSummaryTemplate(
             node.getSourceFile(),
           );
           if (argument) {
-            for (const index of indexesForExpression(argument)) {
-              template.indexes.add(index);
+            const value = unwrapExecuteExpression(argument);
+            if (ts.isObjectLiteralExpression(value)) {
+              for (const source of findUnsafeExecuteSources(
+                argument,
+                wrapperAnalysis,
+              )) {
+                const index = parameterIndexes.get(source);
+                if (index !== undefined) template.indexes.add(index);
+              }
+            } else {
+              for (const index of indexesForExpression(argument)) {
+                template.indexes.add(index);
+              }
             }
           }
         } else {
@@ -3084,15 +3160,12 @@ export function findRawSqlInterpolationViolationsInSources(
     analysis: SqlAnalysis,
     sink: ts.Node,
     value: ts.Expression,
+    executeArgument = false,
   ) => {
     if (hasPragma(sink)) return;
-    const unsafeSources = findUnsafeSqlSources(
-      value,
-      analysis,
-      new Set(),
-      new Set(),
-      true,
-    );
+    const unsafeSources = executeArgument
+      ? findUnsafeExecuteSources(value, analysis)
+      : findUnsafeSqlSources(value, analysis, new Set(), new Set(), true);
     if (unsafeSources.size === 0) return;
 
     let directValue = value;
@@ -3143,7 +3216,7 @@ export function findRawSqlInterpolationViolationsInSources(
         )
       ) {
         const argument = executeArgument(node, checker, sourceFile);
-        if (argument) reportUnsafeSqlValue(analysis, node, argument);
+        if (argument) reportUnsafeSqlValue(analysis, node, argument, true);
       }
       if (
         hasExecuteSink &&

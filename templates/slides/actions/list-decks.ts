@@ -2,10 +2,11 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink, captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { MAX_PREVIEW_SLIDE_CHARS } from "../server/lib/deck-list-columns.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { getDeckUrl } from "./_app-url.js";
@@ -24,12 +25,9 @@ function parseJsonProjection(value: unknown, label: string): unknown {
   }
 }
 
-// Thumbnails render from the first slide only; a slide beyond this size is
-// reported as too large instead of inflating every gallery page.
-const MAX_PREVIEW_SLIDE_CHARS = 128 * 1024;
-
 const firstSlideText = sql`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
-const previewProjection = {
+// Only rows saved before the list columns existed are read this way.
+const legacyPreviewProjection = {
   previewSlide: sql<
     string | null
   >`(case when length(${firstSlideText}) <= ${MAX_PREVIEW_SLIDE_CHARS} then ${firstSlideText} end)`,
@@ -41,7 +39,13 @@ const previewProjection = {
   >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`,
 };
 
-function previewFromRawData(data: string, deckId: string) {
+type DeckPreview = {
+  previewSlide: string | null;
+  previewTooLarge: boolean | null;
+  aspectRatio: string | null;
+};
+
+function previewFromRawData(data: string, deckId: string): DeckPreview {
   let previewSlide: string | null = null;
   let previewTooLarge: boolean | null = null;
   let aspectRatio: string | null = null;
@@ -67,6 +71,21 @@ function previewFromRawData(data: string, deckId: string) {
   return { previewSlide, previewTooLarge, aspectRatio };
 }
 
+function previewFields(preview: DeckPreview) {
+  return {
+    ...(preview.previewSlide !== null
+      ? {
+          previewSlide: parseJsonProjection(
+            preview.previewSlide,
+            "first slide preview",
+          ),
+        }
+      : {}),
+    ...(preview.previewTooLarge ? { previewTooLarge: true } : {}),
+    aspectRatio: preview.aspectRatio,
+  };
+}
+
 const INVALID_TEXT_REPRESENTATION = "22P02";
 const UNSUPPORTED_UNICODE_ESCAPE = "22P05";
 
@@ -78,6 +97,59 @@ function isInvalidJsonCastError(error: unknown): boolean {
     err?.code === UNSUPPORTED_UNICODE_ESCAPE ||
     err?.cause?.code === UNSUPPORTED_UNICODE_ESCAPE
   );
+}
+
+/**
+ * Previews for rows whose list columns are still null. Postgres parses only
+ * these rows, and a row it cannot cast is parsed here instead of failing the
+ * page. The columns fill in on the deck's next save or get-deck read.
+ */
+async function readLegacyPreviews(
+  ids: string[],
+): Promise<Map<string, DeckPreview>> {
+  const previews = new Map<string, DeckPreview>();
+  if (ids.length === 0) return previews;
+  const db = getDb();
+  const visibleDecks = accessFilter(schema.decks, schema.deckShares);
+  try {
+    const rows = await db
+      .select({ id: schema.decks.id, ...legacyPreviewProjection })
+      .from(schema.decks)
+      .where(and(inArray(schema.decks.id, ids), visibleDecks));
+    for (const { id, ...preview } of rows) previews.set(id, preview);
+    return previews;
+  } catch (error) {
+    if (!isInvalidJsonCastError(error)) throw error;
+    captureError(error, {
+      route: "list-decks",
+      extra: { includePreview: true, legacyRows: ids.length },
+    });
+  }
+  // Only a row whose own projection fails pays for a full body read.
+  await Promise.all(
+    ids.map(async (id) => {
+      const rowWhere = and(eq(schema.decks.id, id), visibleDecks);
+      try {
+        const preview = (
+          await db
+            .select(legacyPreviewProjection)
+            .from(schema.decks)
+            .where(rowWhere)
+        ).at(0);
+        if (preview) previews.set(id, preview);
+      } catch (rowError) {
+        if (!isInvalidJsonCastError(rowError)) throw rowError;
+        const raw = (
+          await db
+            .select({ data: schema.decks.data })
+            .from(schema.decks)
+            .where(rowWhere)
+        ).at(0);
+        if (raw) previews.set(id, previewFromRawData(raw.data, id));
+      }
+    }),
+  );
+  return previews;
 }
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -111,7 +183,7 @@ function decodeDeckCursor(value: string): { updatedAt: string; id: string } {
 
 export default defineAction({
   description:
-    "List accessible decks with metadata. Use updatedSince, limit, and cursor for bounded incremental sync, includePreview for the first slide, or get-deck for full slide content.",
+    "List accessible decks with metadata. Use updatedSince, limit, and cursor for bounded incremental sync, ids for specific decks, includePreview for the first slide, or get-deck for full slide content.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -127,7 +199,7 @@ export default defineAction({
       .enum(["true", "false"])
       .optional()
       .describe(
-        "Set to 'true' with light mode or a bounded page to include only the first slide preview",
+        "Set to 'true' to include only the first slide preview. Preview listings are paged: pass the returned nextCursor for more.",
       ),
     light: z
       .enum(["true", "false"])
@@ -171,6 +243,14 @@ export default defineAction({
       .max(512)
       .optional()
       .describe("Opaque cursor returned by the previous page"),
+    ids: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(MAX_PAGE_SIZE)
+      .optional()
+      .describe(
+        "Only return these deck IDs (inaccessible or missing IDs are omitted)",
+      ),
   }),
   readOnly: true,
   http: { method: "GET" },
@@ -216,12 +296,16 @@ export default defineAction({
       args.search
         ? sql`strpos(lower(${schema.decks.title}), ${args.search.toLowerCase()}) > 0`
         : undefined,
+      args.ids ? inArray(schema.decks.id, args.ids) : undefined,
     );
 
+    // Previews cost a first slide per row, so every preview listing is paged.
     const paged =
       args.updatedSince !== undefined ||
       args.limit !== undefined ||
-      args.cursor !== undefined;
+      args.cursor !== undefined ||
+      args.ids !== undefined ||
+      args.includePreview === "true";
     if (paged) {
       const cursor = args.cursor ? decodeDeckCursor(args.cursor) : undefined;
       const updatedSince = args.updatedSince
@@ -240,7 +324,7 @@ export default defineAction({
       const pagedWhere = pageConditions.length
         ? and(where, ...pageConditions)
         : where;
-      const pageSize = args.limit ?? DEFAULT_PAGE_SIZE;
+      const pageSize = args.limit ?? args.ids?.length ?? DEFAULT_PAGE_SIZE;
       const previewRequested = args.includePreview === "true";
       const pagedMeta = {
         id: schema.decks.id,
@@ -251,67 +335,26 @@ export default defineAction({
         updatedAt: schema.decks.updatedAt,
         visibility: schema.decks.visibility,
       };
-      const pagedQuery = db
+      const rows = await db
         .select({
           ...pagedMeta,
           previewSlide: previewRequested
-            ? previewProjection.previewSlide
+            ? schema.decks.previewSlide
             : sql<null>`null`,
           previewTooLarge: previewRequested
-            ? previewProjection.previewTooLarge
+            ? schema.decks.previewTooLarge
             : sql<null>`null`,
           aspectRatio: previewRequested
-            ? previewProjection.aspectRatio
+            ? schema.decks.aspectRatio
+            : sql<null>`null`,
+          slideCount: previewRequested
+            ? schema.decks.slideCount
             : sql<null>`null`,
         })
         .from(schema.decks)
         .where(pagedWhere)
         .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
         .limit(pageSize + 1);
-      let rows: Awaited<typeof pagedQuery>;
-      try {
-        rows = await pagedQuery;
-      } catch (error) {
-        if (!previewRequested || !isInvalidJsonCastError(error)) throw error;
-        captureError(error, {
-          route: "list-decks",
-          extra: { includePreview: true, paged: true },
-        });
-        const metaRows = await db
-          .select(pagedMeta)
-          .from(schema.decks)
-          .where(pagedWhere)
-          .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
-          .limit(pageSize + 1);
-        // Only a row whose own projection fails pays for a full body read.
-        rows = await Promise.all(
-          metaRows.map(async (meta) => {
-            const rowWhere = eq(schema.decks.id, meta.id);
-            try {
-              const [preview] = await db
-                .select(previewProjection)
-                .from(schema.decks)
-                .where(rowWhere);
-              return {
-                ...meta,
-                previewSlide: preview?.previewSlide ?? null,
-                previewTooLarge: preview?.previewTooLarge ?? null,
-                aspectRatio: preview?.aspectRatio ?? null,
-              };
-            } catch (rowError) {
-              if (!isInvalidJsonCastError(rowError)) throw rowError;
-              const [raw] = await db
-                .select({ data: schema.decks.data })
-                .from(schema.decks)
-                .where(rowWhere);
-              return {
-                ...meta,
-                ...previewFromRawData(raw?.data ?? "", meta.id),
-              };
-            }
-          }),
-        );
-      }
       const hasNextPage = rows.length > pageSize;
       const visibleRows = hasNextPage ? rows.slice(0, pageSize) : rows;
       const lastRow = visibleRows[visibleRows.length - 1];
@@ -325,6 +368,13 @@ export default defineAction({
         hasNextPage && lastRow?.updatedAt
           ? encodeDeckCursor(lastRow.updatedAt, lastRow.id)
           : undefined;
+      const legacyPreviews = previewRequested
+        ? await readLegacyPreviews(
+            visibleRows
+              .filter((row) => row.slideCount === null)
+              .map((row) => row.id),
+          )
+        : new Map<string, DeckPreview>();
       const decks = visibleRows.map((row) => ({
         id: row.id,
         title: row.title,
@@ -337,19 +387,8 @@ export default defineAction({
           normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
-        ...(args.includePreview === "true"
-          ? {
-              ...(row.previewSlide !== null
-                ? {
-                    previewSlide: parseJsonProjection(
-                      row.previewSlide,
-                      "first slide preview",
-                    ),
-                  }
-                : {}),
-              ...(row.previewTooLarge ? { previewTooLarge: true } : {}),
-              aspectRatio: row.aspectRatio,
-            }
+        ...(previewRequested
+          ? previewFields(legacyPreviews.get(row.id) ?? row)
           : {}),
       }));
       return {
@@ -360,75 +399,6 @@ export default defineAction({
     }
 
     if (args.light === "true") {
-      if (args.includePreview === "true") {
-        const previewQuery = db
-          .select({
-            id: schema.decks.id,
-            title: schema.decks.title,
-            updatedAt: schema.decks.updatedAt,
-            visibility: schema.decks.visibility,
-            ownerEmail: schema.decks.ownerEmail,
-            ...previewProjection,
-          })
-          .from(schema.decks)
-          .where(where)
-          .orderBy(desc(schema.decks.updatedAt));
-
-        let rows: Awaited<typeof previewQuery>;
-        try {
-          rows = await previewQuery;
-        } catch (error) {
-          if (!isInvalidJsonCastError(error)) throw error;
-          captureError(error, {
-            route: "list-decks",
-            extra: { includePreview: true },
-          });
-          const rawRows = await db
-            .select({
-              id: schema.decks.id,
-              title: schema.decks.title,
-              updatedAt: schema.decks.updatedAt,
-              visibility: schema.decks.visibility,
-              ownerEmail: schema.decks.ownerEmail,
-              data: schema.decks.data,
-            })
-            .from(schema.decks)
-            .where(where)
-            .orderBy(desc(schema.decks.updatedAt));
-          rows = rawRows.map(({ data, ...meta }) => ({
-            ...meta,
-            ...previewFromRawData(data, meta.id),
-          }));
-        }
-
-        return {
-          count: rows.length,
-          decks: rows.map((row) => {
-            const previewSlide = parseJsonProjection(
-              row.previewSlide,
-              "first slide preview",
-            );
-            return {
-              id: row.id,
-              title: row.title,
-              updatedAt: row.updatedAt,
-              visibility: row.visibility,
-              appUrl: getDeckUrl(row.id),
-              createdByMe:
-                normalizedOwnerEmail !== null &&
-                normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-              ...(previewSlide && typeof previewSlide === "object"
-                ? { previewSlide }
-                : {}),
-              ...(row.previewTooLarge ? { previewTooLarge: true } : {}),
-              ...(typeof row.aspectRatio === "string"
-                ? { aspectRatio: row.aspectRatio }
-                : {}),
-            };
-          }),
-        };
-      }
-
       const rows = await db
         .select({
           id: schema.decks.id,

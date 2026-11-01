@@ -32,6 +32,8 @@ describe("CommentComposer mention autocomplete", () => {
   function renderComposer(
     currentMembers: typeof members,
     onMentionAdd = vi.fn<(entry: MentionEntry) => void>(),
+    onSubmit = vi.fn(),
+    onEscape = vi.fn(),
   ) {
     let updateMembers!: (nextMembers: typeof members) => void;
 
@@ -43,7 +45,8 @@ describe("CommentComposer mention autocomplete", () => {
         <CommentComposer
           value={value}
           onChange={setValue}
-          onSubmit={vi.fn()}
+          onSubmit={onSubmit}
+          onEscape={onEscape}
           onMentionAdd={onMentionAdd}
           members={availableMembers}
         />
@@ -169,5 +172,92 @@ describe("CommentComposer mention autocomplete", () => {
       email: members[1]?.email,
       name: members[1]?.name,
     });
+  });
+
+  it("sends on Enter and Cmd/Ctrl+Enter, but not on Shift+Enter or while composing", () => {
+    const onSubmit = vi.fn();
+    const onMentionAdd = vi.fn<(entry: MentionEntry) => void>();
+    const { textarea } = renderComposer(members, onMentionAdd, onSubmit);
+    const keydown = (init: KeyboardEventInit) => {
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      act(() => {
+        textarea.dispatchEvent(event);
+      });
+      return event;
+    };
+
+    act(() => typeInto(textarea, "@m"));
+    keydown({ isComposing: true });
+    expect(onMentionAdd).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    act(() => typeInto(textarea, "Looks good"));
+    expect(keydown({ shiftKey: true }).defaultPrevented).toBe(false);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    expect(keydown({}).defaultPrevented).toBe(true);
+    keydown({ metaKey: true });
+    keydown({ ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledTimes(3);
+  });
+
+  it("leaves Escape to an input method that is composing", () => {
+    const onEscape = vi.fn();
+    const { textarea } = renderComposer(
+      members,
+      undefined,
+      undefined,
+      onEscape,
+    );
+    const escape = (init: KeyboardEventInit) =>
+      act(() => {
+        textarea.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+            ...init,
+          }),
+        );
+      });
+
+    act(() => typeInto(textarea, "にほん"));
+    escape({ isComposing: true });
+    expect(onEscape).not.toHaveBeenCalled();
+
+    escape({});
+    expect(onEscape).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the mention menu open on an input method's Escape", async () => {
+    const { textarea } = renderComposer(members);
+    const escape = async (init: KeyboardEventInit) => {
+      await act(async () => {
+        textarea.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+            ...init,
+          }),
+        );
+        await Promise.resolve();
+      });
+    };
+    const options = () => container.querySelectorAll('[role="option"]');
+
+    act(() => typeInto(textarea, "@m"));
+    expect(options()).toHaveLength(members.length);
+
+    await escape({ isComposing: true });
+    expect(options()).toHaveLength(members.length);
+
+    await escape({});
+    expect(options()).toHaveLength(0);
   });
 });

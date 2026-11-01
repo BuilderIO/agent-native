@@ -478,3 +478,11 @@ describe("save-screenshot-edits", () => {
     expect(JSON.stringify(result)).not.toContain("store.example");
   });
 });
+vi.mock("../server/lib/recording-media-lifecycle.js", () => ({
+  beginMediaProduction: vi.fn(async () => "fake-producer"),
+  finishMediaProduction: vi.fn(async () => undefined),
+  withRecordingMediaProduction: async (
+    _input: unknown,
+    produce: () => Promise<unknown>,
+  ) => produce(),
+}));

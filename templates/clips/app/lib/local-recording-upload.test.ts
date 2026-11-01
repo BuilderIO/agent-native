@@ -14,6 +14,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
+  appApiPath: (path: string) => path,
   appBasePath: () => "",
 }));
 vi.mock("./upload-request", async (importOriginal) => ({

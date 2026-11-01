@@ -14,6 +14,7 @@ import { getEffectiveDatabaseEnvStatus } from "../db/runtime-diagnostics.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
+  corsAllowHeadersFor,
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
@@ -132,7 +133,10 @@ export function createServer(
         setResponseHeader(
           event,
           "Access-Control-Allow-Headers",
-          MCP_EMBED_CORS_ALLOW_HEADERS,
+          corsAllowHeadersFor(
+            getRequestHeader(event, "access-control-request-headers"),
+            MCP_EMBED_CORS_ALLOW_HEADERS,
+          ),
         );
 
         if (method === "OPTIONS") {

@@ -13,7 +13,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   }),
 }));
 
-import { ReviewThreadRow, reviewThreadPreview } from "./ReviewThreadRow";
+import { ReviewThreadRow } from "./ReviewThreadRow";
 
 function makeThread(overrides: Record<string, unknown> = {}): ReviewThread {
   const root = {
@@ -63,24 +63,6 @@ function renderRow(props: {
   return container;
 }
 
-describe("reviewThreadPreview", () => {
-  it("reduces mention markup to @name and keeps only the first line", () => {
-    expect(
-      reviewThreadPreview("Hey @[Alex](mailto:alex@example.com)\nsecond line"),
-    ).toBe("Hey @Alex");
-  });
-
-  it("skips leading blank lines and trims the line", () => {
-    expect(reviewThreadPreview("\n   \n  Spacing check  \n")).toBe(
-      "Spacing check",
-    );
-  });
-
-  it("returns an empty string for an attachment-only comment", () => {
-    expect(reviewThreadPreview("")).toBe("");
-  });
-});
-
 describe("ReviewThreadRow", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -99,6 +81,34 @@ describe("ReviewThreadRow", () => {
     const row = container.querySelector("[data-review-thread-row]");
     expect(row?.textContent).toContain("Hero headline wraps on mobile");
     expect(row?.querySelector("time")?.textContent).toBe("0 second");
+  });
+
+  it("shows the comment's formatting and mentions, not its Markdown", () => {
+    const container = renderRow({
+      thread: makeThread({
+        body: "**Hero** wraps, ask @[Alex](mailto:alex@example.com)\n\n- on mobile",
+      }),
+    });
+
+    const row = container.querySelector("[data-review-thread-row]");
+    expect(row?.querySelector("strong")?.textContent).toBe("Hero");
+    expect(row?.textContent).toContain("@Alex");
+    expect(row?.textContent).toContain("on mobile");
+    expect(row?.textContent).not.toContain("**");
+    expect(row?.textContent).not.toContain("mailto");
+    expect(row?.querySelector("a, li")).toBeNull();
+  });
+
+  it("keeps a comment with hard line breaks on the row's one line", () => {
+    const container = renderRow({
+      thread: makeThread({ body: "first  \nsecond  \nthird  \nfourth" }),
+    });
+
+    const row = container.querySelector("[data-review-thread-row]");
+    expect(row?.querySelector("br")).toBeNull();
+    expect(row?.textContent?.replace(/\s+/g, " ")).toContain(
+      "first second third fourth",
+    );
   });
 
   it("marks an unread thread with a dot, bold text, and a label for screen readers", () => {
@@ -191,6 +201,18 @@ describe("ReviewThreadRow", () => {
     });
 
     expect(onSelect).toHaveBeenCalledWith(thread);
+  });
+
+  it("draws one letter at the row's 16px avatar size", () => {
+    const container = renderRow({
+      thread: makeThread({ authorName: "Maya Singh" }),
+    });
+
+    const avatar = container.querySelector<HTMLElement>(
+      '[data-review-thread-row] > span[aria-hidden="true"]',
+    );
+    expect(avatar?.textContent).toBe("M");
+    expect(avatar?.classList.contains("size-4")).toBe(true);
   });
 
   it("shows no initials for an agent author, only its mark", () => {

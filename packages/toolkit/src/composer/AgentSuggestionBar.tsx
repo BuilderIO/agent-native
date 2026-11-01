@@ -47,6 +47,7 @@ export interface AgentSuggestionBarProps {
   loading?: boolean;
   announceUpdates?: boolean;
   layout?: "wrap" | "single-line";
+  size?: "compact" | "comfortable";
 }
 
 export function normalizeAgentSuggestion(
@@ -165,6 +166,7 @@ export function AgentSuggestionBar({
   loading = false,
   announceUpdates = false,
   layout = "wrap",
+  size = "compact",
 }: AgentSuggestionBarProps) {
   const titleId = useId();
   const items = suggestions.map(normalizeAgentSuggestion);
@@ -251,6 +253,7 @@ export function AgentSuggestionBar({
                   // The scroller clips overflow, so the focus ring sits inside.
                   className={cn(
                     "agent-kit-caption-copy snap-start inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border bg-transparent px-2.5 py-0 text-center font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0 whitespace-nowrap",
+                    size === "comfortable" && "h-8 px-3 text-sm",
                   )}
                 >
                   <span>

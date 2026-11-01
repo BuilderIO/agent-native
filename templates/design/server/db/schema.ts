@@ -430,3 +430,14 @@ export const designReviewAgentRequests = table(
     ),
   ],
 );
+
+export const firstOutputExperimentClaims = table(
+  "design_first_output_experiment_claims",
+  {
+    userId: text("user_id").primaryKey(),
+    variant: text("variant").notNull(),
+    outputId: text("output_id").notNull(),
+    turnId: text("turn_id").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+);

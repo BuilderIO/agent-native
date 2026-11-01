@@ -3918,7 +3918,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var generatedGroupMarker =
       group.getAttribute("data-agent-native-group-wrapper") === "true" &&
       group.getAttribute("data-an-primitive") !== "frame" &&
-      group.getAttribute("data-agent-native-clone-root") !== "true";
+      (usesDirectScreenSelection() ||
+        group.getAttribute("data-agent-native-clone-root") !== "true");
     var legacyNodeId = group.getAttribute("data-agent-native-node-id");
     var legacyGeneratedGroup =
       /^an-[a-z0-9]+$/i.test(legacyNodeId || "") &&
@@ -4069,6 +4070,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       (selectedEl && selectedEl !== group && group.contains(selectedEl)) ||
       (selectionContainerScope && group.contains(selectionContainerScope)),
     );
+  }
+
+  function usesDirectScreenSelection(): boolean {
+    return !readOnly && !designCanvasBoardSurface;
   }
 
   function modifierClickSelectionTarget(hit: Element | null): Element | null {
@@ -14906,8 +14911,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var resolvedClickTarget =
       e.metaKey || e.ctrlKey
         ? modifierClickSelectionTarget(target)
-        : selectedContainerForPlainClick(target, e) ||
-          containerFirstSelectionTarget(target);
+        : usesDirectScreenSelection()
+          ? selectionTargetForHit(target)
+          : selectedContainerForPlainClick(target, e) ||
+            containerFirstSelectionTarget(target);
     var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
     if (toggled !== undefined) {
       postToggledSelection(toggled);
@@ -15443,17 +15450,20 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var info = null;
     if (target) {
       hoveredSpacingHandleKey = "";
-      // Right-click inside the current selection keeps it; elsewhere it
-      // selects what a plain click would, and Cmd deep-selects.
+      // Editable screens follow the hit content; board and read-only menus
+      // retain a selected ancestor under the pointer.
       var keepsSelection =
         !!selectedEl &&
         document.documentElement.contains(selectedEl) &&
-        (selectedEl === target || selectedEl.contains(target));
+        (selectedEl === target ||
+          (!usesDirectScreenSelection() && selectedEl.contains(target)));
       selectedEl = keepsSelection
         ? selectedEl
         : (isApplePlatformBridge() ? e.metaKey : e.ctrlKey)
           ? selectionTargetForHit(target)
-          : containerFirstSelectionTarget(target);
+          : usesDirectScreenSelection()
+            ? selectionTargetForHit(target)
+            : containerFirstSelectionTarget(target);
       if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
         info = getElementInfo(selectedEl);
         positionOverlay(selectionOverlay, selectedEl);
@@ -28737,10 +28747,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
           ? modifierClickSelectionTarget(hit)
-          : (!readOnly && !e.shiftKey
-              ? selectedContainerForPlainClick(hit, ev) ||
-                clickThroughSelectionTarget(hit, ev, repeatedMouseClick)
-              : null) || containerFirstSelectionTarget(hit);
+          : usesDirectScreenSelection()
+            ? selectionTargetForHit(hit)
+            : (!readOnly && !e.shiftKey
+                ? selectedContainerForPlainClick(hit, ev) ||
+                  clickThroughSelectionTarget(hit, ev, repeatedMouseClick)
+                : null) || containerFirstSelectionTarget(hit);
       var preservesNestedHit = Boolean(
         isModifierCycleClick &&
         !continuesModifierCycle &&
@@ -30383,7 +30395,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     deepSelect: boolean,
   ): Element | null {
     var rawHit = elementFromEditorPoint(clientX, clientY);
-    return deepSelect
+    return deepSelect || usesDirectScreenSelection()
       ? selectionTargetForHit(rawHit)
       : containerFirstSelectionTarget(rawHit);
   }

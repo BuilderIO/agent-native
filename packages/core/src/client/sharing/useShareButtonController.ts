@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { useActionQuery } from "../use-action.js";
 import {
@@ -8,7 +14,6 @@ import {
   notifyShareChanged,
   optimisticallyUpdateShareCache,
   optimisticallyUpdateShareVisibility,
-  rollbackShareCache,
   useShareOrgMemberSearch,
   useShareMutationGuard,
   useShareMutations,
@@ -27,7 +32,14 @@ export interface ShareButtonShare {
   principalType: "user" | "group" | "org";
   principalId: string;
   displayName?: string | null;
+  /** The principal is one of the org's agents (a service principal). */
+  agent?: boolean;
   role: ShareButtonRole;
+}
+
+export interface ShareButtonAgent {
+  email: string;
+  name: string;
 }
 
 export interface ShareButtonGroup {
@@ -38,11 +50,24 @@ export interface ShareButtonGroup {
 
 export interface ShareButtonSharesResponse {
   ownerEmail: string | null;
+  ownerDisplayName?: string | null;
   orgId: string | null;
   visibility: ShareButtonVisibility | null;
   role?: "owner" | ShareButtonRole;
   agentReadable?: boolean;
   shares: ShareButtonShare[];
+  /** Present for managers inside the resource's org. */
+  agents?: ShareButtonAgent[];
+  /** The org's agents could not be read; distinct from having none. */
+  agentsUnavailable?: boolean;
+  /** Profile names could not be read, so rows show emails only. */
+  displayNamesUnavailable?: boolean;
+  /** The MCP tool an outside agent calls to read this resource. */
+  agentRead?: {
+    actions: string[];
+    idParam: string;
+    label: string;
+  };
   policy?: {
     allowPublic: boolean;
     requireOrgMemberForUserShares: boolean;
@@ -132,9 +157,12 @@ export interface ShareButtonController {
   memberSearch: ShareButtonOrgMemberSearch;
   memberSuggestions: ShareButtonOrgMember[];
   groupSuggestions: ShareButtonGroup[];
+  agentSuggestions: ShareButtonAgent[];
   knownMembers: ShareButtonOrgMember[];
   selectedGroup: ShareButtonGroup | null;
   selectGroup: (group: ShareButtonGroup) => void;
+  selectedAgent: ShareButtonAgent | null;
+  selectAgent: (agent: ShareButtonAgent) => void;
   shares: ShareButtonShare[];
   handleVisibility: (visibility: ShareButtonVisibility) => void;
   handleHideInSearch: () => void;
@@ -151,9 +179,21 @@ export function useShareButtonController(
   const [selectedGroup, setSelectedGroup] = useState<ShareButtonGroup | null>(
     null,
   );
+  const [selectedAgent, setSelectedAgent] = useState<ShareButtonAgent | null>(
+    null,
+  );
   const shareTabDefaultValue = options.shareTabs?.defaultValue ?? "share";
   const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const resourceKey = `${options.resourceType}:${options.resourceId}`;
+  // Each resource the panel shows is a new visit, even returning to one seen
+  // before. A save that settles in a later visit must leave its state alone:
+  // putting inputs back would let a retry share the wrong resource. A layout
+  // effect, so a save that settles between the commit and passive effects
+  // already sees the new visit.
+  const visitRef = useRef(0);
+  useLayoutEffect(() => {
+    visitRef.current += 1;
+  }, [resourceKey]);
   // Tied to the resource it was made for: a click that lands on a new resource
   // before any effect runs must not see the previous resource's value.
   const [visibilityOverrideState, setVisibilityOverrideState] = useState<{
@@ -208,6 +248,7 @@ export function useShareButtonController(
   useEffect(() => {
     setInviteEmail("");
     setSelectedGroup(null);
+    setSelectedAgent(null);
     setShareMessage("");
     setMessageOpen(false);
   }, [options.resourceId, options.resourceType]);
@@ -319,6 +360,15 @@ export function useShareButtonController(
   >({});
   const [inFlight, setInFlight] = useState<Set<string>>(new Set());
   const inFlightRef = useRef<Set<string>>(new Set());
+  // Optimistic rows, removals and role picks belong to one resource; a panel
+  // reused for another must not show or be blocked by them.
+  useLayoutEffect(() => {
+    setPendingAdds([]);
+    setPendingRemoves(new Set());
+    setRoleOverrides({});
+    inFlightRef.current = new Set();
+    setInFlight(new Set());
+  }, [resourceKey]);
 
   const addInFlight = useCallback((key: string) => {
     inFlightRef.current.add(key);
@@ -386,15 +436,28 @@ export function useShareButtonController(
       (!inviteEmail.trim() ||
         group.name.toLowerCase().includes(inviteEmail.trim().toLowerCase())),
   );
+  const inviteQuery = inviteEmail.trim().toLowerCase();
+  const agentSuggestions = (data?.agents ?? []).filter(
+    (agent) =>
+      !excludedMemberEmails.has(agent.email.toLowerCase()) &&
+      (!inviteQuery || agent.name.toLowerCase().includes(inviteQuery)),
+  );
   const knownMembers = memberSearch.members;
 
   const setInviteEmailValue = useCallback((email: string) => {
     setSelectedGroup(null);
+    setSelectedAgent(null);
     setInviteEmail(email);
   }, []);
   const selectGroup = useCallback((group: ShareButtonGroup) => {
+    setSelectedAgent(null);
     setSelectedGroup(group);
     setInviteEmail(group.name);
+  }, []);
+  const selectAgent = useCallback((agent: ShareButtonAgent) => {
+    setSelectedGroup(null);
+    setSelectedAgent(agent);
+    setInviteEmail(agent.name);
   }, []);
 
   const visibilityTransition = useShareVisibilityTransition({
@@ -449,15 +512,19 @@ export function useShareButtonController(
   const handleAdd = useCallback(() => {
     const trimmed = inviteEmail.trim();
     if (!trimmed || !canManage) return;
+    const startedOnVisit = visitRef.current;
     const principalType = selectedGroup ? "group" : "user";
-    const principalId = selectedGroup?.id ?? trimmed;
-    const message =
-      principalType === "user" && notifyPeople ? shareMessage.trim() : "";
+    const principalId = selectedGroup?.id ?? selectedAgent?.email ?? trimmed;
+    const notify = principalType === "user" && !selectedAgent && notifyPeople;
+    const message = notify ? shareMessage.trim() : "";
     const optimistic: ShareButtonShare = {
       id: `pending-${principalType}-${principalId}`,
       principalType,
       principalId,
       ...(selectedGroup ? { displayName: selectedGroup.name } : {}),
+      ...(selectedAgent
+        ? { displayName: selectedAgent.name, agent: true }
+        : {}),
       role,
     };
     const key = keyOf(optimistic);
@@ -466,29 +533,30 @@ export function useShareButtonController(
     setPendingAdds((previous) => [...previous, optimistic]);
     setInviteEmail("");
     setSelectedGroup(null);
+    setSelectedAgent(null);
     setShareMessage("");
     setMessageOpen(false);
     setSuggestionsOpen(false);
     addInFlight(key);
-    const previous = optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+    optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
       queryClient,
       shareQueryKey,
       (cached) =>
         cached ? { ...cached, shares: [...cached.shares, optimistic] } : cached,
     );
-    share.mutate(
-      {
+    void share
+      .mutateAsync({
         resourceType: options.resourceType,
         resourceId: options.resourceId,
         principalType,
         principalId,
         role,
-        notify: principalType === "user" && notifyPeople,
+        notify,
         resourceUrl: getNotificationUrl(options.shareUrl),
         ...(message ? { message } : {}),
-      } as never,
-      {
-        onSuccess: (result: unknown) => {
+      } as never)
+      .then(
+        (result: unknown) => {
           notifyShareChanged(options.resourceType);
           if (
             !(
@@ -501,26 +569,48 @@ export function useShareButtonController(
             options.onShareSuccess?.();
           }
           void sharesQuery.refetch().then(() => {
+            if (visitRef.current !== startedOnVisit) return;
             setPendingAdds((previous) =>
               previous.filter((item) => item.id !== optimistic.id),
             );
             clearInFlight(key);
           });
         },
-        onError: (error: unknown) => {
-          rollbackShareCache(queryClient, shareQueryKey, previous);
+        (error: unknown) => {
+          if (visitRef.current !== startedOnVisit) {
+            // A later visit owns this cache; re-read it rather than restore
+            // an older snapshot over newer changes.
+            void queryClient.invalidateQueries({ queryKey: shareQueryKey });
+            return;
+          }
+          // Undo only this invite, then re-read: other saves may have
+          // changed the list meanwhile, and only the server knows how.
+          optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+            queryClient,
+            shareQueryKey,
+            (cached) =>
+              cached
+                ? {
+                    ...cached,
+                    shares: cached.shares.filter(
+                      (item) => item.id !== optimistic.id,
+                    ),
+                  }
+                : cached,
+          );
           setPendingAdds((previous) =>
             previous.filter((item) => item.id !== optimistic.id),
           );
           clearInFlight(key);
           setInviteEmail(trimmed);
           setSelectedGroup(selectedGroup);
+          setSelectedAgent(selectedAgent);
           setShareMessage((current) => current || message);
           setMessageOpen((current) => current || Boolean(message));
           setShareError(extractShareErrorMessage(error));
+          void queryClient.invalidateQueries({ queryKey: shareQueryKey });
         },
-      },
-    );
+      );
   }, [
     addInFlight,
     canManage,
@@ -531,7 +621,9 @@ export function useShareButtonController(
     options.resourceType,
     options.onShareSuccess,
     options.shareUrl,
+    resourceKey,
     role,
+    selectedAgent,
     selectedGroup,
     shareMessage,
     share,
@@ -549,35 +641,36 @@ export function useShareButtonController(
       }
       const key = keyOf(currentShare);
       if (inFlightRef.current.has(key)) return;
+      const startedOnVisit = visitRef.current;
       setRoleOverrides((previous) => ({ ...previous, [key]: next }));
       addInFlight(key);
-      const previous =
-        optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
-          queryClient,
-          shareQueryKey,
-          (cached) =>
-            cached
-              ? {
-                  ...cached,
-                  shares: cached.shares.map((share) =>
-                    keyOf(share) === key ? { ...share, role: next } : share,
-                  ),
-                }
-              : cached,
-        );
-      share.mutate(
-        {
+      optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+        queryClient,
+        shareQueryKey,
+        (cached) =>
+          cached
+            ? {
+                ...cached,
+                shares: cached.shares.map((share) =>
+                  keyOf(share) === key ? { ...share, role: next } : share,
+                ),
+              }
+            : cached,
+      );
+      void share
+        .mutateAsync({
           resourceType: options.resourceType,
           resourceId: options.resourceId,
           principalType: currentShare.principalType,
           principalId: currentShare.principalId,
           role: next,
           notify: false,
-        } as never,
-        {
-          onSuccess: () => {
+        } as never)
+        .then(
+          () => {
             notifyShareChanged(options.resourceType);
             void sharesQuery.refetch().then(() => {
+              if (visitRef.current !== startedOnVisit) return;
               setRoleOverrides((previous) => {
                 const { [key]: _removed, ...rest } = previous;
                 return rest;
@@ -585,17 +678,35 @@ export function useShareButtonController(
               clearInFlight(key);
             });
           },
-          onError: (error: unknown) => {
-            rollbackShareCache(queryClient, shareQueryKey, previous);
+          (error: unknown) => {
+            if (visitRef.current !== startedOnVisit) {
+              void queryClient.invalidateQueries({ queryKey: shareQueryKey });
+              return;
+            }
+            optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+              queryClient,
+              shareQueryKey,
+              (cached) =>
+                cached
+                  ? {
+                      ...cached,
+                      shares: cached.shares.map((share) =>
+                        keyOf(share) === key && share.role === next
+                          ? { ...share, role: currentShare.role }
+                          : share,
+                      ),
+                    }
+                  : cached,
+            );
             setRoleOverrides((previous) => {
               const { [key]: _removed, ...rest } = previous;
               return rest;
             });
             clearInFlight(key);
             setShareError(extractShareErrorMessage(error));
+            void queryClient.invalidateQueries({ queryKey: shareQueryKey });
           },
-        },
-      );
+        );
     },
     [
       addInFlight,
@@ -604,6 +715,7 @@ export function useShareButtonController(
       options.resourceId,
       options.resourceType,
       queryClient,
+      resourceKey,
       shareQueryKey,
       share,
       sharesQuery,
@@ -618,31 +730,36 @@ export function useShareButtonController(
       }
       const key = keyOf(currentShare);
       if (inFlightRef.current.has(key)) return;
+      const startedOnVisit = visitRef.current;
       setPendingRemoves((previous) => new Set(previous).add(key));
       addInFlight(key);
-      const previous =
-        optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
-          queryClient,
-          shareQueryKey,
-          (cached) =>
-            cached
-              ? {
-                  ...cached,
-                  shares: cached.shares.filter((share) => keyOf(share) !== key),
-                }
-              : cached,
-        );
-      unshare.mutate(
-        {
+      const removedAt =
+        queryClient
+          .getQueryData<ShareButtonSharesResponse>(shareQueryKey)
+          ?.shares.findIndex((share) => keyOf(share) === key) ?? -1;
+      optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+        queryClient,
+        shareQueryKey,
+        (cached) =>
+          cached
+            ? {
+                ...cached,
+                shares: cached.shares.filter((share) => keyOf(share) !== key),
+              }
+            : cached,
+      );
+      void unshare
+        .mutateAsync({
           resourceType: options.resourceType,
           resourceId: options.resourceId,
           principalType: currentShare.principalType,
           principalId: currentShare.principalId,
-        } as never,
-        {
-          onSuccess: () => {
+        } as never)
+        .then(
+          () => {
             notifyShareChanged(options.resourceType);
             void sharesQuery.refetch().then(() => {
+              if (visitRef.current !== startedOnVisit) return;
               setPendingRemoves((previous) => {
                 const next = new Set(previous);
                 next.delete(key);
@@ -651,8 +768,27 @@ export function useShareButtonController(
               clearInFlight(key);
             });
           },
-          onError: (error: unknown) => {
-            rollbackShareCache(queryClient, shareQueryKey, previous);
+          (error: unknown) => {
+            if (visitRef.current !== startedOnVisit) {
+              void queryClient.invalidateQueries({ queryKey: shareQueryKey });
+              return;
+            }
+            optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+              queryClient,
+              shareQueryKey,
+              (cached) => {
+                if (!cached || cached.shares.some((s) => keyOf(s) === key)) {
+                  return cached;
+                }
+                const shares = [...cached.shares];
+                shares.splice(
+                  removedAt < 0 ? shares.length : removedAt,
+                  0,
+                  currentShare,
+                );
+                return { ...cached, shares };
+              },
+            );
             setPendingRemoves((previous) => {
               const next = new Set(previous);
               next.delete(key);
@@ -660,9 +796,9 @@ export function useShareButtonController(
             });
             clearInFlight(key);
             setShareError(extractShareErrorMessage(error));
+            void queryClient.invalidateQueries({ queryKey: shareQueryKey });
           },
-        },
-      );
+        );
     },
     [
       addInFlight,
@@ -671,6 +807,7 @@ export function useShareButtonController(
       options.resourceId,
       options.resourceType,
       queryClient,
+      resourceKey,
       shareQueryKey,
       sharesQuery,
       unshare,
@@ -716,8 +853,11 @@ export function useShareButtonController(
     handleChangeRole,
     handleRemove,
     groupSuggestions,
+    agentSuggestions,
     selectedGroup,
     selectGroup,
+    selectedAgent,
+    selectAgent,
   };
 }
 

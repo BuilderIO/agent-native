@@ -1,4 +1,9 @@
 import {
+  googleFontStylesheetUrl,
+  loadGoogleFontCatalog,
+  resolveGoogleFont,
+} from "@agent-native/toolkit/design-tweaks/google-fonts";
+import {
   materializeSlideNumberTokens,
   slideNumberRootAttrs,
 } from "@shared/slide-number";
@@ -8,6 +13,7 @@ import { importExportModule } from "./dynamic-import";
 import {
   findSlideExportSource,
   preloadImagesWithCors,
+  throwIfExportAborted,
 } from "./export-pdf-client";
 import {
   type FontMetrics,
@@ -1038,6 +1044,30 @@ function isLoadedWebFont(family: string): boolean {
   return found;
 }
 
+// Body-to-bold upright faces, named only from weights the family ships:
+// Google rejects a request for any weight a family lacks.
+async function googleFontEmbedHref(
+  family: string,
+): Promise<string | undefined> {
+  let font = resolveGoogleFont(family);
+  if (!font) {
+    const catalog = await loadGoogleFontCatalog();
+    if (catalog.status === "ready") font = resolveGoogleFont(family);
+  }
+  if (!font) return undefined;
+  const bodyWeights = font.weights.filter(
+    (weight) => weight >= 400 && weight <= 700,
+  );
+  return googleFontStylesheetUrl(
+    {
+      ...font,
+      weights: bodyWeights.length ? bodyWeights : font.weights,
+      italicWeights: [],
+    },
+    "upright",
+  );
+}
+
 async function resolveExportFonts(
   roots: HTMLElement[],
 ): Promise<ResolvedExportFont[]> {
@@ -1047,9 +1077,8 @@ async function resolveExportFonts(
       if (local.length) return { name: family, urls: local };
       if (!isLoadedWebFont(family)) return undefined;
       try {
-        const href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(
-          family,
-        ).replace(/%20/g, "+")}:wght@400;500;600;700&display=swap`;
+        const href = await googleFontEmbedHref(family);
+        if (!href) return undefined;
         const response = await fetch(href, {
           mode: "cors",
           signal: AbortSignal.timeout(FONT_RESOLVE_TIMEOUT_MS),
@@ -2147,8 +2176,12 @@ export async function buildDeckPptxBlob(
   deckTitle: string,
   slides: PptxExportSlide[],
   aspectRatio?: AspectRatio,
-  { target = "powerpoint" }: { target?: PptxExportTarget } = {},
+  {
+    target = "powerpoint",
+    signal,
+  }: { target?: PptxExportTarget; signal?: AbortSignal | undefined } = {},
 ): Promise<{ blob: Blob; filename: string; blankShapes: number }> {
+  throwIfExportAborted(signal);
   const { exportToPptx } = await importExportModule(
     () => import("dom-to-pptx"),
   );
@@ -2167,6 +2200,7 @@ export async function buildDeckPptxBlob(
 
   try {
     for (let i = 0; i < slides.length; i++) {
+      throwIfExportAborted(signal);
       const exportSlide = slides[i];
       const source = findSlideExportSource(exportSlide.id, i, slides.length);
       await waitForImagesToSettle(source);
@@ -2221,6 +2255,7 @@ export async function buildDeckPptxBlob(
       if (target === "google-slides") markWrappedLines(clone.element);
     }
 
+    throwIfExportAborted(signal);
     const cloneElements = exportClones.map((clone) => clone.element);
     const [dominantFamily] = usedFontFamilies(cloneElements);
     const fonts = await resolveExportFonts(cloneElements);
@@ -2251,6 +2286,7 @@ export async function buildDeckPptxBlob(
             measureFontMetrics(cloneElements),
           )
         : notedBlob;
+    throwIfExportAborted(signal);
     if (blankShapes > 0) {
       console.warn(
         `[export-pptx] ${blankShapes} shape(s) rendered empty and are missing from ${deckTitle}`,
@@ -2269,10 +2305,13 @@ export async function exportDeckAsPptx(
   slides: PptxExportSlide[],
   aspectRatio?: AspectRatio,
   analytics?: BrowserDeckExportFacts,
+  signal?: AbortSignal,
 ): Promise<{ blankShapes: number }> {
   let built: Awaited<ReturnType<typeof buildDeckPptxBlob>>;
   try {
-    built = await buildDeckPptxBlob(deckTitle, slides, aspectRatio);
+    built = await buildDeckPptxBlob(deckTitle, slides, aspectRatio, {
+      signal,
+    });
     triggerBlobDownload(built.blob, built.filename);
   } catch (error) {
     if (analytics) {

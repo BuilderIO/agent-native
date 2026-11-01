@@ -118,11 +118,10 @@ description: "फ़्रेमवर्क में निर्मित प
 
 प्रत्येक साझा करने योग्य संसाधन को उसके हेडर में एक शेयर बटन मिलता है। इसे क्लिक करने से बटन से जुड़ा एक पॉपओवर खुलता है (मोडल नहीं):
 
-- दृश्यता चयनकर्ता (`Private` / `Organization` / `Public link`)।
-- "लोगों या टीमों को जोड़ें" स्वतः पूर्ण - संगठन में उपयोगकर्ताओं को खोजें या एक ईमेल पेस्ट करें।
-- व्यक्तिगत ईमेल अनुदानों के लिए `लोगों को सूचित करें` चेकबॉक्स।
-- भूमिका चयनकर्ताओं और हटाने के नियंत्रण के साथ वर्तमान अनुदानों की एक सूची।
-- एक कॉपी-लिंक बटन जो वर्तमान दृश्यता का सम्मान करता है।
+- लोगों, संगठन समूहों और संगठन के एजेंटों के लिए एक आमंत्रण फ़ील्ड, भूमिका चुनने के विकल्प और आमंत्रित करें बटन के साथ। टाइप किए गए ईमेल के लिए `Notify people` चेकबॉक्स भी दिखता है।
+- एक्सेस वाले लोग: मालिक, लोग, समूह और एजेंट एक ही सूची में। भूमिकाएं हैं: देख सकते हैं, टिप्पणी कर सकते हैं, संपादित कर सकते हैं और एक्सेस प्रबंधित कर सकते हैं। एक्सेस हटाएं हर पंक्ति के भूमिका मेनू का आखिरी आइटम है।
+- सामान्य एक्सेस: केवल आमंत्रित लोग / संगठन का कोई भी व्यक्ति / लिंक वाला कोई भी व्यक्ति।
+- लिंक कॉपी करें, और इसमें भेजें मेनू: Claude, Claude Code या Codex में खोलें, एजेंट प्रॉम्प्ट कॉपी करें, एजेंट लिंक कॉपी करें, MCP सर्वर सेटिंग और ऐप के जोड़े गए अन्य गंतव्य।
 
 किसी संसाधन को `Private` से `Organization` में बदलने पर पहले पुष्टि माँगी जाती है। पुष्टि होने तक कुछ नहीं बदलता। रद्द करें या Escape दबाने पर मौजूदा एक्सेस बना रहता है। यदि सहेजना विफल हो, तो डायलॉग त्रुटि दिखाता है और उपयोगकर्ता फिर से कोशिश कर सकता है। दृश्यता के अन्य बदलाव तुरंत सहेजे जाते हैं। पुष्टि केवल साझाकरण UI में है। `set-resource-visibility` में कोई बदलाव नहीं है, इसलिए एजेंट और कोई भी अन्य कॉलर दृश्यता को सीधे बदलना जारी रखते हैं, और क्या अनुमत है यह अब भी संसाधन की साझाकरण नीति तय करती है।
 
@@ -136,6 +135,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+जब संगठन के पास सेवा एजेंट होते हैं (संगठन सेवा टोकन से बनी `svc-<name>@service.<orgId>` पहचानें), तो वे आमंत्रण फ़ील्ड में दिखते हैं। उन्हें सामान्य उपयोगकर्ता की तरह साझा किया जाता है और उन्हें कभी ईमेल नहीं भेजा जाता। MCP या OAuth से जुड़ने वाले एजेंट उसी व्यक्ति के रूप में काम करते हैं जिसने उन्हें जोड़ा, इसलिए उनकी कोई पंक्ति नहीं होती। उन्हें इसमें भेजें मेनू से संसाधन दें।
 
 सूचियों के लिए, प्रत्येक पंक्ति के आगे एक `<VisibilityBadge visibility={row.visibility} />` छोड़ें ताकि उपयोगकर्ता एक नज़र में देख सकें कि निजी बनाम साझा क्या है।
 
@@ -193,7 +194,7 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
 
-Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Declare `agentRead: { actions: ["get-<thing>"] }` (and `idParam` when the tool's id argument is not `id`) so the share panel's Send to menu offers Open in Claude, Claude Code, and Codex with a prompt that calls that MCP tool with the person's own permissions.
 
 ## इसे एक नए टेम्पलेट में बनाना {#building}
 

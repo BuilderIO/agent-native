@@ -3963,6 +3963,17 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
   } catch {}
 }
 
+/**
+ * Builder Workspaces key apps by a stable id (route, record key, access row):
+ * it must start with a letter and be at most 40 characters.
+ */
+const BUILDER_WORKSPACE_APP_ID_REGEX = /^[a-z][a-z0-9-]{0,39}$/;
+
+export function getBuilderWorkspaceAppIdError(appId: string): string | null {
+  if (BUILDER_WORKSPACE_APP_ID_REGEX.test(appId)) return null;
+  return `Invalid app id "${appId}". It must start with a lowercase letter and contain only lowercase letters, digits and hyphens (max 40 characters).`;
+}
+
 function validateWorkspaceAppName(
   appName: string,
   clack: typeof import("@clack/prompts"),
@@ -3971,7 +3982,8 @@ function validateWorkspaceAppName(
   const error =
     opts?.allowDispatch && appName === "dispatch"
       ? null
-      : getWorkspaceAppIdValidationError(appName);
+      : (getWorkspaceAppIdValidationError(appName) ??
+        getBuilderWorkspaceAppIdError(appName));
   if (error) {
     clack.cancel(error);
     process.exit(1);

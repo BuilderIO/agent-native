@@ -378,9 +378,6 @@ const messages = {
       connectionsNeeded: "{{count}} para conectar",
       connectionsListName: "Conexões necessárias",
       jumpToProblem: "Mostrar no canvas",
-      testRun: "Simulação",
-      testing: "Iniciando",
-      saveAndTest: "Salvar e simular",
       moreActions: "Mais ações",
       runNow: "Executar agora",
       runNowSaveFirst: "Salve suas alterações antes de executar de verdade.",
@@ -458,6 +455,14 @@ const messages = {
       body: "Este fluxo de trabalho tem alterações que não foram salvas.",
       stay: "Continuar editando",
       discard: "Descartar",
+    },
+    draft: {
+      restored: "Suas alterações não salvas foram restauradas.",
+      saveFailed:
+        "Não foi possível salvar um rascunho das suas alterações. {{reason}}",
+      unreadable:
+        "Não foi possível restaurar suas alterações não salvas, então a versão salva foi aberta.",
+      discardFailed: "Não foi possível descartar seu rascunho. {{reason}}",
     },
     liveRun: {
       dialogTitle: "Executar este fluxo de trabalho de verdade?",

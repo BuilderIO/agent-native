@@ -1,5 +1,5 @@
 import { captureClientException } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -65,7 +65,7 @@ export function contextVideoSrc(
   mediaRecordingId: string,
   accessToken?: string,
 ): string {
-  const src = `${appBasePath()}/api/video/${encodeURIComponent(mediaRecordingId)}`;
+  const src = appApiPath(`/api/video/${encodeURIComponent(mediaRecordingId)}`);
   return accessToken ? `${src}?t=${encodeURIComponent(accessToken)}` : src;
 }
 

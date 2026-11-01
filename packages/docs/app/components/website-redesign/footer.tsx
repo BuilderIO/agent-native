@@ -28,11 +28,11 @@ interface FooterColumn {
 // sync). Importing the catalog would pull card components and screenshot
 // data into the root bundle that every page loads.
 export const FOOTER_APPS: ReadonlyArray<{ slug: string; name: string }> = [
+  { slug: "design", name: "Design" },
+  { slug: "slides", name: "Slides" },
   { slug: "clips", name: "Clips" },
   { slug: "plan", name: "Plans" },
-  { slug: "design", name: "Design" },
   { slug: "content", name: "Content" },
-  { slug: "slides", name: "Slides" },
   { slug: "analytics", name: "Analytics" },
   { slug: "mail", name: "Mail" },
   { slug: "forms", name: "Forms" },

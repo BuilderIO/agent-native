@@ -1163,9 +1163,9 @@ export interface TiptapComposerProps {
   documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
   /** Programmatically seed the editor with plain text. */
-  initialText?: string;
+  initialText?: string | undefined;
   /** Stable key used to re-apply the seeded text. */
-  initialTextKey?: string | number;
+  initialTextKey?: string | number | undefined;
   /** Let an explicit host handoff replace a saved draft. */
   initialTextOverridesSavedDraft?: boolean;
   /** Skip onTextChange notifications caused only by initial draft setup. */
