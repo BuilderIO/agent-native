@@ -1162,7 +1162,7 @@ pub(crate) mod macos {
         session: Retained<AVCaptureSession>,
         output: Retained<AVCaptureAudioDataOutput>,
         delegate: Retained<DictationSampleDelegate>,
-        _queue: DispatchRetained<DispatchQueue>,
+        queue: DispatchRetained<DispatchQueue>,
         device_name: String,
         stopped: AtomicBool,
     }
@@ -1196,7 +1196,7 @@ pub(crate) mod macos {
                 session,
                 output,
                 delegate,
-                _queue: queue,
+                queue,
                 device_name,
                 stopped: AtomicBool::new(false),
             })
@@ -1214,6 +1214,9 @@ pub(crate) mod macos {
                 self.session.stopRunning();
                 self.output.setSampleBufferDelegate_queue(None, None);
             }
+            // Buffers already queued still reach the delegate; wait for them so
+            // the speech check has heard every one before it is asked.
+            self.queue.exec_sync(|| {});
             let ivars = self.delegate.ivars();
             eprintln!(
                 "[voice-dictation] native capture from {} delivered {} buffers (peak {:.4})",
