@@ -52,6 +52,7 @@ describe("the load's page read from the document head", () => {
       databaseId: "db-1",
       databaseDocumentId: "dbdoc-1",
       databaseViewId: "board",
+      includePreviewDraft: "true",
     });
     expect(init).toMatchObject({
       credentials: "same-origin",

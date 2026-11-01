@@ -964,6 +964,7 @@ export function startPageOpenDocumentReads(
       {
         ...documentReadParams(documentId, context),
         ...(databaseViewId ? { databaseViewId } : {}),
+        ...(readsDraft ? { includePreviewDraft: true } : {}),
       },
       { method: "GET" },
     );

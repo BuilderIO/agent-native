@@ -76,7 +76,10 @@ function as<T>(userEmail: string, run: (ctx: ActionRunContext) => Promise<T>) {
   );
 }
 
-function openPage(userEmail: string, args: Record<string, string>) {
+function openPage(
+  userEmail: string,
+  args: { id: string } & Record<string, string | boolean>,
+) {
   return as(userEmail, (ctx) =>
     getPageOpenReadAction.run(args as { id: string }, ctx),
   );
@@ -184,7 +187,10 @@ describe("get-page-open-read", () => {
         filterMode: "and" as const,
       };
 
-      const open = await openPage(reader, { id: fixture.documentId });
+      const open = await openPage(reader, {
+        id: fixture.documentId,
+        includePreviewDraft: true,
+      });
       const own = await as(reader, async (ctx) => ({
         document: await getDocumentAction.run(
           { id: fixture.documentId, includePreviewDraft: true },
@@ -279,7 +285,10 @@ describe("get-page-open-read", () => {
       .limit(1);
 
     const plainOpen = await openPage(OWNER, { id: plain.id });
-    expect(plainOpen.document.title).toBe("Tide table");
+    // Without the draft flag the page is get-document's plain answer.
+    expect(plainOpen.document).toEqual(
+      await as(OWNER, (ctx) => getDocumentAction.run({ id: plain.id }, ctx)),
+    );
     expect(plainOpen).not.toHaveProperty("collection");
     const rowOpen = await openPage(OWNER, {
       id: row[0].documentId,

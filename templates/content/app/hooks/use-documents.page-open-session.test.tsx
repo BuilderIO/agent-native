@@ -58,7 +58,7 @@ vi.mock("@agent-native/core/client/hooks", () => {
   // Answers as whichever account the cookies name when the request goes out.
   const callAction = (
     name: string,
-    params: { id?: string },
+    params: { id?: string; includePreviewDraft?: boolean },
   ): Promise<unknown> => {
     server.calls.push({ name, params });
     const account = server.account;
@@ -67,11 +67,14 @@ vi.mock("@agent-native/core/client/hooks", () => {
     }
     const page = { id: params.id, title: `${account}'s page`, canEdit: true };
     if (name === "get-page-open-read") {
+      // The reader's draft comes back only when the read asks for it.
       return Promise.resolve({
-        document: {
-          ...page,
-          previewDraft: { editable: true, draft: `${account}'s draft` },
-        },
+        document: params.includePreviewDraft
+          ? {
+              ...page,
+              previewDraft: { editable: true, draft: `${account}'s draft` },
+            }
+          : page,
       });
     }
     if (name !== "get-document") return Promise.resolve({ account });

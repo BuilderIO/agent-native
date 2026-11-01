@@ -80,6 +80,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Collection view the page's address selects, if any."),
+    includePreviewDraft: z
+      .boolean()
+      .optional()
+      .describe(
+        "Also return the reader's private unsaved draft as document.previewDraft, as get-document.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -92,7 +98,7 @@ export default defineAction({
         ...(args.databaseDocumentId
           ? { databaseDocumentId: args.databaseDocumentId }
           : {}),
-        includePreviewDraft: true,
+        ...(args.includePreviewDraft ? { includePreviewDraft: true } : {}),
       },
       ctx,
     );
