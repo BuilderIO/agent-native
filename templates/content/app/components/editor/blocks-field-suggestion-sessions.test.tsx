@@ -271,6 +271,41 @@ describe("useBlocksFieldSuggestions", () => {
     expect(latest.drafts).toHaveLength(1);
   });
 
+  it("lets a tab's refused draft be discarded, so the page can leave Suggesting mode", async () => {
+    mocks.createProposal.mockRejectedValue(
+      Object.assign(new Error("The tab changed"), {
+        status: 409,
+        errorCode: "suggestion_conflict",
+      }),
+    );
+    const refetchQueries = vi.spyOn(queryClient, "refetchQueries");
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    expect(latest.refusedDrafts).toEqual([
+      { fieldId: "notes", draft: "Original notes, revised." },
+    ]);
+
+    await act(async () => {
+      await latest.discard("notes");
+    });
+
+    // The tab reads its text afresh, then starts a new draft on it.
+    expect(refetchQueries).toHaveBeenCalledWith({
+      queryKey: ["action", "list-document-properties", { documentId: "doc-1" }],
+    });
+    expect(latest.provider.sessions.has("notes")).toBe(false);
+    expect(latest.refusedDrafts).toEqual([]);
+    let saved = false;
+    await act(async () => {
+      saved = await latest.flushAll();
+    });
+    expect(saved).toBe(true);
+    expect(mocks.createProposal).toHaveBeenCalledTimes(1);
+  });
+
   it("saves what a tab hadn't when the page leaves Suggesting mode", async () => {
     await render(true, []);
     await draftInTab();

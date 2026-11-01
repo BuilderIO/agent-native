@@ -9859,7 +9859,7 @@ function PageEditorSessionBody({
         return suggestion ?? null;
       }}
       canDecideSuggestions={canEdit}
-      // Deciding on a tab's suggestion writes the Collection's field.
+      // Accepting a tab's suggestion writes the Collection's field.
       canDecideFieldSuggestions={pagePropertiesInScope?.canEditValues === true}
       decidingSuggestion={(suggestionId) =>
         fieldSuggestions.deciding ||
@@ -10401,6 +10401,52 @@ function PageEditorSessionBody({
               </Button>
             </div>
           ) : null}
+
+          {/* A tab's draft the server refused would keep the page suggesting,
+              since leaving saves it first; discarding it lets the page go. */}
+          {isSuggesting
+            ? fieldSuggestions.refusedDrafts.map(({ fieldId, draft }) => (
+                <div
+                  key={fieldId}
+                  className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+                  role="alert"
+                  data-blocks-field-suggestion-refused={fieldId}
+                >
+                  <span className="me-auto">
+                    <span className="font-medium">
+                      {pageProperties?.find(
+                        (property) => property.definition.id === fieldId,
+                      )?.definition.name ?? ""}
+                    </span>{" "}
+                    {t("editor.suggestionCreateFailed")}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      void writeClipboardText(draft).then((copied) => {
+                        if (copied)
+                          toast.success(t("editor.unsavedTextCopied"));
+                        else
+                          toast.error(
+                            t("editor.toolbar.clipboardAccessUnavailable"),
+                          );
+                      });
+                    }}
+                  >
+                    {t("editor.copyUnsavedText")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void fieldSuggestions.discard(fieldId)}
+                  >
+                    {t("editor.discardSuggestionDraft")}
+                  </Button>
+                </div>
+              ))
+            : null}
 
           {localSourceMissing ? (
             <div

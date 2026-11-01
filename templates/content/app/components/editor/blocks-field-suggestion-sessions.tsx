@@ -93,6 +93,11 @@ type FieldSession = {
   ended: boolean;
   /** The last save failed, so the next failure stays quiet while typing. */
   failed: boolean;
+  /**
+   * The draft's last save was refused, and no retry would change that, so
+   * the page offers to discard it.
+   */
+  refused: boolean;
   /** A save is under way. */
   saving: boolean;
   timer: ReturnType<typeof setTimeout> | null;
@@ -510,6 +515,7 @@ export function useBlocksFieldSuggestions({
           session.unresolved = null;
         }
         session.failed = false;
+        session.refused = false;
         session.retryDelay = 0;
         return true;
       } catch (error) {
@@ -526,6 +532,8 @@ export function useBlocksFieldSuggestions({
         }
         const quiet = autosave && session.failed;
         session.failed = true;
+        if (refused || error instanceof SuggestionFormattingMappingError)
+          session.refused = true;
         if (error instanceof SuggestionFormattingMappingError) {
           if (!autosave)
             toast.error(tRef.current("editor.suggestionFormattingUnsupported"));
@@ -661,6 +669,7 @@ export function useBlocksFieldSuggestions({
         dirty: false,
         ended: false,
         failed: false,
+        refused: false,
         saving: false,
         timer: null,
         retrying: false,
@@ -727,11 +736,14 @@ export function useBlocksFieldSuggestions({
     const visuals = new Map<string, DraftSuggestion[]>();
     const editing = new Map<string, SuggestionOperation[]>();
     const withdrawn = new Set<string>();
+    const refused: Array<{ fieldId: string; draft: string }> = [];
     for (const session of sessionsRef.current.values()) {
       sessions.set(session.fieldId, {
         key: session.session.id,
         draft: session.draft,
       });
+      if (session.refused)
+        refused.push({ fieldId: session.fieldId, draft: session.draft });
       const preview = previewSuggestionDraft(
         session.session,
         session.draft,
@@ -753,7 +765,15 @@ export function useBlocksFieldSuggestions({
       for (const id of withdrawnSessionSuggestionIds(own, session.entries))
         withdrawn.add(id);
     }
-    return { revision, sessions, drafts, visuals, editing, withdrawn };
+    return {
+      revision,
+      sessions,
+      drafts,
+      visuals,
+      editing,
+      withdrawn,
+      refused,
+    };
   }, [authorEmail, revision]);
 
   /** The tabs' saved suggestions, as their drafts show them. */
@@ -982,6 +1002,33 @@ export function useBlocksFieldSuggestions({
     [decideOnFields, freshest],
   );
 
+  /**
+   * Drops a tab's refused draft and starts the tab again from its saved
+   * text, read afresh: a draft is most often refused because that text
+   * changed under it. Its suggestions saved before stay.
+   */
+  const discard = useCallback(
+    async (fieldId: string) => {
+      const session = sessionsRef.current.get(fieldId);
+      if (!session || decidingRef.current) return;
+      decidingRef.current = true;
+      setDecidingFields(new Set([fieldId]));
+      try {
+        await queryClient.refetchQueries({
+          queryKey: ["action", "list-document-properties", { documentId }],
+        });
+      } finally {
+        if (session.timer) clearTimeout(session.timer);
+        if (sessionsRef.current.get(fieldId) === session)
+          sessionsRef.current.delete(fieldId);
+        decidingRef.current = false;
+        setDecidingFields(NO_FIELDS);
+        bump();
+      }
+    },
+    [bump, documentId, queryClient],
+  );
+
   const hasOpen =
     derived.drafts.length > 0 ||
     suggestions.some((suggestion) => suggestion.status === "pending");
@@ -996,6 +1043,9 @@ export function useBlocksFieldSuggestions({
     anchors,
     hasOpen,
     deciding: decidingFields.size > 0,
+    /** Tabs whose draft the server refused, with what each holds. */
+    refusedDrafts: derived.refused,
+    discard,
     flushAll,
     materializeDraft,
     decide,
