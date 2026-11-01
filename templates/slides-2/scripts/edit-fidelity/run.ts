@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
@@ -617,6 +617,18 @@ async function freePort(): Promise<number> {
   });
 }
 
+// The server runs in its own process group, which a negative pid signals. On
+// Windows it runs under cmd.exe with no group, so taskkill stops the tree.
+function killServerTree(pid: number, signal: NodeJS.Signals): void {
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
+    return;
+  }
+  process.kill(-pid, signal);
+}
+
 async function startServer(): Promise<{
   base: string;
   stop: () => Promise<void>;
@@ -663,7 +675,7 @@ async function startServer(): Promise<{
   process.on("exit", () => {
     if (exited === null && child.pid) {
       try {
-        process.kill(-child.pid, "SIGKILL");
+        killServerTree(child.pid, "SIGKILL");
         // coercion-ok: ESRCH means the server group already exited.
       } catch {
         // already gone
@@ -673,7 +685,7 @@ async function startServer(): Promise<{
   const stop = async () => {
     if (exited !== null || !child.pid) return;
     try {
-      process.kill(-child.pid, "SIGTERM");
+      killServerTree(child.pid, "SIGTERM");
       // coercion-ok: ESRCH means the server group already exited.
     } catch {
       return;
@@ -681,7 +693,7 @@ async function startServer(): Promise<{
     for (let i = 0; i < 50 && exited === null; i++) await sleep(200);
     if (exited === null) {
       try {
-        process.kill(-child.pid, "SIGKILL");
+        killServerTree(child.pid, "SIGKILL");
         // coercion-ok: ESRCH means the server group already exited.
       } catch {
         // already gone

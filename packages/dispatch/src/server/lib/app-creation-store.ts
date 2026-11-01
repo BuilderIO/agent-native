@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2909,7 +2909,15 @@ function runScaffoldCli(input: {
       stderr += String(chunk);
     });
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
+      if (windows && child.pid) {
+        // The child is cmd.exe, so stop its whole tree before the caller
+        // removes the app folder. taskkill returns once the tree is gone.
+        spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+        });
+      } else {
+        child.kill("SIGTERM");
+      }
       reject(
         new Error(
           `Scaffold timed out after ${Math.round(SCAFFOLD_TIMEOUT_MS / 1000)}s`,

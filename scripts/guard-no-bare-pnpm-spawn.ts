@@ -14,7 +14,10 @@
  * starts pnpm (or pnpx) with no `shell` option. Root scripts start pnpm
  * through scripts/lib/pnpm-command.ts; elsewhere, pass
  * `shell: process.platform === "win32"` (or run the joined command line with
- * `shell: true` on Windows, as the helper does). It also flags a new
+ * `shell: true` on Windows, as the helper does); `shell: false` counts as no
+ * shell. Spawners imported from child_process under another name are checked
+ * too, and so is `pnpm.command` from a `pnpmCommand(...)` result passed without
+ * its `shell`. It also flags a new
  * `"pnpm.cmd"`-style literal, which only exists to spawn the shim without a
  * shell. `exec` and `execSync` always use a shell, so they are not checked.
  *
@@ -53,6 +56,7 @@ const SKIPPED = /(?:^|\/)(?:node_modules|dist|build)\//;
 const SPAWNERS = new Set(["spawn", "spawnSync", "execFile", "execFileSync"]);
 const PNPM = /^pnp[mx](?:\.cmd)?$/i;
 const CMD_SHIM = /^pnp[mx]\.cmd$/i;
+const CHILD_PROCESS = /^(?:node:)?child_process$/;
 
 export interface BareSpawnFinding {
   file: string;
@@ -90,6 +94,62 @@ function calleeName(call: ts.CallExpression): string | null {
   if (ts.isIdentifier(callee)) return callee.text;
   if (ts.isPropertyAccessExpression(callee)) return callee.name.text;
   return null;
+}
+
+/** `require("node:child_process")` or `await import("node:child_process")`. */
+function loadsChildProcess(node: ts.Expression): boolean {
+  let inner = unwrap(node);
+  if (ts.isAwaitExpression(inner)) inner = unwrap(inner.expression);
+  if (!ts.isCallExpression(inner) || inner.arguments.length !== 1) return false;
+  const loader =
+    inner.expression.kind === ts.SyntaxKind.ImportKeyword ||
+    (ts.isIdentifier(inner.expression) && inner.expression.text === "require");
+  const specifier = literalValue(inner.arguments[0]);
+  return loader && specifier !== null && CHILD_PROCESS.test(specifier);
+}
+
+/**
+ * Spawners the file takes from child_process, by local name, so
+ * `import { spawn as launch }` and `const { spawn: launch } = require(...)`
+ * are checked like `spawn`.
+ */
+function spawnerAliases(sourceFile: ts.SourceFile) {
+  const aliases = new Map<string, string>();
+  const add = (local: ts.Node, imported: ts.Node | undefined) => {
+    const from = imported ?? local;
+    if (
+      ts.isIdentifier(local) &&
+      (ts.isIdentifier(from) || ts.isStringLiteral(from)) &&
+      SPAWNERS.has(from.text)
+    ) {
+      aliases.set(local.text, from.text);
+    }
+  };
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      CHILD_PROCESS.test(node.moduleSpecifier.text) &&
+      node.importClause?.namedBindings &&
+      ts.isNamedImports(node.importClause.namedBindings)
+    ) {
+      for (const element of node.importClause.namedBindings.elements) {
+        add(element.name, element.propertyName);
+      }
+    } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name) &&
+      node.initializer &&
+      loadsChildProcess(node.initializer)
+    ) {
+      for (const element of node.name.elements) {
+        add(element.name, element.propertyName);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return aliases;
 }
 
 /** `const name = <initializer>` declarations in the file, by name. */
@@ -166,7 +226,17 @@ export function findBarePnpmSpawns(
   const lines = source.split(/\r?\n/);
   const consts = constInitializers(sourceFile);
   const returns = functionReturns(sourceFile);
+  const aliases = spawnerAliases(sourceFile);
   const findings: BareSpawnFinding[] = [];
+
+  const spawnerName = (call: ts.CallExpression): string | null => {
+    const name = calleeName(call);
+    if (name === null) return null;
+    const resolved = ts.isIdentifier(unwrap(call.expression))
+      ? (aliases.get(name) ?? name)
+      : name;
+    return SPAWNERS.has(resolved) ? resolved : null;
+  };
 
   const namesPnpm = (
     node: ts.Expression,
@@ -178,6 +248,18 @@ export function findBarePnpmSpawns(
     if (ts.isConditionalExpression(inner)) {
       return (
         namesPnpm(inner.whenTrue, seen) || namesPnpm(inner.whenFalse, seen)
+      );
+    }
+    // `pnpm.command` where `const pnpm = pnpmCommand(...)`: the helper's
+    // Windows command line, which needs its `shell` alongside it.
+    if (ts.isPropertyAccessExpression(inner) && inner.name.text === "command") {
+      let target = unwrap(inner.expression);
+      if (ts.isIdentifier(target)) {
+        const initializer = consts.get(target.text);
+        if (initializer) target = unwrap(initializer);
+      }
+      return (
+        ts.isCallExpression(target) && calleeName(target) === "pnpmCommand"
       );
     }
     if (ts.isIdentifier(inner) && !seen.has(inner.text)) {
@@ -217,7 +299,11 @@ export function findBarePnpmSpawns(
             property.name !== undefined &&
             (ts.isIdentifier(property.name) ||
               ts.isStringLiteral(property.name)) &&
-            property.name.text === "shell",
+            property.name.text === "shell" &&
+            !(
+              ts.isPropertyAssignment(property) &&
+              unwrap(property.initializer).kind === ts.SyntaxKind.FalseKeyword
+            ),
         )
       );
     });
@@ -247,10 +333,7 @@ export function findBarePnpmSpawns(
     for (let node = literal; node.parent; node = node.parent) {
       const parent = node.parent;
       if (ts.isCallExpression(parent)) {
-        const name = calleeName(parent);
-        return (
-          name !== null && SPAWNERS.has(name) && parent.arguments[0] === node
-        );
+        return spawnerName(parent) !== null && parent.arguments[0] === node;
       }
       if (!ts.isExpression(parent)) return false;
     }
@@ -259,11 +342,9 @@ export function findBarePnpmSpawns(
 
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
-      const name = calleeName(node);
       const command = node.arguments[0];
       if (
-        name !== null &&
-        SPAWNERS.has(name) &&
+        spawnerName(node) !== null &&
         command !== undefined &&
         namesPnpm(command) &&
         !setsShell(node)

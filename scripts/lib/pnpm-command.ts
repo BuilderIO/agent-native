@@ -20,8 +20,12 @@ export type PnpmCommand = {
   shell: boolean;
 };
 
-/** cmd.exe stops reading a command line longer than this many characters. */
-export const WINDOWS_COMMAND_LINE_LIMIT = 8191;
+/**
+ * The longest line pnpmCommand builds on Windows. cmd.exe reads at most 8,191
+ * characters, and Node runs the line as `<ComSpec> /d /s /c "<line>"`, so this
+ * leaves room for that wrapper with a cmd.exe path as long as MAX_PATH.
+ */
+export const WINDOWS_COMMAND_LINE_LIMIT = 8191 - 260 - ' /d /s /c ""'.length;
 
 export function pnpmCommand(
   args: readonly string[],
@@ -33,7 +37,7 @@ export function pnpmCommand(
   const command = ["pnpm", ...args].map(quoteForCmd).join(" ");
   if (command.length > WINDOWS_COMMAND_LINE_LIMIT) {
     throw new Error(
-      `The pnpm command line is ${command.length} characters, over cmd.exe's ${WINDOWS_COMMAND_LINE_LIMIT}. Pass fewer arguments per call.`,
+      `The pnpm command line is ${command.length} characters, over the ${WINDOWS_COMMAND_LINE_LIMIT} that fit cmd.exe's limit. Pass fewer arguments per call.`,
     );
   }
   return { command, args: [], shell: true };

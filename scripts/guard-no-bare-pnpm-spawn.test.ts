@@ -39,6 +39,32 @@ describe("bare pnpm spawn guard", () => {
     assert.deepEqual(flagged(source, "all"), [1, 2, 4, 6]);
   });
 
+  it("flags the helper's command passed without its shell", () => {
+    const source = [
+      "const pnpm = pnpmCommand(args);",
+      'spawn(pnpm.command, pnpm.args, { stdio: "inherit" });',
+      "spawn(pnpm.command, pnpm.args, { shell: pnpm.shell });",
+      "spawnSync(pnpmCommand(args).command, []);",
+      "spawn(task.command, task.args);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [2, 4]);
+  });
+
+  it("follows spawners imported under another name", () => {
+    const source = [
+      'import { spawn as launch, execFileSync as run } from "node:child_process";',
+      'const { spawnSync: runSync } = require("child_process");',
+      'launch("pnpm", args);',
+      'run("pnpm", ["-v"], { encoding: "utf8" });',
+      'runSync("pnpm", args, { shell: true });',
+      'import { launch as start } from "./launcher";',
+      'start("pnpm", args);',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [3, 4]);
+  });
+
   it("accepts a call that sets a shell option", () => {
     const source = [
       'spawn("pnpm", args, { shell: process.platform === "win32" });',
@@ -49,6 +75,16 @@ describe("bare pnpm spawn guard", () => {
     ].join("\n");
 
     assert.deepEqual(flagged(source, "all"), []);
+  });
+
+  it("treats shell: false as no shell", () => {
+    const source = [
+      'spawn("pnpm", args, { shell: false });',
+      'spawn("pnpm", args, { shell: false as const });',
+      'spawn("pnpm", args, { ...options, shell: windows });',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [1, 2]);
   });
 
   it("ignores other commands and shells that exec always uses", () => {

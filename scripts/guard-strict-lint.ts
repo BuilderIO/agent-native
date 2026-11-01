@@ -159,8 +159,8 @@ export function oxlintArgs(files: string[]): string[] {
 
 /**
  * Splits files into oxlint runs of at most BATCH_SIZE. On Windows pnpm runs
- * through cmd.exe, which reads at most WINDOWS_COMMAND_LINE_LIMIT characters,
- * so a run there also ends before its command line would.
+ * through cmd.exe, so a run there also ends before its command line passes
+ * WINDOWS_COMMAND_LINE_LIMIT, the length that fits cmd.exe's limit.
  */
 export function lintBatches(
   files: string[],

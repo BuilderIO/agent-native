@@ -62,21 +62,25 @@ const budgets = JSON.parse(
   readFileSync(new URL("./runtime-budget.json", import.meta.url), "utf8"),
 ) as BudgetFile;
 
-function seedDesign(): string {
+function seedDesign(url: string): string {
+  const args = [
+    "exec",
+    "tsx",
+    "e2e/fixtures/seed-perf-stress-design.ts",
+    "--base-url",
+    url,
+    "--copies",
+    String(budgets.copies),
+    "--title",
+    "Runtime budget",
+  ];
+  // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
+  // shell. Quote each argument there so the title stays one argument.
+  const windows = process.platform === "win32";
   const output = execFileSync(
-    "pnpm",
-    [
-      "exec",
-      "tsx",
-      "e2e/fixtures/seed-perf-stress-design.ts",
-      "--base-url",
-      baseUrl!,
-      "--copies",
-      String(budgets.copies),
-      "--title",
-      "Runtime budget",
-    ],
-    { cwd: designRoot, encoding: "utf8", shell: process.platform === "win32" },
+    windows ? ["pnpm", ...args].map((arg) => `"${arg}"`).join(" ") : "pnpm",
+    windows ? [] : args,
+    { cwd: designRoot, encoding: "utf8", shell: windows },
   );
   const id = /^design (\S+) /m.exec(output)?.[1];
   if (!id) throw new Error(`seeding printed no design id:\n${output}`);
@@ -100,7 +104,7 @@ async function postAction(name: string, input: unknown): Promise<unknown> {
   return response.json();
 }
 
-if (!values.design) seededDesignId = seedDesign();
+if (!values.design) seededDesignId = seedDesign(baseUrl);
 const designId = values.design ?? seededDesignId!;
 const sessionStartedAt = Date.now();
 
