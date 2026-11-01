@@ -309,7 +309,13 @@ export function moveCachedRecentVisit(
   ] of queryClient.getQueriesData<ContentRecentQueryData>({
     queryKey: ["action", "get-content-recent"],
   })) {
-    if (!data?.scopeKey.startsWith(scopePrefix)) continue;
+    // A list with no data yet (a first read in flight or failed) can't be
+    // reordered, so it reads again.
+    if (!data) {
+      complete = false;
+      continue;
+    }
+    if (!data.scopeKey.startsWith(scopePrefix)) continue;
     const entry = data.entries.find(
       (candidate) => contentRecentTargetKey(candidate.target) === key,
     );
@@ -334,30 +340,28 @@ export function useContentVisitRecorder() {
   const t = useT();
   const mutation = useActionMutation("record-content-visit", {
     skipActionQueryInvalidation: true,
-    onSuccess: (result, target) => {
+    onSuccess: async (result, target) => {
       // Reopening a page already in Recent only reorders the list, so it
       // skips the refetch; a first visit still reads the new entry. An
       // answer without a visit time comes from an older server. A Recent
       // read already in flight may predate the visit and would land with
-      // the old order, so then Recent is read again; invalidating cancels
-      // that read.
+      // the old order, so it's cancelled and Recent is read again. Cancelling
+      // first matters for a list's first read: invalidating alone would wait
+      // for that read's answer rather than restart it.
+      const recent = { queryKey: ["action", "get-content-recent"] };
+      const readInFlight = queryClient.isFetching(recent) > 0;
+      if (readInFlight) await queryClient.cancelQueries(recent);
       const { visitedAt, accountKey } = result as {
         visitedAt?: unknown;
         accountKey?: unknown;
       };
-      const readInFlight =
-        queryClient.isFetching({
-          queryKey: ["action", "get-content-recent"],
-        }) > 0;
       if (
         typeof visitedAt !== "string" ||
         typeof accountKey !== "string" ||
         !moveCachedRecentVisit(queryClient, target, visitedAt, accountKey) ||
         readInFlight
       ) {
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "get-content-recent"],
-        });
+        void queryClient.invalidateQueries(recent);
       }
     },
     onError: () => {

@@ -279,13 +279,81 @@ describe("useRecordContentVisit", () => {
     render("b");
 
     answer("b", { recorded: true, visitedAt: "2026-10-31T11:00:00.000Z" });
-    expect(order(key)[0]).toEqual(["b", "2026-10-31T11:00:00.000Z"]);
+    await vi.waitFor(() =>
+      expect(order(key)[0]).toEqual(["b", "2026-10-31T11:00:00.000Z"]),
+    );
 
     if (!answerStale) throw new Error("the refetch didn't start");
     answerStale();
     await vi.waitFor(() =>
       expect(queryClient.isFetching({ queryKey: key })).toBe(0),
     );
+
+    expect(order(key)).toEqual([
+      ["b", "2026-10-31T11:00:00.000Z"],
+      ["a", "2026-10-31T10:00:00.000Z"],
+    ]);
+    expect(reads).toEqual(["stale", "fresh"]);
+    unsubscribe();
+  });
+
+  it("refetches Recent when a list has no data yet", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    cache(recentKey("org-1"), [
+      entry("a", "2026-10-31T10:00:00.000Z"),
+      entry("b", "2026-10-30T10:00:00.000Z"),
+    ]);
+    // The space's list failed its first read, so it holds no data and
+    // isn't fetching.
+    await queryClient.prefetchQuery({
+      queryKey: recentKey("org-1", "space-1"),
+      queryFn: () => Promise.reject(new Error("offline")),
+    });
+    render("b");
+
+    answer("b", { recorded: true, visitedAt: "2026-10-31T11:00:00.000Z" });
+
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["action", "get-content-recent"],
+    });
+  });
+
+  it("restarts a first Recent read in flight instead of keeping its answer", async () => {
+    const key = recentKey("org-1");
+    const args = key[2] as { scopeKey: string };
+    const reads: string[] = [];
+    let answerStale: (() => void) | undefined;
+    const observer = new QueryObserver(queryClient, {
+      queryKey: key,
+      queryFn: () => {
+        reads.push(reads.length === 0 ? "stale" : "fresh");
+        if (reads.length === 1) {
+          return new Promise((resolve) => {
+            answerStale = () =>
+              resolve({
+                scopeKey: args.scopeKey,
+                entries: [entry("a", "2026-10-31T10:00:00.000Z")],
+              });
+          });
+        }
+        return Promise.resolve({
+          scopeKey: args.scopeKey,
+          entries: [
+            entry("b", "2026-10-31T11:00:00.000Z"),
+            entry("a", "2026-10-31T10:00:00.000Z"),
+          ],
+        });
+      },
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    render("b");
+
+    answer("b", { recorded: true, visitedAt: "2026-10-31T11:00:00.000Z" });
+    answerStale?.();
+    await vi.waitFor(() => {
+      expect(reads).toHaveLength(2);
+      expect(queryClient.isFetching({ queryKey: key })).toBe(0);
+    });
 
     expect(order(key)).toEqual([
       ["b", "2026-10-31T11:00:00.000Z"],
