@@ -663,14 +663,20 @@ describe("Markdown import", () => {
     );
 
     expect(page.dialect).toBe("nfm");
-    const [toggle] = nodesOfType(page.doc, "notionToggle");
-    expect(toggle.content?.[0]).toEqual({
-      type: "notionToggleSummary",
-      content: [
-        { type: "text", text: "Known", marks: [{ type: "bold" }] },
-        { type: "text", text: " issues" },
-      ],
-    });
+    expect(nodesOfType(page.doc, "notionToggle")).toEqual([
+      expect.objectContaining({
+        content: [
+          {
+            type: "notionToggleSummary",
+            content: [
+              { type: "text", text: "Known", marks: [{ type: "bold" }] },
+              { type: "text", text: " issues" },
+            ],
+          },
+          expect.anything(),
+        ],
+      }),
+    ]);
     expectEditorAccepts(page);
   });
 
