@@ -113,6 +113,10 @@ export default defineAction({
           .where(eq(schema.decks.id, id))
           .limit(1);
         if (!existing) throw deckHttpError(404, "Deck not found");
+        throw deckHttpError(
+          403,
+          "You don't have permission to delete this deck.",
+        );
       }
       throw err;
     }

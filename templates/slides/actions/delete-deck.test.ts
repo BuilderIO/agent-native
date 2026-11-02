@@ -179,9 +179,10 @@ describe("deleteDeck", () => {
       new ForbiddenError("Requires admin role"),
     );
 
-    await expect(deleteDeck.run({ id: "deck-1" })).rejects.toBeInstanceOf(
-      ForbiddenError,
-    );
+    await expect(deleteDeck.run({ id: "deck-1" })).rejects.toMatchObject({
+      statusCode: 403,
+      message: "You don't have permission to delete this deck.",
+    });
 
     deckExists = false;
     await expect(deleteDeck.run({ id: "deck-1" })).rejects.toMatchObject({

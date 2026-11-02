@@ -428,11 +428,17 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
         setResponseStatus(event, 400);
         return { error: "Only MP4 and WebM videos are allowed" };
       }
-      await assertDeckEditableForUpload(
-        event,
-        authContext,
-        typeof body?.deckId === "string" ? body.deckId : undefined,
-      );
+      try {
+        await assertDeckEditableForUpload(
+          event,
+          authContext,
+          typeof body?.deckId === "string" ? body.deckId : undefined,
+        );
+      } catch (error) {
+        if ((error as { statusCode?: number }).statusCode !== 403) throw error;
+        setResponseStatus(event, 403);
+        return { error: (error as Error).message };
+      }
       const limit =
         uploadType === "video"
           ? MAX_VIDEO_ASSET_FILE_SIZE
