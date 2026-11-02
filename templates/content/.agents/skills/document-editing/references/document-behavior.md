@@ -83,13 +83,16 @@ sends the file straight to Clips, and only the page's editors can upload.
 
 An outside agent holding a video file uploads it the same way with
 `create-video-upload`, an MCP-only action (the app's own agent has no files to
-send). It checks you can edit the page and returns `chunkUrl`,
-`chunkSizeBytes`, `totalChunks`, `uploadKey`, `clipEmbedTag`, and a `next`
-line with the steps: POST the file's chunks to Clips in order, the last with
-`isFinal=1`, then put `clipEmbedTag` in the page with `edit-document`. To
-start the same file again after a failed call, send the `uploadKey` it
-returned, so Clips makes one Clip. When it answers `storage_required` or
-`too_large`, nothing was uploaded; tell the user.
+send). The agent picks a new random `uploadKey` for the file, such as a UUID.
+The action checks you can edit the page and returns `chunkUrl`,
+`chunkSizeBytes`, `totalChunks`, `clipEmbedTag`, and a `next` line with the
+steps: POST the file's chunks to Clips in order, the last with `isFinal=1`,
+sending a chunk again on a network failure, a 429 or a 5xx, and the last one
+again while it answers `upload_finishing`; then put `clipEmbedTag` in the page
+with `edit-document`. To start the same file again after a failed call or a
+lost answer, send the same `uploadKey`, so Clips makes one Clip. When it
+answers `storage_required` or `too_large`, nothing was uploaded; tell the
+user.
 
 - Clips takes MP4, WebM, and MOV. Another video type is refused with a
   message naming those, and an empty file as a video that didn't upload;

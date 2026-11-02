@@ -57,7 +57,7 @@ const start = {
   blockId: "block_1",
   uploadKey: "picked-file-0001",
 };
-const { blockId: _blockId, uploadKey: _uploadKey, ...agentStart } = start;
+const { blockId: _blockId, ...agentStart } = start;
 const ticket = {
   recordingId: "rec_1",
   chunkUrl:
@@ -468,8 +468,6 @@ describe("create-clip-upload", () => {
 });
 
 describe("create-video-upload", () => {
-  const UPLOAD_KEY = /^[A-Za-z0-9_-]{16,64}$/;
-
   function sentStart() {
     const calls = mocks.requestClipsUpload.mock.calls;
     return calls[calls.length - 1]?.[0].start as {
@@ -487,7 +485,7 @@ describe("create-video-upload", () => {
     const result = await createVideoUpload.run(agentStart, withIp);
 
     const { blockId, uploadKey } = sentStart();
-    expect(uploadKey).toMatch(UPLOAD_KEY);
+    expect(uploadKey).toBe(agentStart.uploadKey);
     expect(blockId).toBe(`clip-embed-${uploadKey}`);
     expect(mocks.requestClipsUpload).toHaveBeenCalledWith({
       uploader: {
@@ -518,23 +516,28 @@ describe("create-video-upload", () => {
       expiresAt: ticket.expiresAt,
       next: expect.stringContaining('"&index=N&isFinal=0"'),
     });
-    expect(result).toMatchObject({
-      next: expect.stringContaining("edit-document"),
-    });
+    const { next } = result as { next: string };
+    expect(next).toContain("edit-document");
+    // The same retries the editor's uploader makes.
+    expect(next).toContain("no answer, times out, or answers 429 or 5xx");
+    expect(next).toContain('"upload_finishing"');
   });
 
   it("starts the same file again under its key and block id, so Clips makes one Clip", async () => {
-    const first = await createVideoUpload.run(agentStart);
+    // A retry whose first answer was lost sends the key the agent picked.
+    await createVideoUpload.run(agentStart);
     const firstStart = sentStart();
+    await createVideoUpload.run(agentStart);
+    expect(sentStart()).toEqual(firstStart);
 
     await createVideoUpload.run({
       ...agentStart,
-      uploadKey: (first as { uploadKey: string }).uploadKey,
+      uploadKey: "other-file-00001",
     });
-    expect(sentStart()).toMatchObject(firstStart);
-
-    await createVideoUpload.run(agentStart);
-    expect(sentStart().uploadKey).not.toBe(firstStart.uploadKey);
+    expect(sentStart()).toMatchObject({
+      uploadKey: "other-file-00001",
+      blockId: "clip-embed-other-file-00001",
+    });
   });
 
   it("gives the Clip tag, and nothing to send, when an earlier start has the whole file", async () => {
@@ -591,13 +594,15 @@ describe("create-video-upload", () => {
     },
   );
 
-  it("refuses a type Clips doesn't take and a malformed key before asking", async () => {
+  it("refuses a type Clips doesn't take and a missing or malformed key before asking", async () => {
+    const { uploadKey: _key, ...withoutKey } = agentStart;
     await expect(
       createVideoUpload.run({
         ...agentStart,
         mimeType: "video/x-msvideo" as never,
       }),
     ).rejects.toThrow();
+    await expect(createVideoUpload.run(withoutKey as never)).rejects.toThrow();
     await expect(
       createVideoUpload.run({ ...agentStart, uploadKey: "short" }),
     ).rejects.toThrow();

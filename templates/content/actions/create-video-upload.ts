@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -88,12 +86,13 @@ export default defineAction({
       .describe(
         "The file's type: video/mp4, video/webm, or video/quicktime (.mov)",
       ),
+    // The caller picks the key, so a start whose answer was lost can be sent
+    // again under the same one.
     uploadKey: z
       .string()
       .regex(CONTENT_CLIP_UPLOAD_KEY)
-      .optional()
       .describe(
-        "Omit on the first start. To start the same file again, as after a failed call or an answer of starting, send the uploadKey the first start returned: Clips then answers with that upload instead of making a second Clip.",
+        "A new random id you pick for this file, 16 to 64 letters, digits, - or _ (a UUID works). Send the same uploadKey every time you start this file, as after a failed call, an answer that never came, or an answer of starting: Clips then answers with that one upload instead of making a second Clip. Pick a new one for another file, or after an answer of key_used.",
       ),
   }),
   outputSchema,
@@ -104,7 +103,7 @@ export default defineAction({
   // Its ticket uploads into the caller's Clips.
   persistInBrowser: false,
   run: async (args, ctx) => {
-    const uploadKey = args.uploadKey ?? randomUUID();
+    const { uploadKey } = args;
     const blockId = blockIdFor(uploadKey);
     const answer = await startClipUpload(
       {
@@ -130,7 +129,7 @@ export default defineAction({
           chunkSizeBytes: answer.chunkSizeBytes,
           totalChunks: answer.totalChunks,
           expiresAt: answer.expiresAt,
-          next: `Split the file into ${answer.totalChunks} chunk(s) of chunkSizeBytes (the last may be shorter). POST them one at a time, in order, each as the raw request body with no other headers, to chunkUrl + "&index=N&isFinal=0", N counting from 0. Send the last chunk with "&isFinal=1": it finishes the upload, and Clips then makes the Clip. If its answer has waitingForStorage true, Clips holds the file but has nowhere to save it yet: tell the user to connect video storage in Clips. Retry a chunk that failed with a 429 or 5xx with the same index. The upload URL stops working once the last chunk is accepted or at expiresAt. To give the upload up before then, POST to cancelUrl. Then: ${PLACE_TAG}`,
+          next: `Split the file into ${answer.totalChunks} chunk(s) of chunkSizeBytes (the last may be shorter). POST them one at a time, in order, each as the raw request body with no other headers, to chunkUrl + "&index=N&isFinal=0", N counting from 0. Send the last chunk with "&isFinal=1": it finishes the upload, and Clips then makes the Clip. If its answer has waitingForStorage true, Clips holds the file but has nowhere to save it yet: tell the user to connect video storage in Clips. Send a chunk again, with the same index, when it gets no answer, times out, or answers 429 or 5xx. If the last chunk answers 409 with outcome "upload_finishing", Clips is still taking an earlier send of it: send it again every few seconds, for up to two minutes. Sending the last chunk again after Clips took it is safe; it answers with the same success. The upload URL expires at expiresAt. To give the upload up before the last chunk is taken, POST to cancelUrl. Then: ${PLACE_TAG}`,
         };
       case "already_finished":
         return {
@@ -149,7 +148,7 @@ export default defineAction({
       case "key_used":
         return {
           status: answer.status,
-          next: "This uploadKey's upload ended, so it can't continue. Call create-video-upload again without uploadKey to upload the file from the start.",
+          next: "This uploadKey's upload ended, so it can't continue. Call create-video-upload again with a new uploadKey to upload the file from the start.",
         };
       case "storage_required":
         return {
