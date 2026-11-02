@@ -272,6 +272,50 @@ describe("InlineTextEditor formatting controls", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it("lets the parent commit the open draft and learn whether it persisted", async () => {
+    const node: ElementSnapshot = {
+      nodeId: "text-1",
+      line: 1,
+      column: 1,
+      tagName: "h1",
+      bounds: { x: 100, y: 120, width: 400, height: 80 },
+      text: "Hello",
+      styles: { fontSize: "24px" },
+    };
+    const onCommit = vi.fn(async () => true);
+    const onCancel = vi.fn();
+    const commitRef: { current: (() => Promise<boolean>) | null } = {
+      current: null,
+    };
+
+    render(
+      <InlineTextEditor
+        node={node}
+        disabled={false}
+        t={t}
+        onCommit={onCommit}
+        onCancel={onCancel}
+        commitRef={commitRef}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", {
+      name: t("styleInspector.text"),
+    });
+    editor.textContent = "Edited text";
+    fireEvent.input(editor);
+
+    await expect(commitRef.current?.()).resolves.toBe(true);
+    expect(onCommit).toHaveBeenCalledWith([
+      {
+        line: 1,
+        column: 1,
+        ops: [{ kind: "set-text", value: "Edited text", prevText: "Hello" }],
+      },
+    ]);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps inline editing open when the source commit fails", async () => {
     const node: ElementSnapshot = {
       nodeId: "text-1",

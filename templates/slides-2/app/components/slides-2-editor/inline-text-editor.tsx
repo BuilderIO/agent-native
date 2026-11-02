@@ -60,6 +60,8 @@ type InlineTextEditorProps = {
   onCancel: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
+  /** Lets the parent commit the draft that lives only in this editor, e.g. before export. */
+  commitRef?: { current: (() => Promise<boolean>) | null };
 };
 
 export function InlineTextEditor({
@@ -71,6 +73,7 @@ export function InlineTextEditor({
   onCancel,
   onUndo,
   onRedo,
+  commitRef,
 }: InlineTextEditorProps) {
   const editableRef = useRef<HTMLDivElement>(null);
   const selectionRef = useRef<{ start: number; end: number } | null>(null);
@@ -253,7 +256,7 @@ export function InlineTextEditor({
   const textAlign = selectedStyleValue("textAlign") ?? "left";
 
   const commit = async () => {
-    if (disabled) return;
+    if (disabled) return false;
     const edits: SourceEdit[] = [];
     const textChanged = draft !== node.text;
     const firstOps: SourceEditOp[] = [
@@ -272,8 +275,18 @@ export function InlineTextEditor({
         ops: rangeStyles.map((entry) => ({ ...entry, prevText: draft })),
       });
     }
-    if (await onCommit(edits)) onCancel();
+    const committed = await onCommit(edits);
+    if (committed) onCancel();
+    return committed;
   };
+
+  useEffect(() => {
+    if (!commitRef) return;
+    commitRef.current = commit;
+    return () => {
+      commitRef.current = null;
+    };
+  }, [commit, commitRef]);
 
   const insertPlainText = (text: string) => {
     const editor = editableRef.current;

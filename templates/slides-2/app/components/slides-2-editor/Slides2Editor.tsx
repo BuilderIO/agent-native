@@ -1250,6 +1250,7 @@ export function Slides2Editor({
     target: ElementSnapshot | null;
   } | null>(null);
   const saveRef = useRef<() => Promise<boolean>>(async () => false);
+  const inlineCommitRef = useRef<(() => Promise<boolean>) | null>(null);
   const editorCommandHandlerRef = useRef<
     (operation: SlideEditorCommand["operation"]) => Promise<boolean>
   >(async () => false);
@@ -4029,7 +4030,7 @@ export function Slides2Editor({
               title={title}
               slides={slides}
               aspectRatio={aspectRatio}
-              onBeforeExport={save}
+              onBeforeExport={() => inlineCommitRef.current?.() ?? save()}
             />
             <Button
               type="button"
@@ -4473,6 +4474,7 @@ export function Slides2Editor({
                         disabled={!canEdit || saving}
                         t={t}
                         onCommit={commitInlineEdits}
+                        commitRef={inlineCommitRef}
                         onCancel={() => setInlineNode(null)}
                         onUndo={() => void undo()}
                         onRedo={() => void redo()}
