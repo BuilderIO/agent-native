@@ -1433,19 +1433,15 @@ jobs:
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/stored-form-gate-on-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
-      # The merge job reads this file, not the job result, to tell a known-loss
-      # failure from a regular one; an absent file counts as a failed group.
-      - name: Record the group's result
+      - name: Collect the group's Playwright output
         if: ${{ always() }}
         env:
           GROUP_DIR: ${{ runner.temp }}/content-convergence/${{ matrix.group }}
-          JOB_STATUS: ${{ job.status }}
         run: |
           mkdir -p "$GROUP_DIR"
           if [ -d templates/content/test-results ]; then
             cp -R templates/content/test-results "$GROUP_DIR/test-results"
           fi
-          echo "$JOB_STATUS" > "$GROUP_DIR/result"
 
       - name: Upload Content convergence group report
         if: ${{ !cancelled() }}
@@ -1462,6 +1458,9 @@ jobs:
     if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -1473,7 +1472,7 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
-      # Absent artifacts are reported by the next step, group by group.
+      # Absent artifacts are reported by the merge step, group by group.
       - name: Download Content convergence group reports
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -1482,11 +1481,26 @@ jobs:
           path: .tmp/content-convergence-groups
           merge-multiple: false
 
-      # A rerun of failed jobs keeps the passing groups' earlier artifacts, so
-      # each group's newest attempt is the one that counts.
+      # Earlier attempts' artifacts stay downloadable, so the run's job list,
+      # not the newest artifact, names the attempt that counts for each group:
+      # a rerun of failed jobs keeps passing groups at their earlier attempt,
+      # and a rerun of all jobs must not fall back to an older upload.
+      - name: Read each group's latest attempt
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOBS_FILE: .tmp/content-convergence-jobs.tsv
+        run: |
+          mkdir -p .tmp
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
+            --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.conclusion // "none")] | @tsv' \
+            > "$JOBS_FILE"
+
       - name: Merge Content convergence group reports
         id: merge
         env:
+          JOBS_FILE: .tmp/content-convergence-jobs.tsv
           GROUPS_DIR: .tmp/content-convergence-groups
           REPORT_DIR: .tmp/content-convergence
         run: |
@@ -1496,20 +1510,23 @@ jobs:
           {
             echo "## Content convergence groups"
             echo ""
-            echo "| Group | Result | Attempt |"
-            echo "| --- | --- | --: |"
+            echo "| Group | Latest attempt | Result |"
+            echo "| --- | --: | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
-          for group in regular-off regular-on known-loss; do
-            attempt=""
-            for dir in "$GROUPS_DIR"/content-convergence-"$group"-attempt-*; do
-              [ -d "$dir" ] || continue
-              n="${dir##*-attempt-}"
-              if [ -z "$attempt" ] || [ "$n" -gt "$attempt" ]; then attempt="$n"; fi
-            done
-            result="missing"
-            if [ -n "$attempt" ]; then
-              src="$GROUPS_DIR/content-convergence-$group-attempt-$attempt/$group"
-              result="$(cat "$src/result" 2>/dev/null || echo missing)"
+          for entry in "regular-off:regular, gate off" "regular-on:regular, gate on" "known-loss:known loss, not blocking"; do
+            group="${entry%%:*}"
+            latest="$(awk -F '\t' -v name="Content convergence (${entry#*:})" \
+              '$1 == name && $2 + 0 > max { max = $2 + 0; result = $3 } END { if (max) print max, result }' \
+              "$JOBS_FILE" 2>/dev/null || true)"
+            attempt="${latest%% *}"
+            result="${latest#* }"
+            src="$GROUPS_DIR/content-convergence-$group-attempt-$attempt/$group"
+            if [ -z "$latest" ]; then
+              attempt="none"
+              result="no job found"
+            elif [ ! -d "$src" ]; then
+              result="$result, report missing"
+            else
               if [ -f "$src/convergence.jsonl" ]; then
                 cat "$src/convergence.jsonl" >> "$REPORT_DIR/convergence.jsonl"
               fi
@@ -1517,7 +1534,7 @@ jobs:
                 [ -f "$report" ] && cp "$report" "$REPORT_DIR/"
               done
             fi
-            echo "| $group | $result | ${attempt:-none} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| $group | $attempt | $result |" >> "$GITHUB_STEP_SUMMARY"
             case "$group:$result" in
               known-loss:*|*:success) ;;
               *) failed="$failed $group" ;;

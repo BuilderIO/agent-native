@@ -1,8 +1,9 @@
 // Renders the two-tab convergence report as a job summary:
 //   node --experimental-strip-types e2e/convergence-summary.ts <report.jsonl> [[--required] playwright-report.json...]
 // Each Playwright report is one group, headed by its file name. A report after
-// --required must exist: without it the required tests never ran, so the
-// summary exits 1 instead of only warning.
+// --required must exist, read as a Playwright report with at least one test,
+// and have no failed test, or the summary exits 1. Any other report that is
+// missing or unreadable is listed and never changes the exit status.
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 
@@ -40,10 +41,22 @@ if (!reportPath || !existsSync(reportPath)) {
   process.exit(1);
 }
 
-const records = readFileSync(reportPath, "utf8")
+// The report concatenates every group's records, so a line a known-loss run
+// cut short is listed as unreadable rather than failing the summary.
+const records: ScenarioRecord[] = [];
+const unreadableRecords: string[] = [];
+readFileSync(reportPath, "utf8")
   .split("\n")
-  .filter(Boolean)
-  .map((line) => JSON.parse(line) as ScenarioRecord);
+  .forEach((line, index) => {
+    if (!line) return;
+    try {
+      records.push(JSON.parse(line) as ScenarioRecord);
+    } catch (error) {
+      unreadableRecords.push(
+        `- line ${index + 1}: ${(error as Error).message}`,
+      );
+    }
+  });
 
 const sum = (tabs: TabRecord[], pick: (tab: TabRecord) => number) =>
   tabs.reduce((total, tab) => total + pick(tab), 0);
@@ -147,19 +160,74 @@ if (notes.length)
     ),
   );
 
-const missing = playwrightReportPaths.filter((file) => !existsSync(file));
-const missingRequired = requiredReportPaths.filter((file) => !existsSync(file));
-const reports = playwrightReportPaths.filter(existsSync).map((file) => {
-  const report = JSON.parse(readFileSync(file, "utf8")) as {
-    suites: PlaywrightSuite[];
-  };
+if (unreadableRecords.length)
+  lines.push(
+    "",
+    "### Unreadable convergence records, not counted",
+    "",
+    ...unreadableRecords,
+  );
+
+const isSpec = (spec: unknown): spec is PlaywrightSpec =>
+  typeof spec === "object" &&
+  spec !== null &&
+  typeof (spec as PlaywrightSpec).title === "string" &&
+  typeof (spec as PlaywrightSpec).ok === "boolean" &&
+  Array.isArray((spec as PlaywrightSpec).tags) &&
+  ((spec as PlaywrightSpec).tests === undefined ||
+    Array.isArray((spec as PlaywrightSpec).tests));
+// Returns the report's specs, or why it could not be read.
+const readReport = (file: string): PlaywrightSpec[] | string => {
+  let report: unknown;
+  try {
+    report = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    return `not JSON: ${(error as Error).message}`;
+  }
   const specs: PlaywrightSpec[] = [];
-  const walk = (suite: PlaywrightSuite) => {
-    specs.push(...(suite.specs ?? []));
-    for (const child of suite.suites ?? []) walk(child);
+  const walk = (suite: unknown): boolean => {
+    if (typeof suite !== "object" || suite === null) return false;
+    const { specs: suiteSpecs = [], suites = [] } = suite as PlaywrightSuite;
+    if (!Array.isArray(suiteSpecs) || !Array.isArray(suites)) return false;
+    if (!suiteSpecs.every(isSpec)) return false;
+    specs.push(...suiteSpecs);
+    return suites.every(walk);
   };
-  for (const suite of report.suites) walk(suite);
-  return { label: basename(file, ".json"), specs };
+  const suites = (report as { suites?: unknown } | null)?.suites;
+  if (!Array.isArray(suites) || !suites.every(walk))
+    return "not a Playwright JSON report";
+  return specs;
+};
+
+const missing = playwrightReportPaths.filter((file) => !existsSync(file));
+const unreadable: string[] = [];
+const requiredProblems = requiredReportPaths
+  .filter((file) => !existsSync(file))
+  .map((file) => `- \`${file}\`: missing, so its tests did not run`);
+const reports = playwrightReportPaths.filter(existsSync).flatMap((file) => {
+  const required = requiredReportPaths.includes(file);
+  const specs = readReport(file);
+  if (typeof specs === "string") {
+    if (required) requiredProblems.push(`- \`${file}\`: ${specs}`);
+    else unreadable.push(`- \`${file}\`: ${specs}`);
+    return [];
+  }
+  if (required) {
+    const tests = specs.flatMap((spec) => spec.tests ?? []);
+    // A skipped test still ran far enough to report its reason; a flaky one
+    // passed on retry. Only an unexpected result is a failure.
+    if (!tests.length) requiredProblems.push(`- \`${file}\`: reports no tests`);
+    const failedTitles = specs
+      .filter((spec) =>
+        spec.tests?.some((test) => test.status === "unexpected"),
+      )
+      .map((spec) => spec.title);
+    if (failedTitles.length)
+      requiredProblems.push(
+        `- \`${file}\`: ${failedTitles.length} failed: ${failedTitles.join("; ")}`,
+      );
+  }
+  return [{ label: basename(file, ".json"), specs }];
 });
 const specs = reports.flatMap((report) => report.specs);
 // The JSON report strips the `@` from tags.
@@ -217,13 +285,16 @@ if (!playwrightReportPaths.length || missing.length)
     `No Playwright report${missing.length ? ` at ${missing.map((file) => `\`${file}\``).join(", ")}` : ""}, so the recorded scenarios may not be every test.`,
   );
 
-if (missingRequired.length)
+if (unreadable.length)
+  lines.push("", "### Unreadable reports, not blocking", "", ...unreadable);
+
+if (requiredProblems.length)
   lines.push(
     "",
-    "### Required reports missing, so their tests did not run",
+    "### Required reports that fail the check",
     "",
-    ...missingRequired.map((file) => `- \`${file}\``),
+    ...requiredProblems,
   );
 
 console.log(`${lines.join("\n")}\n`);
-if (missingRequired.length) process.exit(1);
+if (requiredProblems.length) process.exit(1);
