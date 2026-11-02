@@ -45,7 +45,7 @@ export interface AttachmentFailureDetails extends Record<string, unknown> {
   attachmentErrorCode: AttachmentErrorCode;
   reason: string;
   retryable: boolean;
-  whoCanFix?: "workspace_admin" | "operator" | "self_resolving";
+  whoCanFix?: "workspace_admin" | "operator" | "self_resolving" | "user";
 }
 
 export interface AttachmentFailureDescription {
@@ -84,6 +84,8 @@ function describeStorageUnavailable(
         return "File storage is unavailable because this deployment has no encryption key configured.";
       case "misconfigured":
         return "File storage is configured incorrectly on this deployment.";
+      case "builder_reconnect_required":
+        return "Your Builder.io connection expired, so the file could not be saved. Reconnect Builder in Settings → Integrations → Builder, then try again.";
       case "provider_unavailable":
         return "File storage isn't responding right now. Try again in a moment.";
     }

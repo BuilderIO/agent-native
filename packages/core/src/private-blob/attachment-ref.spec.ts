@@ -396,6 +396,21 @@ describe("typed failures", () => {
       },
     },
     {
+      name: "the Builder connection behind storage was revoked",
+      run: async () => {
+        const ref = await mint();
+        provider.readError = Object.assign(new Error("access expired"), {
+          errorCode: "builder_oauth_reauthorization_required",
+        });
+        return resolveAttachment(ref, scope);
+      },
+      expected: {
+        status: "storageUnavailable",
+        reason: "builder_reconnect_required",
+        whoCanFix: "user",
+      },
+    },
+    {
       name: "the provider times out reading",
       run: async () => {
         const ref = await mint();

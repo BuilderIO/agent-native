@@ -118,6 +118,7 @@ import {
   resolveOrgScopeForEmail,
 } from "../org/context.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
+import { isBuilderReconnectRequiredError } from "../private-blob/attachment-ref.js";
 import { ensureS3PrivateBlobProviders } from "../private-blob/s3-private.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
@@ -6573,6 +6574,13 @@ export function createCoreRoutesPlugin(
             // layer anyway — see cdnSafeOriginStatus.
             console.error("[file-upload] provider upload failed", error);
             setResponseStatus(event, 503);
+            if (isBuilderReconnectRequiredError(error)) {
+              return {
+                error:
+                  "Your Builder.io connection expired, so the file could not be saved. Reconnect Builder in Settings → Integrations → Builder, then try again.",
+                errorCode: "builder_oauth_reauthorization_required",
+              };
+            }
             return {
               error:
                 "The configured storage provider could not upload this file. Try again or check Settings → File uploads.",
