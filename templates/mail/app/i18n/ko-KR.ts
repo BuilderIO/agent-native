@@ -773,6 +773,7 @@ const messages = {
       threadUnavailable: "이 대화의 이전 메시지를 불러오지 못했습니다.",
       earlierMessages: "이전 메시지 ({{count}})",
       sendInMail: "Mail에서 보내기",
+      openBlocked: "브라우저에서 새 탭을 차단했습니다.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

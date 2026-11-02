@@ -800,6 +800,7 @@ const messages = {
         "Não foi possível carregar as mensagens anteriores desta conversa.",
       earlierMessages: "Mensagens anteriores ({{count}})",
       sendInMail: "Enviar no Mail",
+      openBlocked: "Seu navegador bloqueou a nova aba.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

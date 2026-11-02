@@ -741,6 +741,7 @@ const messages = {
       threadUnavailable: "無法載入此對話中較早的郵件。",
       earlierMessages: "較早的郵件（{{count}}）",
       sendInMail: "在 Mail 中傳送",
+      openBlocked: "瀏覽器封鎖了新分頁。",
     },
     agentEngine: {
       activeEngine: "目前引擎",

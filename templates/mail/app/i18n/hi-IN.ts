@@ -769,6 +769,7 @@ const messages = {
       threadUnavailable: "इस बातचीत के पिछले संदेश लोड नहीं हो सके।",
       earlierMessages: "पिछले संदेश ({{count}})",
       sendInMail: "Mail में भेजें",
+      openBlocked: "आपके ब्राउज़र ने नया टैब ब्लॉक कर दिया।",
     },
     agentEngine: {
       activeEngine: "Motor activo",

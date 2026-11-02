@@ -801,6 +801,7 @@ const messages = {
         "No se pudieron cargar los mensajes anteriores de esta conversación.",
       earlierMessages: "Mensajes anteriores ({{count}})",
       sendInMail: "Enviar en Mail",
+      openBlocked: "Tu navegador bloqueó la pestaña nueva.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

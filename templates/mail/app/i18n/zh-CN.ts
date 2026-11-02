@@ -744,6 +744,7 @@ const messages = {
       threadUnavailable: "无法加载此对话中较早的邮件。",
       earlierMessages: "较早的邮件（{{count}}）",
       sendInMail: "在 Mail 中发送",
+      openBlocked: "浏览器拦截了新标签页。",
     },
     agentEngine: {
       activeEngine: "当前引擎",

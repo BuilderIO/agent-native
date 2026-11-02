@@ -527,6 +527,23 @@ describe("DraftCard", () => {
       ["the host refuses", Promise.resolve(false)],
     ])("opens a new tab when %s", async (_name, answer) => {
       mockOpenHostLink.mockReturnValue(answer);
+      const tab = { opener: window } as unknown as Window;
+      const open = vi.spyOn(window, "open").mockReturnValue(tab);
+      serveCard(() => cardData(newDraft));
+      const { findByTestId } = renderCard(newDraft.id);
+      await findByTestId("composer");
+
+      act(() => composer().onSendInMail());
+
+      await waitFor(() =>
+        expect(open).toHaveBeenCalledWith(deepLink(newDraft), "_blank"),
+      );
+      expect(tab.opener).toBeNull();
+      expect(mockToast.error).not.toHaveBeenCalled();
+    });
+
+    it("offers a click of its own when the browser blocks the tab", async () => {
+      mockOpenHostLink.mockReturnValue(false);
       const open = vi.spyOn(window, "open").mockReturnValue(null);
       serveCard(() => cardData(newDraft));
       const { findByTestId } = renderCard(newDraft.id);
@@ -535,13 +552,36 @@ describe("DraftCard", () => {
       act(() => composer().onSendInMail());
 
       await waitFor(() =>
-        expect(open).toHaveBeenCalledWith(
-          deepLink(newDraft),
-          "_blank",
-          "noopener,noreferrer",
+        expect(mockToast.error).toHaveBeenCalledWith(
+          "mail.draftCard.openBlocked",
+          expect.anything(),
         ),
       );
+      const options = mockToast.error.mock.lastCall?.[1] as {
+        action: { onClick: () => void };
+      };
+      options.action.onClick();
+      expect(open).toHaveBeenLastCalledWith(
+        deepLink(newDraft),
+        "_blank",
+        "noopener,noreferrer",
+      );
     });
+  });
+
+  it("puts Mail's own queries back when the card goes away", async () => {
+    serveCard(() => cardData(newDraft));
+    const { findByTestId, queryClient, unmount } = renderCard(newDraft.id);
+    await findByTestId("composer");
+    expect(queryClient.getQueryDefaults(["settings"]).enabled).toBe(false);
+    expect(queryClient.getQueryData(["settings"])).toEqual({
+      signature: "Sam",
+    });
+
+    unmount();
+
+    expect(queryClient.getQueryDefaults(["settings"]).enabled).toBeUndefined();
+    expect(queryClient.getQueryData(["settings"])).toBeUndefined();
   });
 
   it("tells the model once when a draft it showed is gone", async () => {

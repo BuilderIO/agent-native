@@ -809,6 +809,7 @@ const messages = {
         "Impossible de charger les messages précédents de cette conversation.",
       earlierMessages: "Messages précédents ({{count}})",
       sendInMail: "Envoyer dans Mail",
+      openBlocked: "Votre navigateur a bloqué le nouvel onglet.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

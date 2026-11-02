@@ -811,6 +811,7 @@ const messages = {
         "Die früheren Nachrichten dieser Unterhaltung konnten nicht geladen werden.",
       earlierMessages: "Frühere Nachrichten ({{count}})",
       sendInMail: "In Mail senden",
+      openBlocked: "Dein Browser hat den neuen Tab blockiert.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

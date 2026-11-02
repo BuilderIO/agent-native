@@ -782,6 +782,7 @@ const messages = {
       threadUnavailable: "この会話の以前のメッセージを読み込めませんでした。",
       earlierMessages: "以前のメッセージ（{{count}}）",
       sendInMail: "Mailで送信",
+      openBlocked: "ブラウザが新しいタブをブロックしました。",
     },
     agentEngine: {
       activeEngine: "Motor activo",

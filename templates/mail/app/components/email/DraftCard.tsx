@@ -13,7 +13,11 @@ import {
   IconPencil,
   IconTrash,
 } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import {
   useCallback,
@@ -52,6 +56,12 @@ type DraftEdits = Partial<Pick<ComposeState, (typeof EDITABLE_FIELDS)[number]>>;
 
 const noop = () => {};
 
+function restrictCardQueries(queryClient: QueryClient) {
+  for (const key of QUERIES_THE_CARD_CANNOT_FETCH) {
+    queryClient.setQueryDefaults(key, { enabled: false });
+  }
+}
+
 function draftCardQueryKey(draftId: string) {
   return ["draft-card", draftId] as const;
 }
@@ -64,11 +74,19 @@ function draftCardQueryKey(draftId: string) {
 export function DraftCard({ draftId }: { draftId: string }) {
   const t = useT();
   const queryClient = useQueryClient();
-  useState(() => {
-    for (const key of QUERIES_THE_CARD_CANNOT_FETCH) {
-      queryClient.setQueryDefaults(key, { enabled: false });
-    }
-  });
+  // Before the composer's first render, which starts these queries.
+  useState(() => restrictCardQueries(queryClient));
+  // Leaving the card puts Mail's own queries back, without the card's partial
+  // settings.
+  useEffect(() => {
+    restrictCardQueries(queryClient);
+    return () => {
+      for (const key of QUERIES_THE_CARD_CANNOT_FETCH) {
+        queryClient.setQueryDefaults(key, {});
+      }
+      queryClient.removeQueries({ queryKey: ["settings"], exact: true });
+    };
+  }, [queryClient]);
 
   const card = useQuery<DraftCardData>({
     queryKey: draftCardQueryKey(draftId),
@@ -113,8 +131,20 @@ export function DraftCard({ draftId }: { draftId: string }) {
     // refuses, the card opens it as it would anywhere.
     const handled = openMcpAppHostLink(url);
     if (handled && (await handled)) return;
-    window.open(url, "_blank", "noopener,noreferrer");
-  }, [deepLink, flushAll]);
+    // The waits above can outlast the click, and then the browser blocks the
+    // tab. "noopener" would hide that, so it's cleared on the tab instead.
+    const tab = window.open(url, "_blank");
+    if (tab) {
+      tab.opener = null;
+      return;
+    }
+    toast.error(t("mail.draftCard.openBlocked"), {
+      action: {
+        label: t("mail.draftCard.sendInMail"),
+        onClick: () => window.open(url, "_blank", "noopener,noreferrer"),
+      },
+    });
+  }, [deepLink, flushAll, t]);
 
   let body: ReactNode;
   if (!draftId || card.data?.draft === null) {

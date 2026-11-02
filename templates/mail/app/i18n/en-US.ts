@@ -773,6 +773,7 @@ const messages = {
         "Couldn't load the earlier messages in this conversation.",
       earlierMessages: "Earlier messages ({{count}})",
       sendInMail: "Send in Mail",
+      openBlocked: "Your browser blocked the new tab.",
     },
     agentEngine: {
       activeEngine: "Active engine",

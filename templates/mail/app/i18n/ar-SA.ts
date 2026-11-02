@@ -768,6 +768,7 @@ const messages = {
       threadUnavailable: "تعذّر تحميل الرسائل السابقة في هذه المحادثة.",
       earlierMessages: "الرسائل السابقة ({{count}})",
       sendInMail: "إرسال في Mail",
+      openBlocked: "حظر متصفحك علامة التبويب الجديدة.",
     },
     agentEngine: {
       activeEngine: "Motor activo",
