@@ -174,7 +174,6 @@ import {
 import { isStreamingVoiceMessage } from "../agentkit/react/voice-transcripts.js";
 import { ThreadContextRing } from "../context-xray/ThreadContextRing.js";
 import { threadHasFinishedReply } from "../context-xray/use-thread-context-usage.js";
-import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
 import {
   AgentKitDevCheckpointProvider,
@@ -1554,19 +1553,6 @@ const agentKitSlots = {
   message: AgentKitUserMessage,
   messageSupplement: AgentKitMessageSupplement,
   messageActionsTrailing: AgentKitHistoryMessageSupplement,
-  feedbackNote: ({
-    renderTrigger,
-    ...props
-  }: {
-    threadId: string;
-    runId?: string;
-    messageSeq?: number;
-    renderTrigger: (
-      toggle: () => void,
-      open: boolean,
-      contentId: string,
-    ) => React.ReactNode;
-  }) => <ThumbsFeedback {...props} renderNegativeTrigger={renderTrigger} />,
   text: AgentKitMarkdownText,
   tool: AgentKitTool,
   connectionRequest: AgentKitConnectionRequest,
