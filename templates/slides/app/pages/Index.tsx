@@ -1497,25 +1497,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       }
     };
 
-    let composerContextText = "";
-    if (referenceSelection.composerContext) {
-      try {
-        composerContextText = formatSlidesComposerContext(
-          referenceSelection.composerContext,
-          referenceSelection.contextItems ?? [],
-          t("home.context.notReady"),
-        );
-      } catch (error) {
-        recoverFromGenerationSetupFailure(
-          error instanceof Error
-            ? error.message
-            : t("home.generationStartFailedDescription"),
-          "generation_context_load_failed",
-        );
-        return;
-      }
-    }
-
     if (!sourceImprovementRequest) {
       updateDeck(deckId, {
         generationContext: { ...initialGenerationContext },
@@ -1683,6 +1664,25 @@ export default function Index({ active = true }: { active?: boolean }) {
           error instanceof Error
             ? error.message
             : t("home.generationStartFailedDescription"),
+        );
+        return;
+      }
+    }
+
+    let composerContextText = "";
+    if (referenceSelection.composerContext) {
+      try {
+        composerContextText = formatSlidesComposerContext(
+          referenceSelection.composerContext,
+          referenceSelection.contextItems ?? [],
+          t("home.context.notReady"),
+        );
+      } catch (error) {
+        recoverFromGenerationSetupFailure(
+          error instanceof Error
+            ? error.message
+            : t("home.generationStartFailedDescription"),
+          "generation_context_load_failed",
         );
         return;
       }
