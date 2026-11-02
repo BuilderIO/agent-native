@@ -126,12 +126,20 @@ function isPublished(wt: string, branch: string | null): boolean | null {
 // must reset the idle clock.
 function lastTouched(wt: string): number | null {
   try {
-    const gitDir = tryGit(wt, "rev-parse", "--git-dir")?.trim();
-    const dirMtime = statSync(wt).mtimeMs;
-    if (!gitDir) return dirMtime;
+    const gitDir = path.resolve(
+      wt,
+      tryGit(wt, "rev-parse", "--git-dir")?.trim() ?? "",
+    );
+    // Edits to tracked files make the tree dirty, so what must show here is
+    // clean-but-recent work: a fresh commit, checkout, or index refresh.
+    const commitMs =
+      Number(tryGit(wt, "log", "-1", "--format=%ct", "HEAD")?.trim()) * 1000;
+    if (!Number.isFinite(commitMs)) return null;
     return Math.max(
-      dirMtime,
-      statSync(path.resolve(wt, gitDir, "index")).mtimeMs,
+      commitMs,
+      statSync(wt).mtimeMs,
+      statSync(path.join(gitDir, "index")).mtimeMs,
+      statSync(path.join(gitDir, "logs", "HEAD")).mtimeMs,
     );
   } catch {
     // coercion-ok: null means unreadable; check() keeps the worktree
