@@ -17,6 +17,7 @@ import { agentEngineStatusUrlForChatApi } from "@agent-native/core/client/agent-
 import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
 
 import { IN_PLACE_TEXT_UNDO_LIMIT } from "../../app/components/editor/in-place-text-session.ts";
+import { CLIENT_COMPATIBILITY_VERSION } from "../../shared/client-compatibility.ts";
 import {
   pick,
   resolvePnpmEntry,
@@ -55,6 +56,7 @@ import {
   shouldRetainCleanupRecoveryClaimEvidence,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
+import { deleteScratchDeck } from "./client-action.ts";
 import { devServerListeningUrl } from "./dev-server-url.ts";
 import {
   CHROME_SELECTOR,
@@ -746,6 +748,14 @@ async function action<T = any>(
   method: "DELETE" | "GET" | "POST" = "POST",
   timeoutMs = 30_000,
 ): Promise<T> {
+  if (name === "delete-deck") {
+    return deleteScratchDeck<T>(page, {
+      body,
+      compatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
+      source: `/@fs/${WORKTREE_ROOT.replace(/\\/g, "/")}/packages/core/src/client/use-action.ts`,
+      timeoutMs,
+    });
+  }
   const evaluation = page.evaluate(
     async ({ name, body, method, timeoutMs }: any) => {
       const url =
