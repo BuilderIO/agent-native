@@ -213,6 +213,14 @@ describe("resources list pagination (#8556)", () => {
     );
   });
 
+  it("pages json for the agent even without page arguments", async () => {
+    expect(JSON.parse(await list({ format: "json" }))).toMatchObject({
+      total: 300,
+      hasMore: true,
+      nextOffset: 50,
+    });
+  });
+
   it("prints short lists as before", async () => {
     const output = await list({ prefix: "notes/" });
 
