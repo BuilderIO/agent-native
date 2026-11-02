@@ -1,10 +1,12 @@
 import { expect, it, vi } from "vitest";
 
+// Keep core's client source out of this template's type-check program.
+const callAction = vi.hoisted(() => vi.fn());
+
 vi.mock("../../../../packages/core/src/client/use-action.ts", () => ({
-  callAction: vi.fn(),
+  callAction,
 }));
 
-import { callAction } from "../../../../packages/core/src/client/use-action.ts";
 import { deleteScratchDeck } from "./client-action.ts";
 import {
   ActionHttpError,
