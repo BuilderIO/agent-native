@@ -1579,7 +1579,7 @@ export function FirstRunOnboarding({
               </>
             }
           >
-            <fieldset className="flex flex-col gap-3">
+            <fieldset className="grid gap-3 sm:grid-cols-2">
               <legend className="sr-only">
                 {t("agentChat.onboarding.chooseRole")}
               </legend>
