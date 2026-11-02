@@ -131,6 +131,7 @@ import {
   resolveProviderModelSelectionAtScope,
   type EffectiveProviderModelSelection,
 } from "../agent/provider-model-selection.js";
+import { isRunFailureRetryable } from "../agent/run-failure-retry.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   callerHasRunAccess,
@@ -7817,6 +7818,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // to `getActiveRunForThreadAsync`'s return type does NOT reach
               // the wire on its own; it must be listed here too.
               hasInFlightWork: run.hasInFlightWork === true,
+              // Whether sending the same prompt again can succeed. Null when
+              // the run has not errored or recorded no reason, so a client
+              // keeps its own default.
+              retryable:
+                run.status === "errored" && run.terminalReason
+                  ? isRunFailureRetryable(run.terminalReason)
+                  : null,
             };
           }
 
@@ -10114,7 +10122,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             processBody = await readBody(event);
           } catch {
             setResponseStatus(event, 400);
-            return { error: "Invalid request body" };
+            return {
+              error: "Invalid request body",
+              code: "invalid_request_body",
+            };
           }
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the
