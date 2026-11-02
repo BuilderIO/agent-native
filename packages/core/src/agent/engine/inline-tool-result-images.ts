@@ -3,6 +3,7 @@ import {
   claimOwnedAttachmentHydrationCandidate,
   createOwnedAttachmentHydrationBudget,
   hydrateOwnedImageUrl,
+  releaseOwnedAttachmentHydrationCandidate,
   type OwnedAttachmentHydrationBudget,
 } from "../../file-upload/owned-attachment.js";
 import { downscaleImageToFit } from "../../ingestion/media.js";
@@ -14,6 +15,55 @@ type InlineImage = Required<
   Pick<EngineToolResultImagePart, "data" | "mediaType">
 >;
 
+// A tool-result screenshot stays in the thread for every later model step, so
+// the same URLs are requested again each step. Entries are bounded in count,
+// encoded size, and age.
+const INLINE_IMAGE_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_INLINE_IMAGE_CACHE_ENTRIES = 12;
+const MAX_INLINE_IMAGE_CACHE_CHARS = 16_000_000;
+
+const inlineImageCache = new Map<
+  string,
+  { image: InlineImage; expiresAt: number }
+>();
+let inlineImageCacheChars = 0;
+
+function removeCachedInlineImage(url: string): void {
+  const entry = inlineImageCache.get(url);
+  if (!entry) return;
+  inlineImageCache.delete(url);
+  inlineImageCacheChars -= entry.image.data.length;
+}
+
+function getCachedInlineImage(url: string): InlineImage | undefined {
+  const entry = inlineImageCache.get(url);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    removeCachedInlineImage(url);
+    return undefined;
+  }
+  // Re-insert so Map order tracks recency.
+  inlineImageCache.delete(url);
+  inlineImageCache.set(url, entry);
+  return entry.image;
+}
+
+function cacheInlineImage(url: string, image: InlineImage): void {
+  removeCachedInlineImage(url);
+  while (
+    inlineImageCache.size > 0 &&
+    (inlineImageCache.size >= MAX_INLINE_IMAGE_CACHE_ENTRIES ||
+      inlineImageCacheChars + image.data.length > MAX_INLINE_IMAGE_CACHE_CHARS)
+  ) {
+    removeCachedInlineImage(inlineImageCache.keys().next().value as string);
+  }
+  inlineImageCache.set(url, {
+    image,
+    expiresAt: Date.now() + INLINE_IMAGE_CACHE_TTL_MS,
+  });
+  inlineImageCacheChars += image.data.length;
+}
+
 /**
  * Sends tool-result images we host (screenshots, exports) as bytes instead of
  * URLs. The Builder gateway forwards a URL image unchanged: Vertex's Claude
@@ -21,7 +71,8 @@ type InlineImage = Required<
  * sometimes timing out. The stored tool result keeps its URL; only this
  * request's copy carries bytes.
  *
- * Newest images are read first, within one request's hydration budget. An
+ * Newest images are read first, within one request's hydration budget; URLs
+ * that are not ours do not spend it. An
  * image that is not ours, or cannot be read or shrunk under the tool-result
  * image limit, keeps its URL, which is what every request sent before.
  */
@@ -48,9 +99,17 @@ export async function inlineOwnedToolResultImages(
   const budget = createOwnedAttachmentHydrationBudget();
   const inlined = new Map<string, InlineImage>();
   for (const url of urls) {
+    const cached = getCachedInlineImage(url);
+    if (cached) {
+      inlined.set(url, cached);
+      continue;
+    }
     if (!claimOwnedAttachmentHydrationCandidate(budget)) break;
     const image = await readOwnedImage(url, budget);
-    if (image) inlined.set(url, image);
+    if (image) {
+      inlined.set(url, image);
+      cacheInlineImage(url, image);
+    }
   }
   if (inlined.size === 0) return messages;
 
@@ -80,7 +139,10 @@ async function readOwnedImage(
   budget: OwnedAttachmentHydrationBudget,
 ): Promise<InlineImage | null> {
   const result = await hydrateOwnedImageUrl(url, undefined, budget);
-  if (result.kind === "unowned") return null;
+  if (result.kind === "unowned") {
+    releaseOwnedAttachmentHydrationCandidate(budget);
+    return null;
+  }
   if (result.kind === "failed") {
     console.warn(
       `[builder-engine] tool-result image sent as a URL: ${result.code}`,
