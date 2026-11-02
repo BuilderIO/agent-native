@@ -27,7 +27,7 @@ import {
   personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
+import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getLocalFileDocument,
@@ -184,12 +184,16 @@ export default defineAction({
     await verifyPrivateIconAssignment({ icon: copiedIcon, userEmail, orgId });
 
     if (existing) {
-      assertAgentsMayEditPageText(existing, ctx);
       await db.transaction(async (tx) => {
         const legacy = await lockLegacyBodyWrites(tx, [existing.id], {
           operation: "share-local-file-document",
           content: localDocument.content,
         });
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          [existing.id],
+          ctx,
+        );
         await tx
           .update(schema.documents)
           .set({

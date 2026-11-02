@@ -49,6 +49,11 @@ import {
   personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import {
+  assertAgentsMayEditPagesText,
+  type CallProvenance,
+  isAgentTextLockRefusal,
+} from "./_document-agent-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 type FetchLike = typeof fetch;
@@ -646,6 +651,7 @@ export async function pullBuilderDocIntoContent(args: {
   entryId: string;
   dryRun?: boolean;
   fetchImpl?: FetchLike;
+  ctx?: CallProvenance | undefined;
 }): Promise<{
   dryRun: boolean;
   documentId: string;
@@ -711,6 +717,11 @@ export async function pullBuilderDocIntoContent(args: {
           operation: "pull-builder-doc",
           content: bundle.mdx.body,
         });
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          [documentId],
+          args.ctx,
+        );
         await tx
           .update(schema.documents)
           .set({
@@ -833,6 +844,7 @@ async function replaceBuilderDocumentSidecars(args: {
 async function refreshBuilderDocumentAfterPush(args: {
   documentId: string;
   entry: BuilderContentEntry;
+  ctx?: CallProvenance | undefined;
 }): Promise<
   | { refreshed: true; bundle: BuilderMdxBundle }
   | { refreshed: false; refusal: ActionContractError }
@@ -865,8 +877,15 @@ async function refreshBuilderDocumentAfterPush(args: {
         operation: "push-builder-doc",
         content: bundle.mdx.body,
       });
+      await assertAgentsMayEditPagesText(
+        tx as unknown as ReturnType<typeof getDb>,
+        [args.documentId],
+        args.ctx,
+      );
     } catch (error) {
-      if (!isUnsupportedBodyWriter(error)) throw error;
+      if (!isUnsupportedBodyWriter(error) && !isAgentTextLockRefusal(error)) {
+        throw error;
+      }
       return error;
     }
     await tx
@@ -881,8 +900,8 @@ async function refreshBuilderDocumentAfterPush(args: {
       .where(eq(schema.documents.id, args.documentId));
     return null;
   });
-  // The page took its live copy while Builder took the push, which has
-  // landed. It keeps its body, and the source fields and sidecars that body
+  // The page took its live copy or its lock while Builder took the push, which
+  // has landed. It keeps its body, and the source fields and sidecars that body
   // was pulled with: its raw refs name those sidecars.
   if (refusal) return { refreshed: false, refusal };
   await replaceBuilderDocumentSidecars({
@@ -1087,6 +1106,7 @@ export async function pushBuilderDocsSource(args: {
   files?: Record<string, string> | null;
   dryRun?: boolean;
   fetchImpl?: FetchLike;
+  ctx?: CallProvenance | undefined;
 }) {
   const check = await checkBuilderDocsSource(args);
   const resolved = await resolveBuilderDocsSource(args);
@@ -1155,6 +1175,7 @@ export async function pushBuilderDocsSource(args: {
             entryId: resolved.mdx.metadata.entryId,
             fetchImpl: args.fetchImpl,
           }),
+          ctx: args.ctx,
         })
       : null;
   return {
@@ -1176,7 +1197,9 @@ export async function pushBuilderDocsSource(args: {
           refreshRefused: {
             errorCode: refreshed.refusal.errorCode,
             documentId: args.documentId,
-            message: `Builder took the push, but page ${args.documentId} now takes body writes through its live copy, so it keeps its body and the Builder source it was pulled from.`,
+            message: isAgentTextLockRefusal(refreshed.refusal)
+              ? `Builder took the push, but a person has locked the text of page ${args.documentId} against agents, so it keeps its body and the Builder source it was pulled from.`
+              : `Builder took the push, but page ${args.documentId} now takes body writes through its live copy, so it keeps its body and the Builder source it was pulled from.`,
           },
         }
       : {}),

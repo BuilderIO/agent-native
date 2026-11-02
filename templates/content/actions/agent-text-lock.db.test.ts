@@ -46,6 +46,28 @@ vi.mock("../server/lib/document-body-revision.js", async (importOriginal) => {
   };
 });
 
+const beforeAcceptTransaction = vi.hoisted(() => ({
+  run: null as null | (() => Promise<unknown>),
+}));
+
+// A legacy accept reads presence between the lock's first check and its
+// transaction, so a lock turned on here is one that check can't see.
+vi.mock("@agent-native/core/collab", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/collab")>();
+  return {
+    ...actual,
+    loadAwarenessRows: async (
+      ...args: Parameters<typeof actual.loadAwarenessRows>
+    ) => {
+      const run = beforeAcceptTransaction.run;
+      beforeAcceptTransaction.run = null;
+      await run?.();
+      return actual.loadAwarenessRows(...args);
+    },
+  };
+});
+
 const notion = vi.hoisted(() => ({
   getConnection: vi.fn(),
   requireConnection: vi.fn(),
@@ -117,6 +139,7 @@ let updateDraft: typeof import("./update-preview-document-draft.js").default;
 let applyTranscript: typeof import("./transcribe-media.js").applyTranscriptToDocument;
 let connectFolder: typeof import("./connect-local-folder-source.js").default;
 let syncFolder: typeof import("./sync-local-folder-source.js").default;
+let shareLocalFile: typeof import("./share-local-file-document.js").default;
 let syncManifestFolder: typeof import("./sync-manifest-local-folder-source.js").default;
 let resolveFolderConflict: typeof import("./resolve-local-folder-conflict.js").default;
 let pullNotion: typeof import("./pull-notion-page.js").default;
@@ -175,6 +198,7 @@ beforeAll(async () => {
     .applyTranscriptToDocument;
   connectFolder = (await import("./connect-local-folder-source.js")).default;
   syncFolder = (await import("./sync-local-folder-source.js")).default;
+  shareLocalFile = (await import("./share-local-file-document.js")).default;
   syncManifestFolder = (await import("./sync-manifest-local-folder-source.js"))
     .default;
   resolveFolderConflict = (await import("./resolve-local-folder-conflict.js"))
@@ -1587,6 +1611,110 @@ describe("a lock turned on just before a write takes the page's row", () => {
       beforeRowLock.run = lockInTransaction(page.id);
       await editDocument.run(edit("raced-person-edit"), person);
       expect((await readPage(page.id)).content).toContain("Changed text");
+    });
+  });
+
+  it("stops an agent's edit without a base revision, and a person's lands", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Some text");
+      const edit = { id: page.id, find: "Some", replace: "Changed" };
+      // Other agents must send a revision. A token with the browser's header
+      // is the one that takes this path.
+      const tokenAsBrowser = {
+        ...person,
+        requestHeaders: new Headers({ authorization: "Bearer token" }),
+      };
+
+      beforeRowLock.run = lockInTransaction(page.id);
+      await expect(
+        editDocument.run(edit, tokenAsBrowser),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).toBe(page.content);
+
+      beforeRowLock.run = lockInTransaction(page.id);
+      await editDocument.run(edit, person);
+      expect((await readPage(page.id)).content).toContain("Changed text");
+    });
+  });
+
+  it("stops an agent refreshing a local file's copy, and a person's lands", async () => {
+    await asOwner(async () => {
+      const id = "content_agent_lock_local_file";
+      const now = new Date().toISOString();
+      await getDb().insert(schema.documents).values({
+        id,
+        ownerEmail: OWNER,
+        title: "Synced note",
+        content: "First body",
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "notes/locked.md",
+        sourceRootPath: "agent-lock-folder",
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const copy = (await shareLocalFile.run({ id }, person)) as { id: string };
+      await getDb()
+        .update(schema.documents)
+        .set({ content: "Later body" })
+        .where(eq(schema.documents.id, id));
+
+      beforeRowLock.run = lockInTransaction(copy.id);
+      await expect(shareLocalFile.run({ id }, agent)).rejects.toMatchObject(
+        locked,
+      );
+      expect((await readPage(copy.id)).content).toBe("First body");
+
+      beforeRowLock.run = lockInTransaction(copy.id);
+      await shareLocalFile.run({ id }, person);
+      expect((await readPage(copy.id)).content).toBe("Later body");
+    });
+  });
+
+  it("stops an agent accepting a suggestion, and a person's lands", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Keep the first draft.");
+      const created = (await suggestEdit.run(
+        {
+          id: page.id,
+          baseRevision: page.revision,
+          idempotencyKey: `raced-suggest-${page.id}`,
+          find: "first draft",
+          replace: "second draft",
+        },
+        agent,
+      )) as { suggestionId: string };
+      const listed = (await listSuggestions.run(
+        { resourceType: "document", resourceId: page.id },
+        person,
+      )) as {
+        suggestions: Array<{
+          id: string;
+          baseRevision: string;
+          revision: number;
+        }>;
+      };
+      const suggestion = listed.suggestions.find(
+        (candidate) => candidate.id === created.suggestionId,
+      );
+      if (!suggestion) throw new Error("The suggestion wasn't listed.");
+      const decision = (idempotencyKey: string) => ({
+        id: suggestion.id,
+        decision: "accepted" as const,
+        idempotencyKey,
+        observedBase: suggestion.baseRevision,
+        observedRevision: suggestion.revision,
+      });
+
+      beforeAcceptTransaction.run = () => lockInTransaction(page.id)(getDb());
+      await expect(
+        decideSuggestion.run(decision("raced-agent-accept"), agent),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).toContain("first draft");
+
+      await decideSuggestion.run(decision("raced-person-accept"), person);
+      expect((await readPage(page.id)).content).toContain("second draft");
     });
   });
 });

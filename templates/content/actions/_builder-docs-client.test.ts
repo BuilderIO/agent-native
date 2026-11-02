@@ -1,5 +1,13 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { documents } from "../server/db/schema.js";
 import { documentRevisionToken } from "../server/lib/document-revision.js";
@@ -156,6 +164,10 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   resolveBuilderCredential: resolveBuilderCredentialMock,
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -825,6 +837,126 @@ describe("Builder docs DB-backed source", () => {
     expect(first.documentId).not.toBe(second.documentId);
     expect(first.bundle.mdx.documentId).toBe(first.documentId);
     expect(second.bundle.mdx.documentId).toBe(second.documentId);
+  });
+});
+
+describe("Builder docs on a page locked against agents", () => {
+  const agent = { caller: "mcp" as const, userEmail: "owner@example.com" };
+  const person = {
+    caller: "frontend" as const,
+    userEmail: "owner@example.com",
+  };
+  const locked = { errorCode: "AGENT_TEXT_LOCKED", statusCode: 403 };
+  const changedEntry = (from: BuilderContentEntry) => ({
+    ...from,
+    data: {
+      ...from.data,
+      blocks: [
+        {
+          "@type": "@builder.io/sdk:Element",
+          "@version": 2,
+          id: "text-db",
+          component: {
+            name: "Text",
+            options: { text: "<p>Builder's later text.</p>" },
+          },
+        },
+      ],
+    },
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("refuses an agent's pull and leaves the page as it was, and a person's lands", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const pullAction = (await import("./pull-builder-doc.js")).default;
+    const args = { model: "docs-content", entryId: entry.id };
+    vi.stubGlobal("fetch", mcpFetchForEntry(entry));
+    await pullAction.run(args, person);
+    documentResource = { ...documentResource, agentTextLocked: 1 };
+    const page = { ...documentResource };
+
+    vi.stubGlobal("fetch", mcpFetchForEntry(changedEntry(entry)));
+    await expect(pullAction.run(args, agent)).rejects.toMatchObject(locked);
+    expect(documentResource).toEqual(page);
+
+    await pullAction.run(args, person);
+    expect(documentResource.content).toContain("Builder's later text.");
+  });
+
+  it("still previews a pull for an agent", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const { documentId } = await pullBuilderDocIntoContent({
+      model: "docs-content",
+      entryId: entry.id,
+      fetchImpl: mcpFetchForEntry(entry) as typeof fetch,
+    });
+    documentResource = { ...documentResource, agentTextLocked: 1 };
+
+    await expect(
+      pullBuilderDocIntoContent({
+        model: "docs-content",
+        entryId: entry.id,
+        dryRun: true,
+        fetchImpl: mcpFetchForEntry(entry) as typeof fetch,
+        ctx: agent,
+      }),
+    ).resolves.toMatchObject({ documentId, dryRun: true });
+  });
+
+  it("takes an agent's push to Builder, and the page keeps its own text", async () => {
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
+    documentResource = { ...documentResource, agentTextLocked: 1 };
+    const page = { ...documentResource };
+    const sidecars = [...sidecarRows];
+    const pushAction = (await import("./push-builder-doc.js")).default;
+    vi.stubGlobal(
+      "fetch",
+      mcpFetchForEntries([safeEntry, changedEntry(safeEntry)]),
+    );
+
+    const result = await pushAction.run(
+      { documentId: bundle.mdx.documentId, dryRun: false },
+      agent,
+    );
+
+    expect(result.executed).toBe(true);
+    expect(result).toMatchObject({
+      refreshedDocument: null,
+      refreshRefused: {
+        errorCode: "AGENT_TEXT_LOCKED",
+        documentId: bundle.mdx.documentId,
+        message: expect.stringContaining("locked the text"),
+      },
+    });
+    expect(documentResource).toEqual(page);
+    expect(sidecarRows).toEqual(sidecars);
+  });
+
+  it("refreshes the page after a person's push", async () => {
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
+    documentResource = { ...documentResource, agentTextLocked: 1 };
+    const pushAction = (await import("./push-builder-doc.js")).default;
+    vi.stubGlobal(
+      "fetch",
+      mcpFetchForEntries([safeEntry, changedEntry(safeEntry)]),
+    );
+
+    const result = await pushAction.run(
+      { documentId: bundle.mdx.documentId, dryRun: false },
+      person,
+    );
+
+    expect(result.refreshedDocument).toMatchObject({
+      documentId: bundle.mdx.documentId,
+    });
+    expect(documentResource.content).toContain("Builder's later text.");
   });
 });
 

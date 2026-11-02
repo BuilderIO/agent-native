@@ -48,7 +48,10 @@ import {
   recordContentSaveOutcome,
   type ContentSaveOutcomeDimensions,
 } from "./_content-save-outcomes.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
+import {
+  assertAgentsMayEditPageText,
+  assertAgentsMayEditPagesText,
+} from "./_document-agent-lock.js";
 import {
   assertEditableDocument,
   mutateDocumentBody,
@@ -613,6 +616,7 @@ export default defineAction({
           routed: !isLinkedLocalSource,
           content: null,
         });
+        await assertAgentsMayEditPagesText(tx, [id], ctx);
         const mirrored = await tx
           .update(schema.documents)
           .set({
