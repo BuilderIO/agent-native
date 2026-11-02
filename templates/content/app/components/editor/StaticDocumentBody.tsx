@@ -335,8 +335,6 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
           "data-color": node.attrs.color || null,
           "data-heading-level": node.attrs.headingLevel || null,
           "data-nfm-indent": indent ? String(indent) : null,
-          draggable: "true",
-          "data-drag-handle": "",
         },
         // The editor's titled Toggle opens from this button; a read-only
         // body draws it, as it draws a page reference's, without the action.
