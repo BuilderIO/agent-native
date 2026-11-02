@@ -277,7 +277,11 @@ describe("assistant reply toolbar", () => {
     expect(
       toggle(latest).querySelector("svg")?.getAttribute("class"),
     ).toContain("tabler-icon-dots");
-    expect(latest.querySelector("[aria-haspopup]")).toBeNull();
+    expect(
+      Array.from(latest.querySelectorAll("[aria-haspopup]")).map((el) =>
+        el.getAttribute("data-message-action"),
+      ),
+    ).toEqual(["feedback-negative"]);
     expect(footer("assistant-latest").querySelector("time")).toBeNull();
     // Only the latest reply can be retried, and only a run has a request ID.
     expect(labelsOf(set(latest, "secondary"))).toEqual([
@@ -643,6 +647,40 @@ describe("assistant reply toolbar", () => {
     expect(thumb(latest, "positive").getAttribute("aria-pressed")).toBe(
       "false",
     );
+  });
+
+  it("opens a reason form from the thumbs-down and submits the typed reason", async () => {
+    const { toolbar, submitFeedback } = await renderChat();
+    const latest = toolbar("assistant-latest");
+
+    await press(thumb(latest, "negative"));
+
+    const textarea = document.body.querySelector<HTMLTextAreaElement>(
+      ".agentkit-feedback-form textarea",
+    );
+    expect(textarea).not.toBeNull();
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setValue.call(textarea, "It misread my ask");
+      textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await press(
+      document.body.querySelector(
+        ".agentkit-feedback-form button[type=submit]",
+      ),
+    );
+
+    expect(submitFeedback).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        value: "negative",
+        reason: "It misread my ask",
+      }),
+      expect.anything(),
+    );
+    expect(document.body.querySelector(".agentkit-feedback-form")).toBeNull();
   });
 
   it("shows the error and leaves the rating unchanged when feedback fails to save", async () => {

@@ -67,6 +67,7 @@ import {
   type ComponentPropsWithoutRef,
   type ComponentType,
   type CSSProperties,
+  type FormEvent,
   type ErrorInfo,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -109,7 +110,12 @@ import {
   ComposerNoticeScope,
 } from "../../../composer/composer-notice.js";
 import { useComposerRuntimeAdapters } from "../../../composer/runtime-adapters.js";
-import { Dialog, Tooltip } from "../../../design-system/index.js";
+import {
+  Dialog,
+  Popover,
+  TextArea,
+  Tooltip,
+} from "../../../design-system/index.js";
 import { useTableColumnGlide } from "../../../table-column-glide.js";
 import { Skeleton } from "../../../ui/skeleton.js";
 import {
@@ -5339,6 +5345,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     onThreadForked,
     onCopyMessage,
     branchNavigation,
+    buildFeedbackReport,
   } = useAgentKit();
   const feedbackCapability = useAgentCapability("feedback");
   const forkingCapability = useAgentCapability("threadForking");
@@ -5384,6 +5391,12 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     null,
   );
   const [feedbackConfirmed, setFeedbackConfirmed] = useState(false);
+  const [feedbackReason, setFeedbackReason] = useState("");
+  const [feedbackReasonOpen, setFeedbackReasonOpen] = useState(false);
+  const [feedbackDetailsCopied, setFeedbackDetailsCopied] = useState(false);
+  const feedbackDetailsCopiedTimer = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [requestIdCopied, setRequestIdCopied] = useState(false);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -5413,6 +5426,8 @@ export const AgentMessageActions = memo(function AgentMessageActions({
         clearTimeout(requestIdCopiedTimer.current);
       if (feedbackConfirmedTimer.current)
         clearTimeout(feedbackConfirmedTimer.current);
+      if (feedbackDetailsCopiedTimer.current)
+        clearTimeout(feedbackDetailsCopiedTimer.current);
     },
     [message.id],
   );
@@ -5465,9 +5480,16 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     copiedTimer.current = setTimeout(() => setCopied(false), 1_400);
   }, `${threadId}:${message.id}:copy`);
   const feedbackAction = useAgentKitMutation(
-    (value: "positive" | "negative") => {
+    ({
+      value,
+      reason,
+    }: {
+      value: "positive" | "negative";
+      reason?: string;
+    }) => {
       const options = {
         ...(runId ? { runId } : {}),
+        ...(reason ? { reason } : {}),
         ...(messageSeq >= 0 ? { messageSeq } : {}),
       };
       return Object.keys(options).length
@@ -5519,7 +5541,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
   const rateResponse = async (value: "positive" | "negative") => {
     if (feedbackAction.pending || feedback === value) return;
     try {
-      await feedbackAction.execute(value);
+      await feedbackAction.execute({ value });
     } catch {
       // coercion-ok: feedbackAction.error renders in the footer and the rating is unchanged.
       return;
@@ -5533,9 +5555,55 @@ export const AgentMessageActions = memo(function AgentMessageActions({
       1_400,
     );
   };
+  const addFeedbackReason = (reason: string) =>
+    setFeedbackReason((current) => {
+      if (current.includes(reason)) return current;
+      const trimmed = current.trim();
+      return (trimmed ? `${trimmed}. ${reason}` : reason).slice(0, 2_000);
+    });
+  const submitFeedbackReason = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const reason = feedbackReason.trim();
+    if (!reason) return;
+    try {
+      await feedbackAction.execute({ value: "negative", reason });
+    } catch {
+      // coercion-ok: feedbackAction.error renders in the footer and the draft stays available for retry.
+      return;
+    }
+    setFeedbackReason("");
+    setFeedbackReasonOpen(false);
+    setFeedbackConfirmed(true);
+    if (feedbackConfirmedTimer.current)
+      clearTimeout(feedbackConfirmedTimer.current);
+    feedbackConfirmedTimer.current = setTimeout(
+      () => setFeedbackConfirmed(false),
+      1_400,
+    );
+  };
+  const copyFeedbackDetailsAction = useAgentKitMutation(async () => {
+    if (!buildFeedbackReport) throw new Error(labels.copyUnavailable);
+    const report = buildFeedbackReport({
+      threadId,
+      ...(runId ? { runId } : {}),
+      messageId: message.id,
+      note: feedbackReason,
+    });
+    if (!(await writeClipboardText(report))) {
+      throw new Error(labels.copyUnavailable);
+    }
+    setFeedbackDetailsCopied(true);
+    if (feedbackDetailsCopiedTimer.current)
+      clearTimeout(feedbackDetailsCopiedTimer.current);
+    feedbackDetailsCopiedTimer.current = setTimeout(
+      () => setFeedbackDetailsCopied(false),
+      1_400,
+    );
+  }, `${threadId}:${message.id}:feedback-details`);
   const footerError =
     copyAction.error ??
     feedbackAction.error ??
+    copyFeedbackDetailsAction.error ??
     branchNavigationAction.error ??
     requestIdAction.error ??
     forkAction.error ??
@@ -5670,7 +5738,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
           {feedbackCapability.visible
             ? (["positive", "negative"] as const).map((value) => {
                 const chosen = feedback === value;
-                return (
+                const button = (
                   <MessageActionButton
                     key={value}
                     label={
@@ -5703,6 +5771,104 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                       : { title: feedbackCapability.reason })}
                     onPress={() => void rateResponse(value)}
                   />
+                );
+                if (value === "positive") return button;
+                return (
+                  <Popover
+                    key={value}
+                    open={feedbackReasonOpen}
+                    onOpenChange={setFeedbackReasonOpen}
+                    placement="bottom"
+                    align="start"
+                    className="agentkit-feedback-popover"
+                    trigger={button}
+                  >
+                    <form
+                      className="agentkit-feedback-form"
+                      onSubmit={submitFeedbackReason}
+                    >
+                      <TextArea
+                        label={labels.feedbackWhatWentWrong}
+                        value={feedbackReason}
+                        onChange={setFeedbackReason}
+                        placeholder={labels.feedbackPlaceholder}
+                        rows={3}
+                        maxLength={2_000}
+                        disabled={feedbackAction.pending}
+                        className="agentkit-feedback-textarea"
+                      />
+                      <div className="agentkit-feedback-reasons">
+                        {[
+                          labels.feedbackReasonMisread,
+                          labels.feedbackReasonNotDone,
+                          labels.feedbackReasonWrongNumbers,
+                          labels.feedbackReasonTooSlow,
+                        ].map((reason) => (
+                          <ActionButton
+                            key={reason}
+                            type="button"
+                            size="compact"
+                            emphasis="outline"
+                            disabled={feedbackAction.pending}
+                            onPress={() => addFeedbackReason(reason)}
+                          >
+                            {reason}
+                          </ActionButton>
+                        ))}
+                      </div>
+                      <div className="agentkit-feedback-footer">
+                        <span>
+                          {labels.feedbackKeyboardHint.replace(
+                            "{{shortcut}}",
+                            typeof navigator !== "undefined" &&
+                              /Mac|iPhone|iPad/.test(navigator.userAgent)
+                              ? "⌘"
+                              : "Ctrl",
+                          )}
+                        </span>
+                        <div className="agentkit-feedback-actions">
+                          {buildFeedbackReport ? (
+                            <ActionButton
+                              type="button"
+                              size="compact"
+                              emphasis="ghost"
+                              leadingIcon={
+                                feedbackDetailsCopied ? (
+                                  <IconCircleCheck
+                                    size={14}
+                                    aria-hidden="true"
+                                  />
+                                ) : (
+                                  <IconCopy size={14} aria-hidden="true" />
+                                )
+                              }
+                              pending={copyFeedbackDetailsAction.pending}
+                              onPress={() =>
+                                void copyFeedbackDetailsAction
+                                  .execute()
+                                  .catch(() => undefined)
+                              }
+                            >
+                              {feedbackDetailsCopied
+                                ? labels.copied
+                                : labels.feedbackCopyDetails}
+                            </ActionButton>
+                          ) : null}
+                          <ActionButton
+                            type="submit"
+                            intent="primary"
+                            size="compact"
+                            pending={feedbackAction.pending}
+                            disabled={
+                              feedbackAction.pending || !feedbackReason.trim()
+                            }
+                          >
+                            {labels.feedbackSubmit}
+                          </ActionButton>
+                        </div>
+                      </div>
+                    </form>
+                  </Popover>
                 );
               })
             : null}

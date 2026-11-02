@@ -1571,6 +1571,59 @@
     font-size: 0.6875rem;
   }
 
+  .agentkit-feedback-popover {
+    z-index: 20;
+    width: min(20rem, calc(100vw - 2rem));
+    padding: 0.75rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--agentkit-radius-inner);
+    color: var(--agent-kit-popover-text, var(--agent-kit-text, CanvasText));
+    background: var(
+      --agent-kit-popover-surface,
+      var(--agent-kit-raised-surface, Canvas)
+    );
+    box-shadow: 0 8px 24px
+      color-mix(in srgb, var(--agentkit-text) 16%, transparent);
+  }
+
+  .agentkit-feedback-form {
+    display: grid;
+    gap: 0.625rem;
+  }
+
+  .agentkit-feedback-textarea {
+    inline-size: 100%;
+  }
+
+  .agentkit-feedback-reasons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+
+  .agentkit-feedback-reasons button {
+    block-size: 1.5rem;
+    padding-inline: 0.5rem;
+    font-size: 0.6875rem;
+  }
+
+  .agentkit-feedback-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 0.75rem;
+    color: var(--agentkit-text-muted);
+    font-size: 0.6875rem;
+  }
+
+  .agentkit-feedback-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-inline-start: auto;
+  }
+
   .agentkit-branch-navigation {
     display: inline-flex;
     align-items: center;
