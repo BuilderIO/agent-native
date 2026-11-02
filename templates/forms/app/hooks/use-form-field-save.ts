@@ -2,6 +2,7 @@ import {
   isSameRecord,
   isSaveConflict,
   rebaseOntoSaved,
+  SaveOverlapError,
   saveWithMerge,
   type SavedRecord,
 } from "@agent-native/core/save-conflict";
@@ -65,6 +66,7 @@ export function useFormFieldSave(
   });
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
+  const leftMidSaveRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const replaceLocal = useCallback((next: FormField[]) => {
@@ -100,7 +102,7 @@ export function useFormFieldSave(
         overlap.theirs.find((candidate) => candidate.id === id);
       return field?.label ?? null;
     },
-    onRestore: (fields) => editFields(() => fields),
+    onRestore: (restoreOnto) => editFields(restoreOnto),
   });
 
   flushRef.current = async () => {
@@ -132,8 +134,16 @@ export function useFormFieldSave(
       dirtyRef.current = false;
     } catch (error) {
       // Other failures toast from the mutation and keep the edits for the next
-      // save. Only a record too contended to settle in one go tries by itself.
-      if (isSaveConflict(error)) schedule(CONTENDED_RETRY_MS);
+      // save. Only a record too contended to settle in one go tries by itself,
+      // or a save that failed after the person left, since no next save will come.
+      const leftMidSave = leftMidSaveRef.current;
+      leftMidSaveRef.current = false;
+      if (
+        isSaveConflict(error) ||
+        (leftMidSave && !(error instanceof SaveOverlapError))
+      ) {
+        schedule(CONTENDED_RETRY_MS);
+      }
     } finally {
       savingRef.current = false;
     }
@@ -152,6 +162,7 @@ export function useFormFieldSave(
     () => () => {
       if (!dirtyRef.current) return;
       clearTimeout(timerRef.current);
+      leftMidSaveRef.current = savingRef.current;
       void flushRef.current();
     },
     [],

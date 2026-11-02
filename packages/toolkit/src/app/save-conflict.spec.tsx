@@ -107,8 +107,34 @@ describe("useSaveConflictPrompt", () => {
     await choose("saveConflict.useTheirs");
     await expect(choice).resolves.toEqual(overlap.useTheirs);
     act(() => screen.getByText("saveConflict.getOtherBack").click());
-    expect(onRestore).toHaveBeenCalledWith(overlap.keepMine);
+    expect(onRestore).toHaveBeenCalledWith(
+      expect.any(Function),
+      overlap.keepMine,
+    );
+    expect(onRestore.mock.lastCall?.[0](overlap.useTheirs)).toEqual(
+      overlap.keepMine,
+    );
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("restores onto the record as it is now, keeping what changed since", async () => {
+    const { ask, onRestore } = setup();
+    act(() => {
+      void ask();
+    });
+    await choose("saveConflict.useTheirs");
+    act(() => screen.getByText("saveConflict.getOtherBack").click());
+    const restoreOnto = onRestore.mock.lastCall?.[0];
+
+    expect(restoreOnto({ subject: "theirs", body: "edited since" })).toEqual({
+      subject: "mine",
+      body: "edited since",
+    });
+    // The field the person asked for comes back even if it moved on.
+    expect(restoreOnto({ subject: "edited since", body: "new" })).toEqual({
+      subject: "mine",
+      body: "new",
+    });
   });
 
   it("holds the other version back until the chosen save is over", async () => {
@@ -128,7 +154,10 @@ describe("useSaveConflictPrompt", () => {
       await finished;
     });
     act(() => screen.getByText("saveConflict.getOtherBack").click());
-    expect(onRestore).toHaveBeenCalledWith(overlap.keepMine);
+    expect(onRestore).toHaveBeenCalledWith(
+      expect.any(Function),
+      overlap.keepMine,
+    );
   });
 
   it("takes down an earlier notice when a new choice is made", async () => {

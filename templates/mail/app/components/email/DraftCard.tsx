@@ -264,6 +264,7 @@ export function DraftCard({ draftId }: { draftId: string }) {
         {body}
       </div>
       <DraftConflictPrompt
+        drafts={compose.drafts}
         onRestore={(next) => compose.update(next.id, next)}
       />
     </AccountFilterContext.Provider>

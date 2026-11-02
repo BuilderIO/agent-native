@@ -862,7 +862,11 @@ export function EditorLayout({
   >(async () => false);
   const trimConflict = useSaveConflictPrompt<TrimRange[]>({
     record: "clip_trims",
-    onRestore: (trims) => void commitEditsRef.current({ ...edits, trims }),
+    onRestore: (restoreOnto) =>
+      void commitEditsRef.current({
+        ...edits,
+        trims: restoreOnto(edits.trims),
+      }),
   });
   const beginEditSave = useCallback((kind: EditSaveKind) => {
     const generation = beginEditorSave(editSaveLedgerRef.current, kind);

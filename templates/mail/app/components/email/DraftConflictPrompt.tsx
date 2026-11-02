@@ -7,8 +7,10 @@ import { setDraftOverlapResolver } from "@/hooks/use-compose-state";
 
 /** The one prompt for two writers changing the same field of a compose draft. */
 export function DraftConflictPrompt({
+  drafts,
   onRestore,
 }: {
+  drafts: ComposeState[];
   onRestore: (draft: ComposeState) => void;
 }) {
   const t = useT();
@@ -21,7 +23,10 @@ export function DraftConflictPrompt({
       if (path === "subject") return t("mail.compose.subject");
       return null;
     },
-    onRestore,
+    onRestore: (restoreOnto, other) => {
+      const current = drafts.find((draft) => draft.id === other.id);
+      onRestore(current ? restoreOnto(current) : other);
+    },
   });
 
   useEffect(() => {

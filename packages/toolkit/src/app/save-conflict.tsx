@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  rebaseOntoSaved,
   SaveOverlapError,
   type SaveOverlap,
 } from "@agent-native/core/save-conflict";
@@ -30,8 +31,12 @@ export interface SaveConflictPromptOptions<T> {
   record: string;
   /** Names a changed path for the person. Without it, no list of fields shows. */
   describeField?: (path: string, overlap: SaveOverlap<T>) => string | null;
-  /** Takes the version the person gave up, as an ordinary new edit. */
-  onRestore: (value: T) => void;
+  /**
+   * The person asked for the version they gave up. `restoreOnto` puts it on the
+   * record as it is now, keeping what changed since the choice, and `other` is
+   * that version whole. Save the result as an ordinary new edit.
+   */
+  onRestore: (restoreOnto: (current: T) => T, other: T) => void;
 }
 
 /**
@@ -48,6 +53,7 @@ export function useSaveConflictPrompt<T>({
   const [queue, setQueue] = React.useState<PendingChoice<T>[]>([]);
   const [settled, setSettled] = React.useState<{
     kept: "mine" | "theirs";
+    chosen: T;
     other: T;
   } | null>(null);
 
@@ -101,26 +107,28 @@ export function useSaveConflictPrompt<T>({
   function choose(kept: "mine" | "theirs") {
     if (!pending) return;
     const { overlap, finished, resolve } = pending;
+    const [chosen, other] =
+      kept === "mine"
+        ? [overlap.keepMine, overlap.useTheirs]
+        : [overlap.useTheirs, overlap.keepMine];
     waitingRef.current.delete(pending);
     count(kept === "mine" ? "keep_mine" : "use_theirs", overlap.fields.length);
     setSettled(null);
     setQueue((current) => current.slice(1));
-    resolve(kept === "mine" ? overlap.keepMine : overlap.useTheirs);
+    resolve(chosen);
     // A restore while this save is out would be undone when it comes back, since
     // it can look like no edit at all next to what was sent.
     void finished.then(() => {
-      setSettled({
-        kept,
-        other: kept === "mine" ? overlap.useTheirs : overlap.keepMine,
-      });
+      setSettled({ kept, chosen, other });
     });
   }
 
   function restore() {
     if (!settled) return;
+    const { chosen, other } = settled;
     count("restored");
     setSettled(null);
-    onRestore(settled.other);
+    onRestore((current) => rebaseOntoSaved(chosen, other, current), other);
   }
 
   const fieldNames =

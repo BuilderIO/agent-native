@@ -267,6 +267,64 @@ describe("useFormFieldSave", () => {
     });
   });
 
+  it("keeps an edit made after the choice when getting the other version back", async () => {
+    const theirs = [field("a", "Theirs"), field("b", "B")];
+    mutateAsync.mockRejectedValueOnce(conflict(theirs, "rev-2"));
+    mutateAsync.mockResolvedValueOnce({
+      fields: [field("a", "Mine"), field("b", "B")],
+      revision: "rev-3",
+    });
+    mutateAsync.mockResolvedValueOnce({
+      fields: [field("a", "Mine"), field("b", "Later")],
+      revision: "rev-4",
+    });
+    mutateAsync.mockResolvedValueOnce({
+      fields: [field("a", "Theirs"), field("b", "Later")],
+      revision: "rev-5",
+    });
+    const { edit, fields } = setup();
+
+    edit(renamed("a", "Mine"));
+    await settle();
+    await act(async () => {
+      clickText("saveConflict.keepMine");
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    edit(renamed("b", "Later"));
+    await settle();
+    act(() => clickText("saveConflict.getOtherBack"));
+    await settle();
+
+    expect(fields().map((item) => item.label)).toEqual(["Theirs", "Later"]);
+    expect(mutateAsync).toHaveBeenLastCalledWith({
+      id: "form-1",
+      expectedRevision: "rev-4",
+      ops: [{ op: "upsert", field: field("a", "Theirs") }],
+    });
+  });
+
+  it("tries once more when a save still out on leaving then fails", async () => {
+    let failSave = (_error: Error) => {};
+    mutateAsync.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failSave = reject;
+        }),
+    );
+    mutateAsync.mockRejectedValueOnce(new Error("still offline"));
+    const { edit } = setup();
+
+    edit(renamed("a", "Mine"));
+    await settle();
+    act(() => root?.unmount());
+    root = undefined;
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+
+    failSave(new Error("offline"));
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
   it("tries a failed edit once more on leaving", async () => {
     mutateAsync.mockRejectedValueOnce(new Error("offline"));
     mutateAsync.mockResolvedValueOnce({

@@ -2205,6 +2205,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         </div>
       </div>
       <DraftConflictPrompt
+        drafts={compose.drafts}
         onRestore={(draft) => compose.update(draft.id, draft)}
       />
       {(() => {
