@@ -3845,8 +3845,10 @@ export function App({
       openVideoStorageSetup();
       return;
     }
-    // Unclaimed files (saved while signed out) join this account only when
-    // the user clicks Upload now, never automatically.
+    // Saved files upload only when the user asks, never automatically: after
+    // a server or account switch, a file already uploaded by hand elsewhere
+    // would be published again. Unclaimed files (saved while signed out) join
+    // this account the same way.
     let files = changeQueuedFiles(recordFirstKey, (own) => own);
     if (options.includeUnclaimed && unclaimedRecordFirstFiles.length > 0) {
       try {
@@ -4820,18 +4822,6 @@ export function App({
     localRecordingMode,
     serverUrl,
   ]);
-
-  const recordFirstPending = recordFirstFiles.length;
-  useEffect(() => {
-    if (
-      recordFirstPending > 0 &&
-      authStatus === "authed" &&
-      videoStorageStatus === "configured" &&
-      !recorder
-    ) {
-      void uploadRecordFirstFilesRef.current();
-    }
-  }, [authStatus, recorder, recordFirstPending, videoStorageStatus]);
 
   const showSourceRow = mode !== "camera";
   const imminentMeeting = meetings.find(meetingCanStartNotes) ?? null;
