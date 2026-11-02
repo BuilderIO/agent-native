@@ -20,6 +20,7 @@ import { toast } from "sonner";
 
 interface PendingChoice<T> {
   overlap: SaveOverlap<T>;
+  finished: Promise<void>;
   resolve: (value: T) => void;
   reject: (reason: unknown) => void;
 }
@@ -36,7 +37,7 @@ export interface SaveConflictPromptOptions<T> {
 /**
  * The one prompt for two writers changing the same field. Pass `resolveOverlap`
  * to `saveWithMerge` and render `prompt`. It waits for a choice, counts it, and
- * then offers the other version until it's dismissed.
+ * once that save is over offers the other version until it's dismissed.
  */
 export function useSaveConflictPrompt<T>({
   record,
@@ -80,7 +81,7 @@ export function useSaveConflictPrompt<T>({
   );
 
   const resolveOverlap = React.useCallback(
-    (overlap: SaveOverlap<T>) =>
+    (overlap: SaveOverlap<T>, finished: Promise<void>) =>
       new Promise<T>((resolve, reject) => {
         if (!mountedRef.current) {
           toast.error(tRef.current("saveConflict.notSaved"));
@@ -88,7 +89,7 @@ export function useSaveConflictPrompt<T>({
           return;
         }
         count("shown", overlap.fields.length);
-        const choice = { overlap, resolve, reject };
+        const choice = { overlap, finished, resolve, reject };
         waitingRef.current.add(choice);
         setQueue((current) => [...current, choice]);
       }),
@@ -99,15 +100,20 @@ export function useSaveConflictPrompt<T>({
 
   function choose(kept: "mine" | "theirs") {
     if (!pending) return;
-    const { overlap, resolve } = pending;
+    const { overlap, finished, resolve } = pending;
     waitingRef.current.delete(pending);
     count(kept === "mine" ? "keep_mine" : "use_theirs", overlap.fields.length);
-    setSettled({
-      kept,
-      other: kept === "mine" ? overlap.useTheirs : overlap.keepMine,
-    });
+    setSettled(null);
     setQueue((current) => current.slice(1));
     resolve(kept === "mine" ? overlap.keepMine : overlap.useTheirs);
+    // A restore while this save is out would be undone when it comes back, since
+    // it can look like no edit at all next to what was sent.
+    void finished.then(() => {
+      setSettled({
+        kept,
+        other: kept === "mine" ? overlap.useTheirs : overlap.keepMine,
+      });
+    });
   }
 
   function restore() {

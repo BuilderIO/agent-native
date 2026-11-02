@@ -39,7 +39,10 @@ const overlap: SaveOverlap<Draft> = {
 };
 
 function setup(onRestore = vi.fn()) {
-  let resolveOverlap!: (next: SaveOverlap<Draft>) => Promise<Draft>;
+  let resolveOverlap!: (
+    next: SaveOverlap<Draft>,
+    finished: Promise<void>,
+  ) => Promise<Draft>;
   function Host() {
     const conflict = useSaveConflictPrompt<Draft>({
       record: "draft",
@@ -50,7 +53,20 @@ function setup(onRestore = vi.fn()) {
     return conflict.prompt;
   }
   const view = render(<Host />);
-  return { view, onRestore, ask: (next = overlap) => resolveOverlap(next) };
+  return {
+    view,
+    onRestore,
+    ask: (next = overlap, finished = Promise.resolve()) =>
+      resolveOverlap(next, finished),
+  };
+}
+
+/** Clicks a choice and lets a save that's already over bring up the notice. */
+async function choose(label: string) {
+  await act(async () => {
+    screen.getByText(label).click();
+    await Promise.resolve();
+  });
 }
 
 afterEach(() => {
@@ -74,7 +90,7 @@ describe("useSaveConflictPrompt", () => {
     expect(
       screen.getByText('saveConflict.changedByBoth {"fields":"subject"}'),
     ).toBeTruthy();
-    act(() => screen.getByText("saveConflict.keepMine").click());
+    await choose("saveConflict.keepMine");
     await expect(choice).resolves.toEqual(overlap.keepMine);
     expect(screen.queryByText("saveConflict.title")).toBeNull();
     expect(screen.getByRole("status").textContent).toContain(
@@ -88,11 +104,46 @@ describe("useSaveConflictPrompt", () => {
     act(() => {
       choice = ask();
     });
-    act(() => screen.getByText("saveConflict.useTheirs").click());
+    await choose("saveConflict.useTheirs");
     await expect(choice).resolves.toEqual(overlap.useTheirs);
     act(() => screen.getByText("saveConflict.getOtherBack").click());
     expect(onRestore).toHaveBeenCalledWith(overlap.keepMine);
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("holds the other version back until the chosen save is over", async () => {
+    const { ask, onRestore } = setup();
+    let finish = () => {};
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    act(() => {
+      void ask(overlap, finished);
+    });
+    await choose("saveConflict.useTheirs");
+    expect(screen.queryByText("saveConflict.getOtherBack")).toBeNull();
+
+    await act(async () => {
+      finish();
+      await finished;
+    });
+    act(() => screen.getByText("saveConflict.getOtherBack").click());
+    expect(onRestore).toHaveBeenCalledWith(overlap.keepMine);
+  });
+
+  it("takes down an earlier notice when a new choice is made", async () => {
+    const { ask } = setup();
+    act(() => {
+      void ask();
+    });
+    await choose("saveConflict.keepMine");
+    expect(screen.getByText("saveConflict.getOtherBack")).toBeTruthy();
+
+    act(() => {
+      void ask(overlap, new Promise<void>(() => {}));
+    });
+    await choose("saveConflict.keepMine");
+    expect(screen.queryByText("saveConflict.getOtherBack")).toBeNull();
   });
 
   it("counts each prompt, each choice and each restore", async () => {
@@ -100,7 +151,7 @@ describe("useSaveConflictPrompt", () => {
     act(() => {
       void ask();
     });
-    act(() => screen.getByText("saveConflict.keepMine").click());
+    await choose("saveConflict.keepMine");
     act(() => screen.getByText("saveConflict.getOtherBack").click());
     expect(trackEvent.mock.calls).toEqual([
       [
@@ -124,12 +175,12 @@ describe("useSaveConflictPrompt", () => {
       first = ask();
       next = ask(second);
     });
-    act(() => screen.getByText("saveConflict.keepMine").click());
+    await choose("saveConflict.keepMine");
     await expect(first).resolves.toEqual(overlap.keepMine);
     expect(
       screen.getByText('saveConflict.changedByBoth {"fields":"body"}'),
     ).toBeTruthy();
-    act(() => screen.getByText("saveConflict.useTheirs").click());
+    await choose("saveConflict.useTheirs");
     await expect(next).resolves.toEqual(overlap.useTheirs);
   });
 

@@ -32,6 +32,18 @@ function storedRow(initial: string) {
 }
 
 describe("saveConflict", () => {
+  it("carries what else the caller has to know, without losing the current value", () => {
+    const error = saveConflict("draft", { a: 1 }, "r1", {
+      leftover: "x",
+      current: "ignored",
+    });
+    expect(error.details).toEqual({
+      leftover: "x",
+      current: { a: 1 },
+      currentRevision: "r1",
+    });
+  });
+
   it("is a 409 contract error that carries the current value", () => {
     const error = saveConflict("form_fields", { a: 1 }, "r1");
     expect(isActionContractError(error)).toBe(true);

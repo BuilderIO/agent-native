@@ -851,6 +851,34 @@ describe("manage-draft saves against the revision it read", () => {
     );
   });
 
+  it("names the Gmail draft it couldn't remove after losing that race", async () => {
+    const typed = { ...stored, body: "Typed during the Gmail save" };
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      appState.set("compose-shared-draft", typed);
+      return {
+        draftId: "stuck-gmail-draft",
+        accountEmail: "user@example.com",
+        created: true,
+      };
+    });
+    mocks.deleteGmailDraft.mockRejectedValueOnce(new Error("Gmail is down"));
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: revisionOf("shared-draft"),
+        subject: "Agent subject",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: {
+        current: typed,
+        leftoverGmailDraftId: "stuck-gmail-draft",
+      },
+    });
+  });
+
   it("keeps a Gmail draft it only updated when it loses that race", async () => {
     const saved = {
       ...stored,

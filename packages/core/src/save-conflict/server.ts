@@ -25,6 +25,8 @@ export function saveConflict<T>(
   record: string,
   current: T,
   currentRevision: string | null,
+  /** Anything else the caller has to know, like a side effect it couldn't undo. */
+  extraDetails?: Record<string, unknown>,
 ): ActionContractError {
   countSaveOutcome(record, "conflict");
   return new ActionContractError(
@@ -32,7 +34,7 @@ export function saveConflict<T>(
     {
       errorCode: SAVE_CONFLICT_ERROR_CODE,
       statusCode: 409,
-      details: { current, currentRevision },
+      details: { ...extraDetails, current, currentRevision },
     },
   );
 }
@@ -45,7 +47,7 @@ export interface SaveRevisionCheck<T> {
    */
   expectedRevision: string | null | undefined;
   /** Refuse a write with no revision, for a value built from an earlier read. */
-  requireRevision?: boolean;
+  requireRevision?: boolean | undefined;
   current: { value: T; revision: string | null };
   /** True when the current value already holds this write, so it's a repeat. */
   isSameSave: (current: T) => boolean;

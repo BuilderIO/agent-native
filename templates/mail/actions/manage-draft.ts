@@ -700,18 +700,22 @@ export default defineAction({
       );
       if (!stored) {
         // Nothing points at a Gmail draft this call made, and a redo makes another.
-        if (savedGmailDraft?.created && ownerEmail) {
-          await discardUnstoredGmailDraft({
+        const discarded =
+          !savedGmailDraft?.created ||
+          !ownerEmail ||
+          (await discardUnstoredGmailDraft({
             ownerEmail,
             accountEmail: savedGmailDraft.accountEmail,
             draftId: savedGmailDraft.draftId,
-          });
-        }
+          }));
         const latest = await readAppState(`compose-${safeId}`);
         throw saveConflict(
           "draft",
           latest,
           latest ? saveRevisionOf(latest) : null,
+          discarded
+            ? undefined
+            : { leftoverGmailDraftId: savedGmailDraft.draftId },
         );
       }
       countSaveOutcome("draft", "written");

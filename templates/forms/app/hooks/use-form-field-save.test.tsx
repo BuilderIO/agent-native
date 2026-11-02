@@ -101,12 +101,14 @@ describe("fieldOpsBetween", () => {
   });
 
   it("reorders only when upserts wouldn't leave the fields in order", () => {
-    const from = [field("a", "A"), field("b", "B")];
+    const a = field("a", "A");
+    const b = field("b", "B");
+    const from = [a, b];
 
-    expect(fieldOpsBetween(from, [from[1], from[0]])).toEqual([
+    expect(fieldOpsBetween(from, [b, a])).toEqual([
       { op: "reorder", ids: ["b", "a"] },
     ]);
-    expect(fieldOpsBetween(from, [field("d", "D"), from[0], from[1]])).toEqual([
+    expect(fieldOpsBetween(from, [field("d", "D"), a, b])).toEqual([
       { op: "upsert", field: field("d", "D") },
       { op: "reorder", ids: ["d", "a", "b"] },
     ]);
@@ -179,7 +181,7 @@ describe("useFormFieldSave", () => {
       expectedRevision: "rev-2",
       ops: [{ op: "upsert", field: field("a", "Mine") }],
     });
-    expect(fields()[0].label).toBe("Mine");
+    expect(fields()[0]?.label).toBe("Mine");
     expect(findText("saveConflict.keptMine")).toBeTruthy();
   });
 
@@ -202,7 +204,7 @@ describe("useFormFieldSave", () => {
     act(() => clickText("saveConflict.getOtherBack"));
     await settle();
 
-    expect(fields()[0].label).toBe("Theirs");
+    expect(fields()[0]?.label).toBe("Theirs");
     expect(mutateAsync).toHaveBeenLastCalledWith({
       id: "form-1",
       expectedRevision: "rev-3",
@@ -250,7 +252,7 @@ describe("useFormFieldSave", () => {
 
     edit(renamed("a", "Mine"));
     await settle();
-    expect(fields()[0].label).toBe("Mine");
+    expect(fields()[0]?.label).toBe("Mine");
 
     edit(renamed("b", "Second"));
     await settle();
@@ -270,7 +272,7 @@ describe("useFormFieldSave", () => {
     const { edit, fields, rerender } = setup();
 
     rerender(form([field("a", "A"), field("b", "Server")], "rev-2"));
-    expect(fields()[1].label).toBe("Server");
+    expect(fields()[1]?.label).toBe("Server");
 
     edit(renamed("a", "Mine"));
     rerender(form([field("a", "A"), field("b", "Newer")], "rev-3"));

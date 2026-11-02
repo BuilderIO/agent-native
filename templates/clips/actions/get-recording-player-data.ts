@@ -2,7 +2,6 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink, signShortLivedToken } from "@agent-native/core/server";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { trimsRevisionOf } from "../app/lib/timestamp-mapping.js";
 import { getAgentClipReadiness } from "@shared/agent-context";
 import { transcriptContextAt } from "@shared/comment-transcript-context";
 import {
@@ -13,6 +12,7 @@ import { isImageRecording, resolveRecordingKind } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { trimsRevisionOf } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 const IMAGE_TOKEN_STEP_SECONDS = 5 * 60;
 

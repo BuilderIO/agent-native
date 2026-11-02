@@ -208,12 +208,13 @@ export default defineAction({
         .returning({ id: schema.forms.id });
 
       if (!written) {
-        const latest = await db
+        const rows = await db
           .select()
           .from(schema.forms)
           .where(eq(schema.forms.id, args.id))
           .limit(1);
-        if (latest.length === 0) {
+        const latest = rows.shift();
+        if (!latest) {
           fail(`Form ${args.id} not found`, {
             errorCode: "form_not_found",
             statusCode: 404,
@@ -221,8 +222,8 @@ export default defineAction({
         }
         throw saveConflict(
           "form_fields",
-          JSON.parse(latest[0].fields) as FormField[],
-          fieldsRevision(latest[0].fields),
+          JSON.parse(latest.fields) as FormField[],
+          fieldsRevision(latest.fields),
         );
       }
       if (fieldsForTracking) countSaveOutcome("form_fields", "written");

@@ -181,11 +181,11 @@ function mergeKeyedArray(
   const order = primary.filter((id) => resolved.has(id));
   for (const [index, id] of secondary.entries()) {
     if (!resolved.has(id) || order.includes(id)) continue;
-    let anchor = -1;
-    for (let i = index - 1; i >= 0 && anchor < 0; i -= 1) {
-      anchor = order.indexOf(secondary[i]);
-    }
-    order.splice(anchor + 1, 0, id);
+    const before = secondary
+      .slice(0, index)
+      .reverse()
+      .find((other) => order.includes(other));
+    order.splice(before === undefined ? 0 : order.indexOf(before) + 1, 0, id);
   }
   return order.map((id) => resolved.get(id));
 }
@@ -309,9 +309,12 @@ export interface SaveWithMergeOptions<T> {
   merge?: (base: T, mine: T, theirs: T) => RecordMerge<T>;
   /**
    * Asks the person which version to keep and returns the value to save.
-   * Without it an overlap throws {@link SaveOverlapError}.
+   * `finished` settles when this save is over, however it ended. Without this
+   * option an overlap throws {@link SaveOverlapError}.
    */
-  resolveOverlap?: (overlap: SaveOverlap<T>) => Promise<T>;
+  resolveOverlap?:
+    | ((overlap: SaveOverlap<T>, finished: Promise<void>) => Promise<T>)
+    | undefined;
 }
 
 /**
@@ -326,42 +329,52 @@ export async function saveWithMerge<T>({
   merge = mergeRecords,
   resolveOverlap,
 }: SaveWithMergeOptions<T>): Promise<SavedRecord<T>> {
+  let finish = () => {};
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
   let attempt = { base, mine };
-  for (let merges = 0; ; merges += 1) {
-    try {
-      return await save({
-        value: attempt.mine,
-        revision: attempt.base.revision,
-        base: attempt.base.value,
-      });
-    } catch (error) {
-      if (!isSaveConflict(error) || merges >= MAX_CONFLICT_MERGES) throw error;
-      const { current, currentRevision } = error.details;
-      const theirs = parseCurrent ? parseCurrent(current) : (current as T);
-      const result = merge(attempt.base.value, attempt.mine, theirs);
-      let next: T;
-      if (result.ok) {
-        next = result.merged;
-      } else {
-        const overlap: SaveOverlap<T> = {
-          fields: result.fields,
+  try {
+    for (let merges = 0; ; merges += 1) {
+      try {
+        return await save({
+          value: attempt.mine,
+          revision: attempt.base.revision,
           base: attempt.base.value,
-          mine: attempt.mine,
-          theirs,
-          keepMine: result.keepMine,
-          useTheirs: result.useTheirs,
+        });
+      } catch (error) {
+        if (!isSaveConflict(error) || merges >= MAX_CONFLICT_MERGES) {
+          throw error;
+        }
+        const { current, currentRevision } = error.details;
+        const theirs = parseCurrent ? parseCurrent(current) : (current as T);
+        const result = merge(attempt.base.value, attempt.mine, theirs);
+        let next: T;
+        if (result.ok) {
+          next = result.merged;
+        } else {
+          const overlap: SaveOverlap<T> = {
+            fields: result.fields,
+            base: attempt.base.value,
+            mine: attempt.mine,
+            theirs,
+            keepMine: result.keepMine,
+            useTheirs: result.useTheirs,
+          };
+          if (!resolveOverlap) throw new SaveOverlapError(overlap);
+          next = await resolveOverlap(overlap, finished);
+        }
+        // Nothing of mine is left to add, so a save would only rewrite their copy.
+        if (isSameRecord(next, theirs)) {
+          return { value: theirs, revision: currentRevision };
+        }
+        attempt = {
+          base: { value: theirs, revision: currentRevision },
+          mine: next,
         };
-        if (!resolveOverlap) throw new SaveOverlapError(overlap);
-        next = await resolveOverlap(overlap);
       }
-      // Nothing of mine is left to add, so a save would only rewrite their copy.
-      if (isSameRecord(next, theirs)) {
-        return { value: theirs, revision: currentRevision };
-      }
-      attempt = {
-        base: { value: theirs, revision: currentRevision },
-        mine: next,
-      };
     }
+  } finally {
+    finish();
   }
 }

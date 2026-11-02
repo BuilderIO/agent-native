@@ -101,13 +101,13 @@ export default defineAction({
           .select()
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.recordingId));
-        if (rows.length === 0) {
+        const existing = rows.shift();
+        if (!existing) {
           fail(`Recording not found: ${args.recordingId}`, {
             errorCode: "recording_not_found",
             statusCode: 404,
           });
         }
-        const existing = rows[0];
         assertNativeRecordingMedia(existing);
         const edits = parseEdits(existing.editsJson);
         return {

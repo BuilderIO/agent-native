@@ -78,7 +78,7 @@ describe("saveDraftMerging", () => {
     },
   });
   const sentBody = (fetchMock: ReturnType<typeof vi.fn>, call: number) =>
-    JSON.parse(fetchMock.mock.calls[call][1].body);
+    JSON.parse(fetchMock.mock.calls[call]?.[1].body);
 
   /** Gives this draft id a known saved state, as a read or an earlier save does. */
   async function savedAs(value: ComposeState) {
@@ -93,10 +93,10 @@ describe("saveDraftMerging", () => {
 
     await expect(saveDraftMerging(mine)).resolves.toEqual(mine);
 
-    expect(fetchMock.mock.calls[0][0]).toBe(
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "/_agent-native/application-state/compose/merge-new",
     );
-    expect(fetchMock.mock.calls[0][1].method).toBe("PATCH");
+    expect(fetchMock.mock.calls[0]?.[1].method).toBe("PATCH");
     expect(sentBody(fetchMock, 0)).toEqual({
       expectedRevision: null,
       next: mine,
@@ -135,7 +135,7 @@ describe("saveDraftMerging", () => {
     await expect(saveDraftMerging(mine)).resolves.toEqual(mine);
 
     expect(resolver).toHaveBeenCalledTimes(1);
-    expect(resolver.mock.calls[0][0]).toMatchObject({
+    expect(resolver.mock.calls[0]?.[0]).toMatchObject({
       fields: ["body"],
       theirs,
       mine,
@@ -287,6 +287,25 @@ describe("saveNewestDraft", () => {
       subject: "Theirs",
       body: "Next edit",
     });
+  });
+
+  it("asks whichever prompt is mounted when the overlap arrives", async () => {
+    const base = { ...draft("late-prompt"), subject: "A", body: "B" };
+    await seen(base);
+    const state = server({ ...base, subject: "Theirs" });
+    const { qc, cached, edit } = cacheHolding(base);
+    const leaving = vi.fn(async () => {
+      throw new Error("That prompt is gone");
+    });
+    setDraftOverlapResolver(leaving);
+
+    edit({ subject: "Mine" });
+    const running = saveNewestDraft(qc, cached());
+    setDraftOverlapResolver(async (overlap) => overlap.keepMine);
+    await running;
+
+    expect(leaving).not.toHaveBeenCalled();
+    expect(state.stored).toMatchObject({ subject: "Mine" });
   });
 
   it("saves the queued copy when the draft has left the cache", async () => {

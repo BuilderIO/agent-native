@@ -222,6 +222,61 @@ describe("rebaseOntoSaved", () => {
 describe("saveWithMerge", () => {
   const base = { value: { a: 1, b: 1 }, revision: "r0" };
 
+  it("tells the prompt when the save its choice led to is over", async () => {
+    let answerRetry = (_value: { value: unknown; revision: string }) => {};
+    const save = vi
+      .fn()
+      .mockRejectedValueOnce(conflict({ a: 9, b: 1 }, "r1"))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answerRetry = resolve;
+          }),
+      );
+    let over = false;
+    const running = saveWithMerge({
+      base,
+      mine: { a: 2, b: 1 },
+      save,
+      resolveOverlap: async (overlap, finished) => {
+        void finished.then(() => {
+          over = true;
+        });
+        return overlap.keepMine;
+      },
+    });
+
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect(over).toBe(false);
+
+    answerRetry({ value: { a: 2, b: 1 }, revision: "r2" });
+    await running;
+    await vi.waitFor(() => expect(over).toBe(true));
+  });
+
+  it("tells the prompt the save is over when it fails too", async () => {
+    let over = false;
+    const save = vi
+      .fn()
+      .mockRejectedValueOnce(conflict({ a: 9, b: 1 }, "r1"))
+      .mockRejectedValueOnce(new Error("offline"));
+    await expect(
+      saveWithMerge({
+        base,
+        mine: { a: 2, b: 1 },
+        save,
+        resolveOverlap: async (overlap, finished) => {
+          void finished.then(() => {
+            over = true;
+          });
+          return overlap.keepMine;
+        },
+      }),
+    ).rejects.toThrow("offline");
+    await vi.waitFor(() => expect(over).toBe(true));
+  });
+
   it("returns the first save when nothing conflicts", async () => {
     const save = vi.fn(async () => ({ value: { a: 2, b: 1 }, revision: "r1" }));
     await expect(

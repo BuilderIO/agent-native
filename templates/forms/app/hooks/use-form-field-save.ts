@@ -50,7 +50,9 @@ export function fieldOpsBetween(from: FormField[], to: FormField[]): FieldOp[] {
  * The builder's field list: local edits save on a debounce against the revision
  * they started from, and merge onto anything another tab or the agent saved.
  */
-export function useFormFieldSave(form: Form | undefined) {
+export function useFormFieldSave(
+  form: Pick<Form, "id" | "fields" | "revision"> | undefined,
+) {
   const patchFormFields = usePatchFormFields();
   const formId = form?.id;
   const [localFields, setLocalFields] = useState<FormField[]>(() =>

@@ -8,8 +8,8 @@ import {
   type H3Event,
 } from "h3";
 
-import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
 import { isSaveConflict, saveRevisionOf } from "../save-conflict/index.js";
+import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { appStateSaveIfCurrent } from "./save-if-current.js";
 import { appStateKeyForBrowserTab } from "./script-helpers.js";
@@ -231,7 +231,7 @@ export const saveComposeDraft = defineEventHandler(async (event: H3Event) => {
       composeDraftKey(id),
       expectedRevision,
       state,
-      { requestSource },
+      requestSource ? { requestSource } : {},
     );
     return { value: state, revision: saveRevisionOf(state) };
   } catch (error) {

@@ -126,13 +126,13 @@ export default defineAction({
             .where(eq(schema.forms.id, args.id))
             .limit(1);
 
-          if (rows.length === 0) {
+          const existing = rows.shift();
+          if (!existing) {
             fail(`Form ${args.id} not found`, {
               errorCode: "form_not_found",
               statusCode: 404,
             });
           }
-          const existing = rows[0];
 
           let value: FormField[];
           try {
@@ -205,16 +205,17 @@ export default defineAction({
         .filter(
           ({ field }) => field.conditional && !priorFieldIds.has(field.id),
         );
-      const change =
-        addedFollowUps.length === 1
-          ? {
-              verb: "created" as const,
-              kind: "form-follow-up",
-              title: addedFollowUps[0].field.label,
-              detail: `#${addedFollowUps[0].index + 1}`,
-              url: `/forms/${encodeURIComponent(args.id)}?tab=edit`,
-            }
-          : undefined;
+      const followUp =
+        addedFollowUps.length === 1 ? addedFollowUps[0] : undefined;
+      const change = followUp
+        ? {
+            verb: "created" as const,
+            kind: "form-follow-up",
+            title: followUp.field.label,
+            detail: `#${followUp.index + 1}`,
+            url: `/forms/${encodeURIComponent(args.id)}?tab=edit`,
+          }
+        : undefined;
       return {
         id: args.id,
         fields: nextFields,
