@@ -49,6 +49,7 @@ export async function assertAgentsMayEditPagesText(
 ) {
   if (!isAgentCall(ctx)) return;
   for (let start = 0; start < documentIds.length; start += 500) {
+    // guard:allow-unscoped — callers have checked access; this reads only the lock.
     const [lockedPage] = await db
       .select({ agentTextLocked: schema.documents.agentTextLocked })
       .from(schema.documents)
