@@ -1264,16 +1264,22 @@ export async function outboxEntries(
         // then `:${email}:${owner}`; older clients left out the actor. The
         // encoding escapes `:`, so the registry key ends at the first one, and
         // only its doc segment may match: the actor can look like a doc id.
+        // A key whose doc segment cannot be found holds updates nobody can
+        // place, so it fails rather than reading as another page's.
         const registryKey = key.slice(prefix.length).split(":", 1)[0] ?? "";
+        const formatChanged = () =>
+          new Error(
+            `Outbox key ${key} has no page id where the collab client puts it; the collab client's outbox key format changed.`,
+          );
         let segments: string[];
         try {
           segments = decodeURIComponent(registryKey).split("\0");
         } catch {
-          throw new Error(
-            `Outbox key ${key} does not decode; the collab client's outbox key format changed.`,
-          );
+          throw formatChanged();
         }
-        if (segments[1] === documentId) keys.push(key);
+        const pageId = segments[1];
+        if (!pageId) throw formatChanged();
+        if (pageId === documentId) keys.push(key);
       }
       return keys;
     },

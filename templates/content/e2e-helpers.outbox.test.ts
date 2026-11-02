@@ -88,6 +88,12 @@ const OTHER_PAGE_KEY = outboxKey(
   "connection-3",
 );
 const UNDECODABLE_KEY = `${V2}%E0%A4%A:${encodeURIComponent(EMAIL)}:connection-4`;
+const OTHER_SEPARATOR_KEY = outboxKey(
+  V2,
+  `${BASE_URL}|${DOC_ID}|${EMAIL}`,
+  "connection-5",
+);
+const EMPTY_REGISTRY_KEY = `${V2}:${encodeURIComponent(EMAIL)}:connection-6`;
 const V2_RECORD = JSON.stringify({
   version: 2,
   updates: [{ update: "AAA=", requireLiveCopyOutcome: false }],
@@ -214,14 +220,21 @@ it("counts only this page's entries, with or without the actor in the key", asyn
   );
 });
 
-it("refuses an outbox key it cannot read instead of skipping it", async () => {
-  const { page, asPage } = await fixture();
-  page.localStorage.setItem(UNDECODABLE_KEY, V2_RECORD);
+it.each([
+  ["does not decode", UNDECODABLE_KEY],
+  ["uses another separator", OTHER_SEPARATOR_KEY],
+  ["has an empty registry part", EMPTY_REGISTRY_KEY],
+])(
+  "refuses an outbox key that %s instead of skipping it",
+  async (_case, key) => {
+    const { page, asPage } = await fixture();
+    page.localStorage.setItem(key, V2_RECORD);
 
-  await expect(outboxEntries(asPage, DOC_ID)).rejects.toThrow(
-    `Outbox key ${UNDECODABLE_KEY} does not decode; the collab client's outbox key format changed.`,
-  );
-});
+    await expect(outboxEntries(asPage, DOC_ID)).rejects.toThrow(
+      `Outbox key ${key} has no page id where the collab client puts it; the collab client's outbox key format changed.`,
+    );
+  },
+);
 
 it("passes once nothing is waiting in the outbox", async () => {
   const { tabs, page, asPage } = await fixture();
