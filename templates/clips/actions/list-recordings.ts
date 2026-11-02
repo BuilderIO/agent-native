@@ -7,9 +7,11 @@ import {
   asc,
   desc,
   eq,
+  gte,
   inArray,
   isNull,
   isNotNull,
+  lt,
   not,
   notInArray,
   sql,
@@ -40,6 +42,10 @@ import {
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
 import { transcriptHasTextSql } from "./lib/transcript-text.js";
+
+const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
+  message: "Use an ISO date or date-time, like 2026-10-25.",
+});
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -105,7 +111,7 @@ export function mergeViewCounts(
 
 export default defineAction({
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
   schema: z.object({
     view: z
       .enum([
@@ -148,6 +154,27 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Title / description substring match"),
+    createdAfter: isoDate
+      .optional()
+      .describe("Only recordings created at or after this ISO date or time"),
+    createdBefore: isoDate
+      .optional()
+      .describe(
+        "Only recordings created before this ISO date or time, such as a week ago for clips older than a week",
+      ),
+    visibility: z
+      .array(z.enum(["private", "org", "public"]))
+      .min(1)
+      .optional()
+      .describe("Only recordings with one of these visibilities"),
+    hasShares: z
+      .preprocess(
+        (v) => (typeof v === "string" ? v === "true" : v),
+        z.boolean().optional(),
+      )
+      .describe(
+        "true: only your recordings shared with at least one person, group or org; false: only your recordings shared with no one. Either value leaves out recordings you don't own.",
+      ),
     sort: z
       .enum(["recent", "views", "oldest"])
       .default("recent")
@@ -284,6 +311,39 @@ export default defineAction({
     // filter, and the unified library passes "all" so it still shows both.
     if (args.kind === "image" || args.kind === "video") {
       whereClauses.push(eq(schema.recordings.kind, args.kind));
+    }
+
+    if (args.createdAfter) {
+      whereClauses.push(
+        gte(
+          schema.recordings.createdAt,
+          new Date(args.createdAfter).toISOString(),
+        ),
+      );
+    }
+    if (args.createdBefore) {
+      whereClauses.push(
+        lt(
+          schema.recordings.createdAt,
+          new Date(args.createdBefore).toISOString(),
+        ),
+      );
+    }
+
+    if (args.visibility) {
+      whereClauses.push(inArray(schema.recordings.visibility, args.visibility));
+    }
+
+    // Who a recording is shared with is the owner's to see, so this filter
+    // only ever matches the caller's own recordings.
+    if (args.hasShares !== undefined) {
+      const email = ctx?.userEmail ?? getRequestUserEmail();
+      const shared = sql`EXISTS (SELECT 1 FROM ${schema.recordingShares} WHERE ${schema.recordingShares.resourceId} = ${schema.recordings.id})`;
+      whereClauses.push(
+        email
+          ? sql`(${ownerEmailMatches(schema.recordings.ownerEmail, email)} AND ${args.hasShares ? shared : not(shared)})`
+          : sql`1 = 0`,
+      );
     }
 
     // Tag filter — join-ish via subquery

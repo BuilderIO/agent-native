@@ -7,7 +7,8 @@ const state = vi.hoisted(() => ({
   selectCalls: 0,
 }));
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/action")>()),
   defineAction: (action: unknown) => action,
 }));
 vi.mock("@agent-native/core/application-state", () => ({

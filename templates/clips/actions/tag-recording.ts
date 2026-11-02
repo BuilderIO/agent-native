@@ -1,75 +1,106 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  applyToRecordings,
+  recordingBatchSchema,
+  recordingIdsField,
+  requestedRecordingIds,
+} from "../server/lib/recording-batch.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
+async function tagOne(recordingId: string, tag: string, op: "add" | "remove") {
+  assertRecordingNotExpired(
+    await assertAccess("recording", recordingId, "editor"),
+  );
+  const db = getDb();
+
+  const rows = await db
+    .select({ organizationId: schema.recordings.organizationId })
+    .from(schema.recordings)
+    .where(eq(schema.recordings.id, recordingId));
+  if (!rows.length) {
+    fail(`Recording not found: ${recordingId}`, {
+      errorCode: "recording_not_found",
+      statusCode: 404,
+    });
+  }
+
+  const tagged = and(
+    eq(schema.recordingTags.recordingId, recordingId),
+    eq(schema.recordingTags.tag, tag),
+  );
+  let changed: boolean;
+  if (op === "add") {
+    const existing = await db
+      .select({ id: schema.recordingTags.id })
+      .from(schema.recordingTags)
+      .where(tagged);
+    changed = !existing.length;
+    if (changed) {
+      await db.insert(schema.recordingTags).values({
+        id: nanoid(),
+        recordingId,
+        organizationId: rows[0].organizationId,
+        tag,
+      });
+    }
+  } else {
+    const removed = await db
+      .delete(schema.recordingTags)
+      .where(tagged)
+      .returning({ id: schema.recordingTags.id });
+    changed = removed.length > 0;
+  }
+
+  const tags = await db
+    .select({ tag: schema.recordingTags.tag })
+    .from(schema.recordingTags)
+    .where(eq(schema.recordingTags.recordingId, recordingId));
+
+  return {
+    status: changed ? ("changed" as const) : ("unchanged" as const),
+    tags: tags.map((t) => t.tag),
+  };
+}
+
 export default defineAction({
   description:
-    "Add or remove a tag on a recording. Use op='add' or op='remove'.",
-  schema: z.object({
-    recordingId: z.string().min(1).describe("Recording id"),
-    tag: z.string().min(1).max(64).describe("Tag text"),
-    op: z.enum(["add", "remove"]).default("add").describe("Add or remove"),
-  }),
+    "Add or remove a tag on one or more recordings. Use op='add' or op='remove'.",
+  schema: z
+    .object({
+      recordingId: z.string().min(1).optional().describe("Recording id"),
+      recordingIds: recordingIdsField("tag or untag").optional(),
+      tag: z.string().min(1).max(64).describe("Tag text"),
+      op: z.enum(["add", "remove"]).default("add").describe("Add or remove"),
+    })
+    .refine((args) => Boolean(args.recordingId) || Boolean(args.recordingIds), {
+      message: "Provide recordingId or recordingIds.",
+    }),
+  outputSchema: z.union([
+    z.object({ id: z.string(), tags: z.array(z.string()) }),
+    recordingBatchSchema({ tags: z.array(z.string()) }),
+  ]),
   run: async (args) => {
-    assertRecordingNotExpired(
-      await assertAccess("recording", args.recordingId, "editor"),
-    );
-
-    const db = getDb();
-
-    const [rec] = await db
-      .select({ organizationId: schema.recordings.organizationId })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId));
-    if (!rec) {
-      throw new Error(`Recording not found: ${args.recordingId}`);
-    }
-
-    if (args.op === "add") {
-      const [existing] = await db
-        .select()
-        .from(schema.recordingTags)
-        .where(
-          and(
-            eq(schema.recordingTags.recordingId, args.recordingId),
-            eq(schema.recordingTags.tag, args.tag),
-          ),
-        );
-      if (!existing) {
-        await db.insert(schema.recordingTags).values({
-          id: nanoid(),
-          recordingId: args.recordingId,
-          organizationId: rec.organizationId,
-          tag: args.tag,
-        });
+    const ids = requestedRecordingIds(args.recordingId, args.recordingIds);
+    if (args.recordingIds) {
+      const batch = await applyToRecordings(ids, (id) =>
+        tagOne(id, args.tag, args.op),
+      );
+      if (batch.changed) {
+        await writeAppState("refresh-signal", { ts: Date.now() });
       }
-    } else {
-      await db
-        .delete(schema.recordingTags)
-        .where(
-          and(
-            eq(schema.recordingTags.recordingId, args.recordingId),
-            eq(schema.recordingTags.tag, args.tag),
-          ),
-        );
+      return batch;
     }
 
+    const id = ids[0];
+    const { tags } = await tagOne(id, args.tag, args.op);
     await writeAppState("refresh-signal", { ts: Date.now() });
-
-    const tags = await db
-      .select({ tag: schema.recordingTags.tag })
-      .from(schema.recordingTags)
-      .where(eq(schema.recordingTags.recordingId, args.recordingId));
-
-    return {
-      id: args.recordingId,
-      tags: tags.map((t) => t.tag),
-    };
+    return { id, tags };
   },
 });

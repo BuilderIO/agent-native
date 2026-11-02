@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
   updates: [] as Record<string, unknown>[],
 }));
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/action")>()),
   defineAction: (options: unknown) => options,
 }));
 vi.mock("@agent-native/core/application-state", () => ({
@@ -44,7 +45,13 @@ import action from "./restore-recording";
 const run = () => (action as any).run({ id: "shot-1" });
 
 beforeEach(() => {
-  mocks.row = { id: "shot-1", kind: "image", editsJson: "{}" };
+  mocks.row = {
+    id: "shot-1",
+    kind: "image",
+    editsJson: "{}",
+    archivedAt: null,
+    trashedAt: "2026-09-25T00:00:00Z",
+  };
   mocks.writeMatches = true;
   mocks.updates = [];
 });

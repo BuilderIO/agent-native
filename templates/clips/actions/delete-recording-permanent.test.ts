@@ -870,3 +870,36 @@ describe("permanent recording deletion with durable media cleanup", () => {
     });
   });
 });
+
+describe("permanent deletion of several recordings in one call", () => {
+  it("deletes nothing when one recording isn't the caller's", async () => {
+    await insertRecording("rec-2", video + "-2");
+    await insertRecording("theirs", video + "-3", "other@example.test");
+    await expect(
+      action.run({ ids: ["rec-1", "rec-2", "theirs"] }),
+    ).rejects.toThrow(/Nothing was deleted: 1 of 3 .*theirs/);
+    expect((await rows("recordings")).map((row) => row.id).sort()).toEqual([
+      "rec-1",
+      "rec-2",
+      "theirs",
+    ]);
+    expect(await rows("recording_media_cleanups")).toEqual([]);
+  });
+  it("reports each recording, and an earlier delete as unchanged", async () => {
+    await insertRecording("rec-2", video + "-2");
+    expect(await action.run({ id: "rec-1" })).toMatchObject({
+      recordingRemoved: true,
+    });
+    const result = await action.run({ ids: ["rec-1", "rec-2"] });
+    expect(result).toMatchObject({ changed: 1, unchanged: 1, skipped: 0 });
+    expect(
+      "results" in result &&
+        result.results.map(({ id, status }) => ({ id, status })),
+    ).toEqual([
+      { id: "rec-1", status: "unchanged" },
+      { id: "rec-2", status: "changed" },
+    ]);
+    expect(await rows("recordings")).toEqual([]);
+    expect(await rows("recording_media_cleanups")).toHaveLength(2);
+  });
+});

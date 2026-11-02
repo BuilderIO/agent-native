@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import type { ActionChange } from "../../action-ui.js";
+import { defineAction, fail } from "../../action.js";
 import { getAppConfig } from "../../app-config/index.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { track } from "../../tracking/registry.js";
@@ -11,7 +12,10 @@ import {
   ForbiddenError,
   resolveRegisteredAccessContext,
 } from "../access.js";
-import { requireShareableResource } from "../registry.js";
+import {
+  requireShareableResource,
+  type ShareableResourceRegistration,
+} from "../registry.js";
 import { assertWidgetShareWriteGrant } from "../widget-grant.js";
 import { resourceSharingChange } from "./change-result.js";
 import {
@@ -19,30 +23,92 @@ import {
   notifyExtensionShareChanged,
 } from "./extension-change.js";
 
+type Visibility = "private" | "org" | "public";
+
+/** The most resources one call may change, so a batch stays one bounded request. */
+const MAX_VISIBILITY_BATCH = 100;
+
+const schema = z
+  .object({
+    resourceType: z.string(),
+    resourceId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("One resource to change. Use resourceIds for several."),
+    resourceIds: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(MAX_VISIBILITY_BATCH)
+      .optional()
+      .describe(
+        `Up to ${MAX_VISIBILITY_BATCH} resources of this type to change in one call. Every one is checked before any changes, so if one can't change, none do.`,
+      ),
+    visibility: z.enum(["private", "org", "public"]),
+  })
+  .refine((args) => Boolean(args.resourceId) || Boolean(args.resourceIds), {
+    message: "Provide resourceId or resourceIds.",
+  });
+
+type Args = z.infer<typeof schema>;
+
+function requestedIds(args: Args): string[] {
+  const ids = [
+    ...new Set([
+      ...(args.resourceId ? [args.resourceId] : []),
+      ...(args.resourceIds ?? []),
+    ]),
+  ];
+  if (!ids.length) {
+    fail("Provide resourceId or resourceIds.", {
+      errorCode: "resource_ids_required",
+      statusCode: 400,
+    });
+  }
+  if (ids.length > MAX_VISIBILITY_BATCH) {
+    fail(
+      `Change at most ${MAX_VISIBILITY_BATCH} resources per call; this one named ${ids.length}.`,
+      { errorCode: "too_many_resources", statusCode: 400 },
+    );
+  }
+  return ids;
+}
+
+type Access = Awaited<ReturnType<typeof assertAccess>>;
+
+interface PreparedChange {
+  resourceId: string;
+  access: Access;
+  update: Record<string, unknown>;
+  visibilityChanged: boolean;
+  resourceChanged: boolean;
+}
+
 export default defineAction({
   description:
-    "Change the coarse visibility of a shareable resource: 'private' keeps it owner-only, 'org' shares it with all members of the owner's organization, 'public' makes it accessible to anyone with the link. Visibility changes require owner or admin role.",
+    "Change the coarse visibility of one or more shareable resources: 'private' keeps them owner-only, 'org' shares them with all members of the owner's organization, 'public' makes them accessible to anyone with the link. Visibility changes require owner or admin role. To change several resources of the same type, pass resourceIds instead of calling once per resource: every resource is checked before any changes, and the result lists each one as changed or unchanged.",
   toolCallable: false,
   mcpApp: {
     compactCatalog: true,
   },
-  schema: z.object({
-    resourceType: z.string(),
-    resourceId: z.string(),
-    visibility: z.enum(["private", "org", "public"]),
-  }),
+  schema,
   needsApproval: async (args) => {
     if (args.visibility !== "public") return false;
     const reg = requireShareableResource(args.resourceType);
     if (reg.allowPublic === false) return false;
-    const access = await assertAccess(
-      args.resourceType,
-      args.resourceId,
-      "admin",
-      undefined,
-      { skipResourceBody: true },
-    );
-    return access.resource.visibility !== "public";
+    // One approval covers the whole call; it is needed when any resource in it
+    // would become public.
+    for (const resourceId of requestedIds(args)) {
+      const access = await assertAccess(
+        args.resourceType,
+        resourceId,
+        "admin",
+        undefined,
+        { skipResourceBody: true },
+      );
+      if (access.resource.visibility !== "public") return true;
+    }
+    return false;
   },
   mcpAnnotations: {
     readOnlyHint: false,
@@ -50,64 +116,91 @@ export default defineAction({
     openWorldHint: true,
   },
   run: async (args, ctx) => {
-    assertWidgetShareWriteGrant(ctx, "set-resource-visibility", args);
+    const ids = requestedIds(args);
+    // A widget grant names one resource, so a batch reaching more than that
+    // one fails here.
+    for (const resourceId of ids) {
+      assertWidgetShareWriteGrant(ctx, "set-resource-visibility", {
+        ...args,
+        resourceId,
+      });
+    }
     const reg = requireShareableResource(args.resourceType);
     if (args.visibility === "public" && reg.allowPublic === false) {
       throw new ForbiddenError(
         `${reg.displayName} cannot be made public — share with specific people or your organization instead.`,
       );
     }
-    const access = await assertAccess(
-      args.resourceType,
-      args.resourceId,
-      "admin",
-    );
-    const visibilityChanged = access.resource?.visibility !== args.visibility;
     const db = reg.getDb() as any;
-    const update: Record<string, unknown> = { visibility: args.visibility };
     const rawAccess = currentAccess();
     const currentOrgId = resolveRegisteredAccessContext(reg, rawAccess).orgId;
-    if (args.visibility === "org" && !access.resource?.orgId) {
-      if (!currentOrgId) {
-        const canKeepResourceUnscoped =
-          !!rawAccess.orgId &&
-          !!reg.resolveAccessContext &&
-          access.role === "owner";
-        if (!canKeepResourceUnscoped) {
-          throw new ForbiddenError(
-            `${reg.displayName} cannot be shared with your organization because no active organization is selected.`,
-          );
+
+    const prepare = async (resourceId: string): Promise<PreparedChange> => {
+      const access = await assertAccess(args.resourceType, resourceId, "admin");
+      const visibilityChanged = access.resource?.visibility !== args.visibility;
+      const update: Record<string, unknown> = { visibility: args.visibility };
+      if (args.visibility === "org" && !access.resource?.orgId) {
+        if (!currentOrgId) {
+          const canKeepResourceUnscoped =
+            !!rawAccess.orgId &&
+            !!reg.resolveAccessContext &&
+            access.role === "owner";
+          if (!canKeepResourceUnscoped) {
+            throw new ForbiddenError(
+              `${reg.displayName} cannot be shared with your organization because no active organization is selected.`,
+            );
+          }
+        } else {
+          if (access.role !== "owner") {
+            throw new ForbiddenError(
+              `${reg.displayName} can only be attached to an organization by its owner.`,
+            );
+          }
+          update.orgId = currentOrgId;
         }
-      } else {
-        if (access.role !== "owner") {
-          throw new ForbiddenError(
-            `${reg.displayName} can only be attached to an organization by its owner.`,
-          );
-        }
-        update.orgId = currentOrgId;
       }
+      if (visibilityChanged) {
+        await reg.assertSharingChange?.({
+          resource: access.resource,
+          change: { kind: "visibility", visibility: args.visibility },
+        });
+      }
+      return {
+        resourceId,
+        access,
+        update,
+        visibilityChanged,
+        resourceChanged: visibilityChanged || update.orgId !== undefined,
+      };
+    };
+
+    // Check every resource before changing any.
+    const prepared: PreparedChange[] = [];
+    if (args.resourceIds) {
+      const failures: { resourceId: string; error: unknown }[] = [];
+      for (const resourceId of ids) {
+        try {
+          prepared.push(await prepare(resourceId));
+        } catch (error) {
+          failures.push({ resourceId, error });
+        }
+      }
+      if (failures.length) throw batchRefusal(ids.length, failures);
+    } else {
+      prepared.push(await prepare(ids[0]));
     }
-    if (visibilityChanged) {
-      await reg.assertSharingChange?.({
-        resource: access.resource,
-        change: { kind: "visibility", visibility: args.visibility },
-      });
-    }
-    const resourceChanged = visibilityChanged || update.orgId !== undefined;
-    const beforeExtensionTargets = await getExtensionShareChangeTargets(
-      args.resourceType,
-      args.resourceId,
-    );
+
     // Used for the write and for its undo, so a registration's own
     // persistence (for example, a reserved name) runs both ways.
     const persistVisibility = async (
-      visibility: "private" | "org" | "public",
+      change: PreparedChange,
+      visibility: Visibility,
       values: Record<string, unknown>,
     ) => {
       if (reg.persistVisibilityChange) {
         await reg.persistVisibilityChange({
-          resource: access.resource,
-          resourceId: args.resourceId,
+          resource: change.access.resource,
+          resourceId: change.resourceId,
           visibility,
           update: values,
           userEmail: rawAccess.userEmail,
@@ -117,64 +210,154 @@ export default defineAction({
         await db
           .update(reg.resourceTable)
           .set(values)
-          .where(eq(reg.resourceTable.id, args.resourceId));
+          .where(eq(reg.resourceTable.id, change.resourceId));
       }
     };
-    await persistVisibility(args.visibility, update);
-    if (visibilityChanged) {
-      try {
-        // The check above runs before the write, so a context item that commits
-        // in between is missed by it. This one runs after the write and sees it.
-        await reg.assertSharingChange?.({
-          resource: { ...access.resource, ...update },
-          change: { kind: "visibility", visibility: args.visibility },
-        });
-      } catch (error) {
-        const previous: Record<string, unknown> = {
-          visibility: access.resource?.visibility,
-        };
-        if (update.orgId !== undefined) {
-          previous.orgId = access.resource?.orgId ?? null;
+    const restore = async (change: PreparedChange) => {
+      const previous: Record<string, unknown> = {
+        visibility: change.access.resource.visibility,
+      };
+      if (change.update.orgId !== undefined) {
+        previous.orgId = change.access.resource.orgId ?? null;
+      }
+      await persistVisibility(
+        change,
+        change.access.resource.visibility,
+        previous,
+      );
+      invalidateCollabAccessCache(args.resourceType, change.resourceId);
+    };
+
+    const beforeExtensionTargets = new Map<
+      string,
+      Awaited<ReturnType<typeof getExtensionShareChangeTargets>>
+    >();
+    for (const change of prepared) {
+      beforeExtensionTargets.set(
+        change.resourceId,
+        await getExtensionShareChangeTargets(
+          args.resourceType,
+          change.resourceId,
+        ),
+      );
+    }
+
+    // A failure part-way puts back every resource already written, so a
+    // batch changes all of its resources or none.
+    const written: PreparedChange[] = [];
+    try {
+      for (const change of prepared) {
+        await persistVisibility(change, args.visibility, change.update);
+        written.push(change);
+        if (change.visibilityChanged) {
+          // The check above runs before the write, so a context item that
+          // commits in between is missed by it. This one runs after the write
+          // and sees it.
+          await reg.assertSharingChange?.({
+            resource: { ...change.access.resource, ...change.update },
+            change: { kind: "visibility", visibility: args.visibility },
+          });
         }
-        await persistVisibility(access.resource?.visibility, previous);
-        invalidateCollabAccessCache(args.resourceType, args.resourceId);
-        throw error;
+      }
+    } catch (error) {
+      for (const change of written.reverse()) {
+        try {
+          await restore(change);
+        } catch (restoreError) {
+          console.error(
+            `[sharing] Could not restore the visibility of ${args.resourceType} ${change.resourceId}:`,
+            restoreError,
+          );
+        }
+      }
+      throw error;
+    }
+
+    const app = getAppConfig().app.slug ?? "unknown";
+    for (const change of prepared) {
+      invalidateCollabAccessCache(args.resourceType, change.resourceId);
+      await notifyExtensionShareChanged(
+        args.resourceType,
+        change.resourceId,
+        beforeExtensionTargets.get(change.resourceId) ?? [],
+      );
+      if (change.visibilityChanged) {
+        track(
+          "share_visibility_change",
+          {
+            app,
+            template: app,
+            resource_type: args.resourceType,
+            resource_id: change.resourceId,
+            visibility: args.visibility,
+            is_public: args.visibility === "public",
+          },
+          { userId: rawAccess.userEmail ?? undefined },
+        );
       }
     }
-    invalidateCollabAccessCache(args.resourceType, args.resourceId);
-    await notifyExtensionShareChanged(
-      args.resourceType,
-      args.resourceId,
-      beforeExtensionTargets,
-    );
-    if (visibilityChanged) {
-      const app = getAppConfig().app.slug ?? "unknown";
-      track(
-        "share_visibility_change",
-        {
-          app,
-          template: app,
-          resource_type: args.resourceType,
-          resource_id: args.resourceId,
-          visibility: args.visibility,
-          is_public: args.visibility === "public",
-        },
-        { userId: rawAccess.userEmail ?? undefined },
-      );
+
+    const changed = prepared.filter((change) => change.resourceChanged);
+    const card = changed.length
+      ? sharingChangeFor(reg, changed, args.visibility)
+      : undefined;
+    if (!args.resourceIds) {
+      return {
+        ok: true,
+        visibility: args.visibility,
+        ...(card ? { change: card } : {}),
+      };
     }
     return {
       ok: true,
       visibility: args.visibility,
-      ...(resourceChanged
-        ? {
-            change: resourceSharingChange(
-              reg,
-              access.resource,
-              "updated",
-              args.visibility,
-            ).change,
-          }
-        : {}),
+      results: prepared.map((change) => ({
+        resourceId: change.resourceId,
+        status: change.resourceChanged
+          ? ("changed" as const)
+          : ("unchanged" as const),
+      })),
+      changedCount: changed.length,
+      unchangedCount: prepared.length - changed.length,
+      ...(card ? { change: card } : {}),
     };
   },
 });
+
+/** One card for the whole call: the first resource's title, then how many more. */
+function sharingChangeFor(
+  reg: ShareableResourceRegistration,
+  changed: PreparedChange[],
+  visibility: Visibility,
+): ActionChange {
+  const first = resourceSharingChange(
+    reg,
+    changed[0].access.resource,
+    "updated",
+    visibility,
+  ).change;
+  if (changed.length === 1) return first;
+  const suffix = ` and ${changed.length - 1} more`;
+  const room = 180 - suffix.length;
+  const title =
+    first.title.length <= room
+      ? first.title
+      : `${first.title.slice(0, room - 1).trimEnd()}…`;
+  return { ...first, title: `${title}${suffix}` };
+}
+
+function batchRefusal(
+  total: number,
+  failures: { resourceId: string; error: unknown }[],
+): Error {
+  const reasons = failures
+    .map(({ resourceId, error }) => {
+      const reason = error instanceof Error ? error.message : String(error);
+      return `${resourceId}: ${reason}`;
+    })
+    .join("; ");
+  const message = `Nothing was changed: ${failures.length} of ${total} can't change visibility. ${reasons}`;
+  return failures.every(({ error }) => error instanceof ForbiddenError)
+    ? new ForbiddenError(message)
+    : new Error(message);
+}

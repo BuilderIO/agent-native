@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { isImageRecording } from "@shared/recording-kind";
@@ -6,63 +6,102 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  applyToRecordings,
+  recordingBatchSchema,
+  recordingIdsField,
+  requestedRecordingIds,
+} from "../server/lib/recording-batch.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { hasDeleteClaim } from "../server/lib/screenshot-edits.js";
 
-export default defineAction({
-  description: "Restore a recording from archive or trash back to the library.",
-  schema: z.object({
-    id: z.string().describe("Recording ID"),
-  }),
-  run: async (args) => {
-    assertRecordingNotExpired(
-      await assertAccess("recording", args.id, "editor"),
+async function restoreOne(id: string) {
+  assertRecordingNotExpired(await assertAccess("recording", id, "editor"));
+  const db = getDb();
+
+  const rows = await db
+    .select({
+      kind: schema.recordings.kind,
+      editsJson: schema.recordings.editsJson,
+      archivedAt: schema.recordings.archivedAt,
+      trashedAt: schema.recordings.trashedAt,
+    })
+    .from(schema.recordings)
+    .where(eq(schema.recordings.id, id));
+  if (!rows.length) {
+    fail(`Recording not found: ${id}`, {
+      errorCode: "recording_not_found",
+      statusCode: 404,
+    });
+  }
+  const existing = rows[0];
+  // A permanent delete has claimed this screenshot: it is running, or it
+  // stopped part-way and some files — possibly the base still under
+  // pending boxes — are gone. Either way it cannot come back whole.
+  if (hasDeleteClaim(existing.editsJson)) {
+    fail(
+      "This screenshot was partly deleted and cannot be restored. Delete it again to finish.",
+      { errorCode: "recording_partly_deleted", statusCode: 409 },
     );
+  }
+  if (!existing.archivedAt && !existing.trashedAt) {
+    return { status: "unchanged" as const };
+  }
 
-    const db = getDb();
+  const now = new Date().toISOString();
+  // Pinned to the unclaimed edits just read: a delete that claims the
+  // screenshot in between must win, or a delete that then stops part-way
+  // would put it back in the library without its base.
+  const restored = await db
+    .update(schema.recordings)
+    .set({ archivedAt: null, trashedAt: null, updatedAt: now })
+    .where(
+      isImageRecording(existing)
+        ? and(
+            eq(schema.recordings.id, id),
+            eq(schema.recordings.editsJson, existing.editsJson),
+          )
+        : eq(schema.recordings.id, id),
+    )
+    .returning({ id: schema.recordings.id });
+  if (!restored.length) {
+    fail(
+      "This screenshot changed while it was being restored. Nothing was restored — try again.",
+      { errorCode: "recording_restore_conflict", statusCode: 409 },
+    );
+  }
+  return { status: "changed" as const };
+}
 
-    const [existing] = await db
-      .select({
-        id: schema.recordings.id,
-        kind: schema.recordings.kind,
-        editsJson: schema.recordings.editsJson,
-      })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.id));
-    if (!existing) throw new Error(`Recording not found: ${args.id}`);
-    // A permanent delete has claimed this screenshot: it is running, or it
-    // stopped part-way and some files — possibly the base still under
-    // pending boxes — are gone. Either way it cannot come back whole.
-    if (hasDeleteClaim(existing.editsJson)) {
-      throw new Error(
-        "This screenshot was partly deleted and cannot be restored. Delete it again to finish.",
-      );
+export default defineAction({
+  description:
+    "Restore one or more recordings from archive or trash back to the library.",
+  schema: z
+    .object({
+      id: z.string().min(1).optional().describe("Recording ID"),
+      ids: recordingIdsField("restore").optional(),
+    })
+    .refine((args) => Boolean(args.id) || Boolean(args.ids), {
+      message: "Provide id or ids.",
+    }),
+  outputSchema: z.union([
+    z.object({ id: z.string() }),
+    recordingBatchSchema({}),
+  ]),
+  run: async (args) => {
+    const ids = requestedRecordingIds(args.id, args.ids);
+    if (args.ids) {
+      const batch = await applyToRecordings(ids, restoreOne);
+      if (batch.changed) {
+        await writeAppState("refresh-signal", { ts: Date.now() });
+      }
+      return batch;
     }
 
-    const now = new Date().toISOString();
-    // Pinned to the unclaimed edits just read: a delete that claims the
-    // screenshot in between must win, or a delete that then stops part-way
-    // would put it back in the library without its base.
-    const restored = await db
-      .update(schema.recordings)
-      .set({ archivedAt: null, trashedAt: null, updatedAt: now })
-      .where(
-        isImageRecording(existing)
-          ? and(
-              eq(schema.recordings.id, args.id),
-              eq(schema.recordings.editsJson, existing.editsJson),
-            )
-          : eq(schema.recordings.id, args.id),
-      )
-      .returning({ id: schema.recordings.id });
-    if (!restored.length) {
-      throw new Error(
-        "This screenshot changed while it was being restored. Nothing was restored — try again.",
-      );
-    }
-
+    const id = ids[0];
+    await restoreOne(id);
     await writeAppState("refresh-signal", { ts: Date.now() });
-    console.log(`Restored recording ${args.id}`);
-    return { id: args.id };
+    console.log(`Restored recording ${id}`);
+    return { id };
   },
 });

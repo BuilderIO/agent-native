@@ -2035,3 +2035,159 @@ describe("resolveAccess / assertAccess opt-in projected load", () => {
     });
   });
 });
+
+describe("set-resource-visibility on several resources", () => {
+  const batch = (
+    resourceIds: string[],
+    visibility: "private" | "org" | "public",
+  ) =>
+    runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+      setResourceVisibility.run({ resourceType, resourceIds, visibility }),
+    ) as Promise<Record<string, any>>;
+  const visibilities = async () =>
+    Object.fromEntries(
+      (await db.select().from(docs)).map((row) => [row.id, row.visibility]),
+    );
+
+  it("changes each resource, lists what changed, and shows one card", async () => {
+    await insertDoc({ id: "doc-a", visibility: "public" });
+    await insertDoc({ id: "doc-b", visibility: "org" });
+    await insertDoc({ id: "doc-c" });
+
+    const result = await batch(["doc-a", "doc-b", "doc-c"], "private");
+
+    expect(result).toMatchObject({
+      ok: true,
+      visibility: "private",
+      changedCount: 2,
+      unchangedCount: 1,
+      results: [
+        { resourceId: "doc-a", status: "changed" },
+        { resourceId: "doc-b", status: "changed" },
+        { resourceId: "doc-c", status: "unchanged" },
+      ],
+    });
+    expect(result.change).toEqual({
+      verb: "updated",
+      kind: "resource-share",
+      title: "doc-a and 1 more",
+      detail: "private",
+    });
+    expect(await visibilities()).toEqual({
+      "doc-a": "private",
+      "doc-b": "private",
+      "doc-c": "private",
+    });
+  });
+
+  it("changes nothing, and names the resource, when the caller can't manage one", async () => {
+    await insertDoc({ id: "doc-mine", visibility: "public" });
+    await insertDoc({
+      id: "doc-theirs",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await expect(batch(["doc-mine", "doc-theirs"], "private")).rejects.toThrow(
+      /Nothing was changed: 1 of 2 .*doc-theirs/,
+    );
+    await expect(
+      batch(["doc-mine", "doc-theirs"], "private"),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await visibilities()).toEqual({
+      "doc-mine": "public",
+      "doc-theirs": "public",
+    });
+  });
+
+  it("puts back resources already written when a later write fails", async () => {
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-fails" && update.visibility === "private") {
+          throw new Error("storage refused");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-first", visibility: "public" });
+    await insertDoc({ id: "doc-fails", visibility: "public" });
+
+    await expect(batch(["doc-first", "doc-fails"], "private")).rejects.toThrow(
+      "storage refused",
+    );
+    expect(await visibilities()).toEqual({
+      "doc-first": "public",
+      "doc-fails": "public",
+    });
+  });
+
+  it("asks for one approval when any resource would become public", async () => {
+    await insertDoc({ id: "doc-private" });
+    await insertDoc({ id: "doc-public", visibility: "public" });
+    const needsApproval = setResourceVisibility.needsApproval;
+    if (typeof needsApproval !== "function") {
+      throw new Error("set-resource-visibility approval predicate is missing");
+    }
+    const approval = (resourceIds: string[]) =>
+      runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        needsApproval({ resourceType, resourceIds, visibility: "public" }),
+      );
+
+    await expect(approval(["doc-public", "doc-private"])).resolves.toBe(true);
+    await expect(approval(["doc-public"])).resolves.toBe(false);
+  });
+
+  it("refuses a widget grant that names only one of the resources", async () => {
+    await insertDoc({ id: "doc-granted", visibility: "public" });
+    await insertDoc({ id: "doc-other", visibility: "public" });
+
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        setResourceVisibility.run(
+          {
+            resourceType,
+            resourceIds: ["doc-granted", "doc-other"],
+            visibility: "private",
+          },
+          {
+            caller: "mcp-widget-write",
+            mcpDirectoryWidgetWrite: {
+              actionNames: ["set-resource-visibility"],
+              resourceIds: {
+                resourceType,
+                [`${resourceType}Id`]: "doc-granted",
+              },
+            },
+          } as never,
+        ),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await visibilities()).toEqual({
+      "doc-granted": "public",
+      "doc-other": "public",
+    });
+  });
+
+  it("refuses more than 100 resources, or none", () => {
+    const resourceIds = Array.from({ length: 101 }, (_, i) => `doc-${i}`);
+    expect(
+      setResourceVisibility.schema.safeParse({
+        resourceType,
+        resourceIds,
+        visibility: "private",
+      }).success,
+    ).toBe(false);
+    expect(
+      setResourceVisibility.schema.safeParse({
+        resourceType,
+        visibility: "private",
+      }).success,
+    ).toBe(false);
+  });
+});
