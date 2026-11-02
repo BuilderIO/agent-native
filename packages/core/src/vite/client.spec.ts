@@ -36,7 +36,11 @@ import {
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
-import { callPluginHook } from "./plugin-hook.test-helpers.js";
+import {
+  callHookHandler,
+  callPluginHook,
+  hookIdFilter,
+} from "./plugin-hook.test-helpers.js";
 
 const mockWriteDevActionDiscoveryFile = vi.hoisted(() => vi.fn());
 const mockHashDatabaseKey = vi.hoisted(() =>
@@ -466,6 +470,24 @@ describe("client optional peer stubs", () => {
       expect(callPluginHook(plugin?.load, undefined, String(id))).toContain(
         'new OptionalPeerDependencyError("@rrweb/record")',
       );
+      expect(
+        callPluginHook(
+          plugin?.load,
+          undefined,
+          "\0agent-native-client-optional-peer-stub:mermaid",
+        ),
+      ).toContain("export default mermaid;");
+      expect(hookIdFilter(plugin?.resolveId).test("@rrweb/record/x")).toBe(
+        true,
+      );
+      for (const other of ["react", "@rrweb/recorder", "./@rrweb/record"]) {
+        expect(hookIdFilter(plugin?.resolveId).test(other), other).toBe(false);
+        expect(callHookHandler(plugin?.resolveId, undefined, other)).toBe(null);
+      }
+      expect(hookIdFilter(plugin?.load).test("/app/root.tsx")).toBe(false);
+      expect(callHookHandler(plugin?.load, undefined, "/app/root.tsx")).toBe(
+        null,
+      );
 
       fs.writeFileSync(
         path.join(cwd, "package.json"),
@@ -672,6 +694,16 @@ describe("design system theme plugin", () => {
       );
       expect(css).toContain("--primary:");
       expect(css).toContain("--background: 0 0% 6.275%");
+      for (const other of ["react", "virtual:agent-native-theme.css.map"]) {
+        expect(hookIdFilter(plugin.resolveId).test(other), other).toBe(false);
+        expect(callHookHandler(plugin.resolveId, undefined, other)).toBe(
+          undefined,
+        );
+      }
+      for (const other of ["virtual:agent-native-theme.css", "/app/a.css"]) {
+        expect(hookIdFilter(plugin.load).test(other), other).toBe(false);
+        expect(callHookHandler(plugin.load, undefined, other)).toBe(undefined);
+      }
       expect(await plugin.transformIndexHtml()).toEqual([
         expect.objectContaining({
           tag: "style",
@@ -2789,6 +2821,11 @@ describe("app changelog raw imports", () => {
         importer,
       );
       expect(resolved).toBe(`${path.join(tmpDir, "CHANGELOG.md")}?raw`);
+      expect(hookIdFilter(plugin.resolveId).test("./root.tsx")).toBe(false);
+      expect(hookIdFilter(plugin.load).test("/app/root.tsx")).toBe(false);
+      expect(
+        callHookHandler(plugin.load, undefined, "/app/CHANGELOG.md?url"),
+      ).toBeNull();
 
       const watched: string[] = [];
       const code = await callPluginHook(
@@ -3773,6 +3810,19 @@ describe("Vite SSR stubs", () => {
         ssr: false,
       }),
     ).toBeNull();
+    expect(hookIdFilter(plugin.resolveId).test("yjs/dist/yjs.mjs")).toBe(true);
+    for (const other of ["react", "yjs-extra", "./yjs"]) {
+      expect(hookIdFilter(plugin.resolveId).test(other), other).toBe(false);
+      expect(
+        callHookHandler(plugin.resolveId, undefined, other, undefined, {
+          ssr: true,
+        }),
+      ).toBeNull();
+    }
+    expect(hookIdFilter(plugin.load).test("\0agent-native-ssr-stub2")).toBe(
+      false,
+    );
+    expect(callHookHandler(plugin.load, undefined, "/app/root.tsx")).toBeNull();
 
     const code = String(
       await callPluginHook(plugin.load, undefined, "\0agent-native-ssr-stub"),
@@ -3833,6 +3883,17 @@ describe("Vite SSR stubs", () => {
     expect(
       callPluginHook(plugin.resolveId, undefined, "@better-auth/core"),
     ).toBeNull();
+    for (const other of ["@better-auth/ssox", "react", "@better-auth/core"]) {
+      expect(hookIdFilter(plugin.resolveId).test(other), other).toBe(false);
+      expect(callHookHandler(plugin.resolveId, undefined, other)).toBeNull();
+    }
+    const stubId =
+      "\0agent-native-enterprise-auth-adapter-stub:@better-auth/sso";
+    expect(callPluginHook(plugin.load, undefined, stubId)).toBe(
+      "export const sso = undefined; export const scim = undefined;",
+    );
+    expect(hookIdFilter(plugin.load).test("/app/root.tsx")).toBe(false);
+    expect(callHookHandler(plugin.load, undefined, "/app/root.tsx")).toBeNull();
     vi.unstubAllEnvs();
   });
 });
@@ -4263,6 +4324,35 @@ describe("Vite SSR optional dependencies", () => {
           },
         ),
       ).toBeNull();
+      const ssr = { ssr: true };
+      const loaders = "./tabler-chunk-loaders.js";
+      expect(
+        callHookHandler(
+          plugin.resolveId,
+          undefined,
+          loaders,
+          `${importer}?v=1`,
+          ssr,
+        ),
+      ).toBe(stubId);
+      for (const [id, from] of [
+        ["./tabler-chunks/a.js", importer],
+        [loaders, path.join(toolkitRoot, "src/icons/ResourceIcon.tsx")],
+        [loaders, path.join(toolkitRoot, "src/icons/missing.ts")],
+        [loaders, undefined],
+      ] as const) {
+        expect(
+          callHookHandler(plugin.resolveId, undefined, id, from, ssr),
+        ).toBeNull();
+      }
+      for (const other of [
+        "./tabler-chunks/a.js",
+        "../tabler-chunk-loaders.js",
+      ]) {
+        expect(hookIdFilter(plugin.resolveId).test(other), other).toBe(false);
+      }
+      expect(hookIdFilter(plugin.load).test(`${stubId}2`)).toBe(false);
+      expect(callHookHandler(plugin.load, undefined, "/app/a.ts")).toBeNull();
       const stub = await import(
         `data:text/javascript,${encodeURIComponent(String(await callPluginHook(plugin.load, undefined, stubId)))}`
       );
@@ -4369,6 +4459,39 @@ describe("external store client compatibility", () => {
     );
     expect(directEntry).toMatch(/external-store-shim\.(?:ts|js)$/);
     expect(shimEntry).toBe(directEntry);
+    for (const specifier of [
+      "use-sync-external-store",
+      "use-sync-external-store/shim",
+      "use-sync-external-store/shim/index.js",
+      "use-sync-external-store/with-selector",
+      "use-sync-external-store/with-selector.js",
+      "use-sync-external-store/shim/with-selector",
+    ]) {
+      expect(
+        await callPluginHook(
+          plugin.resolveId,
+          undefined,
+          specifier,
+          undefined,
+          {
+            ssr: false,
+          },
+        ),
+        specifier,
+      ).toBe(directEntry);
+    }
+    expect(
+      callHookHandler(
+        plugin.resolveId,
+        undefined,
+        "use-sync-external-store/package.json",
+        undefined,
+        { ssr: false },
+      ),
+    ).toBeNull();
+    for (const other of ["use-sync-external-storex", "react"]) {
+      expect(hookIdFilter(plugin.resolveId).test(other), other).toBe(false);
+    }
     expect(
       await callPluginHook(
         plugin.resolveId,
