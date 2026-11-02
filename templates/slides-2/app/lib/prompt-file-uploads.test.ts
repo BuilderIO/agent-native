@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isStorageSetupRequiredError } from "./image-drop-to-agent";
 import {
@@ -6,6 +6,7 @@ import {
   isPromptUploadServiceUnavailableError,
   isPromptUploadStorageStatusError,
   promptUploadHttpError,
+  uploadPromptFiles,
 } from "./prompt-file-uploads";
 import { promptImportResponseError } from "./upload-response";
 
@@ -156,4 +157,62 @@ describe("import and upload failures the UI must not render raw", () => {
     expect(isPromptUploadStorageStatusError(error)).toBe(true);
     expect(isPromptUploadNetworkError(error)).toBe(false);
   });
+
+  it("surfaces the server's own reason when upload storage is unavailable", () => {
+    const error = promptUploadHttpError(503, "image.png", undefined, {
+      errorCode: "attachment_storage_unavailable",
+      details: { whoCanFix: "workspace_admin" },
+      message: "No file storage is connected. Ask a workspace admin.",
+    });
+
+    expect(error).toMatchObject({
+      code: "reference_storage_unavailable",
+      message: "No file storage is connected. Ask a workspace admin.",
+      errorCode: "attachment_storage_unavailable",
+    });
+    expect(isPromptUploadStorageStatusError(error)).toBe(false);
+    expect(isStorageSetupRequiredError(error)).toBe(true);
+  });
+
+  it("retries storage that reports it will recover on its own", () => {
+    const error = promptUploadHttpError(503, "image.png", undefined, {
+      errorCode: "attachment_storage_unavailable",
+      details: { whoCanFix: "self_resolving" },
+      message: "Storage is busy.",
+    });
+
+    expect(isPromptUploadNetworkError(error)).toBe(true);
+  });
+
+  it("shows the server's storage reason for a failed upload response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        /upload-storage-status|uploads\/status/.test(String(url))
+          ? Response.json({ referenceStorageReady: true })
+          : Response.json(
+              {
+                error: 'File "image.png": No file storage is connected.',
+                errorCode: "attachment_storage_unavailable",
+                details: { whoCanFix: "workspace_admin" },
+                failedFileName: "image.png",
+              },
+              { status: 503 },
+            ),
+      ),
+    );
+    const file = new File([new Uint8Array([1])], "image.png", {
+      type: "image/png",
+    });
+
+    await expect(
+      uploadPromptFiles([file], "unavailable"),
+    ).rejects.toMatchObject({
+      message: "No file storage is connected.",
+      fileName: "image.png",
+      code: "reference_storage_unavailable",
+    });
+  });
 });
+
+afterEach(() => vi.unstubAllGlobals());
