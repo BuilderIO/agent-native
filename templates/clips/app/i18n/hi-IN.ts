@@ -634,8 +634,6 @@ const messages = {
     couldNotEndMeeting: "मीटिंग समाप्त नहीं हो सकी",
   },
   transcriptPanel: {
-    partialTranscript:
-      "यह ट्रांसक्रिप्ट अधूरी है। ऑडियो का कुछ हिस्सा ट्रांसक्राइब नहीं हो सका।",
     transcribing: "प्रतिलेखन...",
     pendingDescription:
       "भाषण कैप्चर होते ही लाइव ट्रांसक्रिप्ट प्रकट हो जाती है। पृष्ठभूमि में सफाई जारी है.",
