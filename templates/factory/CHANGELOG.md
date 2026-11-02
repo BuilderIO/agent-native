@@ -5,12 +5,22 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-28
 
+### Added
+
+- Unsaved workflow edits are kept as a private draft and come back when you reopen the workflow, even when the workflow has problems.
+
 ### Improved
 
+- A run now marks only the steps that did work, so steps nothing reached no longer show a green check.
+- Connect opens in a new tab, so the workflow you are editing stays open.
+- Typing a Slack channel ID in a channel field finds that channel even in a large workspace.
 - Factory skips fork pull requests assigned to verified BuilderIO members
 
 ### Fixed
 
+- A step's Output now shows its data as soon as a Test step or Dry run finishes.
+- Items no longer say there was no activity for an item that has a history.
+- Side panels opened from step details now appear on top, the path menu scrolls with the mouse wheel, and Ask the agent no longer opens behind the details window.
 - External pull requests stay in Factory's manual review queue, and their manual decisions remain visible while approval status is reconciled.
 - Factory keeps manual approval and reconciliation states when GitHub results are ambiguous or pull requests close.
 - Factory keeps completed pull requests closed when it recovers an approval.
@@ -20,6 +30,10 @@ time from the command menu (Cmd+K → "What's new").
 - Factory skips fork pull requests assigned to BuilderIO members.
 - Prevent duplicate Factory approvals while ambiguous provider results are reconciled
 - Previously approved fork pull requests now move to manual handling when assigned to a Builder team member.
+
+### Changed
+
+- Dry run is now a single button on the canvas instead of one there and one in the top bar.
 
 ## 2026-10-23
 
