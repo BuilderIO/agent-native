@@ -408,11 +408,12 @@ describe("reliable Content database row mutations", () => {
     );
     if (!("database" in response) || !response.mutationContract)
       throw new Error("Missing mutation contract.");
+    const contract = response.mutationContract;
 
     const threadLink = "t3-thread://v1/ada5164c-bc1f-4866-b908-dd17f8d65cd2";
     const result = await asOwner(() =>
       createRow.run({
-        ...envelope(response.mutationContract!, "thread-link"),
+        ...envelope(contract, "thread-link"),
         propertyValues: { [urlId]: threadLink },
       }),
     );
@@ -428,7 +429,7 @@ describe("reliable Content database row mutations", () => {
       await expect(
         asOwner(() =>
           createRow.run({
-            ...envelope(response.mutationContract!, `refused-${key}`),
+            ...envelope(contract, `refused-${key}`),
             propertyValues: { [urlId]: value },
           }),
         ),

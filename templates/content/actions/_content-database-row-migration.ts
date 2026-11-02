@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { fail } from "@agent-native/core/action";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -377,8 +378,9 @@ export function normalizeMigrationValue(
     if (typeof normalized !== "string")
       throw new Error(`URL property ${definition.name} must be a string.`);
     if (!isUrlPropertyValue(normalized))
-      throw new Error(
+      fail(
         `URL property ${definition.name} must be an http/https URL or a t3-thread link.`,
+        { errorCode: "invalid_url_property_value", statusCode: 422 },
       );
   }
   if (definition.type === "date" && normalized === null)

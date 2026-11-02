@@ -502,6 +502,7 @@ const URL_PROPERTY_APP_PROTOCOLS = new Set(["t3-thread:"]);
 function urlProtocol(value: string) {
   try {
     return new URL(value.trim()).protocol;
+    // coercion-ok: null is "not a URL", and callers treat it as absent.
   } catch {
     return null;
   }
