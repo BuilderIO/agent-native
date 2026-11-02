@@ -187,7 +187,7 @@ export default defineAction({
       }
       if (failures.length) throw batchRefusal(ids.length, failures);
     } else {
-      prepared.push(await prepare(ids[0]));
+      for (const resourceId of ids) prepared.push(await prepare(resourceId));
     }
 
     // Used for the write and for its undo, so a registration's own
@@ -312,14 +312,15 @@ export default defineAction({
             visibility: args.visibility,
             is_public: args.visibility === "public",
           },
-          { userId: rawAccess.userEmail ?? undefined },
+          rawAccess.userEmail ? { userId: rawAccess.userEmail } : undefined,
         );
       }
     }
 
     const changed = prepared.filter((change) => change.resourceChanged);
-    const card = changed.length
-      ? sharingChangeFor(reg, changed, args.visibility)
+    const [firstChanged] = changed;
+    const card = firstChanged
+      ? sharingChangeFor(reg, firstChanged, changed.length, args.visibility)
       : undefined;
     if (!args.resourceIds) {
       return {
@@ -347,17 +348,18 @@ export default defineAction({
 /** One card for the whole call: the first resource's title, then how many more. */
 function sharingChangeFor(
   reg: ShareableResourceRegistration,
-  changed: PreparedChange[],
+  firstChanged: PreparedChange,
+  changedCount: number,
   visibility: Visibility,
 ): ActionChange {
   const first = resourceSharingChange(
     reg,
-    changed[0].access.resource,
+    firstChanged.access.resource,
     "updated",
     visibility,
   ).change;
-  if (changed.length === 1) return first;
-  const suffix = ` and ${changed.length - 1} more`;
+  if (changedCount === 1) return first;
+  const suffix = ` and ${changedCount - 1} more`;
   const room = 180 - suffix.length;
   const title =
     first.title.length <= room
