@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
@@ -7,10 +8,29 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES = resolve(HERE, "../templates");
+// .env files are gitignored, so a linked worktree (where scheduled sweeps run)
+// has none; fall back to the main checkout's copies.
+const MAIN_TEMPLATES = (() => {
+  try {
+    const common = execFileSync(
+      "git",
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { cwd: HERE, encoding: "utf8" },
+    ).trim();
+    const main = resolve(dirname(common), "templates");
+    return main === TEMPLATES || !existsSync(main) ? null : main;
+  } catch {
+    return null;
+  }
+})();
 
 function loadPostgres() {
-  for (const app of readdirSync(TEMPLATES).sort()) {
-    const pkg = `${TEMPLATES}/${app}/package.json`;
+  const roots = [TEMPLATES, MAIN_TEMPLATES].filter(Boolean);
+  for (const pkg of roots.flatMap((root) =>
+    readdirSync(root)
+      .sort()
+      .map((app) => `${root}/${app}/package.json`),
+  )) {
     if (!existsSync(pkg)) continue;
     try {
       return createRequire(pkg)("postgres");
@@ -74,8 +94,11 @@ function discoverApps() {
   const apps = [];
   for (const name of readdirSync(TEMPLATES).sort()) {
     if (onlyApp && name !== onlyApp) continue;
-    const envPath = `${TEMPLATES}/${name}/.env`;
-    if (!existsSync(envPath)) continue;
+    const envPath = [TEMPLATES, MAIN_TEMPLATES]
+      .filter(Boolean)
+      .map((root) => `${root}/${name}/.env`)
+      .find(existsSync);
+    if (!envPath) continue;
     const url = /^DATABASE_URL=(.*)$/m
       .exec(readFileSync(envPath, "utf8"))?.[1]
       ?.trim()

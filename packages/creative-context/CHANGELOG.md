@@ -1,5 +1,23 @@
 # @agent-native/creative-context
 
+## 0.8.62
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.61
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.60
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.59
 
 ### Patch Changes
@@ -638,24 +656,5 @@
   worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
   25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
   config merges it in.
-
-## 0.5.8
-
-### Patch Changes
-
-- c8a0bcf: Declare `@tanstack/react-query` as a peer/dev dependency so `tsc` can name its types under pnpm's isolated layout. Without it the package fails to build with TS2883 in a generated workspace, which breaks the root `postinstall` and therefore `pnpm install`.
-
-## 0.5.7
-
-### Patch Changes
-
-- 8453025: Add manifest-driven feature ejection with dry-run planning, committed provenance, import rewrites, drift inspection, hash-gated restore, protected-runtime guidance, and complete first-party coverage guards.
-
-## 0.5.6
-
-### Patch Changes
-
-- e53a34e: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
-  The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

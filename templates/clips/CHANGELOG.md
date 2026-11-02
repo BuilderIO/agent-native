@@ -3,6 +3,32 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-29
+
+### Changed
+
+- Screenshots are available when enabled in Labs.
+
+## 2026-10-28
+
+### Improved
+
+- Clip menus use consistent text-only actions.
+- Recording menus use consistent text-only actions.
+- Recording options are easier to find and titles appear sooner
+
+### Fixed
+
+- Fixed the Share → Advanced popover so the Save buttons fit and the password toggle matches other switches
+- Clips desktop preserves your server choice across updates and reconnects after temporary sign-in outages.
+- Recording chapters remain reachable when the list extends below the player.
+- The Chrome extension recorder has more room and a clearer feedback link.
+- The recorder refreshes storage connection status when opened
+
+### Changed
+
+- Earlier screen time is now off by default until you enable it in Labs.
+
 ## 2026-10-27
 
 ### Improved
@@ -1580,40 +1606,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Mobile recording pages keep videos in a 16:9 player with activity below.
-
-## 2026-07-02
-
-### Added
-
-- Private recordings can be shared with agents through temporary links without making them public.
-
-### Fixed
-
-- Recordings now wait for uploaded media to play from storage before finishing, and playback falls back when a compressed storage copy is temporarily broken.
-
-## 2026-07-01
-
-### Improved
-
-- Clip uploads and Loom imports finish sooner by skipping the Builder.io compression wait after upload registration.
-- Recording controls are cleaner and the countdown uses shadowed numbers instead of a filled circle.
-- Shared clips can now copy a ready-to-send prompt that tells agents how to read transcripts, frames, and diagnostics.
-
-### Fixed
-
-- Chrome extension recordings now stream uploads while recording so saving is less likely to time out.
-- Chrome recording uploads now serialize chunks to avoid resumable upload offset races.
-- Clip embeds now render as a clean video-only player without extra page chrome or scrollbars.
-- Clip uploads and playback recover more reliably from storage timeouts.
-- Desktop recording setup no longer offers unsupported browser-tab capture in desktop app windows.
-- Dictation keeps listening through natural pauses and gives clearer start feedback.
-- Embedded player progress is easier to see on dark videos.
-- Loom imports now show clear guidance when Loom does not provide a downloadable video.
-- Move to folder now opens folder choices directly instead of starting an agent chat.
-- Preserve in-flight streaming uploads when the streaming kill switch is disabled mid-recording.
-- Recordings now recover when the final upload finishes but the browser receives a timeout instead of the saved clip response.
-- Redoing a paused desktop recording no longer leaves the recording controls disabled.
-- Shared clips now start playing and scrub instantly instead of buffering — recordings are made seekable on upload, and you can repair older clips
-- Stalled clip uploads now update in the library and surface as failed instead of staying stuck as uploading.
 
 For the full list of updates, see the [changelog folder](./changelog/).

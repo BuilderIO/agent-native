@@ -1,3 +1,7 @@
+import {
+  actionCallIntent,
+  preparedCallNeedsApproval,
+} from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import { mcpToolInputSchema } from "../../../packages/core/src/mcp/tool-input-schema.js";
@@ -44,6 +48,7 @@ import restoreContentDatabase from "./restore-content-database.js";
 import restoreDocument from "./restore-document.js";
 import searchDocuments from "./search-documents.js";
 import setDocumentProperty from "./set-document-property.js";
+import shareLocalFileDocument from "./share-local-file-document.js";
 import syncGitHubFolder from "./sync-github-folder.js";
 import updateComment from "./update-comment.js";
 import updateContentDatabaseView from "./update-content-database-view.js";
@@ -55,6 +60,7 @@ import viewScreen from "./view-screen.js";
 
 describe("Content action-owned agent catalogs", () => {
   const directMcpActions = {
+    "share-local-file-document": shareLocalFileDocument,
     "create-content-database": createContentDatabase,
     "configure-document-property": configureDocumentProperty,
     "update-content-database-view": updateContentDatabaseView,
@@ -100,11 +106,57 @@ describe("Content action-owned agent catalogs", () => {
     "manage-content-database-migration": manageContentDatabaseMigration,
   };
 
+  it("requires approval for outside calls while preserving ordinary in-app tools", async () => {
+    const call = await actionCallIntent(shareLocalFileDocument, {
+      id: "local-file-test",
+    });
+    if (!call.valid) throw call.error;
+    for (const [ctx, expected] of [
+      [{ caller: "frontend" }, false],
+      [{ caller: "tool" }, false],
+      [{ caller: "http" }, true],
+      [{ caller: "cli" }, true],
+      [{ caller: "mcp-widget" }, true],
+      [{ caller: "mcp-widget-write" }, true],
+      [{ caller: "automation" }, true],
+      [{ caller: "mcp" }, true],
+      [{ caller: "webmcp" }, true],
+      [{ caller: "a2a" }, true],
+      [{ caller: "tool", networkProtocol: "mcp" }, true],
+      [{ caller: "tool", networkProtocol: "a2a" }, true],
+      [{ caller: "tool", networkProtocol: "provider-api" }, true],
+      [
+        {
+          caller: "tool",
+          automation: {
+            triggerId: "trigger-test",
+            triggerName: "Test automation",
+            policyId: "policy-test",
+          },
+        },
+        true,
+      ],
+    ] as const) {
+      expect(
+        await preparedCallNeedsApproval(shareLocalFileDocument, call, ctx),
+        JSON.stringify(ctx),
+      ).toBe(expected);
+    }
+  });
+
   it("owns compact MCP membership beside each directly callable action", () => {
     for (const action of Object.values(directMcpActions)) {
       expect(action.mcpTool).toBe(true);
       expect(action.tool.description.length).toBeGreaterThan(80);
     }
+  });
+
+  it("classifies shareable local-file copies as disclosure-capable writes", () => {
+    expect(shareLocalFileDocument.mcpAnnotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
   });
 
   it("returns migration receipts as structured MCP content", () => {

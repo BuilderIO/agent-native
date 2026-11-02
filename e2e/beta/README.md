@@ -29,6 +29,24 @@ gh workflow run beta-e2e.yml --ref main -f apps=design -f lane=authed
 
 The `public` lane needs no secrets, so it works today with no setup.
 
+### Disposable Netlify durability proofs
+
+Every local-source `Deploy hosts` run seeds an AgentHarness follow-up with a
+short claim lease after the first scheduler health check. It waits for a later
+signed Netlify scheduler tick, then verifies that recovery clears the claim,
+advances the session generation, and journals `not_dispatched` in that run's
+disposable database.
+
+The `Deploy hosts` workflow can opt into `exercise_chat_durability` for the
+`local` Netlify slot. It signs up a temporary `+autoz` account in that run's
+disposable database, installs the limited test key at that user's scope, and
+runs focused Chat reliability specs for busy POST attachment persistence, Stop,
+and mid-run reload against the dedicated
+`an-deploy-ci-netlify-local` test site before dropping the database. It does
+not use the Beta fleet or a shared database. The attachment case uses a
+reference-only URL to verify queued receipt and thread persistence; it does not
+exercise object-storage upload.
+
 It is sharded one host per runner. A page load against a beta host costs 1-2s
 from a laptop and 20-40s from a GitHub runner, because the fleet sits behind one
 CDN that throttles bursty datacenter traffic — on a single runner the sweep took

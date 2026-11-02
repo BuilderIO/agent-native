@@ -16,6 +16,7 @@ import {
   type Response,
 } from "@playwright/test";
 
+import { fingerprintAgentSubmissionAttachment } from "../../../packages/agentkit/src/protocol/submission-fingerprint.js";
 import { signedInContext } from "./authed";
 import { formatChatRequestDiagnostics, watchChatRequests } from "./chat";
 import {
@@ -1050,17 +1051,41 @@ export class ChatReliabilitySession {
     threadId: string;
     messageId: string;
     text: string;
+    attachment?: {
+      type: "file";
+      name: string;
+      mediaType: string;
+      url: string;
+      referenceOnly: true;
+    };
   }): Promise<void> {
+    const attachments = input.attachment ? [input.attachment] : undefined;
     const submissionPayload = {
       threadId: input.threadId,
       id: input.messageId,
       text: input.text,
+      ...(input.attachment
+        ? {
+            attachments: [
+              {
+                type: "file" as const,
+                name: input.attachment.name,
+                mediaType: input.attachment.mediaType,
+                fingerprint: fingerprintAgentSubmissionAttachment(
+                  input.attachment,
+                  "file",
+                ),
+              },
+            ],
+          }
+        : {}),
     };
     const requestBody = {
       message: input.text,
       threadId: input.threadId,
       turnId: `turn-${input.messageId}`,
       agentKitMessageId: input.messageId,
+      ...(attachments ? { attachments } : {}),
       submissionPayload,
     };
     const receiptPath = `${AGENT_CHAT_ROUTE}/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}/receipt`;
@@ -1085,14 +1110,31 @@ export class ChatReliabilitySession {
       const body = read.json as
         | {
             state?: unknown;
-            message?: { id?: unknown; threadId?: unknown; text?: unknown };
+            message?: {
+              id?: unknown;
+              threadId?: unknown;
+              text?: unknown;
+              attachments?: unknown;
+            };
           }
         | undefined;
+      const receivedAttachment = Array.isArray(body?.message?.attachments)
+        ? (body.message.attachments[0] as Record<string, unknown> | undefined)
+        : undefined;
+      const attachmentMatches =
+        !input.attachment ||
+        (body?.message?.attachments instanceof Array &&
+          body.message.attachments.length === 1 &&
+          receivedAttachment?.type === input.attachment.type &&
+          receivedAttachment.name === input.attachment.name &&
+          receivedAttachment.mediaType === input.attachment.mediaType &&
+          receivedAttachment.url === input.attachment.url);
       if (
         body?.state !== "queued" ||
         body.message?.id !== input.messageId ||
         body.message.threadId !== input.threadId ||
-        body.message.text !== input.text
+        body.message.text !== input.text ||
+        !attachmentMatches
       ) {
         throw new Error(
           `authenticated direct POST ${attempt} did not return the matching queued receipt`,
@@ -1244,6 +1286,28 @@ export class ChatReliabilitySession {
         return problems.length === 0
           ? null
           : `${problems.join("; ")} | ${describePersisted(view)}`;
+      },
+    );
+  }
+
+  async assertThreadAttachmentPersisted(input: {
+    name: string;
+    url: string;
+  }): Promise<void> {
+    const id = this.currentThreadId();
+    if (!id) throw new Error("no thread id is known for attachment proof");
+    await this.pollUntil(
+      `thread ${id} to retain attachment ${input.name}`,
+      30_000,
+      async () => {
+        const read = await this.apiGet(this.threadPath(id));
+        if (read.kind !== "response" || read.status !== 200) {
+          return `GET thread -> ${describeApi(read)}`;
+        }
+        const stored = JSON.stringify(read.json);
+        return stored.includes(input.name) && stored.includes(input.url)
+          ? null
+          : `stored thread does not retain attachment ${input.name} at ${input.url}`;
       },
     );
   }

@@ -21,8 +21,10 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  deleteClientAppState: () => Promise.resolve(),
   getBrowserTabId: () => "test-tab",
   useAvatarUrl: () => null,
+  writeClientAppState: () => Promise.resolve(null),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

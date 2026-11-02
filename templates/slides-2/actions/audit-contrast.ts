@@ -14,6 +14,7 @@ import {
   finalizeContrastAudit,
 } from "../shared/contrast-audit.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
 import {
   projectRenderingDesignSystemData,
@@ -57,7 +58,10 @@ export default defineAction({
         statusCode: 401,
       });
 
-    const data = JSON.parse(access.resource.data) as {
+    const data = withUniqueSlideIds(
+      deckId,
+      JSON.parse(access.resource.data),
+    ) as {
       tweaks?: unknown;
       aspectRatio?: string | null;
       slides?: Array<{

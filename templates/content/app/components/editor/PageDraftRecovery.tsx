@@ -57,6 +57,24 @@ function pageHoldsDraft(
   return draft.title === page.title && draft.content === page.content;
 }
 
+// A draft goes back onto the page as an edit of the page's body, so only while
+// the page still holds the body the draft was written on. The timestamp alone
+// cannot show that: a tab can stamp it from a copy that paired its body with
+// the timestamp of a body another writer saved.
+function draftWrittenOnPage(
+  draft: {
+    baseDocumentUpdatedAt: string | null;
+    baseContentHash?: string | null;
+  },
+  page: { updatedAt: string; contentHash?: string },
+): boolean {
+  return (
+    draft.baseDocumentUpdatedAt === page.updatedAt &&
+    !!draft.baseContentHash &&
+    draft.baseContentHash === page.contentHash
+  );
+}
+
 export function PageDraftRecovery({
   document,
   children,
@@ -69,6 +87,10 @@ export function PageDraftRecovery({
   const openAiWidget = isOpenAiMcpAppHost();
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const scopedWidgetReadOnly = document.mcpDirectoryWidgetReadOnly === true;
+  // A switched page's body is written through its live copy, and one body
+  // write from here would send it back to the legacy path. Its drafts go to
+  // History instead of being saved over the page.
+  const bodyWritesThroughLiveCopy = document.writePath === "live_copy";
   const skipDraftRecovery =
     openAiWidget ||
     scopedWidgetReadOnly ||
@@ -326,6 +348,9 @@ export function PageDraftRecovery({
                     journalSnapshot.baseContent === document.content
                       ? document.updatedAt
                       : null),
+                  // Bound for History: only a choice in the chooser puts it
+                  // back on the page.
+                  baseContentHash: null,
                   loadedContentWasEmpty: journalSnapshot.baseContent === "",
                   deferredReason: "conflict",
                 },
@@ -399,7 +424,7 @@ export function PageDraftRecovery({
         localChangedTitle &&
         document.title !== journalSnapshot.baseTitle &&
         document.title !== journalSnapshot.title;
-      if (!baseUpdatedAt || titleConflict) {
+      if (bodyWritesThroughLiveCopy || !baseUpdatedAt || titleConflict) {
         await promote();
         return;
       }
@@ -519,6 +544,7 @@ export function PageDraftRecovery({
       setJournalState("checking");
     })().catch(() => setJournalState("failed"));
   }, [
+    bodyWritesThroughLiveCopy,
     creationPending,
     document,
     draft,
@@ -764,7 +790,7 @@ export function PageDraftRecovery({
       void discardHeldDraft(draft);
       return;
     }
-    if (draft.baseDocumentUpdatedAt === document.updatedAt) {
+    if (!bodyWritesThroughLiveCopy && draftWrittenOnPage(draft, document)) {
       automaticRecoveryRef.current = attempt;
       void settleDraft(true);
       return;
@@ -792,6 +818,7 @@ export function PageDraftRecovery({
     automaticRecoveryRef.current = attempt;
     void resolveConflict("use_saved");
   }, [
+    bodyWritesThroughLiveCopy,
     busy,
     document,
     draft,
@@ -871,6 +898,19 @@ export function PageDraftRecovery({
         shape={readDocumentShapeHint(document)}
       />
     );
+  if (bodyWritesThroughLiveCopy)
+    return (
+      <QueryErrorState
+        onRetry={() => {
+          automaticRecoveryRef.current = null;
+          automaticLegacyRecoveryRef.current = null;
+          setFailure(null);
+          void queryClient.refetchQueries(documentQueryFilter(document.id));
+          void drafts.refetch();
+        }}
+        retrying={busy || drafts.isFetching}
+      />
+    );
   const savedVersion = conflictDocument ?? document;
   return (
     <RecoveryComparison
@@ -885,10 +925,7 @@ export function PageDraftRecovery({
       }
       onKeepMine={() => {
         if (documentBodyHydrationIsPending(document)) return;
-        if (
-          failure === "conflict" ||
-          draft.baseDocumentUpdatedAt !== document.updatedAt
-        )
+        if (failure === "conflict" || !draftWrittenOnPage(draft, document))
           void resolveConflict("keep_mine");
         else void settleDraft(true);
       }}

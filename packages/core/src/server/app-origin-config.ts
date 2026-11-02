@@ -1,6 +1,10 @@
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { safeJsonForHtml } from "../shared/agent-readable-resource.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
+import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
+  getFrameworkRoutePrefix,
+} from "./framework-route-prefix.js";
 
 function workspaceAppMountConfigFromJson(
   value: string | undefined,
@@ -64,8 +68,11 @@ export function resolvePublicAppOriginConfig(): {
   workspaceOAuthOrigin?: string;
   workspaceRuntime?: boolean;
   workspaceAppMountPaths?: string[];
+  frameworkRoutePrefix?: string;
+  explicitRootPath?: boolean;
 } | null {
   const config = getAppConfig();
+  const frameworkRoutePrefix = getFrameworkRoutePrefix();
   const workspaceRuntime =
     config.workspace.isWorkspace === true ||
     typeof config.workspace.appsJson === "string";
@@ -79,6 +86,11 @@ export function resolvePublicAppOriginConfig(): {
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
     (workspaceRuntime ? configuredWorkspaceAppPath : undefined);
+  const explicitRootPath =
+    workspaceAppMountConfig?.currentPath === "/" ||
+    (typeof config.app.basePath === "string" &&
+      config.app.basePath.trim().length > 0 &&
+      normalizeAppBasePath(config.app.basePath) === "");
   const resolved = {
     ...(config.app.id ? { appId: config.app.id } : {}),
     ...(config.app.workspaceId
@@ -96,6 +108,10 @@ export function resolvePublicAppOriginConfig(): {
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
     ...(workspaceAppMountConfig?.paths
       ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
+      : {}),
+    ...(explicitRootPath ? { explicitRootPath: true } : {}),
+    ...(frameworkRoutePrefix !== FRAMEWORK_INTERNAL_ROUTE_PREFIX
+      ? { frameworkRoutePrefix }
       : {}),
   };
   return Object.keys(resolved).length > 0 ? resolved : null;

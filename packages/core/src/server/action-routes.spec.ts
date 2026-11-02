@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { A2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import type { ActionRunContext } from "../action.js";
+import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AuthSession } from "./auth.js";
 import {
@@ -127,6 +128,8 @@ vi.mock("./action-change.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  hasForbiddenOrgScope: (event: { context?: Record<string, unknown> }) =>
+    event.context?.__anOrgScopeForbidden === true,
   hasOrgScopeResolutionUnavailable: (event: any) =>
     event.context?.__anOrgScopeResolutionUnavailable === true,
   resolveOrgIdForEmail: (...args: unknown[]) =>
@@ -6820,27 +6823,34 @@ describe("mountActionRoutes", () => {
     expect(received.requestContext.orgScope).toBe("personal");
   });
 
-  it("does not mark unavailable org resolution as personal scope", async () => {
+  it("does not execute an action when org resolution is unavailable", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
-    const { getRequestContext } = await import("./request-context.js");
     mockResolveOrgIdForEmail.mockResolvedValue(null);
     mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
-    const mounted: Array<{ path: string; handler: any }> = [];
-    const nitroApp = {
-      use: vi.fn((path: string, handler: any) =>
-        mounted.push({ path, handler }),
-      ),
+    type Event = {
+      _method: string;
+      _headers: Record<string, string>;
+      context: Record<string, unknown>;
+      req: { json: () => Promise<Record<string, unknown>> };
+      _status: number;
     };
-    let received: any;
+    const mounted: Array<{
+      path: string;
+      handler: (event: Event) => Promise<unknown>;
+    }> = [];
+    const nitroApp = {
+      use: (path: string, handler: (event: Event) => Promise<unknown>) =>
+        mounted.push({ path, handler }),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
     mountActionRoutes(
       nitroApp,
       {
-        "do-thing": {
-          run: vi.fn(async (_params, ctx) => {
-            received = { ctx, requestContext: getRequestContext() };
-            return { ok: true };
-          }),
-        } as any,
+        "do-thing": defineAction({
+          description: "Run a scoped test action.",
+          schema: z.object({}),
+          run,
+        }),
       },
       {
         getOwnerFromEvent: async () => "steve@example.com",
@@ -6848,16 +6858,81 @@ describe("mountActionRoutes", () => {
       },
     );
 
-    await mounted[0].handler({
+    const event: Event = {
       _method: "POST",
       _headers: { "x-agent-native-frontend": "1" },
       context: { __anOrgScopeResolutionUnavailable: true },
       req: { json: async () => ({}) },
-    });
+      _status: 200,
+    };
+    const result = await mounted[0].handler(event);
 
-    expect(received.ctx.orgId).toBeNull();
-    expect(received.requestContext.orgScope).toBeUndefined();
+    expect(event._status).toBe(503);
+    expect(result).toMatchObject({ error: expect.any(String) });
+    expect(run).not.toHaveBeenCalled();
   });
+
+  it.each(["unavailable marker", "setup timeout"])(
+    "allows a public read while organization setup is unavailable (%s)",
+    async (reason) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      type Event = {
+        _method: string;
+        _query: Record<string, string>;
+        context: Record<string, unknown>;
+        _status: number;
+      };
+      const mounted: Array<{
+        path: string;
+        handler: (event: Event) => Promise<unknown>;
+      }> = [];
+      const run = vi.fn(async () => ({ comments: [] }));
+      const action = defineAction({
+        description: "List public comments for a test resource.",
+        schema: z.object({
+          resourceType: z.string(),
+          resourceId: z.string(),
+        }),
+        requiresAuth: false,
+        readOnly: true,
+        http: { method: "GET" },
+        run,
+      });
+      mountActionRoutes(
+        {
+          use: (path: string, handler: (event: Event) => Promise<unknown>) =>
+            mounted.push({ path, handler }),
+        },
+        { "list-review-comments": action },
+        {
+          getOwnerFromEvent: async () => "invited@example.test",
+          resolveOrgId: async () => {
+            if (reason === "setup timeout")
+              throw Object.assign(new Error("setup in progress"), {
+                statusCode: 503,
+              });
+            return null;
+          },
+        },
+      );
+      const event: Event = {
+        _method: "GET",
+        _query: { resourceType: "document", resourceId: "public-doc" },
+        context: {
+          __anOrgScopeResolutionUnavailable: reason === "unavailable marker",
+        },
+        _status: 200,
+      };
+      const result = await mounted[0].handler(event);
+      expect(event._status).toBe(200);
+      expect(result).toEqual({ comments: [] });
+      expect(run).toHaveBeenCalledWith(
+        { resourceType: "document", resourceId: "public-doc" },
+        expect.anything(),
+      );
+      expect(mockResolveOrgScopeForEmail).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps an unresolved cookie scope unknown", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
@@ -7269,7 +7344,7 @@ describe("mountActionRoutes", () => {
 });
 
 describe("action boundary error classification", () => {
-  async function invoke(error: unknown) {
+  async function invoke(error: unknown, privateAction = false) {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { registerErrorCaptureProvider } = await import("./capture-error.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -7285,12 +7360,22 @@ describe("action boundary error classification", () => {
     );
     try {
       mountActionRoutes(nitroApp, {
-        "do-thing": {
-          run: vi.fn(async () => {
-            throw error;
-          }),
-          http: { method: "POST" as const },
-        } as any,
+        "do-thing": privateAction
+          ? (defineAction({
+              description: "Private action",
+              schema: z.object({}),
+              http: { method: "POST" },
+              persistInChatHistory: false,
+              run: async () => {
+                throw error;
+              },
+            }) as any)
+          : ({
+              run: vi.fn(async () => {
+                throw error;
+              }),
+              http: { method: "POST" as const },
+            } as any),
       });
       const event = { _method: "POST", req: { json: async () => ({}) } };
       const result = await mounted[0].handler(event);
@@ -7338,6 +7423,46 @@ describe("action boundary error classification", () => {
 
     expect(status).toBe(424);
     expect(result).toMatchObject({ errorCode: "llm_provider_missing" });
+    expect(captured).not.toHaveBeenCalled();
+  });
+
+  it("redacts unexpected private action errors from capture, counters and logs", async () => {
+    const sentinel = "private-action-error-sentinel";
+    const error = Object.assign(new Error(sentinel), { errorCode: sentinel });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockCountActionFailure.mockClear();
+    try {
+      const { status, result, captured } = await invoke(error, true);
+      expect(status).toBe(500);
+      expect(result).toEqual({ error: "Internal server error" });
+      expect(captured).toHaveBeenCalledOnce();
+      const [reported, context] = captured.mock.calls[0] as unknown as [
+        Error,
+        unknown,
+      ];
+      expect(
+        `${reported.message} ${reported.stack} ${JSON.stringify(context)}`,
+      ).not.toContain(sentinel);
+      expect(JSON.stringify(mockCountActionFailure.mock.calls)).not.toContain(
+        sentinel,
+      );
+      expect(JSON.stringify(logged.mock.calls)).not.toContain(sentinel);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it("keeps expected private errors available to the live caller", async () => {
+    const error = Object.assign(new Error("Private conflict"), {
+      expected: true,
+      errorCode: "private_conflict",
+    });
+    const { status, result, captured } = await invoke(error, true);
+    expect(status).toBe(409);
+    expect(result).toEqual({
+      error: "Private conflict",
+      errorCode: "private_conflict",
+    });
     expect(captured).not.toHaveBeenCalled();
   });
 
@@ -7438,11 +7563,16 @@ describe("action boundary error classification", () => {
 
   it("keeps an unclassified bare Error loud: 500 and captured", async () => {
     const error = new Error("Generation run not found.");
-    const { status, result, captured } = await invoke(error);
-
-    expect(status).toBe(500);
-    expect(result).toEqual({ error: "Internal server error" });
-    expect(captured).toHaveBeenCalledWith(error, expect.anything());
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { status, result, captured } = await invoke(error);
+      expect(status).toBe(500);
+      expect(result).toEqual({ error: "Internal server error" });
+      expect(captured).toHaveBeenCalledWith(error, expect.anything());
+      expect(JSON.stringify(logged.mock.calls)).toContain(error.message);
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it("keeps code-less LLM and credential bugs that are not a missing provider loud", async () => {

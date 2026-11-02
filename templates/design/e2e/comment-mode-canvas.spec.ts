@@ -97,7 +97,7 @@ test("comment mode keeps pan, hover and popover focus off the design below", asy
   await page.mouse.move(buttonCenter.x, buttonCenter.y);
   await expect.poll(() => highlightAligned(button)).toBe(true);
   await page.mouse.click(buttonCenter.x, buttonCenter.y);
-  const composer = page.locator('textarea[placeholder="Leave feedback…"]');
+  const composer = page.getByRole("textbox", { name: "Leave feedback…" });
   await expect(composer).toBeVisible();
   // A middle-button pan over the plane must leave the open composer focused.
   await expect(composer).toBeFocused();
@@ -168,10 +168,10 @@ test("a pin on a repeated instance stays on that instance when the canvas pans",
 
   const secondCenter = await center();
   await page.mouse.click(secondCenter.x, secondCenter.y);
-  const composer = page.locator('textarea[placeholder="Leave feedback…"]');
+  const composer = page.getByRole("textbox", { name: "Leave feedback…" });
   await composer.fill("Repeat check");
   await page
-    .locator('form:has(textarea[placeholder="Leave feedback…"])')
+    .locator('form:has([role="textbox"][aria-label="Leave feedback…"])')
     .first()
     .getByRole("button", { name: "Comment", exact: true })
     .click();

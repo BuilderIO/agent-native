@@ -4,8 +4,10 @@ import {
   bigQueryIdentityExclusionSql,
   bigQueryFirstTouchEventsCte,
   buildBigQueryEventStatsSql,
+  buildBigQueryCampaignFollowupSql,
   buildBigQueryFunnelDailySql,
   buildBigQueryPromptOutputSloSql,
+  buildBigQueryPromptOutputSloByDateSql,
   buildBigQueryTriageEventsSql,
   buildBigQueryUploadRejectionSql,
 } from "./warehouse-sql.ts";
@@ -45,6 +47,29 @@ describe("first-party BigQuery radar SQL", () => {
     );
   });
 
+  it("matches campaign recipients through a server-side HMAC function", () => {
+    const sql = buildBigQueryCampaignFollowupSql(
+      range,
+      "project_id.private.hmac_campaign_email",
+    );
+    expect(sql).toContain(
+      "FROM `project_id.analytics.events_raw_query_range`(@start_date, @end_date)",
+    );
+    expect(sql).toContain("e.event_date >= @start_date");
+    expect(sql).toContain("e.event_date <= @end_date");
+    expect(sql).toContain(
+      "`project_id.private.hmac_campaign_email`(lower(trim(e.identity_email))) = r.email_hash",
+    );
+    expect(sql).not.toContain("sha256(");
+    expect(sql).toContain("JSON_QUERY_ARRAY(@recipients_json)");
+    expect(sql).toContain("'prior_7_days'");
+    expect(sql).toContain("outage_recovery_20261026");
+    expect(sql).toContain("'deck_created'");
+    expect(sql).toContain("'design_ready_viewed'");
+    expect(sql).toContain("'recording_ready'");
+    expect(sql).not.toContain("identity_email, email_hash");
+  });
+
   it("bounds first-party reads to the partitioned table function and org", () => {
     const sql = bigQueryFirstTouchEventsCte(range);
     expect(sql).toContain(
@@ -74,6 +99,24 @@ describe("first-party BigQuery radar SQL", () => {
     expect(funnel).toContain("design_ready_viewed");
     expect(funnel).toContain("prompt_output_p90_seconds");
     expect(slo).toContain("percentile_cont(seconds, 0.9)");
+  });
+
+  it("can narrow historical event checks to their needed event names", () => {
+    const sql = buildBigQueryEventStatsSql(range, "HOUR", [
+      "signup",
+      "generation_started",
+    ]);
+    expect(sql).toContain("e.event_name IN ('signup', 'generation_started')");
+  });
+
+  it("computes hourly and daily distincts from one event scan", () => {
+    const sql = buildBigQueryEventStatsSql(range, "BOTH", ["signup"]);
+    expect(sql).toContain("GROUP BY GROUPING SETS");
+    expect(sql).toContain("GROUPING(hour_bucket)");
+    expect(sql).toContain("'daily', 'hourly') AS period_grain");
+    expect(sql).toContain("count(DISTINCT person_key) AS users");
+    expect(sql).toContain("count(DISTINCT session_id) AS sessions");
+    expect(sql).toContain("e.event_name IN ('signup')");
   });
 
   it("splits Design web and MCP signups and measures Clips 24-hour activation", () => {
@@ -118,11 +161,22 @@ describe("first-party BigQuery radar SQL", () => {
     );
     expect(upload).toContain("AS rejected_session_ids");
     expect(upload).toContain(
-      "SELECT app, reason, status, rejected_recorders, unidentified_rejections",
+      "SELECT event_date, app, reason, status, rejected_recorders, unidentified_rejections",
     );
+    expect(upload).toContain("GROUP BY event_date, app, reason, status");
     expect(upload).toContain("@start_date");
     expect(upload).toContain("@end_date");
     expect(upload).toContain("@org_id");
+  });
+
+  it("batches daily prompt/output SLOs across a bounded partition range", () => {
+    const slo = buildBigQueryPromptOutputSloByDateSql(range);
+    expect(slo).toContain("@source_start_date");
+    expect(slo).toContain("@source_end_date");
+    expect(slo).toContain("@target_start_date");
+    expect(slo).toContain("@target_end_date");
+    expect(slo).toContain("DATE_SUB(d.target_date, INTERVAL 6 DAY)");
+    expect(slo).toContain("DATE(o.happened_at, 'UTC') <= p.target_date");
   });
 
   it("bounds selected BigQuery triage sessions and excludes their identity fields", () => {

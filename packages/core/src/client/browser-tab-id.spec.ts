@@ -3,6 +3,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const STORAGE_KEY = "agent-native:browser-tab-id";
+const SHARED_STATE_KEY = Symbol.for("@agent-native/core/client/browser-tab-id");
+
+function resetSharedTabIds() {
+  delete (globalThis as typeof globalThis & Record<symbol, unknown>)[
+    SHARED_STATE_KEY
+  ];
+}
 
 async function loadTabId() {
   vi.resetModules();
@@ -21,9 +28,11 @@ describe("browser tab id", () => {
     vi.restoreAllMocks();
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/");
+    resetSharedTabIds();
   });
 
   afterEach(() => {
+    resetSharedTabIds();
     delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
       .__AGENT_NATIVE_CONFIG__;
     vi.unstubAllEnvs();
@@ -53,6 +62,16 @@ describe("browser tab id", () => {
 
     expect(getBrowserTabId()).not.toBe("original-tab");
     expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe(getBrowserTabId());
+  });
+
+  it("shares one id across duplicate Core modules in the same navigation", async () => {
+    stubNavigationType("navigate");
+
+    const first = await loadTabId();
+    const firstId = first.getBrowserTabId();
+    const second = await loadTabId();
+
+    expect(second.getBrowserTabId()).toBe(firstId);
   });
 
   it("does not reuse malformed stored ids", async () => {
@@ -119,5 +138,97 @@ describe("browser tab id", () => {
     const id = getBrowserTabId();
 
     expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/risk`)).toBe(id);
+  });
+
+  it("adopts an unresolved mount id into the first resolved workspace scope", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    window.history.replaceState({}, "", "/opening");
+
+    const { getBrowserTabId, isBrowserTabIdForCurrentDocument } =
+      await loadTabId();
+    const pendingId = getBrowserTabId();
+
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBeNull();
+
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe(pendingId);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(
+      pendingId,
+    );
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("keeps a known mount id when returning from an unresolved route", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail", "/calendar"],
+    };
+    window.history.replaceState({}, "", "/mail/inbox");
+    stubNavigationType("navigate");
+
+    const {
+      getBrowserTabId,
+      isBrowserTabIdForCurrentDocument,
+      resolveBrowserTabIdAlias,
+    } = await loadTabId();
+    const mailId = getBrowserTabId();
+
+    window.history.replaceState({}, "", "/opening");
+    const pendingId = getBrowserTabId();
+    expect(pendingId).not.toBe(mailId);
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe(mailId);
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+    expect(resolveBrowserTabIdAlias(pendingId)).toBe(mailId);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(mailId);
+
+    window.history.replaceState({}, "", "/calendar");
+    getBrowserTabId();
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    expect(resolveBrowserTabIdAlias(pendingId)).toBe(mailId);
+  });
+
+  it("reuses a stored mount id after a reload starts on an unresolved route", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail", "/calendar"],
+    };
+    window.sessionStorage.setItem(`${STORAGE_KEY}:/mail`, "stored-mail-id");
+    window.history.replaceState({}, "", "/opening");
+    stubNavigationType("reload");
+
+    const {
+      getBrowserTabId,
+      isBrowserTabIdForCurrentDocument,
+      resolveBrowserTabIdAlias,
+    } = await loadTabId();
+    const pendingId = getBrowserTabId();
+
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe("stored-mail-id");
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(
+      "stored-mail-id",
+    );
+
+    window.history.replaceState({}, "", "/calendar");
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    getBrowserTabId();
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    expect(resolveBrowserTabIdAlias(pendingId)).toBe("stored-mail-id");
   });
 });

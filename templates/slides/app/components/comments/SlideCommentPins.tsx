@@ -3,6 +3,12 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { commentExcerpt } from "@agent-native/core/review/plain-text";
+import {
+  CommentBody,
+  isComposingKey,
+  isCommentSendKey,
+} from "@agent-native/toolkit/app/review";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconCheck,
@@ -204,7 +210,7 @@ function CommentThreadPopover({
                 data-slide-comment-marker
                 data-thread-id={thread.threadId}
                 className="relative inline-flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full shadow-2xl shadow-black/35 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label={root.content}
+                aria-label={commentExcerpt(root.content)}
               >
                 <CommentAvatar
                   email={root.author_email}
@@ -317,7 +323,7 @@ function CommentThreadPopover({
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-64">
-        {root.content}
+        <CommentBody compact body={root.content} className="line-clamp-4" />
       </TooltipContent>
     </Tooltip>
   );
@@ -338,6 +344,8 @@ export function SlideCommentPins({
 }: SlideCommentPinsProps) {
   const t = useT();
   const createComment = useCreateSlideComment();
+  // Enter repeats while held, so send each comment once until it settles.
+  const submittingRef = useRef(false);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const [canvasRect, setCanvasRect] = useState<DOMRect | null>(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
@@ -528,12 +536,13 @@ export function SlideCommentPins({
 
   const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed || !pending || !deckId || createComment.isPending) return;
+    if (!trimmed || !pending || !deckId || submittingRef.current) return;
     if (pending.slideId !== slideId) {
       setPending(null);
       setText("");
       return;
     }
+    submittingRef.current = true;
     setError(null);
     try {
       await onBeforeCommentSubmit?.();
@@ -547,6 +556,8 @@ export function SlideCommentPins({
       setText("");
     } catch (err) {
       setError(actionErrorMessage(err) ?? t("comments.saveCommentFailed"));
+    } finally {
+      submittingRef.current = false;
     }
   };
 
@@ -723,16 +734,8 @@ export function SlideCommentPins({
                       if (error) setError(null);
                     }}
                     onKeyDown={(event) => {
-                      if (
-                        event.nativeEvent.isComposing ||
-                        event.nativeEvent.keyCode === 229
-                      ) {
-                        return;
-                      }
-                      if (
-                        event.key === "Enter" &&
-                        (event.metaKey || event.ctrlKey)
-                      ) {
+                      if (isComposingKey(event)) return;
+                      if (isCommentSendKey(event)) {
                         event.preventDefault();
                         void submit();
                       }

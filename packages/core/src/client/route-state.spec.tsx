@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
+  BrowserRouter,
   MemoryRouter,
   Route,
   Routes,
@@ -12,6 +13,7 @@ import {
 } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   useAgentRouteState,
   useSemanticNavigationState,
@@ -114,12 +116,13 @@ describe("route-state client helpers", () => {
     for (const container of containers) {
       container.remove();
     }
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
     Reflect.deleteProperty(document, "startViewTransition");
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: window,
     });
-    vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     expect(process.env.VITE_AGENT_NATIVE_WORKSPACE).toBe(originalWorkspaceEnv);
     expect(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON).toBe(
@@ -179,6 +182,63 @@ describe("route-state client helpers", () => {
       },
       "*",
     );
+  });
+
+  it("switches route-state keys when navigating between workspace mounts", async () => {
+    const { fetchMock, writes } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "risk", path: "/risk" },
+        { id: "chat", path: "/chat" },
+      ]),
+    );
+    window.history.replaceState(null, "", "/risk/register");
+    const moduleTabId = getBrowserTabId();
+    let navigate: ReturnType<typeof useNavigate> | undefined;
+
+    function Harness() {
+      navigate = useNavigate();
+      useAgentRouteState({
+        browserTabId: moduleTabId,
+        requestSource: moduleTabId,
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({ pathname }),
+        getCommandPath: () => null,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <BrowserRouter>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </BrowserRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+
+    await act(async () => {
+      void navigate?.("/chat/thread-1");
+      await flush();
+    });
+
+    const scopedNavigationKeys = Array.from(
+      new Set(
+        writes
+          .map((write) => write.key)
+          .filter((key) => key.startsWith("navigation:")),
+      ),
+    );
+    expect(scopedNavigationKeys).toHaveLength(2);
+    expect(scopedNavigationKeys[0]).not.toBe(scopedNavigationKeys[1]);
+    expect(writes.at(-1)?.init.headers).toMatchObject({
+      "X-Request-Source": scopedNavigationKeys[1]?.slice("navigation:".length),
+    });
   });
 
   it("writes semantic navigation state with request-source metadata", async () => {
@@ -385,6 +445,121 @@ describe("route-state client helpers", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
+  it("waits for a command-read gate before consuming navigation", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      "navigate:tab-1": { view: "detail", _writeId: "a" },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const beforeCommandRead = vi.fn(() => gate);
+    const commands: unknown[] = [];
+    function Harness() {
+      useSemanticNavigationState({
+        state: null,
+        commandKeys: ["navigate:tab-1"],
+        commandRefetchInterval: false,
+        beforeCommandRead,
+        onCommand: (command) => commands.push(command),
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(beforeCommandRead).toHaveBeenCalledTimes(1);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        batchedKeys(url)?.includes("navigate:tab-1"),
+      ),
+    ).toBe(false);
+    expect(commands).toEqual([]);
+    await act(async () => {
+      release();
+      await flush();
+      await flush();
+    });
+    expect(commands).toEqual([{ view: "detail", _writeId: "a" }]);
+  });
+
+  it("waits again before reading a fallback command key", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const beforeCommandRead = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementation(() => gate);
+    function Harness() {
+      useSemanticNavigationState({
+        state: null,
+        commandKeys: ["navigate:tab-1", "navigate"],
+        commandRefetchInterval: false,
+        beforeCommandRead,
+        onCommand: () => {},
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+    expect(beforeCommandRead).toHaveBeenCalledTimes(2);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        batchedKeys(url)?.includes("navigate"),
+      ),
+    ).toBe(false);
+    await act(async () => {
+      release();
+      await flush();
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        batchedKeys(url)?.includes("navigate"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not start a delayed command read after its observer unmounts", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    function Harness() {
+      useSemanticNavigationState({
+        state: null,
+        commandKeys: ["navigate:tab-1"],
+        commandRefetchInterval: false,
+        beforeCommandRead: () => gate,
+        onCommand: () => {},
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    containers.push(rendered.container);
+    await act(flush);
+    act(() => rendered.root.unmount());
+    await act(async () => {
+      release();
+      await flush();
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        batchedKeys(url)?.includes("navigate:tab-1"),
+      ),
+    ).toBe(false);
+  });
+
   it("reads the first available command key and deletes the consumed command", async () => {
     const { deletes, fetchMock } = makeAppStateFetch({
       "navigate:tab-1": { view: "thread", threadId: "thread-2", _writeId: "a" },
@@ -432,6 +607,45 @@ describe("route-state client helpers", () => {
     expect(
       fetchMock.mock.calls.some(([url]) => appStateKey(url) === "navigate"),
     ).toBe(false);
+  });
+
+  it("forwards the command-read gate through the route wrapper", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      "navigate:tab-1": { path: "/detail", _writeId: "a" },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    function Harness() {
+      const location = useLocation();
+      useAgentRouteState({
+        browserTabId: "tab-1",
+        refetchInterval: false,
+        beforeCommandRead: () => gate,
+        getNavigationState: () => ({ view: "inbox" }),
+        getCommandPath: (command: { path: string }) => command.path,
+      });
+      return <div>{location.pathname}</div>;
+    }
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(rendered.container.textContent).toBe("/");
+    await act(async () => {
+      release();
+      await flush();
+      await flush();
+    });
+    expect(rendered.container.textContent).toBe("/detail");
   });
 
   it("derives route state and applies navigate commands with React Router", async () => {

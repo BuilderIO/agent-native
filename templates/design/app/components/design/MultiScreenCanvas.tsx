@@ -127,7 +127,10 @@ import { getMarqueeScreenSelectionIds } from "@/pages/design-editor/selection-st
 
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { parseBreakpointWidthInput } from "./BreakpointBar";
-import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
+import {
+  isCanvasOverlayInteractionTarget,
+  isReviewForwardedWheel,
+} from "./canvas-interactions/review-overlay-interaction";
 import {
   canvasPrimitiveReactStyle,
   canvasVectorPaint,
@@ -503,6 +506,12 @@ export function isApplePlatform(): boolean {
 const PEN_CLOSE_HIT_RADIUS_SCREEN_PX = 10;
 const VECTOR_EDIT_HIT_RADIUS_SCREEN_PX = 8;
 
+import { GENERATED_FRAME_GAP } from "@shared/canvas-dimensions";
+
+import {
+  GeneratingScreenGhost,
+  useSettlingGenerationId,
+} from "./GeneratingScreenGhost";
 import {
   alignmentGuidesEqual,
   altHoverMeasurementEqual,
@@ -767,6 +776,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     reviewTargetId,
     reviewFocusRequest,
     reviewCurrentUserEmail,
+    onReviewActiveThreadChange,
     onExitReviewPinMode,
     onDispatchCommentToAgent,
     onSendThreadToAgent,
@@ -867,6 +877,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onBoardElementHover,
     onBoardElementClear,
     onBoardElementDblClickText,
+    onBoardFrameLabelRename,
     onBoardIframeHotkey,
     onBoardFigmaClipboardPaste,
     onBoardImagePaste,
@@ -887,6 +898,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onBoardTextContentChange,
   } = {},
   canvasBackground,
+  generatingDesignId = null,
+  activeDesignId = "",
   onDropFiles,
 }: MultiScreenCanvasGroupedProps) {
   const { resolvedTheme } = useTheme();
@@ -10810,7 +10823,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleWheelEvent = useCallback(
     (event: WheelEvent) => {
-      if (focusedInteractRef.current || !event.isTrusted) return;
+      if (
+        focusedInteractRef.current ||
+        (!event.isTrusted && !isReviewForwardedWheel(event))
+      ) {
+        return;
+      }
       invalidateSnapGesture();
       if (event.cancelable) event.preventDefault();
       event.stopPropagation();
@@ -10831,28 +10849,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
-    // The comment click plane is portaled to body, so wheels over it never reach the surface.
-    const handlePlaneWheel = (event: WheelEvent) => {
-      if (
-        event.target instanceof Element &&
-        event.target.closest("[data-review-click-plane]")
-      ) {
-        handleWheelEvent(event);
-      }
-    };
     surface.addEventListener("wheel", handleWheelEvent, {
-      capture: true,
-      passive: false,
-    });
-    document.addEventListener("wheel", handlePlaneWheel, {
       capture: true,
       passive: false,
     });
     return () => {
       surface.removeEventListener("wheel", handleWheelEvent, {
-        capture: true,
-      });
-      document.removeEventListener("wheel", handlePlaneWheel, {
         capture: true,
       });
     };
@@ -11288,6 +11290,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const scale = canvasZoom / 100;
   const chromeScale = scale > 0 ? 1 / scale : 1;
+  // Where a newly generated screen lands: right of the existing screens, the
+  // same gap `nextCanvasFramePosition` places it at.
+  const ghostDesignId = useSettlingGenerationId(
+    generatingDesignId,
+    activeDesignId,
+  );
+  const generatingScreenOrigin = useMemo(() => {
+    if (!ghostDesignId) return null;
+    const bounds = getFrameGroupBounds(
+      screens.map((screen, index) => ({
+        id: screen.id,
+        geometry:
+          frameGeometry[screen.id] ??
+          getInitialFrameGeometry(index, getResolvedMetadata(screen)),
+      })),
+    );
+    // Where `generate-design` saves a new screen: right of every frame, on
+    // the top row.
+    return { x: bounds ? bounds.right + GENERATED_FRAME_GAP : 0, y: 0 };
+  }, [frameGeometry, ghostDesignId, getResolvedMetadata, screens]);
   const showPixelGrid = pixelGridEnabled && canvasZoom >= PIXEL_GRID_ZOOM;
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);
   const lastTracedToolRef = useRef<string | null>(null);
@@ -12759,6 +12781,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   onTextContentChange={onBoardTextContentChange}
                   onTextEditingStateChange={handleBoardTextEditingStateChange}
                   onElementDblClickText={onBoardElementDblClickText}
+                  onFrameLabelRename={onBoardFrameLabelRename}
                   pinMode={reviewPinMode}
                   commentPinsHidden={reviewCommentsHidden}
                   onExitPinMode={onExitReviewPinMode}
@@ -12770,6 +12793,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   onReviewFocusBoardPoint={focusBoardReviewPoint}
                   reviewCurrentUserEmail={reviewCurrentUserEmail}
                   reviewFocusRequest={reviewFocusRequest}
+                  onReviewActiveThreadChange={onReviewActiveThreadChange}
                   onDispatchCommentToAgent={onDispatchCommentToAgent}
                   onSendThreadToAgent={onSendThreadToAgent}
                   reviewSendingThreadId={reviewSendingThreadId}
@@ -12812,6 +12836,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               canResolve={reviewCanResolve ?? false}
               currentUserEmail={reviewCurrentUserEmail}
               focusRequest={reviewFocusRequest}
+              onActiveThreadChange={onReviewActiveThreadChange}
               onFocusBoardPoint={focusBoardReviewPoint}
               onDispatchCommentToAgent={onDispatchCommentToAgent}
               onSendThreadToAgent={onSendThreadToAgent}
@@ -13438,6 +13463,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             }}
           />
         )
+      ) : null}
+
+      {ghostDesignId && generatingScreenOrigin ? (
+        <GeneratingScreenGhost
+          designId={ghostDesignId}
+          origin={generatingScreenOrigin}
+          pan={pan}
+          scale={scale}
+        />
       ) : null}
 
       {duplicatePreview ? (

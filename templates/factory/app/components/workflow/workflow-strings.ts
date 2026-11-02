@@ -135,9 +135,6 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
         t("workflows.toolbar.connectionsNeeded", { count }),
       connectionsListName: t("workflows.toolbar.connectionsListName"),
       jumpToProblem: t("workflows.toolbar.jumpToProblem"),
-      testRun: t("workflows.toolbar.testRun"),
-      testing: t("workflows.toolbar.testing"),
-      saveAndTest: t("workflows.toolbar.saveAndTest"),
       moreActions: t("workflows.toolbar.moreActions"),
       runNow: t("workflows.toolbar.runNow"),
       runNowSaveFirst: t("workflows.toolbar.runNowSaveFirst"),
@@ -212,6 +209,14 @@ export function createWorkflowStrings(t: Translate<NamespaceKey<"workflows">>) {
       body: t("workflows.leave.body"),
       stay: t("workflows.leave.stay"),
       discard: t("workflows.leave.discard"),
+    }),
+    draft: () => ({
+      restored: t("workflows.draft.restored"),
+      saveFailed: (reason: string) =>
+        t("workflows.draft.saveFailed", { reason }),
+      unreadable: t("workflows.draft.unreadable"),
+      discardFailed: (reason: string) =>
+        t("workflows.draft.discardFailed", { reason }),
     }),
     liveRun: () => ({
       dialogTitle: t("workflows.liveRun.dialogTitle"),

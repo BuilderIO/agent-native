@@ -49,23 +49,16 @@ import {
 import {
   IconAlignLeft,
   IconArrowLeft,
-  IconArrowDown,
-  IconArrowRight,
-  IconArrowUp,
-  IconArrowsSort,
   IconAt,
   IconCalendar,
   IconCheck,
   IconCircleChevronDown,
   IconCircleDotted,
   IconClockFilled,
-  IconCopy,
   IconDatabase,
   IconEdit,
-  IconEye,
   IconEyeOff,
   IconFileText,
-  IconFilter,
   IconGripVertical,
   IconHash,
   IconLink,
@@ -80,7 +73,6 @@ import {
   IconPlugConnected,
   IconSearch,
   IconSquareCheck,
-  IconTrash,
   IconUpload,
   IconX,
   IconUserCircle,
@@ -1762,13 +1754,11 @@ export function PropertyManagementPopover({
                   setView("edit");
                 }}
               >
-                <IconEdit className="mr-2 size-4 text-muted-foreground" />
                 {t("editor.properties.editField")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <IconFilter className="mr-2 size-4 text-muted-foreground" />
                   {t("database.filter")}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent
@@ -1790,7 +1780,6 @@ export function PropertyManagementPopover({
                         );
                       }}
                     >
-                      <IconFilter className="mr-2 size-4 text-muted-foreground" />
                       {quickFilter.label}
                     </DropdownMenuItem>
                   ))}
@@ -1806,7 +1795,6 @@ export function PropertyManagementPopover({
                         );
                       }}
                     >
-                      <IconX className="mr-2 size-4 text-muted-foreground" />
                       {t("editor.properties.clearFilters", {
                         count: columnFilterCount,
                       })}
@@ -1816,7 +1804,6 @@ export function PropertyManagementPopover({
               </DropdownMenuSub>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <IconArrowsSort className="mr-2 size-4 text-muted-foreground" />
                   {t("database.sort")}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent
@@ -1836,7 +1823,6 @@ export function PropertyManagementPopover({
                       );
                     }}
                   >
-                    <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
                     <span className="min-w-0 flex-1">
                       {t("database.sortAscending")}
                     </span>
@@ -1857,7 +1843,6 @@ export function PropertyManagementPopover({
                       );
                     }}
                   >
-                    <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
                     <span className="min-w-0 flex-1">
                       {t("database.sortDescending")}
                     </span>
@@ -1874,7 +1859,6 @@ export function PropertyManagementPopover({
                         );
                       }}
                     >
-                      <IconX className="mr-2 size-4 text-muted-foreground" />
                       {t("database.clearSort")}
                     </DropdownMenuItem>
                   ) : null}
@@ -1886,14 +1870,12 @@ export function PropertyManagementPopover({
                 disabled={!onMoveLeft}
                 onSelect={() => void onMoveLeft?.()}
               >
-                <IconArrowLeft className="mr-2 size-4 text-muted-foreground" />
                 {t("editor.properties.moveColumnLeft")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={!onMoveRight}
                 onSelect={() => void onMoveRight?.()}
               >
-                <IconArrowRight className="mr-2 size-4 text-muted-foreground" />
                 {t("editor.properties.moveColumnRight")}
               </DropdownMenuItem>
               {onHide ? (
@@ -1906,7 +1888,6 @@ export function PropertyManagementPopover({
                       void onHide();
                     }}
                   >
-                    <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
                     {t("database.hideInView")}
                   </DropdownMenuItem>
                 </>
@@ -1920,9 +1901,8 @@ export function PropertyManagementPopover({
                     event.preventDefault();
                     setView("quick");
                   }}
-                  className="gap-1.5 py-1 text-xs text-muted-foreground focus:text-foreground"
+                  className="text-muted-foreground focus:text-foreground"
                 >
-                  <IconArrowLeft className="size-3.5" />
                   {t("editor.properties.backToColumnMenu")}
                 </DropdownMenuItem>
               ) : null}
@@ -1994,7 +1974,6 @@ export function PropertyManagementPopover({
                       propertyType !== "relation" ||
                       property.definition.type === "relation",
                   ).map((propertyType) => {
-                    const TypeIcon = TYPE_ICONS[propertyType];
                     const selected = property.definition.type === propertyType;
                     const disabled = typeIsLocked && !selected;
                     return (
@@ -2006,7 +1985,6 @@ export function PropertyManagementPopover({
                           void updateType(propertyType);
                         }}
                       >
-                        <TypeIcon className="mr-2 size-4 text-muted-foreground" />
                         <span className="flex-1">
                           {t(`editor.propertyTypes.${propertyType}`)}
                         </span>
@@ -2021,7 +1999,6 @@ export function PropertyManagementPopover({
 
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <IconEye className="mr-2 size-4 text-muted-foreground" />
                   <span className="flex-1">
                     {t("editor.properties.visibility")}
                   </span>
@@ -2162,8 +2139,7 @@ export function PropertyManagementPopover({
                     )}
                     {bindableSourceFields.length > 0 ? (
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="mt-0.5 rounded px-1.5 py-1 text-xs">
-                          <IconPlus className="mr-1.5 size-3.5 text-muted-foreground" />
+                        <DropdownMenuSubTrigger className="mt-0.5">
                           {t("database.bindAFieldFromASource")}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent
@@ -2184,7 +2160,6 @@ export function PropertyManagementPopover({
                                   });
                                 }}
                               >
-                                <IconLink className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
                                 <span className="min-w-0 flex-1 truncate">
                                   {field.sourceFieldLabel}
                                 </span>
@@ -2237,7 +2212,6 @@ export function PropertyManagementPopover({
                   void duplicateProperty();
                 }}
               >
-                <IconCopy className="mr-2 size-4 text-muted-foreground" />
                 {t("editor.properties.duplicateProperty")}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -2249,7 +2223,6 @@ export function PropertyManagementPopover({
                   setConfirmDeleteOpen(true);
                 }}
               >
-                <IconTrash className="mr-2 size-4" />
                 {t("editor.properties.deleteProperty")}
               </DropdownMenuItem>
             </>

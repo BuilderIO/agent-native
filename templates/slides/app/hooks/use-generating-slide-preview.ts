@@ -1,92 +1,206 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  DRAFT_FINISH_MS,
+  isJsonStringComplete,
+  readJsonPath,
+  useStreamingToolInputs,
+  type PartialJson,
+} from "@agent-native/core/client/generation-stream";
+import { useEffect, useState } from "react";
 
-import { parsePartialAddSlideInput } from "@/lib/streaming-slide-html";
+/**
+ * How long a finished slide stays in the preview after its call lands, so the
+ * last content streamed into it finishes drafting before the saved slide
+ * replaces it.
+ */
+export const GENERATED_SLIDE_SETTLE_MS = DRAFT_FINISH_MS;
 
-interface ToolInputEventDetail {
-  phase?: "start" | "delta";
-  tool?: string;
-  id?: string;
-  argsText?: string;
+/** A failed write stays on screen long enough to read. */
+const FAILED_SLIDE_HOLD_MS = 5000;
+
+export interface GeneratingSlidePreviewContent {
+  key: string;
+  content: string;
+  failed: boolean;
+  /** The call has landed; the preview is finishing its draft. */
+  settling: boolean;
 }
 
-export function useGeneratingSlidePreview({
+export interface GeneratingSlidePreviews {
+  /** Slides the agent is writing, in deck order, as they stream in. */
+  slides: GeneratingSlidePreviewContent[];
+  /** These slides replace the whole deck (a `create-deck` call). */
+  replacesDeck: boolean;
+  /**
+   * The first call behind `slides`, known as soon as it parses, before any
+   * of its slides has content or lands.
+   */
+  callKey: string | null;
+}
+
+const NO_PREVIEWS: GeneratingSlidePreviews = {
+  slides: [],
+  replacesDeck: false,
+  callKey: null,
+};
+
+function slideContents(input: PartialJson, tool: string): string[] | null {
+  if (tool === "add-slide") {
+    const content = readJsonPath(input.value, ["content"]);
+    return typeof content === "string" && content ? [content] : null;
+  }
+  const slides = readJsonPath(input.value, ["slides"]);
+  if (!Array.isArray(slides)) return null;
+  const contents: string[] = [];
+  for (const slide of slides) {
+    const content = readJsonPath(slide, ["content"]);
+    if (typeof content !== "string" || !content) break;
+    contents.push(content);
+  }
+  return contents.length > 0 ? contents : null;
+}
+
+/**
+ * The slides the agent's `create-deck` and `add-slide` calls have streamed so
+ * far. Each slide shows as soon as its content starts streaming, and a
+ * call's slides stay until it has landed and their last content has drafted.
+ */
+export function useGeneratingSlidePreviews({
   deckId,
-  slideCount,
   generating,
 }: {
   deckId: string;
-  slideCount: number;
   generating: boolean;
-}): string | null {
-  const [content, setContent] = useState<string | null>(null);
-  const activeCallIdRef = useRef<string | null>(null);
-  const previousSlideCountRef = useRef(slideCount);
-  const pendingContentRef = useRef<string | null>(null);
-  const rafIdRef = useRef<number | null>(null);
+}): GeneratingSlidePreviews {
+  // Subscribed while the deck is open, not only while the run is: a slide
+  // that lands as the run ends still has its settle (or failure) hold to show.
+  const calls = useStreamingToolInputs<string[]>({
+    tools: ["create-deck", "add-slide"],
+    enabled: !!deckId,
+    scope: deckId,
+    matches: (input) =>
+      isJsonStringComplete(input, ["deckId"])
+        ? readJsonPath(input.value, ["deckId"]) === deckId
+        : undefined,
+    select: slideContents,
+  });
+  const keyed = calls.map((call) => {
+    const callKey = call.key;
+    return {
+      ...call,
+      callKey,
+      slides: call.value.map((content, index) => ({
+        key: `${callKey}:${index}`,
+        content,
+      })),
+    };
+  });
 
-  useEffect(() => {
-    if (slideCount !== previousSlideCountRef.current) {
-      previousSlideCountRef.current = slideCount;
-      activeCallIdRef.current = null;
-      setContent(null);
+  // A call still streaming when the run ends was cut off, not finished.
+  const [abandoned, setAbandoned] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [wasGenerating, setWasGenerating] = useState(generating);
+  let nextAbandoned = abandoned;
+  if (wasGenerating !== generating) {
+    setWasGenerating(generating);
+    const cutOff = keyed.filter((call) => call.status === "streaming");
+    if (!generating && cutOff.length > 0) {
+      nextAbandoned = new Set([
+        ...nextAbandoned,
+        ...cutOff.map((call) => call.callKey),
+      ]);
     }
-  }, [slideCount]);
+  }
+  // Calls the stream hook has evicted take their abandoned mark with them.
+  const liveCallKeys = new Set(keyed.map((call) => call.callKey));
+  if ([...nextAbandoned].some((key) => !liveCallKeys.has(key))) {
+    nextAbandoned = new Set(
+      [...nextAbandoned].filter((key) => liveCallKeys.has(key)),
+    );
+  }
+  if (nextAbandoned !== abandoned) setAbandoned(nextAbandoned);
 
+  // When each call landed; a landed call stays while its last content drafts.
+  const [landedAt, setLandedAt] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
+  const [now, setNow] = useState(() => performance.now());
+  const landedKey = keyed
+    .map((call) => `${call.status === "streaming" ? "" : "!"}${call.callKey}`)
+    .join("\n");
   useEffect(() => {
-    if (!generating) {
-      activeCallIdRef.current = null;
-      setContent(null);
-      return;
-    }
-
-    const flush = () => {
-      rafIdRef.current = null;
-      setContent(pendingContentRef.current);
-    };
-
-    const scheduleFlush = (value: string | null) => {
-      pendingContentRef.current = value;
-      if (rafIdRef.current === null) {
-        rafIdRef.current = requestAnimationFrame(flush);
+    const at = performance.now();
+    setNow(at);
+    setLandedAt((current) => {
+      let next: Map<string, number> | null = null;
+      const live = new Set<string>();
+      for (const line of landedKey ? landedKey.split("\n") : []) {
+        const landed = line.startsWith("!");
+        const key = landed ? line.slice(1) : line;
+        live.add(key);
+        if (landed && !current.has(key)) {
+          next ??= new Map(current);
+          next.set(key, at);
+        }
       }
-    };
-
-    const handleToolInput = (event: Event) => {
-      const detail = (event as CustomEvent<ToolInputEventDetail>).detail;
-      if (detail?.tool !== "add-slide") return;
-
-      const parsed = parsePartialAddSlideInput(detail.argsText ?? "");
-      if (parsed.deckId && parsed.deckId !== deckId) return;
-
-      if (detail.phase === "start") {
-        if (detail.id && activeCallIdRef.current === detail.id) return;
-        activeCallIdRef.current = detail.id ?? null;
-        scheduleFlush(null);
-        return;
+      // Calls the stream hook retired take their landing time with them.
+      for (const key of (next ?? current).keys()) {
+        if (live.has(key)) continue;
+        next ??= new Map(current);
+        next.delete(key);
       }
+      return next ?? current;
+    });
+  }, [landedKey]);
 
-      if (
-        detail.id &&
-        activeCallIdRef.current &&
-        detail.id !== activeCallIdRef.current
-      ) {
-        return;
-      }
-      if (detail.id) activeCallIdRef.current = detail.id;
-      if (parsed.content !== undefined) {
-        scheduleFlush(parsed.content || null);
-      }
-    };
+  const finishedAt = keyed.map((call) => {
+    if (abandoned.has(call.callKey)) return Number.NEGATIVE_INFINITY;
+    const landed = landedAt.get(call.callKey);
+    if (landed === undefined) return null;
+    return (
+      landed +
+      (call.status === "failed"
+        ? FAILED_SLIDE_HOLD_MS
+        : GENERATED_SLIDE_SETTLE_MS)
+    );
+  });
+  const firstActive = finishedAt.findIndex(
+    (finished) => finished === null || finished > now,
+  );
 
-    window.addEventListener("agent-native:tool-input", handleToolInput);
-    return () => {
-      window.removeEventListener("agent-native:tool-input", handleToolInput);
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-    };
-  }, [deckId, generating]);
+  const wakeAt = finishedAt.reduce<number | null>(
+    (soonest, finished) =>
+      finished !== null && finished > now
+        ? soonest === null
+          ? finished
+          : Math.min(soonest, finished)
+        : soonest,
+    null,
+  );
+  useEffect(() => {
+    if (wakeAt === null) return;
+    const timer = window.setTimeout(
+      () => setNow(performance.now()),
+      Math.max(0, wakeAt - performance.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [wakeAt]);
 
-  return content;
+  if (firstActive === -1) return NO_PREVIEWS;
+  const shown = keyed
+    .slice(firstActive)
+    .filter((call) => !abandoned.has(call.callKey));
+  const slides = shown.flatMap((call) =>
+    call.slides.map(({ key, content }) => ({
+      key,
+      content,
+      failed: call.status === "failed",
+      settling: call.status === "done",
+    })),
+  );
+  return {
+    slides,
+    replacesDeck: shown.some((call) => call.tool === "create-deck"),
+    callKey: shown.at(0)?.callKey ?? null,
+  };
 }

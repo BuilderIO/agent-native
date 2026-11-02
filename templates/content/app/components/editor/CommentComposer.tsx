@@ -777,7 +777,7 @@ export const CommentComposer = forwardRef<
         layoutVariant="compact"
         toolbarSlot={toolbar}
         actionButton={
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="ms-auto flex shrink-0 items-center gap-1">
             {onCancel && expanded ? (
               <button
                 type="button"

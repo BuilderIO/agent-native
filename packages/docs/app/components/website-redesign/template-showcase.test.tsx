@@ -11,9 +11,9 @@ import { TemplateShowcase } from "./template-showcase";
 const EXPECTED_APP_HREFS = [
   "/apps/design/",
   "/apps/slides/",
+  "/apps/clips/",
   "/apps/analytics/",
   "/apps/calendar/",
-  "/apps/clips/",
   "/apps/mail/",
   "/apps/assets/",
   "/apps/content/",

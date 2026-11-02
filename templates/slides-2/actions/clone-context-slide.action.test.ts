@@ -177,6 +177,25 @@ describe("clone-context-slide pack integration", () => {
     mocks.deriveContextPack.mockResolvedValue({ id: "pack-derived" });
   });
 
+  it("refuses a slideId the deck already uses, leaving the deck unchanged", async () => {
+    mocks.updatedDeck = {
+      appId: "slides-2",
+      slides: [{ id: "slide-clone", content: "<p>kept</p>" }],
+    };
+    const before = JSON.stringify(mocks.updatedDeck);
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        itemId: "item-root",
+        itemVersionId: "version-root",
+        slideId: "slide-clone",
+      }),
+    ).rejects.toThrow("Slide slide-clone already exists in deck deck-1");
+    expect(JSON.stringify(mocks.updatedDeck)).toBe(before);
+    expect(mocks.notifyClients).not.toHaveBeenCalled();
+  });
+
   it("enforces the Labs gate before reading library code", async () => {
     mocks.assertCreativeContextLabEnabled.mockRejectedValue(
       new Error("Creative Context is disabled in Labs"),

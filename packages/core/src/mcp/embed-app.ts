@@ -4,6 +4,11 @@ import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
 } from "../shared/mcp-app-display.js";
+import {
+  EMBED_TOKEN_STORAGE_KEY,
+  MCP_CHAT_BRIDGE_STORAGE_KEY,
+  resolveMcpAppEmbedBasePath,
+} from "../shared/mcp-app-widget-embed.js";
 import { EXTERNAL_EMBED_WINDOW_KEY } from "../shared/route-chunk-recovery-bootstrap.js";
 import { HIDDEN_EMBED_URL } from "./embed-redaction.js";
 
@@ -686,7 +691,28 @@ export function embedApp(
       );
     }
 
-    function embedConfigForAppUrl(appUrl) {
+    function appOriginConfigForDocument(parsed) {
+      const script = parsed.querySelector("script[data-agent-native-app-origin-config]");
+      if (!script) return {};
+      const source = script.textContent || "";
+      const prefix = "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,";
+      const suffix = ");";
+      if (!source.startsWith(prefix) || !source.endsWith(suffix)) {
+        throw new Error("Embedded app origin config is malformed.");
+      }
+      let appConfig;
+      try {
+        appConfig = JSON.parse(source.slice(prefix.length, -suffix.length));
+      } catch (_err) {
+        throw new Error("Embedded app origin config is not valid JSON.");
+      }
+      if (!appConfig || typeof appConfig !== "object" || Array.isArray(appConfig)) {
+        throw new Error("Embedded app origin config must be an object.");
+      }
+      return appConfig;
+    }
+
+    function embedConfigForAppUrl(appUrl, appConfig) {
       const sanitizedTarget = localPathFromUrl(appUrl, false);
       return {
         origin: appUrl.origin,
@@ -697,7 +723,8 @@ export function embedApp(
         chatBridgeActive: appUrl.searchParams.get(chatBridgeParam) === "1",
         chatBridgeParam,
         embedTokenParam: "__an_embed_token",
-        embedTargetHeader: "x-agent-native-embed-target"
+        embedTargetHeader: "x-agent-native-embed-target",
+        appConfig
       };
     }
 
@@ -766,27 +793,108 @@ export function embedApp(
           window.history.replaceState(window.history.state, "", config.target);
         }
       } catch (_err) {}
+      // Keep transplanted auth storage on the same mount resolver as its reader.
+      var resolveMcpAppEmbedBasePath = ${resolveMcpAppEmbedBasePath.toString()};
+      function activeConfig() {
+        return window[${JSON.stringify(EXTERNAL_EMBED_WINDOW_KEY)}] || config;
+      }
+      function workspaceMountOptions(active) {
+        var appConfig = active.appConfig || {};
+        return {
+          workspaceRuntime: true,
+          routerBasePath: window.__reactRouterContext && window.__reactRouterContext.basename,
+          workspaceAppPath: appConfig.workspaceAppPath,
+          workspaceAppMountPaths: appConfig.workspaceAppMountPaths,
+          explicitRootPath: appConfig.explicitRootPath === true,
+          frameworkRoutePrefix: appConfig.frameworkRoutePrefix
+        };
+      }
+      function embedStorageKey(key) {
+        var active = activeConfig();
+        var appConfig = active.appConfig || {};
+        if (appConfig.workspaceRuntime !== true) return key;
+        var basePath = resolveMcpAppEmbedBasePath(
+          "external-target",
+          active.target || location.pathname,
+          workspaceMountOptions(active)
+        );
+        if (typeof basePath !== "string") return undefined;
+        return key + ":" + (basePath || "/");
+      }
       try {
         if (config.token) {
-          sessionStorage.setItem("agent-native:embed-auth-token", config.token);
+          var tokenStorageKey = embedStorageKey(${JSON.stringify(EMBED_TOKEN_STORAGE_KEY)});
+          if (tokenStorageKey) sessionStorage.setItem(tokenStorageKey, config.token);
         }
         if (config.chatBridgeActive && config.token) {
-          sessionStorage.setItem("agent-native:mcp-chat-bridge", config.token);
+          var bridgeStorageKey = embedStorageKey(${JSON.stringify(MCP_CHAT_BRIDGE_STORAGE_KEY)});
+          if (bridgeStorageKey) sessionStorage.setItem(bridgeStorageKey, config.token);
         }
       } catch (_err) {}
       if (window.__agentNativeExternalEmbedRuntimeInstalled) return;
       window.__agentNativeExternalEmbedRuntimeInstalled = true;
       function appOrigin() {
         try {
-          return new URL(config.origin).origin;
+          return new URL(activeConfig().origin).origin;
         } catch (_err) {
           return "";
         }
       }
       function targetPath() {
-        return config.target || location.pathname + location.search;
+        var active = activeConfig();
+        return active.target || location.pathname + location.search;
+      }
+      function authorizedTargetPath() {
+        var active = activeConfig();
+        var appConfig = active.appConfig || {};
+        var target = targetPath();
+        if (appConfig.workspaceRuntime !== true) return target;
+        var options = workspaceMountOptions(active);
+        var targetMount = resolveMcpAppEmbedBasePath(
+          "external-target",
+          active.target || location.pathname,
+          options
+        );
+        var currentMount = resolveMcpAppEmbedBasePath(
+          "workspace-path",
+          location.pathname,
+          Object.assign({}, options, { preferDeclaredMounts: true })
+        );
+        if (typeof targetMount !== "string" || targetMount !== currentMount) {
+          return null;
+        }
+        return target;
+      }
+      function requestBelongsToTargetMount(value, target) {
+        var active = activeConfig();
+        var appConfig = active.appConfig || {};
+        if (appConfig.workspaceRuntime !== true) return true;
+        var options = workspaceMountOptions(active);
+        var targetMount = resolveMcpAppEmbedBasePath(
+          "external-target",
+          target,
+          options
+        );
+        if (typeof targetMount !== "string") return false;
+        var parsedUrl;
+        try {
+          parsedUrl = { url: new URL(value, location.href) };
+        } catch (error) {
+          parsedUrl = { error: error };
+        }
+        if (!("url" in parsedUrl)) return false;
+        var url = parsedUrl.url;
+        const origin = appOrigin();
+        if (url.origin !== location.origin && url.origin !== origin) return false;
+        var requestMount = resolveMcpAppEmbedBasePath(
+          "workspace-path",
+          url.pathname,
+          Object.assign({}, options, { preferDeclaredMounts: true })
+        );
+        return typeof requestMount === "string" && requestMount === targetMount;
       }
       function rewrittenUrl(value, appendToken) {
+        var active = activeConfig();
         const origin = appOrigin();
         if (!origin) return null;
         let url;
@@ -801,20 +909,49 @@ export function embedApp(
           url.protocol = app.protocol;
           url.host = app.host;
         }
-        if (appendToken && config.token && url.pathname === "/_agent-native/events") {
-          url.searchParams.set(config.embedTokenParam, config.token);
+        const appConfig = active.appConfig || {};
+        var frameworkRoutePrefix = appConfig.frameworkRoutePrefix || "/_agent-native";
+        if (frameworkRoutePrefix.endsWith("/")) {
+          frameworkRoutePrefix = frameworkRoutePrefix.slice(0, -1);
+        }
+        const eventsPath = frameworkRoutePrefix + "/events";
+        const authorizedTarget = authorizedTargetPath();
+        if (
+          appendToken &&
+          authorizedTarget !== null &&
+          requestBelongsToTargetMount(value, authorizedTarget) &&
+          active.token &&
+          url.pathname.endsWith(eventsPath)
+        ) {
+          url.searchParams.set(active.embedTokenParam, active.token);
         }
         return url.toString();
       }
       function authHeaders(input, init) {
+        var active = activeConfig();
+        var authorizedTarget = authorizedTargetPath();
+        var requestUrl = input instanceof Request ? input.url : input;
+        if (
+          authorizedTarget !== null &&
+          !requestBelongsToTargetMount(requestUrl, authorizedTarget)
+        ) {
+          authorizedTarget = null;
+        }
         const headers = new Headers(
           init && init.headers ? init.headers : input instanceof Request ? input.headers : undefined
         );
-        if (config.token && !headers.has("Authorization")) {
-          headers.set("Authorization", "Bearer " + config.token);
+        if (
+          authorizedTarget !== null &&
+          active.token &&
+          !headers.has("Authorization")
+        ) {
+          headers.set("Authorization", "Bearer " + active.token);
         }
-        if (!headers.has(config.embedTargetHeader)) {
-          headers.set(config.embedTargetHeader, targetPath());
+        if (
+          authorizedTarget !== null &&
+          !headers.has(active.embedTargetHeader)
+        ) {
+          headers.set(active.embedTargetHeader, authorizedTarget);
         }
         return headers;
       }
@@ -840,6 +977,7 @@ export function embedApp(
         XMLHttpRequest.prototype.open = function(method, url) {
           const rewritten = rewrittenUrl(url, false);
           this.__agentNativeExternalEmbed = !!rewritten;
+          this.__agentNativeExternalEmbedUrl = url;
           return originalOpen.call(
             this,
             method,
@@ -852,8 +990,20 @@ export function embedApp(
         XMLHttpRequest.prototype.send = function(body) {
           if (this.__agentNativeExternalEmbed) {
             try {
-              if (config.token) this.setRequestHeader("Authorization", "Bearer " + config.token);
-              this.setRequestHeader(config.embedTargetHeader, targetPath());
+              var active = activeConfig();
+              var authorizedTarget = authorizedTargetPath();
+              if (
+                authorizedTarget !== null &&
+                requestBelongsToTargetMount(
+                  this.__agentNativeExternalEmbedUrl,
+                  authorizedTarget
+                )
+              ) {
+                if (active.token) {
+                  this.setRequestHeader("Authorization", "Bearer " + active.token);
+                }
+                this.setRequestHeader(active.embedTargetHeader, authorizedTarget);
+              }
             } catch (_err) {}
           }
           return originalSend.call(this, body);
@@ -1086,12 +1236,15 @@ export function embedApp(
     }
 
     async function mountTransplantedHtml(html, appUrl) {
-      const config = embedConfigForAppUrl(appUrl);
-      installExternalEmbedRuntime(config);
       const parsed = new DOMParser().parseFromString(
         rewriteRootRelativeHtmlUrls(removeHtmlCspMeta(html), appUrl.origin),
         "text/html"
       );
+      const config = embedConfigForAppUrl(
+        appUrl,
+        appOriginConfigForDocument(parsed)
+      );
+      installExternalEmbedRuntime(config);
       const scripts = Array.from(parsed.querySelectorAll("script"));
       copyDocumentElementAttributes(parsed.documentElement);
       importHeadChildrenWithBase(parsed.head, config.baseHref);

@@ -1,3 +1,7 @@
+import {
+  actionCallIntent,
+  preparedCallNeedsApproval,
+} from "@agent-native/core/action";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/server", () => ({
@@ -37,6 +41,42 @@ vi.mock("../server/lib/design-snapshot.js", () => ({
 import action from "./export-coding-handoff.js";
 
 describe("export-coding-handoff", () => {
+  it("requires approval for outside calls while preserving ordinary in-app tools", async () => {
+    const call = await actionCallIntent(action, { id: "design-test" });
+    if (!call.valid) throw call.error;
+    for (const [ctx, expected] of [
+      [{ caller: "frontend" }, false],
+      [{ caller: "tool" }, false],
+      [{ caller: "http" }, true],
+      [{ caller: "cli" }, true],
+      [{ caller: "mcp-widget" }, true],
+      [{ caller: "mcp-widget-write" }, true],
+      [{ caller: "automation" }, true],
+      [{ caller: "mcp" }, true],
+      [{ caller: "webmcp" }, true],
+      [{ caller: "a2a" }, true],
+      [{ caller: "tool", networkProtocol: "mcp" }, true],
+      [{ caller: "tool", networkProtocol: "a2a" }, true],
+      [{ caller: "tool", networkProtocol: "provider-api" }, true],
+      [
+        {
+          caller: "tool",
+          automation: {
+            triggerId: "trigger-test",
+            triggerName: "Test automation",
+            policyId: "policy-test",
+          },
+        },
+        true,
+      ],
+    ] as const) {
+      expect(
+        await preparedCallNeedsApproval(action, call, ctx),
+        JSON.stringify(ctx),
+      ).toBe(expected);
+    }
+  });
+
   it("is available in the compact MCP Apps catalog", () => {
     expect(action.mcpApp?.compactCatalog).toBe(true);
     expect(action.mcpApp?.resource.title).toBe("Design agent handoff");

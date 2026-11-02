@@ -284,6 +284,49 @@ describe("parseJourneyEventRow", () => {
 });
 
 describe("partitionOnboardingJourneyCohorts", () => {
+  it.each([
+    ["first_run_builder_credits", "credits", ["both-ids", "legacy-only"]],
+    ["first_run_builder_credits_v2", "control", ["both-ids", "v2-only"]],
+  ] as const)(
+    "matches only the requested experiment ID %s",
+    (experimentId, expectedArm, expectedSessions) => {
+      const rows = [
+        cohortEvent("legacy-only", "onboarding_experiment_exposed", 1, {
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "credits",
+        }),
+        cohortEvent("v2-only", "onboarding_experiment_exposed", 1, {
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "control",
+        }),
+        cohortEvent("both-ids", "onboarding_experiment_exposed", 1, {
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "credits",
+        }),
+        cohortEvent("both-ids", "onboarding_experiment_exposed", 2, {
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "control",
+        }),
+      ];
+
+      const partition = partitionOnboardingJourneyCohorts(rows, {
+        experimentId,
+      });
+
+      expect(partition.experiment).toMatchObject({
+        assignedSessions: 2,
+        exposureSessions: 2,
+        unassignedSessions: 1,
+        conflictingSessions: 0,
+      });
+      expect([...partition.experiment!.arms[expectedArm]].sort()).toEqual(
+        expectedSessions,
+      );
+      const otherArm = expectedArm === "control" ? "credits" : "control";
+      expect([...partition.experiment!.arms[otherArm]]).toEqual([]);
+    },
+  );
+
   it("assigns only exposure events and crosses Design first-touch trees with each arm", () => {
     const rows = [
       cohortEvent("web-control", "signup", 0, {

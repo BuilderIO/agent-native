@@ -118,11 +118,10 @@ description: "프레임워크에 내장된 익숙하고 일관된 공유 기능�
 
 모든 공유 가능한 리소스에는 헤더에 공유 버튼이 있습니다. 클릭하면 다음과 같이 버튼(모달 아님)에 고정된 팝오버가 열립니다.
 
-- 가시성 선택기(`Private` / `Organization` / `Public link`).
-- "사람 또는 팀 추가" 자동 완성 — 조직에서 사용자를 검색하거나 이메일을 붙여넣습니다.
-- 개별 이메일 권한 부여를 위한 `사용자에게 알림` 확인란.
-- 역할 선택기와 제거 컨트롤이 포함된 현재 부여 목록입니다.
-- 현재 표시 여부를 고려하는 링크 복사 버튼입니다.
+- 사용자, 조직 그룹, 조직의 에이전트를 초대하는 하나의 입력란과 역할 선택, 초대 버튼. 이메일을 입력하면 `Notify people` 체크박스도 표시됩니다.
+- 액세스 권한이 있는 사용자: 소유자, 사용자, 그룹, 에이전트를 한 목록에 표시합니다. 역할은 보기 가능, 댓글 가능, 편집 가능, 액세스 관리 가능입니다. 액세스 삭제는 각 행의 역할 메뉴 마지막 항목입니다.
+- 일반 액세스: 초대된 사용자만 / 조직의 모든 사용자 / 링크가 있는 모든 사용자.
+- 링크 복사와 보내기 메뉴: Claude, Claude Code 또는 Codex에서 열기, 에이전트 프롬프트 복사, 에이전트 링크 복사, MCP 서버 설정, 앱이 추가한 대상.
 
 리소스를 `Private`에서 `Organization`으로 바꾸면 먼저 확인을 요청합니다. 확인하기 전에는 아무것도 바뀌지 않습니다. 취소 또는 Escape를 누르면 현재 액세스가 유지됩니다. 저장에 실패하면 대화 상자에 오류가 표시되고 다시 시도할 수 있습니다. 그 외의 가시성 변경은 바로 저장됩니다. 확인은 공유 UI에만 있습니다. `set-resource-visibility`는 바뀌지 않으므로 에이전트와 다른 호출자는 계속 가시성을 직접 변경할 수 있고, 무엇이 허용되는지는 여전히 리소스의 공유 정책이 결정합니다.
 
@@ -136,6 +135,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+조직에 서비스 에이전트(조직 서비스 토큰으로 만든 `svc-<name>@service.<orgId>` ID)가 있으면 초대 입력란에 에이전트가 표시됩니다. 일반 사용자처럼 공유되며 이메일을 받지 않습니다. MCP나 OAuth로 연결하는 에이전트는 연결한 사람으로 동작하므로 행이 없습니다. 보내기 메뉴에서 전달하세요.
 
 목록의 경우 각 행 옆에 `<VisibilityBadge visibility={row.visibility} />`를 배치하면 사용자가 무엇이 비공개인지 공유인지 한눈에 확인할 수 있습니다.
 
@@ -193,7 +194,7 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
 
-Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Declare `agentRead: { actions: ["get-<thing>"] }` (and `idParam` when the tool's id argument is not `id`) so the share panel's Send to menu offers Open in Claude, Claude Code, and Codex with a prompt that calls that MCP tool with the person's own permissions.
 
 ## 새 템플릿으로 구축 {#building}
 

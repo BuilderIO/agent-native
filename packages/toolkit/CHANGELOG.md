@@ -1,5 +1,61 @@
 # @agent-native/toolkit
 
+## 0.222.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 39cb8ce: `RequireSession` and `AppProviders` take a `signedOutHref` callback, so an app can send a signed-out visitor to a public view of the current URL instead of sign-in.
+- Updated dependencies
+  - @agent-native/agentkit@0.222.2
+
+## 0.222.1
+
+### Patch Changes
+
+- 86af196: Add `registerBuilderBranchProject`, a host hook that names the Builder project a code-change handoff targets, read through the new `resolveBuilderHandoffProjectId`. Realtime channels and Builder status keep the deployment's project. The Send to Builder card now sends the browser tab id so a host can find the open view. Design registers the hook under Builder identity so the Builder agent works on the project of the open design.
+- c96a41d: Render the first-paint prompt composer only on the client to prevent production /home server-rendering errors.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.222.1
+
+## 0.222.0
+
+### Minor Changes
+
+- 7e08199: Let review comments mention AI agents alongside people:
+  - New export `ReviewMentionOption` from `@agent-native/toolkit/app/review`: a `ReviewMention` with an optional `description`. `ReviewCommentComposer`'s `mentionOptions` now accepts it. Plain `ReviewMention` lists still work.
+  - The `@` picker lists agents under an "Agents" heading after the people. Arrow keys and Enter move across people and agents in one list. The heading is set with the new optional `agentsLabel` prop on `ReviewCommentComposer` and `ReviewMentionPicker`.
+  - The picker's second line shows `description` when a row has no `email`, and the filter matches `description` as well as the name and email.
+  - Agent names containing `gpt` (for example `GPT-5.4`) get the Codex mark.
+
+- 8adaead: Add shared first-paint home suggestions and first-design next steps.
+
+### Patch Changes
+
+- ede5c57: Render quotes, code blocks, numbered list starts and headings (as bold lines) in `InlineMarkdown` block surfaces, without blank lines between list items.
+- c038e00: Apps can now show content the agent is still writing. `@agent-native/core/client/generation-stream` follows a tool call's arguments while they stream (`useStreamingToolInput`, or `useStreamingToolInputs` for every call one response writes), parses incomplete JSON and HTML, and patches the preview in place. New elements are drafted the way a designer blocks out a layout: each nesting level's frames trace in, then the content fades in beneath them. The AgentKit chat now forwards streamed tool input to the page instead of dropping it. `@agent-native/toolkit/app/generation` adds `GeneratingFrame`, `GeneratingLabel`, and `StreamingHtmlFrame`, which hold the final size, outline the work in the selection color with a wash over the label, and show a failed call as failed rather than finished.
+- 51e8de9: `getAgentChatSubmitTarget(submitMessageId)` returns where a submission was routed: its chat tab and, when the routing chat knows it, its conversation thread. `reportAgentChatSubmitTarget` takes that thread as an option, and the multi-tab chat passes it. Code that mounts after the one-time target event can still find the route. Slides uses it to keep tracking a new deck's generation when the editor route loads after Home sends the prompt.
+- Release all public npm packages with a patch version bump.
+- 7e08199: Restyle the review comment thread to the new design and add the building blocks Design's canvas card now shares with the sidebar:
+  - New exports from `@agent-native/toolkit/app/review`: `ReviewThreadCardFrame` (360px card with title bar), `ReviewCommentItem` (root and reply variants), `ReviewThreadMenu`, `ReviewReactionBar`, `ReviewAuthorAvatar`, `ReviewMentionChip`, `ReviewMentionPicker`, `ReviewAgentMark` and `resolveReviewAgent`.
+  - Agent-authored comments show an `Agent` badge and a brand mark. The mark is chosen from the author name (Claude, Claude Code, Codex), and any other agent gets a neutral mark.
+  - Replies show the relative age next to the name and the clock time on the right, with a react button and reaction chips under the body. Every comment, including the first, has that react button and those chips. Chips show a count from two reactions up, and 🔥 joins the default reactions.
+  - `ReviewCommentComposer` is now an editor with inline mention chips and a toolbar for emoji, mention and image. The text it submits and the `mentions` it reports are unchanged. New optional props: `variant` (`"expanded"` or the collapsed `"reply"` pill) and `attachments`. The "Send to agent" button renders only when `agentAction` or `showAgentAction` is passed.
+  - `ReviewThreadMenu` reads Send to agent, Suggest changes, Reply in thread, Apply changes and resolve, Copy link, Delete thread. The four agent items show only when their handler is passed, and `agentActionsDisabled` turns them off while a hand-off runs. Edit and Mark as unread stay available as optional items.
+  - The review editor's Tiptap packages are declared in the toolkit's eject manifest, and the migration manifest points `isTrustedReviewAttachmentUrl` at its new home, `ReviewCommentItem`.
+
+- f8c2ba6: A reply the agent rewrote after a final-answer check now shows once. Before, the chat kept the rejected draft and added the rewrite to its end, and a reload showed the rewrite again as a second reply. Now the draft leaves the screen when the server discards it, and a run that fails after a discard no longer leaves the draft behind. A reply the agent sends together with its follow-up suggestions is now the final answer. Before, the server erased it and asked the model again, which wrote a short recap of a reply that was no longer on screen. A streamed reply with a reasoning part is now replaced by its saved reply like any other. While a turn is still working, its steps stay in one live row above the reply, even when the agent writes a line between steps. Before, each such line closed the steps above it into a "Worked for" row while the agent kept working, so the turn showed two rows. Lines the agent writes between steps also show as separate lines while they stream, instead of running together.
+
+  AgentKit adds a `message.replaced` event, which swaps the parts of a message that is still streaming.
+
+- 78fa714: Workspace app mounts keep embedded credentials and browser tab identity scoped to the resolved mount. Successful agent navigation refreshes only the originating tab's route state, and resource views stay current when Vite serves duplicate Core module instances.
+- 0bf6393: In a docked chat, the Connect AI card attaches to the composer again instead of sitting above an empty suggestion row.
+- a54e178: Require Core 0.222.0 or newer because Toolkit's generation components depend on the Core generation-stream client added in 0.222.0.
+- Updated dependencies
+- Updated dependencies [f8c2ba6]
+  - @agent-native/agentkit@0.222.0
+
 ## 0.221.0
 
 ### Minor Changes
@@ -1475,24 +1531,5 @@
 ### Patch Changes
 
 - 89f194f: Fix toolkit canvas interaction and collaboration UI behavior.
-
-## 0.14.2
-
-### Patch Changes
-
-- 2db503b: Fix toolkit canvas interaction and collaboration UI behavior.
-
-## 0.14.1
-
-### Patch Changes
-
-- b3b4580: Render chat-history row action menus in a collision-aware portal so rail menus are not clipped by the scroll container.
-- b3b4580: Overlay chat row menus on timestamps and unread indicators without reserving a separate trailing column.
-
-## 0.14.0
-
-### Minor Changes
-
-- aa17e22: Support bounded XLS/XLSX workbook previews as source context for `/make-into-app` and allow Excel workbooks in the shared composer attachment flow.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

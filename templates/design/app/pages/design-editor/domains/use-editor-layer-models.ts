@@ -10,7 +10,7 @@ import {
   type CodeLayerProjection,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 
 import {
@@ -18,6 +18,7 @@ import {
   type LayersPanelNode,
 } from "@/components/design/LayersPanel";
 import { getCanonicalScreenStack } from "@/components/design/multi-screen/frame-geometry";
+import { GENERATION_DRAFT_SETTLE_MS } from "@/hooks/use-generating-design-preview";
 import { prettyScreenName } from "@/lib/screen-names";
 
 import {
@@ -54,7 +55,6 @@ import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-a
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorContentAndComponents } from "./use-editor-content-and-components";
 import type { EditorCore } from "./use-editor-core";
-import type { EditorExportAndHandoff } from "./use-editor-export-and-handoff";
 import type { EditorFilesAndSaving } from "./use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
@@ -83,7 +83,6 @@ export function useEditorLayerModels({
   editorLiveEditsAndPresence,
   editorContentAndComponents,
   editorSelectionAndStyles,
-  editorExportAndHandoff,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -94,7 +93,6 @@ export function useEditorLayerModels({
   editorLiveEditsAndPresence: EditorLiveEditsAndPresence;
   editorContentAndComponents: EditorContentAndComponents;
   editorSelectionAndStyles: EditorSelectionAndStyles;
-  editorExportAndHandoff: EditorExportAndHandoff;
 }) {
   const { t, initialSearchParams, viewMode, selectedElement, activeFileId } =
     editorCore;
@@ -111,7 +109,8 @@ export function useEditorLayerModels({
     lockedLayerIds,
     hiddenLayerIds,
   } = editorHistory;
-  const { design } = editorGenerationAndAccess;
+  const { design, generating, pendingGenerationActive } =
+    editorGenerationAndAccess;
   const {
     files,
     codeLayerSourceForScreen,
@@ -120,7 +119,6 @@ export function useEditorLayerModels({
     canvasFrameGeometryById,
     boardFileId,
     overviewScreens,
-    editorShareUrl,
   } = editorFilesAndSaving;
   const { activeFile } = editorActiveScreenAndGeometry;
   const {
@@ -143,12 +141,6 @@ export function useEditorLayerModels({
     nonActiveProjectionCacheRef,
     getCodeLayerProjectionForScreen,
   } = editorSelectionAndStyles;
-  const {
-    codingHandoffResult,
-    codingHandoffError,
-    codingHandoffLoading,
-    getCodingHandoffClipboardText,
-  } = editorExportAndHandoff;
 
   const initialRouteScreenTarget =
     initialSearchParams.get("screen") ??
@@ -159,19 +151,6 @@ export function useEditorLayerModels({
 
   const [shareExportFormat, setShareExportFormat] =
     useState<ShareExportFormat>("html");
-  const codingHandoffPreviewFallback = [
-    "Copy this prompt into your agent to import this design:",
-    editorShareUrl,
-    "",
-    `Implement: ${activeFile?.filename ?? design?.title ?? "current design"}`,
-  ].join("\n");
-  const codingHandoffPreviewText =
-    getCodingHandoffClipboardText(codingHandoffResult) ||
-    (codingHandoffError
-      ? `Unable to create agent prompt: ${codingHandoffError}`
-      : codingHandoffLoading
-        ? "Preparing agent prompt..."
-        : codingHandoffPreviewFallback);
   const activeCodeLayerTree = useMemo(
     () => cachedCodeLayerTree(activeCodeLayerProjection),
     [activeCodeLayerProjection],
@@ -748,6 +727,45 @@ export function useEditorLayerModels({
     () => overviewScreens.length === 0 && (boardElements?.length ?? 0) === 0,
     [boardElements, overviewScreens.length],
   );
+  // A run that starts on an empty design builds its first screen in the
+  // generation preview, which follows the saved screen across a skeleton-first
+  // build's calls. It stays up until the run ends, then briefly while the
+  // last section's frames finish drawing. Set during render, so the preview
+  // never unmounts in between.
+  const generationActive = generating || pendingGenerationActive;
+  // `null` until the design has loaded: a loading design looks empty.
+  const [buildingFirstScreen, setBuildingFirstScreen] = useState<
+    boolean | null
+  >(null);
+  const [generationWasActive, setGenerationWasActive] = useState(false);
+  const [firstScreenSettling, setFirstScreenSettling] = useState(false);
+  if (generationWasActive !== generationActive) {
+    setGenerationWasActive(generationActive);
+    if (generationActive) {
+      setBuildingFirstScreen(design ? designIsEmpty : null);
+      setFirstScreenSettling(false);
+    } else {
+      if (buildingFirstScreen) setFirstScreenSettling(true);
+      setBuildingFirstScreen(null);
+    }
+  } else if (generationActive && buildingFirstScreen === null && design) {
+    setBuildingFirstScreen(designIsEmpty);
+  }
+  useEffect(() => {
+    if (!firstScreenSettling) return;
+    const timer = window.setTimeout(
+      () => setFirstScreenSettling(false),
+      GENERATION_DRAFT_SETTLE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [firstScreenSettling]);
+  const firstScreenBuild =
+    buildingFirstScreen === true || firstScreenSettling
+      ? {
+          settling: firstScreenSettling,
+          savedHtml: overviewScreens[0]?.content,
+        }
+      : null;
   const [chatMessageCount, setChatMessageCount] = useState(0);
 
   const designAgentSuggestions = useMemo(
@@ -1025,7 +1043,6 @@ export function useEditorLayerModels({
     setLayersSearchQuery,
     shareExportFormat,
     setShareExportFormat,
-    codingHandoffPreviewText,
     activeCodeLayerTree,
     recentLayerModelFileIdsRef,
     setCoveredLayerModelFileIds,
@@ -1047,6 +1064,7 @@ export function useEditorLayerModels({
     overviewLayerPanelFiles,
     boardElements,
     designIsEmpty,
+    firstScreenBuild,
     chatMessageCount,
     setChatMessageCount,
     designAgentSuggestions,

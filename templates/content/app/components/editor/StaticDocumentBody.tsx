@@ -23,10 +23,16 @@ import {
   parseAttrsJson,
   safeExternalPageUrl,
 } from "./extensions/NotionExtensions";
+import { isEmptyCell } from "./extensions/TablePresentation";
 import {
   noteStoredBodyImageFailed,
   storedBodyOnScreen,
 } from "./stored-body-images";
+import {
+  COLUMN_SIZING_ATTRIBUTE,
+  ContentTableSizer,
+  labelTableCells,
+} from "./table-sizing";
 import { ContentTableView } from "./table-view";
 
 type Attrs = Record<string, string | null | undefined>;
@@ -641,6 +647,14 @@ export function renderStaticDocumentBody(
         }
         return { dom };
       }
+      // The editor marks empty cells with a decoration, by the cell's node. A
+      // cell's element is its own content hole.
+      if (
+        (name === "tableCell" || name === "tableHeader") &&
+        isEmptyCell(node)
+      ) {
+        contentDOM.setAttribute("data-empty", "");
+      }
       if (!node.isTextblock) return { dom, contentDOM };
       // The break has to follow the content, so the textblock is filled here
       // rather than through its content hole.
@@ -744,6 +758,28 @@ export function StaticDocumentBody({
     }
     return handOver;
   }, [schema, content, documentId, imageBroken]);
+  // Sizes the drawn tables as the editor sizes its own, so its body doesn't
+  // move when it takes over.
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (!body || failed) return;
+    const sizers = Array.from(
+      body.querySelectorAll<HTMLTableElement>(
+        `table[${COLUMN_SIZING_ATTRIBUTE}]`,
+      ),
+    ).flatMap((table) => {
+      const wrapper = table.parentElement;
+      const colgroup = table.querySelector("colgroup");
+      if (!wrapper || !colgroup) return [];
+      labelTableCells(table);
+      const sizer = new ContentTableSizer(wrapper, table, colgroup, () =>
+        table.hasAttribute("data-fit-page-width"),
+      );
+      sizer.update(false);
+      return [sizer];
+    });
+    return () => sizers.forEach((sizer) => sizer.destroy());
+  }, [schema, content, documentId, imageBroken, failed]);
 
   if (failed) {
     return (

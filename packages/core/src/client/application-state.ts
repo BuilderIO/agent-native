@@ -1,6 +1,9 @@
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
-import { getBrowserTabId } from "./browser-tab-id.js";
+import {
+  getBrowserTabId,
+  isBrowserTabIdForCurrentDocument,
+} from "./browser-tab-id.js";
 import { recordStateWrite } from "./recorder.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
@@ -33,8 +36,17 @@ function buildHeaders(requestSource?: string): Record<string, string> {
   if (typeof window !== "undefined") {
     headers["X-Agent-Native-Browser-Tab"] = getBrowserTabId();
   }
-  if (requestSource) headers["X-Request-Source"] = requestSource;
+  Object.assign(headers, requestSourceHeader(requestSource));
   return headers;
+}
+
+function requestSourceHeader(requestSource?: string): Record<string, string> {
+  if (!requestSource) return {};
+  return {
+    "X-Request-Source": isBrowserTabIdForCurrentDocument(requestSource)
+      ? getBrowserTabId()
+      : requestSource,
+  };
 }
 
 function browserTabHeaders(): Record<string, string> | undefined {
@@ -332,9 +344,7 @@ export async function deleteClientAppState(
       headers: {
         "X-Agent-Native-CSRF": "1",
         ...(browserTabHeaders() ?? {}),
-        ...(options.requestSource
-          ? { "X-Request-Source": options.requestSource }
-          : {}),
+        ...requestSourceHeader(options.requestSource),
       },
       keepalive: options.keepalive,
       signal: options.signal,

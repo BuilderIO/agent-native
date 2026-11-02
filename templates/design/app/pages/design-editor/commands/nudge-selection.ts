@@ -1,6 +1,10 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type { MoveNodeEditIntent } from "@shared/code-layer";
-import { applyVisualEdit } from "@shared/code-layer";
+import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  parseSvgShapeTranslate,
+  svgShapeTranslateAfterMove,
+} from "@shared/svg-shape-offset";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import { trace } from "@/components/design/design-trace";
@@ -13,6 +17,7 @@ import {
   elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
+import type { LayoutMoveRefusal } from "@/pages/design-editor/commands/align-selection";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   cloneCanvasFrameGeometry,
@@ -72,6 +77,7 @@ export interface NudgeSelectionArgs {
     options?: { source?: "pointer" | "keyboard" },
   ) => void;
   hideSelectionChromeForNudge: () => void;
+  refuseMove: (refusal: LayoutMoveRefusal) => void;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
   selectedElement: ElementInfo | null;
@@ -130,6 +136,7 @@ export function runNudgeSelection(
     getFreshActiveContent,
     handleGeometryCommit,
     hideSelectionChromeForNudge,
+    refuseMove,
     overviewScreens,
     overviewSelectedScreenIds,
     selectedElement,
@@ -203,6 +210,47 @@ export function runNudgeSelection(
     renderedElementInfoByLayerKeyRef.current,
   );
   if (!nudgeTarget?.selector) return;
+
+  if (nudgeTarget.svgShapeOffset !== undefined) {
+    // The render still reports the offset from before a quick previous tap;
+    // the source already holds it.
+    const sourceNode = !isRunningAppSource
+      ? resolveCodeLayerNodeFromElementInfo(
+          buildCodeLayerProjection(getFreshActiveContent(), {
+            source: { kind: "design-file", fileId: activeFile.id },
+          }),
+          nudgeTarget,
+        )
+      : null;
+    const authored = sourceNode?.style.translate;
+    const offset =
+      authored === undefined
+        ? nudgeTarget.svgShapeOffset
+        : parseSvgShapeTranslate(authored);
+    const translate = offset
+      ? svgShapeTranslateAfterMove(
+          offset,
+          nudgeTarget.positionContainingBlockTransform ?? {
+            a: 1,
+            b: 0,
+            c: 0,
+            d: 1,
+          },
+          { dx, dy },
+        )
+      : null;
+    if (!translate) {
+      refuseMove("unsupported-position");
+      return;
+    }
+    hideSelectionChromeForNudge();
+    commitVisualStyles(
+      nudgeTarget.selector,
+      { translate },
+      { elementInfo: nudgeTarget },
+    );
+    return;
+  }
 
   if (isRunningAppSource && canEditLiveScreen) {
     hideSelectionChromeForNudge();

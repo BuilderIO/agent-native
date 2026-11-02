@@ -132,7 +132,7 @@ const messages = {
     openChat: "打开聊天",
     cloudAuthToken: "认证令牌",
     cloudSetupSteps: "设置步骤",
-    cloudConnectedReloading: "已连接，正在重新加载...",
+    cloudConnectedReloading: "正在重新加载...",
     cloudConnectionFailed: "连接失败",
     cloudTestConnect: "测试并连接",
     cloudServerlessPostgres: "无服务器 Postgres",
@@ -254,10 +254,10 @@ const messages = {
     triangle: "三角形",
     media: "图片/视频…",
     mediaNeedsStorage: "请先配置存储，才能上传图片和视频。",
-    transitions: "过渡",
-    transitionsMenu: "过渡选项",
+    transitions: "动画",
+    transitionsMenu: "动画选项",
     transitionsReadOnly: "此演示文稿为只读。",
-    transitionsNeedElement: "请选择一个元素来添加过渡。",
+    transitionsNeedElement: "请选择一个元素来添加动画。",
     transitionNone: "无",
     transitionAppear: "出现",
     transitionFade: "淡入淡出",
@@ -313,6 +313,9 @@ const messages = {
     usingDesignSystem: "正在使用 {{title}}",
     usingLinkedDesignSystem: "正在使用已关联的设计系统",
     viewOnly: "仅查看",
+    requestEditAccess: "申请编辑权限",
+    editAccessRequested: "已申请",
+    editAccessRequestFailed: "无法申请编辑权限，请重试。",
     commenterRoleLabel: "评论者",
     commenterRoleDescription: "可以查看并添加评论",
     slideSettings: "幻灯片设置",
@@ -392,10 +395,20 @@ const messages = {
       "在编辑器中打开幻灯片。有访问权限的人都可以使用此链接。",
     presentationLink: "演示链接",
     presentationLinkDescription: "在演示模式中打开幻灯片",
+    copyEditorLink: "复制编辑器链接",
+    copyPresentationLink: "复制演示链接",
+    linkCopied: "链接已复制",
+    linkCopyFailed: "无法复制链接。",
     present: "演示",
     presentInTab: "在此标签页中",
     presentFullScreen: "全屏",
     presentPresenterView: "演讲者视图",
+    presentOptions: "演示选项",
+    presentFromBeginning: "从头开始",
+    presentWithShortcut: "演示 ({{shortcut}})",
+    presentUnsaved: "无法保存你的最新更改。将从此标签页演示这些更改。",
+    presentTabBlocked: "请允许弹出窗口以在新标签页中演示。",
+    deckTitle: "演示文稿标题",
     presentPresenterViewDescription: "演示时查看演讲者备注",
     presenterViewBlocked: "请允许弹出窗口以打开演讲者视图。",
     export: "导出",
@@ -421,6 +434,20 @@ const messages = {
     conflictResolveFailed: "无法解决冲突。此设备上仍保留着你的草稿。",
     conflictKeepMine: "保留我的文本",
     conflictUseLatest: "使用已保存的文本",
+    conflictTitleSomeone: "其他人更改了第 {{number}} 张幻灯片",
+    conflictTitleAgent: "代理更改了第 {{number}} 张幻灯片",
+    conflictNotesTitleSomeone: "其他人更改了第 {{number}} 张幻灯片的演讲者备注",
+    conflictNotesTitleAgent: "代理更改了第 {{number}} 张幻灯片的演讲者备注",
+    conflictYourVersion: "你的版本",
+    conflictTheirVersion: "对方的版本",
+    conflictAgentVersion: "代理的版本",
+    conflictKeepMyVersion: "保留我的版本",
+    conflictKeepTheirVersion: "保留对方的版本",
+    conflictKeepAgentVersion: "保留代理的版本",
+    conflictSlideDeleted: "幻灯片已删除",
+    conflictNoNotes: "无备注",
+    saveErrorDeckChanged: "其他人更改了此演示文稿",
+    saveErrorSlidesChanged: "其他人更改了此演示文稿中的幻灯片",
     importBackup: "导入备份",
     backupDownloaded: "备份已下载",
     backupDownloadFailed: "无法下载备份",
@@ -459,9 +486,16 @@ const messages = {
     googleSlidesCreatedHint: "已在你的 Google 云端硬盘中创建此演示文稿的副本。",
     googleSlidesGoTo: "在 Google Slides 中打开",
     duplicateDeck: "复制幻灯片",
+    cancel: "取消",
+    saveBeforeExportFailed: "无法保存你的最新更改。请重新导出。",
+    pptxMissingShapes_other:
+      "有 {{count}} 个形状无法导出，PPTX 中缺少这些形状。",
   },
   share: {
     createFailed: "无法创建共享链接",
+    snapshotLinks: "快照链接",
+    revokeLink: "撤销",
+    revokeFailed: "无法撤销共享链接",
     title: "共享演示文稿",
     cloudUpgradeDescription:
       "要公开共享演示文稿，请连接云数据库，让幻灯片可从任何位置访问。",
@@ -648,6 +682,12 @@ const messages = {
     strokeWeight: "描边粗细",
     typography: "排版",
     fontFamily: "字体系列",
+    fontPicker: {
+      search: "搜索字体",
+      inThisDeck: "此演示文稿中",
+      allFonts: "所有字体",
+      catalogUnavailable: "无法加载完整字体库。",
+    },
     fontFamilies: {
       inherit: "继承",
       sansSerif: "无衬线",
@@ -666,6 +706,8 @@ const messages = {
     align: "对齐",
     decreaseSize: "减小字号",
     increaseSize: "增大字号",
+    fontSizes: "字号阶梯",
+    deckSizes: "演示",
     mixed: "混合",
     textColor: "文本颜色",
     primary: "Primary",
@@ -701,6 +743,8 @@ const messages = {
     insertColumnLeft: "在左侧插入列",
     insertColumnRight: "在右侧插入列",
     deleteColumn: "删除列",
+    tableMergedCellsUnavailable: "包含合并单元格的表格不可用",
+    tableColumnLayoutUnavailable: "此表格的列宽不可用",
   },
   animations: {
     appear: "出现",
@@ -708,21 +752,22 @@ const messages = {
     slideUp: "向上滑入",
     zoom: "缩放",
     elementFallback: "元素 {{index}}",
-    title: "过渡",
-    close: "关闭过渡面板",
+    title: "动画",
+    close: "关闭动画面板",
     emptyTitle: "还没有动画。",
-    emptyDescription: "选择幻灯片上的对象以添加过渡。",
+    emptyDescription: "选择幻灯片上的对象以添加动画。",
     selectObject: "选择要添加动画的对象",
-    addTransition: "添加过渡",
+    addAnimation: "添加动画",
+    alreadyAnimated: "已添加动画",
     effect: "效果",
     onClick: "点击时",
     withPrevious: "与上一个同时",
     trigger: "开始",
     byParagraph: "按段落",
-    expand: "展开过渡",
-    collapse: "收起过渡",
-    reorder: "重新排序过渡",
-    remove: "删除过渡",
+    expand: "展开动画",
+    collapse: "收起动画",
+    reorder: "重新排序动画",
+    remove: "删除动画",
     play: "播放",
     clearAll: "全部清除",
     elements: "元素",
@@ -753,6 +798,13 @@ const messages = {
   },
   deckResult: { saved: "已保存" },
   history: {
+    restoreDiscardTitle: "放弃未保存的更改并恢复此版本？",
+    restoreDiscardConfirm: "放弃并恢复",
+    cancel: "取消",
+    restoreNoAccess: "你需要编辑权限才能恢复此版本。",
+    restoreVersionMissing: "此版本已不可用。",
+    restoreDeckChanged: "恢复期间演示文稿已更改。请重试。",
+    restoreOffline: "你已离线。请重新连接后重试。",
     unknownTime: "未知时间",
     justNow: "刚刚",
     minutesAgo: "{{count}} 分钟前",
@@ -843,6 +895,13 @@ const messages = {
     switchAccount: "切换账号",
   },
   deckEditor: {
+    agentUpdatedSlides_one: "代理更新了 {{count}} 张幻灯片",
+    agentUpdatedSlides_other: "代理更新了 {{count}} 张幻灯片",
+    agentUndoConflictTitle: "撤销代理的更改？",
+    agentUndoConflictDescription:
+      "你在代理之后编辑了这些幻灯片。撤销也会移除这些编辑。",
+    agentUndoConfirm: "仍然撤销",
+    agentUndoKeep: "取消",
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
@@ -883,7 +942,8 @@ const messages = {
     accessRequestFailed: "无法请求访问权限。请重试。",
     accessApprovalTitle: "已授予访问权限",
     accessApprovalAlreadyTitle: "已授予访问权限",
-    accessApprovalMessage: "{{email}} 现在可以打开此幻灯片。",
+    accessApprovalEditorMessage: "{{email}} 现在可以编辑此幻灯片。",
+    accessApprovalViewerMessage: "{{email}} 现在可以查看此幻灯片。",
     accessApprovalRequesterEmailed: "我们已发送邮件通知对方。",
     accessApprovalRequesterEmailFailed:
       "无法向 {{email}} 发送邮件。请告知对方现在可以打开幻灯片了。",
@@ -895,7 +955,13 @@ const messages = {
       "请以幻灯片所有者或管理员身份登录以批准此请求。",
     accessApprovalOpenDeck: "打开幻灯片",
     accessApprovalSignIn: "登录",
-    accessApprovalLoading: "正在授予访问权限...",
+    accessApprovalReviewTitle: "允许访问",
+    accessApprovalRequestedEdit: "{{email}} 申请编辑“{{title}}”。",
+    accessApprovalRequestedView: "{{email}} 申请查看“{{title}}”。",
+    accessApprovalRoleLabel: "角色",
+    accessApprovalRoleViewer: "查看者",
+    accessApprovalRoleEditor: "编辑者",
+    accessApprovalAllow: "允许访问",
     backToDecks: "返回幻灯片",
     tryAgain: "重试",
     imageUploadFailed: "图片上传失败",
@@ -916,6 +982,10 @@ const messages = {
     originalPrompt: "你输入的内容",
     backToHome: "返回主页",
     checkedDeckTryAgain: "我已检查演示文稿，重试",
+    generationStillRunning: "该演示文稿仍在生成中。请在聊天中查看进度。",
+    questionFlowTitle: "先确定演示文稿方向",
+    questionFlowDescription:
+      "回答重要的选项。选择“其他”可自定义方向，也可以让代理决定。",
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
@@ -924,6 +994,10 @@ const messages = {
     layoutOverflowVertical: "垂直溢出：{{pixels}}px",
     layoutOverflowHorizontal: "水平溢出：{{pixels}}px",
     dismissLayoutWarning: "关闭布局警告",
+    fixLayoutWithAi: "用 AI 修复",
+    askingAgentToFixLayout: "正在请求…",
+    shrinkTextToFit: "缩小文字以适应",
+    shrinkTextCannotFit: "文字在最小字号下仍超出幻灯片",
     slidesAdded_one: "已添加 {{count}} 张幻灯片",
     slidesAdded_other: "已添加 {{count}} 张幻灯片",
     unsavedChangesTitle: "未保存的更改",
@@ -932,6 +1006,7 @@ const messages = {
     keepEditing: "继续编辑",
     leaveWithoutSaving: "不保存退出",
     editorMarkupNotSaved: "此编辑未保存，因为它会向幻灯片添加编辑器标记。",
+    slideDeletedElsewhere: "你正在编辑的幻灯片已被其他人删除。",
     historyStepConflict: "此历史记录步骤与当前演示文稿冲突，因此已跳过。",
     historyStepFailed: "此历史记录步骤无法应用，因此已跳过。",
     textEditConflictNotSaved:
@@ -1015,15 +1090,156 @@ const messages = {
     chooseAnotherFile: "选择其他文件",
   },
   home: {
-    fallbackSuggestions: {
-      pitch: "制作产品推介演示文稿",
-      roadmap: "制作产品路线图",
-      explainer: "在演示文稿中讲解一个主题",
+    nextStepBar: {
+      ariaLabel: "你的首个演示文稿的后续操作",
+      refineWithPrompt: "通过提示词优化",
+      export: "导出",
+      shareLink: "分享链接",
+      dismiss: "关闭",
+    },
+    suggestionPrompts: {
+      product: {
+        launch:
+          "制作产品发布演示文稿，介绍客户问题、核心优势、发布计划，并采用自信且以客户为先的语气。",
+        roadmap:
+          "制作季度路线图，呈现战略主题、里程碑、依赖关系，并采用清晰的高管汇报风格。",
+        opportunity:
+          "制作机会分析，说明市场背景、客户痛点、解决方案和风险，并采用果断的产品视角。",
+        priorities:
+          "制作功能优先级演示，比较用户影响、投入、证据和取舍，并采用便于决策的简洁风格。",
+        metrics:
+          "制作产品指标回顾，展示采用率、激活、留存和洞察，并采用坦诚的分析语气。",
+        discovery:
+          "制作客户调研汇报，呈现研究主题、关键引述和未满足需求，并采用基于证据且富有共情的语气。",
+        vision:
+          "制作产品愿景演示，描绘未来状态、指导原则和产品押注，并采用鼓舞人心且务实的语气。",
+        release:
+          "制作版本回顾，整理目标、成果、客户反馈和待解决问题，并采用负责且重视学习的语气。",
+      },
+      design: {
+        caseStudy:
+          "制作设计案例，呈现需求、流程、关键界面和成果，并采用温暖的编辑风格。",
+        system:
+          "制作设计系统概览，展示颜色、字体、组件和使用示例，并采用简洁鲜明的视觉风格。",
+        critique:
+          "制作设计评审演示，呈现目标、当前界面、反馈主题和后续步骤，并采用建设性的语气。",
+        research:
+          "制作用户研究汇报，说明研究背景、模式、引述和机会，并采用富有共情的语气。",
+        concepts:
+          "制作概念探索演示，展示三种视觉方向、示例界面和取舍，并采用活泼的语气。",
+        accessibility:
+          "制作无障碍评审，展示关键障碍、标注示例和改进方案，并采用清晰包容的语气。",
+        brand:
+          "制作品牌方向演示，呈现受众、视觉参考、颜色和字体，并采用鲜明独特的语气。",
+        sprint:
+          "制作设计冲刺回顾，讲述挑战、创意、原型和测试发现，并采用乐观的语气。",
+      },
+      developer: {
+        architecture:
+          "制作系统架构演示，展示组件、数据流和取舍，并采用严谨准确的技术语气。",
+        api: "制作 API 入门指南，涵盖配置、身份验证、示例和错误处理，并采用开发者友好的语气。",
+        release:
+          "制作工程发布计划，列出范围、里程碑、依赖关系和上线步骤，并采用务实的语气。",
+        incident:
+          "制作事故复盘，整理影响、时间线、根因和行动项，并采用不追责的语气。",
+        migration:
+          "制作平台迁移计划，说明现状、阶段、风险和验证方式，并采用令人安心的语气。",
+        security:
+          "制作安全评审，呈现系统边界、威胁、控制措施和缺口，并采用直接的技术语气。",
+        demo: "制作技术演示，介绍问题、架构、现场流程和结果，并采用清晰的语气。",
+        metrics: "制作工程指标回顾，展示交付、可靠性和趋势，并采用坦诚的语气。",
+      },
+      marketing: {
+        campaign:
+          "制作营销活动发布演示，呈现受众、信息、渠道和日程，并采用充满活力的语气。",
+        story:
+          "制作客户故事，讲述挑战、解决方案、成果和证据，并采用亲切真实的语气。",
+        content:
+          "制作内容策略，梳理受众需求、主题、形式和日历，并采用编辑策划风格。",
+        positioning:
+          "制作品牌定位演示，说明受众、品类、承诺和依据，并采用鲜明的语气。",
+        channels:
+          "制作渠道表现回顾，展示触达、互动、转化和经验，并采用清晰的语气。",
+        messaging:
+          "制作产品信息演示，呈现受众、优势、依据和示例，并采用有说服力的语气。",
+        event:
+          "制作活动宣传计划，介绍受众、亮点、日程和渠道，并采用热情友好的语气。",
+        competition:
+          "制作竞争格局演示，比较替代方案、优势、差距和机会，并采用平衡客观的语气。",
+      },
+      sales: {
+        pitch:
+          "制作客户演示文稿，围绕客户目标、解决方案、成果和案例，并采用自信的语气。",
+        proposal:
+          "制作解决方案提案，呈现需求、方法、时间表和投入，并采用清晰且以客户为先的语气。",
+        quarterlyReview:
+          "制作季度业务回顾，整理目标、成果、采用情况和后续步骤，并采用协作的语气。",
+        discovery:
+          "制作需求调研汇报，呈现客户优先事项、痛点和方案匹配度，并采用专注倾听的语气。",
+        objections:
+          "制作异议处理指南，列出常见顾虑、证据和回应，并采用有帮助的语气。",
+        demo: "制作产品演示故事，结合客户背景、关键流程和成果，并采用简洁有说服力的语气。",
+        renewal:
+          "制作续约演示，呈现已交付价值、使用情况和机会，并采用伙伴式的语气。",
+        enablement:
+          "制作销售赋能演示，介绍理想买家、资格判断和沟通要点，并采用实用的语气。",
+      },
+      ops: {
+        weeklyReview:
+          "制作每周运营回顾，展示目标、指标、阻碍和负责人，并采用沉稳直接的语气。",
+        process:
+          "制作流程改进演示，呈现当前步骤、摩擦点和目标流程，并采用务实的语气。",
+        capacity:
+          "制作产能规划，分析需求、团队可用时间、优先级和情景，并采用透明的语气。",
+        service:
+          "制作服务表现回顾，展示数量、响应时间、升级处理和改进，并采用负责的语气。",
+        vendor:
+          "制作供应商评估，比较要求、选项、成本和风险，并采用平衡的决策风格。",
+        metrics:
+          "制作运营仪表盘故事，突出关键指标、趋势和异常，并采用简洁的分析风格。",
+        onboarding:
+          "制作入职流程，呈现阶段、交接、资源和成功指标，并采用支持性的语气。",
+        risk: "制作风险回顾，梳理可能性、影响、缓解方案和负责人，并采用审慎的语气。",
+      },
+      individual: {
+        project:
+          "制作个人项目计划，列出目标、里程碑、资源和风险，并采用鼓舞人心的语气。",
+        portfolio:
+          "制作个人作品集演示，精选作品、过程和成果，并采用自信的编辑风格。",
+        learning:
+          "制作学习路线图，列出技能、资源、练习和里程碑，并采用鼓励性的语气。",
+        event:
+          "制作聚会计划，说明目的、来宾、日程和细节，并采用温暖友好的语气。",
+        budget:
+          "制作个人预算回顾，整理收入、支出、目标和取舍，并采用平静务实的语气。",
+        travel:
+          "制作旅行行程，安排目的地、每日亮点和交通细节，并采用引人入胜的视觉风格。",
+        community:
+          "制作社区工作坊演示，介绍主题、活动和收获，并采用包容友好的语气。",
+        personalStory:
+          "制作个人介绍，讲述经历、兴趣和工作，并采用自然亲切的语气。",
+      },
+      general: {
+        overview: "制作主题概览，说明背景、核心观点和示例，并采用友好的语气。",
+        fundraiser:
+          "制作公益募款演示，介绍使命、需求和影响，并采用充满希望的语气。",
+        lesson:
+          "制作简短课程，呈现学习目标、核心概念和示例，并采用引人入胜的语气。",
+        research:
+          "制作研究报告，说明问题、方法、发现和影响，并采用平衡客观的语气。",
+        eventProposal:
+          "制作活动提案，呈现目的、受众、形式和预算，并采用热情友好的语气。",
+        teamStrategy:
+          "制作团队战略演示，列出优先事项、指标和举措，并采用聚焦的语气。",
+        howTo:
+          "制作可视化操作指南，提供清晰步骤和实用示例，并采用鼓励性的语气。",
+        portfolioIntro:
+          "制作作品集介绍，精选项目并突出优势，并采用精致的语气。",
+      },
     },
     suggestedPrompts: "推荐提示",
     importMenu: {
       import: "导入",
-      options: "导入选项",
       invalidPdf: "请选择 PDF 文件。",
       invalidPptx: "请选择 PPTX 文件。",
       invalidFile: "请选择 PDF 或 PPTX 文件。",
@@ -1201,9 +1417,13 @@ const messages = {
     workspaceDefaultBadge: "工作区默认",
     setWorkspaceDefault: "设为工作区默认",
     clearWorkspaceDefault: "清除工作区默认",
+    renameDeck: "重命名",
+    duplicateDeck: "创建副本",
+    deleteDeck: "删除",
     workspaceDefaultSet: "已设为工作区默认",
     workspaceDefaultCleared: "已清除工作区默认",
     duplicateFailed: "无法复制该演示文稿",
+    deleteFailed: "无法删除该演示文稿",
     workspaceDefaultFailed: "无法更新工作区默认设置",
     workspaceDefaultConfirmTitle: "设为工作区默认？",
     workspaceDefaultDeckShareBody:
@@ -1224,6 +1444,89 @@ const messages = {
     emptyTitle: "还没有幻灯片",
     createFirstDeck: "创建你的第一份幻灯片",
     emptyDescription: "使用 AI 生成精美演示文稿。",
+
+    suggestionLabels: {
+      product: {
+        launch: "产品发布演示文稿",
+        roadmap: "季度路线图",
+        opportunity: "机会分析",
+        priorities: "功能优先级演示",
+        metrics: "产品指标回顾",
+        discovery: "客户调研汇报",
+        vision: "产品愿景演示",
+        release: "版本回顾",
+      },
+      design: {
+        caseStudy: "设计案例",
+        system: "设计系统概览",
+        critique: "设计评审演示",
+        research: "用户研究汇报",
+        concepts: "概念探索演示",
+        accessibility: "无障碍评审",
+        brand: "品牌方向演示",
+        sprint: "设计冲刺回顾",
+      },
+      developer: {
+        architecture: "系统架构演示",
+        api: " API 入门指南",
+        release: "工程发布计划",
+        incident: "事故复盘",
+        migration: "平台迁移计划",
+        security: "安全评审",
+        demo: "技术演示",
+        metrics: "工程指标回顾",
+      },
+      marketing: {
+        campaign: "营销活动发布演示",
+        story: "客户故事",
+        content: "内容策略",
+        positioning: "品牌定位演示",
+        channels: "渠道表现回顾",
+        messaging: "产品信息演示",
+        event: "活动宣传计划",
+        competition: "竞争格局演示",
+      },
+      sales: {
+        pitch: "客户演示文稿",
+        proposal: "解决方案提案",
+        quarterlyReview: "季度业务回顾",
+        discovery: "需求调研汇报",
+        objections: "异议处理指南",
+        demo: "产品演示故事",
+        renewal: "续约演示",
+        enablement: "销售赋能演示",
+      },
+      ops: {
+        weeklyReview: "每周运营回顾",
+        process: "流程改进演示",
+        capacity: "产能规划",
+        service: "服务表现回顾",
+        vendor: "供应商评估",
+        metrics: "运营仪表盘故事",
+        onboarding: "入职流程",
+        risk: "风险回顾",
+      },
+      individual: {
+        project: "个人项目计划",
+        portfolio: "个人作品集演示",
+        learning: "学习路线图",
+        event: "聚会计划",
+        budget: "个人预算回顾",
+        travel: "旅行行程",
+        community: "社区工作坊演示",
+        personalStory: "个人介绍",
+      },
+      general: {
+        overview: "主题概览",
+        fundraiser: "公益募款演示",
+        lesson: "简短课程",
+        research: "研究报告",
+        eventProposal: "活动提案",
+        teamStrategy: "团队战略演示",
+        howTo: "可视化操作指南",
+        portfolioIntro: "作品集介绍",
+      },
+    },
   },
   agentChat: {
     setup: {

@@ -641,6 +641,16 @@ describe("useAgentEngineConfigured", () => {
     );
   });
 
+  it("keeps the configured server URL intact for a custom chat route", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { apiBaseUrl: "https://api.example.com" },
+    });
+
+    expect(agentEngineStatusUrlForChatApi("/custom/chat-endpoint")).toBe(
+      "https://api.example.com/_agent-native/agent-engine/status",
+    );
+  });
+
   it("prunes expired idle readiness stores for old transport URLs", async () => {
     vi.useFakeTimers();
     const makeSource = (host: string) => ({

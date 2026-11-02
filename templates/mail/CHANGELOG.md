@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-28
+
+### Improved
+
+- Inbox rule requests with invalid actions now report which part is wrong.
+
 ## 2026-10-27
 
 ### Fixed

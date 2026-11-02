@@ -234,6 +234,7 @@ export function renderEditorCanvasArea({
     canEditSingleSelectedLiveLayer,
     getSingleSelectedRenamableLayerId,
     designIsEmpty,
+    firstScreenBuild,
   } = editorLayerModels;
   const { canvasBackground } = editorScreenInspector;
   const {
@@ -596,10 +597,16 @@ export function renderEditorCanvasArea({
           : void handleSendCodingHandoff(target)
       }
     >
-      {designIsEmpty &&
-      (generating || pendingGenerationActive || generationIssue) ? (
+      {(designIsEmpty &&
+        (generating || pendingGenerationActive || generationIssue)) ||
+      firstScreenBuild ? (
         <GenerationStatusCard
-          generating={generating || pendingGenerationActive}
+          designId={id}
+          generating={
+            generating || pendingGenerationActive || Boolean(firstScreenBuild)
+          }
+          savedHtml={firstScreenBuild?.savedHtml}
+          settling={firstScreenBuild?.settling ?? false}
           issue={generationIssue}
           retryablePrompt={retryablePrompt?.prompt ?? null}
           onRetry={handleRetryGeneration}
@@ -670,6 +677,8 @@ export function renderEditorCanvasArea({
                 designId={id}
                 status={fusionApp.status}
                 statusMessage={fusionApp.statusMessage}
+                built={Boolean(fusionApp.previewUrl)}
+                canSync={canEditDesign}
               />
             )}
             {pendingVisualEditPublicationFailed ? (

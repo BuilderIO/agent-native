@@ -583,6 +583,246 @@ export function runStoreConformance(name: string, makeStore: MakeStore): void {
       });
     });
 
+    describe("workflow drafts", () => {
+      const TEAMMATE = "teammate@example.test";
+      // Parses as a graph object but would never validate: a loose exit.
+      const draftText = (revision: number) =>
+        JSON.stringify({
+          nodes: [{ id: "lonely", kind: "end" }],
+          edges: [],
+          settings: { extras: { revision } },
+        });
+
+      it("keeps the graph as written, with its base version, and reads it back", async () => {
+        const created = await createWorkflow();
+        const text = `  ${draftText(1)}\n`;
+
+        const saved = await store.saveWorkflowDraft(SCOPE, {
+          workflowId: created.id,
+          ownerEmail: OWNER,
+          baseVersion: 1,
+          graphJson: text,
+        });
+
+        expect(saved).toEqual({
+          workflowId: created.id,
+          ownerEmail: OWNER,
+          baseVersion: 1,
+          graphJson: text,
+          updatedAt: at(0),
+        });
+        expect(await store.getWorkflowDraft(SCOPE, created.id, OWNER)).toEqual(
+          saved,
+        );
+        expect(await store.hasWorkflowDraft(SCOPE, created.id, OWNER)).toBe(
+          true,
+        );
+      });
+
+      it("replaces the member's draft, and keeps another member's apart", async () => {
+        const created = await createWorkflow();
+        const save = (ownerEmail: string, revision: number, baseVersion = 1) =>
+          store.saveWorkflowDraft(SCOPE, {
+            workflowId: created.id,
+            ownerEmail,
+            baseVersion,
+            graphJson: draftText(revision),
+          });
+        await save(OWNER, 1);
+        await save(TEAMMATE, 7);
+        clock.advance(1000);
+        await save(OWNER, 2, 3);
+
+        expect(await store.getWorkflowDraft(SCOPE, created.id, OWNER)).toEqual({
+          workflowId: created.id,
+          ownerEmail: OWNER,
+          baseVersion: 3,
+          graphJson: draftText(2),
+          updatedAt: at(0, 1),
+        });
+        expect(
+          (await store.getWorkflowDraft(SCOPE, created.id, TEAMMATE))
+            ?.graphJson,
+        ).toBe(draftText(7));
+        expect(
+          await store.getWorkflowDraft(
+            SCOPE,
+            created.id,
+            "nobody@example.test",
+          ),
+        ).toBeNull();
+        expect(
+          await store.hasWorkflowDraft(
+            SCOPE,
+            created.id,
+            "nobody@example.test",
+          ),
+        ).toBe(false);
+      });
+
+      it("refuses what cannot be a graph, and keeps the draft it already had", async () => {
+        const created = await createWorkflow();
+        await store.saveWorkflowDraft(SCOPE, {
+          workflowId: created.id,
+          ownerEmail: OWNER,
+          baseVersion: 1,
+          graphJson: draftText(1),
+        });
+        const huge = JSON.stringify({
+          nodes: [{ text: "x".repeat(WORKFLOW_STORE_LIMITS.graphJsonBytes) }],
+          edges: [],
+        });
+
+        for (const graphJson of [
+          "{not json",
+          "[]",
+          "null",
+          JSON.stringify({ nodes: [] }),
+          JSON.stringify({ nodes: {}, edges: [] }),
+          huge,
+        ]) {
+          await expectStoreError(
+            store.saveWorkflowDraft(SCOPE, {
+              workflowId: created.id,
+              ownerEmail: OWNER,
+              baseVersion: 1,
+              graphJson,
+            }),
+            "invalid_record",
+          );
+        }
+        expect(
+          (await store.getWorkflowDraft(SCOPE, created.id, OWNER))?.graphJson,
+        ).toBe(draftText(1));
+      });
+
+      it("needs a workflow in the same scope, and shows nothing to another scope", async () => {
+        const created = await createWorkflow();
+        const input = {
+          workflowId: created.id,
+          ownerEmail: OWNER,
+          baseVersion: 1,
+          graphJson: draftText(1),
+        };
+        await expectStoreError(
+          store.saveWorkflowDraft(SCOPE, { ...input, workflowId: "wf-gone" }),
+          "not_found",
+        );
+        await expectStoreError(
+          store.saveWorkflowDraft(OTHER_FACTORY, input),
+          "not_found",
+        );
+        await store.saveWorkflowDraft(SCOPE, input);
+
+        for (const outsider of [OTHER_FACTORY, OTHER_ORG]) {
+          expect(
+            await store.getWorkflowDraft(outsider, created.id, OWNER),
+          ).toBeNull();
+          expect(
+            await store.hasWorkflowDraft(outsider, created.id, OWNER),
+          ).toBe(false);
+          expect(
+            await store.discardWorkflowDraft(outsider, created.id, OWNER),
+          ).toBe(false);
+        }
+        expect(await store.hasWorkflowDraft(SCOPE, created.id, OWNER)).toBe(
+          true,
+        );
+      });
+
+      it("discards only the member's own draft, and a second discard finds none", async () => {
+        const created = await createWorkflow();
+        for (const ownerEmail of [OWNER, TEAMMATE]) {
+          await store.saveWorkflowDraft(SCOPE, {
+            workflowId: created.id,
+            ownerEmail,
+            baseVersion: 1,
+            graphJson: draftText(1),
+          });
+        }
+
+        expect(await store.discardWorkflowDraft(SCOPE, created.id, OWNER)).toBe(
+          true,
+        );
+        expect(await store.discardWorkflowDraft(SCOPE, created.id, OWNER)).toBe(
+          false,
+        );
+        expect(
+          await store.getWorkflowDraft(SCOPE, created.id, OWNER),
+        ).toBeNull();
+        expect(await store.hasWorkflowDraft(SCOPE, created.id, TEAMMATE)).toBe(
+          true,
+        );
+      });
+
+      it("drops the named member's draft in the save that lands, and no other", async () => {
+        const created = await createWorkflow();
+        for (const ownerEmail of [OWNER, TEAMMATE]) {
+          await store.saveWorkflowDraft(SCOPE, {
+            workflowId: created.id,
+            ownerEmail,
+            baseVersion: 1,
+            graphJson: draftText(1),
+          });
+        }
+        const save = (expectedVersion: number, discardDraftOf?: string) =>
+          store.saveWorkflowGraph(SCOPE, {
+            workflowId: created.id,
+            expectedVersion,
+            graph: graph(2),
+            source: "save",
+            summary: "Saved",
+            createdBy: OWNER,
+            discardDraftOf,
+          });
+
+        await save(1);
+        expect(await store.hasWorkflowDraft(SCOPE, created.id, OWNER)).toBe(
+          true,
+        );
+
+        // A save refused as stale changes no draft.
+        await expectStoreError(save(1, OWNER), "stale_version");
+        expect(await store.hasWorkflowDraft(SCOPE, created.id, OWNER)).toBe(
+          true,
+        );
+
+        await save(2, OWNER);
+        expect(await store.hasWorkflowDraft(SCOPE, created.id, OWNER)).toBe(
+          false,
+        );
+        expect(await store.hasWorkflowDraft(SCOPE, created.id, TEAMMATE)).toBe(
+          true,
+        );
+      });
+
+      it("deletes every member's draft with the workflow", async () => {
+        const created = await createWorkflow({ id: "wf-a" });
+        const kept = await createWorkflow({ id: "wf-b" });
+        for (const workflowId of [created.id, kept.id]) {
+          for (const ownerEmail of [OWNER, TEAMMATE]) {
+            await store.saveWorkflowDraft(SCOPE, {
+              workflowId,
+              ownerEmail,
+              baseVersion: 1,
+              graphJson: draftText(1),
+            });
+          }
+        }
+
+        expect(await store.deleteWorkflow(SCOPE, created.id)).toBe(true);
+
+        for (const ownerEmail of [OWNER, TEAMMATE]) {
+          expect(
+            await store.getWorkflowDraft(SCOPE, created.id, ownerEmail),
+          ).toBeNull();
+          expect(await store.hasWorkflowDraft(SCOPE, kept.id, ownerEmail)).toBe(
+            true,
+          );
+        }
+      });
+    });
+
     describe("runs", () => {
       it("starts one run for two concurrent calls with the same tick key", async () => {
         const created = await createWorkflow();

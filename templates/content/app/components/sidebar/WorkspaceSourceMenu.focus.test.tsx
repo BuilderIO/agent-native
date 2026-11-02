@@ -62,6 +62,8 @@ describe("WorkspaceSourceMenu focus", () => {
 
     await act(async () => {
       newWorkspace.click();
+    });
+    await act(async () => {
       await new Promise((resolve) => requestAnimationFrame(resolve));
     });
 

@@ -23,7 +23,8 @@ describe("empty design", () => {
     expect(source).toContain("<GenerationStatusCard");
     expect(source).toContain("onRetry={handleRetryGeneration}");
     const gate = source.slice(
-      source.indexOf("{designIsEmpty &&"),
+      // The gate also opens for a first-screen build, so it starts with a paren.
+      source.indexOf("{(designIsEmpty &&"),
       source.indexOf("<GenerationStatusCard"),
     );
     expect(gate).toContain(
@@ -39,7 +40,8 @@ describe("empty design", () => {
 
     expect(handler).not.toContain("generationOutputReadyRef.current === true");
     expect(handler).not.toContain("hasPersistedOutputBaseline");
-    expect(handler).toContain("rememberPendingGenerationForRetry()");
+    expect(handler).toContain("rememberPendingGenerationForRetry(");
+    expect(handler).toContain("failure?.retryable !== false");
     expect(handler).toContain('t("designEditor.generationStoppedRetry")');
   });
 

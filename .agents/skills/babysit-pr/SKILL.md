@@ -93,6 +93,14 @@ GitHub Actions and no new feedback, and merge only if the user asks.
   false positives, nitpicks, and anything the linter or typechecker already
   covers.
 - Never leave a comment without a disposition.
+- A high or critical finding closes only with a commit that fixes it, or a
+  reply that points at the code showing it can't happen. Replying
+  "addressed" without either doesn't close it, and it blocks the merge.
+- When a third round of findings lands on code this PR added, stop patching
+  its edges: each patch is new code for the next round. Replace it with
+  something simpler, often by fixing the boundary that made it necessary,
+  or, in a sweep, revert that report's commit and leave it for a person.
+  #8288 patched one resolver about 25 times in a day and never merged.
 
 ## Pushing to an existing PR
 

@@ -1,8 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { docsUrl } from "@agent-native/core/shared";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
+import { CLIPS_SCREENSHOTS } from "@shared/labs";
 import {
   IconArchive,
   IconPhoto,
@@ -393,6 +395,7 @@ export function ClipsCommandMenu({
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const screenshotsEnabled = useLab(CLIPS_SCREENSHOTS);
   const { canManageOrg } = useOrgRole();
   const context = useMemo(
     () => commandRouteContext(location.pathname),
@@ -614,13 +617,15 @@ export function ClipsCommandMenu({
           {t("navigation.dictate")}
           <CommandMenu.Shortcut>G D</CommandMenu.Shortcut>
         </CommandMenu.Item>
-        <CommandMenu.Item
-          onSelect={() => void navigate("/screenshots")}
-          keywords={["screenshots", "screenshot", "images", "stills"]}
-        >
-          <IconPhoto size={16} />
-          {t("navigation.screenshots")}
-        </CommandMenu.Item>
+        {screenshotsEnabled && (
+          <CommandMenu.Item
+            onSelect={() => void navigate("/screenshots")}
+            keywords={["screenshots", "screenshot", "images", "stills"]}
+          >
+            <IconPhoto size={16} />
+            {t("navigation.screenshots")}
+          </CommandMenu.Item>
+        )}
         <CommandMenu.Item
           onSelect={() => void navigate("/archive")}
           keywords={["archive"]}

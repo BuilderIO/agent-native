@@ -634,7 +634,7 @@ describe("native agent follow-up publication", () => {
     ]);
   });
 
-  it("continues after provider tool_use when grounded metadata accompanies a reply", async () => {
+  it("keeps a reply sent beside grounded metadata as the final answer after provider tool_use", async () => {
     const { opts, events, requests } = setup([
       [
         {
@@ -652,17 +652,12 @@ describe("native agent follow-up publication", () => {
           "tool_use",
         ),
       ],
-      step([
-        reply(
-          "There are no transactions in October 2026, so total spending is €0.",
-        ),
-      ]),
     ]);
     const usage = await runAgentLoop(opts);
-    expect(usage.llmCalls).toBe(2);
+    expect(usage.llmCalls).toBe(1);
     expect(usage.followUpMs).toBeUndefined();
     expect(usage.followUpInputTokens).toBeUndefined();
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(1);
     expect(requests[0].systemPrompt).toBe(
       `${opts.systemPrompt}\n\n${FOLLOW_UP_SUGGESTIONS_INSTRUCTION}`,
     );
@@ -670,7 +665,7 @@ describe("native agent follow-up publication", () => {
     expect(requests[0].tools.map((tool) => tool.name)).toContain(
       FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
     );
-    expect(requests[1].messages.at(-1)).toMatchObject({
+    expect(opts.messages.at(-1)).toMatchObject({
       role: "user",
       content: [
         { type: "tool-result", toolName: FOLLOW_UP_SUGGESTIONS_TOOL_NAME },
@@ -678,10 +673,7 @@ describe("native agent follow-up publication", () => {
     });
     expect(events.filter((event) => event.type !== "model_stream")).toEqual([
       { type: "suggestions", suggestions: [] },
-      {
-        type: "text",
-        text: "There are no transactions in October 2026, so total spending is €0.",
-      },
+      { type: "text", text: "No transactions in October 2026, total €0." },
       {
         type: "suggestions",
         suggestions: [
@@ -695,6 +687,26 @@ describe("native agent follow-up publication", () => {
       },
       { type: "done" },
     ]);
+  });
+
+  it("completes invalid metadata sent beside a reply without clearing the reply", async () => {
+    const { opts, events, requests } = setup([
+      step(
+        [
+          reply("Here is the answer."),
+          call({ suggestions: [{ label: "Broken" }] }),
+        ],
+        "tool_use",
+      ),
+      step([call()], "tool_use"),
+    ]);
+    await runAgentLoop(opts);
+    expect(requests).toHaveLength(2);
+    expect(requests[1].maxOutputTokens).toBe(1024);
+    expect(
+      events.filter((event) => event.type === "text" || event.type === "clear"),
+    ).toEqual([{ type: "text", text: "Here is the answer." }]);
+    expect(published(events)).toHaveLength(1);
   });
 
   it("stages a metadata-only call until the ordinary final reply without an empty-response retry", async () => {
@@ -795,29 +807,28 @@ describe("native agent follow-up publication", () => {
     );
   });
 
-  it("preserves provider tool_use continuation when publication accompanies a preamble", async () => {
+  it("treats text sent beside publication as the reply after provider tool_use", async () => {
     const { opts, events, requests } = setup([
-      step([reply("I'll wrap this up."), call()], "tool_use"),
-      step([reply("Here is the actual final response."), call()]),
+      step([reply("Here is the final response."), call()], "tool_use"),
     ]);
     const guard = vi.fn().mockReturnValue(null);
     opts.finalResponseGuard = guard;
     await runAgentLoop(opts);
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(1);
     expect(guard).toHaveBeenCalledOnce();
     expect(guard).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Here is the actual final response." }),
+      expect.objectContaining({ text: "Here is the final response." }),
     );
     expect(events.filter((event) => event.type === "text")).toEqual([
-      { type: "text", text: "Here is the actual final response." },
+      { type: "text", text: "Here is the final response." },
     ]);
     expect(published(events)).toHaveLength(1);
   });
 
-  it("continues after streamed metadata preamble without relying on a guard retry", async () => {
+  it("clears streamed whitespace before asking again after metadata alone", async () => {
     const { opts, events, requests } = setup([
       [
-        { type: "text-delta", text: "I'll wrap this up." },
+        { type: "text-delta", text: "\n\n" },
         {
           type: "tool-call",
           id: "follow-up-1",
@@ -826,31 +837,65 @@ describe("native agent follow-up publication", () => {
         },
         { type: "stop", reason: "tool_use" },
       ],
-      step([reply("Here is the actual final response."), call()]),
+      step([reply("Here is the final response.")]),
+    ]);
+
+    await runAgentLoop(opts);
+
+    expect(requests).toHaveLength(2);
+    expect(
+      events.filter((event) => event.type === "text" || event.type === "clear"),
+    ).toEqual([
+      { type: "text", text: "\n\n" },
+      { type: "clear" },
+      { type: "text", text: "Here is the final response." },
+    ]);
+  });
+
+  it("stops asking again after repeated metadata-only turns", async () => {
+    const metadataOnly = () => step([call()], "end_turn");
+    const { opts, events, requests } = setup(
+      Array.from({ length: 8 }, metadataOnly),
+    );
+    opts.maxIterations = 20;
+
+    await runAgentLoop(opts);
+
+    expect(requests.length).toBeLessThan(8);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "empty_final_response",
+      }),
+    );
+  });
+
+  it("keeps a streamed reply sent beside metadata on screen", async () => {
+    const { opts, events, requests } = setup([
+      [
+        { type: "text-delta", text: "Here is the final response." },
+        {
+          type: "tool-call",
+          id: "follow-up-1",
+          name: FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+          input: { suggestions: [followUp] },
+        },
+        { type: "stop", reason: "tool_use" },
+      ],
     ]);
     const guard = vi.fn().mockReturnValue(null);
     opts.finalResponseGuard = guard;
 
     await runAgentLoop(opts);
 
-    expect(requests).toHaveLength(2);
-    expect(requests[1].messages.at(-1)).toMatchObject({
-      role: "user",
-      content: [
-        { type: "tool-result", toolName: FOLLOW_UP_SUGGESTIONS_TOOL_NAME },
-      ],
-    });
+    expect(requests).toHaveLength(1);
     expect(guard).toHaveBeenCalledOnce();
     expect(guard).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Here is the actual final response." }),
+      expect.objectContaining({ text: "Here is the final response." }),
     );
     expect(
       events.filter((event) => event.type === "text" || event.type === "clear"),
-    ).toEqual([
-      { type: "text", text: "I'll wrap this up." },
-      { type: "clear" },
-      { type: "text", text: "Here is the actual final response." },
-    ]);
+    ).toEqual([{ type: "text", text: "Here is the final response." }]);
     expect(published(events)).toHaveLength(1);
   });
 

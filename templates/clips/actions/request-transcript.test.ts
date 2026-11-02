@@ -574,6 +574,7 @@ describe("requestTranscript regeneration", () => {
       recordingId: "rec_native",
       transcriptText: "Opening filler before the actual product feedback.",
       includeSummary: true,
+      automatic: true,
     });
     expect(result).toMatchObject({
       recordingId: "rec_native",

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 import {
   insertAuditEvent,
@@ -332,9 +334,21 @@ async function main(): Promise<void> {
   );
 }
 
-loadEnv();
-try {
-  await main();
-} finally {
-  await closeDbExec();
+// The dev server imports every file in scripts/ during action discovery; only a
+// direct CLI run may execute main() and close the shared database.
+function isDirectRun(): boolean {
+  const entrypoint = process.argv[1];
+  return Boolean(
+    entrypoint &&
+    import.meta.url === pathToFileURL(realpathSync(entrypoint)).href,
+  );
+}
+
+if (isDirectRun()) {
+  loadEnv();
+  try {
+    await main();
+  } finally {
+    await closeDbExec();
+  }
 }

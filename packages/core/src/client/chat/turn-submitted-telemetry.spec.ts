@@ -104,7 +104,14 @@ function submittedEvents(): Array<Record<string, unknown>> {
   return vi
     .mocked(trackEvent)
     .mock.calls.filter(([name]) => name === TURN_SUBMITTED_EVENT)
-    .map(([, properties]) => properties as Record<string, unknown>);
+    .map(([, properties]) => {
+      const {
+        prompt_category: _promptCategory,
+        prompt_length_bucket: _promptLengthBucket,
+        ...existingProperties
+      } = properties as Record<string, unknown>;
+      return existingProperties;
+    });
 }
 
 const userMessage = (text: string) => ({

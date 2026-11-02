@@ -25,6 +25,7 @@ export const LOAD_TIMEOUT_MS = 600_000;
 
 export interface AdvertisedTool {
   name: string;
+  _meta?: Record<string, unknown>;
   annotations: {
     readOnlyHint?: boolean;
     destructiveHint?: boolean;
@@ -273,12 +274,17 @@ function createCloseHooks() {
 
 export async function listAdvertised(
   config: MCPConfig,
-  request: { fullCatalog: boolean; fullSurface: boolean },
+  request: {
+    fullCatalog: boolean;
+    fullSurface: boolean;
+    inlineMcpApps?: boolean;
+  },
 ): Promise<{ tools: AdvertisedTool[]; instructions: string }> {
   return withCatalogClient(config, request, async (client) => ({
     tools: (await client.listTools()).tools.map((tool) => ({
       name: tool.name,
       annotations: { ...(tool.annotations ?? {}) },
+      ...(request.inlineMcpApps ? { _meta: tool._meta } : {}),
     })),
     instructions: client.getInstructions() ?? "",
   }));
@@ -286,7 +292,11 @@ export async function listAdvertised(
 
 export async function withCatalogClient<T>(
   config: MCPConfig,
-  request: { fullCatalog: boolean; fullSurface: boolean },
+  request: {
+    fullCatalog: boolean;
+    fullSurface: boolean;
+    inlineMcpApps?: boolean;
+  },
   inspect: (client: Client) => Promise<T>,
 ): Promise<T> {
   const server = await createMCPServerForRequest(
@@ -299,7 +309,7 @@ export async function withCatalogClient<T>(
     },
     {
       transport: "http",
-      inlineMcpApps: false,
+      inlineMcpApps: request.inlineMcpApps ?? false,
       ...(request.fullCatalog ? { fullCatalog: true } : {}),
       ...(request.fullSurface ? { fullSurface: true } : {}),
     },

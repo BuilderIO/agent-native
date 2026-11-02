@@ -3,17 +3,42 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-27
+## 2026-10-28
+
+### Improved
+
+- Content menus use consistent text-only actions.
 
 ### Fixed
 
+- Choosing Use saved after an interrupted recovery no longer lets the discarded edits come back later
+- Renaming a page while an agent edits it no longer stops your typing from saving or undoes the agent's edit on reload
+
+## 2026-10-27
+
+### Improved
+
+- A public page's link opens a read-only copy for people who aren't signed in, instead of asking them to sign in
+- An AI suggestion in a comment thread uses the same group as suggested changes in the margin: its summary, edit count, Accept all and Reject all come first, and opening it shows each edit with the usual check and X.
+
+### Fixed
+
+- Edits to a public page reach its readers within a minute, and making it private or moving it to Trash takes it down just as fast
+- Two collections connected to the same Builder model can no longer push over each other's changes to the same entry at the same moment.
+- Restoring page history preserves text without exposing unauthorized private callout images
 - An agent's Accept on words someone is still typing in returns the suggestion to pending instead of failing with a server error
 - Opening a page you can't access goes straight to the no-access screen without a brief error first, including when you come back to it
 
 ## 2026-10-26
 
+### Improved
+
+- A comment sent to AI says what it asks for on its send button (Reply, Suggest or Apply), and while the AI works, the thread names the model doing it.
+
 ### Fixed
 
+- Opening another comment thread while you're writing a new comment keeps what you wrote.
+- When the AI answers in a long comment thread, the card shows the start of its answer instead of jumping to the end, and scrolling past either end of a card no longer scrolls the page.
 - Document reads preserve bodies containing ordinary prose about starting an embed.
 
 ## 2026-10-25
@@ -69,11 +94,13 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Outside assistants can open shareable local-file copies in Content, with approval before creating or refreshing the copy.
 - Collection filters add does not contain, starts with, ends with, on or before, and on or after. Date filters can use relative days like today, and is within picks a range the way Notion does, such as the past 2 weeks or this month. A date without a time now counts as the whole day, so "on or before today" keeps rows from later today.
 - Blocks with several comment threads fold into one stack in the margin, which opens in place when you click it or a highlight
 
 ### Improved
 
+- Shareable local-file copies open inline with document editing and sharing controls in compatible agent hosts.
 - Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
 - Tables get Header row, Header column and Fit to width in their block menu, colours for rows and columns, and menus that close the moment you press Escape.
 - The block menu turns a block into another kind, colours it and comments on it, filters as you type, and shows each action’s shortcut. It says why a locked block can’t be duplicated or deleted, and a click beside the page lets go of a selected block.
@@ -86,6 +113,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Pages using the live copy keep unsent edits through a refresh, closed tab, or lost connection.
 - A comment on the start of a block no longer highlights blocks added just above it.
 - Saving a Builder entry from Content no longer snaps back on the next refresh, and draft entries get a plain save that Builder shows right away.
 - The Page stays editable while Accept, Reject, Accept remaining, and Reject remaining save, and a failed save returns only that decision to pending

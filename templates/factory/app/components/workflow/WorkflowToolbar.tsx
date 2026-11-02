@@ -4,7 +4,6 @@ import {
   IconClipboardCopy,
   IconDeviceFloppy,
   IconDots,
-  IconFlask,
   IconHistory,
   IconLoader2,
   IconMessageCircle,
@@ -56,8 +55,6 @@ interface WorkflowToolbarProps {
   onJumpToProblem: (problem: ProblemRow) => void;
 
   testing: boolean;
-  /** Saves first when there are unsaved edits, so the test runs what is on the canvas. */
-  onTestRun: () => void;
   /** A real run of the saved workflow; offered only while it is switched on. */
   onRunNow: () => void;
 
@@ -104,7 +101,6 @@ export function WorkflowToolbar({
   onProblemsOpenChange,
   onJumpToProblem,
   testing,
-  onTestRun,
   onRunNow,
   enabled,
   enabledPending,
@@ -274,24 +270,6 @@ export function WorkflowToolbar({
               <IconDeviceFloppy />
             )}
             {saving ? ws.toolbar.saving : ws.toolbar.save}
-          </Button>
-
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={testing || saving}
-            aria-label={dirty ? ws.toolbar.saveAndTest : ws.toolbar.testRun}
-            onClick={onTestRun}
-          >
-            {testing ? <IconLoader2 className="animate-spin" /> : <IconFlask />}
-            <span className="hidden lg:inline">
-              {testing
-                ? ws.toolbar.testing
-                : dirty
-                  ? ws.toolbar.saveAndTest
-                  : ws.toolbar.testRun}
-            </span>
           </Button>
 
           {runPicker}

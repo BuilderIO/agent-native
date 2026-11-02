@@ -36,6 +36,25 @@ function isRuntimeSourceFile(filename: string): boolean {
   return true;
 }
 
+// Dev agent chat imports each of these files to read its tool definition, which
+// executes the module. `scripts/` holds CLI scripts with top-level side effects
+// (one closed the shared database at boot), so only `actions/` is listed.
+export async function listDevActionFiles(cwd: string): Promise<string[]> {
+  const fs = await getFs();
+  const actionsDir = nodePath.join(cwd, "actions");
+  if (!fs.existsSync(actionsDir)) return [];
+  return fs
+    .readdirSync(actionsDir)
+    .filter(
+      (f: string) =>
+        f.endsWith(".ts") &&
+        !f.startsWith("_") &&
+        !/\.(test|spec)\.ts$/.test(f) &&
+        !SKIP_FILES.has(f.replace(/\.ts$/, "")),
+    )
+    .map((f: string) => nodePath.join(actionsDir, f));
+}
+
 const PACKAGE_ACTION_REGISTRY_KEY = Symbol.for(
   "@agent-native/core.package-action-registry",
 );
@@ -322,6 +341,8 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "call-mcp-tool",
   // Connection setup UI needs the workspace prerequisite even in minimal apps.
   "get-managed-mcp-oauth-readiness",
+  // Any app calling a provider API needs to see which scopes its connection holds.
+  "list-workspace-connection-scopes",
   "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
@@ -471,6 +492,11 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       "list-workspace-user-groups",
       () =>
         import("../workspace-connections/actions/list-workspace-user-groups.js"),
+    ],
+    [
+      "list-workspace-connection-scopes",
+      () =>
+        import("../workspace-connections/actions/list-workspace-connection-scopes.js"),
     ],
     [
       "upsert-workspace-user-group",

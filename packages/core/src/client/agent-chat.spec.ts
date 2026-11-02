@@ -78,6 +78,7 @@ const {
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
+  getAgentChatSubmitTarget,
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
@@ -87,6 +88,7 @@ const {
   removeAgentChatContextItem,
   removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
+  reportAgentChatSubmitTarget,
   sendToAgentChat,
   sendToAgentChatAndConfirm,
   setAgentChatContextItem,
@@ -795,7 +797,11 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId },
+        detail: expect.objectContaining({
+          isRunning: false,
+          tabId,
+          browserTabId: expect.any(String),
+        }),
       }),
     );
   });
@@ -816,7 +822,11 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId },
+        detail: expect.objectContaining({
+          isRunning: false,
+          tabId,
+          browserTabId: expect.any(String),
+        }),
       }),
     );
   });
@@ -1311,7 +1321,11 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId },
+        detail: expect.objectContaining({
+          isRunning: false,
+          tabId,
+          browserTabId: expect.any(String),
+        }),
       }),
     );
   });
@@ -1933,7 +1947,7 @@ describe("sendToAgentChat", () => {
       trackEventMock.mockReset();
     });
 
-    it("reports a Builder code prompt once, as routed to Builder", () => {
+    it("reports a Builder code prompt once, as routed to Builder", async () => {
       frameState.inBuilderFrame = true;
 
       sendToAgentChat({
@@ -1943,15 +1957,18 @@ describe("sendToAgentChat", () => {
         preset: "app-editor",
         submitMessageId: "submit-builder",
       });
+      await flushMicrotasks();
 
       expect(sendToBuilderChatMock).toHaveBeenCalledOnce();
       expect(submitted()).toEqual([
-        {
+        expect.objectContaining({
           routed_to: "builder",
           surface: "app-editor",
           initiator: "app",
           submit_message_id: "submit-builder",
-        },
+          prompt_category: "edit",
+          prompt_length_bucket: "1-50",
+        }),
       ]);
     });
 
@@ -1975,12 +1992,14 @@ describe("sendToAgentChat", () => {
       expect(parentPostMessageSpy).toHaveBeenCalledOnce();
       const [event] = submitted();
       expect(submitted()).toHaveLength(1);
-      expect(event).toEqual({
+      expect(event).toMatchObject({
         routed_to: "mcp_host",
         surface: "chat",
         initiator: "app",
         submit_message_id:
           parentPostMessageSpy.mock.calls[0][0].data.submitMessageId,
+        prompt_category: "edit",
+        prompt_length_bucket: "1-50",
       });
       expect(event).not.toHaveProperty("turn_id");
     });
@@ -2069,6 +2088,44 @@ describe("sendToAgentChat", () => {
       data: parentPostMessageSpy.mock.calls[0][0],
     } as MessageEvent);
     expect(parsed?.surface).toBe("deck-outline");
+  });
+});
+
+describe("getAgentChatSubmitTarget", () => {
+  it("keeps each submission's route for listeners that subscribe after the event", () => {
+    reportAgentChatSubmitTarget("submit-first", "tab-shared", {
+      threadId: "thread-first",
+    });
+    reportAgentChatSubmitTarget("submit-second", "tab-shared", {
+      threadId: "thread-second",
+    });
+    reportAgentChatSubmitTarget("submit-no-thread", "tab-other");
+
+    expect(getAgentChatSubmitTarget("submit-first")).toEqual({
+      tabId: "tab-shared",
+      threadId: "thread-first",
+    });
+    expect(getAgentChatSubmitTarget("submit-second")).toEqual({
+      tabId: "tab-shared",
+      threadId: "thread-second",
+    });
+    expect(getAgentChatSubmitTarget("submit-no-thread")).toEqual({
+      tabId: "tab-other",
+      threadId: null,
+    });
+    expect(getAgentChatSubmitTarget("submit-never-routed")).toBeNull();
+  });
+
+  it("forgets the oldest submissions once the history is full", () => {
+    reportAgentChatSubmitTarget("submit-oldest", "tab-oldest");
+    for (let index = 0; index < 100; index += 1) {
+      reportAgentChatSubmitTarget(`submit-filler-${index}`, "tab-filler");
+    }
+
+    expect(getAgentChatSubmitTarget("submit-oldest")).toBeNull();
+    expect(getAgentChatSubmitTarget("submit-filler-99")?.tabId).toBe(
+      "tab-filler",
+    );
   });
 });
 

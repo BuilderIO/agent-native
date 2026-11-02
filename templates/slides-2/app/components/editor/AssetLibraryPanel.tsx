@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -125,7 +125,7 @@ export default function AssetLibraryPanel({
         const form = new FormData();
         form.append("file", file);
         try {
-          const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+          const res = await fetch(appApiPath("/api/assets/upload"), {
             method: "POST",
             body: form,
           });
@@ -239,7 +239,7 @@ export default function AssetLibraryPanel({
     try {
       const form = new FormData();
       form.append("file", file);
-      const response = await fetch(`${appBasePath()}/api/assets/upload`, {
+      const response = await fetch(appApiPath("/api/assets/upload"), {
         method: "POST",
         body: form,
       });

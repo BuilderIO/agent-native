@@ -127,6 +127,7 @@ const page = {
   content: "Saved body",
   canEdit: true,
   updatedAt: "v2",
+  contentHash: "sha256:saved-body",
 } as Document;
 
 function entry(writerId: string, content: string, baseUpdatedAt = "v2") {
@@ -389,6 +390,7 @@ describe("Page browser journal recovery", () => {
       title: "Newer SQL title",
       content: "Local",
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
       loadedContentWasEmpty: 0,
       deferredReason: "conflict",
       editorSessionId: "first",
@@ -478,6 +480,7 @@ describe("Page browser journal recovery", () => {
       title: "Peer rename",
       content: "Local",
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
       loadedContentWasEmpty: 0,
       deferredReason: "conflict",
       editorSessionId: "first",
@@ -536,6 +539,7 @@ describe("Page browser journal recovery", () => {
         title: "Newer SQL title",
         content: "Local",
         baseDocumentUpdatedAt: "v2",
+        baseContentHash: "sha256:saved-body",
         loadedContentWasEmpty: 0,
         deferredReason: "conflict",
         editorSessionId: "first",
@@ -935,6 +939,26 @@ describe("Page browser journal recovery", () => {
     expect(state.resolve).toHaveBeenCalledWith(
       expect.objectContaining({ choice: "use_saved" }),
     );
+  });
+
+  it("files a switched page's unsent journal to History instead of replaying it", async () => {
+    state.entries = [entry("closed-tab", "Local")];
+    await act(async () => render({ ...page, writePath: "live_copy" }));
+
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "upsert",
+        draft: expect.objectContaining({ content: "Local" }),
+      }),
+    );
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "use_saved" }),
+    );
+    expect(state.entries).toEqual([]);
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("textarea")).not.toBeNull();
   });
 });
 

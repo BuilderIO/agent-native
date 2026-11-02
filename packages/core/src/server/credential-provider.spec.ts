@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockReadAppSecret = vi.fn();
 const mockReadAppSecrets = vi.fn();
@@ -95,6 +95,9 @@ import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   BUILDER_AUTH_FAILURE_TTL_MS,
   builderCredentialFingerprint,
+  builderCreditsRefusalStatus,
+  resetBuilderCreditsRefusedWarningForTests,
+  resolveUsableBuilderGatewayDeployCredentials,
   canUseDeployCredentialFallbackForRequest,
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
@@ -115,6 +118,7 @@ import {
   resolveBuilderCredential,
   resolveBuilderCredentials,
   resolveBuilderCredentialsDetailed,
+  registerDelegatedBuilderCredentials,
   BuilderCredentialLookupError,
   resolveBuilderCredentialSource,
   resolveBuilderGatewayAuth,
@@ -3177,7 +3181,7 @@ describe("Builder gateway credential lane", () => {
     );
   });
 
-  it("does not resolve the credits lane inside the dev-preview runtime", async () => {
+  it("does not resolve the credits lane inside a workspace runtime", async () => {
     hostedVisitor();
     process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
@@ -3190,6 +3194,116 @@ describe("Builder gateway credential lane", () => {
       publicKey: null,
       lane: null,
     });
+  });
+
+  it("resolves the credits pair Fusion injects into the preview for a signed-in user", async () => {
+    hostedVisitor();
+    process.env.FUSION_ENVIRONMENT = "cloud-v2";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_GATEWAY_TOKEN"),
+    ).toBe(true);
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_PRIVATE_KEY"),
+    ).toBe(false);
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({
+      privateKey: "btk-preview-token",
+      publicKey: "space-abc",
+      lane: "gateway-deploy",
+    });
+    await expect(resolveHasBuilderGatewayCredential()).resolves.toBe(true);
+    expect(isBuilderGatewayDeployConfigured()).toBe(false);
+  });
+
+  it("does not resolve a gateway token without its space id where the pair is allowed", async () => {
+    process.env.NODE_ENV = "development";
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+  });
+});
+
+describe("Builder credits refusal reporting", () => {
+  const refusingRuntime = () => {
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    mockGetRequestUserEmail.mockReturnValue("visitor@example.com");
+  };
+
+  beforeEach(() => {
+    resetBuilderCreditsRefusedWarningForTests();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reports a deployed pair the runtime refuses when chat is not eligible", () => {
+    refusingRuntime();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    expect(builderCreditsRefusalStatus(false)).toEqual({
+      builderCreditsRefused: true,
+    });
+    expect(builderCreditsRefusalStatus(true)).toEqual({});
+  });
+
+  it.each([
+    ["only the token", "btk-site-token", undefined],
+    ["only the space id", undefined, "space-abc"],
+    ["a blank token", "   ", "space-abc"],
+    ["a blank space id", "btk-site-token", "   "],
+  ])("reports nothing with %s deployed", (_label, token, spaceId) => {
+    refusingRuntime();
+    if (token !== undefined) process.env.BUILDER_GATEWAY_TOKEN = token;
+    if (spaceId !== undefined) process.env.BUILDER_GATEWAY_SPACE_ID = spaceId;
+
+    expect(builderCreditsRefusalStatus(false)).toEqual({});
+  });
+
+  it("reports nothing where the runtime allows the pair", () => {
+    process.env.FUSION_ENVIRONMENT = "cloud-v2";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    expect(builderCreditsRefusalStatus(false)).toEqual({});
+  });
+
+  it("warns once per process naming both keys when the runtime refuses the pair", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    refusingRuntime();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/BUILDER_GATEWAY_TOKEN.*BUILDER_GATEWAY_SPACE_ID/),
+    );
+  });
+
+  it("does not warn when no pair is deployed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    refusingRuntime();
+
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 
@@ -3758,5 +3872,140 @@ describe("Restrict personal API keys", () => {
         orgId: null,
       }),
     ).resolves.toBe("bpk-personal");
+  });
+});
+
+describe("host-managed Builder credentials", () => {
+  const owner = "b-0123@builder-identity.invalid";
+
+  beforeEach(() => {
+    mockGetRequestUserEmail.mockReturnValue(owner);
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecret.mockResolvedValue(null);
+    mockReadAppSecrets.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    registerDelegatedBuilderCredentials(null);
+    delete process.env.BUILDER_PRIVATE_KEY;
+    delete process.env.BUILDER_PUBLIC_KEY;
+    delete process.env.BUILDER_GATEWAY_TOKEN;
+    delete process.env.BUILDER_GATEWAY_SPACE_ID;
+  });
+
+  it("uses the credential the host's provider returns, even asynchronously", async () => {
+    registerDelegatedBuilderCredentials(async () => ({
+      token: "user-token",
+      spaceId: "user-space",
+    }));
+
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: "user-token",
+      publicKey: "user-space",
+      source: "user",
+      lookupFailed: false,
+    });
+    await expect(resolveBuilderCredential("BUILDER_PRIVATE_KEY")).resolves.toBe(
+      "user-token",
+    );
+    await expect(resolveBuilderCredential("BUILDER_PUBLIC_KEY")).resolves.toBe(
+      "user-space",
+    );
+  });
+
+  it("falls through to ordinary credentials for a user the provider does not manage", async () => {
+    registerDelegatedBuilderCredentials(async () => null);
+    mockReadAppSecret.mockImplementation(async ({ key }: { key: string }) =>
+      key === "BUILDER_PRIVATE_KEY" ? { key, value: "stored-key" } : null,
+    );
+
+    await expect(resolveBuilderCredential("BUILDER_PRIVATE_KEY")).resolves.toBe(
+      "stored-key",
+    );
+  });
+
+  it("stops when a managed user has no credential, even with deployment credentials set", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "deploy-space";
+    registerDelegatedBuilderCredentials(async () => "none");
+    mockReadAppSecret.mockImplementation(async ({ key }: { key: string }) => ({
+      key,
+      value: `shared-${key}`,
+    }));
+    mockReadAppSecrets.mockResolvedValue([
+      { key: "BUILDER_PRIVATE_KEY", value: "shared-key" },
+    ]);
+
+    await expect(
+      resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+    ).resolves.toBeNull();
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: null,
+      publicKey: null,
+      source: null,
+      lookupFailed: false,
+    });
+    expect(mockReadAppSecret).not.toHaveBeenCalled();
+    expect(mockReadAppSecrets).not.toHaveBeenCalled();
+  });
+
+  it("keeps the shared gateway credential from standing in for a managed user", async () => {
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    mockGetRequestUserEmail.mockReturnValue(owner);
+
+    // An ordinary user, for contrast, is served by the deployment's gateway.
+    registerDelegatedBuilderCredentials(async () => null);
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({ lane: "gateway-deploy" });
+
+    registerDelegatedBuilderCredentials(async () => "none");
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({
+      privateKey: null,
+      publicKey: null,
+      lane: null,
+      hostManagedWithoutCredential: true,
+    });
+  });
+
+  it("does not let the deployment gateway credential stand in when the provider fails", async () => {
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    registerDelegatedBuilderCredentials(async () => {
+      throw new Error("stored credential unreadable");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        resolveBuilderGatewayCredentialsDetailed(),
+      ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("reports a provider outage as a failed lookup, not as a missing credential", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "deploy-space";
+    const outage = new Error("credential store down");
+    registerDelegatedBuilderCredentials(async () => {
+      throw outage;
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const failed = await resolveBuilderCredentialsDetailed();
+      expect(failed).toMatchObject({ privateKey: null, lookupFailed: true });
+      expect(failed.cause).toBeInstanceOf(CredentialStoreUnavailableError);
+      expect((failed.cause as Error).cause).toBe(outage);
+      await expect(
+        resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+      ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    } finally {
+      error.mockRestore();
+    }
   });
 });

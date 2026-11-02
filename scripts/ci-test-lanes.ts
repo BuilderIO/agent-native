@@ -235,6 +235,7 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
 const CATALOG_CONTRACT_CORE_SPECS = [
   "src/mcp/advertised-tool-annotations.spec.ts",
   "src/mcp/instructions-name-advertised-tools.spec.ts",
+  "src/mcp/hidden-inline-apps.spec.ts",
 ] as const;
 const NON_CODE_ASSET_RE =
   /\.(?:css|scss|sass|less|png|jpe?g|gif|webp|avif|ico|svg|woff2?|ttf|otf|eot|mp3|mp4|wav|webm|mov)$/iu;

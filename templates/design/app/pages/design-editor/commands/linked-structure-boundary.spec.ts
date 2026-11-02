@@ -272,9 +272,11 @@ it.each(["copy-label", "label", "mixed", "copy", "main", "lower-bound-only"])(
     );
     const applyFileContentUpdate = vi.fn((_id, next) => {
       content = next;
+      return { status: "accepted" };
     });
     const applyLocalContentUpdate = vi.fn((next) => {
       content = next;
+      return { status: "accepted" };
     });
     const applyLinkedComponentEdit = vi.fn((_fileId, _nodeId, edit) => {
       if (selection === "main") {

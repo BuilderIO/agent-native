@@ -115,8 +115,6 @@ const NOT_TOOL_NAMES: Record<string, Record<string, string>> = {
   },
 };
 
-const FULL_CATALOG_ONLY =
-  "advertised only on the full catalog; owners to reword or advertise";
 const PAGE_LOCAL_WEBMCP =
   "a page-local WebMCP tool the text itself marks as a fallback for browser-capable hosts";
 
@@ -132,13 +130,6 @@ const ADVERTISED_ONLY_CONDITIONALLY: Record<string, Record<string, string>> = {
   ),
   design: {
     ...prose(PAGE_LOCAL_WEBMCP, "get-visual-edit-prompt"),
-    ...prose(
-      FULL_CATALOG_ONLY,
-      "export-html",
-      "export-zip",
-      "export-coding-handoff",
-      "export-design-as-figma-svg",
-    ),
     ...prose(
       "Builder app tools: they act only on designs backed by a Builder app, so the default catalog leaves them out",
       "send-builder-message",
