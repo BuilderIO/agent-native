@@ -184,12 +184,21 @@ function spawnerAliases(sourceFile: ts.SourceFile) {
   return aliases;
 }
 
-/** The parameters of the file's own functions, by function name. */
+/**
+ * The parameters of the file's own functions, by function name. Functions in
+ * other scopes can share a name, so each name keeps every list it has.
+ */
 function functionParameters(sourceFile: ts.SourceFile) {
-  const found = new Map<string, readonly ts.ParameterDeclaration[]>();
+  const found = new Map<string, (readonly ts.ParameterDeclaration[])[]>();
+  const add = (
+    name: string,
+    parameters: readonly ts.ParameterDeclaration[],
+  ) => {
+    found.set(name, [...(found.get(name) ?? []), parameters]);
+  };
   const visit = (node: ts.Node) => {
     if (ts.isFunctionDeclaration(node) && node.name) {
-      found.set(node.name.text, node.parameters);
+      add(node.name.text, node.parameters);
     } else if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
@@ -197,7 +206,7 @@ function functionParameters(sourceFile: ts.SourceFile) {
       (ts.isArrowFunction(node.initializer) ||
         ts.isFunctionExpression(node.initializer))
     ) {
-      found.set(node.name.text, node.initializer.parameters);
+      add(node.name.text, node.initializer.parameters);
     }
     ts.forEachChild(node, visit);
   };
@@ -290,8 +299,10 @@ function variableValues(sourceFile: ts.SourceFile) {
   };
   const visitCalls = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
-      for (const name of localFunctions(node.expression)) {
-        const params = parameters.get(name) ?? [];
+      const lists = localFunctions(node.expression).flatMap(
+        (name) => parameters.get(name) ?? [],
+      );
+      for (const params of lists) {
         for (const [index, argument] of node.arguments.entries()) {
           // A spread shifts every later argument by an unknown amount.
           if (ts.isSpreadElement(argument) || index >= params.length) break;

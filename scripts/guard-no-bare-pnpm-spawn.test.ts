@@ -84,6 +84,25 @@ describe("bare pnpm spawn guard", () => {
     assert.deepEqual(flagged(source, "all"), [2, 5, 12, 17, 24]);
   });
 
+  it("follows a parameter when another scope reuses the helper's name", () => {
+    const source = [
+      "function first() {",
+      "  function run(cmd) {",
+      "    return spawn(cmd, []);",
+      "  }",
+      '  return run("pnpm");',
+      "}",
+      "function second() {",
+      "  function run(label, count) {",
+      "    return console.log(label, count);",
+      "  }",
+      '  return run("hello", 1);',
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [3]);
+  });
+
   it("reads a helper's shell from what its callers pass", () => {
     const source = [
       "function withOptions(cmd, options) {",
