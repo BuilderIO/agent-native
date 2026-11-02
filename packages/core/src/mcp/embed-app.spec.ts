@@ -670,6 +670,32 @@ describe("embedApp", () => {
     ).toBe(false);
   });
 
+  it("tells a blocked tab from an opened one", () => {
+    const resource = embedApp({ title: "Dashboard" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "mail" })
+        : resource.html;
+    const source = html.match(
+      /    function openBlankTab\(url\) \{[\s\S]*?\n    \}\n/,
+    )?.[0];
+    expect(source).toBeTruthy();
+    const open = vi.fn();
+    const openBlankTab = new Function(
+      "window",
+      `${source} return openBlankTab;`,
+    )({ open }) as (url: string) => boolean;
+
+    const tab = { opener: {} };
+    open.mockReturnValueOnce(tab);
+    expect(openBlankTab("https://app.example/x")).toBe(true);
+    expect(tab.opener).toBeNull();
+    expect(open).toHaveBeenCalledWith("https://app.example/x", "_blank");
+
+    open.mockReturnValueOnce(null);
+    expect(openBlankTab("https://app.example/x")).toBe(false);
+  });
+
   it("renews a session in place through the host, within its attempts", async () => {
     const resource = embedApp({ title: "Dashboard" });
     const html =

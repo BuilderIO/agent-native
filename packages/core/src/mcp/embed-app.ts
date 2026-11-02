@@ -2043,6 +2043,14 @@ export function embedApp(
       return sections.filter(Boolean).join("\\n\\n");
     }
 
+    // "noopener" would hide whether the browser blocked the tab, so it's cleared
+    // on the tab instead.
+    function openBlankTab(url) {
+      const tab = window.open(url, "_blank");
+      if (tab) tab.opener = null;
+      return Boolean(tab);
+    }
+
     async function openHostLink(data) {
       const url = typeof (data && data.url) === "string" ? data.url : "";
       if (!url) return { isError: true };
@@ -2052,8 +2060,7 @@ export function embedApp(
       if (app && typeof app.openLink === "function") {
         return await app.openLink({ url });
       }
-      window.open(url, "_blank", "noopener,noreferrer");
-      return { ok: true };
+      return openBlankTab(url) ? { ok: true } : { isError: true };
     }
 
     function notifyHostHeight() {
@@ -2785,8 +2792,7 @@ export function embedApp(
           } catch (err) {
             console.warn("[agent-native] MCP host open-link request failed", err);
           }
-          const opened = window.open(url, "_blank", "noopener,noreferrer");
-          return opened ? { ok: true } : { isError: true };
+          return openBlankTab(url) ? { ok: true } : { isError: true };
         },
         async requestDisplayMode(params) {
           await nativeApp.connect();
