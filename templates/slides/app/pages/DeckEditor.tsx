@@ -5581,6 +5581,7 @@ export default function DeckEditor() {
             signal,
           });
         }}
+        flushInlineEdit={() => inlineEditFlushRef.current?.()}
         onExportPptx={async (signal) => {
           trackEvent("slide_export_started", {
             app_name: "slides",
