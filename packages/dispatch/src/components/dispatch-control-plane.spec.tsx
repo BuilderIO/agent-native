@@ -12,7 +12,8 @@ const clientState = vi.hoisted(() => ({
   inBuilderFrame: false,
   navigateWithTransition: vi.fn(),
   promptComposerProps: null as Record<string, unknown> | null,
-  workspaceApps: [] as Array<Record<string, unknown>>,
+  workspaceApps: [] as Array<Record<string, unknown>> | undefined,
+  workspaceAppsError: null as Error | null,
   connectedApps: [] as Array<Record<string, unknown>>,
   curatedTemplates: [] as Array<Record<string, unknown>>,
   useChatModels: vi.fn(() => ({
@@ -77,8 +78,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           ? clientState.curatedTemplates
           : clientState.workspaceApps,
     isLoading: false,
-    isError: false,
-    error: null,
+    isError:
+      name === "list-workspace-apps" && clientState.workspaceAppsError != null,
+    error:
+      name === "list-workspace-apps" ? clientState.workspaceAppsError : null,
     refetch: vi.fn(),
   }),
   useActionMutation: () => ({ mutate: vi.fn(), isPending: false }),
@@ -110,6 +113,12 @@ vi.mock("./create-app-popover", () => ({
       <span>Create app</span>
     </div>
   ),
+  NewAppButton: () => (
+    <div>
+      <button type="button">New app</button>
+      <span>Create app</span>
+    </div>
+  ),
 }));
 
 describe("DispatchControlPlane", () => {
@@ -138,6 +147,7 @@ describe("DispatchControlPlane", () => {
     clientState.navigateWithTransition.mockReset();
     clientState.promptComposerProps = null;
     clientState.workspaceApps = [];
+    clientState.workspaceAppsError = null;
     clientState.connectedApps = [];
     clientState.curatedTemplates = [];
     clientState.activeOrgId = "org-a";
@@ -293,7 +303,7 @@ describe("DispatchControlPlane", () => {
     });
   });
 
-  it("shows apps built in this workspace without cross-workspace catalogs", async () => {
+  it("shows this workspace's apps, then hosted apps, without other catalogs", async () => {
     clientState.workspaceApps = [
       {
         id: "onboarding",
@@ -377,10 +387,19 @@ describe("DispatchControlPlane", () => {
       );
     });
 
-    expect(container.textContent).toContain("Onboarding");
-    expect(container.textContent).not.toContain("Mail");
+    const tier = (label: string) =>
+      container.querySelector(`section[aria-label="${label}"]`);
+    expect(tier("dispatch.pages.workspaceApps")?.textContent).toContain("Onboarding");
+    const hosted = tier("dispatch.pages.hostedApps");
+    expect(hosted?.textContent).toContain("Clips");
+    expect(hosted?.textContent).toContain("Mail");
+    expect(hosted?.textContent).not.toContain("Onboarding");
+    expect(
+      hosted?.querySelector(
+        'a[href^="https://clips.agent-native.com"]:not([href*="/share/"])',
+      ),
+    ).not.toBeNull();
     expect(container.textContent).not.toContain("Custom app");
-    expect(container.textContent).not.toContain("Clips");
     expect(container.textContent).not.toContain("Analytics");
     expect(container.textContent).toContain("Apps");
     expect(container.textContent).toContain("New");
@@ -388,7 +407,7 @@ describe("DispatchControlPlane", () => {
       container.querySelector('input[placeholder="Search apps"]'),
     ).not.toBeNull();
     const viewAllLink = Array.from(container.querySelectorAll("a")).find(
-      (link) => link.textContent?.trim() === "View all",
+      (link) => link.textContent?.trim() === "dispatch.pages.viewAllApps",
     );
     expect(viewAllLink?.className).toContain("text-muted-foreground");
     expect(container.textContent).not.toContain("Other apps");
@@ -396,24 +415,72 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).not.toContain("Archived app");
     expect(container.textContent).not.toContain("Duplicate onboarding");
     expect(container.textContent).not.toContain("CRM");
-    expect(
-      container.querySelectorAll(
-        'button[aria-label="Open options for Onboarding"]',
-      ),
-    ).toHaveLength(1);
+    let onboardingRow: Element | null | undefined = container.querySelector(
+      'button[aria-label="Settings for Onboarding"]',
+    );
+    while (onboardingRow && !onboardingRow.querySelector(".app-open-actions")) {
+      onboardingRow = onboardingRow.parentElement;
+    }
+    const onboardingMenus = [
+      ...(onboardingRow?.querySelectorAll<HTMLButtonElement>(
+        ".app-open-actions__menu",
+      ) ?? []),
+    ];
+    expect(onboardingMenus).toHaveLength(1);
     await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="Open options for Onboarding"]',
-        )
-        ?.dispatchEvent(
-          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
-        );
+      onboardingMenus[0]?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
     });
     const onboardingNewTabLink = document.querySelector<HTMLAnchorElement>(
       'a[href="/onboarding/home"][target="_blank"]',
     );
     expect(onboardingNewTabLink).not.toBeNull();
+  });
+
+  const renderHome = () =>
+    act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <QueryClientProvider client={queryClient}>
+              <DispatchControlPlane />
+            </QueryClientProvider>
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+  const hostedMail = {
+    id: "mail",
+    name: "Mail",
+    url: "https://mail.agent-native.com",
+    source: "builtin",
+  };
+
+  it("lists no apps while the workspace list is still loading", async () => {
+    clientState.workspaceApps = undefined;
+    clientState.connectedApps = [hostedMail];
+
+    await renderHome();
+
+    expect(container.textContent).not.toContain(
+      "dispatch.pages.chatFirstNoWorkspaceApps",
+    );
+    expect(container.textContent).not.toContain("Mail");
+  });
+
+  it("keeps the last workspace list and reports a failed refresh", async () => {
+    clientState.workspaceApps = [
+      { id: "notes", name: "Notes", path: "/notes", status: "ready" },
+    ];
+    clientState.workspaceAppsError = new Error("refresh failed");
+    clientState.connectedApps = [hostedMail];
+
+    await renderHome();
+
+    expect(container.textContent).toContain("Notes");
+    expect(container.textContent).toContain("Mail");
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
   });
 
   it("searches only apps in this workspace", async () => {
