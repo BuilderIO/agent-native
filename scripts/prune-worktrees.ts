@@ -29,6 +29,34 @@ export function keepReason(
   return null;
 }
 
+// Ignored build output can be regenerated; any other ignored file (.env,
+// scratch notes) may be the only copy, so it keeps the worktree.
+const REGENERABLE = new Set([
+  "node_modules",
+  "dist",
+  "build",
+  ".turbo",
+  ".next",
+  ".react-router",
+  ".cache",
+  ".generated",
+  "coverage",
+  ".netlify",
+  ".vite",
+  ".nitro",
+  ".tmp",
+  ".output",
+]);
+
+export function hasUserFiles(status: string): boolean {
+  return status.split("\n").some((line) => {
+    if (!line.trim()) return false;
+    if (!line.startsWith("!! ")) return true;
+    const last = line.slice(3).replace(/\/$/, "").split("/").pop() ?? "";
+    return !REGENERABLE.has(last);
+  });
+}
+
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, {
     cwd,
@@ -89,10 +117,11 @@ function isPublished(wt: string, branch: string | null): boolean | null {
   }
 }
 
+// Open files as well as cwds, so an editor with the worktree open counts.
 // `null` means lsof failed: every worktree then counts as in use.
 function busyDirs(): string[] | null {
   try {
-    const out = execFileSync("lsof", ["-w", "-d", "cwd", "-Fn"], {
+    const out = execFileSync("lsof", ["-w", "-Fn"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       maxBuffer: 64 * 1024 * 1024,
@@ -110,13 +139,23 @@ export function main(argv = process.argv.slice(2)): number {
   const apply = argv.includes("--apply");
   const idleArg = argv.find((a) => a.startsWith("--min-idle-hours="));
   const minIdle = idleArg ? Number(idleArg.split("=")[1]) : 6;
+  if (!Number.isFinite(minIdle) || minIdle < 0) {
+    console.error(
+      "prune-worktrees: --min-idle-hours must be a non-negative number",
+    );
+    return 2;
+  }
   const repo = process.cwd();
   const self = tryGit(repo, "rev-parse", "--show-toplevel")?.trim();
   if (!self) {
     console.error("prune-worktrees: not inside a git repository");
     return 2;
   }
-  tryGit(self, "fetch", "--quiet", "origin");
+  if (tryGit(self, "fetch", "--quiet", "origin") === null) {
+    console.warn(
+      "prune-worktrees: fetch failed; judging pushed state from stale refs",
+    );
+  }
   const entries = git(self, "worktree", "list", "--porcelain")
     .split("\n\n")
     .filter(Boolean);
@@ -143,10 +182,10 @@ export function main(argv = process.argv.slice(2)): number {
       continue; // `git worktree prune` below handles directories that are gone
     }
     const branch = field("branch")?.replace("refs/heads/", "") ?? null;
-    const status = tryGit(wt, "status", "--porcelain");
+    const status = tryGit(wt, "status", "--porcelain", "--ignored=matching");
     const reason = keepReason(
       {
-        dirty: status === null || status.trim() !== "",
+        dirty: status === null || hasUserFiles(status),
         locked: entry.includes("\nlocked"),
         inUse:
           busy === null ||

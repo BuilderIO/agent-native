@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  hasUserFiles,
   isAgentWorktree,
   keepReason,
   type WorktreeState,
@@ -42,5 +43,17 @@ describe("isAgentWorktree", () => {
     );
     assert.ok(isAgentWorktree("/r/fw/.claude/worktrees/x", "/Users/a"));
     assert.ok(!isAgentWorktree("/Users/a/Projects/re/wt/crm", "/Users/a"));
+  });
+});
+
+describe("hasUserFiles", () => {
+  it("ignores regenerable build output but not other ignored or changed files", () => {
+    assert.equal(
+      hasUserFiles("!! node_modules/\n!! templates/a/dist/\n"),
+      false,
+    );
+    assert.equal(hasUserFiles("!! templates/a/.env\n"), true);
+    assert.equal(hasUserFiles(" M src/a.ts\n"), true);
+    assert.equal(hasUserFiles("?? notes.md\n"), true);
   });
 });
