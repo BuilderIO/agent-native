@@ -263,7 +263,8 @@ function dispatchToggleKeyTransaction(editor: Editor, tr: Transaction) {
 /**
  * Enter in a Toggle's title, as in Notion. An empty Toggle becomes a
  * paragraph. Otherwise the text after the cursor starts the body of an open
- * Toggle, or the title of a new closed Toggle after a closed one.
+ * Toggle, a paragraph after a closed heading, or the title of a new closed
+ * Toggle after any other closed one.
  */
 export function splitToggleTitle(editor: Editor): boolean {
   const context = toggleTitleAtSelection(editor.state);
@@ -301,12 +302,14 @@ export function splitToggleTitle(editor: Editor): boolean {
   const after = togglePos + shortened.nodeSize;
   tr.insert(
     after,
-    toggle.type.create(
-      { ...toggle.attrs, summary: "", open: false },
-      titleType.create(null, rest),
-    ),
+    toggle.attrs.headingLevel
+      ? paragraph.create(null, rest)
+      : toggle.type.create(
+          { ...toggle.attrs, summary: "", open: false },
+          titleType.create(null, rest),
+        ),
   );
-  tr.setSelection(TextSelection.create(tr.doc, after + 2));
+  tr.setSelection(Selection.near(tr.doc.resolve(after + 1)));
   dispatchToggleKeyTransaction(editor, tr);
   return true;
 }
@@ -530,6 +533,11 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   const open = suggestingOpen ?? !!node.attrs.open;
   const summary = (node.attrs.summary || "") as string;
   const isEditable = editor.isEditable && !suggesting;
+  // Browsers won't select text inside a draggable element, and someone who
+  // can't edit has to select a Toggle's text to comment on it.
+  const dragProps = isEditable
+    ? { draggable: true, "data-drag-handle": "" }
+    : {};
   const title = toggleTitleNode(node);
   const bodyHasNoBlocks = node.childCount === (title ? 1 : 0);
 
@@ -751,8 +759,7 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
         data-color={node.attrs.color || undefined}
         data-heading-level={node.attrs.headingLevel || undefined}
         data-nfm-indent={normalizeIndentAttr(node.attrs.indent) || undefined}
-        draggable="true"
-        data-drag-handle=""
+        {...dragProps}
       >
         <button
           type="button"
@@ -783,8 +790,7 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
       data-color={node.attrs.color || undefined}
       data-heading-level={node.attrs.headingLevel || undefined}
       data-nfm-indent={normalizeIndentAttr(node.attrs.indent) || undefined}
-      draggable="true"
-      data-drag-handle=""
+      {...dragProps}
     >
       <div
         className="content-toggle__summary-row"
