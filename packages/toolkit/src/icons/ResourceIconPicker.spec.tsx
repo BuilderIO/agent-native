@@ -77,6 +77,13 @@ describe("ResourceIconPicker uploads", () => {
     onUpload: (file: File) => Promise<ResourceIconImage>,
     onValueChange = vi.fn(),
     formatUploadError?: (error: unknown) => string,
+    options: {
+      emojiFirst?: boolean;
+      selectUploadTab?: boolean;
+      initialTab?: "icons" | "emoji" | "upload";
+      onUploadPreviewChange?: (url: string | null) => void;
+      uploadExtra?: React.ReactNode;
+    } = {},
   ) {
     await act(async () => {
       root.render(
@@ -86,19 +93,27 @@ describe("ResourceIconPicker uploads", () => {
           onUpload={onUpload}
           formatUploadError={formatUploadError}
           labels={labels}
+          emojiFirst={options.emojiFirst}
+          initialTab={options.initialTab}
+          onUploadPreviewChange={options.onUploadPreviewChange}
+          uploadExtra={options.uploadExtra}
           open
           portalled={false}
         />,
       );
     });
-    const uploadTab = Array.from(container.querySelectorAll("[role=tab]")).find(
-      (tab) => tab.textContent === labels.uploadTab,
-    );
-    expect(uploadTab).toBeDefined();
-    await act(async () => {
-      uploadTab!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-      uploadTab!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
+    if (options.selectUploadTab !== false && !options.initialTab) {
+      const uploadTab = Array.from(
+        container.querySelectorAll("[role=tab]"),
+      ).find((tab) => tab.textContent === labels.uploadTab);
+      expect(uploadTab).toBeDefined();
+      await act(async () => {
+        uploadTab!.dispatchEvent(
+          new MouseEvent("mousedown", { bubbles: true }),
+        );
+        uploadTab!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    }
   }
 
   async function choose(file: File) {
@@ -138,6 +153,68 @@ describe("ResourceIconPicker uploads", () => {
     expect(alertText()).toBe(labels.uploadUnsupportedType);
     expect(onUpload).not.toHaveBeenCalled();
     expect(onValueChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [undefined, [labels.iconsTab, labels.emojiTab]],
+    [true, [labels.emojiTab, labels.iconsTab]],
+  ])("orders icon tabs with emojiFirst=%s", async (emojiFirst, expected) => {
+    await renderPicker(
+      vi.fn().mockResolvedValue(uploadedIcon),
+      vi.fn(),
+      undefined,
+      {
+        emojiFirst,
+        selectUploadTab: false,
+      },
+    );
+
+    const tabLabels = Array.from(container.querySelectorAll('[role="tab"]'))
+      .map((tab) => tab.textContent)
+      .filter((label) => label !== labels.uploadTab);
+    expect(tabLabels).toEqual(expected);
+  });
+
+  it("opens the upload tab and reports preview creation and cleanup", async () => {
+    const createObjectURL = vi.fn(() => "blob:icon-preview");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    let finishUpload!: (image: ResourceIconImage) => void;
+    const onUpload = vi.fn(
+      () =>
+        new Promise<ResourceIconImage>((resolve) => {
+          finishUpload = resolve;
+        }),
+    );
+    const onUploadPreviewChange = vi.fn();
+    await renderPicker(onUpload, vi.fn(), undefined, {
+      initialTab: "upload",
+      onUploadPreviewChange,
+      uploadExtra: <div>Additional upload control</div>,
+    });
+
+    const uploadTab = Array.from(
+      container.querySelectorAll('[role="tab"]'),
+    ).find((tab) => tab.textContent === labels.uploadTab);
+    expect(uploadTab?.getAttribute("aria-selected")).toBe("true");
+    expect(container.textContent).toContain("Additional upload control");
+
+    await choose(new File(["image"], "icon.png", { type: "image/png" }));
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(onUploadPreviewChange).toHaveBeenNthCalledWith(
+      1,
+      "blob:icon-preview",
+    );
+    expect(
+      container.querySelector('img[src="blob:icon-preview"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      finishUpload(uploadedIcon);
+    });
+    expect(onUploadPreviewChange).toHaveBeenLastCalledWith(null);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:icon-preview");
+    expect(container.querySelector('img[src="blob:icon-preview"]')).toBeNull();
   });
 
   it("shows the size limit for a supported file from either path", async () => {

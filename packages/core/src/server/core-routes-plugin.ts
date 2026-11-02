@@ -113,6 +113,7 @@ import {
 import { createNotificationsHandler } from "../notifications/routes.js";
 import {
   getOrgContext,
+  hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
   resolveOrgScopeForEmail,
 } from "../org/context.js";
@@ -191,7 +192,6 @@ import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { readAnalyticsSessionId } from "./attribution.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
-import { registerBackgroundJobStop } from "./background-jobs.js";
 import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
@@ -364,6 +364,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import { startSandboxExecutionSweep } from "./sandbox-execution-sweep.js";
 import {
   findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
@@ -4237,46 +4238,10 @@ export function createCoreRoutesPlugin(
       // a missing table short-circuits to a no-op) and best-effort — the
       // poll-time drain in run-code covers deployments where warm-instance
       // timers rarely fire.
-      (() => {
-        if (shouldDisableInProcessSweeps()) return;
-        let lastSweep = 0;
-        const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
-        let startupTimer: ReturnType<typeof setTimeout> | null = null;
-        let sweepTimer: ReturnType<typeof setInterval> | null = null;
-
-        const stopSandboxExecutionSweep = () => {
-          if (startupTimer) {
-            clearTimeout(startupTimer);
-            startupTimer = null;
-          }
-          if (sweepTimer) {
-            clearInterval(sweepTimer);
-            sweepTimer = null;
-          }
-        };
-
-        startupTimer = setTimeout(() => {
-          startupTimer = null;
-          sweepTimer = setInterval(() => {
-            const now = Date.now();
-            if (now - lastSweep < SWEEP_INTERVAL_MS) return;
-            lastSweep = now;
-
-            (async () => {
-              const { drainDueSandboxExecutions } =
-                await import("../coding-tools/sandbox/background.js");
-              await drainDueSandboxExecutions({ limit: 5 });
-            })().catch(() => {
-              // best-effort — never break the server
-            });
-          }, 30_000); // Check every 30s but only sweep once per 2min
-          sweepTimer.unref?.();
-        }, 25_000); // Start 25s after init (after the agent sweeps)
-        startupTimer.unref?.();
-
-        registerBackgroundJobStop(stopSandboxExecutionSweep);
+      if (!shouldDisableInProcessSweeps()) {
+        const stopSandboxExecutionSweep = startSandboxExecutionSweep();
         nitroApp.hooks?.hook?.("close", stopSandboxExecutionSweep);
-      })();
+      }
 
       getH3App(nitroApp).use(
         `${P}/debug/runtime`,
@@ -4382,8 +4347,8 @@ export function createCoreRoutesPlugin(
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
             orgRole = orgCtx.role ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
         }
         connections = await resolveBuilderConnectionsStatus({
@@ -5132,8 +5097,8 @@ export function createCoreRoutesPlugin(
           try {
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
 
           // Wrap in runWithRequestContext so resolveBuilderCredential() inside
@@ -5893,8 +5858,8 @@ export function createCoreRoutesPlugin(
               const orgCtx = await getOrgContext(event);
               orgId = orgCtx.orgId ?? null;
               role = orgCtx.role ?? null;
-            } catch {
-              // coercion-ok: org module is optional; disconnect still clears user-scoped custody.
+            } catch (error) {
+              if (!isMissingOrganizationTableError(error)) throw error;
             }
             if (requestedConnectionScope) {
               const result = await disconnectBuilderConnectionAtScope({
@@ -6006,6 +5971,13 @@ export function createCoreRoutesPlugin(
                   : undefined,
             };
           } catch (err) {
+            if (
+              typeof err === "object" &&
+              err !== null &&
+              "statusCode" in err &&
+              err.statusCode === 503
+            )
+              throw err;
             await trackBuilderLifecycle(
               event,
               "builder disconnect failed",
@@ -6122,8 +6094,8 @@ export function createCoreRoutesPlugin(
               try {
                 const orgCtx = await getOrgContext(event);
                 orgId = orgCtx.orgId ?? undefined;
-              } catch {
-                /* org module not present in this template */
+              } catch (error) {
+                if (!isMissingOrganizationTableError(error)) throw error;
               }
             }
             // One context for the whole sweep so the per-request secret memo is
@@ -6313,8 +6285,8 @@ export function createCoreRoutesPlugin(
           try {
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
 
           const clientPlatform = readAnalyticsClientPlatformHeader(event);
@@ -6401,8 +6373,18 @@ export function createCoreRoutesPlugin(
             return { error: "unauthorized" };
           }
 
-          const orgCtx = await getOrgContext(event).catch(() => null);
-          const orgId = orgCtx?.orgId ?? session.orgId ?? null;
+          const orgCtx = await getOrgContext(event);
+          if (!orgCtx.orgId && hasForbiddenOrgScope(event)) {
+            setResponseStatus(event, 403);
+            return { error: "Organization scope is forbidden." };
+          }
+          if (!orgCtx.orgId && hasOrgScopeResolutionUnavailable(event)) {
+            setResponseStatus(event, 503);
+            return {
+              error: "Organization scope is unavailable. Please retry.",
+            };
+          }
+          const orgId = orgCtx.orgId;
           const ctx = { userEmail: session.email, orgId };
           const canUpdate = await canUpdateAgentLoopSettings(
             session.email,

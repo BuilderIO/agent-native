@@ -1,9 +1,15 @@
 import { countMessageTokens } from "../context-xray/tokenize.js";
+import { AGENT_INTERNAL_CONTINUE_PROMPT } from "../continuation-prompt.js";
 import type { EngineMessage } from "../engine/types.js";
 
 export function messageToText(message: EngineMessage): string {
   const parts: string[] = [];
   for (const part of message.content) {
+    if (
+      "omitFromPersistedHistory" in part &&
+      part.omitFromPersistedHistory === true
+    )
+      continue;
     if (part.type === "text" || part.type === "thinking") {
       if (part.text.trim()) parts.push(part.text);
     } else if (part.type === "tool-call") {
@@ -18,10 +24,31 @@ export function messageToText(message: EngineMessage): string {
 }
 
 export function windowToText(messages: EngineMessage[]): string {
-  return messages
-    .map(messageToText)
-    .filter((line) => line.length > 0)
-    .join("\n\n");
+  const lines: string[] = [];
+  let privateTurn = false;
+  for (const message of messages) {
+    const startsUserTurn =
+      message.role === "user" &&
+      message.content.some(
+        (part) =>
+          part.type === "text" &&
+          !part.omitFromPersistedHistory &&
+          !part.text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT),
+      );
+    if (startsUserTurn) privateTurn = false;
+    if (
+      message.content.some(
+        (part) =>
+          "omitFromPersistedHistory" in part &&
+          part.omitFromPersistedHistory === true,
+      )
+    )
+      privateTurn = true;
+    if (privateTurn) continue;
+    const text = messageToText(message);
+    if (text) lines.push(text);
+  }
+  return lines.join("\n\n");
 }
 
 export async function countWindowTokens(
