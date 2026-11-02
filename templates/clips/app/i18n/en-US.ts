@@ -581,6 +581,8 @@ const messages = {
     couldNotEndMeeting: "Couldn't end meeting",
   },
   transcriptPanel: {
+    partialTranscript:
+      "This transcript is incomplete. Some audio could not be transcribed.",
     transcribing: "Transcribing…",
     pendingDescription:
       "Live transcript appears as soon as speech is captured. Cleanup continues in the background.",

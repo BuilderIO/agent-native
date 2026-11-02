@@ -113,6 +113,29 @@ describe("TranscriptPanel no-audio failures", () => {
     }
   });
 
+  it("shows captured transcript and an incomplete notice after transcription fails", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[
+              { startMs: 0, endMs: 1000, text: "Captured first part." },
+            ]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="failed"
+            failureReason="One part failed"
+            onRetry={vi.fn()}
+          />
+        </TooltipProvider>,
+      );
+    });
+    expect(container.textContent).toContain("Captured first part.");
+    expect(container.textContent).toContain(
+      "transcriptPanel.partialTranscript",
+    );
+  });
+
   it("keeps provider failures styled as errors", () => {
     act(() => {
       root.render(

@@ -95,6 +95,25 @@ describe("transcribeAudioChunks", () => {
     ).rejects.toBe(providerError);
   });
 
+  it("retains completed chunks at their original indexes when a concurrent part fails", async () => {
+    const error = await transcribeAudioChunks({
+      chunks: chunksOf(3),
+      transcribe: async (_chunk, index) => {
+        if (index === 1) throw new Error("failed");
+        return result(`part ${index}`);
+      },
+      isRetryable: () => false,
+      concurrency: 3,
+    }).catch((err: unknown) => err);
+    expect(error).toMatchObject({
+      chunkIndex: 1,
+      completed: [
+        { index: 0, result: expect.objectContaining({ text: "part 0" }) },
+        { index: 2, result: expect.objectContaining({ text: "part 2" }) },
+      ],
+    });
+  });
+
   it("fails the whole run with the failing part when any chunk still fails", async () => {
     const transcribe = vi.fn(async (_chunk: unknown, index: number) => {
       if (index === 1)

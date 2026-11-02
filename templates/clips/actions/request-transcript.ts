@@ -1099,6 +1099,7 @@ const requestTranscriptAction = defineAction({
     const now = new Date().toISOString();
 
     let builderError: string | null = null;
+    let partialTranscript: ReturnType<typeof joinChunkTranscripts> | undefined;
     let builderFailureCode: TranscriptFailureCode = "CLOUD_FAILED";
     let audioMediaPromise: Promise<AudioOnlyTranscriptionMedia> | null = null;
 
@@ -1469,7 +1470,15 @@ const requestTranscriptAction = defineAction({
         const reason = (err as Error).message;
         const details = serializeError(err);
         const chunkErr = err instanceof ChunkTranscriptionError ? err : null;
-        if (chunkErr) builderFailureCode = "CHUNK_FAILED";
+        if (chunkErr) {
+          builderFailureCode = "CHUNK_FAILED";
+          if (chunkErr.completed.length) {
+            partialTranscript = joinChunkTranscripts(
+              chunkErr.completed.map(({ index }) => audioMedia.chunks[index]),
+              chunkErr.completed.map(({ result }) => result),
+            );
+          }
+        }
         if (isBuilderCreditsExhaustedMessage(reason)) {
           await noteBuilderCreditsExhausted({
             source: "transcription",
@@ -1514,9 +1523,12 @@ const requestTranscriptAction = defineAction({
     });
     if (preserved) return preserved;
 
-    const reason = builderError
-      ? "No native transcript was captured, and Builder transcription could not finish. Retry transcription or check Builder connection and recording audio."
-      : "No transcript was captured by native speech recognition, and Builder transcription is not configured.";
+    const reason =
+      partialTranscript?.fullText || existingNativeTranscript?.fullText?.trim()
+        ? "Transcription did not finish. The available transcript is incomplete."
+        : builderError
+          ? "No native transcript was captured, and Builder transcription could not finish. Retry transcription or check Builder connection and recording audio."
+          : "No transcript was captured by native speech recognition, and Builder transcription is not configured.";
     const cloudTransient = builderError
       ? isTransientTranscriptionError(new Error(builderError))
       : false;
@@ -1527,6 +1539,14 @@ const requestTranscriptAction = defineAction({
       status: "failed",
       failureReason: reason,
       failureCode: builderError ? builderFailureCode : "CLOUD_UNCONFIGURED",
+      ...(partialTranscript?.fullText
+        ? {
+            onlyIfEmpty: true,
+            fullText: partialTranscript.fullText,
+            segmentsJson: JSON.stringify(partialTranscript.segments),
+            language: partialTranscript.language ?? "en",
+          }
+        : {}),
       now,
       mediaUpdatedAt,
       ...(cloudTransient ? { retryCount: cloudNextRetryCount } : {}),
@@ -1568,7 +1588,20 @@ async function writeTranscriptOrKeepImport(
   db: ReturnType<typeof getDb>,
   row: Parameters<typeof upsertTranscriptRow>[1],
 ) {
-  if (await upsertTranscriptRow(db, row)) return null;
+  const result = await upsertTranscriptRow(db, row);
+  if (result === "ready-kept") {
+    return {
+      recordingId: row.recordingId,
+      status: "ready" as const,
+      cleaned: false,
+      provider: "existing" as const,
+      cleanupQueued: false,
+      titleQueued: false,
+      summaryQueued: false,
+      preserved: true as const,
+    };
+  }
+  if (result) return null;
   const kept = await preserveReadyTranscriptIfAvailable({
     db,
     recordingId: row.recordingId,
@@ -1606,8 +1639,9 @@ async function upsertTranscriptRow(
      * lands while it runs.
      */
     replaceTranscript?: StartedFromTranscript;
+    onlyIfEmpty?: boolean;
   },
-): Promise<boolean> {
+): Promise<boolean | "ready-kept"> {
   let expectedMediaUpdatedAt = row.mediaUpdatedAt;
   if (!expectedMediaUpdatedAt) {
     const [recording] = await db
@@ -1704,9 +1738,19 @@ async function upsertTranscriptRow(
       current = await lockCurrent();
       if (!current) return false;
     }
+    const currentHasText =
+      Boolean(current.fullText?.trim()) ||
+      parseTranscriptSegments(current.segmentsJson).length > 0;
+    if (row.onlyIfEmpty && current.status === "ready" && currentHasText) {
+      return "ready-kept" as const;
+    }
+    const update =
+      row.onlyIfEmpty && currentHasText
+        ? (({ fullText, segmentsJson, language, ...rest }) => rest)(set)
+        : set;
     const updated = await tx
       .update(t)
-      .set(set)
+      .set(update)
       .where(
         and(
           eq(t.recordingId, row.recordingId),
@@ -1730,8 +1774,9 @@ async function upsertTranscriptRow(
       hasTranscriptContent(current) &&
       (row.replaceTranscript ||
         set.status !== "ready" ||
-        (set.fullText !== undefined &&
-          set.fullText.trim() !== current.fullText.trim()))
+        ("fullText" in update &&
+          typeof update.fullText === "string" &&
+          update.fullText.trim() !== current.fullText.trim()))
     ) {
       await saveTranscriptVersion(tx, current, {
         reason: row.replaceTranscript ? "regenerate" : "automatic",
