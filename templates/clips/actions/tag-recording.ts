@@ -21,17 +21,6 @@ async function tagOne(recordingId: string, tag: string, op: "add" | "remove") {
   );
   const db = getDb();
 
-  const rows = await db
-    .select({ organizationId: schema.recordings.organizationId })
-    .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId));
-  if (!rows.length) {
-    fail(`Recording not found: ${recordingId}`, {
-      errorCode: "recording_not_found",
-      statusCode: 404,
-    });
-  }
-
   const tagged = and(
     eq(schema.recordingTags.recordingId, recordingId),
     eq(schema.recordingTags.tag, tag),
@@ -39,6 +28,20 @@ async function tagOne(recordingId: string, tag: string, op: "add" | "remove") {
   // The readback shares the write's transaction, so if it fails the write is
   // undone too and a batch can truthfully report the recording as skipped.
   return db.transaction(async (tx) => {
+    // A permanent delete locks the recording too, so it runs wholly before
+    // this (and the recording is gone here) or after (and removes the new
+    // tag with the rest), never leaving a tag on a deleted recording.
+    const rows = await tx
+      .select({ organizationId: schema.recordings.organizationId })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, recordingId))
+      .for("update");
+    if (!rows.length) {
+      fail(`Recording not found: ${recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
     let changed: boolean;
     if (op === "add") {
       const existing = await tx

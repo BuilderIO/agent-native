@@ -1006,4 +1006,39 @@ describe("permanent deletion of several recordings in one call", () => {
     expect(await rows("recordings")).toEqual([]);
     expect(await rows("recording_media_cleanups")).toHaveLength(3);
   });
+  it("lists the recordings a batch didn't reach in time as skipped", async () => {
+    await insertRecording("rec-2", video + "-2");
+    await insertRecording("rec-3", video + "-3");
+    let clock = Date.now();
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    // rec-1's read after its delete commits moves the clock past the budget.
+    mocks.unreadableSummaries.set("rec-1", (read) => {
+      if (read === 2) clock += 21_000;
+      return false;
+    });
+    try {
+      const result = await action.run({ ids: ["rec-1", "rec-2", "rec-3"] });
+      expect(result).toMatchObject({ changed: 1, unchanged: 0, skipped: 2 });
+      expect("results" in result && result.results.slice(1)).toEqual(
+        ["rec-2", "rec-3"].map((id) => ({
+          id,
+          status: "skipped",
+          reason:
+            "Not deleted: the call ran out of time before reaching it. Call again with the skipped ids.",
+        })),
+      );
+      expect(
+        (await rows("recordings"))
+          .map((row) => String(row.id))
+          .sort((a, b) => a.localeCompare(b)),
+      ).toEqual(["rec-2", "rec-3"]);
+    } finally {
+      now.mockRestore();
+      mocks.unreadableSummaries.clear();
+      mocks.summaryReads.clear();
+    }
+    const retried = await action.run({ ids: ["rec-1", "rec-2", "rec-3"] });
+    expect(retried).toMatchObject({ changed: 2, unchanged: 1, skipped: 0 });
+    expect(await rows("recordings")).toEqual([]);
+  });
 });

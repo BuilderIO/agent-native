@@ -697,7 +697,7 @@ describe("set-resource-visibility on several resources", () => {
     expect(calls.invalidated).toEqual([`${resourceType}:doc-first`]);
   });
 
-  it("keeps an organization another request attached before the rollback", async () => {
+  it("keeps, and names, a resource another request moved to another organization before the rollback", async () => {
     register({
       persistVisibilityChange: async ({ resourceId, update }) => {
         if (resourceId === "doc-fails") {
@@ -716,12 +716,30 @@ describe("set-resource-visibility on several resources", () => {
     await insertDoc({ id: "doc-fails" });
 
     await expect(batch(["doc-loose", "doc-fails"], "org")).rejects.toThrow(
-      /^storage refused$/,
+      'storage refused Not every earlier change could be put back, so these still have visibility "org": doc-loose.',
     );
     expect(await rows()).toEqual({
       "doc-loose": { visibility: "org", orgId: "org-other" },
       "doc-fails": { visibility: "private", orgId },
     });
+  });
+
+  it("puts everything back when a resource is deleted after the checks", async () => {
+    register({
+      // Runs in the up-front checks, before any write.
+      assertSharingChange: async ({ resource }) => {
+        if (resource.id === "doc-gone") {
+          await db.delete(docs).where(eq(docs.id, "doc-gone"));
+        }
+      },
+    });
+    await insertDoc({ id: "doc-first" });
+    await insertDoc({ id: "doc-gone" });
+
+    await expect(batch(["doc-first", "doc-gone"], "org")).rejects.toThrow(
+      "Visibility Doc doc-gone no longer exists.",
+    );
+    expect(await visibilities()).toEqual({ "doc-first": "private" });
   });
 
   it("reports a refusal from a persistence hook like one found up front", async () => {
@@ -764,7 +782,7 @@ describe("set-resource-visibility on several resources", () => {
 
     const failed = batch(["doc-first", "doc-second", "doc-fails"], "private");
     await expect(failed).rejects.toThrow(
-      'storage refused Putting back the earlier changes also failed, so these still have visibility "private": doc-second, doc-first.',
+      'storage refused Not every earlier change could be put back, so these still have visibility "private": doc-second, doc-first.',
     );
     expect(await visibilities()).toEqual({
       "doc-first": "private",

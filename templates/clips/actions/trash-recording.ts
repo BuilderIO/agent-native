@@ -1,7 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -44,16 +44,17 @@ async function trashOne(id: string, skipIfReady: boolean) {
   }
 
   const now = new Date().toISOString();
+  // Only a row still out of trash is written, so of two calls racing to
+  // trash it, one reports the change and keeps its timestamp.
   const updated = await db
     .update(schema.recordings)
     .set({ trashedAt: now, updatedAt: now })
     .where(
-      skipIfReady
-        ? and(
-            eq(schema.recordings.id, id),
-            ne(schema.recordings.status, "ready"),
-          )
-        : eq(schema.recordings.id, id),
+      and(
+        eq(schema.recordings.id, id),
+        isNull(schema.recordings.trashedAt),
+        skipIfReady ? ne(schema.recordings.status, "ready") : undefined,
+      ),
     )
     .returning({ trashedAt: schema.recordings.trashedAt });
   if (updated.length) {
@@ -64,8 +65,8 @@ async function trashOne(id: string, skipIfReady: boolean) {
     };
   }
 
-  // Nothing was written: the upload finished first (with skipIfReady), or
-  // the recording went away.
+  // Nothing was written: another call trashed it first, the upload finished
+  // first (with skipIfReady), or the recording went away.
   const after = await currentRow();
   if (!after.length) notFound();
   return {

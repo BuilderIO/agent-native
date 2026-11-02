@@ -207,19 +207,30 @@ export default defineAction({
           orgId: currentOrgId,
         });
       } else {
-        await db
+        const updated = await db
           .update(reg.resourceTable)
           .set(values)
-          .where(eq(reg.resourceTable.id, change.resourceId));
+          .where(eq(reg.resourceTable.id, change.resourceId))
+          .returning({ id: reg.resourceTable.id });
+        // Another request deleted it after the checks.
+        if (!updated.length) {
+          fail(`${reg.displayName} ${change.resourceId} no longer exists.`, {
+            errorCode: "resource_not_found",
+            statusCode: 404,
+          });
+        }
       }
     };
-    const restore = async (change: PreparedChange) => {
+    // Returns false when it leaves this call's visibility in place.
+    const restore = async (change: PreparedChange): Promise<boolean> => {
       // Another request may have changed the resource since this call wrote
       // it; keep that newer value rather than putting back an older one.
       // Reading first narrows that window without closing it, since a
       // registration's own persistence can't take a condition. When this call
-      // also attached the resource to an organization, a different
-      // organization there now is a newer change too.
+      // also attached the resource to an organization and another request
+      // has since moved it to a different one, the resource holds both
+      // requests' changes; it is left as it is and reported rather than
+      // half undone.
       const attachedOrg =
         change.update.orgId !== undefined && !!reg.resourceTable.orgId;
       const [current] = await db
@@ -229,10 +240,9 @@ export default defineAction({
         })
         .from(reg.resourceTable)
         .where(eq(reg.resourceTable.id, change.resourceId));
-      if (
-        current?.visibility === args.visibility &&
-        (!attachedOrg || current.orgId === change.update.orgId)
-      ) {
+      const ours = current?.visibility === args.visibility;
+      const movedOrg = attachedOrg && current?.orgId !== change.update.orgId;
+      if (ours && !movedOrg) {
         const previous: Record<string, unknown> = {
           visibility: change.access.resource.visibility,
         };
@@ -246,6 +256,7 @@ export default defineAction({
         );
       }
       invalidateCollabAccessCache(args.resourceType, change.resourceId);
+      return !(ours && movedOrg);
     };
 
     const beforeExtensionTargets = new Map<
@@ -290,7 +301,7 @@ export default defineAction({
       const unrestored: string[] = [];
       for (const change of written.reverse()) {
         try {
-          await restore(change);
+          if (!(await restore(change))) unrestored.push(change.resourceId);
         } catch (restoreError) {
           console.error(
             `[sharing] Could not restore the visibility of ${args.resourceType} ${change.resourceId}:`,
@@ -302,7 +313,7 @@ export default defineAction({
       if (unrestored.length) {
         const reason = error instanceof Error ? error.message : String(error);
         fail(
-          `${reason} Putting back the earlier changes also failed, so these still have visibility "${args.visibility}": ${unrestored.join(", ")}.`,
+          `${reason} Not every earlier change could be put back, so these still have visibility "${args.visibility}": ${unrestored.join(", ")}.`,
           { errorCode: "visibility_rollback_incomplete", statusCode: 500 },
         );
       }

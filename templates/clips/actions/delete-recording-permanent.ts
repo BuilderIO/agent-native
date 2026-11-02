@@ -22,6 +22,11 @@ import {
   type MediaCleanupSummary,
 } from "../shared/media-cleanup.js";
 
+// A batch starts no new delete after this long, so a large one on a slow
+// database returns its results instead of reaching the function timeout
+// (75 seconds on Netlify). Each delete takes about 30 queries.
+const BATCH_TIME_BUDGET_MS = 20_000;
+
 const deletedSchema = z.object({
   success: z.boolean(),
   id: z.string(),
@@ -264,7 +269,7 @@ async function cleanupAfterDelete(
 
 export default defineAction({
   description:
-    "Permanently remove one or more owned recordings and their access rows, atomically retaining a durable media cleanup intent for each. Returns recordingRemoved separately from mediaCleanup: pending or blocked does not mean stored media is gone. Context footage moves to Trash. Repeating the call returns the retained cleanup state. With ids, every recording must be yours (or already deleted) before any is deleted.",
+    "Permanently remove one or more owned recordings and their access rows, atomically retaining a durable media cleanup intent for each. Returns recordingRemoved separately from mediaCleanup: pending or blocked does not mean stored media is gone. Context footage moves to Trash. Repeating the call returns the retained cleanup state. With ids, every recording must be yours (or already deleted) before any is deleted; a batch that runs long lists the recordings it didn't reach as skipped, to send again.",
   schema: z
     .object({
       id: z.string().min(1).optional().describe("Recording ID"),
@@ -293,7 +298,17 @@ export default defineAction({
 
     await assertRecordingsDeletable(ids, ownerEmail);
     const results: z.infer<typeof batchSchema>["results"] = [];
+    const startedAt = Date.now();
     for (const id of ids) {
+      if (Date.now() - startedAt > BATCH_TIME_BUDGET_MS) {
+        results.push({
+          id,
+          status: "skipped",
+          reason:
+            "Not deleted: the call ran out of time before reaching it. Call again with the skipped ids.",
+        });
+        continue;
+      }
       try {
         const { mediaCleanup, alreadyDeleted } = await deleteOne(
           id,

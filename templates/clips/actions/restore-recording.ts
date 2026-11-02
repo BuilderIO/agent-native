@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { isImageRecording } from "@shared/recording-kind";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -53,19 +53,41 @@ async function restoreOne(id: string) {
   // Pinned to the unclaimed edits just read: a delete that claims the
   // screenshot in between must win, or a delete that then stops part-way
   // would put it back in the library without its base.
+  // Only a row still archived or trashed is written, so of two calls racing
+  // to restore it, one reports the change.
   const restored = await db
     .update(schema.recordings)
     .set({ archivedAt: null, trashedAt: null, updatedAt: now })
     .where(
-      isImageRecording(existing)
-        ? and(
-            eq(schema.recordings.id, id),
-            eq(schema.recordings.editsJson, existing.editsJson),
-          )
-        : eq(schema.recordings.id, id),
+      and(
+        eq(schema.recordings.id, id),
+        or(
+          isNotNull(schema.recordings.archivedAt),
+          isNotNull(schema.recordings.trashedAt),
+        ),
+        isImageRecording(existing)
+          ? eq(schema.recordings.editsJson, existing.editsJson)
+          : undefined,
+      ),
     )
     .returning({ id: schema.recordings.id });
   if (!restored.length) {
+    const after = await db
+      .select({
+        archivedAt: schema.recordings.archivedAt,
+        trashedAt: schema.recordings.trashedAt,
+      })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, id));
+    if (!after.length) {
+      fail(`Recording not found: ${id}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
+    if (!after[0].archivedAt && !after[0].trashedAt) {
+      return { status: "unchanged" as const };
+    }
     fail(
       "This screenshot changed while it was being restored. Nothing was restored — try again.",
       { errorCode: "recording_restore_conflict", statusCode: 409 },

@@ -112,7 +112,9 @@ than a week private unless I've shared them with someone", find them with one
 Every clip in the call is checked first; if the user can't change one, none
 change and the error names it. The result lists each clip as `changed`,
 `unchanged` (already that way) or `skipped` with a reason. Report the counts
-back, not the clips one by one.
+back, not the clips one by one. A long `delete-recording-permanent` batch
+can stop early and list the clips it didn't reach as skipped; call it again
+with those ids.
 
 ## Discovery boundary for public clips
 

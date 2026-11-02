@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   existingRows: [{ id: "rec-1" }] as Array<Record<string, unknown>>,
   afterRows: [] as Array<{ status: string; trashedAt: string | null }>,
   selectCalls: 0,
+  updateWhere: undefined as unknown,
 }));
 
 vi.mock("@agent-native/core/action", async (original) => ({
@@ -25,12 +26,16 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
   ne: (...args: unknown[]) => args,
+  isNull: (...args: unknown[]) => ["isNull", ...args],
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     update: () => ({
       set: () => ({
-        where: () => ({ returning: async () => state.updateRows }),
+        where: (condition: unknown) => {
+          state.updateWhere = condition;
+          return { returning: async () => state.updateRows };
+        },
       }),
     }),
     select: () => ({
@@ -60,6 +65,27 @@ describe("trash-recording", () => {
     state.existingRows = [{ id: "rec-1" }];
     state.afterRows = [];
     state.selectCalls = 0;
+    state.updateWhere = undefined;
+  });
+
+  it("reports a recording another call trashed first as unchanged", async () => {
+    // The guarded write matches nothing; the reread finds the other trash.
+    state.existingRows = [{ status: "uploading", trashedAt: null }];
+    state.afterRows = [
+      { status: "uploading", trashedAt: "2026-10-21T12:00:00.000Z" },
+    ];
+    const action = trashRecording as unknown as {
+      run: (args: { ids: string[] }) => Promise<unknown>;
+    };
+
+    await expect(action.run({ ids: ["rec-1"] })).resolves.toMatchObject({
+      changed: 0,
+      unchanged: 1,
+    });
+    expect(state.updateWhere).toContainEqual([
+      "isNull",
+      "recordings.trashedAt",
+    ]);
   });
 
   it("reports the guarded update winning even if finalization changes status after it", async () => {
