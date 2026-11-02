@@ -696,6 +696,28 @@ describe("Markdown import", () => {
     expectEditorAccepts(page);
   });
 
+  it.each([
+    '<details markdown="1" open>',
+    '<details markdown="1" color="blue">',
+  ])("reads %s as saved Markdown", (opening) => {
+    const page = importMarkdown(
+      [opening, "<summary>**Plan**</summary>", "\tBody", "</details>"].join(
+        "\n",
+      ),
+    );
+
+    expect(page.dialect).toBe("nfm");
+    expect(nodesOfType(page.doc, "notionToggle")).toEqual([
+      expect.objectContaining({
+        content: [
+          expect.objectContaining({ type: "notionToggleSummary" }),
+          expect.anything(),
+        ],
+      }),
+    ]);
+    expectEditorAccepts(page);
+  });
+
   it("indents an untabbed NFM container body instead of dropping it", () => {
     const page = importMarkdown(UNTABBED_CALLOUT_NFM);
 

@@ -3,9 +3,10 @@ import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, NodeType } from "@tiptap/pm/model";
 import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { STRAY_TITLE_REPAIR_DELAY_MS } from "./extensions/NotionExtensions";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
 // Tabs editing at once merge into shapes neither of them made. y-tiptap
@@ -54,7 +55,7 @@ async function settle(a: Tab, b: Tab) {
   for (let round = 0; round < 4; round += 1) {
     Y.applyUpdate(b.ydoc, Y.encodeStateAsUpdate(a.ydoc));
     Y.applyUpdate(a.ydoc, Y.encodeStateAsUpdate(b.ydoc));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.advanceTimersByTimeAsync(STRAY_TITLE_REPAIR_DELAY_MS);
   }
 }
 
@@ -78,8 +79,13 @@ function outline(editor: Editor) {
   return lines;
 }
 
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+});
+
 afterEach(() => {
   for (const editor of editors.splice(0)) editor.destroy();
+  vi.useRealTimers();
 });
 
 describe("tabs that merge into a Toggle with a title out of place", () => {
@@ -136,6 +142,28 @@ describe("tabs that merge into a Toggle with a title out of place", () => {
     ).toEqual(["notionToggleSummary: Plan"]);
   });
 
+  it("keeps what's typed in a title while another tab waits to move it", async () => {
+    const [a, b] = twoTabs(OLD_TOGGLE);
+    const paragraph = a.editor.schema.nodes.paragraph as NodeType;
+    a.editor.view.dispatch(
+      a.editor.state.tr.insert(
+        1,
+        paragraph.create(null, a.editor.schema.text("Above")),
+      ),
+    );
+    giveTitle(b.editor, "Plan");
+    Y.applyUpdate(a.ydoc, Y.encodeStateAsUpdate(b.ydoc));
+    await vi.advanceTimersByTimeAsync(10);
+    b.editor.view.dispatch(b.editor.state.tr.insertText("!", 6));
+    await settle(a, b);
+
+    const lines = outline(a.editor);
+    expect(outline(b.editor)).toEqual(lines);
+    expect(lines[0]).toBe("notionToggleSummary: Plan!");
+    expect(lines).toContain("paragraph: Above");
+    expect(lines).toContain("paragraph: Body");
+  });
+
   it("leaves the page alone for someone who can only read it", async () => {
     const [a, b] = twoTabs(OLD_TOGGLE);
     b.editor.setEditable(false);
@@ -143,7 +171,7 @@ describe("tabs that merge into a Toggle with a title out of place", () => {
     giveTitle(b.editor, "Plan");
     Y.applyUpdate(b.ydoc, Y.encodeStateAsUpdate(a.ydoc));
     const before = Y.encodeStateVector(b.ydoc);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.advanceTimersByTimeAsync(STRAY_TITLE_REPAIR_DELAY_MS);
 
     expect(Y.encodeStateVector(b.ydoc)).toEqual(before);
   });
@@ -177,7 +205,7 @@ describe("tabs that merge into a Toggle with a title out of place", () => {
       type: "paragraph",
       content: [{ type: "text", text: "After" }],
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.advanceTimersByTimeAsync(STRAY_TITLE_REPAIR_DELAY_MS);
 
     const toggle = editor.state.doc.firstChild as ProseMirrorNode;
     expect(toggle.childCount).toBe(2);

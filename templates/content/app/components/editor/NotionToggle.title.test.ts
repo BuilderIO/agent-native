@@ -195,6 +195,18 @@ describe("a Toggle's title as page text", () => {
     expect($from.parentOffset).toBe(0);
   });
 
+  it("pastes a title as a line of text, even one repeating the Toggle's own", () => {
+    const editor = createEditor([titled("Plan", true, [paragraph("Body")])]);
+    editor.commands.setTextSelection({ from: 8, to: 12 });
+    editor.view.pasteHTML(
+      '<div data-pm-slice="0 0 []"><div data-notion-toggle-title="true">Plan</div></div>',
+    );
+
+    expect(editor.getJSON().content).toEqual([
+      titled("Plan", true, [paragraph("Plan")]),
+    ]);
+  });
+
   it("turns an empty Toggle into a paragraph on Enter", () => {
     const editor = createEditor([titled("", true)]);
     editor.commands.setTextSelection(2);
