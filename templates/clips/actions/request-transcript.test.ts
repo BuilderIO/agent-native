@@ -697,7 +697,7 @@ describe("requestTranscript regeneration", () => {
     });
   });
 
-  it("preserves a partial multi-part transcript as CHUNK_FAILED", async () => {
+  it("fails a multi-part recording as CHUNK_FAILED without saving a partial transcript", async () => {
     mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
       mimeType: "audio/mp4",
       maxVolumeDb: -12,
@@ -758,154 +758,8 @@ describe("requestTranscript regeneration", () => {
       expect.objectContaining({
         status: "failed",
         failureCode: "CHUNK_FAILED",
-        fullText: "First part.",
-        segmentsJson: JSON.stringify([
-          { startMs: 0, endMs: 1000, text: "First part." },
-        ]),
       }),
     );
-  });
-
-  it("retains the credits recovery reason with a partial transcript", async () => {
-    mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
-      mimeType: "audio/mp4",
-      maxVolumeDb: -12,
-      chunks: [
-        { audioBytes: new Uint8Array([1]), startMs: 0, durationMs: 1000 },
-        { audioBytes: new Uint8Array([2]), startMs: 1000, durationMs: 1000 },
-      ],
-    });
-    mockTranscribeWithBuilder
-      .mockResolvedValueOnce({ text: "First part.", segments: [] })
-      .mockRejectedValue(new Error("Builder credits exhausted."));
-    mockSelectRows.queue = [
-      [{ status: "failed", retryCount: 0 }],
-      [],
-      [
-        {
-          videoUrl: "https://cdn.example.test/video",
-          videoFormat: "mp4",
-          hasAudio: true,
-          durationMs: 2000,
-          title: "Clip",
-        },
-      ],
-      [],
-    ];
-
-    const result = await requestTranscript.run({ recordingId: "rec_long" });
-    expect(result).toMatchObject({
-      status: "failed",
-      failureReason: "Builder credits exhausted.",
-    });
-    expect(mockInsertValues.mock.calls.map(([row]) => row)).toContainEqual(
-      expect.objectContaining({
-        fullText: "First part.",
-        failureReason: "Builder credits exhausted.",
-      }),
-    );
-  });
-
-  it("does not overwrite a native transcript that arrives while a chunk fails", async () => {
-    mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
-      mimeType: "audio/mp4",
-      maxVolumeDb: -12,
-      chunks: [
-        { audioBytes: new Uint8Array([1]), startMs: 0, durationMs: 1000 },
-        { audioBytes: new Uint8Array([2]), startMs: 1000, durationMs: 1000 },
-      ],
-    });
-    mockSelectRows.queue = [
-      [{ status: "failed", retryCount: 0 }],
-      [],
-      [
-        {
-          videoUrl: "https://cdn.example.test/video",
-          videoFormat: "mp4",
-          hasAudio: true,
-          durationMs: 2000,
-          title: "Clip",
-        },
-      ],
-      [],
-    ];
-    mockTranscribeWithBuilder
-      .mockResolvedValueOnce({ text: "First part.", segments: [] })
-      .mockImplementationOnce(async () => {
-        mockSelectRows.queue = [
-          [],
-          [
-            {
-              status: "failed",
-              fullText: "New native text",
-              segmentsJson: "[]",
-              source: null,
-            },
-          ],
-        ];
-        throw new Error("malformed JSON");
-      });
-
-    await requestTranscript.run({ recordingId: "rec_long" });
-    const failedUpdate = mockUpdateSet.mock.calls
-      .map(([row]) => row)
-      .find(
-        (row) => (row as { status?: string }).status === "failed",
-      ) as Record<string, unknown>;
-    expect(failedUpdate).toBeTruthy();
-    expect(failedUpdate).not.toHaveProperty("fullText");
-    expect(failedUpdate).not.toHaveProperty("segmentsJson");
-  });
-
-  it("preserves a concurrent ready transcript that has segments without full text", async () => {
-    mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
-      mimeType: "audio/mp4",
-      maxVolumeDb: -12,
-      chunks: [
-        { audioBytes: new Uint8Array([1]), startMs: 0, durationMs: 1000 },
-        { audioBytes: new Uint8Array([2]), startMs: 1000, durationMs: 1000 },
-      ],
-    });
-    mockSelectRows.queue = [
-      [{ status: "failed", retryCount: 0 }],
-      [],
-      [
-        {
-          videoUrl: "https://cdn.example.test/video",
-          videoFormat: "mp4",
-          hasAudio: true,
-          durationMs: 2000,
-          title: "Clip",
-        },
-      ],
-      [],
-    ];
-    mockTranscribeWithBuilder
-      .mockResolvedValueOnce({ text: "First part.", segments: [] })
-      .mockImplementationOnce(async () => {
-        mockSelectRows.queue = [
-          [],
-          [
-            {
-              status: "ready",
-              fullText: "",
-              segmentsJson: JSON.stringify([
-                { startMs: 0, endMs: 1000, text: "New native text" },
-              ]),
-              source: null,
-            },
-          ],
-        ];
-        throw new Error("malformed JSON");
-      });
-
-    const result = await requestTranscript.run({ recordingId: "rec_long" });
-    expect(result).toMatchObject({ status: "ready", preserved: true });
-    expect(
-      mockUpdateSet.mock.calls.some(
-        ([row]) => (row as { fullText?: string }).fullText === "First part.",
-      ),
-    ).toBe(false);
   });
 
   it("replaces a ready transcript when regeneration is explicitly requested", async () => {
