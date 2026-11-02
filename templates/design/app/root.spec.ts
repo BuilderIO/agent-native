@@ -12,7 +12,17 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   getEmbedAuthToken: vi.fn(() => null),
 }));
 
-import { computeSessionBypass } from "./root";
+vi.mock("react-router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-router")>()),
+  Meta: () => null,
+  Links: () => null,
+  Scripts: () => null,
+  ScrollRestoration: () => null,
+}));
+
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { Layout, computeSessionBypass } from "./root";
 
 describe("computeSessionBypass", () => {
   beforeEach(() => {
@@ -49,5 +59,13 @@ describe("command menu shortcut", () => {
     expect(source).toMatch(
       /useCommandMenuShortcut\([\s\S]*?\{ allowContentEditable: true \},?\s*\);/,
     );
+  });
+});
+
+describe("Layout", () => {
+  it("opts out of browser auto-translate so React keeps owning its text nodes", () => {
+    const html = renderToStaticMarkup(Layout({ children: null }));
+    expect(html).toMatch(/<html[^>]*translate="no"/);
+    expect(html).toContain('<meta name="google" content="notranslate"/>');
   });
 });
