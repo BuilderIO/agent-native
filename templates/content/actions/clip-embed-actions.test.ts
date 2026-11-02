@@ -192,10 +192,9 @@ describe("get-clip-playback", () => {
       ];
     });
 
-    it("vouches for each network under its own key, which names no address", async () => {
+    it("vouches for each network under its own opaque key", async () => {
       const first = await keyFor(edge("203.0.113.7"));
       expect(first).toMatch(/^[A-Za-z0-9_-]{32}$/);
-      expect(first).not.toContain("203");
       expect(await keyFor(edge("203.0.113.7"))).toBe(first);
       expect(await keyFor(edge("::ffff:203.0.113.7"))).toBe(first);
       expect(await keyFor(edge("203.0.113.8"))).not.toBe(first);
@@ -211,7 +210,46 @@ describe("get-clip-playback", () => {
       expect(
         await keyFor(from({ "x-forwarded-for": "198.51.100.1" })),
       ).toBeNull();
-      expect(await keyFor(edge("not-an-address"))).toBeNull();
+    });
+
+    it("counts addresses it can't read under one shared key, rather than not at all", async () => {
+      const unreadable = await keyFor(edge("not-an-address"));
+      expect(unreadable).toMatch(/^[A-Za-z0-9_-]{32}$/);
+      expect(await keyFor(edge("fe80::1%eth0"))).toBe(unreadable);
+      expect(await keyFor(edge("203.0.113.7, 198.51.100.1"))).toBe(unreadable);
+      expect(await keyFor(edge("203.0.113.7"))).not.toBe(unreadable);
+
+      for (let read = 3; read < PUBLIC_CLIP_READS_PER_MINUTE; read++) {
+        await getClipPlayback.run(args, edge("not-an-address"));
+      }
+      mocks.requestClips.mockClear();
+      await expect(
+        failureOf(getClipPlayback.run(args, edge("not-an-address"))),
+      ).resolves.toEqual({ errorCode: "clip_rate_limited", statusCode: 429 });
+      expect(mocks.requestClips).not.toHaveBeenCalled();
+    });
+
+    it("spends the same budget on a comment list, which carries the same key", async () => {
+      const key = await keyFor(edge("203.0.113.7"));
+      mocks.requestClips.mockClear();
+      mocks.requestClips.mockResolvedValueOnce({
+        ok: true,
+        body: { comments: [], truncated: false },
+      });
+      await listClipComments.run(args, edge("203.0.113.7"));
+      const [[request]] = mocks.requestClips.mock.calls as [
+        [{ reader: { visitorKey: string | null } }],
+      ];
+      expect(request.reader.visitorKey).toBe(key);
+
+      for (let read = 2; read < PUBLIC_CLIP_READS_PER_MINUTE; read++) {
+        await getClipPlayback.run(args, edge("203.0.113.7"));
+      }
+      mocks.requestClips.mockClear();
+      await expect(
+        failureOf(listClipComments.run(args, edge("203.0.113.7"))),
+      ).resolves.toEqual({ errorCode: "clip_rate_limited", statusCode: 429 });
+      expect(mocks.requestClips).not.toHaveBeenCalled();
     });
 
     it("refuses one network once it has used up its reads, before asking Clips, and no one else", async () => {

@@ -121,7 +121,7 @@ async function documentState(documentId: string) {
   return row;
 }
 
-let warnedNoVisitorKey = false;
+const warnedVisitorReasons = new Set<string>();
 
 /**
  * The reader Content may vouch for to Clips about a Clip in this page, after
@@ -137,16 +137,14 @@ export async function authorizeClipReader(
   if (reader.kind === "signed-in") return reader;
 
   const visitor = publicClipVisitor(requestHeaders);
-  if (visitor.key === null) {
-    if (!warnedNoVisitorKey) {
-      warnedNoVisitorKey = true;
-      console.warn(
-        "[content-clips] no edge client address on a signed-out Clip read; signed-out readers of each Clip on a page share one budget at Clips",
-        { reason: visitor.reason },
-      );
-    }
-    return { kind: "public", visitorKey: null };
+  if (visitor.reason && !warnedVisitorReasons.has(visitor.reason)) {
+    warnedVisitorReasons.add(visitor.reason);
+    console.warn(
+      "[content-clips] no readable edge client address on a signed-out Clip read; those readers share one budget",
+      { reason: visitor.reason },
+    );
   }
+  if (visitor.key === null) return { kind: "public", visitorKey: null };
   if (!takePublicClipRead(visitor.key)) {
     failClip(CLIP_PLAYBACK_ERRORS.rateLimited);
   }

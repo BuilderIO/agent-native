@@ -21,13 +21,27 @@ type ReadBucket = { count: number; reset: number };
 const visitorReads = new Map<string, ReadBucket>();
 
 export type PublicClipVisitor =
-  | { key: string }
+  | { key: string; reason?: never }
   /**
-   * Content's edge sent no address it can read. Netlify always sets one, so
-   * this is a local server or another host; the reader shares their Clip's
-   * budget at Clips with every other reader without a key.
+   * Content's edge sent no address. Netlify always sets one, so this is a
+   * local server or another host; the reader shares their Clip's budget at
+   * Clips with every other reader without a key.
    */
-  | { key: null; reason: "no_edge_address" | "unreadable_edge_address" };
+  | { key: null; reason: "no_edge_address" }
+  /**
+   * An address Content can't read. These readers share one key, and so one
+   * budget, because a read that nothing counts would be free to repeat.
+   */
+  | { key: string; reason: "unreadable_edge_address" };
+
+const UNREADABLE_NETWORK = "unreadable";
+
+function visitorKey(network: string): string {
+  return createHmac("sha256", VISITOR_KEY_SECRET)
+    .update(network)
+    .digest("base64url")
+    .slice(0, 32);
+}
 
 /**
  * The address Content's edge saw, in the unit one reader holds: an IPv4
@@ -77,13 +91,13 @@ export function publicClipVisitor(
   const address = headers?.get("x-nf-client-connection-ip")?.trim();
   if (!address) return { key: null, reason: "no_edge_address" };
   const network = visitorNetwork(address);
-  if (!network) return { key: null, reason: "unreadable_edge_address" };
-  return {
-    key: createHmac("sha256", VISITOR_KEY_SECRET)
-      .update(network)
-      .digest("base64url")
-      .slice(0, 32),
-  };
+  if (!network) {
+    return {
+      key: visitorKey(UNREADABLE_NETWORK),
+      reason: "unreadable_edge_address",
+    };
+  }
+  return { key: visitorKey(network) };
 }
 
 /**
