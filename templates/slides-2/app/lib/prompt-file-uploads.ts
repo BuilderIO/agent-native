@@ -16,6 +16,8 @@ import {
   looksLikeMarkup,
 } from "./upload-response";
 
+const ATTACHMENT_STORAGE_UNAVAILABLE = "attachment_storage_unavailable";
+
 export interface UploadedFile {
   path: string;
   url?: string;
@@ -308,20 +310,44 @@ export function promptUploadHttpError(
   status: number,
   fileName?: string,
   failureReason?: "unsupported-file-type",
+  typed?: {
+    errorCode?: string;
+    details?: Record<string, unknown>;
+    message?: string;
+  },
 ): Error {
-  return Object.assign(new Error("Reference file upload failed"), {
-    code:
-      status === 401 || status === 403
+  const storageUnavailable =
+    typed?.errorCode === ATTACHMENT_STORAGE_UNAVAILABLE;
+  const selfResolving =
+    storageUnavailable && typed?.details?.whoCanFix === "self_resolving";
+  const code = selfResolving
+    ? UPLOAD_SERVICE_UNAVAILABLE_CODE
+    : storageUnavailable
+      ? "reference_storage_unavailable"
+      : status === 401 || status === 403
         ? "reference_storage_auth_required"
         : status === 413
           ? "reference_storage_limit_exceeded"
           : status === 408 || status === 502 || status === 504
             ? UPLOAD_SERVICE_UNAVAILABLE_CODE
-            : "reference_storage_http_failed",
-    status,
-    ...(fileName ? { fileName } : {}),
-    ...(failureReason ? { failureReason } : {}),
-  });
+            : "reference_storage_http_failed";
+  return Object.assign(
+    new Error(
+      storageUnavailable && typed?.message
+        ? typed.message
+        : "Reference file upload failed",
+    ),
+    {
+      code,
+      status,
+      ...(storageUnavailable ? { errorCode: typed?.errorCode } : {}),
+      ...(storageUnavailable && typed?.details
+        ? { details: typed.details }
+        : {}),
+      ...(fileName ? { fileName } : {}),
+      ...(failureReason ? { failureReason } : {}),
+    },
+  );
 }
 
 async function parsePromptUploadFailure(
@@ -353,7 +379,20 @@ async function parsePromptUploadFailure(
       ? "unsupported-file-type"
       : undefined;
 
-  return promptUploadHttpError(response.status, fileName, failureReason);
+  const serverMessage =
+    typeof body?.error === "string"
+      ? body.error.replace(/^File ".*?": /, "")
+      : undefined;
+  return promptUploadHttpError(response.status, fileName, failureReason, {
+    errorCode: typeof body?.errorCode === "string" ? body.errorCode : undefined,
+    details:
+      body?.details &&
+      typeof body.details === "object" &&
+      !Array.isArray(body.details)
+        ? (body.details as Record<string, unknown>)
+        : undefined,
+    message: serverMessage,
+  });
 }
 
 async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
