@@ -194,10 +194,11 @@ export function agentEngineStatusUrlForChatApi(apiUrl?: string): string {
     } else {
       const internalChatPathIndex =
         chatUrl.pathname.lastIndexOf(CHAT_API_PATH_SUFFIX);
-      chatUrl.pathname =
-        internalChatPathIndex >= 0
-          ? `${chatUrl.pathname.slice(0, internalChatPathIndex)}${AGENT_ENGINE_STATUS_PATH}`
-          : agentNativePath(AGENT_ENGINE_STATUS_PATH);
+      // agentNativePath can be an absolute URL on the configured server.
+      if (internalChatPathIndex < 0) {
+        return agentNativePath(AGENT_ENGINE_STATUS_PATH);
+      }
+      chatUrl.pathname = `${chatUrl.pathname.slice(0, internalChatPathIndex)}${AGENT_ENGINE_STATUS_PATH}`;
     }
     chatUrl.search = "";
     chatUrl.hash = "";

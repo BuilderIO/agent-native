@@ -11,6 +11,7 @@ const baseInput = {
   deckTitle: "Quarterly Review",
   url: "https://slides.example/deck/deck-1",
   allowAccessUrl: "https://slides.example/access-request/approve",
+  requestedRole: "viewer" as const,
 };
 
 describe("renderDeckAccessRequestEmail", () => {
@@ -31,6 +32,16 @@ describe("renderDeckAccessRequestEmail", () => {
     expect(withoutNote.html.length).toBeLessThan(withNote.html.length);
     expect(withoutNote.text).not.toContain("\nx\n");
   });
+
+  it("names edit access when the requester asked to edit", () => {
+    const email = renderDeckAccessRequestEmail({
+      ...baseInput,
+      requestedRole: "editor",
+    });
+
+    expect(email.subject).toBe('Edit access request for "Quarterly Review"');
+    expect(email.text).toContain("requested edit access to");
+  });
 });
 
 describe("renderDeckAccessGrantedEmail", () => {
@@ -39,9 +50,11 @@ describe("renderDeckAccessGrantedEmail", () => {
       approverName: "Alex <Kim>",
       deckTitle: "Quarterly Review",
       url: "https://slides.example/deck/deck-1",
+      grantedRole: "editor",
     });
 
     expect(email.subject).toBe('You now have access to "Quarterly Review"');
+    expect(email.text).toContain("You can now edit");
     expect(email.html).toContain("Alex &lt;Kim&gt;");
     expect(email.html).toContain("https://slides.example/deck/deck-1");
   });

@@ -128,7 +128,7 @@ export default defineAction({
       }
       let snapshot: ReturnType<typeof readStoredSlideSource>;
       try {
-        snapshot = readStoredSlideSource(row.data, slideId);
+        snapshot = readStoredSlideSource(deckId, row.data, slideId);
       } catch (error) {
         rethrowActionFailure(error);
       }

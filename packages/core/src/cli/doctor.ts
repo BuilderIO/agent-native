@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { nativeManifestSchema } from "../app-config/schema.js";
 import {
   scanDbToolScoping,
   scanDrizzlePush,
@@ -62,7 +63,8 @@ export type GuardName =
   | "resource-action-access"
   | "feature-dependencies"
   | "server-plugin-default-export"
-  | "migration-manifest";
+  | "migration-manifest"
+  | "native-manifest";
 
 export const ALL_GUARD_NAMES: GuardName[] = [
   "no-drizzle-push",
@@ -79,6 +81,7 @@ export const ALL_GUARD_NAMES: GuardName[] = [
   "feature-dependencies",
   "server-plugin-default-export",
   "migration-manifest",
+  "native-manifest",
 ];
 
 export interface DoctorConfig {
@@ -155,6 +158,39 @@ function runGuard(
   shellEnvironment: NodeJS.ProcessEnv = process.env,
 ): DoctorGuardResult {
   switch (name) {
+    case "native-manifest": {
+      const file = path.join(root, "agent-native.json");
+      if (!fs.existsSync(file)) return { name, findings: [] };
+      const manifest: unknown = JSON.parse(fs.readFileSync(file, "utf-8"));
+      if (
+        !manifest ||
+        typeof manifest !== "object" ||
+        Array.isArray(manifest)
+      ) {
+        return {
+          name,
+          findings: [
+            {
+              file: "agent-native.json",
+              line: 1,
+              message: "Expected a manifest object",
+            },
+          ],
+        };
+      }
+      if (!("native" in manifest)) return { name, findings: [] };
+      const result = nativeManifestSchema.safeParse(manifest.native);
+      return {
+        name,
+        findings: result.success
+          ? []
+          : result.error.issues.map((issue) => ({
+              file: "agent-native.json",
+              line: 1,
+              message: `native.${issue.path.join(".")}: ${issue.message}`,
+            })),
+      };
+    }
     case "no-drizzle-push":
       return scanDrizzlePush({ root });
     case "no-empty-migrations":
@@ -297,7 +333,10 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
     names = knownOnly;
   } else {
     names = ALL_GUARD_NAMES.filter(
-      (n) => n === "migration-manifest" || !config.disabledGuards.includes(n),
+      (n) =>
+        n === "migration-manifest" ||
+        n === "native-manifest" ||
+        !config.disabledGuards.includes(n),
     );
   }
 

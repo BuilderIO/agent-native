@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 
 import type { AspectRatio } from "./aspect-ratios";
 import { buildDeckPptxBlob } from "./export-pptx-client";
@@ -137,7 +137,7 @@ export async function exportDeckToGoogleSlides(
   // A rejected upload doesn't prove the route never ran (the response can be
   // lost after Drive accepted the file), so it is left to the route's own
   // event; an export with no outcome counts as failed_unknown downstream.
-  const res = await fetch(`${appBasePath()}/api/exports/google-slides`, {
+  const res = await fetch(appApiPath("/api/exports/google-slides"), {
     method: "POST",
     body: form,
   });

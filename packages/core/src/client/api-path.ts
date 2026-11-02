@@ -1,3 +1,4 @@
+import { normalizeApiBaseUrl } from "../shared/api-base-url.js";
 import {
   FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   matchesPathPrefix,
@@ -30,6 +31,54 @@ export function frameworkRoutePrefix(): string {
     projected,
     "window.__AGENT_NATIVE_CONFIG__.frameworkRoutePrefix",
   );
+}
+
+/**
+ * Where the browser reaches the app's server, or `undefined` when the server
+ * shares the page's origin and base path. Set at build time through
+ * `runtime.apiBaseUrl` or by a static host through
+ * `window.__AGENT_NATIVE_CONFIG__.apiBaseUrl`.
+ */
+export function apiBaseUrl(): string | undefined {
+  const configured = injectedAgentNativeConfig().runtime?.apiBaseUrl;
+  if (configured !== undefined) return normalizeApiBaseUrl(configured);
+  const projected =
+    typeof window === "undefined"
+      ? undefined
+      : (
+          window as Window & {
+            __AGENT_NATIVE_CONFIG__?: { apiBaseUrl?: unknown };
+          }
+        ).__AGENT_NATIVE_CONFIG__?.apiBaseUrl;
+  return normalizeApiBaseUrl(
+    projected,
+    "window.__AGENT_NATIVE_CONFIG__.apiBaseUrl",
+  );
+}
+
+/** True when `url` addresses the configured app server. */
+export function isApiBaseUrl(url: URL): boolean {
+  const base = apiBaseUrl();
+  if (!base) return false;
+  const baseUrl = new URL(base);
+  if (url.origin !== baseUrl.origin) return false;
+  const basePath = baseUrl.pathname.replace(/\/+$/, "");
+  return !basePath || matchesPathPrefix(url.pathname, basePath);
+}
+
+/**
+ * A route the app's server answers (`/mcp/...`, `/_agent-native/...`,
+ * `/api/...`), as the browser should request it: on the configured server
+ * when `runtime.apiBaseUrl` is set, otherwise under the app's base path.
+ * Prefer `agentNativePath` and `appApiPath` for their namespaces.
+ */
+export function appServerPath(routerPath: string): string {
+  const base = apiBaseUrl();
+  if (!base) return appPath(routerPath);
+  // appPath would install the client runtime; this branch skips it, and the
+  // credential interceptor must be in place before the first server request.
+  initializeAgentNativeClient();
+  return `${base}${routerPath}`;
 }
 
 export function isFrameworkRoutePath(pathname: string): boolean {
@@ -478,7 +527,7 @@ export function appApiPath(path: string): string {
     path === "/api" || path.startsWith("/api/")
       ? path
       : `/api/${path.replace(/^\/+/, "")}`;
-  return appPath(normalized);
+  return appServerPath(normalized);
 }
 
 export function agentNativePath(path: string): string {
@@ -487,7 +536,7 @@ export function agentNativePath(path: string): string {
     queryOrFragment === -1 ? path : path.slice(0, queryOrFragment);
   if (!matchesPathPrefix(pathname, FRAMEWORK_INTERNAL_ROUTE_PREFIX))
     return path;
-  return appPath(
+  return appServerPath(
     toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() }),
   );
 }

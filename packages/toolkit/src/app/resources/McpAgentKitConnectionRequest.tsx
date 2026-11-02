@@ -1,8 +1,5 @@
 import type { AgentConnectionRequest } from "@agent-native/agentkit/protocol";
-import {
-  agentNativePath,
-  appBasePath,
-} from "@agent-native/core/client/api-path";
+import { frameworkRoutePrefix } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   getWorkspaceConnectionProvider,
@@ -20,6 +17,7 @@ import {
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
+import { toPublicFrameworkPath } from "@agent-native/core/shared/framework-route-prefix";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { IconAlertCircle, IconLoader2 } from "@tabler/icons-react";
 import {
@@ -282,25 +280,19 @@ export function McpAgentKitConnectionRequestCard({
             popup.close();
             return false;
           }
-          const returnUrl = new URL(
-            agentNativePath("/_agent-native/oauth/popup"),
-            window.location.href,
+          const popupCompletionPath = toPublicFrameworkPath(
+            "/_agent-native/oauth/popup",
+            { publicPrefix: frameworkRoutePrefix() },
           );
-          returnUrl.searchParams.set("complete", "workspace-connection");
-          returnUrl.searchParams.set("resume", completionId);
-          const basePath = appBasePath();
-          const hasBasePath =
-            basePath && returnUrl.pathname.startsWith(basePath + "/");
-          const returnPath =
-            (hasBasePath
-              ? returnUrl.pathname.slice(basePath.length)
-              : returnUrl.pathname) + returnUrl.search;
+          const serverReturnPath = `${popupCompletionPath}?${new URLSearchParams(
+            { complete: "workspace-connection", resume: completionId },
+          )}`;
           try {
             popup.location.assign(
               workspaceProviderOAuthUrl(source.id, {
                 appId,
                 scope: "user",
-                returnPath,
+                serverReturnPath,
               }),
             );
           } catch (error) {

@@ -160,6 +160,7 @@ vi.mock("../server/lib/deck-versions.js", () => ({
 }));
 
 import { hashSlideContent } from "../shared/slide-fit";
+import { repairedSlideId } from "../shared/slide-ids";
 import { nextDeckRevision } from "./_deck-write";
 import action from "./update-slide";
 
@@ -304,6 +305,41 @@ describe("update-slide", () => {
     expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("edits a slide by the ID get-deck reported for an unrepaired duplicate", async () => {
+    if (!mockDeckRow) throw new Error("expected a deck row");
+    mockDeckRow.data = JSON.stringify({
+      appId: "slides-2",
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        { id: "duplicate", content: "<div>First</div>" },
+        { id: "duplicate", content: "<div>Second</div>" },
+      ],
+    });
+    const reportedId = repairedSlideId("deck-1", 1, 0);
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: reportedId,
+        fullContent: "<div>Edited</div>",
+        baseContentHash: hashSlideContent("<div>Second</div>"),
+      },
+      { caller: "mcp" },
+    );
+
+    const saved: { slides: Array<{ id: string; content: string }> } =
+      JSON.parse(String(lastUpdateSet?.data));
+    expect(saved.slides.map((slide) => slide.id)).toEqual([
+      "duplicate",
+      reportedId,
+    ]);
+    expect(saved.slides.map((slide) => slide.content)).toEqual([
+      "<div>First</div>",
+      "<div>Edited</div>",
+    ]);
   });
 
   it("applies the edit, bumps deck updatedAt, persists, and notifies clients", async () => {

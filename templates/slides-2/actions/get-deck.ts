@@ -32,9 +32,11 @@ import { summarizeDeckStyle } from "../shared/representative-slide.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
 import {
   ensureUniqueSlideIds,
+  repairedSlideId,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
 import { normalizeSlideTransition } from "../shared/slide-transitions.js";
+import { isAppUiRead } from "./_app-ui-read.js";
 import { getDeckUrl } from "./_app-url.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
 import {
@@ -45,6 +47,8 @@ import getDesignSystem from "./get-design-system.js";
 import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
+const SLIDE_ID_REPAIR_PENDING_NOTE =
+  "These slides share a stored ID with an earlier slide. Their IDs here are assigned for this read and saved the next time an editor opens the deck in the app; until then, edits that target them fail with slide not found.";
 
 async function readDeck(
   deckId: string,
@@ -99,13 +103,20 @@ async function readDeck(
   assertSlides2DeckData(data);
   const normalized = ensureUniqueSlideIds(
     Array.isArray(data?.slides) ? data.slides : [],
+    (index, attempt) => repairedSlideId(deckId, index, attempt),
   );
   return { row, data, accessRole, ...normalized };
 }
 
-function canPersistSlideIdRepair(accessRole: "owner" | ShareRole): boolean {
+function canPersistSlideIdRepair(
+  accessRole: "owner" | ShareRole,
+  appUiRead: boolean,
+): boolean {
   return (
-    accessRole === "owner" || accessRole === "admin" || accessRole === "editor"
+    appUiRead &&
+    (accessRole === "owner" ||
+      accessRole === "admin" ||
+      accessRole === "editor")
   );
 }
 
@@ -127,6 +138,7 @@ function normalizeDeckReadInMemory(
 
 async function loadDeckWithUniqueSlideIds(
   deckId: string,
+  appUiRead: boolean,
   reviewPreview = false,
   reviewOrgId?: string,
 ) {
@@ -137,7 +149,7 @@ async function loadDeckWithUniqueSlideIds(
   for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
     const snapshot = await readDeck(deckId);
     if (!snapshot.changed) return { ...snapshot, repaired: false };
-    if (!canPersistSlideIdRepair(snapshot.accessRole)) {
+    if (!canPersistSlideIdRepair(snapshot.accessRole, appUiRead)) {
       return normalizeDeckReadInMemory(snapshot);
     }
 
@@ -146,7 +158,7 @@ async function loadDeckWithUniqueSlideIds(
       if (!lockedSnapshot.changed) {
         return { ...lockedSnapshot, repaired: false };
       }
-      if (!canPersistSlideIdRepair(lockedSnapshot.accessRole)) {
+      if (!canPersistSlideIdRepair(lockedSnapshot.accessRole, appUiRead)) {
         return normalizeDeckReadInMemory(lockedSnapshot);
       }
 
@@ -334,8 +346,7 @@ export default defineAction({
         });
       }
     }),
-  readOnly: false, // GET repairs duplicate slide IDs.
-  // The only write is that repair, and a replay finds no duplicates left to fix.
+  readOnly: true,
   retrySafe: true,
   http: { method: "GET" },
   mcpApp: {
@@ -349,11 +360,12 @@ export default defineAction({
     }),
   },
   mcpAnnotations: {
-    readOnlyHint: false,
+    readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: false,
   },
   run: async (args, ctx) => {
+    const appUiRead = isAppUiRead(ctx);
     const isWidgetCaller =
       ctx?.caller === "mcp-widget" || ctx?.caller === "mcp-widget-write";
     const deckId = args.deckId ?? args.id;
@@ -367,16 +379,30 @@ export default defineAction({
       row,
       data,
       slides: storedSlides,
+      originalIds,
       accessRole,
-    } = ctx?.caller === "mcp-widget"
-      ? normalizeDeckReadInMemory(await readDeck(deckId))
-      : await loadDeckWithUniqueSlideIds(
-          deckId,
-          args.reviewPreview,
-          args.reviewOrgId,
-        );
+    } = await loadDeckWithUniqueSlideIds(
+      deckId,
+      appUiRead,
+      args.reviewPreview,
+      args.reviewOrgId,
+    );
     // Both the compact and full branches read these; normalize once, here.
     const slides = storedSlides.map(canonicalReadSlide);
+    const pendingRepairSlideIds = slides.flatMap((slide, index) =>
+      typeof slide.id === "string" && slide.id !== originalIds[index]
+        ? [slide.id]
+        : [],
+    );
+    const slideIdRepair =
+      pendingRepairSlideIds.length > 0
+        ? {
+            slideIdRepairPending: {
+              slideIds: pendingRepairSlideIds,
+              note: SLIDE_ID_REPAIR_PENDING_NOTE,
+            },
+          }
+        : {};
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -465,6 +491,7 @@ export default defineAction({
             }
           : null,
         sourceCoverage,
+        ...slideIdRepair,
         slideCount: slides.length,
         appUrl: getDeckUrl(row.id),
         slideNumbering:
@@ -528,6 +555,7 @@ export default defineAction({
       designSystem,
       ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
       sourceCoverage,
+      ...slideIdRepair,
       slideCount: slides.length,
       appUrl: getDeckUrl(row.id),
       slideNumbering:

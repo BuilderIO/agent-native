@@ -5,20 +5,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: { index?: number }) =>
     ({
-      "animations.title": "Transitions",
-      "animations.close": "Close transitions panel",
+      "animations.title": "Animations",
+      "animations.close": "Close animations panel",
       "animations.selectObject": "Select an object to animate",
-      "animations.addTransition": "Add transition",
+      "animations.addAnimation": "Add animation",
+      "animations.alreadyAnimated": "Already animated",
       "animations.emptyDescription":
-        "Select an object on the slide to add a transition.",
+        "Select an object on the slide to add an animation.",
       "animations.appear": "Appear",
       "animations.onClick": "On click",
       "animations.byParagraph": "By paragraph",
       "animations.play": "Play",
-      "animations.expand": "Expand transition",
-      "animations.collapse": "Collapse transition",
-      "animations.reorder": "Reorder transition",
-      "animations.remove": "Remove transition",
+      "animations.expand": "Expand animation",
+      "animations.collapse": "Collapse animation",
+      "animations.reorder": "Reorder animation",
+      "animations.remove": "Remove animation",
       "animations.elementFallback": "Element " + (values?.index ?? ""),
     })[key] ?? key,
 }));
@@ -49,7 +50,7 @@ const selectedTarget = {
 describe("AnimationsPanel", () => {
   afterEach(cleanup);
 
-  it("asks the canvas selection for an object before adding a transition", () => {
+  it("asks the canvas selection for an object before adding an animation", () => {
     render(
       <AnimationsPanel
         slide={slide}
@@ -76,7 +77,7 @@ describe("AnimationsPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add animation/i }));
 
     expect(onUpdateSlide).toHaveBeenCalledWith({
       animations: [
@@ -123,7 +124,7 @@ describe("AnimationsPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add animation/i }));
 
     const [{ animations }] = onUpdateSlide.mock.calls[0]!;
     expect(
@@ -165,7 +166,7 @@ describe("AnimationsPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add animation/i }));
 
     expect(onUpdateSlide).not.toHaveBeenCalled();
     const alert = screen.getByRole("alert");
@@ -174,7 +175,32 @@ describe("AnimationsPanel", () => {
     expect(alert.textContent).not.toContain("animations.blocked");
   });
 
-  it("persists the paragraph setting for an expanded transition", () => {
+  it("says why the add button is off when the selection is already animated", () => {
+    render(
+      <AnimationsPanel
+        slide={{
+          ...slide,
+          animations: [
+            {
+              id: "animation-1",
+              elementIndex: 1,
+              elementPath: [1],
+              type: "appear",
+            },
+          ],
+        }}
+        selectedTargets={[selectedTarget]}
+        onUpdateSlide={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Already animated" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: /add animation/i })).toBeNull();
+  });
+
+  it("persists the paragraph setting for an expanded animation", () => {
     const onUpdateSlide = vi.fn();
     render(
       <AnimationsPanel
@@ -221,9 +247,11 @@ describe("AnimationsPanel", () => {
       />,
     );
 
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "Remove transition" })[0]!,
-    );
+    const removeFirst = screen
+      .getAllByRole("button", { name: "Remove animation" })
+      .at(0);
+    if (!removeFirst) throw new Error("Expected a Remove animation button");
+    fireEvent.click(removeFirst);
 
     expect(onUpdateSlide).toHaveBeenCalledWith({
       animations: [
@@ -259,7 +287,7 @@ describe("AnimationsPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add animation/i }));
 
     expect(onUpdateSlide).not.toHaveBeenCalled();
     const alert = screen.getByRole("alert");

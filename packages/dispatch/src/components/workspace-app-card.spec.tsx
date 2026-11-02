@@ -29,6 +29,7 @@ vi.mock("../../../core/dist/client/use-action.js", () => ({
 }));
 
 vi.mock("../../../core/dist/client/i18n.js", () => ({
+  useOptionalLocale: () => null,
   useT: () => (key: string, values?: Record<string, unknown>) =>
     String(values?.defaultValue ?? key),
 }));
@@ -51,6 +52,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useOptionalLocale: () => null,
   useFormatters: () => ({
     formatDate: (value: string) => value,
   }),

@@ -1,4 +1,5 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { settleGoogleFontStylesheets } from "@agent-native/toolkit/design-tweaks/google-fonts";
 import {
   SLIDES_PDF_SIDECAR_MAX_JSON_BYTES,
   SLIDES_PDF_SIDECAR_NAMESPACE,
@@ -19,12 +20,12 @@ import {
 export function imageProxyUrl(src: string, shareToken?: string): string {
   const params = new URLSearchParams({ url: src });
   if (shareToken) params.set("shareToken", shareToken);
-  return `${appBasePath()}/api/image-proxy?${params.toString()}`;
+  return appApiPath(`/api/image-proxy?${params.toString()}`);
 }
 
-function throwIfExportAborted(signal?: AbortSignal): void {
+export function throwIfExportAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return;
-  const error = new Error("PDF export cancelled");
+  const error = new Error("Export cancelled");
   error.name = "AbortError";
   throw signal.reason ?? error;
 }
@@ -568,6 +569,9 @@ async function downloadDeckPdf(
     "[data-pdf-export-stage]",
   );
   if (exportStage) await waitForExportStage(exportStage, signal);
+  // Families only the live catalog knows link their stylesheet once it loads.
+  await settleGoogleFontStylesheets();
+  throwIfExportAborted(signal);
   const restoreFontStyles = await exposeGoogleFontStylesheetsForPdf(signal);
   try {
     await waitForDocumentFonts(signal);

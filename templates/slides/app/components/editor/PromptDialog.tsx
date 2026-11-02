@@ -193,6 +193,8 @@ interface PromptPopoverProps {
   initialTextKey?: string | number;
   initialTextOverridesSavedDraft?: boolean;
   onPromptTextChange?: (text: string) => void;
+  /** Row rendered inside the composer frame, above the editor. */
+  composerHeaderSlot?: React.ReactNode;
   /** Restore a model choice when a prompt is replayed after auth or setup recovery. */
   initialModelSelection?: PromptModelSelection;
   onBeforeUpload?: (
@@ -236,6 +238,7 @@ export default function PromptPopover({
   initialTextKey,
   initialTextOverridesSavedDraft = false,
   onPromptTextChange,
+  composerHeaderSlot,
   initialModelSelection,
   onBeforeUpload,
   onRetainedAttachmentsAbandoned,
@@ -845,6 +848,7 @@ export default function PromptPopover({
                   setPromptText(text);
                   onPromptTextChange?.(text);
                 }}
+                headerSlot={composerHeaderSlot}
                 draftScope={draftScope}
                 initialText={initialText}
                 initialTextKey={initialTextKey}

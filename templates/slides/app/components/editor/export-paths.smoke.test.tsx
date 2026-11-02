@@ -35,6 +35,7 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => `/agent${path}`,
+  appApiPath: (path: string) => `/slides${path}`,
   appBasePath: () => "/slides",
 }));
 
@@ -262,7 +263,7 @@ describe("export paths smoke test", () => {
     );
   });
 
-  it("Export to Google Slides is visibly gated when Google is broken", async () => {
+  it("Export to Google Slides explains itself when Google is broken", async () => {
     installHarness({ googleAvailable: false });
     const onExportGoogleSlides = vi.fn();
     renderMenu({ onExportGoogleSlides });
@@ -274,12 +275,10 @@ describe("export paths smoke test", () => {
     const item = await screen.findByRole("menuitem", {
       name: /Export to Google Slides/,
     });
-    await vi.waitFor(() =>
-      expect(item.getAttribute("data-disabled")).not.toBeNull(),
-    );
+    await vi.waitFor(() => expect(item.textContent).toContain("Unavailable"));
 
-    expect(item.textContent).toContain("Unavailable");
     fireEvent.click(item);
+    await vi.waitFor(() => expect(errorIsVisible()).toBe(true));
     expect(onExportGoogleSlides).not.toHaveBeenCalled();
   });
 

@@ -283,6 +283,20 @@ export {
   type TransactionalChange,
 } from "./poll.js";
 export { createPollEventsHandler } from "./poll-events.js";
+export {
+  GOOGLE_FONTS_CATALOG_URL,
+  GOOGLE_FONTS_CSS_ORIGIN,
+  GOOGLE_FONTS_FILE_ORIGIN,
+  GoogleFontError,
+  assertGoogleFontsUrl,
+  filterGoogleFontCatalog,
+  isGoogleFontFamilyName,
+  parseGoogleFontVariant,
+  readBoundedGoogleFontsBody,
+  readGoogleFontCatalog,
+  type GoogleFontCatalogFamily,
+  type GoogleFontsRuntime,
+} from "./google-fonts.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
   BETTER_AUTH_MIGRATIONS,
@@ -833,6 +847,8 @@ export {
 export {
   cdnSafeOriginStatus,
   createBuilderProject,
+  getBuilderWorkspaceProjectId,
+  getBuilderWorkspaceUrl,
   ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,

@@ -113,6 +113,7 @@ import {
 import { createNotificationsHandler } from "../notifications/routes.js";
 import {
   getOrgContext,
+  hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
   resolveOrgScopeForEmail,
 } from "../org/context.js";
@@ -152,11 +153,16 @@ import {
   EMPTY_SPECULATION_RULES,
   resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
+import { normalizeCorsOrigin } from "../shared/cors-origin.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import { FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES } from "../shared/first-run-builder-credits-experiment.js";
-import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
+import {
+  isGoogleDefaultAvatarUrl,
+  isGoogleProfileImageUrl,
+} from "../shared/google-profile-image.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import {
+  corsAllowHeadersFor,
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
@@ -186,7 +192,6 @@ import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { readAnalyticsSessionId } from "./attribution.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
-import { registerBackgroundJobStop } from "./background-jobs.js";
 import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
@@ -359,6 +364,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import { startSandboxExecutionSweep } from "./sandbox-execution-sweep.js";
 import {
   findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
@@ -2996,6 +3002,15 @@ function oauthPopupCompletionHtml(
   const completionMessage = completionId
     ? `{type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}`
     : '{type:"agent-native:workspace-connection-complete"}';
+  // A UI served from another origin (runtime.apiBaseUrl) may have opened this
+  // popup. postMessage to an origin other than the opener's is dropped, so
+  // naming every listed UI origin reaches only the real opener.
+  const uiOrigins = [
+    ...new Set(readCorsAllowedOrigins().map(normalizeCorsOrigin)),
+  ];
+  const notifyUiOrigins = uiOrigins.length
+    ? `for (const origin of ${JSON.stringify(uiOrigins).replace(/</g, "\\u003c")}) window.opener?.postMessage(${completionMessage}, origin);`
+    : "";
   const direction = locale === "ar-SA" ? "rtl" : "ltr";
   return `<!doctype html>
 <html lang="${locale}" dir="${direction}">
@@ -3025,6 +3040,7 @@ function oauthPopupCompletionHtml(
       ${persistCompletion}
       setTimeout(() => window.close(), 2000);
       window.opener?.postMessage(${completionMessage}, window.location.origin);
+      ${notifyUiOrigins}
     </script>
   </body>
 </html>`;
@@ -3708,7 +3724,10 @@ export function createCoreRoutesPlugin(
               setResponseHeader(
                 event,
                 "Access-Control-Allow-Headers",
-                MCP_EMBED_CORS_ALLOW_HEADERS,
+                corsAllowHeadersFor(
+                  requestedHeaders,
+                  MCP_EMBED_CORS_ALLOW_HEADERS,
+                ),
               );
             }
             setResponseStatus(event, 204);
@@ -3741,7 +3760,7 @@ export function createCoreRoutesPlugin(
           setResponseHeader(
             event,
             "Access-Control-Allow-Headers",
-            MCP_EMBED_CORS_ALLOW_HEADERS,
+            corsAllowHeadersFor(requestedHeaders, MCP_EMBED_CORS_ALLOW_HEADERS),
           );
         }),
       );
@@ -4219,46 +4238,10 @@ export function createCoreRoutesPlugin(
       // a missing table short-circuits to a no-op) and best-effort — the
       // poll-time drain in run-code covers deployments where warm-instance
       // timers rarely fire.
-      (() => {
-        if (shouldDisableInProcessSweeps()) return;
-        let lastSweep = 0;
-        const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
-        let startupTimer: ReturnType<typeof setTimeout> | null = null;
-        let sweepTimer: ReturnType<typeof setInterval> | null = null;
-
-        const stopSandboxExecutionSweep = () => {
-          if (startupTimer) {
-            clearTimeout(startupTimer);
-            startupTimer = null;
-          }
-          if (sweepTimer) {
-            clearInterval(sweepTimer);
-            sweepTimer = null;
-          }
-        };
-
-        startupTimer = setTimeout(() => {
-          startupTimer = null;
-          sweepTimer = setInterval(() => {
-            const now = Date.now();
-            if (now - lastSweep < SWEEP_INTERVAL_MS) return;
-            lastSweep = now;
-
-            (async () => {
-              const { drainDueSandboxExecutions } =
-                await import("../coding-tools/sandbox/background.js");
-              await drainDueSandboxExecutions({ limit: 5 });
-            })().catch(() => {
-              // best-effort — never break the server
-            });
-          }, 30_000); // Check every 30s but only sweep once per 2min
-          sweepTimer.unref?.();
-        }, 25_000); // Start 25s after init (after the agent sweeps)
-        startupTimer.unref?.();
-
-        registerBackgroundJobStop(stopSandboxExecutionSweep);
+      if (!shouldDisableInProcessSweeps()) {
+        const stopSandboxExecutionSweep = startSandboxExecutionSweep();
         nitroApp.hooks?.hook?.("close", stopSandboxExecutionSweep);
-      })();
+      }
 
       getH3App(nitroApp).use(
         `${P}/debug/runtime`,
@@ -4364,8 +4347,8 @@ export function createCoreRoutesPlugin(
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
             orgRole = orgCtx.role ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
         }
         connections = await resolveBuilderConnectionsStatus({
@@ -5114,8 +5097,8 @@ export function createCoreRoutesPlugin(
           try {
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
 
           // Wrap in runWithRequestContext so resolveBuilderCredential() inside
@@ -5875,8 +5858,8 @@ export function createCoreRoutesPlugin(
               const orgCtx = await getOrgContext(event);
               orgId = orgCtx.orgId ?? null;
               role = orgCtx.role ?? null;
-            } catch {
-              // coercion-ok: org module is optional; disconnect still clears user-scoped custody.
+            } catch (error) {
+              if (!isMissingOrganizationTableError(error)) throw error;
             }
             if (requestedConnectionScope) {
               const result = await disconnectBuilderConnectionAtScope({
@@ -5988,6 +5971,13 @@ export function createCoreRoutesPlugin(
                   : undefined,
             };
           } catch (err) {
+            if (
+              typeof err === "object" &&
+              err !== null &&
+              "statusCode" in err &&
+              err.statusCode === 503
+            )
+              throw err;
             await trackBuilderLifecycle(
               event,
               "builder disconnect failed",
@@ -6104,8 +6094,8 @@ export function createCoreRoutesPlugin(
               try {
                 const orgCtx = await getOrgContext(event);
                 orgId = orgCtx.orgId ?? undefined;
-              } catch {
-                /* org module not present in this template */
+              } catch (error) {
+                if (!isMissingOrganizationTableError(error)) throw error;
               }
             }
             // One context for the whole sweep so the per-request secret memo is
@@ -6295,8 +6285,8 @@ export function createCoreRoutesPlugin(
           try {
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
-          } catch {
-            /* org module not present in this template — keep userEmail-only */
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
           }
 
           const clientPlatform = readAnalyticsClientPlatformHeader(event);
@@ -6383,8 +6373,18 @@ export function createCoreRoutesPlugin(
             return { error: "unauthorized" };
           }
 
-          const orgCtx = await getOrgContext(event).catch(() => null);
-          const orgId = orgCtx?.orgId ?? session.orgId ?? null;
+          const orgCtx = await getOrgContext(event);
+          if (!orgCtx.orgId && hasForbiddenOrgScope(event)) {
+            setResponseStatus(event, 403);
+            return { error: "Organization scope is forbidden." };
+          }
+          if (!orgCtx.orgId && hasOrgScopeResolutionUnavailable(event)) {
+            setResponseStatus(event, 503);
+            return {
+              error: "Organization scope is unavailable. Please retry.",
+            };
+          }
+          const orgId = orgCtx.orgId;
           const ctx = { userEmail: session.email, orgId };
           const canUpdate = await canUpdateAgentLoopSettings(
             session.email,
@@ -6833,7 +6833,12 @@ export function createCoreRoutesPlugin(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
             const storedImage = (data as any)?.image;
-            if (typeof storedImage === "string" && storedImage.trim()) {
+            // A silhouette saved before it was recognized is not a photo either.
+            if (
+              typeof storedImage === "string" &&
+              storedImage.trim() &&
+              !isGoogleDefaultAvatarUrl(storedImage)
+            ) {
               return { image: storedImage };
             }
             if (getBetterAuthSync()) {

@@ -1,4 +1,5 @@
 import { isThemeFamily, type ThemeFamily } from "./appearance/theme-family.js";
+import { normalizeApiBaseUrl } from "./shared/api-base-url.js";
 import { normalizeFrameworkRoutePrefix } from "./shared/framework-route-prefix.js";
 
 export const AGENT_NATIVE_CONFIG_VERSION = 1 as const;
@@ -35,6 +36,11 @@ export interface AgentNativeRuntimeConfig {
   database?: AgentNativeRuntimeDatabaseConfig;
   environment?: AgentNativeRuntimeEnvironmentConfig;
   frameworkRoutePrefix?: string;
+  /**
+   * Absolute URL of the app's server when the browser loads the UI from a
+   * different origin. Framework and `/api` requests go here with credentials.
+   */
+  apiBaseUrl?: string;
 }
 
 export type AgentNativeDeploymentEnvironment =
@@ -169,6 +175,7 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
     kind: "array",
   },
   { path: ["runtime", "frameworkRoutePrefix"], kind: "string" },
+  { path: ["runtime", "apiBaseUrl"], kind: "string" },
   { path: ["deployment"], kind: "object" },
   {
     path: ["deployment", "environment"],
@@ -866,6 +873,11 @@ function normalizeRuntimeConfig(
       `${source}.frameworkRoutePrefix`,
     );
   }
+  const apiBaseUrl = normalizeApiBaseUrl(
+    value.apiBaseUrl,
+    `${source}.apiBaseUrl`,
+  );
+  if (apiBaseUrl !== undefined) result.apiBaseUrl = apiBaseUrl;
   for (const section of ["auth", "database", "environment"] as const) {
     const sectionValue = value[section];
     if (sectionValue === undefined) continue;

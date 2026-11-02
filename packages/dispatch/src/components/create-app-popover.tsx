@@ -28,6 +28,11 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import {
+  BuildInBuilderPanel,
+  useBuilderWorkspaceUrl,
+  useNotifyBuildInBuilder,
+} from "./build-in-builder";
 import { Button } from "./ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -104,6 +109,7 @@ export function CreateAppFlow({
   onCreated?: () => void;
   className?: string;
 }) {
+  const notifyBuildInBuilder = useNotifyBuildInBuilder();
   const [step, setStep] = useState<"prompt" | "access">("prompt");
   const [prompt, setPrompt] = useState("");
   const [selectedSecretIds, setSelectedSecretIds] = useState<string[]>([]);
@@ -263,7 +269,10 @@ export function CreateAppFlow({
             }),
           },
         );
-        if (result?.mode === "builder") {
+        if (result?.mode === "builder-managed") {
+          notifyBuildInBuilder(result.url);
+          onClose?.();
+        } else if (result?.mode === "builder") {
           onCreated?.();
           setBranchUrl(result?.url || null);
           setStatusMessage("Builder branch created.");
@@ -657,8 +666,35 @@ export function CreateAppPopover({
         sideOffset={10}
         className="relative w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[460px]"
       >
-        <CreateAppFlow onClose={() => setOpen(false)} onCreated={onCreated} />
+        <CreateAppPopoverBody
+          onClose={() => setOpen(false)}
+          onCreated={onCreated}
+        />
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Mounted only while the popover is open, so closed triggers fetch nothing. */
+function CreateAppPopoverBody({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated?: (() => void) | undefined;
+}) {
+  const builderWorkspaceUrl = useBuilderWorkspaceUrl();
+  // Until the lookup settles, show nothing rather than a flow that may not apply.
+  if (builderWorkspaceUrl === undefined) {
+    return (
+      <div className="flex justify-center p-4">
+        <IconLoader2 size={18} className="animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (builderWorkspaceUrl)
+    return <BuildInBuilderPanel url={builderWorkspaceUrl} />;
+  return (
+    <CreateAppFlow onClose={onClose} {...(onCreated ? { onCreated } : {})} />
   );
 }

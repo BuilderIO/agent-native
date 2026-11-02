@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isAppUiRead } from "./_app-ui-read.js";
 import {
   projectRenderingDesignSystemData,
   readDeckLinkedDesignSystem,
@@ -319,10 +320,10 @@ export default defineAction({
         "'true' returns a bounded, network-free summary: no Builder docs fetch, agentContext capped at 1,500 chars, no data/assets blobs. Omit for the full context you need before authoring.",
       ),
   }),
-  readOnly: false, // GET refreshes the cached Builder doc count.
+  readOnly: true,
   http: { method: "GET" },
   mcpAnnotations: {
-    readOnlyHint: false,
+    readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: true,
   },
@@ -390,11 +391,7 @@ export default defineAction({
         )
       : null;
 
-    if (
-      ctx?.caller !== "mcp-widget" &&
-      builder &&
-      typeof builder.docCount === "number"
-    ) {
+    if (isAppUiRead(ctx) && builder && typeof builder.docCount === "number") {
       await persistBuilderDocCount(row, builder.docCount);
     }
 

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   cancelS3ResponseBody,
   rfc3986,
@@ -23,6 +25,7 @@ import {
   legacyOrganizationLogoObjectKey,
   ORGANIZATION_LOGO_PURPOSE,
 } from "../../shared/organization-logo.js";
+import { checkpointMediaUpload } from "./recording-media-production-context.js";
 
 interface S3Config {
   region: string;
@@ -194,6 +197,110 @@ function readHostedClipS3Config(): S3Config | null {
 }
 
 type ClipsS3StorageMode = "own" | "hosted";
+
+function cleanupStorageFingerprint(cfg: S3Config): string {
+  return createHash("sha256")
+    .update(`${cfg.endpoint}\n${cfg.bucket}`)
+    .digest("hex");
+}
+
+export async function s3MediaCleanupFingerprint(
+  url: string,
+  mode: ClipsS3StorageMode,
+): Promise<string | null> {
+  const cfg = await readS3ConfigForMode(mode);
+  return cfg && objectKeyFromUrl(cfg, url)
+    ? cleanupStorageFingerprint(cfg)
+    : null;
+}
+
+export async function deleteS3MediaForCleanup(
+  url: string,
+  options: {
+    storageMode: ClipsS3StorageMode;
+    recordingId: string;
+    objectKey: string;
+    fingerprint?: string | null;
+  },
+  checkpoint: (fingerprint: string) => Promise<void>,
+): Promise<{
+  phase: "complete" | "pending" | "blocked";
+  reason?: string;
+  httpStatus?: number;
+}> {
+  const cfg = await readS3ConfigForMode(options.storageMode);
+  if (!cfg) return { phase: "blocked", reason: "credential_unavailable" };
+  if (!options.fingerprint)
+    return { phase: "blocked", reason: "storage_binding_unavailable" };
+  const key = objectKeyFromUrl(cfg, url);
+  if (
+    !key ||
+    options.objectKey !== `s3:${key}` ||
+    !/^clips\/[^/]+(?:\/[^/]+)?$/.test(key) ||
+    !isCompletedClipObjectKey(key) ||
+    !isRecordingObjectKey(key, options.recordingId)
+  )
+    return { phase: "blocked", reason: "object_identity_mismatch" };
+  const fingerprint = cleanupStorageFingerprint(cfg);
+  if (fingerprint !== options.fingerprint)
+    return { phase: "blocked", reason: "credential_space_mismatch" };
+  await checkpoint(fingerprint);
+  const removed = await s3Request(cfg, key, {
+    method: "DELETE",
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
+  await cancelS3ResponseBody(removed);
+  if (!removed.ok && removed.status !== 404)
+    return {
+      phase:
+        removed.status === 401 || removed.status === 403
+          ? "blocked"
+          : "pending",
+      reason: "delete_unconfirmed",
+      httpStatus: removed.status,
+    };
+  const head = await s3Request(cfg, key, {
+    method: "HEAD",
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
+  await cancelS3ResponseBody(head);
+  if (head.status !== 404)
+    return {
+      phase: "pending",
+      reason: head.ok ? "still_stored" : "storage_state_unavailable",
+      httpStatus: head.status,
+    };
+  const endpoint = new URL(cfg.endpoint);
+  // R2 has neither object versions nor a GetBucketVersioning operation.
+  if (
+    endpoint.protocol === "https:" &&
+    endpoint.hostname.endsWith(".r2.cloudflarestorage.com")
+  )
+    return { phase: "complete", httpStatus: head.status };
+  const versions = await s3Request(cfg, "", {
+    method: "GET",
+    query: { versioning: "" },
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
+  if (!versions.ok) {
+    await cancelS3ResponseBody(versions);
+    return {
+      phase: "blocked",
+      reason: "versioning_unconfirmed",
+      httpStatus: versions.status,
+    };
+  }
+  const xml = await versions.text();
+  if (/<(?:[A-Za-z0-9_]+:)?Status>\s*(Enabled|Suspended)\s*</.test(xml))
+    return { phase: "blocked", reason: "retained_versions" };
+  if (
+    !/^<(?:[A-Za-z0-9_]+:)?VersioningConfiguration(?:\s[^>]*)?(?:\s*\/>|>\s*<\/(?:[A-Za-z0-9_]+:)?VersioningConfiguration>)$/.test(
+      xml.trim().replace(/^<\?xml[^>]*\?>\s*/, ""),
+    )
+  )
+    return { phase: "blocked", reason: "versioning_unconfirmed" };
+  return { phase: "complete", httpStatus: head.status };
+}
 
 function readS3ConfigForMode(
   mode: ClipsS3StorageMode,
@@ -555,6 +662,7 @@ interface S3MultipartPart {
 }
 
 interface S3MultipartMeta {
+  storageFingerprint?: string;
   objectKey: string;
   stagingKey: string;
   mimeType: string;
@@ -604,7 +712,36 @@ function readMultipartMeta(meta: Record<string, unknown>): S3MultipartMeta {
   ) {
     throw new Error("S3 resumable upload session metadata is invalid");
   }
-  return { objectKey, stagingKey, mimeType, maxBytes, pendingBytes, parts };
+  if (
+    meta.storageFingerprint !== undefined &&
+    (typeof meta.storageFingerprint !== "string" ||
+      !/^[a-f0-9]{64}$/.test(meta.storageFingerprint))
+  )
+    throw new Error("S3 resumable storage binding is invalid");
+  return {
+    objectKey,
+    stagingKey,
+    mimeType,
+    maxBytes,
+    pendingBytes,
+    parts,
+    ...(typeof meta.storageFingerprint === "string"
+      ? { storageFingerprint: meta.storageFingerprint }
+      : {}),
+  };
+}
+
+function readBoundMultipartMeta(
+  cfg: S3Config,
+  raw: Record<string, unknown>,
+): S3MultipartMeta {
+  const meta = readMultipartMeta(raw);
+  if (
+    meta.storageFingerprint &&
+    meta.storageFingerprint !== cleanupStorageFingerprint(cfg)
+  )
+    throw new Error("S3 resumable storage bucket binding changed");
+  return meta;
 }
 
 function contentRangeEndExclusive(contentRange: string): number | null {
@@ -840,7 +977,14 @@ function createS3FileUploadProvider(
           ? data
           : new Uint8Array(data as unknown as ArrayBuffer);
 
+      const reference = {
+        url: publicObjectUrl(cfg, objectKey),
+        provider: id,
+        storageFingerprint: cleanupStorageFingerprint(cfg),
+      };
+      await checkpointMediaUpload({ ...reference, uploadConfirmed: false });
       const publicUrl = await putObject(cfg, objectKey, bytes, contentType);
+      await checkpointMediaUpload({ ...reference, uploadConfirmed: true });
       return { url: publicUrl, provider: id };
     },
     resumable: {
@@ -873,6 +1017,7 @@ function createS3FileUploadProvider(
         return {
           sessionId: uploadId,
           meta: {
+            storageFingerprint: cleanupStorageFingerprint(cfg),
             objectKey,
             stagingKey,
             mimeType,
@@ -886,7 +1031,7 @@ function createS3FileUploadProvider(
       async relayChunk(session, contentRange, bytes) {
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
-        const meta = readMultipartMeta(session.meta);
+        const meta = readBoundMultipartMeta(cfg, session.meta);
         const isFinal = !contentRange.endsWith("/*");
         const rangeEnd = contentRangeEndExclusive(contentRange);
         if (rangeEnd === null) {
@@ -943,7 +1088,18 @@ function createS3FileUploadProvider(
       async completeSession(session) {
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
-        const meta = readMultipartMeta(session.meta);
+        const meta = readBoundMultipartMeta(cfg, session.meta);
+        const reference = {
+          url: publicObjectUrl(cfg, meta.objectKey),
+          provider: id,
+          ...(meta.storageFingerprint
+            ? { storageFingerprint: meta.storageFingerprint }
+            : {}),
+        };
+        const completed = async () => {
+          await checkpointMediaUpload({ ...reference, uploadConfirmed: true });
+          return reference.url;
+        };
         if (meta.pendingBytes > 0) {
           throw new Error(
             "S3 multipart upload still has an uncommitted final part",
@@ -961,6 +1117,7 @@ function createS3FileUploadProvider(
             )
             .join("") +
           "</CompleteMultipartUpload>";
+        await checkpointMediaUpload({ ...reference, uploadConfirmed: false });
         // CompleteMultipartUpload is not idempotent; retries verify the deterministic object instead.
         // A lost response body is as ambiguous as a failed request: S3 may have completed.
         let res: Response;
@@ -985,7 +1142,7 @@ function createS3FileUploadProvider(
                     : String(cleanupError),
                 );
               });
-              return publicObjectUrl(cfg, meta.objectKey);
+              return completed();
             }
           } catch (verificationError) {
             console.warn(
@@ -1008,7 +1165,7 @@ function createS3FileUploadProvider(
                 err instanceof Error ? err.message : String(err),
               );
             });
-            return publicObjectUrl(cfg, meta.objectKey);
+            return completed();
           }
           throw new Error(
             `S3 CompleteMultipartUpload failed (${res.status}): ${body || res.statusText}`,
@@ -1020,13 +1177,13 @@ function createS3FileUploadProvider(
             err instanceof Error ? err.message : String(err),
           );
         });
-        return publicObjectUrl(cfg, meta.objectKey);
+        return completed();
       },
 
       async abortSession(session) {
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
-        const meta = readMultipartMeta(session.meta);
+        const meta = readBoundMultipartMeta(cfg, session.meta);
         const abortRes = await s3Request(cfg, meta.objectKey, {
           method: "DELETE",
           query: { uploadId: session.sessionId },

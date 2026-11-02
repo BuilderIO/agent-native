@@ -85,6 +85,11 @@ const mocks = vi.hoisted(() => ({
     delivered: true,
   })),
   abortStalledRun: vi.fn(),
+  readPreviousGenerationRun: vi.fn(
+    async (_threadId: string): Promise<"settled" | "running" | "unreadable"> =>
+      "settled",
+  ),
+  toast: vi.fn(),
   toastError: vi.fn(),
   translate: (key: string) => key,
 }));
@@ -162,6 +167,9 @@ vi.mock("@/context/DeckContext", () => ({
     undo: vi.fn(),
     undoAvailability: {},
     subscribeUndoReveal: vi.fn(() => () => {}),
+    subscribeAgentChanges: vi.fn(() => () => {}),
+    undoAgentChange: vi.fn(),
+    undoIfLatest: vi.fn(),
     loading: false,
     loadError: false,
   }),
@@ -245,7 +253,12 @@ const relayTrack = vi.hoisted(() =>
     async (_name: string, _properties?: Record<string, unknown>) => undefined,
   ),
 );
-vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
+vi.mock("sonner", () => ({
+  toast: Object.assign(mocks.toast, { error: mocks.toastError }),
+}));
+vi.mock("@/lib/agent-run-status", () => ({
+  readPreviousGenerationRun: mocks.readPreviousGenerationRun,
+}));
 vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
   const original =
     await importOriginal<
@@ -361,6 +374,7 @@ vi.mock("@/components/editor/QuestionFlow", () => ({
 vi.mock("@/components/editor/EditorSidebar", () => ({
   default: () => <div data-testid="editor-sidebar" />,
   getSlideSelection: () => [],
+  selectionFollowingActiveSlide: () => null,
 }));
 vi.mock("@/components/editor/SlideEditor", () => ({
   default: ({
@@ -551,6 +565,8 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.sendToAgentChatAndConfirm.mockClear();
     mocks.pendingUnloadGuard.mockClear();
     mocks.toastError.mockClear();
+    mocks.toast.mockClear();
+    mocks.readPreviousGenerationRun.mockReset().mockResolvedValue("settled");
     window.innerWidth = 390;
     vi.mocked(trackEvent).mockClear();
     relayTrack.mockClear();
@@ -1500,6 +1516,103 @@ describe("DeckEditor generation signal wiring", () => {
     });
     await waitFor(() =>
       expect(window.localStorage.getItem(recoveryKey)).toBeNull(),
+    );
+  });
+
+  it.each([
+    ["running", "deckEditor.generationStillRunning"],
+    ["unreadable", "deckEditor.generationOutcomeUnresolved"],
+  ] as const)(
+    "refuses a retry while the previous run is %s on the server",
+    async (previousRun, message) => {
+      const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+      window.localStorage.setItem(
+        recoveryKey,
+        JSON.stringify({
+          kind: "generation_failure",
+          attemptId: "attempt-1",
+          failureCode: "no_output",
+        }),
+      );
+      Object.assign(mocks.deck.generationContext, {
+        generationAttemptId: "attempt-1",
+        generationStartedAt: Date.now(),
+        originalPrompt: "Original brief",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "attempt-1",
+      });
+      mocks.startedTabId = "previous-run-tab";
+      mocks.guidedQuestionRefetchPending
+        .mockReset()
+        .mockResolvedValue({ status: "none" });
+      mocks.readPreviousGenerationRun.mockResolvedValue(previousRun);
+      router = createMemoryRouter(
+        [{ path: "/deck/:id", element: <DeckEditor /> }],
+        { initialEntries: ["/deck/deck-1"] },
+      );
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+      });
+
+      await waitFor(() =>
+        expect(mocks.readPreviousGenerationRun).toHaveBeenCalledWith(
+          "previous-run-tab",
+        ),
+      );
+      const shown = previousRun === "running" ? mocks.toast : mocks.toastError;
+      await waitFor(() => expect(shown).toHaveBeenCalledWith(message));
+      expect(mocks.submitAndConfirm).not.toHaveBeenCalled();
+      expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1);
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationAttemptId: "attempt-1",
+        generationFailureCode: "no_output",
+      });
+      expect(router.state.location.search).toBe("");
+    },
+  );
+
+  it("retries once the server reports the previous run settled", async () => {
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    window.localStorage.setItem(
+      recoveryKey,
+      JSON.stringify({
+        kind: "generation_failure",
+        attemptId: "attempt-1",
+        failureCode: "no_output",
+      }),
+    );
+    Object.assign(mocks.deck.generationContext, {
+      generationAttemptId: "attempt-1",
+      generationStartedAt: Date.now(),
+      originalPrompt: "Original brief",
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    mocks.startedTabId = "previous-run-tab";
+    mocks.guidedQuestionRefetchPending
+      .mockReset()
+      .mockResolvedValue({ status: "none" });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+
+    await waitFor(() =>
+      expect(mocks.submitAndConfirm).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.readPreviousGenerationRun).toHaveBeenCalledWith(
+      "previous-run-tab",
     );
   });
 
