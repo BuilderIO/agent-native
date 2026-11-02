@@ -62,6 +62,7 @@ function outputId(result: unknown): string | undefined {
 export function wrapRunWithActionTracking(
   run: (args: any, ctx?: ActionRunContext) => any,
   readOnly: boolean | undefined,
+  options: { includeOutputId?: boolean } = {},
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   if (readOnly === true) return run;
 
@@ -80,7 +81,11 @@ export function wrapRunWithActionTracking(
     );
     try {
       const result = await run(args, ctx);
-      const id = outputId(result);
+      const id =
+        options.includeOutputId === false ||
+        ctx.omitFromPersistedHistory === true
+          ? undefined
+          : outputId(result);
       track(
         AGENT_NATIVE_ACTION_EVENTS.completed,
         actionProperties(ctx, {

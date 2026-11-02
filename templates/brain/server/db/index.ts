@@ -8,6 +8,7 @@ export { schema };
 
 registerShareableResource({
   type: "brain-source",
+  agentRead: { actions: ["get-source"] },
   resourceTable: schema.brainSources,
   sharesTable: schema.brainSourceShares,
   displayName: "Brain Source",

@@ -33,6 +33,10 @@ describe("generateActionRegistryForProject", () => {
         path.join(actionsDir, "factory-action.ts"),
         `import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";\nexport default createProviderApiCatalogAction({} as any, {} as any);\n`,
       );
+      fs.writeFileSync(
+        path.join(actionsDir, "wrapped-action.ts"),
+        `import { defineAppAction } from "../server/app-action";\nexport default defineAppAction({});\n`,
+      );
 
       generateActionRegistryForProject(root);
 
@@ -42,6 +46,7 @@ describe("generateActionRegistryForProject", () => {
       );
       expect(registry).toContain('"real-action": a_real_action');
       expect(registry).toContain('"factory-action": a_factory_action');
+      expect(registry).toContain('"wrapped-action": a_wrapped_action');
       expect(registry).toContain('"get-localization-preference"');
       expect(registry).toContain('"set-localization-preference"');
       expect(registry).toContain('"get-observability-review-app"');
@@ -63,6 +68,7 @@ describe("generateActionRegistryForProject", () => {
         path.join(root, ".generated", "action-types.d.ts"),
         "utf-8",
       );
+      expect(types).toContain('"wrapped-action"');
       expect(types).toContain('"get-localization-preference"');
       expect(types).toContain('"set-localization-preference"');
       expect(types).toContain('"get-observability-review-app"');

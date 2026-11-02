@@ -48,20 +48,63 @@ for (const entry of Object.values(metadata)) {
       throw new Error(`Unsupported Tabler icon name: ${name}`);
     }
     const names = chunks.get(initial) ?? new Set<string>();
-    names.add(exportName(name));
+    names.add(name);
     chunks.set(initial, names);
   }
+}
+
+// Chunks carry icon data, not imports of each icon component: importing every
+// icon makes each app build resolve and transform about 6,000 modules.
+// loadTablerIcon rebuilds the component with Tabler's createReactComponent
+// from the name alone, so each module must match what that rebuild assumes.
+const tablerIconsDirectory = resolve(
+  dirname(require.resolve("@tabler/icons-react")),
+  "../esm/icons",
+);
+const iconModulePattern =
+  /^const __iconNode = (.+);\nconst (\w+) = createReactComponent\("(outline|filled)", "([^"]+)", "([^"]+)", __iconNode\);$/m;
+type IconNode = Array<[tag: string, attrs: Record<string, string>]>;
+function readIconNode(name: string): IconNode {
+  const binding = exportName(name);
+  const source = readFileSync(
+    resolve(tablerIconsDirectory, `${binding}.mjs`),
+    "utf8",
+  );
+  const match = iconModulePattern.exec(source);
+  if (!match) {
+    throw new Error(`Unrecognized @tabler/icons-react module for ${name}`);
+  }
+  const [, nodeSource, moduleBinding, type, iconName, pascalName] = match;
+  if (
+    moduleBinding !== binding ||
+    type !== (name.endsWith("-filled") ? "filled" : "outline") ||
+    iconName !== name ||
+    pascalName !== binding.slice("Icon".length)
+  ) {
+    throw new Error(
+      `@tabler/icons-react builds ${name} as ${moduleBinding} = createReactComponent("${type}", "${iconName}", "${pascalName}")`,
+    );
+  }
+  const node: Array<[string, Record<string, string>]> = JSON.parse(nodeSource);
+  return node.map(([tag, { key, ...attrs }], index) => {
+    if (key !== `svg-${index}`) {
+      throw new Error(`Unexpected key ${key} in ${name} element ${index}`);
+    }
+    return [tag, attrs];
+  });
 }
 
 const chunkDirectory = new URL("../src/icons/tabler-chunks/", import.meta.url);
 mkdirSync(chunkDirectory, { recursive: true });
 for (const [initial, names] of chunks) {
-  const exports = [...names].sort();
+  const icons: Record<string, IconNode> = {};
+  for (const name of [...names].sort()) icons[name] = readIconNode(name);
   writeFileSync(
     new URL(`${initial}.ts`, chunkDirectory),
     `// Generated from @tabler/icons ${version}. Run node packages/toolkit/scripts/generate-tabler-catalog.ts.\n` +
-      `import { ${exports.join(", ")} } from "@tabler/icons-react";\n` +
-      `export default { ${exports.join(", ")} };\n`,
+      `import type { IconNode } from "@tabler/icons-react";\n` +
+      `const icons: Record<string, IconNode> = JSON.parse(${JSON.stringify(JSON.stringify(icons))});\n` +
+      `export default icons;\n`,
   );
 }
 writeFileSync(

@@ -44,4 +44,15 @@ export const USAGE_ALERT_MIGRATIONS: MigrationEntry[] = [
     name: "usage-alert-notification-column",
     sql: "ALTER TABLE usage_alert_events ADD COLUMN IF NOT EXISTS notification_id TEXT",
   },
+  {
+    version: 4,
+    name: "usage-alert-default-twenty-a-month",
+    sql: `DELETE FROM usage_alert_events WHERE rule_id IN (
+        SELECT id FROM usage_alert_rules
+        WHERE is_default = 1 AND unit = 'usd' AND period = 'day' AND limit_value = 10000
+      );
+      UPDATE usage_alert_rules
+      SET limit_value = 2000, period = 'month', dismissed_window_start = NULL
+      WHERE is_default = 1 AND unit = 'usd' AND period = 'day' AND limit_value = 10000`,
+  },
 ];

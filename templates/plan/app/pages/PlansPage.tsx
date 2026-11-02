@@ -33,6 +33,7 @@ import {
 } from "@agent-native/core/client/sign-in-return";
 import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
+import { commentExcerpt } from "@agent-native/core/review/plain-text";
 import { docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
@@ -41,8 +42,9 @@ import {
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import {
-  InlineMarkdown,
-  type InlineMarkdownProtectedSpan,
+  CommentBody,
+  isComposingKey,
+  isCommentSendKey,
 } from "@agent-native/toolkit/app/review";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -1012,46 +1014,6 @@ export function defaultInlineCommentDraftForPlanContext(input: {
   };
 }
 
-function safeDecodeURIComponent(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function renderCommentMessage(message: string) {
-  const protectedSpans: InlineMarkdownProtectedSpan[] = [];
-  const pattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(message)) !== null) {
-    const label = match[1] ?? "";
-    const email = safeDecodeURIComponent(match[2] ?? "");
-    protectedSpans.push({
-      source: match[0],
-      label: label || email,
-      title: email,
-    });
-  }
-  return (
-    <InlineMarkdown
-      content={message}
-      inline
-      protectedSpans={protectedSpans}
-      renderProtectedSpan={(span, children) => (
-        <span
-          key={span.source}
-          className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
-          title={span.title}
-        >
-          <IconAt className="size-3" />
-          <span className="truncate">{children}</span>
-        </span>
-      )}
-    />
-  );
-}
-
 function CommentAvatar({
   author,
   size = "sm",
@@ -1429,7 +1391,7 @@ function runtimeParticipantPresentation(
   };
 }
 
-function runtimeAnnotationMarkerTitle(annotation: RuntimeAnnotation) {
+export function runtimeAnnotationMarkerTitle(annotation: RuntimeAnnotation) {
   const names = annotation.participants
     .map((participant) => runtimeParticipantPresentation(participant).name)
     .filter(Boolean)
@@ -1438,9 +1400,12 @@ function runtimeAnnotationMarkerTitle(annotation: RuntimeAnnotation) {
   const countLabel = `${annotation.commentCount} comment${
     annotation.commentCount === 1 ? "" : "s"
   }`;
+  // The marker's tooltip and accessible name are plain text, so they read
+  // the comment's words, not its Markdown.
+  const excerpt = commentExcerpt(annotation.message);
   return names
-    ? `${countLabel} by ${names}: ${annotation.message}`
-    : `${countLabel}: ${annotation.message}`;
+    ? `${countLabel} by ${names}: ${excerpt}`
+    : `${countLabel}: ${excerpt}`;
 }
 
 function planExportFilename(
@@ -5961,15 +5926,12 @@ const buildShareVisibilityCopy = (
   noun: string,
 ) => ({
   private: {
-    label: t("plansPage.share.visibility.private.label"),
     description: t("plansPage.share.visibility.private.description", { noun }),
   },
   org: {
-    label: t("plansPage.share.visibility.org.label"),
     description: t("plansPage.share.visibility.org.description"),
   },
   public: {
-    label: t("plansPage.share.visibility.public.label"),
     description: t("plansPage.share.visibility.public.description"),
   },
 });
@@ -6272,12 +6234,6 @@ function PlanShareControl({
         shareUrlPlacement="top"
         peopleAccessLabel={t("plansPage.share.peopleAccess", { noun })}
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
-        roleCopy={{
-          commenter: {
-            label: t("plansPage.share.commenterRoleLabel"),
-            description: t("plansPage.share.commenterRoleDescription"),
-          },
-        }}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
         triggerClassName="pointer-events-auto h-8 px-2"
@@ -9084,6 +9040,9 @@ function CommentMentionEditor({
         onKeyUp={emitChange}
         onMouseUp={emitChange}
         onKeyDown={(event) => {
+          // While an input method is composing, its keys (arrows to pick a
+          // candidate, Enter to confirm, Escape to cancel) belong to it.
+          if (isComposingKey(event)) return;
           if (suggestionsOpen && event.key === "ArrowDown") {
             event.preventDefault();
             setSelectedIndex((index) =>
@@ -9110,12 +9069,7 @@ function CommentMentionEditor({
             setQuery(null);
             return;
           }
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            onSubmitShortcut?.();
-            return;
-          }
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          if (isCommentSendKey(event)) {
             event.preventDefault();
             onSubmitShortcut?.();
           }
@@ -9406,7 +9360,7 @@ function CommentThreadMessage({
           )}
         </div>
         <div className="mt-1 text-sm leading-6">
-          {renderCommentMessage(comment.message)}
+          <CommentBody body={comment.message} />
         </div>
       </div>
       {action}
