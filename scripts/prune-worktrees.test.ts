@@ -25,6 +25,7 @@ describe("keepReason", () => {
       { dirty: true },
       { locked: true },
       { inUse: true },
+      { inUse: null },
       { published: false },
       { idleHours: 1 },
     ]) {

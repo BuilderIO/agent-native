@@ -7,7 +7,8 @@ import { pathToFileURL } from "node:url";
 export type WorktreeState = {
   dirty: boolean;
   locked: boolean;
-  inUse: boolean;
+  // `null` means lsof could not run.
+  inUse: boolean | null;
   idleHours: number;
   // `null` means we could not tell, which must never read as "safe to delete".
   published: boolean | null;
@@ -19,6 +20,7 @@ export function keepReason(
   minIdleHours: number,
 ): string | null {
   if (s.locked) return "locked";
+  if (s.inUse === null) return "could not check for running processes";
   if (s.inUse) return "a process is running in it";
   if (s.dirty) return "uncommitted changes";
   if (s.published === null)
@@ -151,10 +153,12 @@ export function main(argv = process.argv.slice(2)): number {
     console.error("prune-worktrees: not inside a git repository");
     return 2;
   }
-  if (tryGit(self, "fetch", "--quiet", "origin") === null) {
-    console.warn(
-      "prune-worktrees: fetch failed; judging pushed state from stale refs",
+  // Stale or unpruned remote refs could make unpublished work look pushed.
+  if (tryGit(self, "fetch", "--quiet", "--prune", "origin") === null) {
+    console.error(
+      "prune-worktrees: fetch failed; refusing to judge from stale refs",
     );
+    return 2;
   }
   const entries = git(self, "worktree", "list", "--porcelain")
     .split("\n\n")
@@ -188,8 +192,9 @@ export function main(argv = process.argv.slice(2)): number {
         dirty: status === null || hasUserFiles(status),
         locked: entry.includes("\nlocked"),
         inUse:
-          busy === null ||
-          busy.some((d) => d === wt || d.startsWith(wt + path.sep)),
+          busy === null
+            ? null
+            : busy.some((d) => d === wt || d.startsWith(wt + path.sep)),
         idleHours: (Date.now() - mtime) / 3_600_000,
         published: isPublished(wt, branch),
       },
@@ -201,8 +206,12 @@ export function main(argv = process.argv.slice(2)): number {
     }
     console.log(`${apply ? "remove" : "would remove"} ${wt}`);
     if (apply) {
-      git(self, "worktree", "remove", wt);
-      removed++;
+      try {
+        git(self, "worktree", "remove", wt);
+        removed++;
+      } catch {
+        console.error(`failed ${wt}: git worktree remove refused`);
+      }
     }
   }
   if (apply) tryGit(self, "worktree", "prune");
