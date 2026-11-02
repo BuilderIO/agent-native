@@ -17,10 +17,8 @@ import { envProxyDispatcher } from "./http-proxy.js";
 export const GIT_SYMLINK_MODE = "120000";
 const GIT_DIRECTORY_MODE = "40000";
 
-/** Waits before each retry; together they ride out about two minutes of outage. */
-const DEFAULT_RETRY_DELAYS_MS = [
-  1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 30_000, 30_000,
-];
+/** Waits before each retry; together they ride out ten seconds of outage. */
+const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 3_000, 4_000];
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const STALL_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 512 * 1024 * 1024;
