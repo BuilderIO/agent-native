@@ -87,6 +87,7 @@ const OTHER_PAGE_KEY = outboxKey(
   `${BASE_URL}\0other-page\0${EMAIL}`,
   "connection-3",
 );
+const UNDECODABLE_KEY = `${V2}%E0%A4%A:${encodeURIComponent(EMAIL)}:connection-4`;
 const V2_RECORD = JSON.stringify({
   version: 2,
   updates: [{ update: "AAA=", requireLiveCopyOutcome: false }],
@@ -198,8 +199,11 @@ it("counts only this page's entries, with or without the actor in the key", asyn
   const { tabs, page, asPage } = await fixture();
   page.localStorage.setItem(LONGER_ID_KEY, V2_RECORD);
   page.localStorage.setItem(OTHER_PAGE_KEY, V2_RECORD);
+  page.localStorage.setItem(UNDECODABLE_KEY, V2_RECORD);
 
   await expect(outboxEntries(asPage, DOC_ID)).resolves.toEqual([]);
+  // The other page's key names this actor, which must not read as a page id.
+  await expect(outboxEntries(asPage, EMAIL)).resolves.toEqual([]);
   await expect(
     tabs.waitForTypingSaved(asPage, DOC_ID),
   ).resolves.toBeUndefined();

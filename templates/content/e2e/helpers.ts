@@ -1254,27 +1254,30 @@ export async function outboxEntries(
   documentId: string,
 ): Promise<string[]> {
   return page.evaluate(
-    ({ prefixes, doc }) => {
+    ({ prefixes, documentId }) => {
       const keys: string[] = [];
       for (let index = 0; index < localStorage.length; index++) {
         const key = localStorage.key(index);
-        if (
-          key &&
-          prefixes.some((prefix) => key.startsWith(prefix)) &&
-          (key.includes(`${doc}%00`) || key.includes(`${doc}:`)) &&
-          localStorage.getItem(key)
-        )
-          keys.push(key);
+        const prefix = prefixes.find((candidate) => key?.startsWith(candidate));
+        if (!key || !prefix || !localStorage.getItem(key)) continue;
+        // A key is the prefix, encodeURIComponent(`${baseUrl}\0${docId}\0${actor}`),
+        // then `:${email}:${owner}`; older clients left out the actor. The
+        // encoding escapes `:`, so the registry key ends at the first one, and
+        // only its doc segment may match: the actor can look like a doc id.
+        const registryKey = key.slice(prefix.length).split(":", 1)[0] ?? "";
+        let segments: string[];
+        try {
+          segments = decodeURIComponent(registryKey).split("\0");
+        } catch {
+          // coercion-ok: a key whose registry part does not decode was not
+          // written by the collab client, so it holds no page's updates.
+          continue;
+        }
+        if (segments[1] === documentId) keys.push(key);
       }
       return keys;
     },
-    // A key is the prefix, encodeURIComponent(`${baseUrl}\0${docId}\0${actor}`),
-    // then `:${email}:${owner}`; older clients left out the actor. The doc id
-    // must end at `%00` or `:`, so a page whose id extends it does not match.
-    {
-      prefixes: COLLAB_OUTBOX_PREFIXES,
-      doc: `%00${encodeURIComponent(documentId)}`,
-    },
+    { prefixes: COLLAB_OUTBOX_PREFIXES, documentId },
   );
 }
 
