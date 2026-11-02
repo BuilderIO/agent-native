@@ -13,6 +13,7 @@ import {
   useDocumentProperties,
 } from "@/hooks/use-document-properties";
 
+import type { DatabaseRowView } from "./database/row-view-layout";
 import { DescriptionField } from "./DescriptionField";
 import { DocumentProperties } from "./DocumentProperties";
 
@@ -22,6 +23,8 @@ interface DocumentInfoPanelProps {
   additionalBlockContents?: Readonly<Record<string, string>>;
   databaseId?: string | null;
   databaseDocumentId?: string | null;
+  rowView?: DatabaseRowView | null;
+  rowViewPending?: boolean;
   canEdit: boolean;
   popoverContainer?: HTMLElement | null;
   onSaveDescription: (description: string) => Promise<unknown>;
@@ -33,6 +36,8 @@ export function DocumentInfoPanel({
   additionalBlockContents = {},
   databaseId,
   databaseDocumentId,
+  rowView,
+  rowViewPending,
   canEdit,
   popoverContainer,
   onSaveDescription,
@@ -114,6 +119,8 @@ export function DocumentInfoPanel({
           databaseDocumentId={
             databaseDocumentId ?? document.databaseMembership.databaseDocumentId
           }
+          rowView={rowView}
+          rowViewPending={rowViewPending}
           canEdit={canEdit}
           popoverContainer={popoverContainer}
         />
