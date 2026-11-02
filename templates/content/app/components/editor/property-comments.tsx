@@ -30,6 +30,8 @@ export interface PropertyCommentsValue {
   pendingPropertyId: string | null;
   /** The thread being read or hovered, if any. */
   activeThreadId: string | null;
+  /** The Property of the thread being read, resolved or not, if any. */
+  selectedPropertyId: string | null;
   startComment: (property: DocumentProperty) => void;
   openThread: (threadId: string) => void;
 }
@@ -51,6 +53,15 @@ export function openThreadsByProperty(
     byProperty.set(propertyId, [...(byProperty.get(propertyId) ?? []), thread]);
   }
   return byProperty;
+}
+
+/** The Property a thread sits on, resolved or not, if any. */
+export function threadPropertyId(
+  threads: readonly CommentThread[] | undefined,
+  threadId: string | null,
+) {
+  const thread = threads?.find((candidate) => candidate.threadId === threadId);
+  return thread?.property?.propertyId ?? null;
 }
 
 /**
