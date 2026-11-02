@@ -21,11 +21,12 @@ import {
 } from "@tabler/icons-react";
 import { InputRule, type Editor } from "@tiptap/core";
 import { Code } from "@tiptap/extension-code";
-import type {
-  DOMOutputSpec,
+import {
   Fragment,
-  NodeType,
-  Node as ProseMirrorNode,
+  Slice,
+  type DOMOutputSpec,
+  type NodeType,
+  type Node as ProseMirrorNode,
 } from "@tiptap/pm/model";
 import {
   Plugin,
@@ -1254,6 +1255,14 @@ const TITLE_BLOCK_MARKERS = [
 ];
 
 /**
+ * How long the page has to be quiet before a title out of place is put right.
+ * That rewrites the title, and whatever another tab types into the old one
+ * before the rewrite reaches it is lost. Whoever typed last is the first to
+ * come out of this wait, so it's usually their tab that does it.
+ */
+export const STRAY_TITLE_REPAIR_DELAY_MS = 1000;
+
+/**
  * The edit that leaves each Toggle one title, its first child, or null when
  * they all have that. A second title that only repeats the first goes, and one
  * with text of its own stays as a body line. Each tab sees the same merge, so
@@ -1409,7 +1418,8 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
           let timer: ReturnType<typeof setTimeout> | null = null;
           return {
             update(view, prevState) {
-              if (timer !== null || view.state.doc.eq(prevState.doc)) return;
+              if (view.state.doc.eq(prevState.doc)) return;
+              if (timer !== null) clearTimeout(timer);
               timer = setTimeout(() => {
                 timer = null;
                 if (
@@ -1422,7 +1432,7 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
                 }
                 const repair = repairStrayTitles(view.state);
                 if (repair) view.dispatch(repair);
-              }, 0);
+              }, STRAY_TITLE_REPAIR_DELAY_MS);
             },
             destroy() {
               if (timer !== null) clearTimeout(timer);
@@ -1433,6 +1443,27 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
       new Plugin({
         key: new PluginKey("notionToggleSummary"),
         props: {
+          // A title belongs to its Toggle, so one pasted or dropped on its own
+          // is a line of text, not a second title for repairStrayTitles.
+          transformPasted(slice, view) {
+            const paragraph = view.state.schema.nodes.paragraph as
+              | NodeType
+              | undefined;
+            if (!paragraph) return slice;
+            const lines: ProseMirrorNode[] = [];
+            slice.content.forEach((node) =>
+              lines.push(
+                node.type.name === TOGGLE_TITLE_NODE
+                  ? paragraph.create(null, node.content)
+                  : node,
+              ),
+            );
+            return new Slice(
+              Fragment.fromArray(lines),
+              slice.openStart,
+              slice.openEnd,
+            );
+          },
           handleTextInput(view, from, to, text) {
             const $from = view.state.doc.resolve(from);
             if ($from.parent.type.name !== TOGGLE_TITLE_NODE) return false;
