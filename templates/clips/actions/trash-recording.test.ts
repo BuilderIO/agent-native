@@ -113,4 +113,26 @@ describe("trash-recording", () => {
     });
     expect(state.selectCalls).toBe(1);
   });
+
+  it("reports a ready recording a batch leaves in the library as skipped", async () => {
+    state.afterRows = [{ status: "ready", trashedAt: null }];
+    const action = trashRecording as unknown as {
+      run: (args: { ids: string[]; skipIfReady?: boolean }) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run({ ids: ["rec-1"], skipIfReady: true }),
+    ).resolves.toEqual({
+      results: [
+        {
+          id: "rec-1",
+          status: "skipped",
+          reason: "Its upload already finished, so it stays in the library.",
+        },
+      ],
+      changed: 0,
+      unchanged: 0,
+      skipped: 1,
+    });
+  });
 });

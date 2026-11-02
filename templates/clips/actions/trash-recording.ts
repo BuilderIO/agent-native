@@ -104,9 +104,18 @@ export default defineAction({
     const ids = requestedRecordingIds(args.id, args.ids);
     const skipIfReady = Boolean(args.skipIfReady);
     if (args.ids) {
-      const batch = await applyToRecordings(ids, (id) =>
-        trashOne(id, skipIfReady),
-      );
+      const batch = await applyToRecordings(ids, async (id) => {
+        const trashed = await trashOne(id, skipIfReady);
+        // skipIfReady left a finished upload in the library, which isn't the
+        // same as a recording already in trash.
+        if (trashed.skipped && !trashed.trashedAt) {
+          fail("Its upload already finished, so it stays in the library.", {
+            errorCode: "recording_ready",
+            statusCode: 409,
+          });
+        }
+        return trashed;
+      });
       if (batch.changed) {
         await writeAppState("refresh-signal", { ts: Date.now() });
       }

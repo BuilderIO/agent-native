@@ -214,17 +214,27 @@ export default defineAction({
       }
     };
     const restore = async (change: PreparedChange) => {
-      const previous: Record<string, unknown> = {
-        visibility: change.access.resource.visibility,
-      };
-      if (change.update.orgId !== undefined) {
-        previous.orgId = change.access.resource.orgId ?? null;
+      // Another request may have changed the resource since this call wrote
+      // it; keep that newer value rather than putting back an older one.
+      // Reading first narrows that window without closing it, since a
+      // registration's own persistence can't take a condition.
+      const [current] = await db
+        .select({ visibility: reg.resourceTable.visibility })
+        .from(reg.resourceTable)
+        .where(eq(reg.resourceTable.id, change.resourceId));
+      if (current?.visibility === args.visibility) {
+        const previous: Record<string, unknown> = {
+          visibility: change.access.resource.visibility,
+        };
+        if (change.update.orgId !== undefined) {
+          previous.orgId = change.access.resource.orgId ?? null;
+        }
+        await persistVisibility(
+          change,
+          change.access.resource.visibility,
+          previous,
+        );
       }
-      await persistVisibility(
-        change,
-        change.access.resource.visibility,
-        previous,
-      );
       invalidateCollabAccessCache(args.resourceType, change.resourceId);
     };
 
@@ -249,6 +259,10 @@ export default defineAction({
     let failing: PreparedChange | undefined;
     try {
       for (const change of prepared) {
+        // A batch leaves resources already in this state alone, so a no-op
+        // can't trip a registration's own checks; a single call writes as
+        // it always has.
+        if (args.resourceIds && !change.resourceChanged) continue;
         failing = change;
         await persistVisibility(change, args.visibility, change.update);
         written.push(change);

@@ -16,7 +16,10 @@ import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
-import { mediaCleanupSummarySchema } from "../shared/media-cleanup.js";
+import {
+  mediaCleanupSummarySchema,
+  type MediaCleanupSummary,
+} from "../shared/media-cleanup.js";
 
 const deletedSchema = z.object({
   success: z.boolean(),
@@ -29,6 +32,14 @@ const batchSchema = z.object({
   results: z.array(
     z.union([
       deletedSchema.extend({ status: z.enum(["changed", "unchanged"]) }),
+      // Deleted, but the cleanup state written with it couldn't be read back.
+      z.object({
+        id: z.string(),
+        status: z.enum(["changed", "unchanged"]),
+        recordingRemoved: z.literal(true),
+        mediaCleanup: z.null(),
+        reason: z.string(),
+      }),
       z.object({
         id: z.string(),
         status: z.literal("skipped"),
@@ -70,23 +81,34 @@ async function assertRecordingsDeletable(ids: string[], ownerEmail: string) {
   }
 }
 
-/** Deletes one owned recording. `alreadyDeleted` means an earlier call did. */
+function deletedResult(
+  id: string,
+  mediaCleanup: MediaCleanupSummary,
+): z.infer<typeof deletedSchema> {
+  return {
+    success: mediaCleanup.status === "complete",
+    id,
+    recordingRemoved: true as const,
+    mediaCleanup,
+  };
+}
+
+/**
+ * Deletes one owned recording. `alreadyDeleted` means another call did,
+ * earlier or while this one waited.
+ * A null `mediaCleanup` means the recording is gone but its cleanup state
+ * couldn't be read back after the delete committed.
+ */
 async function deleteOne(
   id: string,
   ownerEmail: string,
-): Promise<{ result: z.infer<typeof deletedSchema>; alreadyDeleted: boolean }> {
+): Promise<{
+  mediaCleanup: MediaCleanupSummary | null;
+  alreadyDeleted: boolean;
+}> {
   const db = getDb();
   const previous = await mediaCleanupSummary(id, ownerEmail);
-  if (previous)
-    return {
-      alreadyDeleted: true,
-      result: {
-        success: previous.status === "complete",
-        id,
-        recordingRemoved: true as const,
-        mediaCleanup: previous,
-      },
-    };
+  if (previous) return { alreadyDeleted: true, mediaCleanup: previous };
   const initialRows = await db
     .select()
     .from(schema.recordings)
@@ -106,7 +128,8 @@ async function deleteOne(
         urls: recordingMediaUrls(initial),
       })
     : {};
-  await db.transaction(async (tx) => {
+  // False when another call deleted it first, while this one waited.
+  const deletedHere = await db.transaction(async (tx) => {
     const locked = await tx
       .select()
       .from(schema.recordings)
@@ -130,7 +153,7 @@ async function deleteOne(
           ),
         )
         .limit(1);
-      if (existingIntent.length) return;
+      if (existingIntent.length) return false;
       fail("Recording not found", {
         errorCode: "recording_not_found",
         statusCode: 404,
@@ -213,21 +236,11 @@ async function deleteOne(
       .delete(schema.recordingContentBindings)
       .where(eq(schema.recordingContentBindings.recordingId, id));
     await tx.delete(schema.recordings).where(eq(schema.recordings.id, id));
+    return true;
   });
-  const summary = await mediaCleanupSummary(id, ownerEmail);
-  if (!summary)
-    fail("Recording cleanup could not be read", {
-      errorCode: "media_cleanup_unavailable",
-      statusCode: 503,
-    });
   return {
-    alreadyDeleted: false,
-    result: {
-      success: summary.status === "complete",
-      id,
-      recordingRemoved: true as const,
-      mediaCleanup: summary,
-    },
+    alreadyDeleted: !deletedHere,
+    mediaCleanup: await mediaCleanupSummary(id, ownerEmail),
   };
 }
 
@@ -247,22 +260,41 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const ids = requestedRecordingIds(args.id, args.ids);
     if (!args.ids) {
-      const { result, alreadyDeleted } = await deleteOne(ids[0], ownerEmail);
+      const id = ids[0];
+      const { mediaCleanup, alreadyDeleted } = await deleteOne(id, ownerEmail);
       if (!alreadyDeleted) {
         await writeAppState("refresh-signal", { ts: Date.now() });
       }
-      return result;
+      if (!mediaCleanup)
+        fail("Recording cleanup could not be read", {
+          errorCode: "media_cleanup_unavailable",
+          statusCode: 503,
+        });
+      return deletedResult(id, mediaCleanup);
     }
 
     await assertRecordingsDeletable(ids, ownerEmail);
     const results: z.infer<typeof batchSchema>["results"] = [];
     for (const id of ids) {
       try {
-        const { result, alreadyDeleted } = await deleteOne(id, ownerEmail);
-        results.push({
-          ...result,
-          status: alreadyDeleted ? "unchanged" : "changed",
-        });
+        const { mediaCleanup, alreadyDeleted } = await deleteOne(
+          id,
+          ownerEmail,
+        );
+        results.push(
+          mediaCleanup
+            ? {
+                ...deletedResult(id, mediaCleanup),
+                status: alreadyDeleted ? "unchanged" : "changed",
+              }
+            : {
+                id,
+                status: alreadyDeleted ? "unchanged" : "changed",
+                recordingRemoved: true,
+                mediaCleanup: null,
+                reason: `${alreadyDeleted ? "Already deleted" : "Deleted"}, but its media cleanup state couldn't be read. Call again with this id to read it.`,
+              },
+        );
       } catch (error) {
         results.push({
           id,

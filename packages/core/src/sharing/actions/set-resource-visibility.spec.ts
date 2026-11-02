@@ -622,6 +622,55 @@ describe("set-resource-visibility on several resources", () => {
     });
   });
 
+  it("doesn't write a resource that already has the visibility", async () => {
+    const written: string[] = [];
+    register({
+      persistVisibilityChange: persistUnless((resourceId) => {
+        written.push(resourceId);
+        return resourceId === "doc-same"
+          ? new ForbiddenError("Missing permission: docs.edit")
+          : undefined;
+      }),
+    });
+    await insertDoc({ id: "doc-moves" });
+    await insertDoc({ id: "doc-same", visibility: "org" });
+
+    const result = await batch(["doc-moves", "doc-same"], "org");
+
+    expect(result.results).toEqual([
+      { resourceId: "doc-moves", status: "changed" },
+      { resourceId: "doc-same", status: "unchanged" },
+    ]);
+    expect(written).toEqual(["doc-moves"]);
+  });
+
+  it("keeps a newer change another request made before the rollback", async () => {
+    register({
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-fails") {
+          // Someone else moves doc-first on while this batch is mid-write.
+          await db
+            .update(docs)
+            .set({ visibility: "org" })
+            .where(eq(docs.id, "doc-first"));
+          throw new Error("storage refused");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-first", visibility: "public" });
+    await insertDoc({ id: "doc-fails", visibility: "public" });
+
+    await expect(batch(["doc-first", "doc-fails"], "private")).rejects.toThrow(
+      /^storage refused$/,
+    );
+    expect(await visibilities()).toEqual({
+      "doc-first": "org",
+      "doc-fails": "public",
+    });
+    expect(calls.invalidated).toEqual([`${resourceType}:doc-first`]);
+  });
+
   it("reports a refusal from a persistence hook like one found up front", async () => {
     // Forms checks an org permission inside its hook, after the batch's checks.
     register({
