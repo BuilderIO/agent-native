@@ -923,7 +923,7 @@ export default function EditorToolbar({
           nothing when idle. Only meaningful for editors. */}
       {!readOnlyWidget && (canEdit || saveFailed) && (
         <SaveStatusIndicator
-          saving={saving}
+          saving={saving && deckHasUnsavedChanges}
           hasUnsavedChanges={deckHasUnsavedChanges}
           saveFailed={saveFailed}
           saveError={saveError}
