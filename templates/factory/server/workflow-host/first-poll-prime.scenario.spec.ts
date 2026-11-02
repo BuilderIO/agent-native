@@ -486,6 +486,69 @@ describe("a Slack source over a busy channel", () => {
     expect(before).toBeDefined();
   });
 
+  it("reaches every message of a burst bigger than one read can walk, then reads one page again", async () => {
+    const channel = slackWorld({ inboxLimit: 1000 });
+    channel.postRange(1, 100);
+    const flow = await startWorkflow(slackSource(10));
+    await ran(flow.test, flow.id);
+    const positionOf = async () => {
+      const decoded = decodeStart((await flow.cursor())?.value ?? "");
+      if (!decoded.ok) throw new Error(decoded.message);
+      return decoded.start.position;
+    };
+
+    // Six hundred arrive between reads and one read walks five pages of a hundred.
+    channel.postRange(101, 700);
+    later();
+    await ran(flow.test, flow.id);
+    expect(externalIds(await flow.rows())).toHaveLength(500);
+    // It stays below the messages it did not reach, and says where they continue.
+    expect(await positionOf()).toBe(
+      `${FakeChannel.ts(100)}|${FakeChannel.ts(700)}|500`,
+    );
+
+    later();
+    await ran(flow.test, flow.id);
+    expect(externalIds(await flow.rows())).toEqual(
+      Array.from({ length: 600 }, (_, index) =>
+        slackExternalId(101 + index),
+      ).sort(),
+    );
+    // The walk is over, so the position is the newest message of all of it.
+    expect(await positionOf()).toBe(FakeChannel.ts(700));
+
+    channel.historyCalls.length = 0;
+    later();
+    await ran(flow.test, flow.id);
+    expect(channel.historyCalls).toHaveLength(1);
+  });
+
+  it("does the same for a workflow already running with no position saved, whose reads share the factory's cursor", async () => {
+    const channel = slackWorld({ inboxLimit: 1000 });
+    channel.postRange(1, 700);
+    const flow = await startWorkflow(slackSource(10));
+    await flow.test.store.recordTriggerRun(flow.test.scope, {
+      workflowId: flow.id,
+      at: new Date(wall - 3_600_000).toISOString(),
+    });
+
+    later();
+    await ran(flow.test, flow.id);
+    expect(externalIds(await flow.rows())).toHaveLength(500);
+    expect(nth(await flow.factoryCursors(), 0)).toMatchObject({
+      lastSlackTs: "0",
+      slackHistoryCursor: `${FakeChannel.ts(700)}|500`,
+    });
+
+    later();
+    await ran(flow.test, flow.id);
+    expect(externalIds(await flow.rows())).toHaveLength(700);
+    expect(nth(await flow.factoryCursors(), 0)).toMatchObject({
+      lastSlackTs: FakeChannel.ts(700),
+      slackHistoryCursor: null,
+    });
+  });
+
   it("reads exactly as it always did when the workflow was already running with no position saved", async () => {
     const channel = slackWorld();
     channel.postRange(1, 40);
@@ -926,6 +989,30 @@ describe("a Sentry source over a project with open issues", () => {
     expect(await positionOf()).toBe(minute(110));
     expect(new Set(flow.handled()).size).toBe(30);
     expect(flow.handled()).toHaveLength(30);
+  });
+
+  it("fails, keeping its position, once a full page of issues newer than it is all it can ever see", async () => {
+    const project = sentryWorld();
+    for (let n = 1; n <= 80; n += 1) project.issue(n, minute(n));
+    const flow = await startWorkflow(sentrySource(10));
+    await ran(flow.test, flow.id);
+
+    // A hundred and twenty arrive and one read is a page of a hundred: the
+    // inbox takes twenty-five at a time, so four reads store the page.
+    for (let n = 81; n <= 200; n += 1) project.issue(n, minute(n));
+    for (let run = 0; run < 4; run += 1) {
+      later();
+      await ran(flow.test, flow.id);
+    }
+    expect(externalIds(await flow.rows())).toHaveLength(100);
+
+    later();
+    await expect(ran(flow.test, flow.id)).rejects.toThrow(
+      /sentry_position_gap|more than 100 issues newer than this source's position/,
+    );
+    const decoded = decodeStart((await flow.cursor())?.value ?? "");
+    if (!decoded.ok) throw new Error(decoded.message);
+    expect(decoded.start.position).toBe(minute(80));
   });
 
   it("leaves no row behind in a dry run, before or after the first live run", async () => {

@@ -28,6 +28,7 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { sentryPollObservationSummary } from "../server/lib/sentry-poll-summary.js";
+import { WorkflowActionError } from "../server/lib/workflow-action-errors.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import { mergeTriageMetadata } from "../server/triage/metadata.js";
@@ -95,6 +96,7 @@ function newIssueRow(
 
 /** Sentry's largest page: a position is only as complete as the page that was read. */
 const SENTRY_POSITION_PAGE = 100;
+const SENTRY_POSITION_GAP_CODE = "sentry_position_gap";
 
 /** The page was full and its oldest issue is still after the position, so older new ones may lie beyond it. */
 function pageEndsAfter(
@@ -111,6 +113,8 @@ function pageEndsAfter(
 /**
  * Where a workflow source goes on from: past everything it read, or where it
  * was when something newer was left unread, so the next read finds the rest.
+ * Only a full inbox leaves a rest the next read reaches; a page that cannot be
+ * passed fails the run instead.
  */
 function positionAfter(read: {
   after: string;
@@ -398,6 +402,23 @@ export default defineAction({
     }
     // Every observed issue was added, updated or left for the next read because the inbox was full.
     const droppedByInboxLimit = observedIssues.length - added - updated;
+
+    // A full page of issues newer than the position, none new to the inbox:
+    // the next read is this one again, and nothing older than the page is ever
+    // reached. The position would not move, so say that instead of reporting it.
+    if (
+      startMs !== null &&
+      droppedByInboxLimit === 0 &&
+      added === 0 &&
+      pageEndsAfter(issues, fetchLimit, startMs)
+    ) {
+      throw new WorkflowActionError({
+        message: `Sentry has more than ${fetchLimit} issues newer than this source's position, and one read takes at most ${fetchLimit}, so it cannot go on from the position without skipping some. Nothing was skipped; the position was not moved.`,
+        errorCode: SENTRY_POSITION_GAP_CODE,
+        statusCode: 409,
+        retryable: false,
+      });
+    }
 
     if (preview === true) {
       // A preview stores nothing, so it leaves no audit row either.

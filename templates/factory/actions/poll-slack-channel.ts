@@ -28,6 +28,13 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import {
+  decodeSlackPosition,
+  decodeSlackResume,
+  encodeSlackPosition,
+  encodeSlackResume,
+  laterSlackTs,
+} from "../server/lib/slack-poll-position.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import type { IngestionEnvelope } from "../server/triage/contracts.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
@@ -195,14 +202,19 @@ export default defineAction({
           "slack",
           destinationKey,
         );
+    const savedPosition =
+      after === undefined ? undefined : decodeSlackPosition(after);
     const priorLastSlackTs =
-      after ??
+      savedPosition?.ts ??
       (prime === true
         ? "0"
         : (storedCursor?.lastSlackTs ?? config?.lastSlackTs ?? "0"));
-    const historyCursor = ownsPosition
-      ? undefined
+    // What the read before this one left when it stopped part way down the history.
+    const savedResume = ownsPosition
+      ? savedPosition?.resume
       : (storedCursor?.slackHistoryCursor ?? config?.slackHistoryCursor);
+    const resumeFrom = savedResume ? decodeSlackResume(savedResume) : undefined;
+    const historyCursor = resumeFrom ? resumeFrom.cursor : savedResume;
 
     const result = await pollSlackChannel({
       workspace,
@@ -264,7 +276,7 @@ export default defineAction({
             .limit(1)
         )[0];
         if (!existing && added >= inboxLimit) {
-          nextHistoryCursor = historyCursor ?? null;
+          nextHistoryCursor = savedResume ?? null;
           break;
         }
         if (!existing) {
@@ -351,6 +363,26 @@ export default defineAction({
           });
       }
 
+      // History is read newest first and stops at its page cap, so what is
+      // older is still unread. The position stays below it and the cursor leads
+      // to it: moving the position to the newest message read would make the
+      // next read drop those older ones as already seen. A read that stopped
+      // because the inbox was full is gone over again, so it keeps what it was
+      // given.
+      const stoppedEarly = ingested.length < accepted.length;
+      const walking =
+        result.hasMore || (stoppedEarly && resumeFrom !== undefined);
+      if (result.hasMore && !stoppedEarly && result.nextHistoryCursor) {
+        nextHistoryCursor = encodeSlackResume({
+          newest: laterSlackTs(
+            resumeFrom?.newest ?? priorLastSlackTs,
+            result.nextLastSlackTs,
+          ),
+          cursor: result.nextHistoryCursor,
+        });
+      }
+      if (walking) nextLastSlackTs = priorLastSlackTs;
+
       // The app's own posts after the last message ingested are behind the
       // position too: the next read does not meet them, or count them, again.
       if (
@@ -359,6 +391,11 @@ export default defineAction({
         !result.hasMore
       ) {
         nextLastSlackTs = result.trailingOwnTs;
+      }
+      // The walk is over: the position goes past everything it read, including
+      // what the reads before this one saw.
+      if (!walking && resumeFrom?.newest !== undefined) {
+        nextLastSlackTs = laterSlackTs(nextLastSlackTs, resumeFrom.newest);
       }
 
       if (preview !== true && !ownsPosition) {
@@ -496,7 +533,14 @@ export default defineAction({
           ? "partial"
           : "complete",
       // The position a workflow source saves: where this read left off.
-      ...(ownsPosition ? { position: nextLastSlackTs } : {}),
+      ...(ownsPosition
+        ? {
+            position: encodeSlackPosition({
+              ts: nextLastSlackTs,
+              ...(nextHistoryCursor ? { resume: nextHistoryCursor } : {}),
+            }),
+          }
+        : {}),
       ...(result.skippedOwn === undefined
         ? {}
         : { skippedOwn: result.skippedOwn }),

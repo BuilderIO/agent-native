@@ -38,7 +38,7 @@ export function createReportReader(options: ReportReaderOptions): ReportReader {
       return {
         ok: false,
         code: "item_invalid",
-        message: `The report${missing.length === 1 ? "" : "s"} ${missing.map((id) => `"${id}"`).join(", ")} ${missing.length === 1 ? "is" : "are"} not in this factory's inbox, so the task cannot quote ${missing.length === 1 ? "it" : "them"}.`,
+        message: `The report${missing.length === 1 ? "" : "s"} ${missing.map((id) => `"${id}"`).join(", ")} ${missing.length === 1 ? "is" : "are"} not in this factory's inbox, so the task cannot quote ${missing.length === 1 ? "it" : "them"}. Only reports a source keeps in the inbox can be quoted: an inbox source, or a provider query whose memory is set to inbox.`,
         retryable: false,
       };
     }

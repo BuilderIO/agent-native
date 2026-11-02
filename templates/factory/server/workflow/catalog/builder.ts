@@ -107,7 +107,7 @@ export const builderOperations: OperationDefinitionInput[] = [
         required: true,
         label: "Reports",
         description:
-          "The reports this task is for: bind item.reports for a group, or item.id for one item. Factory reads each one's headline, author, link and text from its inbox and adds them under the Task you write, so Builder gets what was reported whatever the model wrote. Five at most.",
+          "The reports this task is for: bind item.reports for a group, or item.id for one. Factory adds each one's headline, author, link and text from its inbox under your Task. A report not kept in the inbox cannot be quoted and fails the start. Five at most.",
       },
       {
         name: "userEmail",

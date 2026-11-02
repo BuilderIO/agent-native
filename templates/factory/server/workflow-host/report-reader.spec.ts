@@ -146,6 +146,8 @@ describe("the reports a Builder task is for, read from the inbox", () => {
     });
     expect(!read.ok && read.message).toContain('"r2"');
     expect(!read.ok && read.message).not.toContain('"r1"');
+    // It says what a report must be to be quoted, so the fix is in the message.
+    expect(!read.ok && read.message).toContain("memory is set to inbox");
   });
 
   it("never reads a report of another factory or organization", async () => {
