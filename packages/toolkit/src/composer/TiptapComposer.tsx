@@ -795,6 +795,22 @@ function composerDocumentHasContent(doc: ComposerDocument): boolean {
   return hasContent;
 }
 
+export function composerReferenceSignature(doc: ComposerDocument): string {
+  const references: unknown[] = [];
+  doc.descendants((node: any) => {
+    if (
+      node.type.name === "mentionReference" ||
+      node.type.name === "fileReference" ||
+      node.type.name === "skillReference"
+    ) {
+      references.push([node.type.name, node.attrs]);
+      return false;
+    }
+    return true;
+  });
+  return JSON.stringify(references);
+}
+
 function persistComposerDraft(
   draftKey: string | null,
   editor: ComposerDraftEditor,
@@ -3659,6 +3675,7 @@ function TiptapComposerSurface({
   const placeholderRef = useRef(resolvedPlaceholder);
   placeholderRef.current = resolvedPlaceholder;
   const applyingInitialContentRef = useRef(false);
+  const editorReferenceSignatureRef = useRef("[]");
   const initialTextSyncCompleteRef = useRef(false);
 
   const editor = useEditor({
@@ -3676,7 +3693,13 @@ function TiptapComposerSurface({
       ) {
         onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
       }
-      setReferenceRevision((revision) => revision + 1);
+      // An unconditional bump re-renders on every update, so a DOM mutation
+      // per render (ProseMirror observer -> update) loops past React's depth cap.
+      const referenceSignature = composerReferenceSignature(ed.state.doc);
+      if (referenceSignature !== editorReferenceSignatureRef.current) {
+        editorReferenceSignatureRef.current = referenceSignature;
+        setReferenceRevision((revision) => revision + 1);
+      }
 
       scheduleComposerDraftPersist(ed);
     },

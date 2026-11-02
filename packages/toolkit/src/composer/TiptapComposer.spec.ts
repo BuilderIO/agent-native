@@ -23,6 +23,7 @@ import { PromptComposer } from "./PromptComposer.js";
 import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 import {
   canSubmitComposerContent,
+  composerReferenceSignature,
   canRemoveVoicePreview,
   compactComposerModelName,
   createTiptapComposerExtensions,
@@ -5658,5 +5659,26 @@ describe("voice composer insertion", () => {
         currentText: "sent",
       }),
     ).toBe(false);
+  });
+});
+
+describe("composerReferenceSignature", () => {
+  it("stays stable across text edits and changes when a reference is added", () => {
+    const editor = new Editor({
+      element: document.createElement("div"),
+      extensions: createTiptapComposerExtensions(() => "Message agent..."),
+    });
+    try {
+      const empty = composerReferenceSignature(editor.state.doc);
+      editor.commands.insertContent("hello");
+      expect(composerReferenceSignature(editor.state.doc)).toBe(empty);
+      editor.commands.insertContent({
+        type: "mentionReference",
+        attrs: { label: "Property agent" },
+      });
+      expect(composerReferenceSignature(editor.state.doc)).not.toBe(empty);
+    } finally {
+      editor.destroy();
+    }
   });
 });
