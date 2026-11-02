@@ -68,7 +68,7 @@ export function ThumbsFeedback({
   const feedbackInputId = useId();
   const feedbackContentId = useId();
   const triggerAnchorRef = useRef<HTMLSpanElement>(null);
-  const restoreOnEscapeRef = useRef(false);
+  const restoreTriggerFocusRef = useRef(false);
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null);
   const feedbackOpenedAtRef = useRef(0);
   const textSubmissionInFlightRef = useRef(false);
@@ -225,6 +225,7 @@ export function ThumbsFeedback({
         }
         textFeedbackDeliveryRef.current = null;
         setTextFeedback("");
+        restoreTriggerFocusRef.current = true;
         setPopoverOpen(false);
       })
       .finally(() => {
@@ -312,17 +313,25 @@ export function ThumbsFeedback({
               feedbackInputRef.current?.focus();
             }}
             onEscapeKeyDown={() => {
-              restoreOnEscapeRef.current = true;
+              restoreTriggerFocusRef.current = true;
+            }}
+            onInteractOutside={(event) => {
+              if (
+                renderNegativeTrigger &&
+                event.target instanceof Node &&
+                triggerAnchorRef.current?.contains(event.target)
+              )
+                event.preventDefault();
             }}
             onCloseAutoFocus={(event) => {
               if (!renderNegativeTrigger) return;
               event.preventDefault();
-              if (restoreOnEscapeRef.current) {
+              if (restoreTriggerFocusRef.current) {
                 triggerAnchorRef.current
                   ?.querySelector<HTMLButtonElement>("button")
                   ?.focus();
               }
-              restoreOnEscapeRef.current = false;
+              restoreTriggerFocusRef.current = false;
             }}
             className="z-[300] w-[min(320px,calc(100vw-24px))] overflow-hidden rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg outline-none origin-[var(--radix-popover-content-transform-origin)]"
           >

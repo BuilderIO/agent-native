@@ -300,6 +300,20 @@ describe("assistant reply toolbar", () => {
         document.getElementById(negative.getAttribute("aria-controls")!),
       ).not.toBeNull();
       await act(async () => {
+        negative.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        negative.click();
+      });
+      expect(document.body.querySelector("textarea")).toBeNull();
+      await press(negative);
+      input = document.body.querySelector<HTMLTextAreaElement>("textarea");
+      expect(input).not.toBeNull();
+      await act(async () => {
         input!.dispatchEvent(
           new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
         );
@@ -337,6 +351,7 @@ describe("assistant reply toolbar", () => {
       await vi.waitFor(() =>
         expect(document.body.querySelector("textarea")).toBeNull(),
       );
+      await vi.waitFor(() => expect(document.activeElement).toBe(negative));
     } finally {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
