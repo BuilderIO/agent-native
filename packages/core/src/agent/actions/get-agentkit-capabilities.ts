@@ -16,14 +16,11 @@ export default defineAction({
   toolCallable: false,
   run: async (_args, ctx) => {
     const appId = ctx?.appId;
-    if (appId !== "design" && appId !== "slides" && appId !== "slides-2") {
-      fail(
-        "AgentKit capabilities are only available in Design, Slides, and Slides 2.",
-        {
-          errorCode: "agentkit_capabilities_unsupported_app",
-          statusCode: 400,
-        },
-      );
+    if (appId !== "design" && appId !== "slides") {
+      fail("AgentKit capabilities are only available in Design and Slides.", {
+        errorCode: "agentkit_capabilities_unsupported_app",
+        statusCode: 400,
+      });
     }
     const userEmail = ctx?.userEmail?.trim().toLowerCase();
     if (!userEmail) {
