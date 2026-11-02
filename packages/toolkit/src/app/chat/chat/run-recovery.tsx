@@ -407,6 +407,7 @@ export function BuilderConnectCta({
         <DeferredBuilderConnectPopover
           flow={flow}
           onConnect={startBuilderConnect}
+          cancelSize="xs"
         >
           <Button
             type="button"
