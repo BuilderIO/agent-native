@@ -1,0 +1,156 @@
+---
+title: "टेलीमेट्री"
+description: "Agent-Native CLI क्या रिपोर्ट करते हैं, क्या कभी नहीं भेजते और इसे कैसे बंद करें।"
+---
+
+# टेलीमेट्री
+
+`@agent-native/core` और `@agent-native/skills` कमांड-लाइन टूल अनाम उपयोग डेटा एकत्र करते हैं। इससे हमें पता चलता है कि CLI के कौन से हिस्से काम करते हैं और लोग कहाँ अटकते हैं, ताकि हम जान सकें कि क्या ठीक करना है।
+
+इसमें कुछ भी आपकी, आपके प्रोजेक्ट की या आपके कोड की पहचान नहीं करता, और आप इसे एक कमांड से बंद कर सकते हैं। यह पेज दोनों CLI के बारे में है और वह सब बताता है जो वे भेज सकते हैं। आपके बनाए app के भीतर का analytics एक अलग विकल्प है जिसे आप खुद कॉन्फ़िगर करते हैं; [Tracking](/docs/tracking) देखें।
+
+## इसे बंद करें {#turn-it-off}
+
+```bash
+npx @agent-native/core telemetry disable
+```
+
+यह इस मशीन पर दोनों CLI पर लागू होता है। इससे crash रिपोर्ट भी बंद हो जाती हैं।
+
+| कमांड                                      | यह क्या करता है                                                         |
+| ------------------------------------------ | ----------------------------------------------------------------------- |
+| `npx @agent-native/core telemetry status`  | दिखाता है कि टेलीमेट्री चालू है या नहीं, और किस सेटिंग ने उसे बंद किया। |
+| `npx @agent-native/core telemetry disable` | इस मशीन पर टेलीमेट्री बंद करता है।                                      |
+| `npx @agent-native/core telemetry enable`  | इसे फिर से चालू करता है।                                                |
+| `npx @agent-native/core telemetry reset`   | इस मशीन की रैंडम ID को नई ID से बदलता है।                               |
+
+सेटिंग `~/.agent-native/telemetry.json` में रहती है, और रैंडम ID उसके पास `~/.agent-native/installation-id` में।
+
+आप इनमें से किसी भी environment variable से भी इसे बंद कर सकते हैं, जो सेटिंग पर प्राथमिकता रखते हैं। इन्हें CI या साझा shell प्रोफ़ाइल में इस्तेमाल करें:
+
+```bash
+DO_NOT_TRACK=1
+AGENT_NATIVE_TELEMETRY_DISABLED=1
+```
+
+## देखें कि कमांड क्या भेजेगा {#see-what-a-command-would-send}
+
+हर event को stderr पर प्रिंट करने के लिए `AGENT_NATIVE_TELEMETRY_DEBUG=1` सेट करें, हर एक `[telemetry]` से शुरू होने वाली लाइन पर, और कुछ भी न भेजें। यह टेलीमेट्री बंद होने पर भी काम करता है और कोई मशीन ID नहीं बनाता।
+
+```bash
+AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
+```
+
+## सूचना {#the-notice}
+
+जब कोई कमांड किसी मशीन पर पहली बार कुछ भेजने वाला होता है, तो वह stderr पर यह प्रिंट करता है:
+
+```text
+▶ Agent-Native collects anonymous usage data.
+  It shows us which parts of the CLI work and where people get stuck.
+  Run "npx @agent-native/core telemetry disable" to opt out.
+  https://www.agent-native.com/docs/telemetry
+```
+
+यह हर मशीन पर एक बार प्रिंट होता है। यह CI में या टेलीमेट्री बंद होने पर प्रिंट नहीं होता। CI runs तब भी events भेजते हैं, जब तक ऊपर का कोई variable सेट न हो, और उन पर `ci` का निशान होता है।
+
+## क्या भेजा जाता है {#what-is-sent}
+
+Events `analytics.agent-native.com` पर Agent-Native की अपनी analytics सेवा को जाते हैं, एक write-only key के साथ जो CLI के source में सार्वजनिक है। भेजने से कोई कमांड कभी नहीं रुकता: नेटवर्क धीमा हो तो यह कुछ पलों बाद छोड़ देता है।
+
+हर event में एक नाम, timestamp, मशीन ID और run ID होती है, साथ में ये properties। `packages/core/src/cli/telemetry.spec.ts` का test तब fail होता है जब CLI की भेजी जा सकने वाली कोई property इस पेज के अंग्रेज़ी संस्करण में न हो।
+
+### हर event पर {#on-every-event}
+
+| Property      | यह क्या है                                                                                                  |
+| ------------- | ----------------------------------------------------------------------------------------------------------- |
+| `cli`         | किस CLI ने भेजा: `core` या `skills-installer`।                                                              |
+| `cliVersion`  | CLI का version।                                                                                             |
+| `command`     | कमांड का नाम, जैसे `dev`। जो कुछ कमांड नहीं है, जैसे टाइपो या prompt, वह `unknown` के रूप में भेजा जाता है। |
+| `node`        | Node.js का version।                                                                                         |
+| `platform`    | ऑपरेटिंग सिस्टम: `darwin`, `linux` या `win32`।                                                              |
+| `ci`          | क्या कमांड CI में चल रहा है।                                                                                |
+| `interactive` | क्या कमांड terminal में चल रहा है।                                                                          |
+| `installId`   | मशीन ID: इस मशीन पर बनाई गई एक रैंडम वैल्यू, जो किसी और चीज़ से नहीं जुड़ी।                                 |
+| `runId`       | कमांड के इस एक run के लिए एक रैंडम वैल्यू।                                                                  |
+
+कुछ events एक दूसरे, नए नाम से भी भेजे जाते हैं, और `canonical_event_name` व `legacy_event_name` दोनों नाम दर्ज करते हैं।
+
+### कमांड {#commands}
+
+| Event                       | कब                                     | Properties |
+| --------------------------- | -------------------------------------- | ---------- |
+| `cli.run`                   | कोई कमांड शुरू होता है।                | कोई नहीं।  |
+| `cli.crash`                 | कोई कमांड crash होता है।               | `error`    |
+| `cli.scaffold.import_error` | प्रोजेक्ट scaffolder लोड नहीं हो पाता। | `error`    |
+
+`error` वह छोटा संदेश संकेत है जिसका वर्णन [Crash रिपोर्ट](#crash-reports) में है।
+
+### Skills इंस्टॉल करना {#installing-skills}
+
+ये events `skills add` और `npx @agent-native/skills` का अनुसरण करते हैं, ताकि हम देख सकें कि इंस्टॉल कहाँ रुकता है। Agent-Native के अपने catalog की skills नाम से भेजी जाती हैं। कहीं और से आई skill, जैसे लोकल manifest या कोई दूसरा repository, `custom` के रूप में भेजी जाती है।
+
+| Event                                                        | कब                                         | Properties                                                |
+| ------------------------------------------------------------ | ------------------------------------------ | --------------------------------------------------------- |
+| `skills_cli started`                                         | कमांड शुरू होता है।                        | कोई नहीं।                                                 |
+| `skills_cli skills listed`, `skills_cli skills prompted`     | उपलब्ध skills दिखाई जाती हैं।              | `available`, `availableCount`                             |
+| `skills_cli skills selected`                                 | Skills चुनी जाती हैं।                      | `selected`, `selectedCount`, `selectedAll`, `preselected` |
+| `skills_cli plan mode selected`                              | कोई plan mode चुना जाता है।                | `mode`                                                    |
+| `skills_cli clients selected`                                | Coding agents चुने जाते हैं।               | `clients`, `clientCount`                                  |
+| `skills_cli scope selected`                                  | प्रोजेक्ट या global इंस्टॉल चुना जाता है।  | `scope`                                                   |
+| `skills_cli install completed`                               | Skill फ़ाइलें लिखी जाती हैं।               | `skills`, `clients`, `scope`, `dryRun`, `writtenCount`    |
+| `skills_cli instructions updated`                            | Instruction फ़ाइलें अपडेट होती हैं।        | `fileCount`                                               |
+| `skills_cli mcp registered`                                  | कोई MCP connector रजिस्टर होता है।         | `skills`, `serverName`, `clients`, `authenticated`        |
+| `skills_cli github action added`                             | PR Visual Recap workflow जोड़ा जाता है।    | कोई नहीं।                                                 |
+| `skills_cli connect started`, `skills_cli connect completed` | किसी app में sign-in शुरू या पूरा होता है। | कोई नहीं।                                                 |
+| `skills_cli connect failed`                                  | किसी app में sign-in विफल होता है।         | `error`                                                   |
+| `skills_cli cancelled`                                       | इंस्टॉल रद्द होता है।                      | `step`                                                    |
+| `skills_cli completed`                                       | कमांड पूरा होता है।                        | `skills`, `clients`, `scope`, `dryRun`, `durationMs`      |
+| `skills_cli failed`                                          | कमांड विफल होता है।                        | `command`, `error`, `durationMs`                          |
+
+### Crash रिपोर्ट {#crash-reports}
+
+जब कोई कमांड विफल होता है, तो `$exception` event बताता है कि Agent-Native के कोड में क्या टूटा, और आपके कोड के बारे में कुछ नहीं:
+
+| Property           | यह क्या है                                                                                                                                                                                      |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | Error का प्रकार, जैसे `TypeError`।                                                                                                                                                              |
+| `exceptionCode`    | Error का code, जैसे `ENOENT`, अगर हो।                                                                                                                                                           |
+| `exceptionMessage` | एक छोटा संकेत। Agent-Native की अपनी ज्ञात errors अपना तय टेक्स्ट भेजती हैं। कोई भी अन्य संदेश अधिकतम अपने पहले 20 अक्षर भेजता है, जो पहले ऐसे अक्षर पर कट जाते हैं जो अक्षर, अंक या स्पेस न हो। |
+| `exceptionStack`   | Agent-Native की अपनी फ़ाइलों के stack frames, package के सापेक्ष paths के साथ। बाकी सभी frames हटा दिए जाते हैं।                                                                                |
+| `handled`          | `false` जब error ने कमांड को रोक दिया।                                                                                                                                                          |
+| `level`            | गंभीरता।                                                                                                                                                                                        |
+| `occurredAt`       | यह कब हुआ।                                                                                                                                                                                      |
+| `release`          | CLI का version।                                                                                                                                                                                 |
+| `app`              | हमेशा `agent-native-cli`।                                                                                                                                                                       |
+| `template`         | हमेशा `cli`।                                                                                                                                                                                    |
+| `runtime`          | हमेशा `cli`।                                                                                                                                                                                    |
+| `source`           | हमेशा `cli`।                                                                                                                                                                                    |
+| `exceptionTags`    | विफलता कहाँ हुई; नीचे देखें।                                                                                                                                                                    |
+| `exceptionExtra`   | विफलता कैसे समाप्त हुई; नीचे देखें।                                                                                                                                                             |
+
+इन दो fields में केवल ये वैल्यू होती हैं:
+
+- `exceptionTags`: `source` (CLI का वह हिस्सा जो विफल हुआ), `buildStep` (हमारे build step नामों में से एक), `template` (केवल हमारे अपने template नामों में से एक), `command` और `handled` (रिपोर्ट करने वाली जाँच का लेबल)।
+- `exceptionExtra`: `exitCode` और `signal` (build step कैसे समाप्त हुआ), `stage` और `durationMs`।
+
+संकेत संदेश की शुरुआत है, इसलिए आपके किसी शब्द से शुरू होने वाला संदेश उसके अधिकतम 20 अक्षर ले जा सकता है। कोई path नहीं जा सकता, क्योंकि संकेत पहले slash पर समाप्त हो जाता है।
+
+### Sentry {#sentry}
+
+अगर `@agent-native/core` के साथ `@sentry/node` इंस्टॉल है, तो crashes और विफल builds Agent-Native के Sentry प्रोजेक्ट को भी जाते हैं, और workspace dev server की दो चेतावनियाँ भी। विफल skills कमांड नहीं जाते। ये रिपोर्ट इस पेज की हर सेटिंग का पालन करती हैं और वही error प्रकार, संकेत और stack frames ले जाती हैं, इन tags के साथ: ऊपर के `exceptionTags` के fields, error का `code`, `command` का नाम, `nodeVersion` और `platform`। Environment हमेशा `production` होता है। CLI hostname, source लाइनें, console आउटपुट या आपकी dependency सूची नहीं भेजता।
+
+## क्या कभी नहीं भेजा जाता {#what-is-never-sent}
+
+- Environment variables
+- फ़ाइल paths, फ़ाइल सामग्री या source कोड
+- प्रोजेक्ट, repository या app के नाम, और git remotes
+- Logs या कमांड आउटपुट
+- कमांड-लाइन arguments या prompts
+- ईमेल, usernames या hostnames
+- मूल error संदेश, या आपके कोड के stack frames
+- आपके प्रोजेक्ट की कोई ID
+
+इस सूची की एकमात्र सीमा ऊपर बताया गया crash संकेत है, जो error संदेश का पहला शब्द ले जा सकता है।
+
+Event प्राप्त करने वाली सेवा request का IP पता देख सकती है, जैसा कोई भी web server देख सकता है। CLI इसे किसी event में नहीं डालता।

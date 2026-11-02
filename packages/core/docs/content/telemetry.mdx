@@ -1,0 +1,156 @@
+---
+title: "Telemetry"
+description: "What the Agent-Native CLIs report, what they never send, and how to turn it off."
+---
+
+# Telemetry
+
+The `@agent-native/core` and `@agent-native/skills` command-line tools collect anonymous usage data. It shows us which parts of the CLI work and where people get stuck, so we know what to fix.
+
+Nothing here identifies you, your project or your code, and you can turn it off with one command. This page covers the two CLIs and lists everything they can send. Analytics inside an app you build are a separate choice you configure yourself; see [Tracking](/docs/tracking).
+
+## Turn it off
+
+```bash
+npx @agent-native/core telemetry disable
+```
+
+This covers both CLIs on this machine. It also stops crash reports.
+
+| Command                                    | What it does                                                    |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| `npx @agent-native/core telemetry status`  | Shows whether telemetry is on, and which setting turned it off. |
+| `npx @agent-native/core telemetry disable` | Turns telemetry off on this machine.                            |
+| `npx @agent-native/core telemetry enable`  | Turns it back on.                                               |
+| `npx @agent-native/core telemetry reset`   | Replaces this machine's random ID with a new one.               |
+
+The setting is stored in `~/.agent-native/telemetry.json`, next to the random ID in `~/.agent-native/installation-id`.
+
+You can also turn it off with either environment variable, which wins over the setting. Use this in CI or a shared shell profile:
+
+```bash
+DO_NOT_TRACK=1
+AGENT_NATIVE_TELEMETRY_DISABLED=1
+```
+
+## See what a command would send
+
+Set `AGENT_NATIVE_TELEMETRY_DEBUG=1` to print every event to stderr, each on a line starting with `[telemetry]`, and send nothing. It works when telemetry is off too, and it doesn't create a machine ID.
+
+```bash
+AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
+```
+
+## The notice
+
+The first time a command would send anything on a machine, it prints this to stderr:
+
+```text
+▶ Agent-Native collects anonymous usage data.
+  It shows us which parts of the CLI work and where people get stuck.
+  Run "npx @agent-native/core telemetry disable" to opt out.
+  https://www.agent-native.com/docs/telemetry
+```
+
+It prints once per machine. It doesn't print in CI or when telemetry is off. CI runs still send events unless one of the variables above is set, and they're marked with `ci`.
+
+## What is sent
+
+Events go to Agent-Native's own analytics service at `analytics.agent-native.com`, with a write-only key that is public in the CLI's source. Sending never holds up a command: it gives up after a moment if the network is slow.
+
+Each event has a name, a timestamp, the machine ID and the run ID, plus these properties. The docs test in `packages/core/src/cli/telemetry.spec.ts` fails if a property the CLI can send is missing from this page.
+
+### On every event
+
+| Property      | What it is                                                                                                     |
+| ------------- | -------------------------------------------------------------------------------------------------------------- |
+| `cli`         | Which CLI sent it: `core` or `skills-installer`.                                                               |
+| `cliVersion`  | The CLI's version.                                                                                             |
+| `command`     | The command name, such as `dev`. Anything that isn't a command, like a typo or a prompt, is sent as `unknown`. |
+| `node`        | The Node.js version.                                                                                           |
+| `platform`    | The operating system: `darwin`, `linux` or `win32`.                                                            |
+| `ci`          | Whether the command is running in CI.                                                                          |
+| `interactive` | Whether the command is running in a terminal.                                                                  |
+| `installId`   | The machine ID: a random value created on this machine, tied to nothing else.                                  |
+| `runId`       | A random value for this one run of the command.                                                                |
+
+Some events are also sent under a second, newer name, with `canonical_event_name` and `legacy_event_name` recording both names.
+
+### Commands
+
+| Event                       | When                                    | Properties |
+| --------------------------- | --------------------------------------- | ---------- |
+| `cli.run`                   | A command starts.                       | None.      |
+| `cli.crash`                 | A command crashes.                      | `error`    |
+| `cli.scaffold.import_error` | The project scaffolder can't be loaded. | `error`    |
+
+`error` is the short message hint described under [Crash reports](#crash-reports).
+
+### Installing skills
+
+These events follow `skills add` and `npx @agent-native/skills`, so we can see where an install stops. Skills from Agent-Native's own catalog are sent by name. A skill from anywhere else, such as a local manifest or another repository, is sent as `custom`.
+
+| Event                                                        | When                                   | Properties                                                |
+| ------------------------------------------------------------ | -------------------------------------- | --------------------------------------------------------- |
+| `skills_cli started`                                         | The command starts.                    | None.                                                     |
+| `skills_cli skills listed`, `skills_cli skills prompted`     | The available skills are shown.        | `available`, `availableCount`                             |
+| `skills_cli skills selected`                                 | Skills are chosen.                     | `selected`, `selectedCount`, `selectedAll`, `preselected` |
+| `skills_cli plan mode selected`                              | A plan mode is chosen.                 | `mode`                                                    |
+| `skills_cli clients selected`                                | Coding agents are chosen.              | `clients`, `clientCount`                                  |
+| `skills_cli scope selected`                                  | Project or global install is chosen.   | `scope`                                                   |
+| `skills_cli install completed`                               | Skill files are written.               | `skills`, `clients`, `scope`, `dryRun`, `writtenCount`    |
+| `skills_cli instructions updated`                            | Instruction files are updated.         | `fileCount`                                               |
+| `skills_cli mcp registered`                                  | An MCP connector is registered.        | `skills`, `serverName`, `clients`, `authenticated`        |
+| `skills_cli github action added`                             | The PR Visual Recap workflow is added. | None.                                                     |
+| `skills_cli connect started`, `skills_cli connect completed` | Sign-in to an app starts or finishes.  | None.                                                     |
+| `skills_cli connect failed`                                  | Sign-in to an app fails.               | `error`                                                   |
+| `skills_cli cancelled`                                       | The install is cancelled.              | `step`                                                    |
+| `skills_cli completed`                                       | The command finishes.                  | `skills`, `clients`, `scope`, `dryRun`, `durationMs`      |
+| `skills_cli failed`                                          | The command fails.                     | `command`, `error`, `durationMs`                          |
+
+### Crash reports
+
+When a command fails, the `$exception` event reports what broke in Agent-Native's code, and nothing about your code:
+
+| Property           | What it is                                                                                                                                                                                    |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | The error's type, such as `TypeError`.                                                                                                                                                        |
+| `exceptionCode`    | The error's code, such as `ENOENT`, when it has one.                                                                                                                                          |
+| `exceptionMessage` | A short hint. Agent-Native's own known errors send their fixed text. Any other message sends at most its first 20 characters, cut at the first character that isn't a letter, digit or space. |
+| `exceptionStack`   | The stack frames in Agent-Native's own files, with paths relative to the package. Every other frame is removed.                                                                               |
+| `handled`          | `false` when the error stopped the command.                                                                                                                                                   |
+| `level`            | The severity.                                                                                                                                                                                 |
+| `occurredAt`       | When it happened.                                                                                                                                                                             |
+| `release`          | The CLI's version.                                                                                                                                                                            |
+| `app`              | Always `agent-native-cli`.                                                                                                                                                                    |
+| `template`         | Always `cli`.                                                                                                                                                                                 |
+| `runtime`          | Always `cli`.                                                                                                                                                                                 |
+| `source`           | Always `cli`.                                                                                                                                                                                 |
+| `exceptionTags`    | Where the failure happened; see below.                                                                                                                                                        |
+| `exceptionExtra`   | How the failure ended; see below.                                                                                                                                                             |
+
+Those two fields hold only these values:
+
+- `exceptionTags`: `source` (the part of the CLI that failed), `buildStep` (one of our build step names), `template` (only one of our own template names), `command` and `handled` (a label for the check that reported it).
+- `exceptionExtra`: `exitCode` and `signal` (how a build step exited), `stage` and `durationMs`.
+
+The hint is the start of the message, so a message that opens with a word of yours could carry up to 20 characters of it. A path can't get through, because the hint ends at its first slash.
+
+### Sentry
+
+If `@sentry/node` is installed alongside `@agent-native/core`, crashes and failed builds also go to Agent-Native's Sentry project, as do two warnings from the workspace dev server. Failed skills commands don't. These reports follow every setting on this page and carry the same error type, hint and stack frames, with these tags: the fields of `exceptionTags` above, the error's `code`, the `command` name, `nodeVersion` and `platform`. The environment is always `production`. The CLI doesn't send the hostname, source lines, console output or your dependency list.
+
+## What is never sent
+
+- Environment variables
+- File paths, file contents or source code
+- Project, repository or app names, and git remotes
+- Logs or command output
+- Command-line arguments or prompts
+- Emails, usernames or hostnames
+- Raw error messages, or stack frames from your code
+- Any ID for your project
+
+The one limit on this list is the crash hint described above, which can carry the first word of an error message.
+
+The service receiving an event can see the request's IP address, as any web server can. The CLI doesn't put it in an event.

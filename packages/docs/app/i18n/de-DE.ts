@@ -2708,6 +2708,7 @@ const deDE = {
     deploymentEnvironmentVariables: "Deployment: Umgebungsvariablen",
     updatingUiInProduction: "UI in Produktion Aktualisieren",
     environmentVariables: "Umgebungsvariablen",
+    telemetry: "Telemetrie",
     progress: "Fortschritt",
     authentication: "Authentifizierung",
     multiTenancy: "Mandantenfähigkeit",

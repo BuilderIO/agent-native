@@ -2665,6 +2665,7 @@ const enUS = {
     deploymentEnvironmentVariables: "Deployment: Environment Variables",
     updatingUiInProduction: "Updating UI in Production",
     environmentVariables: "Environment Variables",
+    telemetry: "Telemetry",
     progress: "Progress",
     authentication: "Authentication",
     multiTenancy: "Multi-Tenancy",

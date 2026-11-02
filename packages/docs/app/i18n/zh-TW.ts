@@ -2605,6 +2605,7 @@ const messages = {
     deploymentEnvironmentVariables: "部署：環境變數",
     updatingUiInProduction: "在正式環境中更新 UI",
     environmentVariables: "環境變數",
+    telemetry: "遙測",
     progress: "進度",
     authentication: "認證",
     multiTenancy: "多租戶",

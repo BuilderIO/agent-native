@@ -2605,6 +2605,7 @@ const zhCN = {
     deploymentEnvironmentVariables: "部署：环境变量",
     updatingUiInProduction: "在生产环境中更新 UI",
     environmentVariables: "环境变量",
+    telemetry: "遥测",
     progress: "进度",
     authentication: "认证",
     multiTenancy: "多租户",

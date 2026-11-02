@@ -2652,6 +2652,7 @@ const koKR = {
     deploymentEnvironmentVariables: "배포: 환경 변수",
     updatingUiInProduction: "프로덕션에서 UI 업데이트",
     environmentVariables: "환경 변수",
+    telemetry: "텔레메트리",
     progress: "진행 상황",
     authentication: "인증",
     multiTenancy: "멀티테넌시",

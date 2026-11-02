@@ -1,7 +1,26 @@
+import type { ErrorEvent, EventHint, StackFrame } from "@sentry/node";
+
 import {
   loadOptionalPeer,
   OptionalPeerDependencyError,
 } from "../shared/optional-peer.js";
+import { telemetryCommandName } from "./telemetry-routing.js";
+import {
+  CLI_EXCEPTION_TAGS,
+  errorCode,
+  errorHint,
+  errorType,
+  ownFilePath,
+  ownFrameFunction,
+  ownStack,
+  pickSafeFields,
+  safeErrorName,
+} from "./telemetry-sanitize.js";
+import {
+  cliTelemetryMode,
+  printTelemetryDebug,
+  printTelemetryNoticeOnce,
+} from "./telemetry-settings.js";
 
 type SentryModule = typeof import("@sentry/node");
 export type SentryCaptureContext = Parameters<
@@ -17,27 +36,6 @@ export function setCliSentryVersion(version: string): void {
   cliVersion = version;
 }
 
-function buildRedactedCommandTag(argv: string[]): string {
-  const secretFlag = /^--?(token|key|secret|password|api[_-]?key)$/i;
-  const secretFlagWithValue =
-    /^(--?(token|key|secret|password|api[_-]?key))=(.*)$/i;
-  const output: string[] = [];
-  for (let index = 0; index < argv.length; index++) {
-    const argument = argv[index];
-    if (secretFlag.test(argument)) {
-      output.push(argument);
-      if (index + 1 < argv.length) {
-        output.push("<redacted>");
-        index++;
-      }
-      continue;
-    }
-    const match = argument.match(secretFlagWithValue);
-    output.push(match ? `${match[1]}=<redacted>` : argument);
-  }
-  return output.join(" ");
-}
-
 type ErrorOutput = Pick<NodeJS.WriteStream, "write">;
 
 function reportUnavailable(error: unknown, stderr: ErrorOutput): void {
@@ -50,6 +48,70 @@ function reportUnavailable(error: unknown, stderr: ErrorOutput): void {
   stderr.write(`${message}\n`);
 }
 
+function ownFrames(frames: StackFrame[] | undefined): StackFrame[] {
+  const kept: StackFrame[] = [];
+  for (const frame of frames ?? []) {
+    const filename = ownFilePath(frame.filename);
+    if (!filename) continue;
+    kept.push({
+      filename,
+      function: ownFrameFunction(frame.function),
+      lineno: frame.lineno,
+      colno: frame.colno,
+      in_app: true,
+    });
+  }
+  return kept;
+}
+
+// Fixed, because the SDK would otherwise read SENTRY_ENVIRONMENT, which can hold
+// a path or a project name.
+const SENTRY_ENVIRONMENT = "production";
+
+/**
+ * Builds the report from nothing rather than deleting from what the SDK made,
+ * so a field a later SDK adds (a hostname, source lines, a dependency list)
+ * stays home by default.
+ */
+export function sanitizeSentryEvent(
+  event: ErrorEvent,
+  hint?: EventHint,
+): ErrorEvent {
+  const original = hint?.originalException;
+  const code = errorCode(original);
+  return {
+    type: undefined,
+    event_id: event.event_id,
+    timestamp: event.timestamp,
+    platform: event.platform,
+    level: event.level,
+    release: event.release,
+    environment: SENTRY_ENVIRONMENT,
+    sdk: event.sdk,
+    exception: {
+      values: event.exception?.values?.map((value) => {
+        const type = safeErrorName(value.type);
+        return {
+          type,
+          value: errorHint(original ?? value.value) || type,
+          mechanism: value.mechanism && {
+            type: value.mechanism.type,
+            handled: value.mechanism.handled,
+          },
+          stacktrace: { frames: ownFrames(value.stacktrace?.frames) },
+        };
+      }),
+    },
+    tags: {
+      ...pickSafeFields(event.tags, CLI_EXCEPTION_TAGS),
+      ...(code ? { code } : {}),
+      command: telemetryCommandName(process.argv[2]),
+      nodeVersion: process.version,
+      platform: process.platform,
+    },
+  };
+}
+
 function loadSentry(stderr: ErrorOutput): Promise<SentryModule | undefined> {
   if (!sentryPromise) {
     sentryPromise = loadOptionalPeer(
@@ -60,10 +122,12 @@ function loadSentry(stderr: ErrorOutput): Promise<SentryModule | undefined> {
         sentry.init({
           dsn: "https://0d384e9eff2f6542af468b92769f2f5b@o117565.ingest.us.sentry.io/4511270386466816",
           release: `agent-native-cli@${cliVersion}`,
-          integrations: (integrations) =>
-            integrations.filter((integration) => integration.name !== "Http"),
+          environment: SENTRY_ENVIRONMENT,
+          // The defaults read hostnames, source lines around each frame, console
+          // output and the project's dependency list.
+          defaultIntegrations: false,
           sendDefaultPii: false,
-          beforeSend(event) {
+          beforeSend(event, hint) {
             const exceptionType = event.exception?.values?.[0]?.type;
             if (
               exceptionType === "ValidationError" ||
@@ -71,55 +135,9 @@ function loadSentry(stderr: ErrorOutput): Promise<SentryModule | undefined> {
             ) {
               return null;
             }
-
-            if (event.request) {
-              if (event.request.headers) {
-                const headers = event.request.headers as Record<string, string>;
-                for (const key of Object.keys(headers)) {
-                  const lowerKey = key.toLowerCase();
-                  if (
-                    lowerKey === "cookie" ||
-                    lowerKey === "authorization" ||
-                    lowerKey === "set-cookie" ||
-                    lowerKey === "proxy-authorization"
-                  ) {
-                    delete headers[key];
-                  }
-                }
-              }
-              delete (event.request as Record<string, unknown>).cookies;
-            }
-            if (event.user) {
-              const user = event.user as Record<string, unknown>;
-              delete user.ip_address;
-              const hasIdentity =
-                typeof user.id === "string" ||
-                typeof user.email === "string" ||
-                typeof user.username === "string";
-              if (!hasIdentity) delete event.user;
-            }
-            if (event.contexts && typeof event.contexts === "object") {
-              delete (event.contexts as Record<string, unknown>).runtime_env;
-            }
-
-            event.tags = {
-              ...event.tags,
-              command: buildRedactedCommandTag(process.argv.slice(2)),
-              subcommand: process.argv[2] ?? "none",
-              nodeVersion: process.version,
-              platform: process.platform,
-            };
-            return event;
+            return sanitizeSentryEvent(event, hint);
           },
         });
-
-        const builderUserId = process.env.BUILDER_USER_ID;
-        const builderPublicKey = process.env.BUILDER_PUBLIC_KEY;
-        if (builderUserId) {
-          sentry.setUser({ id: builderUserId });
-          sentry.setTag("builderUserId", builderUserId);
-        }
-        if (builderPublicKey) sentry.setTag("spaceId", builderPublicKey);
         return sentry;
       })
       .catch((error: unknown) => {
@@ -130,11 +148,30 @@ function loadSentry(stderr: ErrorOutput): Promise<SentryModule | undefined> {
   return sentryPromise;
 }
 
+function printSentryDebug(error: unknown, context: SentryCaptureContext): void {
+  const type = errorType(error);
+  const code = errorCode(error);
+  const stack = ownStack(error, type);
+  const tags = (context as { tags?: Record<string, unknown> } | undefined)
+    ?.tags;
+  printTelemetryDebug("sentry", {
+    exceptionType: type,
+    ...(code ? { exceptionCode: code } : {}),
+    exceptionMessage: errorHint(error) || type,
+    ...(stack ? { exceptionStack: stack } : {}),
+    tags: pickSafeFields(tags, CLI_EXCEPTION_TAGS),
+  });
+}
+
 export function captureSentryException(
   error: unknown,
   context?: SentryCaptureContext,
   stderr: ErrorOutput = process.stderr,
 ): Promise<void> {
+  const mode = cliTelemetryMode();
+  if (mode === "debug") printSentryDebug(error, context);
+  if (mode !== "on") return reporting;
+  printTelemetryNoticeOnce();
   reporting = reporting
     .then(async () => {
       const sentry = await loadSentry(stderr);
