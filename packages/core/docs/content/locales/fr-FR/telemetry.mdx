@@ -114,8 +114,8 @@ Quand une commande échoue, l’événement `$exception` signale ce qui a cassé
 
 | Propriété          | Ce que c’est                                                                                                                                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | Le type de l’erreur, comme `TypeError`.                                                                                                                                                                                   |
-| `exceptionCode`    | Le code de l’erreur, comme `ENOENT`, s’il en a un.                                                                                                                                                                        |
+| `exceptionType`    | Le type de l’erreur s’il est standard, comme `TypeError`. Tout autre type, comme une classe d’erreur personnalisée, est envoyé sous le nom `Error`.                                                                       |
+| `exceptionCode`    | Le code de l’erreur s’il est standard, comme `ENOENT`.                                                                                                                                                                    |
 | `exceptionMessage` | Un court indice. Les erreurs connues d’Agent-Native envoient leur texte fixe. Tout autre message n’envoie que ses premiers mots, jusqu’à 20 caractères, et s’arrête au premier mot contenant autre chose que des lettres. |
 | `exceptionStack`   | Les cadres de pile des fichiers d’Agent-Native, avec des chemins relatifs au paquet. Tous les autres cadres sont retirés.                                                                                                 |
 | `handled`          | `false` quand l’erreur a arrêté la commande.                                                                                                                                                                              |
@@ -138,7 +138,7 @@ L’indice est le début du message, donc un message commençant par un mot simp
 
 ### Sentry {#sentry}
 
-Si `@sentry/node` est installé avec `@agent-native/core`, les plantages et les builds échoués vont aussi au projet Sentry d’Agent-Native, tout comme deux avertissements du serveur de développement du workspace. Les commandes de skills en échec, non. Ces rapports suivent tous les réglages de cette page et portent le même type d’erreur, le même indice et les mêmes cadres de pile, avec ces tags : les champs de `exceptionTags` ci-dessus, le `code` de l’erreur, le nom de `command`, `nodeVersion` et `platform`. L’environnement est toujours `production`. La CLI n’envoie ni le nom d’hôte, ni les lignes de code source, ni la sortie de la console, ni votre liste de dépendances.
+Si `@sentry/node` est installé avec `@agent-native/core`, les plantages et les builds échoués vont aussi au projet Sentry d’Agent-Native, tout comme deux avertissements du serveur de développement du workspace. Les commandes de skills en échec, non. Ces rapports suivent tous les réglages de cette page et portent le même type d’erreur, le même indice, les mêmes cadres de pile et les mêmes champs `exceptionExtra`, avec ces tags : les champs de `exceptionTags` ci-dessus, le `code` de l’erreur, le nom de `command`, `nodeVersion` et `platform`. L’environnement est toujours `production`. La CLI n’envoie ni le nom d’hôte, ni les lignes de code source, ni la sortie de la console, ni votre liste de dépendances.
 
 ## Ce qui n’est jamais envoyé {#what-is-never-sent}
 

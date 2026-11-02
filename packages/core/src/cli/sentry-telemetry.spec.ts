@@ -126,6 +126,23 @@ describe("CLI Sentry telemetry", () => {
     ).toContain("Agent-Native collects anonymous usage data.");
   });
 
+  it("drops a report when telemetry is turned off while Sentry loads", async () => {
+    const captureException = vi.fn();
+    const { setTelemetryEnabled } = await import("./telemetry-settings.js");
+    vi.doMock("../shared/optional-peer.js", () => ({
+      OptionalPeerDependencyError: class extends Error {},
+      loadOptionalPeer: async () => {
+        setTelemetryEnabled(false);
+        return { init: vi.fn(), captureException };
+      },
+    }));
+    const { captureSentryException } = await import("./sentry-telemetry.js");
+
+    await captureSentryException(new Error("boom"));
+
+    expect(captureException).not.toHaveBeenCalled();
+  });
+
   it("sends the real SDK's report with no hostname, path, log or identity", async () => {
     const sent: string[] = [];
     const realSentry = await import("@sentry/node");
@@ -162,10 +179,15 @@ describe("CLI Sentry telemetry", () => {
         `ENOENT: cannot open ${projectPath}/config.json`,
       ) as NodeJS.ErrnoException;
       failure.code = "ENOENT";
+      failure.name = "AcmeBillingError";
 
       await captureSentryException(failure, {
         tags: { source: "process", app: "acme-secret" },
-        extra: { cwd: projectPath, stderrTail: "acme-secret build log" },
+        extra: {
+          cwd: projectPath,
+          stderrTail: "acme-secret build log",
+          exitCode: 1,
+        },
       });
       await flushSentryTelemetry();
     } finally {
@@ -175,6 +197,7 @@ describe("CLI Sentry telemetry", () => {
     expect(sent).toHaveLength(1);
     const report = sent[0];
     expect(report).not.toContain("acme-secret");
+    expect(report).not.toContain("AcmeBillingError");
     expect(report).not.toContain("builder-user-secret");
     expect(report).not.toContain("builder-space-secret");
     expect(report).not.toContain(os.hostname());
@@ -184,6 +207,7 @@ describe("CLI Sentry telemetry", () => {
     expect(report).toContain('"environment":"production"');
     expect(report).toContain('"value":"ENOENT"');
     expect(report).toContain('"code":"ENOENT"');
+    expect(report).toContain('"exitCode":1');
     expect(report).toContain('"command":"unknown"');
     expect(report).toContain("@agent-native/core/src/cli/");
   });

@@ -114,8 +114,8 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 | 属性               | 含义                                                                                                                                |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | 错误类型，例如 `TypeError`。                                                                                                        |
-| `exceptionCode`    | 错误代码，例如 `ENOENT`（如果有）。                                                                                                 |
+| `exceptionType`    | 标准错误类型，例如 `TypeError`。其他类型（例如自定义错误类）一律作为 `Error` 发送。                                                 |
+| `exceptionCode`    | 标准错误代码，例如 `ENOENT`。                                                                                                       |
 | `exceptionMessage` | 简短提示。Agent-Native 自己的已知错误发送其固定文本。其他消息只发送开头的词，最多 20 个字符，并在第一个含有字母以外内容的词处停止。 |
 | `exceptionStack`   | Agent-Native 自身文件中的堆栈帧，路径相对于包。其他所有帧都会被移除。                                                               |
 | `handled`          | 错误使命令停止时为 `false`。                                                                                                        |
@@ -138,7 +138,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ### Sentry {#sentry}
 
-如果 `@sentry/node` 与 `@agent-native/core` 一起安装，崩溃和失败的构建也会发送到 Agent-Native 的 Sentry 项目，工作区开发服务器的两个警告也是如此。失败的技能命令则不会。这些报告遵循本页的所有设置，并带有相同的错误类型、提示和堆栈帧，以及这些标签：上面 `exceptionTags` 的字段、错误的 `code`、`command` 名称、`nodeVersion` 和 `platform`。环境始终为 `production`。CLI 不会发送主机名、源代码行、控制台输出或你的依赖列表。
+如果 `@sentry/node` 与 `@agent-native/core` 一起安装，崩溃和失败的构建也会发送到 Agent-Native 的 Sentry 项目，工作区开发服务器的两个警告也是如此。失败的技能命令则不会。这些报告遵循本页的所有设置，并带有相同的错误类型、提示、堆栈帧和 `exceptionExtra` 字段，以及这些标签：上面 `exceptionTags` 的字段、错误的 `code`、`command` 名称、`nodeVersion` 和 `platform`。环境始终为 `production`。CLI 不会发送主机名、源代码行、控制台输出或你的依赖列表。
 
 ## 绝不发送的内容 {#what-is-never-sent}
 

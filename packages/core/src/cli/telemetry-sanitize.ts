@@ -82,8 +82,24 @@ const MAX_VALUE_LENGTH = 2000;
 const MAX_FRAMES = 30;
 // Letters, digits and list separators. No path, URL or email fits through this.
 const SAFE_STRING_RE = /^[\w .,+-]*$/;
-const ERROR_NAME_RE = /^[A-Za-z_$][\w$.]{0,99}$/;
-const ERROR_CODE_RE = /^[A-Z][A-Z0-9_]{1,63}$/;
+// Anything else, such as a developer's own error class, is reported as "Error".
+const STANDARD_ERROR_NAMES: ReadonlySet<string> = new Set([
+  "Error",
+  "AbortError",
+  "AggregateError",
+  "AssertionError",
+  "EvalError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "SystemError",
+  "TimeoutError",
+  "TypeError",
+  "URIError",
+]);
+// Node's own codes: errno names, ERR_* and undici's UND_ERR_*.
+const STANDARD_ERROR_CODE_RE =
+  /^(?:E[A-Z0-9]{1,63}|(?:UND_)?ERR_[A-Z0-9_]{1,60})$/;
 const FRAME_RE = /^\s*at (?:(.+?) \()?(.+?):(\d+):(\d+)\)?$/;
 const FRAME_FUNCTION_RE = /^[\w$.<> ]+$/;
 const PLAIN_WORD_RE = /^[A-Za-z]+$/;
@@ -119,7 +135,7 @@ export function errorHint(error: unknown): string {
 }
 
 export function safeErrorName(name: string | undefined): string {
-  return name && ERROR_NAME_RE.test(name) ? name : "Error";
+  return name && STANDARD_ERROR_NAMES.has(name) ? name : "Error";
 }
 
 export function errorType(error: unknown): string {
@@ -128,7 +144,7 @@ export function errorType(error: unknown): string {
 
 export function errorCode(error: unknown): string | undefined {
   const code = (error as { code?: unknown } | null | undefined)?.code;
-  return typeof code === "string" && ERROR_CODE_RE.test(code)
+  return typeof code === "string" && STANDARD_ERROR_CODE_RE.test(code)
     ? code
     : undefined;
 }

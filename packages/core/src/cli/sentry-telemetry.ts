@@ -11,6 +11,7 @@ import {
 } from "../shared/optional-peer.js";
 import { telemetryCommandName } from "./telemetry-routing.js";
 import {
+  CLI_EXCEPTION_EXTRA,
   CLI_EXCEPTION_TAGS,
   errorCode,
   errorHint,
@@ -114,6 +115,7 @@ export function sanitizeSentryEvent(
       nodeVersion: process.version,
       platform: process.platform,
     },
+    extra: pickSafeFields(event.extra, CLI_EXCEPTION_EXTRA),
   };
   if (event.event_id) safe.event_id = event.event_id;
   if (event.timestamp) safe.timestamp = event.timestamp;
@@ -187,7 +189,8 @@ export function captureSentryException(
   reporting = reporting
     .then(async () => {
       const sentry = await loadSentry(stderr);
-      sentry?.captureException(error, context);
+      // Telemetry may have been turned off while this report waited.
+      if (cliTelemetryMode() === "on") sentry?.captureException(error, context);
     })
     .catch((reportingError: unknown) =>
       reportUnavailable(reportingError, stderr),

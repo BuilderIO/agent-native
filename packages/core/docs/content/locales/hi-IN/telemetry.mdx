@@ -114,8 +114,8 @@ Events `analytics.agent-native.com` पर Agent-Native की अपनी anal
 
 | Property           | यह क्या है                                                                                                                                                                                                        |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | Error का प्रकार, जैसे `TypeError`।                                                                                                                                                                                |
-| `exceptionCode`    | Error का code, जैसे `ENOENT`, अगर हो।                                                                                                                                                                             |
+| `exceptionType`    | Error का प्रकार, अगर वह मानक हो, जैसे `TypeError`। कोई भी अन्य प्रकार, जैसे आपकी अपनी error class, `Error` के रूप में भेजा जाता है।                                                                               |
+| `exceptionCode`    | Error का code, अगर वह मानक हो, जैसे `ENOENT`।                                                                                                                                                                     |
 | `exceptionMessage` | एक छोटा संकेत। Agent-Native की अपनी ज्ञात errors अपना तय टेक्स्ट भेजती हैं। कोई भी अन्य संदेश केवल अपने शुरुआती शब्द भेजता है, अधिकतम 20 अक्षर, और उस पहले शब्द पर रुक जाता है जिसमें अक्षरों के अलावा कुछ और हो। |
 | `exceptionStack`   | Agent-Native की अपनी फ़ाइलों के stack frames, package के सापेक्ष paths के साथ। बाकी सभी frames हटा दिए जाते हैं।                                                                                                  |
 | `handled`          | `false` जब error ने कमांड को रोक दिया।                                                                                                                                                                            |
@@ -138,7 +138,7 @@ Events `analytics.agent-native.com` पर Agent-Native की अपनी anal
 
 ### Sentry {#sentry}
 
-अगर `@agent-native/core` के साथ `@sentry/node` इंस्टॉल है, तो crashes और विफल builds Agent-Native के Sentry प्रोजेक्ट को भी जाते हैं, और workspace dev server की दो चेतावनियाँ भी। विफल skills कमांड नहीं जाते। ये रिपोर्ट इस पेज की हर सेटिंग का पालन करती हैं और वही error प्रकार, संकेत और stack frames ले जाती हैं, इन tags के साथ: ऊपर के `exceptionTags` के fields, error का `code`, `command` का नाम, `nodeVersion` और `platform`। Environment हमेशा `production` होता है। CLI hostname, source लाइनें, console आउटपुट या आपकी dependency सूची नहीं भेजता।
+अगर `@agent-native/core` के साथ `@sentry/node` इंस्टॉल है, तो crashes और विफल builds Agent-Native के Sentry प्रोजेक्ट को भी जाते हैं, और workspace dev server की दो चेतावनियाँ भी। विफल skills कमांड नहीं जाते। ये रिपोर्ट इस पेज की हर सेटिंग का पालन करती हैं और वही error प्रकार, संकेत, stack frames और `exceptionExtra` के fields ले जाती हैं, इन tags के साथ: ऊपर के `exceptionTags` के fields, error का `code`, `command` का नाम, `nodeVersion` और `platform`। Environment हमेशा `production` होता है। CLI hostname, source लाइनें, console आउटपुट या आपकी dependency सूची नहीं भेजता।
 
 ## क्या कभी नहीं भेजा जाता {#what-is-never-sent}
 

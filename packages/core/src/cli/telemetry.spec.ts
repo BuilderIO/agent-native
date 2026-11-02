@@ -373,6 +373,32 @@ describe("CLI telemetry", () => {
       );
     });
 
+    it.each([
+      ["AcmeBillingError", "Error"],
+      ["RangeError", "RangeError"],
+    ])("reports the error type %s as %s", async (name, type) => {
+      const error = new Error("boom");
+      error.name = name;
+
+      (await newRun()).captureException(error);
+
+      expect(sentExceptions(fetchMock)[0].properties.exceptionType).toBe(type);
+    });
+
+    it.each([
+      ["ACME_BILLING_FAILED", undefined],
+      ["ENOENT", "ENOENT"],
+      ["ERR_MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND"],
+      ["UND_ERR_CONNECT_TIMEOUT", "UND_ERR_CONNECT_TIMEOUT"],
+    ])("reports the error code %s as %s", async (code, sent) => {
+      const error = new Error("boom") as NodeJS.ErrnoException;
+      error.code = code;
+
+      (await newRun()).captureException(error);
+
+      expect(sentExceptions(fetchMock)[0].properties.exceptionCode).toBe(sent);
+    });
+
     it("falls back to the type when the message starts with a path", async () => {
       (await newRun()).captureException(new TypeError("/home/ada/acme: nope"));
 

@@ -114,8 +114,8 @@ Cuando un comando falla, el evento `$exception` informa de qué se rompió en el
 
 | Propiedad          | Qué es                                                                                                                                                                                                                              |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | El tipo de error, como `TypeError`.                                                                                                                                                                                                 |
-| `exceptionCode`    | El código del error, como `ENOENT`, si lo tiene.                                                                                                                                                                                    |
+| `exceptionType`    | El tipo de error si es uno estándar, como `TypeError`. Cualquier otro tipo, como una clase de error propia, se envía como `Error`.                                                                                                  |
+| `exceptionCode`    | El código del error si es uno estándar, como `ENOENT`.                                                                                                                                                                              |
 | `exceptionMessage` | Una pista breve. Los errores conocidos de Agent-Native envían su texto fijo. Cualquier otro mensaje envía solo sus primeras palabras, hasta 20 caracteres, y se detiene en la primera palabra que contenga algo que no sean letras. |
 | `exceptionStack`   | Los marcos de pila de los archivos propios de Agent-Native, con rutas relativas al paquete. Se eliminan todos los demás marcos.                                                                                                     |
 | `handled`          | `false` cuando el error detuvo el comando.                                                                                                                                                                                          |
@@ -138,7 +138,7 @@ La pista es el principio del mensaje, así que un mensaje que empiece con una pa
 
 ### Sentry {#sentry}
 
-Si `@sentry/node` está instalado junto a `@agent-native/core`, los fallos y las compilaciones fallidas también van al proyecto de Sentry de Agent-Native, igual que dos avisos del servidor de desarrollo del workspace. Los comandos de skills fallidos no. Estos informes siguen todos los ajustes de esta página y llevan el mismo tipo de error, pista y marcos de pila, con estas etiquetas: los campos de `exceptionTags` anteriores, el `code` del error, el nombre de `command`, `nodeVersion` y `platform`. El entorno es siempre `production`. La CLI no envía el nombre de host, líneas de código fuente, la salida de consola ni tu lista de dependencias.
+Si `@sentry/node` está instalado junto a `@agent-native/core`, los fallos y las compilaciones fallidas también van al proyecto de Sentry de Agent-Native, igual que dos avisos del servidor de desarrollo del workspace. Los comandos de skills fallidos no. Estos informes siguen todos los ajustes de esta página y llevan el mismo tipo de error, pista, marcos de pila y campos de `exceptionExtra`, con estas etiquetas: los campos de `exceptionTags` anteriores, el `code` del error, el nombre de `command`, `nodeVersion` y `platform`. El entorno es siempre `production`. La CLI no envía el nombre de host, líneas de código fuente, la salida de consola ni tu lista de dependencias.
 
 ## Qué no se envía nunca {#what-is-never-sent}
 

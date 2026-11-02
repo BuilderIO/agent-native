@@ -114,8 +114,8 @@ When a command fails, the `$exception` event reports what broke in Agent-Native'
 
 | Property           | What it is                                                                                                                                                                                            |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | The error's type, such as `TypeError`.                                                                                                                                                                |
-| `exceptionCode`    | The error's code, such as `ENOENT`, when it has one.                                                                                                                                                  |
+| `exceptionType`    | The error's type if it's a standard one, such as `TypeError`. Any other type, such as a custom error class, is sent as `Error`.                                                                       |
+| `exceptionCode`    | The error's code if it's a standard one, such as `ENOENT`.                                                                                                                                            |
 | `exceptionMessage` | A short hint. Agent-Native's own known errors send their fixed text. Any other message sends only its opening words, up to 20 characters, stopping at the first word with anything but letters in it. |
 | `exceptionStack`   | The stack frames in Agent-Native's own files, with paths relative to the package. Every other frame is removed.                                                                                       |
 | `handled`          | `false` when the error stopped the command.                                                                                                                                                           |
@@ -138,7 +138,7 @@ The hint is the start of the message, so a message that opens with a plain word 
 
 ### Sentry
 
-If `@sentry/node` is installed alongside `@agent-native/core`, crashes and failed builds also go to Agent-Native's Sentry project, as do two warnings from the workspace dev server. Failed skills commands don't. These reports follow every setting on this page and carry the same error type, hint and stack frames, with these tags: the fields of `exceptionTags` above, the error's `code`, the `command` name, `nodeVersion` and `platform`. The environment is always `production`. The CLI doesn't send the hostname, source lines, console output or your dependency list.
+If `@sentry/node` is installed alongside `@agent-native/core`, crashes and failed builds also go to Agent-Native's Sentry project, as do two warnings from the workspace dev server. Failed skills commands don't. These reports follow every setting on this page and carry the same error type, hint, stack frames and `exceptionExtra` fields, with these tags: the fields of `exceptionTags` above, the error's `code`, the `command` name, `nodeVersion` and `platform`. The environment is always `production`. The CLI doesn't send the hostname, source lines, console output or your dependency list.
 
 ## What is never sent
 

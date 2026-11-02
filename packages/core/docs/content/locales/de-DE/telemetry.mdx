@@ -114,8 +114,8 @@ Wenn ein Befehl fehlschlägt, meldet das Ereignis `$exception`, was im Code von 
 
 | Eigenschaft        | Was sie ist                                                                                                                                                                                                                             |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | Der Fehlertyp, etwa `TypeError`.                                                                                                                                                                                                        |
-| `exceptionCode`    | Der Fehlercode, etwa `ENOENT`, falls vorhanden.                                                                                                                                                                                         |
+| `exceptionType`    | Der Fehlertyp, wenn er ein Standardtyp ist, etwa `TypeError`. Jeder andere Typ, etwa eine eigene Fehlerklasse, wird als `Error` gesendet.                                                                                               |
+| `exceptionCode`    | Der Fehlercode, wenn er ein Standardcode ist, etwa `ENOENT`.                                                                                                                                                                            |
 | `exceptionMessage` | Ein kurzer Hinweis. Eigene bekannte Fehler von Agent-Native senden ihren festen Text. Jede andere Nachricht sendet nur ihre ersten Wörter, höchstens 20 Zeichen, und stoppt beim ersten Wort, das etwas anderes als Buchstaben enthält. |
 | `exceptionStack`   | Die Stack-Frames in den eigenen Dateien von Agent-Native, mit Pfaden relativ zum Paket. Alle anderen Frames werden entfernt.                                                                                                            |
 | `handled`          | `false`, wenn der Fehler den Befehl gestoppt hat.                                                                                                                                                                                       |
@@ -138,7 +138,7 @@ Der Hinweis ist der Anfang der Nachricht, eine Nachricht, die mit einem einfache
 
 ### Sentry {#sentry}
 
-Wenn `@sentry/node` neben `@agent-native/core` installiert ist, gehen Abstürze und fehlgeschlagene Builds auch an das Sentry-Projekt von Agent-Native, ebenso zwei Warnungen des Workspace-Entwicklungsservers. Fehlgeschlagene Skills-Befehle nicht. Diese Berichte folgen jeder Einstellung auf dieser Seite und enthalten denselben Fehlertyp, Hinweis und dieselben Stack-Frames, mit diesen Tags: den Feldern von `exceptionTags` oben, dem `code` des Fehlers, dem `command`-Namen, `nodeVersion` und `platform`. Die Umgebung ist immer `production`. Die CLI sendet weder den Hostnamen noch Quellcodezeilen, Konsolenausgaben oder Ihre Abhängigkeitsliste.
+Wenn `@sentry/node` neben `@agent-native/core` installiert ist, gehen Abstürze und fehlgeschlagene Builds auch an das Sentry-Projekt von Agent-Native, ebenso zwei Warnungen des Workspace-Entwicklungsservers. Fehlgeschlagene Skills-Befehle nicht. Diese Berichte folgen jeder Einstellung auf dieser Seite und enthalten denselben Fehlertyp, Hinweis und dieselben Stack-Frames und `exceptionExtra`-Felder, mit diesen Tags: den Feldern von `exceptionTags` oben, dem `code` des Fehlers, dem `command`-Namen, `nodeVersion` und `platform`. Die Umgebung ist immer `production`. Die CLI sendet weder den Hostnamen noch Quellcodezeilen, Konsolenausgaben oder Ihre Abhängigkeitsliste.
 
 ## Was nie gesendet wird {#what-is-never-sent}
 
