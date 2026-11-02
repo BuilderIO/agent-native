@@ -128,6 +128,7 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
+import { AgentTextLockSetting } from "./AgentTextLockSetting";
 import {
   DatabaseExportDialog,
   type DatabaseExportContext,
@@ -842,6 +843,8 @@ interface DocumentToolbarProps {
   canShare?: boolean;
   readOnly?: boolean;
   hideFromSearch?: boolean;
+  agentTextLocked?: boolean;
+  canManageAgentTextLock?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
   deletePending?: boolean;
@@ -937,6 +940,8 @@ export function DocumentToolbar({
   canShare = true,
   readOnly = false,
   hideFromSearch = false,
+  agentTextLocked = false,
+  canManageAgentTextLock = false,
   source,
   canDelete = false,
   deletePending = false,
@@ -1692,6 +1697,15 @@ export function DocumentToolbar({
                             ),
                             onCheckedChange: handleHideFromSearchChange,
                           }
+                    }
+                    shareFooterContent={
+                      inWidget ? undefined : (
+                        <AgentTextLockSetting
+                          documentId={documentId}
+                          locked={agentTextLocked}
+                          canManage={canManageAgentTextLock}
+                        />
+                      )
                     }
                     variant="compact"
                     shareTabs={

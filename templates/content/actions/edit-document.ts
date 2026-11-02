@@ -49,6 +49,10 @@ import {
   type ContentSaveOutcomeDimensions,
 } from "./_content-save-outcomes.js";
 import {
+  assertAgentsMayEditPageText,
+  assertAgentsMayEditPagesText,
+} from "./_document-agent-lock.js";
+import {
   assertEditableDocument,
   mutateDocumentBody,
 } from "./_document-edit-mutation.js";
@@ -461,6 +465,7 @@ export default defineAction({
     }
 
     assertEditableDocument(existing);
+    assertAgentsMayEditPageText(existing, ctx);
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;
@@ -611,6 +616,10 @@ export default defineAction({
           routed: !isLinkedLocalSource,
           content: null,
         });
+        // A linked file has already taken the edit, so its page follows it.
+        if (!isLinkedLocalSource) {
+          await assertAgentsMayEditPagesText(tx, [id], ctx);
+        }
         const mirrored = await tx
           .update(schema.documents)
           .set({

@@ -5,7 +5,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { ROLE_RANK, resolveAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  ROLE_RANK,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -49,6 +53,12 @@ import {
   personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import {
+  assertAgentsMayEditPagesText,
+  type CallProvenance,
+  isAgentCall,
+  isAgentTextLockRefusal,
+} from "./_document-agent-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 type FetchLike = typeof fetch;
@@ -646,6 +656,7 @@ export async function pullBuilderDocIntoContent(args: {
   entryId: string;
   dryRun?: boolean;
   fetchImpl?: FetchLike;
+  ctx?: CallProvenance | undefined;
 }): Promise<{
   dryRun: boolean;
   documentId: string;
@@ -711,6 +722,11 @@ export async function pullBuilderDocIntoContent(args: {
           operation: "pull-builder-doc",
           content: bundle.mdx.body,
         });
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          [documentId],
+          args.ctx,
+        );
         await tx
           .update(schema.documents)
           .set({
@@ -833,6 +849,7 @@ async function replaceBuilderDocumentSidecars(args: {
 async function refreshBuilderDocumentAfterPush(args: {
   documentId: string;
   entry: BuilderContentEntry;
+  ctx?: CallProvenance | undefined;
 }): Promise<
   | { refreshed: true; bundle: BuilderMdxBundle }
   | { refreshed: false; refusal: ActionContractError }
@@ -865,8 +882,15 @@ async function refreshBuilderDocumentAfterPush(args: {
         operation: "push-builder-doc",
         content: bundle.mdx.body,
       });
+      await assertAgentsMayEditPagesText(
+        tx as unknown as ReturnType<typeof getDb>,
+        [args.documentId],
+        args.ctx,
+      );
     } catch (error) {
-      if (!isUnsupportedBodyWriter(error)) throw error;
+      if (!isUnsupportedBodyWriter(error) && !isAgentTextLockRefusal(error)) {
+        throw error;
+      }
       return error;
     }
     await tx
@@ -881,8 +905,8 @@ async function refreshBuilderDocumentAfterPush(args: {
       .where(eq(schema.documents.id, args.documentId));
     return null;
   });
-  // The page took its live copy while Builder took the push, which has
-  // landed. It keeps its body, and the source fields and sidecars that body
+  // The page took its live copy or its lock while Builder took the push, which
+  // has landed. It keeps its body, and the source fields and sidecars that body
   // was pulled with: its raw refs name those sidecars.
   if (refusal) return { refreshed: false, refusal };
   await replaceBuilderDocumentSidecars({
@@ -1081,12 +1105,54 @@ export async function checkBuilderDocsSource(args: {
   };
 }
 
+/**
+ * An agent's push can carry whatever text it supplies, and the page's next pull
+ * would bring that back, so a locked page's Builder entry is out of its reach.
+ */
+export async function assertAgentMayPushBuilderEntry(args: {
+  documentId?: string | null | undefined;
+  model: string;
+  entryId: string;
+  ctx: CallProvenance | undefined;
+}) {
+  if (!isAgentCall(args.ctx)) return;
+  // Any page the caller can reach, since a shared one follows the entry too.
+  const reachable = await getDb()
+    .select({
+      id: schema.documents.id,
+      sourceRootPath: schema.documents.sourceRootPath,
+    })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.sourceMode, BUILDER_DOCS_MDX_SOURCE_MODE),
+        eq(schema.documents.sourceKind, builderSourceKindForModel(args.model)),
+        accessFilter(schema.documents, schema.documentShares),
+      ),
+    );
+  await assertAgentsMayEditPagesText(
+    getDb(),
+    [
+      ...(args.documentId ? [args.documentId] : []),
+      ...reachable
+        .filter(
+          (page) =>
+            parseBuilderSourceRootPath(page.sourceRootPath)?.entryId ===
+            args.entryId,
+        )
+        .map((page) => page.id),
+    ],
+    args.ctx,
+  );
+}
+
 export async function pushBuilderDocsSource(args: {
   documentId?: string | null;
   path?: string | null;
   files?: Record<string, string> | null;
   dryRun?: boolean;
   fetchImpl?: FetchLike;
+  ctx?: CallProvenance | undefined;
 }) {
   const check = await checkBuilderDocsSource(args);
   const resolved = await resolveBuilderDocsSource(args);
@@ -1135,6 +1201,12 @@ export async function pushBuilderDocsSource(args: {
     };
   }
 
+  await assertAgentMayPushBuilderEntry({
+    documentId: args.documentId,
+    model: resolved.mdx.metadata.model,
+    entryId: resolved.mdx.metadata.entryId,
+    ctx: args.ctx,
+  });
   // A push writes Builder's copy of the body back to the page.
   if (args.documentId) {
     await assertLegacyBodyWriter(args.documentId, {
@@ -1155,6 +1227,7 @@ export async function pushBuilderDocsSource(args: {
             entryId: resolved.mdx.metadata.entryId,
             fetchImpl: args.fetchImpl,
           }),
+          ctx: args.ctx,
         })
       : null;
   return {
@@ -1176,7 +1249,9 @@ export async function pushBuilderDocsSource(args: {
           refreshRefused: {
             errorCode: refreshed.refusal.errorCode,
             documentId: args.documentId,
-            message: `Builder took the push, but page ${args.documentId} now takes body writes through its live copy, so it keeps its body and the Builder source it was pulled from.`,
+            message: isAgentTextLockRefusal(refreshed.refusal)
+              ? `Builder took the push, but a person has locked the text of page ${args.documentId} against agents, so it keeps its body and the Builder source it was pulled from.`
+              : `Builder took the push, but page ${args.documentId} now takes body writes through its live copy, so it keeps its body and the Builder source it was pulled from.`,
           },
         }
       : {}),

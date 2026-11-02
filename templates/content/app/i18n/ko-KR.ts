@@ -1100,6 +1100,9 @@ const editor = {
     hideInSearch: "검색에서 숨기기",
     hideInSearchDescription:
       "조직에서 숨기고 검색해 보세요. 링크가 있는 사용자는 계속 볼 수 있습니다.",
+    agentTextLock: "에이전트는 이 페이지의 텍스트를 편집할 수 없음",
+    agentTextLockDescription:
+      "에이전트는 계속 댓글을 달고 수정을 제안할 수 있습니다. 제안은 사람만 수락할 수 있습니다.",
     importingFromNotion: "Notion에서 가져오는 중...",
     lastSynced: "마지막 동기화",
     linkedToNotion: "노션과 연결됨",

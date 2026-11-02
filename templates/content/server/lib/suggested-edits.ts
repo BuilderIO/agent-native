@@ -31,6 +31,7 @@ import {
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { accessibleDocumentIds } from "../../actions/_document-access.js";
+import { assertAgentsMayEditPageText } from "../../actions/_document-agent-lock.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -155,10 +156,17 @@ async function acceptOnLegacyWriter<T>(
       // the decision then runs in; the other order deadlocks.
       db.transaction!(async (tx) => {
         // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
-        await tx.execute({
-          sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+        const lockedPage = await tx.execute({
+          sql: "SELECT agent_text_locked FROM documents WHERE id = ? FOR UPDATE",
           args: [context.resourceId],
         });
+        // A person's switch waits for this row, so this read has the last word.
+        assertAgentsMayEditPageText(
+          {
+            agentTextLocked: Number(lockedPage.rows[0]?.agent_text_locked ?? 0),
+          },
+          context.ctx as ActionRunContext | undefined,
+        );
         return run(
           {
             ydoc,
@@ -1075,6 +1083,16 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
+    // Accepting writes the text, so a page locked against agents needs a
+    // person to do it. Core only coordinates accepts.
+    const [lockState] = await getDb()
+      .select({ agentTextLocked: schema.documents.agentTextLocked })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, context.resourceId));
+    assertAgentsMayEditPageText(
+      lockState,
+      context.ctx as ActionRunContext | undefined,
+    );
     // A Page can change writers between reading the gate and writing; the
     // writer then refuses, and the gate is read again to choose the writer.
     for (let attempt = 1; ; attempt += 1) {

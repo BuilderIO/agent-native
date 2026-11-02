@@ -38,6 +38,8 @@ export interface Document {
   position: number;
   isFavorite: boolean;
   hideFromSearch: boolean;
+  /** A person has switched on "Agents can't edit the text of this". */
+  agentTextLocked?: boolean;
   notionPageId?: string | null;
   notionPageUrl?: string | null;
   visibility?: "private" | "org" | "public";

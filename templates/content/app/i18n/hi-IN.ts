@@ -1076,6 +1076,9 @@ const editor = {
     hideInSearch: "खोज में छिप जाओ",
     hideInSearchDescription:
       "संगठन से छिपाएँ और खोजें। जिन लोगों के पास लिंक है वे अभी भी देख सकते हैं.",
+    agentTextLock: "एजेंट इसका टेक्स्ट संपादित नहीं कर सकते",
+    agentTextLockDescription:
+      "एजेंट अब भी टिप्पणी कर सकते हैं और बदलाव सुझा सकते हैं। उन्हें सिर्फ़ लोग स्वीकार कर सकते हैं।",
     importingFromNotion: "नोशन से आयात किया जा रहा है...",
     lastSynced: "अंतिम बार समन्वयित किया गया",
     linkedToNotion: "धारणा से जुड़ा हुआ",

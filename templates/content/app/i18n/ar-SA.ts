@@ -1081,6 +1081,9 @@ const editor = {
     hideInSearch: "إخفاء في البحث",
     hideInSearchDescription:
       "إخفاء من المنظمة والبحث. لا يزال بإمكان الأشخاص الذين لديهم الرابط المشاهدة.",
+    agentTextLock: "لا يمكن للوكلاء تعديل نص هذه الصفحة",
+    agentTextLockDescription:
+      "لا يزال بإمكان الوكلاء التعليق واقتراح التعديلات. ولا يقبلها إلا الأشخاص.",
     importingFromNotion: "الاستيراد من الفكرة...",
     lastSynced: "آخر مزامنة",
     linkedToNotion: "مرتبطة بالفكرة",

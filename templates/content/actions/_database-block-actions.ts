@@ -1,4 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -53,6 +54,7 @@ import {
   type MutationContext,
   type RowSnapshot,
 } from "./_database-row-mutation.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -675,6 +677,7 @@ function outcomeFor(
 
 export async function mutateDatabaseBlock(
   input: MutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseBlockMutationResult> {
   const inputDigest = mutationDigest(input);
   await loadField({ target: input.target, role: "editor" });
@@ -727,6 +730,9 @@ export async function mutateDatabaseBlock(
           db: tx,
           accessAlreadyResolved: true,
         });
+        // After both replays, so a write that landed before the lock keeps its
+        // receipt, and on this fresh read, because the queue can be a long wait.
+        assertAgentsMayEditPageText(loaded.row.document, ctx);
         assertSchema(loaded.context, input.expectedSchemaRevision);
         if (loaded.row.revision !== input.expectedRowRevision) {
           contractError("ROW_REVISION_CONFLICT", "The database row changed.", {

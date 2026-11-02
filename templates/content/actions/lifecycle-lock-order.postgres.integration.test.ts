@@ -1350,6 +1350,7 @@ async function rowWriters(seed: Awaited<ReturnType<typeof seedCollection>>) {
 /** A primary Blocks property on the collection; deleting it clears the rows' bodies. */
 async function addPrimaryBlocksProperty(
   seed: Awaited<ReturnType<typeof seedCollection>>,
+  ctx?: typeof agent,
 ) {
   const propertyId = `${seed.key}_body`;
   await getDb()
@@ -1370,11 +1371,14 @@ async function addPrimaryBlocksProperty(
     .where(eq(schema.contentDatabases.id, seed.ids.collection));
   return () =>
     asOwner(() =>
-      deleteDocumentProperty.run({
-        documentId: seed.ids.collectionPage,
-        databaseId: seed.ids.collection,
-        propertyId,
-      }),
+      deleteDocumentProperty.run(
+        {
+          documentId: seed.ids.collectionPage,
+          databaseId: seed.ids.collection,
+          propertyId,
+        },
+        ctx,
+      ),
     );
 }
 
@@ -2497,6 +2501,18 @@ describe.skipIf(!POSTGRES_URL)(
         // The pages' UPDATE scans their primary key, which the test databases
         // sort as COLLATE "C" does, so this can't tell whether the page lock
         // that sorts them is there.
+        expect(report.waitedOn).toEqual(COLLECTION_ROWS);
+      });
+
+      it("an agent deleting a primary Blocks property", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return {
+            rows: seed.rows,
+            run: await addPrimaryBlocksProperty(seed, agent),
+          };
+        });
+        expect(report.violations).toEqual([]);
         expect(report.waitedOn).toEqual(COLLECTION_ROWS);
       });
 

@@ -12,6 +12,10 @@ import {
   serializePropertyOptions,
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import {
+  assertAgentsMayEditPagesText,
+  type CallProvenance,
+} from "./_document-agent-lock.js";
 
 const propertyType = z.enum(["text", "url", "date", "multi_select"]);
 export const MAX_MIGRATION_ROWS = 250;
@@ -501,6 +505,7 @@ export async function applyMigration(
   snapshot: Awaited<ReturnType<typeof snapshotMigration>>,
   receiptId: string,
   now: string,
+  ctx?: CallProvenance,
 ) {
   const versions: Array<{
     documentId: string;
@@ -547,6 +552,12 @@ export async function applyMigration(
       operation: "migrate-content-database-rows",
       content: new Map(plan.rows.map((row) => [row.documentId, row.content])),
     },
+  );
+  // Under the row locks, which a person's switch has to wait for.
+  await assertAgentsMayEditPagesText(
+    tx,
+    plan.rows.map((row) => row.documentId),
+    ctx,
   );
   for (const row of plan.rows) {
     const updated = await tx
