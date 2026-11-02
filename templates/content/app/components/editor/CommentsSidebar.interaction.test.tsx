@@ -838,6 +838,23 @@ describe("comment review interactions", () => {
     }
   });
 
+  it("shows the profile name on the reply and page comment boxes", () => {
+    render("one");
+    expect(
+      container
+        .querySelector("[data-comment-reply-composer] [title]")
+        ?.getAttribute("title"),
+    ).toBe("Rae Viewer");
+    act(() => root.unmount());
+    root = createRoot(container);
+    render(null, [thread("one")], "history");
+    expect(
+      container
+        .querySelector("[data-discussion-composer] [title]")
+        ?.getAttribute("title"),
+    ).toBe("Rae Viewer");
+  });
+
   it("prevents duplicate submits in a pending thread", async () => {
     render("one");
     await type("First draft");

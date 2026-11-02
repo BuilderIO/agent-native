@@ -3131,6 +3131,7 @@ export function CommentsSidebar({
         onClose={onClose}
         threadActions={thread.clip ? undefined : renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         quote={
           threadQuotes.get(thread.threadId) ?? commentThreadQuote(thread, t)
         }
@@ -3563,6 +3564,7 @@ export function CommentsSidebar({
         <DiscussionComposer
           ref={pageComposerRef}
           currentUserEmail={currentUserEmail}
+          currentUserName={currentUserName}
           value={pageDraft.draft.text}
           onChange={pageDraft.setText}
           mentions={pageDraft.draft.mentions}
@@ -4234,6 +4236,7 @@ function DraftSuggestionThreadView({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         popoverTitle={t("comments.suggestionTitle")}
         thread={thread}
         marginTop={marginTop}
@@ -4447,6 +4450,7 @@ function SuggestionThreadView({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         popoverTitle={t("comments.suggestionTitle")}
         replyDrafts={replyDrafts}
         documentId={documentId}
@@ -4675,6 +4679,7 @@ function ThreadView({
   onClose,
   popoverTitle,
   currentUserEmail,
+  currentUserName,
   resolved = false,
   replyDrafts,
   documentId,
@@ -4724,6 +4729,7 @@ function ThreadView({
   onClose?: () => void;
   popoverTitle?: string;
   currentUserEmail?: string;
+  currentUserName?: string;
   resolved?: boolean;
   replyDrafts?: ReturnType<typeof useCommentReplyDrafts>;
   documentId?: string;
@@ -5152,7 +5158,11 @@ function ThreadView({
           <div className="flex h-9.5 shrink-0 items-center">
             <CommentAvatar
               email={currentUserEmail ?? thread.comments[0]?.author_email}
-              name={currentUserEmail ?? thread.comments[0]?.author_name}
+              name={
+                currentUserEmail
+                  ? currentUserName?.trim() || currentUserEmail
+                  : thread.comments[0]?.author_name
+              }
             />
           </div>
           <CommentComposer
