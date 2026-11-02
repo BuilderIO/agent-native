@@ -1580,6 +1580,126 @@
           "at": "+5m"
         }
       ]
+    },
+    "the-task-carries-the-reports-own-words-whatever-the-model-wrote": {
+      "description": "The report names a dialog and its wording, and the model's own task leaves both out. The start still receives the report to read its words from, and the thread is told by the report's headline rather than by an id.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "promptOmitsTheReport"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "dialogReport",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives"
+        }
+      ]
+    },
+    "three-reports-of-one-defect-make-one-task-that-names-all-three": {
+      "description": "Three reports of one defect share a group and make one Builder task, which is sent all three report ids to read the words of; every reporter is told in their own thread, by the headline of their own report.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "allRelated"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "threePayReports",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "three reports of one defect arrive"
+        }
+      ]
     }
   }
 }

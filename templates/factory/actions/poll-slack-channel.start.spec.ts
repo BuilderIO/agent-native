@@ -245,4 +245,47 @@ describe("poll-slack-channel for a workflow source", () => {
     expect(writeFactoryPollCursorMock).toHaveBeenCalledTimes(1);
     expect(recordFactoryAuditMock).toHaveBeenCalled();
   });
+
+  it("asks the poll for headlines only when told to, and stores the headline in the metadata beside the same title", async () => {
+    await run({});
+    expect(pollSlackChannelMock.mock.calls[0]?.[0]).not.toHaveProperty(
+      "headlines",
+    );
+    await run({ headlines: false });
+    expect(pollSlackChannelMock.mock.calls[1]?.[0]).not.toHaveProperty(
+      "headlines",
+    );
+
+    const values = vi.fn(() => ({ onConflictDoUpdate: async () => undefined }));
+    insertMock.mockReturnValue({ values });
+    pollSlackChannelMock.mockResolvedValue({
+      envelopes: [
+        {
+          ...envelope("120.000100"),
+          metadata: {
+            messageTs: "120.000100",
+            authorId: "U1",
+            author: "U1",
+            headline: "Pay button is dead",
+          },
+        },
+      ],
+      hasMore: false,
+      nextHistoryCursor: null,
+      nextLastSlackTs: "120.000100",
+    });
+    await run({ headlines: true, after: "100.0" });
+
+    expect(pollSlackChannelMock.mock.calls[2]?.[0]).toMatchObject({
+      headlines: true,
+    });
+    const [row] = values.mock.calls[0] as unknown as [
+      { title: string; metadataJson: string },
+    ];
+    // The title is what it always was; the headline is a fact beside it.
+    expect(row.title).toBe("Slack user U1 120.000100");
+    expect(JSON.parse(row.metadataJson)).toMatchObject({
+      headline: "Pay button is dead",
+    });
+  });
 });

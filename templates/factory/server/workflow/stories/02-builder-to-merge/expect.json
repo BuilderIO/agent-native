@@ -152,7 +152,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "Builder is stuck on Checkout button does nothing"
+              "text": "Builder is stuck on \"Checkout button does nothing\" (agent_waiting_for_input). Task: https://builder.example.test/branches/factory-m1"
             },
             "receipt": {
               "status": "done",
@@ -558,7 +558,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r1 is resolved."
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, \"Checkout button does nothing\" is resolved."
             },
             "receipt": {
               "status": "done",
@@ -573,7 +573,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000200",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, \"Pay button dead on checkout\" is resolved."
             },
             "receipt": {
               "status": "done",
@@ -653,7 +653,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 may not merge by itself: It changes a database migration, which no automation may merge. Needs a person."
+              "text": "\"Checkout button does nothing\": https://github.example.test/example-org/example-repo/pull/7 may not merge by itself: It changes a database migration, which no automation may merge. Needs a person."
             },
             "receipt": {
               "status": "done",
@@ -716,7 +716,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 may not merge by itself: No owner, member or collaborator other than the author has approved the current head commit. Approvals found that do not count: 1 approval on an earlier commit. Needs a person."
+              "text": "\"Checkout button does nothing\": https://github.example.test/example-org/example-repo/pull/7 may not merge by itself: No owner, member or collaborator other than the author has approved the current head commit. Approvals found that do not count: 1 approval on an earlier commit. Needs a person."
             },
             "receipt": {
               "status": "done",
@@ -790,7 +790,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 may not merge by itself: The pull request description has no `### Verified` section with text, a screenshot or a recording, so nothing shows how the change was checked. Needs a person."
+              "text": "\"Checkout button does nothing\": https://github.example.test/example-org/example-repo/pull/7 may not merge by itself: The pull request description has no `### Verified` section with text, a screenshot or a recording, so nothing shows how the change was checked. Needs a person."
             },
             "receipt": {
               "status": "done",
@@ -866,7 +866,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 passed the merge gate, but the AI check of its Verified notes is not sure they show the fix: The notes say it was tested but do not name a test or say what the result was. Needs a person."
+              "text": "\"Checkout button does nothing\": https://github.example.test/example-org/example-repo/pull/7 passed the merge gate, but the AI check of its Verified notes is not sure they show the fix: The notes say it was tested but do not name a test or say what the result was. Needs a person."
             },
             "receipt": {
               "status": "done",
@@ -949,7 +949,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 passed the merge gate, but the AI check of its Verified notes is not sure they show the fix: The notes only point at screenshots, which I cannot see, and say nothing about what they show. Needs a person."
+              "text": "\"Checkout button does nothing\": https://github.example.test/example-org/example-repo/pull/7 passed the merge gate, but the AI check of its Verified notes is not sure they show the fix: The notes only point at screenshots, which I cannot see, and say nothing about what they show. Needs a person."
             },
             "receipt": {
               "status": "done",
@@ -1375,7 +1375,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r1 is resolved."
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, \"Checkout button does nothing\" is resolved."
             },
             "receipt": {
               "status": "done",
@@ -1390,7 +1390,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000200",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, \"Pay button dead on checkout\" is resolved."
             },
             "receipt": {
               "status": "done",
@@ -1447,7 +1447,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "Needs a person: https://github.example.test/example-org/example-repo/pull/7"
+              "text": "Needs a person: \"Checkout button does nothing\", https://github.example.test/example-org/example-repo/pull/7"
             },
             "receipt": {
               "status": "done",
@@ -1506,7 +1506,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "Needs a person: https://github.example.test/example-org/example-repo/pull/7"
+              "text": "Needs a person: \"Checkout button does nothing\", https://github.example.test/example-org/example-repo/pull/7"
             },
             "receipt": {
               "status": "done",
@@ -1559,7 +1559,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "Builder's task for Checkout button does nothing ended without a pull request (branch_deleted). Needs a person."
+              "text": "Builder's task for \"Checkout button does nothing\" ended without a pull request (branch_deleted). Task: https://builder.example.test/branches/factory-m1. Needs a person."
             },
             "receipt": {
               "status": "done",
@@ -1573,7 +1573,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "Builder's task for Export to CSV downloads an empty file ended without a pull request (merged_then_archived). Needs a person."
+              "text": "Builder's task for \"Export to CSV downloads an empty file\" ended without a pull request (merged_then_archived). Task: https://builder.example.test/branches/factory-m3. Needs a person."
             },
             "receipt": {
               "status": "done",
@@ -1732,7 +1732,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r1 is resolved."
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, \"Checkout button does nothing\" is resolved."
             },
             "receipt": {
               "status": "done",
@@ -1747,7 +1747,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000200",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, \"Pay button dead on checkout\" is resolved."
             },
             "receipt": { "status": "failed" }
           },
@@ -1758,7 +1758,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000200",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, \"Pay button dead on checkout\" is resolved."
             },
             "receipt": { "status": "failed" }
           },
@@ -1769,7 +1769,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000200",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, \"Pay button dead on checkout\" is resolved."
             },
             "receipt": { "status": "failed" }
           }
@@ -1801,7 +1801,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000200",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, \"Pay button dead on checkout\" is resolved."
             },
             "receipt": {
               "status": "done",
@@ -2022,7 +2022,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "C0FINDINGS",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, a1 (Dependency alert: example-lib prototype pollution) is resolved."
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, \"Dependency alert: example-lib prototype pollution\" is resolved."
             },
             "receipt": {
               "status": "done",
@@ -2458,7 +2458,7 @@
             "operation": "slack.postMessage",
             "fields": {
               "to": "triage-owner@example.test",
-              "text": "https://github.example.test/example-org/example-repo/pull/7 still fails after six rounds with Builder. Needs a person."
+              "text": "\"Checkout button does nothing\": https://github.example.test/example-org/example-repo/pull/7 still fails after six rounds with Builder. Task: https://builder.example.test/branches/factory-m1. Needs a person."
             },
             "receipt": {
               "status": "done",

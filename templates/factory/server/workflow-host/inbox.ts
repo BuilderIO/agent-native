@@ -313,6 +313,8 @@ function pollerArgs(
       // The app's notices and replies land in the channel it reads: they are
       // its output, so a source never takes them unless it says it should.
       ...(includeOwnPosts ? {} : { skipOwnPosts: true }),
+      // What the loop's messages and a Builder task name a report by.
+      headlines: true,
     },
   };
 }
@@ -750,12 +752,20 @@ export function rowToNormalizedItem(row: ItemRow): NormalizedItem {
   // keeps them in the metadata it wrote.
   const providerFields = { ...metadata };
   delete providerFields[ITEM_METADATA.workflowEnd];
+  // A Slack row's title is who wrote it ("Slack user Sam"), which names nothing
+  // in a message or a task. The headline a workflow's poll records does, and
+  // the label stays beside it for a reader that wants to say who.
+  const storedHeadline = metadata[ITEM_METADATA.headline];
+  const headline =
+    typeof storedHeadline === "string" && storedHeadline.trim() !== ""
+      ? storedHeadline
+      : undefined;
   const candidate = {
     id: row.id,
     externalId: row.externalId,
     kind,
     provider: row.source === "github_issue" ? "github" : row.source,
-    title: row.title,
+    title: headline ?? row.title,
     ...(row.summary === null ? {} : { text: row.summary }),
     ...(metadata[ITEM_METADATA.textTruncated] === true
       ? { textTruncated: true }
@@ -774,6 +784,7 @@ export function rowToNormalizedItem(row: ItemRow): NormalizedItem {
       status: row.status,
       coverage: row.coverage,
       ...(row.headSha ? { headSha: row.headSha } : {}),
+      ...(headline === undefined ? {} : { authorLabel: row.title }),
     },
     payload: Object.keys(payload).length > 0 ? payload : providerFields,
     ...(metadata[ITEM_METADATA.payloadTruncated] === true

@@ -283,7 +283,7 @@ describe("story 1: a bug report that waits for an answer and goes round", () => 
       sentTo(run, "slack.replyInThread").map((call) => call.fields.text),
     ).toEqual([
       "Which browser are you using?",
-      "Builder has started work on m1. We will report back when it is merged.",
+      'Builder has started work on "Checkout button does nothing (m1)". We will report back when it is merged.',
     ]);
     expect(run.statuses).toEqual({ m1: "automation_started" });
     expect(run.parked).toEqual([]);
@@ -625,6 +625,7 @@ const report = (id: string) =>
       builderTaskId: "task-1",
       projectId: "project-1",
       branchName: "factory-g1",
+      builderUrl: "https://builder.example.test/branches/factory-g1",
       repository: "example-org/example-repo",
     },
   });
@@ -719,12 +720,12 @@ describe("story 2: from Builder's branch to a merged pull request", () => {
       [
         "C0FEEDBACK",
         reportThread("r1").threadTs,
-        `${PR_URL} is merged, r1 is resolved.`,
+        `${PR_URL} is merged, "Report r1" is resolved.`,
       ],
       [
         "C0FEEDBACK",
         reportThread("r2").threadTs,
-        `${PR_URL} is merged, r2 is resolved.`,
+        `${PR_URL} is merged, "Report r2" is resolved.`,
       ],
     ]);
     expect(run.statuses).toEqual({ r1: "merged", r2: "merged" });
@@ -753,7 +754,7 @@ describe("story 2: from Builder's branch to a merged pull request", () => {
     expect(sentTo(run, "slack.postMessage")).toHaveLength(1);
     expect(sentTo(run, "slack.postMessage")[0].fields).toMatchObject({
       to: "triage-owner@example.test",
-      text: `${PR_URL} may not merge by itself: touches a migration Needs a person.`,
+      text: `"Report r1": ${PR_URL} may not merge by itself: touches a migration Needs a person.`,
     });
     expect(run.statuses).toEqual({ r1: "needs_manual", r2: "needs_manual" });
   });

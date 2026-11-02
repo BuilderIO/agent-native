@@ -159,6 +159,7 @@ describe("a Builder start that already has a done receipt is not made again", ()
       builderTaskId: `project-1:${RENAMED}`,
       projectId: "project-1",
       branchName: RENAMED,
+      builderUrl: `https://builder.example.test/branches/${RENAMED}`,
       repository: "example-org/example-repo",
     });
   });

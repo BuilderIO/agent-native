@@ -102,6 +102,14 @@ export const builderOperations: OperationDefinitionInput[] = [
       },
       { name: "prompt", type: "text", required: true, label: "Task" },
       {
+        name: "reports",
+        type: "json",
+        required: true,
+        label: "Reports",
+        description:
+          "The reports this task is for: bind item.reports for a group, or item.id for one item. Factory reads each one's headline, author, link and text from its inbox and adds them under the Task you write, so Builder gets what was reported whatever the model wrote. Five at most.",
+      },
+      {
         name: "userEmail",
         type: "string",
         target: true,
@@ -134,7 +142,7 @@ export const builderOperations: OperationDefinitionInput[] = [
         name: "url",
         type: "string",
         description:
-          "Where to watch the task; absent when an existing branch was reused.",
+          "Where to watch the task; empty when an existing branch was reused or a failed start was confirmed, because Builder gave none then.",
       },
       {
         name: "reused",

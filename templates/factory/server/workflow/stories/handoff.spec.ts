@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { NormalizedItem } from "../items.js";
 import { runScenario, type StoryFixtures } from "../testing/story-data.js";
-import { scenarioRun } from "./proof-kit.js";
+import { effectsOf, scenarioRun } from "./proof-kit.js";
 import { STORIES } from "./registry.js";
 
 // Stories 1 and 8 hand work to Builder and story 2 follows it. These specs run
@@ -11,8 +11,8 @@ import { STORIES } from "./registry.js";
 // link here instead of in a deployment.
 //
 // The handed-off End of each story records the Builder task on the item
-// (`builderTaskId`, `projectId`, `branchName`, `repository`), and story 2's
-// status Source reads those four fields from the row. The rows below carry
+// (`builderTaskId`, `projectId`, `branchName`, `builderUrl`, `repository`), and
+// story 2's status Source reads those five fields from the row. The rows below carry
 // what the first story's End really recorded, nothing written by hand.
 
 function offeredItems(
@@ -231,5 +231,52 @@ describe("a task handed to Builder is followed by story 2", () => {
         handedOffRow(alert, summary.recorded?.["alert-101"]),
       ]),
     ).toEqual([{ projectId: start?.fields.projectId, branchName: returned }]);
+  });
+  it("tells the triage owner which report a stuck task is for, and links the task story 1 started", async () => {
+    const { summary } = await scenarioRun(
+      "bug-report-to-builder",
+      "the-task-carries-the-reports-own-words-whatever-the-model-wrote",
+    );
+    const report = offeredItems(
+      STORIES["bug-report-to-builder"].fixtures.inbox.feedback,
+    ).find((candidate) => candidate.id === "d1");
+    if (report === undefined) throw new Error("d1 is not in the fixtures.");
+    const row = handedOffRow(report, summary.recorded?.d1);
+
+    const story = STORIES["builder-to-merge"];
+    const { summary: followed } = await runScenario(
+      "builder-to-merge",
+      {
+        description:
+          "A task story 1 handed off sits stuck until it is escalated.",
+        steps: [
+          {
+            kind: "serve",
+            operation: "slack.postMessage",
+            recording: "posted",
+          },
+          {
+            kind: "serve",
+            operation: "builder.followUp",
+            recording: "accepted",
+          },
+          { kind: "serve", operation: "builder.check", recording: "stuck" },
+          { kind: "offer", source: "inFlight", recording: "handedOff" },
+          { kind: "tick", label: "first nudge", at: "+0m" },
+          { kind: "tick", label: "second nudge", at: "+5m" },
+          { kind: "tick", label: "escalated", at: "+10m" },
+        ],
+      },
+      {
+        ...story.fixtures,
+        inbox: { inFlight: { handedOff: { items: [row] } } },
+      },
+    );
+
+    const [notice] = effectsOf(followed, "slack.postMessage");
+    // The headline story 1 named the report by, and the address its start recorded.
+    expect(notice?.fields.text).toBe(
+      `Builder is stuck on "${report.title}" (agent_waiting_for_input). Task: https://builder.example.test/branches/factory-d1`,
+    );
   });
 });

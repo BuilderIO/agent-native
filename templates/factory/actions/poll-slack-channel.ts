@@ -88,6 +88,12 @@ export default defineAction({
       .describe(
         "Workflow engine only. Leave this app's own Slack posts out of what is read: its notices and replies are its output, not new reports. They still move the position and are counted in skippedOwn. Fails with slack_identity_unresolved, taking nothing, when the app cannot say who it is.",
       ),
+    headlines: z
+      .boolean()
+      .optional()
+      .describe(
+        "Workflow engine only. Record a one-line headline from each message's own words in the row's metadata, and whether the stored summary is cut short of the message. The row's title is unchanged. Without it a poll stores what it always did.",
+      ),
   }),
   http: false,
   run: async (
@@ -98,6 +104,7 @@ export default defineAction({
       prime,
       preview,
       skipOwnPosts,
+      headlines,
     },
     context,
   ) => {
@@ -206,6 +213,7 @@ export default defineAction({
       orgId,
       ...(prime === true ? { newest: inboxLimit } : {}),
       ...(skipOwnPosts === true ? { skipOwn: true } : {}),
+      ...(headlines === true ? { headlines: true } : {}),
     });
     const now = new Date().toISOString();
     const configRowId = config

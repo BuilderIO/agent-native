@@ -150,7 +150,7 @@ What flows between nodes: `id`, `kind` (`message`, `issue`, `pull_request`,
 `title`, `text`, `url`, `author`, `occurredAt`, `thread` (`channelId`,
 `threadTs`, `repo`, `number`, `ticketId`), `extras` (provider fields, such as
 `extras.sha`) and `payload`. A pull request has `item.thread.repo` and
-`item.thread.number`.
+`item.thread.number`. A Slack message's `title` is its first line, not who wrote it (that is `extras.authorLabel`), so name a report with `{{ item.title }}`, never `{{ item.id }}`.
 
 Never have a model write back what an item already carries. To group, rank or
 label items, use an AI step in `perItem` mode with a `batchSize` big enough to
@@ -381,6 +381,7 @@ supplies `externalRef`, `url`, `status` and `projectId` and not `accepted` or
 `branchName`, because a receipt keeps only the fields that name a thing: read
 `externalRef`.
 
+- **Bind `reports` on every `builder.start`** (`item.reports` for a group, `item.id` for one item). Factory reads each report from its inbox and adds its headline, author, link and text after the task your instruction writes, so never have the model copy the report; a start with no report to read is refused.
 - **Never compare the name you asked for with the one Builder returned.** A
   check that `externalRef` equals the asked name turns away every real start.
   To test that a start gave a task, test that `externalRef` is not empty.

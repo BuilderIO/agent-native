@@ -84,6 +84,21 @@ function builderDeps(): BuilderOperationDeps {
       throw new BuilderBranchError("branch_not_found", "status", "none");
     }),
     sendMessage: vi.fn(async () => ({ accepted: true as const })),
+    // A start reads the reports it is for; this spec only looks at what comes back.
+    readReports: vi.fn(async () => ({
+      ok: true as const,
+      reports: [
+        {
+          id: "r1",
+          externalId: "r1",
+          kind: "message" as const,
+          provider: "slack",
+          title: "Login fails",
+          occurredAt: "2026-10-18T11:00:00.000Z",
+          extras: {},
+        },
+      ],
+    })),
     now: () => new Date("2026-10-18T12:00:00.000Z"),
     stuckAfterMs: DEFAULT_BUILDER_STUCK_AFTER_MS,
   } as unknown as BuilderOperationDeps;
@@ -169,6 +184,7 @@ const RETURNED: Record<string, () => Promise<Record<string, unknown>[]>> = {
     await builderOutput("builder.start", {
       ...task,
       prompt: "Fix the login bug",
+      reports: [{ id: "r1" }],
       clearBug: true,
       productUxImplications: false,
       risk: "low",

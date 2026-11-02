@@ -23,6 +23,7 @@
             "builderTaskId": "project-1:factory-m1",
             "projectId": "project-1",
             "branchName": "factory-m1",
+            "builderUrl": "https://builder.example.test/branches/factory-m1",
             "repository": "example-org/example-repo",
             "status": "automation_started"
           }
@@ -45,6 +46,7 @@
             "builderTaskId": "project-1:factory-m1",
             "projectId": "project-1",
             "branchName": "factory-m1",
+            "builderUrl": "https://builder.example.test/branches/factory-m1",
             "repository": "example-org/example-repo",
             "status": "automation_started"
           }
@@ -70,6 +72,7 @@
             "builderTaskId": "project-1:factory-m1",
             "projectId": "project-1",
             "branchName": "factory-m1",
+            "builderUrl": "https://builder.example.test/branches/factory-m1",
             "repository": "example-org/example-repo",
             "status": "automation_started"
           }
@@ -95,6 +98,7 @@
             "builderTaskId": "project-1:factory-m1",
             "projectId": "project-1",
             "branchName": "factory-m1",
+            "builderUrl": "https://builder.example.test/branches/factory-m1",
             "repository": "example-org/example-repo",
             "status": "automation_started"
           }
@@ -116,6 +120,7 @@
             "builderTaskId": "project-1:factory-m3",
             "projectId": "project-1",
             "branchName": "factory-m3",
+            "builderUrl": "https://builder.example.test/branches/factory-m3",
             "repository": "example-org/example-repo",
             "status": "automation_started"
           }
@@ -136,6 +141,7 @@
             "builderTaskId": "project-1:factory-alert-9001",
             "projectId": "project-1",
             "branchName": "factory-alert-9001",
+            "builderUrl": "https://builder.example.test/branches/factory-alert-9001",
             "repository": "example-org/example-repo",
             "status": "automation_started",
             "severity": "medium"

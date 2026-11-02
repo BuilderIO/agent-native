@@ -839,6 +839,7 @@ const startFields = {
   projectId: "proj-1",
   branchName: "factory-g1",
   prompt: "Fix it",
+  reports: [{ id: "r1" }],
   clearBug: true,
   productUxImplications: false,
   risk: "low",
@@ -846,6 +847,21 @@ const startFields = {
   alreadyClaimed: false,
   categories: [],
 };
+
+/** The inbox, as a start reads the reports it is for from it. */
+const readReports = async (ids: readonly string[]) => ({
+  ok: true as const,
+  reports: ids.map((id) => ({
+    id,
+    externalId: id,
+    kind: "message" as const,
+    provider: "slack",
+    title: "Export is empty",
+    text: "The export downloads an empty file.",
+    occurredAt: "2026-10-19T11:00:00.000Z",
+    extras: {},
+  })),
+});
 
 describe("a builder operation", () => {
   it("does not use the tool path, and reports Builder's state", async () => {
@@ -889,6 +905,7 @@ describe("a builder operation", () => {
       builder: {
         startAgent: startAgent as never,
         getStatus: getStatus as never,
+        readReports,
       },
     });
     const result = await executor.execute(
@@ -945,6 +962,7 @@ describe("a builder operation", () => {
         builder: {
           startAgent: startAgent as never,
           getStatus: missingBranch as never,
+          readReports,
         },
       });
 
@@ -964,6 +982,7 @@ describe("a builder operation", () => {
         builder: {
           startAgent: startAgent as never,
           getStatus: missingBranch as never,
+          readReports,
         },
       });
 
@@ -1048,6 +1067,7 @@ describe("a builder operation", () => {
           projectId: "deps-project",
           startAgent: startAgent as never,
           getStatus: missingBranch as never,
+          readReports,
         },
       });
 

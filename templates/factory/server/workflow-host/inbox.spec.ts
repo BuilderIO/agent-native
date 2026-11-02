@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 
 import type { ActionEntry } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -227,6 +228,58 @@ describe("an inbox poll", () => {
       thread: { channelId: "C1", threadTs: "1760781600.000100" },
       extras: { status: "received", coverage: "complete" },
     });
+  });
+
+  it("names a Slack report by the headline its poll recorded, with who wrote it beside, and by its title when the poll recorded none", async () => {
+    await insertRow({
+      id: "headed",
+      title: "Slack user Pat",
+      summary: "Export is empty. It worked on Monday.",
+      metadataJson: slackMeta({ headline: "Export is empty" }),
+      updatedAt: NOW,
+    });
+    await insertRow({
+      id: "plain",
+      title: "Slack user Sam",
+      metadataJson: slackMeta(),
+      updatedAt: EARLIER,
+    });
+    const caller = scriptedCaller(() => completed({ ok: true, observed: 2 }));
+
+    const taken = await inbox(caller).take(pollRequest({ poller: "slack" }));
+
+    if (!taken.ok) throw new Error("expected items");
+    const [headed, plain] = taken.items;
+    expect(headed).toMatchObject({
+      id: "headed",
+      title: "Export is empty",
+      text: "Export is empty. It worked on Monday.",
+      extras: { authorLabel: "Slack user Pat" },
+    });
+    expect(plain?.title).toBe("Slack user Sam");
+    expect(plain?.extras).not.toHaveProperty("authorLabel");
+    // The row itself is untouched: the Items list still shows who wrote it.
+    const [row] = await db
+      .select()
+      .from(triageItems)
+      .where(eq(triageItems.id, "headed"));
+    expect(row?.title).toBe("Slack user Pat");
+  });
+
+  it("names a report by its headline in a status source too, so a later story's messages name it the same way", async () => {
+    await insertRow({
+      id: "handed",
+      title: "Slack user Pat",
+      status: "automation_started",
+      metadataJson: slackMeta({ headline: "Export is empty" }),
+    });
+
+    const taken = await inbox(scriptedCaller(() => completed({}))).take(
+      statusRequest("automation_started"),
+    );
+
+    if (!taken.ok) throw new Error("expected items");
+    expect(taken.items[0]?.title).toBe("Export is empty");
   });
 
   it("takes only as many items as the source asks for and reports how many there were", async () => {
@@ -946,6 +999,7 @@ describe("source filters", () => {
       factoryId: "factory-1",
       channelId: "C9",
       skipOwnPosts: true,
+      headlines: true,
     });
   });
 });

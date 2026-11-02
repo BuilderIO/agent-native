@@ -1,6 +1,7 @@
 import { BuilderBranchError } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ReportRead } from "../lib/builder-task-reports.js";
 import type { InboxResult } from "../workflow/adapter.js";
 import {
   minutesAfter,
@@ -36,6 +37,12 @@ const report = normalizedItem("m1", {
   thread: THREAD,
 });
 
+/** The inbox, as the start operation reads reports from it. */
+const readReports = async (ids: readonly string[]): Promise<ReportRead> => ({
+  ok: true,
+  reports: [report].filter((entry) => ids.includes(entry.id)),
+});
+
 const assessment = {
   clearBug: true,
   enoughContext: true,
@@ -48,12 +55,14 @@ const assessment = {
 };
 
 function fakeBuilder() {
-  const startAgent = vi.fn(async (args: { branchName?: string }) => ({
-    branchName: args.branchName ?? "",
-    projectId: "project-1",
-    url: "https://builder.test/branches/x",
-    status: "processing",
-  }));
+  const startAgent = vi.fn(
+    async (args: { branchName?: string; prompt?: string }) => ({
+      branchName: args.branchName ?? "",
+      projectId: "project-1",
+      url: "https://builder.test/branches/x",
+      status: "processing",
+    }),
+  );
   const getStatus = vi.fn(async () => {
     throw new BuilderBranchError("branch_not_found", "status", "none");
   });
@@ -61,6 +70,7 @@ function fakeBuilder() {
     startAgent,
     getStatus,
     sendMessage: vi.fn(),
+    readReports,
     now: () => new Date("2026-10-19T12:00:00.000Z"),
     stuckAfterMs: 30 * 60_000,
   } as unknown as BuilderOperationDeps;
@@ -189,6 +199,12 @@ describe("story 1 with the real builder.start", () => {
         userEmail: "reporter@example.test",
       }),
     );
+    // The task is the model's instruction, then the report in its own words.
+    const [sent] = builder.startAgent.mock.calls[0] ?? [];
+    expect(String(sent?.prompt).startsWith("Fix the checkout button.")).toBe(
+      true,
+    );
+    expect(String(sent?.prompt)).toContain("Clicking Pay does nothing.");
     expect(stepOf(result, "startBuilder").status).toBe("succeeded");
     expect(result.statuses).toEqual({ m1: "automation_started" });
     // Every model turn the engine asks for names the run it belongs to, so the
@@ -200,15 +216,17 @@ describe("story 1 with the real builder.start", () => {
 
   it("starts one task for work that is reported again, because the gate never sees other reports and the branch name is the duplicate key", async () => {
     const started = new Set<string>();
-    const startAgent = vi.fn(async (args: { branchName?: string }) => {
-      started.add(args.branchName ?? "");
-      return {
-        branchName: args.branchName ?? "",
-        projectId: "project-1",
-        url: "https://builder.test/branches/x",
-        status: "processing",
-      };
-    });
+    const startAgent = vi.fn(
+      async (args: { branchName?: string; prompt?: string }) => {
+        started.add(args.branchName ?? "");
+        return {
+          branchName: args.branchName ?? "",
+          projectId: "project-1",
+          url: "https://builder.test/branches/x",
+          status: "processing",
+        };
+      },
+    );
     const getStatus = vi.fn(async (args: { branchName: string }) => {
       if (!started.has(args.branchName)) {
         throw new BuilderBranchError("branch_not_found", "status", "none");
@@ -219,6 +237,7 @@ describe("story 1 with the real builder.start", () => {
       startAgent,
       getStatus,
       sendMessage: vi.fn(),
+      readReports,
       now: () => new Date("2026-10-19T12:00:00.000Z"),
       stuckAfterMs: 30 * 60_000,
     } as unknown as BuilderOperationDeps;

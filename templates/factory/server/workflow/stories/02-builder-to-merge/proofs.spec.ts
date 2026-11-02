@@ -84,10 +84,14 @@ describe("story 2 proofs: Builder to merge", () => {
     ]);
     // The third tick escalates instead of nudging a third time, and says so to the triage owner once.
     expect(tickAt(summary, 2).calls["builder.followUp"]).toBeUndefined();
+    // A person can tell which report it is and click through to Builder's task.
     expect(effectsOf(summary, "slack.postMessage")).toEqual([
       expect.objectContaining({
         node: "alert",
-        fields: expect.objectContaining({ to: "triage-owner@example.test" }),
+        fields: expect.objectContaining({
+          to: "triage-owner@example.test",
+          text: 'Builder is stuck on "Checkout button does nothing" (agent_waiting_for_input). Task: https://builder.example.test/branches/factory-m1',
+        }),
       }),
     ]);
     expect(summary.statuses).toEqual({
@@ -161,8 +165,16 @@ describe("story 2 proofs: Builder to merge", () => {
         effect.fields.text,
       ]),
     ).toEqual([
-      ["r1", R1_THREAD, `${PR} is merged, r1 is resolved.`],
-      ["r2", R2_THREAD, `${PR} is merged, r2 is resolved.`],
+      [
+        "r1",
+        R1_THREAD,
+        `${PR} is merged, "Checkout button does nothing" is resolved.`,
+      ],
+      [
+        "r2",
+        R2_THREAD,
+        `${PR} is merged, "Pay button dead on checkout" is resolved.`,
+      ],
     ]);
     expect(summary.statuses).toEqual({ r1: "merged", r2: "merged" });
     expect(tickAt(summary, 1)).toMatchObject({ calls: {}, effects: [] });
@@ -538,6 +550,15 @@ describe("story 2 proofs: Builder to merge", () => {
       expect(effectsOf(summary, "slack.replyInThread")).toEqual([]);
       expect(effectsOf(summary, "slack.postMessage").length).toBeGreaterThan(0);
     }
+    // The notice for a task that ended names the report and links Builder's task, with why it ended.
+    expect(
+      effectsOf(ended.summary, "slack.postMessage").map(
+        (effect) => effect.fields.text,
+      ),
+    ).toEqual([
+      `Builder's task for "Checkout button does nothing" ended without a pull request (branch_deleted). Task: https://builder.example.test/branches/factory-m1. Needs a person.`,
+      `Builder's task for "Export to CSV downloads an empty file" ended without a pull request (merged_then_archived). Task: https://builder.example.test/branches/factory-m3. Needs a person.`,
+    ]);
     expect(closed.summary.statuses).toEqual({
       r1: "needs_manual",
       r2: "needs_manual",
@@ -688,10 +709,31 @@ describe("story 2 proofs: Builder to merge", () => {
     expect(
       effectsOf(summary, "slack.postMessage").map((effect) => effect.node),
     ).toEqual(["capAlert"]);
+    const [alert] = effectsOf(summary, "slack.postMessage");
+    expect(alert?.fields.text).toBe(
+      '"Checkout button does nothing": https://github.example.test/example-org/example-repo/pull/7 still fails after six rounds with Builder. Task: https://builder.example.test/branches/factory-m1. Needs a person.',
+    );
     expect(summary.statuses).toEqual({
       r1: "needs_manual",
       r2: "needs_manual",
     });
     expect(effectsOf(summary, "github.mergePullRequest")).toEqual([]);
+  });
+  it("names the report by what it says in every notice to the triage owner, not by who wrote it", async () => {
+    for (const name of [
+      "a-green-pull-request-that-fails-the-merge-gate-is-not-merged",
+      "a-green-pull-request-the-judge-is-unsure-about-is-held-for-a-person",
+      "a-closed-pull-request-goes-to-a-person",
+      "a-stuck-task-is-nudged-twice-then-escalated",
+    ]) {
+      const { summary } = await scenario(name);
+      const notices = effectsOf(summary, "slack.postMessage");
+      expect(notices.length, name).toBeGreaterThan(0);
+      for (const notice of notices) {
+        expect(String(notice.fields.text), name).toContain(
+          '"Checkout button does nothing"',
+        );
+      }
+    }
   });
 });

@@ -5,8 +5,10 @@ import {
   PERSON_REACTORS_KEY,
   UNVERIFIED_REACTORS_KEY,
 } from "../lib/source-reaction";
+import { ITEM_METADATA } from "../workflow-host/items.js";
 import type { IngestionEnvelope } from "./contracts";
 import { createSlackReader } from "./slack-client";
+import { slackHeadline } from "./slack-headline";
 import { ownPostMatcher, resolveOwnSlackIdentity } from "./slack-own-posts";
 import {
   collectSlackUserIds,
@@ -40,6 +42,12 @@ export interface SlackPollInput {
    * reading when the app cannot say who it is.
    */
   skipOwn?: boolean;
+  /**
+   * Also record what a workflow needs to name and quote a report: a one-line
+   * headline taken from the message's own words (the row's title stays the
+   * author label), and whether the stored summary is cut short of the message.
+   */
+  headlines?: boolean;
 }
 
 export interface SlackPollResult {
@@ -69,11 +77,11 @@ function numericTs(ts: string): number {
   return value;
 }
 
-function compactText(text: string): string {
+function compactText(text: string): { summary: string; cut: boolean } {
   const compact = text.replace(/\s+/g, " ").trim();
   return compact.length > MAX_SUMMARY_LENGTH
-    ? `${compact.slice(0, MAX_SUMMARY_LENGTH - 1)}…`
-    : compact;
+    ? { summary: `${compact.slice(0, MAX_SUMMARY_LENGTH - 1)}…`, cut: true }
+    : { summary: compact, cut: false };
 }
 
 function messageLabel(message: SlackMessage, resolvedLabel?: string): string {
@@ -203,8 +211,11 @@ function toEnvelope(
   teamDomain?: string,
   userLabels?: Map<string, string>,
   reactions?: PersonReactions,
+  headlines = false,
 ): IngestionEnvelope {
   const threadTs = message.thread_ts ?? message.ts;
+  const compact = compactText(message.text);
+  const headline = headlines ? slackHeadline(message.text) : undefined;
   const suppliedPermalink = (message as SlackMessage & { permalink?: string })
     .permalink;
   const sourceUrl = safeHttpUrl(
@@ -223,7 +234,7 @@ function toEnvelope(
       message,
       message.user ? userLabels?.get(message.user) : undefined,
     ),
-    summary: compactText(message.text),
+    summary: compact.summary,
     channelId,
     threadTs,
     metadata: {
@@ -231,6 +242,11 @@ function toEnvelope(
       authorId: message.user ?? null,
       author: message.user ?? null,
       ...userLabelsForMessage(message, userLabels),
+      // Said only when asked: the summary stops short of the message, which a reader of the row cannot otherwise tell.
+      ...(headlines && compact.cut
+        ? { [ITEM_METADATA.textTruncated]: true }
+        : {}),
+      ...(headline === undefined ? {} : { [ITEM_METADATA.headline]: headline }),
       ...(reactions
         ? {
             [PERSON_REACTIONS_KEY]: reactions.names,
@@ -286,6 +302,7 @@ export async function pollSlackChannel({
   orgId,
   newest,
   skipOwn,
+  headlines,
 }: SlackPollInput): Promise<SlackPollResult> {
   const slack = createSlackReader({ ownerEmail, orgId });
   const own =
@@ -388,6 +405,7 @@ export async function pollSlackChannel({
         teamDomain,
         userLabels,
         reactions.get(message.ts),
+        headlines === true,
       ),
     ),
     nextLastSlackTs: maxSeen.raw,

@@ -181,6 +181,7 @@ describe("a source's first live read", () => {
       factoryId: "factory-1",
       channelId: "C1",
       skipOwnPosts: true,
+      headlines: true,
       prime: true,
     });
     if (!taken.ok) throw new Error(taken.message);
@@ -254,6 +255,7 @@ describe("a source that has a position", () => {
       factoryId: "factory-1",
       channelId: "C1",
       skipOwnPosts: true,
+      headlines: true,
       after: "1760000000.000100",
     });
     if (!taken.ok) throw new Error(taken.message);
@@ -307,6 +309,7 @@ describe("a source that keeps no position", () => {
       factoryId: "factory-1",
       channelId: "C1",
       skipOwnPosts: true,
+      headlines: true,
     });
     if (!taken.ok) throw new Error(taken.message);
     expect(taken.items.map((item) => item.id)).toEqual(["old-1"]);
@@ -340,6 +343,7 @@ describe("a dry or test read", () => {
       factoryId: "factory-1",
       channelId: "C1",
       skipOwnPosts: true,
+      headlines: true,
       after: "1760000000.000100",
       preview: true,
     });
@@ -373,6 +377,7 @@ describe("a dry or test read", () => {
       factoryId: "factory-1",
       channelId: "C1",
       skipOwnPosts: true,
+      headlines: true,
       prime: true,
       preview: true,
     });
@@ -397,6 +402,7 @@ describe("a dry or test read", () => {
       factoryId: "factory-1",
       channelId: "C1",
       skipOwnPosts: true,
+      headlines: true,
       preview: true,
     });
     if (!taken.ok) throw new Error(taken.message);

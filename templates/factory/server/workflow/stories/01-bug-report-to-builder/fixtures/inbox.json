@@ -1,8 +1,15 @@
 {
   "feedback": {
-    "nothing": { "items": [] },
-    "ownNotice": { "items": [], "skippedOwn": 1 },
-    "primed": { "primed": "1760000000.000050" },
+    "nothing": {
+      "items": []
+    },
+    "ownNotice": {
+      "items": [],
+      "skippedOwn": 1
+    },
+    "primed": {
+      "primed": "1760000000.000050"
+    },
     "m1": {
       "items": [
         {
@@ -72,6 +79,86 @@
             "threadTs": "1760000000.000300"
           },
           "extras": {}
+        }
+      ]
+    },
+    "dialogReport": {
+      "items": [
+        {
+          "id": "d1",
+          "externalId": "C0FEEDBACK:1760000000.000400",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Bug: the comment delete dialog works out thread vs single comment from the live thread list, so…",
+          "text": "Bug: the comment delete dialog works out thread vs single comment from the live thread list, so when the optimistic delete removes the thread, the dialog copy flips back to 'Delete comment?' before it closes. Fix: capture the comment and its thread when the dialog opens (`deleteCandidate` in `packages/example/src/ReviewPanel.tsx`) and read the copy from that.",
+          "author": "reporter-4@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000400",
+          "occurredAt": "2026-10-19T11:58:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000400"
+          },
+          "extras": {
+            "authorLabel": "Slack user Jordan"
+          }
+        }
+      ]
+    },
+    "threePayReports": {
+      "items": [
+        {
+          "id": "p1",
+          "externalId": "C0FEEDBACK:1760000000.000501",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Pay button does nothing on checkout",
+          "text": "Clicking Pay on checkout does nothing for me.",
+          "author": "reporter-5@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000501",
+          "occurredAt": "2026-10-19T11:51:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000501"
+          },
+          "extras": {
+            "authorLabel": "Slack user Ada"
+          }
+        },
+        {
+          "id": "p2",
+          "externalId": "C0FEEDBACK:1760000000.000502",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Pay button is dead on mobile too",
+          "text": "The Pay button is dead on my phone as well.",
+          "author": "reporter-6@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000502",
+          "occurredAt": "2026-10-19T11:52:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000502"
+          },
+          "extras": {
+            "authorLabel": "Slack user Bo"
+          }
+        },
+        {
+          "id": "p3",
+          "externalId": "C0FEEDBACK:1760000000.000503",
+          "kind": "message",
+          "provider": "slack",
+          "title": "Checkout: Pay does not respond",
+          "text": "Pay never responds on the checkout page, no error either.",
+          "author": "reporter-7@example.test",
+          "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000503",
+          "occurredAt": "2026-10-19T11:53:00.000Z",
+          "thread": {
+            "channelId": "C0FEEDBACK",
+            "threadTs": "1760000000.000503"
+          },
+          "extras": {
+            "authorLabel": "Slack user Cy"
+          }
         }
       ]
     }

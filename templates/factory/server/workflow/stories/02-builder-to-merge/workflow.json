@@ -170,7 +170,7 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "Builder is stuck on {{ item.title }}"
+            "value": "Builder is stuck on \"{{ item.title }}\" ({{ nodes.check.reason }}). Task: {{ item.extras.builderUrl }}"
           }
         }
       }
@@ -430,7 +430,7 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "{{ nodes.readPr.url }} is merged, {{ item.id }} is resolved."
+            "value": "{{ nodes.readPr.url }} is merged, \"{{ item.title }}\" is resolved."
           }
         }
       }
@@ -465,7 +465,7 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "Needs a person: {{ nodes.readPr.url }}"
+            "value": "Needs a person: \"{{ item.title }}\", {{ nodes.readPr.url }}"
           }
         }
       }
@@ -487,7 +487,7 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "Builder's task for {{ item.title }} ended without a pull request ({{ nodes.check.reason }}). Needs a person."
+            "value": "Builder's task for \"{{ item.title }}\" ended without a pull request ({{ nodes.check.reason }}). Task: {{ item.extras.builderUrl }}. Needs a person."
           }
         }
       }
@@ -541,7 +541,7 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "{{ nodes.readPr.url }} may not merge by itself: {{ nodes.gate.reasonText }} Needs a person."
+            "value": "\"{{ item.title }}\": {{ nodes.readPr.url }} may not merge by itself: {{ nodes.gate.reasonText }} Needs a person."
           }
         }
       }
@@ -582,7 +582,7 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "{{ nodes.readPr.url }} is merged, {{ item.id }} ({{ item.title }}) is resolved."
+            "value": "{{ nodes.readPr.url }} is merged, \"{{ item.title }}\" is resolved."
           }
         }
       }
@@ -655,7 +655,7 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "{{ nodes.readPr.url }} still fails after six rounds with Builder. Needs a person."
+            "value": "\"{{ item.title }}\": {{ nodes.readPr.url }} still fails after six rounds with Builder. Task: {{ item.extras.builderUrl }}. Needs a person."
           }
         }
       }
@@ -736,7 +736,7 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "{{ nodes.readPr.url }} passed the merge gate, but the AI check of its Verified notes is not sure they show the fix: {{ nodes.judge.reason }} Needs a person."
+            "value": "\"{{ item.title }}\": {{ nodes.readPr.url }} passed the merge gate, but the AI check of its Verified notes is not sure they show the fix: {{ nodes.judge.reason }} Needs a person."
           }
         }
       }

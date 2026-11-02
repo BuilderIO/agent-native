@@ -524,7 +524,12 @@ const waitSettingsSchema = z.discriminatedUnion("wait", [
 ]);
 
 // What a row's `extras` already holds from the engine's own reading of it, so a recorded value of the same name would be hidden.
-const RESERVED_RECORD_NAMES = ["status", "coverage", "headSha"] as const;
+const RESERVED_RECORD_NAMES = [
+  "status",
+  "coverage",
+  "headSha",
+  "authorLabel",
+] as const;
 const MAX_RECORDED_VALUES = 10;
 
 const recordSchema = z

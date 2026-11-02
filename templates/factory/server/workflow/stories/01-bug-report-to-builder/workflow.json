@@ -363,7 +363,11 @@
           },
           "prompt": {
             "mode": "ai",
-            "instruction": "Write the task for Builder from the report and its thread: what is broken and where, the steps to reproduce it, and what working looks like. Ask Builder for a regression test that fails before the fix and passes after it, or to say in the pull request why the code cannot be tested. Ask it to prove the fix under a `### Verified` heading in the pull request description. If a user can see the bug in the app, that means running the app, reproducing the bug, and adding before and after screenshots or a recording. If nobody can see it, name the test or command that proves the fix. Use the heading `### Verified` exactly."
+            "instruction": "Write the task for Builder from the report and its thread, in your own words: what is broken and where, the steps to reproduce it, and what working looks like. The report's own text, who wrote it and its Slack link are added under your task by the system, so do not copy them and never say they are missing. Ask Builder for a regression test that fails before the fix and passes after it, or to say in the pull request why the code cannot be tested. Ask it to prove the fix under a `### Verified` heading in the pull request description. If a user can see the bug in the app, that means running the app, reproducing the bug, and adding before and after screenshots or a recording. If nobody can see it, name the test or command that proves the fix. Use the heading `### Verified` exactly."
+          },
+          "reports": {
+            "mode": "path",
+            "path": "item.reports"
           },
           "clearBug": {
             "mode": "path",
@@ -432,7 +436,7 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "Builder has started work on {{ item.id }}. We will report back when it is merged."
+            "value": "Builder has started work on \"{{ item.title }}\". We will report back when it is merged."
           }
         }
       }
@@ -460,6 +464,10 @@
           "branchName": {
             "mode": "path",
             "path": "nodes.startBuilder.externalRef"
+          },
+          "builderUrl": {
+            "mode": "path",
+            "path": "nodes.startBuilder.url"
           },
           "repository": {
             "mode": "path",

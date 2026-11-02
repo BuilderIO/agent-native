@@ -89,6 +89,9 @@ export const githubOperations: OperationDefinitionInput[] = [
         "extras.ecosystem": "dependency.package.ecosystem",
         "extras.manifestPath": "dependency.manifest_path",
         "extras.ghsaId": "security_advisory.ghsa_id",
+        // Left out of the item when the alert has no patched version yet.
+        "extras.fixedVersion":
+          "security_vulnerability.first_patched_version.identifier",
       },
       dedupeKey: "number",
     },

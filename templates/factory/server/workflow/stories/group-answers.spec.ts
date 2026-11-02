@@ -32,8 +32,14 @@ const THREADS = {
   m2: { channelId: "C0FEEDBACK", threadTs: "1760000000.000200" },
   m3: { channelId: "C0FEEDBACK", threadTs: "1760000000.000300" },
 };
-const STARTED = (id: string) =>
-  `Builder has started work on ${id}. We will report back when it is merged.`;
+/** What each report is called, as the story's `threeReports` offer holds it. */
+const TITLES = {
+  m1: "Checkout button does nothing",
+  m2: "Pay button dead on checkout",
+  m3: "Export to CSV downloads an empty file",
+};
+const STARTED = (id: keyof typeof TITLES) =>
+  `Builder has started work on "${TITLES[id]}". We will report back when it is merged.`;
 
 type Fields = Record<string, unknown>;
 

@@ -9,11 +9,21 @@ import {
 } from "../proof-kit.js";
 
 const STORY = "bug-report-to-builder";
+const DIALOG_HEADLINE =
+  "Bug: the comment delete dialog works out thread vs single comment from the live thread list, so…";
+const DIALOG_BUILDER_URL = "https://builder.example.test/branches/factory-d1";
 const M1_THREAD = { channelId: "C0FEEDBACK", threadTs: "1760000000.000100" };
 const M2_THREAD = { channelId: "C0FEEDBACK", threadTs: "1760000000.000200" };
 const M3_THREAD = { channelId: "C0FEEDBACK", threadTs: "1760000000.000300" };
-const STARTED = (id: string) =>
-  `Builder has started work on ${id}. We will report back when it is merged.`;
+/** What each report of the story's offers is called: its title, which the thread is told by. */
+const TITLES = {
+  m1: "Checkout button does nothing",
+  m2: "Pay button dead on checkout",
+  m3: "Export to CSV downloads an empty file",
+  d1: DIALOG_HEADLINE,
+};
+const STARTED = (id: keyof typeof TITLES) =>
+  `Builder has started work on "${TITLES[id]}". We will report back when it is merged.`;
 
 const scenario = (name: string) => scenarioRun(STORY, name);
 
@@ -299,6 +309,7 @@ describe("story 1 proofs: a bug report to Builder", () => {
         builderTaskId: `project-1:${renamed}`,
         projectId: "project-1",
         branchName: renamed,
+        builderUrl: `https://builder.example.test/branches/${renamed}`,
         repository: "example-org/example-repo",
       },
     });
@@ -501,5 +512,49 @@ describe("story 1 proofs: a bug report to Builder", () => {
     expect(callsTo(summary, "builder.start")).toBe(0);
     expect(callsTo(summary, "slack.replyInThread")).toBe(0);
     expect(summary.statuses).toEqual({ m1: "needs_manual" });
+  });
+  it("starts a Builder task for each group that names the reports behind it, in the order the group lists them", async () => {
+    const { summary } = await scenario("two-related-reports-become-one-task");
+
+    // The host reads each report's own words from the inbox by these ids; a model's task is never what carries them.
+    expect(
+      effectsOf(summary, "builder.start").map((start) => [
+        start.fields.branchName,
+        (start.fields.reports as { id: string }[]).map((report) => report.id),
+      ]),
+    ).toEqual([
+      ["factory-m1", ["m1", "m2"]],
+      ["factory-m3", ["m3"]],
+    ]);
+  });
+
+  it("names a report by its headline in everything the loop says, and records the task's address for story 2", async () => {
+    const { summary } = await scenario(
+      "the-task-carries-the-reports-own-words-whatever-the-model-wrote",
+    );
+
+    const [start] = effectsOf(summary, "builder.start");
+    expect(start?.fields.reports).toEqual([
+      expect.objectContaining({ id: "d1", title: DIALOG_HEADLINE }),
+    ]);
+    // The model's own task names neither the dialog nor the wording; the start still has the report to quote.
+    expect(String(start?.fields.prompt)).not.toContain("Delete comment?");
+    expect(effectsOf(summary, "slack.replyInThread")).toEqual([
+      expect.objectContaining({
+        fields: expect.objectContaining({ text: STARTED("d1") }),
+      }),
+    ]);
+    expect(summary.recorded?.d1).toMatchObject({
+      builderUrl: DIALOG_BUILDER_URL,
+    });
+  });
+
+  it("names the report by its headline when it tells the triage owner", async () => {
+    const { summary } = await scenario("each-route-ends-where-the-story-says");
+
+    const [notice] = effectsOf(summary, "slack.postMessage");
+    expect(String(notice?.fields.text)).toMatch(
+      /^Needs a person: Pay button dead on checkout \(/,
+    );
   });
 });

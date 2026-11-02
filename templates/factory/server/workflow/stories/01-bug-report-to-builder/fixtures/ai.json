@@ -193,6 +193,20 @@
           "reason": "Only report about the Pay button."
         }
       }
+    },
+    "allRelated": {
+      "perItem": {
+        "*": {
+          "groupName": "pay-button",
+          "clearBug": true,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "Same Pay button defect as the others."
+        }
+      }
     }
   },
   "startBuilder": {
@@ -200,6 +214,13 @@
       "perItem": {
         "*": {
           "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+        }
+      }
+    },
+    "promptOmitsTheReport": {
+      "perItem": {
+        "*": {
+          "prompt": "Investigate and fix the dialog-copy regression reported by Jordan. The available report identifies a dialog-copy regression but does not include the dialog name, the incorrect text, or the expected wording, so first locate the affected dialog and establish the actual-versus-expected copy from the report or the code; do not guess at the wording. Add a regression test that fails before the fix and passes after it. In the pull request description, include a `### Verified` heading with before and after screenshots."
         }
       }
     }

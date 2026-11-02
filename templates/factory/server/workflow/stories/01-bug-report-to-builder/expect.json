@@ -39,6 +39,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -60,7 +76,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -87,6 +103,7 @@
         "builderTaskId": "project-1:factory-m1",
         "projectId": "project-1",
         "branchName": "factory-m1",
+        "builderUrl": "https://builder.example.test/branches/factory-m1",
         "repository": "example-org/example-repo"
       }
     },
@@ -201,6 +218,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -222,7 +255,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -249,6 +282,7 @@
         "builderTaskId": "project-1:factory-m1",
         "projectId": "project-1",
         "branchName": "factory-m1",
+        "builderUrl": "https://builder.example.test/branches/factory-m1",
         "repository": "example-org/example-repo"
       }
     },
@@ -630,6 +664,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -651,7 +701,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -678,6 +728,7 @@
         "builderTaskId": "project-1:factory-m1",
         "projectId": "project-1",
         "branchName": "factory-m1",
+        "builderUrl": "https://builder.example.test/branches/factory-m1",
         "repository": "example-org/example-repo"
       }
     },
@@ -914,6 +965,36 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                },
+                {
+                  "id": "m2",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Pay button dead on checkout",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000200",
+                  "author": "reporter-2@example.test",
+                  "occurredAt": "2026-10-19T11:52:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000200"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -936,6 +1017,22 @@
               "projectId": "project-1",
               "branchName": "factory-m3",
               "userEmail": "reporter-3@example.test",
+              "reports": [
+                {
+                  "id": "m3",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Export to CSV downloads an empty file",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000300",
+                  "author": "reporter-3@example.test",
+                  "occurredAt": "2026-10-19T11:55:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000300"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -957,7 +1054,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -972,7 +1069,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000200",
-              "text": "Builder has started work on m2. We will report back when it is merged."
+              "text": "Builder has started work on \"Pay button dead on checkout\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -987,7 +1084,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000300",
-              "text": "Builder has started work on m3. We will report back when it is merged."
+              "text": "Builder has started work on \"Export to CSV downloads an empty file\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -1023,18 +1120,21 @@
         "builderTaskId": "project-1:factory-m1",
         "projectId": "project-1",
         "branchName": "factory-m1",
+        "builderUrl": "https://builder.example.test/branches/factory-m1",
         "repository": "example-org/example-repo"
       },
       "m2": {
         "builderTaskId": "project-1:factory-m1",
         "projectId": "project-1",
         "branchName": "factory-m1",
+        "builderUrl": "https://builder.example.test/branches/factory-m1",
         "repository": "example-org/example-repo"
       },
       "m3": {
         "builderTaskId": "project-1:factory-m3",
         "projectId": "project-1",
         "branchName": "factory-m3",
+        "builderUrl": "https://builder.example.test/branches/factory-m3",
         "repository": "example-org/example-repo"
       }
     },
@@ -1093,6 +1193,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -1114,7 +1230,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -1141,6 +1257,7 @@
         "builderTaskId": "project-1:factory-m1",
         "projectId": "project-1",
         "branchName": "factory-m1",
+        "builderUrl": "https://builder.example.test/branches/factory-m1",
         "repository": "example-org/example-repo"
       }
     },
@@ -1299,6 +1416,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -1320,7 +1453,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -1382,6 +1515,7 @@
         "builderTaskId": "project-1:calm-harbor-x7k2q9",
         "projectId": "project-1",
         "branchName": "calm-harbor-x7k2q9",
+        "builderUrl": "https://builder.example.test/branches/calm-harbor-x7k2q9",
         "repository": "example-org/example-repo"
       }
     },
@@ -1449,6 +1583,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -1543,6 +1693,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -1564,7 +1730,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": { "status": "failed" }
           },
@@ -1575,7 +1741,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": { "status": "failed" }
           },
@@ -1586,7 +1752,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": { "status": "failed" }
           }
@@ -1620,7 +1786,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -1639,6 +1805,7 @@
         "builderTaskId": "project-1:factory-m1",
         "projectId": "project-1",
         "branchName": "factory-m1",
+        "builderUrl": "https://builder.example.test/branches/factory-m1",
         "repository": "example-org/example-repo"
       }
     },
@@ -1703,6 +1870,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -1803,6 +1986,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -2043,6 +2242,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -2064,7 +2279,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -2091,6 +2306,7 @@
         "builderTaskId": "project-1:factory-m1",
         "projectId": "project-1",
         "branchName": "factory-m1",
+        "builderUrl": "https://builder.example.test/branches/factory-m1",
         "repository": "example-org/example-repo"
       }
     },
@@ -2152,6 +2368,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -2173,7 +2405,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -2235,6 +2467,7 @@
         "builderTaskId": "project-1:factory-m1",
         "projectId": "project-1",
         "branchName": "factory-m1",
+        "builderUrl": "https://builder.example.test/branches/factory-m1",
         "repository": "example-org/example-repo"
       }
     },
@@ -2342,6 +2575,22 @@
               "projectId": "project-1",
               "branchName": "factory-m1",
               "userEmail": "reporter-1@example.test",
+              "reports": [
+                {
+                  "id": "m1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout button does nothing",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000100",
+                  "author": "reporter-1@example.test",
+                  "occurredAt": "2026-10-19T11:50:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000100"
+                  },
+                  "extras": {}
+                }
+              ],
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -2363,7 +2612,7 @@
             "fields": {
               "channel": "C0FEEDBACK",
               "threadTs": "1760000000.000100",
-              "text": "Builder has started work on m1. We will report back when it is merged."
+              "text": "Builder has started work on \"Checkout button does nothing\". We will report back when it is merged."
             },
             "receipt": {
               "status": "done",
@@ -2390,6 +2639,7 @@
         "builderTaskId": "project-1:factory-m1",
         "projectId": "project-1",
         "branchName": "factory-m1",
+        "builderUrl": "https://builder.example.test/branches/factory-m1",
         "repository": "example-org/example-repo"
       }
     },
@@ -2461,6 +2711,318 @@
         "effect@notifyOwner",
         "ended@manual:needsManual"
       ]
+    }
+  },
+  "the-task-carries-the-reports-own-words-whatever-the-model-wrote": {
+    "ticks": [
+      {
+        "label": "the report arrives",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 3 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1,
+          "slack.replyInThread": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:148e8f8790f8d7",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-d1",
+              "userEmail": "reporter-4@example.test",
+              "reports": [
+                {
+                  "id": "d1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Bug: the comment delete dialog works out thread vs single comment from the live thread list, so…",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000400",
+                  "author": "reporter-4@example.test",
+                  "occurredAt": "2026-10-19T11:58:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000400"
+                  },
+                  "extras": { "authorLabel": "Slack user Jordan" }
+                }
+              ],
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Investigate and fix the dialog-copy regression reported by Jordan. The available report identifies a dialog-copy regression but does not include the dialog name, the incorrect text, or the expected wording, so first locate the affected dialog and establish the actual-versus-expected copy from the report or the code; do not guess at the wording. Add a regression test that fails before the fix and passes after it. In the pull request description, include a `### Verified` heading with before and after screenshots."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-d1",
+              "url": "https://builder.example.test/branches/factory-d1"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "d1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000400",
+              "text": "Builder has started work on \"Bug: the comment delete dialog works out thread vs single comment from the live thread list, so…\". We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["d1"] },
+          { "node": "group", "mode": "perItem", "items": ["d1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:148e8f8790f8d7"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "d1": "automation_started" },
+    "recorded": {
+      "d1": {
+        "builderTaskId": "project-1:factory-d1",
+        "projectId": "project-1",
+        "branchName": "factory-d1",
+        "builderUrl": "https://builder.example.test/branches/factory-d1",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "group:byGroup:148e8f8790f8d7": [
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ],
+      "d1": ["decision@route:route:clear", "effect@tell", "ended@handed:done"]
+    }
+  },
+  "three-reports-of-one-defect-make-one-task-that-names-all-three": {
+    "ticks": [
+      {
+        "label": "three reports of one defect arrive",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 3, "done": 3, "modelCalls": 3 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 3, "ports": { "out": 3 } },
+          "byGroup": { "in": 3, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 3 } },
+          "group": { "in": 3, "ports": { "out": 3 } },
+          "handed": { "in": 3, "ports": {} },
+          "openTasks": { "in": 3, "ports": { "out": 3 } },
+          "reports": { "in": 1, "ports": { "out": 3 } },
+          "route": { "in": 3, "ports": { "route:clear": 3 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 3, "ports": { "out": 3 } },
+          "thread": { "in": 3, "ports": { "out": 3 } }
+        },
+        "calls": {
+          "slack.readThread": 3,
+          "factory.listItems": 3,
+          "builder.start": 1,
+          "slack.replyInThread": 3
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:d2a1c944fabb",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-p1",
+              "userEmail": "reporter-5@example.test",
+              "reports": [
+                {
+                  "id": "p1",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Pay button does nothing on checkout",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000501",
+                  "author": "reporter-5@example.test",
+                  "occurredAt": "2026-10-19T11:51:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000501"
+                  },
+                  "extras": { "authorLabel": "Slack user Ada" }
+                },
+                {
+                  "id": "p2",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Pay button is dead on mobile too",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000502",
+                  "author": "reporter-6@example.test",
+                  "occurredAt": "2026-10-19T11:52:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000502"
+                  },
+                  "extras": { "authorLabel": "Slack user Bo" }
+                },
+                {
+                  "id": "p3",
+                  "kind": "message",
+                  "provider": "slack",
+                  "title": "Checkout: Pay does not respond",
+                  "url": "https://slack.example.test/archives/C0FEEDBACK/p1760000000000503",
+                  "author": "reporter-7@example.test",
+                  "occurredAt": "2026-10-19T11:53:00.000Z",
+                  "thread": {
+                    "channelId": "C0FEEDBACK",
+                    "threadTs": "1760000000.000503"
+                  },
+                  "extras": { "authorLabel": "Slack user Cy" }
+                }
+              ],
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-p1",
+              "url": "https://builder.example.test/branches/factory-p1"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "p1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000501",
+              "text": "Builder has started work on \"Pay button does nothing on checkout\". We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "p2",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000502",
+              "text": "Builder has started work on \"Pay button is dead on mobile too\". We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000002"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "p3",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000503",
+              "text": "Builder has started work on \"Checkout: Pay does not respond\". We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000003",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000003"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["p1", "p2", "p3"] },
+          { "node": "group", "mode": "perItem", "items": ["p1", "p2", "p3"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:d2a1c944fabb"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {
+      "p1": "automation_started",
+      "p2": "automation_started",
+      "p3": "automation_started"
+    },
+    "recorded": {
+      "p1": {
+        "builderTaskId": "project-1:factory-p1",
+        "projectId": "project-1",
+        "branchName": "factory-p1",
+        "builderUrl": "https://builder.example.test/branches/factory-p1",
+        "repository": "example-org/example-repo"
+      },
+      "p2": {
+        "builderTaskId": "project-1:factory-p1",
+        "projectId": "project-1",
+        "branchName": "factory-p1",
+        "builderUrl": "https://builder.example.test/branches/factory-p1",
+        "repository": "example-org/example-repo"
+      },
+      "p3": {
+        "builderTaskId": "project-1:factory-p1",
+        "projectId": "project-1",
+        "branchName": "factory-p1",
+        "builderUrl": "https://builder.example.test/branches/factory-p1",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "group:byGroup:d2a1c944fabb": [
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ],
+      "p1": ["decision@route:route:clear", "effect@tell", "ended@handed:done"],
+      "p2": ["decision@route:route:clear", "effect@tell", "ended@handed:done"],
+      "p3": ["decision@route:route:clear", "effect@tell", "ended@handed:done"]
     }
   }
 }
