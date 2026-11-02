@@ -206,6 +206,42 @@ describe("a Toggle's title as page text", () => {
     ]);
   });
 
+  it("keeps the body when Enter replaces part of a closed title", () => {
+    const editor = createEditor([titled("Title", false, [paragraph("Body")])]);
+    editor.commands.setTextSelection({ from: 3, to: 5 });
+    press(editor, { key: "Enter" });
+
+    expect(editor.getJSON().content).toEqual([
+      titled("T", false, [paragraph("Body")]),
+      titled("le", false),
+    ]);
+  });
+
+  it("keeps the title when Backspace starts a title out of place", () => {
+    const editor = createEditor([
+      {
+        ...titled("Plan", true),
+        content: [
+          {
+            type: "notionToggleSummary",
+            content: [{ type: "text", text: "Plan" }],
+          },
+          {
+            type: "notionToggleSummary",
+            content: [{ type: "text", text: "Other" }],
+          },
+        ],
+      },
+    ]);
+    editor.commands.setTextSelection(8);
+    press(editor, { key: "Backspace" });
+
+    expect(JSON.stringify(editor.getJSON())).toContain("Plan");
+    expect(JSON.stringify(editor.getJSON())).toContain("Other");
+    expect(editor.state.doc.childCount).toBe(1);
+    expect(editor.state.doc.firstChild?.type.name).toBe("notionToggle");
+  });
+
   it("turns an empty Toggle into a paragraph on Enter", () => {
     const editor = createEditor([titled("", true)]);
     editor.commands.setTextSelection(2);

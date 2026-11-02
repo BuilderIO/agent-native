@@ -222,7 +222,10 @@ interface ToggleTitleContext {
   titleStart: number;
 }
 
-/** The Toggle whose title holds the selection, when the whole selection is in one title. */
+/**
+ * The Toggle whose title holds the selection, when the whole selection is in
+ * its title. A title out of place, waiting on repairStrayTitles, is just a line.
+ */
 export function toggleTitleAtSelection(
   state: EditorState,
 ): ToggleTitleContext | null {
@@ -232,6 +235,7 @@ export function toggleTitleAtSelection(
   }
   if (!$from.sameParent($to)) return null;
   const toggleDepth = $from.depth - 1;
+  if ($from.index(toggleDepth) !== 0) return null;
   return {
     togglePos: $from.before(toggleDepth),
     toggle: $from.node(toggleDepth),
@@ -535,7 +539,8 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   const summary = (node.attrs.summary || "") as string;
   const isEditable = editor.isEditable && !suggesting;
   // Browsers won't select text inside a draggable element, and someone who
-  // can't edit has to select a Toggle's text to comment on it.
+  // can't edit has to select a Toggle's text to comment on it. A titled Toggle
+  // moves by its drag handle alone, like any line of text.
   const dragProps = isEditable
     ? { draggable: true, "data-drag-handle": "" }
     : {};
@@ -760,7 +765,6 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
         data-color={node.attrs.color || undefined}
         data-heading-level={node.attrs.headingLevel || undefined}
         data-nfm-indent={normalizeIndentAttr(node.attrs.indent) || undefined}
-        {...dragProps}
       >
         <button
           type="button"

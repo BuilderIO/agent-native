@@ -72,7 +72,7 @@ describe("Toggles while suggesting", () => {
     vi.unstubAllGlobals();
   });
 
-  async function mount(suggesting: boolean, editable = true) {
+  async function mount(suggesting: boolean, editable = true, content = PAGE) {
     await act(async () =>
       root.render(
         createElement(
@@ -85,7 +85,7 @@ describe("Toggles while suggesting", () => {
               QueryClientProvider,
               { client: queryClient },
               createElement(VisualEditor, {
-                content: PAGE,
+                content,
                 onChange: vi.fn(),
                 ydoc: null,
                 editable,
@@ -164,6 +164,22 @@ describe("Toggles while suggesting", () => {
       expect(toggle?.hasAttribute("data-drag-handle")).toBe(drags);
     },
   );
+
+  it("moves a titled Toggle only by its drag handle", async () => {
+    await mount(
+      false,
+      true,
+      [
+        '<details markdown="1">',
+        "<summary>Toggle title</summary>",
+        "\tHidden text",
+        "</details>",
+      ].join("\n"),
+    );
+    const toggle = container.querySelector(".content-toggle--titled");
+    expect(toggle).not.toBeNull();
+    expect(toggle?.hasAttribute("draggable")).toBe(false);
+  });
 
   it("stores the open state outside suggesting", async () => {
     const editor = await mount(false);
