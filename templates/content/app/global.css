@@ -632,10 +632,11 @@
   content: counter(content-list-counter, lower-roman) ".";
 }
 
-.content-editor ul:not(.content-task-list) > li > ul,
-.content-editor ul:not(.content-task-list) > li > ol,
-.content-editor ol > li > ul,
-.content-editor ol > li > ol {
+/* Every block in an item goes in the text column, not only nested lists. A
+   second paragraph or a code block left to auto-placement lands under the
+   marker, and the marker's auto track widens to fit it, squeezing the text. */
+.content-editor ul:not(.content-task-list) > li > *,
+.content-editor ol > li > * {
   grid-column: 2;
 }
 
