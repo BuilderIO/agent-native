@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+
 import { normalizeProviderTranscript } from "./provider-transcript.js";
 
 const CHUNK_TRANSCRIPTION_CONCURRENCY = 3;
@@ -114,7 +116,11 @@ export async function transcribeAudioChunks<C extends TimedChunk>({
     throw new ChunkTranscriptionError(index, chunks.length, error, completed);
   }
   return results.map((result) => {
-    if (!result) throw new Error("Transcript chunk result is missing.");
+    if (!result)
+      fail("Transcript chunk result is missing.", {
+        errorCode: "transcript_chunk_result_missing",
+        statusCode: 500,
+      });
     return result;
   });
 }

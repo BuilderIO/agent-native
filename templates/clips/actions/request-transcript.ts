@@ -1479,8 +1479,12 @@ const requestTranscriptAction = defineAction({
                   (_, chunkIndex) => chunkIndex === index,
                 );
                 if (!chunk)
-                  throw new Error(
+                  fail(
                     "Completed transcript chunk is missing its audio range.",
+                    {
+                      errorCode: "transcript_chunk_range_missing",
+                      statusCode: 500,
+                    },
                   );
                 return chunk;
               }),

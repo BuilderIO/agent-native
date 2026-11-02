@@ -303,7 +303,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   };
 
   const hasPartialTranscript =
-    status === "failed" && displaySegments.length > 0;
+    (status === "failed" || status === "pending") && displaySegments.length > 0;
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
@@ -335,7 +335,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "pending") {
+  if (status === "pending" && !hasPartialTranscript) {
     return withImport(
       <div className="p-4 text-sm text-muted-foreground flex items-start gap-2">
         <IconLoader2 className="h-4 w-4 animate-spin mt-0.5 shrink-0" />
@@ -410,11 +410,17 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {hasPartialTranscript && audience !== "viewer" && builderCreditsPaused ? (
+      {status === "failed" &&
+      hasPartialTranscript &&
+      audience !== "viewer" &&
+      builderCreditsPaused ? (
         <div className="p-4">
           <BuilderCreditsPausedNotice {...(onRetry ? { onRetry } : {})} />
         </div>
-      ) : hasPartialTranscript && audience !== "viewer" && needsSetup ? (
+      ) : status === "failed" &&
+        hasPartialTranscript &&
+        audience !== "viewer" &&
+        needsSetup ? (
         <TranscriptSetupCard
           {...(failureReason !== undefined ? { failureReason } : {})}
           {...(onRetry ? { onRetry } : {})}
@@ -425,8 +431,19 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           className="flex items-center justify-between gap-2 border-b border-border p-3 text-sm text-muted-foreground"
           role="status"
         >
-          <span>{t("transcriptPanel.partialTranscript")}</span>
-          {audience !== "viewer" &&
+          <div>
+            {status === "pending" ? (
+              <span className="flex items-center gap-2">
+                <IconLoader2 className="size-4 animate-spin" />
+                {t("transcriptPanel.transcribing")}
+              </span>
+            ) : null}
+            {status === "failed" ? (
+              <span>{t("transcriptPanel.partialTranscript")}</span>
+            ) : null}
+          </div>
+          {status === "failed" &&
+          audience !== "viewer" &&
           onRetry &&
           !builderCreditsPaused &&
           !needsSetup ? (

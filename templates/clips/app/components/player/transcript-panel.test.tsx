@@ -203,6 +203,28 @@ describe("TranscriptPanel no-audio failures", () => {
     expect(container.textContent).not.toContain("transcriptPanel.regenerate");
   });
 
+  it("keeps captured text visible while retrying transcription", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[
+              { startMs: 0, endMs: 1000, text: "Captured first part." },
+            ]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="pending"
+          />
+        </TooltipProvider>,
+      );
+    });
+    expect(container.textContent).toContain("Captured first part.");
+    expect(container.textContent).toContain("transcriptPanel.transcribing");
+    expect(container.textContent).not.toContain(
+      "transcriptPanel.partialTranscript",
+    );
+  });
+
   it("keeps provider failures styled as errors", () => {
     act(() => {
       root.render(
