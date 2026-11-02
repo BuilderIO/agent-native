@@ -72,6 +72,7 @@ const notion = vi.hoisted(() => ({
   getConnection: vi.fn(),
   requireConnection: vi.fn(),
   fetchPage: vi.fn(),
+  createPage: vi.fn(),
   readPage: vi.fn(),
   pushPage: vi.fn(),
   owner: vi.fn(),
@@ -82,6 +83,7 @@ vi.mock("../server/lib/notion.js", async (importOriginal) => ({
   getNotionConnectionForOwner: notion.getConnection,
   requireNotionConnectionForOwner: notion.requireConnection,
   fetchNotionPage: notion.fetchPage,
+  createNotionPageWithMarkdown: notion.createPage,
   readNotionPageAsDocument: notion.readPage,
   pushDocumentToNotionPage: notion.pushPage,
   getDocumentOwnerEmail: notion.owner,
@@ -1637,6 +1639,44 @@ describe("a lock turned on just before a write takes the page's row", () => {
     });
   });
 
+  it("lets a linked file's page follow the file that already took the edit", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Some text");
+      await getDb()
+        .update(schema.documents)
+        .set({
+          sourceMode: "local-files",
+          sourceKind: "file",
+          sourcePath: "notes/linked.md",
+        })
+        .where(eq(schema.documents.id, page.id));
+      const linkedLocal = await import("./_linked-local-document-edit.js");
+      const fileEdit = vi
+        .spyOn(linkedLocal, "editLinkedLocalDocumentThroughBrowser")
+        .mockImplementationOnce(async () => ({
+          status: "persisted",
+          content: "Changed text",
+          title: page.title,
+          path: "notes/linked.md",
+          runtime: "browser",
+        }));
+      beforeRowLock.run = lockInTransaction(page.id);
+      try {
+        await editDocument.run(
+          { id: page.id, find: "Some", replace: "Changed" },
+          {
+            ...person,
+            requestHeaders: new Headers({ authorization: "Bearer token" }),
+          },
+        );
+        expect(fileEdit).toHaveBeenCalledTimes(1);
+        expect((await readPage(page.id)).content).toBe("Changed text");
+      } finally {
+        fileEdit.mockRestore();
+      }
+    });
+  });
+
   it("stops an agent refreshing a local file's copy, and a person's lands", async () => {
     await asOwner(async () => {
       const id = "content_agent_lock_local_file";
@@ -1821,6 +1861,31 @@ describe("Notion's text reaching a locked page", () => {
     await setLock.run({ id, locked: true }, person);
     return remote(content);
   };
+
+  it("tells an agent when a lock stops the pull after create-and-link made the page", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Keep this");
+      notion.createPage.mockResolvedValueOnce({ id: remoteId("3") });
+      notion.readPage.mockImplementationOnce(
+        lockThenAnswer(page.id, "Notion text"),
+      );
+
+      await expect(
+        createAndLinkNotion.run(
+          { documentId: page.id, parentPageIdOrUrl: remoteId("4") },
+          agent,
+        ),
+      ).rejects.toMatchObject({
+        ...locked,
+        message: expect.stringContaining(
+          `Created Notion page ${remoteId("3")}`,
+        ),
+      });
+
+      expect((await readLink(page.id)).remotePageId).toBe(remoteId("3"));
+      expect((await readPage(page.id)).content).toBe(page.content);
+    });
+  });
 
   beforeEach(() => {
     for (const mock of Object.values(notion)) mock.mockReset();

@@ -616,7 +616,10 @@ export default defineAction({
           routed: !isLinkedLocalSource,
           content: null,
         });
-        await assertAgentsMayEditPagesText(tx, [id], ctx);
+        // A linked file has already taken the edit, so its page follows it.
+        if (!isLinkedLocalSource) {
+          await assertAgentsMayEditPagesText(tx, [id], ctx);
+        }
         const mirrored = await tx
           .update(schema.documents)
           .set({

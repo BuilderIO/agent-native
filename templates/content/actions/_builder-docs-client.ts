@@ -52,6 +52,7 @@ import {
 import {
   assertAgentsMayEditPagesText,
   type CallProvenance,
+  isAgentCall,
   isAgentTextLockRefusal,
 } from "./_document-agent-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
@@ -1100,6 +1101,36 @@ export async function checkBuilderDocsSource(args: {
   };
 }
 
+/**
+ * An agent's push can carry whatever text it supplies, and the page's next pull
+ * would bring that back, so a locked page's Builder entry is out of its reach.
+ */
+async function assertAgentMayPushBuilderEntry(args: {
+  documentId?: string | null | undefined;
+  model: string;
+  entryId: string;
+  ctx: CallProvenance | undefined;
+}) {
+  if (!isAgentCall(args.ctx)) return;
+  const ownerEmail = getRequestUserEmail();
+  const following = ownerEmail
+    ? await findBuilderDocumentBySource({
+        ownerEmail,
+        orgId: getRequestOrgId() ?? null,
+        model: args.model,
+        entryId: args.entryId,
+      })
+    : null;
+  await assertAgentsMayEditPagesText(
+    getDb(),
+    [
+      ...(args.documentId ? [args.documentId] : []),
+      ...(following ? [following.id] : []),
+    ],
+    args.ctx,
+  );
+}
+
 export async function pushBuilderDocsSource(args: {
   documentId?: string | null;
   path?: string | null;
@@ -1155,6 +1186,12 @@ export async function pushBuilderDocsSource(args: {
     };
   }
 
+  await assertAgentMayPushBuilderEntry({
+    documentId: args.documentId,
+    model: resolved.mdx.metadata.model,
+    entryId: resolved.mdx.metadata.entryId,
+    ctx: args.ctx,
+  });
   // A push writes Builder's copy of the body back to the page.
   if (args.documentId) {
     await assertLegacyBodyWriter(args.documentId, {

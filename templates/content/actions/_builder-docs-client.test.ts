@@ -910,12 +910,84 @@ describe("Builder docs on a page locked against agents", () => {
     ).resolves.toMatchObject({ documentId, dryRun: true });
   });
 
-  it("takes an agent's push to Builder, and the page keeps its own text", async () => {
+  it("refuses an agent's push before it reaches Builder", async () => {
     const { safeEntry, bundle } = await seedPushableBuilderDocument();
     documentResource = { ...documentResource, agentTextLocked: 1 };
     const page = { ...documentResource };
+    const pushAction = (await import("./push-builder-doc.js")).default;
+    vi.stubGlobal("fetch", mcpFetchForEntry(safeEntry));
+
+    await expect(
+      pushAction.run(
+        { documentId: bundle.mdx.documentId, dryRun: false },
+        agent,
+      ),
+    ).rejects.toMatchObject(locked);
+    expect(builderWriteMock.executeBuilderCmsWrite).not.toHaveBeenCalled();
+    expect(documentResource).toEqual(page);
+  });
+
+  it("refuses an agent's own files for an entry a locked page follows", async () => {
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
+    documentResource = { ...documentResource, agentTextLocked: 1 };
+    const pushAction = (await import("./push-builder-doc.js")).default;
+    vi.stubGlobal("fetch", mcpFetchForEntry(safeEntry));
+
+    await expect(
+      pushAction.run({ files: bundle.files, dryRun: false }, agent),
+    ).rejects.toMatchObject(locked);
+    expect(builderWriteMock.executeBuilderCmsWrite).not.toHaveBeenCalled();
+  });
+
+  it("refuses an agent's own files for another entry when it names a locked page", async () => {
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
+    documentResource = { ...documentResource, agentTextLocked: 1 };
+    const otherEntry = { ...safeEntry, id: "builder-entry-other" };
+    const other = await builderEntryToMdxBundle(otherEntry);
+    const pushAction = (await import("./push-builder-doc.js")).default;
+    vi.stubGlobal("fetch", mcpFetchForEntry(otherEntry));
+
+    await expect(
+      pushAction.run(
+        {
+          documentId: bundle.mdx.documentId,
+          files: other.files,
+          dryRun: false,
+        },
+        agent,
+      ),
+    ).rejects.toMatchObject(locked);
+    expect(builderWriteMock.executeBuilderCmsWrite).not.toHaveBeenCalled();
+  });
+
+  it("still previews a push for an agent", async () => {
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
+    documentResource = { ...documentResource, agentTextLocked: 1 };
+    const pushAction = (await import("./push-builder-doc.js")).default;
+    vi.stubGlobal("fetch", mcpFetchForEntry(safeEntry));
+
+    await expect(
+      pushAction.run(
+        { documentId: bundle.mdx.documentId, dryRun: true },
+        agent,
+      ),
+    ).resolves.toMatchObject({ dryRun: true, executed: false });
+  });
+
+  it("keeps the page's text when a lock arrives during an agent's push", async () => {
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
     const sidecars = [...sidecarRows];
     const pushAction = (await import("./push-builder-doc.js")).default;
+    const page = { ...documentResource, agentTextLocked: 1 };
+    builderWriteMock.executeBuilderCmsWrite.mockImplementationOnce(async () => {
+      documentResource = { ...documentResource, agentTextLocked: 1 };
+      return {
+        ok: true,
+        status: 200,
+        entryId: safeEntry.id,
+        responseBody: { id: safeEntry.id },
+      };
+    });
     vi.stubGlobal(
       "fetch",
       mcpFetchForEntries([safeEntry, changedEntry(safeEntry)]),

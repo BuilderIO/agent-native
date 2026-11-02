@@ -1716,14 +1716,17 @@ export async function createAndLinkNotionPage(
   try {
     return await pullDocumentFromNotion(owner, documentId, true, { ctx });
   } catch (error) {
-    if (isUnsupportedBodyWriter(error)) {
-      // The page took its live copy after the check above, once Notion had
-      // the new page. The link to it stays, so a retry doesn't make another.
+    const lockRefused = isAgentTextLockRefusal(error);
+    if (lockRefused || isUnsupportedBodyWriter(error)) {
+      // The page took its lock or live copy after the check above, once Notion
+      // had the new page. The link to it stays, so a retry doesn't make another.
       throw new ActionContractError(
-        `Created Notion page ${newPage.id} from page ${documentId} and linked it, but the page now takes body writes through its live copy, so it can't take Notion's copy of its body yet.`,
+        lockRefused
+          ? `Created Notion page ${newPage.id} from page ${documentId} and linked it, but a person has since locked the page's text against agents, so it keeps its own body.`
+          : `Created Notion page ${newPage.id} from page ${documentId} and linked it, but the page now takes body writes through its live copy, so it can't take Notion's copy of its body yet.`,
         {
           errorCode: error.errorCode,
-          statusCode: 409,
+          statusCode: lockRefused ? 403 : 409,
           details: {
             documentId,
             operation: "Notion link",
