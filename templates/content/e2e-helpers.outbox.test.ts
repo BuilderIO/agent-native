@@ -4,7 +4,10 @@ import { compileFunction, createContext } from "node:vm";
 import type { BrowserContext, Page } from "@playwright/test";
 import { expect, it, vi } from "vitest";
 
-vi.hoisted(() => vi.stubEnv("CONTENT_LIVE_BODY_GATE", "on"));
+vi.hoisted(() => {
+  vi.stubEnv("CONTENT_LIVE_BODY_GATE", "on");
+  vi.stubEnv("DATABASE_URL", "");
+});
 
 vi.mock("@playwright/test", async () => {
   const vitest = await import("vitest");
@@ -16,6 +19,7 @@ vi.mock("@playwright/test", async () => {
         interval: 1,
       });
   return {
+    test: { info: () => ({ attach: async () => {} }) },
     expect: Object.assign(
       (actual: unknown, message?: string) => {
         if (actual && typeof actual === "object" && "getAttribute" in actual) {
@@ -51,9 +55,38 @@ import { failNextOutboxWrite, outboxEntries, TabSet } from "./e2e/helpers";
 // The keys the collab client stores unsent updates under: today's client
 // writes v2, and an entry an older client left under v1 is still restored.
 const DOC_ID = "outbox-fixture";
-const KEY_TAIL = `${encodeURIComponent(`http://fixture.invalid\0${DOC_ID}`)}:${encodeURIComponent("ada@example.com")}:connection-1`;
-const V1_KEY = `agent-native-collab-outbox-v1:${KEY_TAIL}`;
-const V2_KEY = `agent-native-collab-outbox-v2:${KEY_TAIL}`;
+const BASE_URL = "http://fixture.invalid";
+const EMAIL = "ada@example.com";
+const V1 = "agent-native-collab-outbox-v1:";
+const V2 = "agent-native-collab-outbox-v2:";
+
+/** A key as the client builds it: its encoded registry key, email and owner. */
+function outboxKey(prefix: string, registryKey: string, owner: string) {
+  return `${prefix}${encodeURIComponent(registryKey)}:${encodeURIComponent(EMAIL)}:${owner}`;
+}
+
+const V1_KEY = outboxKey(
+  V1,
+  `${BASE_URL}\0${DOC_ID}\0${EMAIL}`,
+  "connection-1",
+);
+const V2_KEY = outboxKey(
+  V2,
+  `${BASE_URL}\0${DOC_ID}\0${EMAIL}`,
+  "connection-1",
+);
+// Registry keys once ended at the doc id, before they named the actor.
+const ACTORLESS_KEY = outboxKey(V1, `${BASE_URL}\0${DOC_ID}`, "connection-0");
+const LONGER_ID_KEY = outboxKey(
+  V2,
+  `${BASE_URL}\0${DOC_ID}-2\0${EMAIL}`,
+  "connection-2",
+);
+const OTHER_PAGE_KEY = outboxKey(
+  V2,
+  `${BASE_URL}\0other-page\0${EMAIL}`,
+  "connection-3",
+);
 const V2_RECORD = JSON.stringify({
   version: 2,
   updates: [{ update: "AAA=", requireLiveCopyOutcome: false }],
@@ -159,6 +192,23 @@ it("still counts a v1 outbox entry an older client left", async () => {
 
   await expect(outboxEntries(asPage, DOC_ID)).resolves.toEqual([V1_KEY]);
   await expect(tabs.quiet()).rejects.toThrow(QUIET_FAILURE);
+});
+
+it("counts only this page's entries, with or without the actor in the key", async () => {
+  const { tabs, page, asPage } = await fixture();
+  page.localStorage.setItem(LONGER_ID_KEY, V2_RECORD);
+  page.localStorage.setItem(OTHER_PAGE_KEY, V2_RECORD);
+
+  await expect(outboxEntries(asPage, DOC_ID)).resolves.toEqual([]);
+  await expect(
+    tabs.waitForTypingSaved(asPage, DOC_ID),
+  ).resolves.toBeUndefined();
+
+  page.localStorage.setItem(ACTORLESS_KEY, "AAA=");
+  await expect(outboxEntries(asPage, DOC_ID)).resolves.toEqual([ACTORLESS_KEY]);
+  await expect(tabs.waitForTypingSaved(asPage, DOC_ID)).rejects.toThrow(
+    "outbox should empty once its updates are answered",
+  );
 });
 
 it("passes once nothing is waiting in the outbox", async () => {

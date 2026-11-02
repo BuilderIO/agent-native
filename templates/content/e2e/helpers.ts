@@ -1261,17 +1261,19 @@ export async function outboxEntries(
         if (
           key &&
           prefixes.some((prefix) => key.startsWith(prefix)) &&
-          key.includes(doc) &&
+          (key.includes(`${doc}%00`) || key.includes(`${doc}:`)) &&
           localStorage.getItem(key)
         )
           keys.push(key);
       }
       return keys;
     },
-    // A key names the doc as encodeURIComponent(`${baseUrl}\0${docId}`).
+    // A key is the prefix, encodeURIComponent(`${baseUrl}\0${docId}\0${actor}`),
+    // then `:${email}:${owner}`; older clients left out the actor. The doc id
+    // must end at `%00` or `:`, so a page whose id extends it does not match.
     {
       prefixes: COLLAB_OUTBOX_PREFIXES,
-      doc: `%00${encodeURIComponent(documentId)}:`,
+      doc: `%00${encodeURIComponent(documentId)}`,
     },
   );
 }
