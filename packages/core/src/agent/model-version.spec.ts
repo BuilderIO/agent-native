@@ -186,6 +186,28 @@ describe("normalizeModelForEngine", () => {
       BUILDER_MODEL_CONFIG.defaultModel,
     );
   });
+
+  it("moves saved Groq models that Groq shut down to their replacements", () => {
+    const groqEngine = {
+      name: "ai-sdk:groq",
+      defaultModel: "openai/gpt-oss-120b",
+      supportedModels: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
+      acceptsCustomModels: true,
+    };
+
+    expect(normalizeModelForEngine(groqEngine, "llama-3.3-70b-versatile")).toBe(
+      "openai/gpt-oss-120b",
+    );
+    expect(normalizeModelForEngine(groqEngine, "llama-3.1-8b-instant")).toBe(
+      "openai/gpt-oss-20b",
+    );
+    expect(normalizeModelForEngine(groqEngine, "llama3-8b-8192")).toBe(
+      "openai/gpt-oss-20b",
+    );
+    expect(normalizeModelForEngine(groqEngine, "qwen/qwen3-32b")).toBe(
+      "qwen/qwen3-32b",
+    );
+  });
 });
 
 describe("getModelOptionLabel", () => {
