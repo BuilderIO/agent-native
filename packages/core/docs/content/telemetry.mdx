@@ -56,7 +56,7 @@ It prints once per machine. It doesn't print in CI or when telemetry is off. CI 
 
 ## What is sent
 
-Events go to Agent-Native's own analytics service at `analytics.agent-native.com`, with a write-only key that is public in the CLI's source. Sending never holds up a command: it gives up after a moment if the network is slow.
+Events go to Agent-Native's own analytics service at `analytics.agent-native.com`, with a write-only key that is public in the CLI's source. Sending can hold up a command for at most 1.5 seconds, then gives up if the network is slow.
 
 Each event has a name, a timestamp, the machine ID and the run ID, plus these properties. The docs test in `packages/core/src/cli/telemetry.spec.ts` fails if a property the CLI can send is missing from this page.
 
@@ -112,29 +112,29 @@ These events follow `skills add` and `npx @agent-native/skills`, so we can see w
 
 When a command fails, the `$exception` event reports what broke in Agent-Native's code, and nothing about your code:
 
-| Property           | What it is                                                                                                                                                                                    |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | The error's type, such as `TypeError`.                                                                                                                                                        |
-| `exceptionCode`    | The error's code, such as `ENOENT`, when it has one.                                                                                                                                          |
-| `exceptionMessage` | A short hint. Agent-Native's own known errors send their fixed text. Any other message sends at most its first 20 characters, cut at the first character that isn't a letter, digit or space. |
-| `exceptionStack`   | The stack frames in Agent-Native's own files, with paths relative to the package. Every other frame is removed.                                                                               |
-| `handled`          | `false` when the error stopped the command.                                                                                                                                                   |
-| `level`            | The severity.                                                                                                                                                                                 |
-| `occurredAt`       | When it happened.                                                                                                                                                                             |
-| `release`          | The CLI's version.                                                                                                                                                                            |
-| `app`              | Always `agent-native-cli`.                                                                                                                                                                    |
-| `template`         | Always `cli`.                                                                                                                                                                                 |
-| `runtime`          | Always `cli`.                                                                                                                                                                                 |
-| `source`           | Always `cli`.                                                                                                                                                                                 |
-| `exceptionTags`    | Where the failure happened; see below.                                                                                                                                                        |
-| `exceptionExtra`   | How the failure ended; see below.                                                                                                                                                             |
+| Property           | What it is                                                                                                                                                                                            |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | The error's type, such as `TypeError`.                                                                                                                                                                |
+| `exceptionCode`    | The error's code, such as `ENOENT`, when it has one.                                                                                                                                                  |
+| `exceptionMessage` | A short hint. Agent-Native's own known errors send their fixed text. Any other message sends only its opening words, up to 20 characters, stopping at the first word with anything but letters in it. |
+| `exceptionStack`   | The stack frames in Agent-Native's own files, with paths relative to the package. Every other frame is removed.                                                                                       |
+| `handled`          | `false` when the error stopped the command.                                                                                                                                                           |
+| `level`            | The severity.                                                                                                                                                                                         |
+| `occurredAt`       | When it happened.                                                                                                                                                                                     |
+| `release`          | The CLI's version.                                                                                                                                                                                    |
+| `app`              | Always `agent-native-cli`.                                                                                                                                                                            |
+| `template`         | Always `cli`.                                                                                                                                                                                         |
+| `runtime`          | Always `cli`.                                                                                                                                                                                         |
+| `source`           | Always `cli`.                                                                                                                                                                                         |
+| `exceptionTags`    | Where the failure happened; see below.                                                                                                                                                                |
+| `exceptionExtra`   | How the failure ended; see below.                                                                                                                                                                     |
 
 Those two fields hold only these values:
 
 - `exceptionTags`: `source` (the part of the CLI that failed), `buildStep` (one of our build step names), `template` (only one of our own template names), `command` and `handled` (a label for the check that reported it).
 - `exceptionExtra`: `exitCode` and `signal` (how a build step exited), `stage` and `durationMs`.
 
-The hint is the start of the message, so a message that opens with a word of yours could carry up to 20 characters of it. A path can't get through, because the hint ends at its first slash.
+The hint is the start of the message, so a message that opens with a plain word of yours, such as a project name, could carry that word. A path, URL, email or token can't get through, because any word holding a digit, underscore, slash or other symbol ends the hint, and so does a word too long to fit.
 
 ### Sentry
 
@@ -151,6 +151,6 @@ If `@sentry/node` is installed alongside `@agent-native/core`, crashes and faile
 - Raw error messages, or stack frames from your code
 - Any ID for your project
 
-The one limit on this list is the crash hint described above, which can carry the first word of an error message.
+The one limit on this list is the crash hint described above, which can carry the opening words of an error message.
 
 The service receiving an event can see the request's IP address, as any web server can. The CLI doesn't put it in an event.

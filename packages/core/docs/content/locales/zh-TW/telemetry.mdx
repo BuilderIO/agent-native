@@ -56,7 +56,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ## 傳送的內容 {#what-is-sent}
 
-事件傳送到 Agent-Native 自己的分析服務 `analytics.agent-native.com`，使用一個唯寫金鑰，該金鑰在 CLI 原始碼中公開。傳送絕不會拖慢命令：網路較慢時，稍等片刻就會放棄。
+事件傳送到 Agent-Native 自己的分析服務 `analytics.agent-native.com`，使用一個唯寫金鑰，該金鑰在 CLI 原始碼中公開。傳送最多會讓命令等待 1.5 秒，網路較慢時隨後就會放棄。
 
 每個事件都有名稱、時間戳記、機器 ID 和執行 ID，以及以下屬性。如果 CLI 可傳送的某個屬性沒有出現在本頁的英文版中，`packages/core/src/cli/telemetry.spec.ts` 中的測試就會失敗。
 
@@ -112,29 +112,29 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 命令失敗時，`$exception` 事件會回報 Agent-Native 的程式碼中出了什麼問題，不涉及你的程式碼：
 
-| 屬性               | 含義                                                                                                                          |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | 錯誤類型，例如 `TypeError`。                                                                                                  |
-| `exceptionCode`    | 錯誤代碼，例如 `ENOENT`（如果有）。                                                                                           |
-| `exceptionMessage` | 簡短提示。Agent-Native 自己的已知錯誤傳送其固定文字。其他訊息最多傳送前 20 個字元，並在第一個非字母、數字或空格的字元處截斷。 |
-| `exceptionStack`   | Agent-Native 自身檔案中的堆疊框架，路徑相對於套件。其他所有框架都會被移除。                                                   |
-| `handled`          | 錯誤使命令停止時為 `false`。                                                                                                  |
-| `level`            | 嚴重程度。                                                                                                                    |
-| `occurredAt`       | 發生時間。                                                                                                                    |
-| `release`          | CLI 的版本。                                                                                                                  |
-| `app`              | 一律為 `agent-native-cli`。                                                                                                   |
-| `template`         | 一律為 `cli`。                                                                                                                |
-| `runtime`          | 一律為 `cli`。                                                                                                                |
-| `source`           | 一律為 `cli`。                                                                                                                |
-| `exceptionTags`    | 失敗發生的位置；見下文。                                                                                                      |
-| `exceptionExtra`   | 失敗的結束方式；見下文。                                                                                                      |
+| 屬性               | 含義                                                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | 錯誤類型，例如 `TypeError`。                                                                                                        |
+| `exceptionCode`    | 錯誤代碼，例如 `ENOENT`（如果有）。                                                                                                 |
+| `exceptionMessage` | 簡短提示。Agent-Native 自己的已知錯誤傳送其固定文字。其他訊息只傳送開頭的詞，最多 20 個字元，並在第一個含有字母以外內容的詞處停止。 |
+| `exceptionStack`   | Agent-Native 自身檔案中的堆疊框架，路徑相對於套件。其他所有框架都會被移除。                                                         |
+| `handled`          | 錯誤使命令停止時為 `false`。                                                                                                        |
+| `level`            | 嚴重程度。                                                                                                                          |
+| `occurredAt`       | 發生時間。                                                                                                                          |
+| `release`          | CLI 的版本。                                                                                                                        |
+| `app`              | 一律為 `agent-native-cli`。                                                                                                         |
+| `template`         | 一律為 `cli`。                                                                                                                      |
+| `runtime`          | 一律為 `cli`。                                                                                                                      |
+| `source`           | 一律為 `cli`。                                                                                                                      |
+| `exceptionTags`    | 失敗發生的位置；見下文。                                                                                                            |
+| `exceptionExtra`   | 失敗的結束方式；見下文。                                                                                                            |
 
 這兩個欄位只包含以下值：
 
 - `exceptionTags`：`source`（失敗的 CLI 部分）、`buildStep`（我們的建置步驟名稱之一）、`template`（僅限我們自己的範本名稱）、`command` 和 `handled`（回報它的檢查的標籤）。
 - `exceptionExtra`：`exitCode` 和 `signal`（建置步驟的結束方式）、`stage` 和 `durationMs`。
 
-提示是訊息的開頭，因此以你的某個詞開頭的訊息可能帶上其中最多 20 個字元。路徑無法通過，因為提示在第一個斜線處結束。
+提示是訊息的開頭，因此以你的某個普通詞（例如專案名稱）開頭的訊息可能帶上這個詞。路徑、URL、電子郵件或權杖無法通過，因為任何含有數字、底線、斜線或其他符號的詞都會結束提示，過長的詞也一樣。
 
 ### Sentry {#sentry}
 
@@ -151,6 +151,6 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 - 原始錯誤訊息，或你的程式碼的堆疊框架
 - 你的專案的任何 ID
 
-這份清單唯一的例外是上文介紹的當機提示，它可能帶上錯誤訊息的第一個詞。
+這份清單唯一的例外是上文介紹的當機提示，它可能帶上錯誤訊息開頭的幾個詞。
 
 接收事件的服務可以看到請求的 IP 位址，任何 Web 伺服器都是如此。CLI 不會將其放入事件中。

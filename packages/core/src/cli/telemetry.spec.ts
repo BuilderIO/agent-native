@@ -336,6 +336,29 @@ describe("CLI telemetry", () => {
       );
     });
 
+    it.each([
+      ["a GitHub token", "ghp_abcdefghij1234567890", "Error"],
+      ["a Stripe key", "sk_live_abcdefghij rejected", "Error"],
+      ["an AWS key ID", "AKIAIOSFODNN7EXAMPLE rejected", "Error"],
+      ["an email", "ada@example.com is invalid", "Error"],
+      [
+        "a letters-only run too long to fit",
+        "abcdefghijklmnopqrstuvwxyz",
+        "Error",
+      ],
+      ["a token after plain words", "Bad token ghp_abc123", "Bad token"],
+      ["a Windows path", "Failed to open C:\\Users\\ada", "Failed to open"],
+      ["a credential pair", "ada:hunter is invalid", "Error"],
+      ["what follows a label", "Build failed: acme secret", "Build failed"],
+      ["a word cut by the limit", "Cannot read properties of x", "Cannot read"],
+    ])("keeps %s out of the hint", async (_label, message, hint) => {
+      (await newRun()).captureException(new Error(message));
+
+      expect(sentExceptions(fetchMock)[0].properties.exceptionMessage).toBe(
+        hint,
+      );
+    });
+
     it("falls back to the type when the message starts with a path", async () => {
       (await newRun()).captureException(new TypeError("/home/ada/acme: nope"));
 

@@ -56,7 +56,7 @@ Na primeira vez que um comando enviaria algo em uma máquina, ele imprime isto e
 
 ## O que é enviado {#what-is-sent}
 
-Os eventos vão para o serviço de análise do próprio Agent-Native em `analytics.agent-native.com`, com uma chave somente de escrita que é pública no código-fonte da CLI. O envio nunca atrasa um comando: ele desiste depois de um instante se a rede estiver lenta.
+Os eventos vão para o serviço de análise do próprio Agent-Native em `analytics.agent-native.com`, com uma chave somente de escrita que é pública no código-fonte da CLI. O envio pode atrasar um comando por no máximo 1,5 segundo e depois desiste se a rede estiver lenta.
 
 Cada evento tem um nome, um carimbo de data/hora, o ID da máquina e o ID da execução, além destas propriedades. O teste em `packages/core/src/cli/telemetry.spec.ts` falha se faltar na versão em inglês desta página uma propriedade que a CLI possa enviar.
 
@@ -112,29 +112,29 @@ Estes eventos acompanham `skills add` e `npx @agent-native/skills`, para vermos 
 
 Quando um comando falha, o evento `$exception` informa o que quebrou no código do Agent-Native, e nada sobre o seu código:
 
-| Propriedade        | O que é                                                                                                                                                                                                                       |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | O tipo do erro, como `TypeError`.                                                                                                                                                                                             |
-| `exceptionCode`    | O código do erro, como `ENOENT`, quando houver.                                                                                                                                                                               |
-| `exceptionMessage` | Uma dica curta. Os erros conhecidos do próprio Agent-Native enviam seu texto fixo. Qualquer outra mensagem envia no máximo seus primeiros 20 caracteres, cortados no primeiro caractere que não seja letra, dígito ou espaço. |
-| `exceptionStack`   | Os quadros de pilha dos arquivos do próprio Agent-Native, com caminhos relativos ao pacote. Todos os outros quadros são removidos.                                                                                            |
-| `handled`          | `false` quando o erro interrompeu o comando.                                                                                                                                                                                  |
-| `level`            | A gravidade.                                                                                                                                                                                                                  |
-| `occurredAt`       | Quando aconteceu.                                                                                                                                                                                                             |
-| `release`          | A versão da CLI.                                                                                                                                                                                                              |
-| `app`              | Sempre `agent-native-cli`.                                                                                                                                                                                                    |
-| `template`         | Sempre `cli`.                                                                                                                                                                                                                 |
-| `runtime`          | Sempre `cli`.                                                                                                                                                                                                                 |
-| `source`           | Sempre `cli`.                                                                                                                                                                                                                 |
-| `exceptionTags`    | Onde a falha aconteceu; veja abaixo.                                                                                                                                                                                          |
-| `exceptionExtra`   | Como a falha terminou; veja abaixo.                                                                                                                                                                                           |
+| Propriedade        | O que é                                                                                                                                                                                                                          |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | O tipo do erro, como `TypeError`.                                                                                                                                                                                                |
+| `exceptionCode`    | O código do erro, como `ENOENT`, quando houver.                                                                                                                                                                                  |
+| `exceptionMessage` | Uma dica curta. Os erros conhecidos do próprio Agent-Native enviam seu texto fixo. Qualquer outra mensagem envia apenas suas primeiras palavras, até 20 caracteres, e para na primeira palavra que contenha algo além de letras. |
+| `exceptionStack`   | Os quadros de pilha dos arquivos do próprio Agent-Native, com caminhos relativos ao pacote. Todos os outros quadros são removidos.                                                                                               |
+| `handled`          | `false` quando o erro interrompeu o comando.                                                                                                                                                                                     |
+| `level`            | A gravidade.                                                                                                                                                                                                                     |
+| `occurredAt`       | Quando aconteceu.                                                                                                                                                                                                                |
+| `release`          | A versão da CLI.                                                                                                                                                                                                                 |
+| `app`              | Sempre `agent-native-cli`.                                                                                                                                                                                                       |
+| `template`         | Sempre `cli`.                                                                                                                                                                                                                    |
+| `runtime`          | Sempre `cli`.                                                                                                                                                                                                                    |
+| `source`           | Sempre `cli`.                                                                                                                                                                                                                    |
+| `exceptionTags`    | Onde a falha aconteceu; veja abaixo.                                                                                                                                                                                             |
+| `exceptionExtra`   | Como a falha terminou; veja abaixo.                                                                                                                                                                                              |
 
 Esses dois campos contêm apenas estes valores:
 
 - `exceptionTags`: `source` (a parte da CLI que falhou), `buildStep` (um dos nossos nomes de etapa de build), `template` (apenas um dos nossos nomes de modelo), `command` e `handled` (um rótulo da verificação que informou).
 - `exceptionExtra`: `exitCode` e `signal` (como uma etapa de build terminou), `stage` e `durationMs`.
 
-A dica é o início da mensagem, então uma mensagem que comece com uma palavra sua pode levar até 20 caracteres dela. Um caminho não passa, porque a dica termina na primeira barra.
+A dica é o início da mensagem, então uma mensagem que comece com uma palavra simples sua, como o nome de um projeto, pode levar essa palavra. Um caminho, URL, e-mail ou token não passa, porque qualquer palavra com dígito, sublinhado, barra ou outro símbolo encerra a dica, assim como uma palavra longa demais.
 
 ### Sentry {#sentry}
 
@@ -151,6 +151,6 @@ Se `@sentry/node` estiver instalado junto com `@agent-native/core`, falhas e bui
 - Mensagens de erro brutas ou quadros de pilha do seu código
 - Nenhum ID do seu projeto
 
-O único limite desta lista é a dica de falha descrita acima, que pode levar a primeira palavra de uma mensagem de erro.
+O único limite desta lista é a dica de falha descrita acima, que pode levar as primeiras palavras de uma mensagem de erro.
 
 O serviço que recebe um evento pode ver o endereço IP da solicitação, como qualquer servidor web. A CLI não o coloca em nenhum evento.

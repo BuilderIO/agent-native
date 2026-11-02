@@ -56,7 +56,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ## 보내는 내용 {#what-is-sent}
 
-이벤트는 `analytics.agent-native.com`에 있는 Agent-Native 자체 분석 서비스로 전송되며, CLI 소스에 공개된 쓰기 전용 키를 사용합니다. 전송 때문에 명령이 지연되는 일은 없습니다. 네트워크가 느리면 잠시 후 포기합니다.
+이벤트는 `analytics.agent-native.com`에 있는 Agent-Native 자체 분석 서비스로 전송되며, CLI 소스에 공개된 쓰기 전용 키를 사용합니다. 전송 때문에 명령이 지연되는 시간은 최대 1.5초이며, 네트워크가 느리면 그 후 포기합니다.
 
 각 이벤트에는 이름, 타임스탬프, 머신 ID, 실행 ID와 다음 속성이 있습니다. CLI가 보낼 수 있는 속성이 이 페이지의 영어 버전에 없으면 `packages/core/src/cli/telemetry.spec.ts`의 테스트가 실패합니다.
 
@@ -112,29 +112,29 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 명령이 실패하면 `$exception` 이벤트가 Agent-Native 코드에서 무엇이 잘못되었는지 보고하며, 사용자 코드에 대해서는 아무것도 보고하지 않습니다.
 
-| 속성               | 설명                                                                                                                                                         |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `exceptionType`    | `TypeError` 같은 오류 유형.                                                                                                                                  |
-| `exceptionCode`    | `ENOENT` 같은 오류 코드(있는 경우).                                                                                                                          |
-| `exceptionMessage` | 짧은 힌트. Agent-Native 자체의 알려진 오류는 고정 텍스트를 보냅니다. 그 밖의 메시지는 처음 최대 20자를 보내며, 문자, 숫자, 공백이 아닌 첫 글자에서 잘립니다. |
-| `exceptionStack`   | Agent-Native 자체 파일의 스택 프레임으로, 경로는 패키지 기준 상대 경로입니다. 다른 프레임은 모두 제거됩니다.                                                 |
-| `handled`          | 오류로 명령이 중단되면 `false`.                                                                                                                              |
-| `level`            | 심각도.                                                                                                                                                      |
-| `occurredAt`       | 발생 시각.                                                                                                                                                   |
-| `release`          | CLI 버전.                                                                                                                                                    |
-| `app`              | 항상 `agent-native-cli`.                                                                                                                                     |
-| `template`         | 항상 `cli`.                                                                                                                                                  |
-| `runtime`          | 항상 `cli`.                                                                                                                                                  |
-| `source`           | 항상 `cli`.                                                                                                                                                  |
-| `exceptionTags`    | 실패가 발생한 위치. 아래를 참고하세요.                                                                                                                       |
-| `exceptionExtra`   | 실패가 끝난 방식. 아래를 참고하세요.                                                                                                                         |
+| 속성               | 설명                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | `TypeError` 같은 오류 유형.                                                                                                                                         |
+| `exceptionCode`    | `ENOENT` 같은 오류 코드(있는 경우).                                                                                                                                 |
+| `exceptionMessage` | 짧은 힌트. Agent-Native 자체의 알려진 오류는 고정 텍스트를 보냅니다. 그 밖의 메시지는 첫 단어들만 최대 20자까지 보내며, 문자 외의 것이 포함된 첫 단어에서 멈춥니다. |
+| `exceptionStack`   | Agent-Native 자체 파일의 스택 프레임으로, 경로는 패키지 기준 상대 경로입니다. 다른 프레임은 모두 제거됩니다.                                                        |
+| `handled`          | 오류로 명령이 중단되면 `false`.                                                                                                                                     |
+| `level`            | 심각도.                                                                                                                                                             |
+| `occurredAt`       | 발생 시각.                                                                                                                                                          |
+| `release`          | CLI 버전.                                                                                                                                                           |
+| `app`              | 항상 `agent-native-cli`.                                                                                                                                            |
+| `template`         | 항상 `cli`.                                                                                                                                                         |
+| `runtime`          | 항상 `cli`.                                                                                                                                                         |
+| `source`           | 항상 `cli`.                                                                                                                                                         |
+| `exceptionTags`    | 실패가 발생한 위치. 아래를 참고하세요.                                                                                                                              |
+| `exceptionExtra`   | 실패가 끝난 방식. 아래를 참고하세요.                                                                                                                                |
 
 이 두 필드에는 다음 값만 들어 있습니다.
 
 - `exceptionTags`: `source`(실패한 CLI 부분), `buildStep`(저희 빌드 단계 이름 중 하나), `template`(저희 템플릿 이름만), `command`, `handled`(보고한 검사의 레이블).
 - `exceptionExtra`: `exitCode`와 `signal`(빌드 단계가 종료된 방식), `stage`, `durationMs`.
 
-힌트는 메시지의 시작 부분이므로, 사용자의 단어로 시작하는 메시지는 그 단어를 최대 20자까지 포함할 수 있습니다. 힌트는 첫 슬래시에서 끝나므로 경로는 포함될 수 없습니다.
+힌트는 메시지의 시작 부분이므로, 프로젝트 이름처럼 사용자의 평범한 단어로 시작하는 메시지는 그 단어를 포함할 수 있습니다. 경로, URL, 이메일, 토큰은 포함될 수 없습니다. 숫자, 밑줄, 슬래시 또는 기타 기호가 들어 있는 단어에서 힌트가 끝나고, 너무 긴 단어에서도 끝나기 때문입니다.
 
 ### Sentry {#sentry}
 
@@ -151,6 +151,6 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 - 원본 오류 메시지 또는 사용자 코드의 스택 프레임
 - 프로젝트 ID
 
-이 목록의 유일한 예외는 위에서 설명한 크래시 힌트로, 오류 메시지의 첫 단어를 포함할 수 있습니다.
+이 목록의 유일한 예외는 위에서 설명한 크래시 힌트로, 오류 메시지의 첫 단어들을 포함할 수 있습니다.
 
 이벤트를 받는 서비스는 여느 웹 서버와 마찬가지로 요청의 IP 주소를 볼 수 있습니다. CLI는 이를 이벤트에 넣지 않습니다.

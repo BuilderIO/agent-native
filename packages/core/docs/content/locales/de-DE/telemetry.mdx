@@ -56,7 +56,7 @@ Der Hinweis erscheint einmal pro Rechner. Er erscheint nicht in CI oder bei abge
 
 ## Was gesendet wird {#what-is-sent}
 
-Ereignisse gehen an den eigenen Analysedienst von Agent-Native unter `analytics.agent-native.com`, mit einem reinen Schreibschlüssel, der im Quellcode der CLI öffentlich ist. Das Senden hält keinen Befehl auf: Bei langsamem Netzwerk gibt es nach kurzer Zeit auf.
+Ereignisse gehen an den eigenen Analysedienst von Agent-Native unter `analytics.agent-native.com`, mit einem reinen Schreibschlüssel, der im Quellcode der CLI öffentlich ist. Das Senden kann einen Befehl höchstens 1,5 Sekunden aufhalten und gibt danach auf, wenn das Netzwerk langsam ist.
 
 Jedes Ereignis hat einen Namen, einen Zeitstempel, die Rechner-ID und die Lauf-ID sowie diese Eigenschaften. Der Test in `packages/core/src/cli/telemetry.spec.ts` schlägt fehl, wenn in der englischen Fassung dieser Seite eine Eigenschaft fehlt, die die CLI senden kann.
 
@@ -112,29 +112,29 @@ Diese Ereignisse begleiten `skills add` und `npx @agent-native/skills`, damit wi
 
 Wenn ein Befehl fehlschlägt, meldet das Ereignis `$exception`, was im Code von Agent-Native kaputtging, und nichts über Ihren Code:
 
-| Eigenschaft        | Was sie ist                                                                                                                                                                                                                                        |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | Der Fehlertyp, etwa `TypeError`.                                                                                                                                                                                                                   |
-| `exceptionCode`    | Der Fehlercode, etwa `ENOENT`, falls vorhanden.                                                                                                                                                                                                    |
-| `exceptionMessage` | Ein kurzer Hinweis. Eigene bekannte Fehler von Agent-Native senden ihren festen Text. Jede andere Nachricht sendet höchstens ihre ersten 20 Zeichen, abgeschnitten beim ersten Zeichen, das kein Buchstabe, keine Ziffer und kein Leerzeichen ist. |
-| `exceptionStack`   | Die Stack-Frames in den eigenen Dateien von Agent-Native, mit Pfaden relativ zum Paket. Alle anderen Frames werden entfernt.                                                                                                                       |
-| `handled`          | `false`, wenn der Fehler den Befehl gestoppt hat.                                                                                                                                                                                                  |
-| `level`            | Der Schweregrad.                                                                                                                                                                                                                                   |
-| `occurredAt`       | Wann es passiert ist.                                                                                                                                                                                                                              |
-| `release`          | Die Version der CLI.                                                                                                                                                                                                                               |
-| `app`              | Immer `agent-native-cli`.                                                                                                                                                                                                                          |
-| `template`         | Immer `cli`.                                                                                                                                                                                                                                       |
-| `runtime`          | Immer `cli`.                                                                                                                                                                                                                                       |
-| `source`           | Immer `cli`.                                                                                                                                                                                                                                       |
-| `exceptionTags`    | Wo der Fehler aufgetreten ist; siehe unten.                                                                                                                                                                                                        |
-| `exceptionExtra`   | Wie der Fehler geendet hat; siehe unten.                                                                                                                                                                                                           |
+| Eigenschaft        | Was sie ist                                                                                                                                                                                                                             |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | Der Fehlertyp, etwa `TypeError`.                                                                                                                                                                                                        |
+| `exceptionCode`    | Der Fehlercode, etwa `ENOENT`, falls vorhanden.                                                                                                                                                                                         |
+| `exceptionMessage` | Ein kurzer Hinweis. Eigene bekannte Fehler von Agent-Native senden ihren festen Text. Jede andere Nachricht sendet nur ihre ersten Wörter, höchstens 20 Zeichen, und stoppt beim ersten Wort, das etwas anderes als Buchstaben enthält. |
+| `exceptionStack`   | Die Stack-Frames in den eigenen Dateien von Agent-Native, mit Pfaden relativ zum Paket. Alle anderen Frames werden entfernt.                                                                                                            |
+| `handled`          | `false`, wenn der Fehler den Befehl gestoppt hat.                                                                                                                                                                                       |
+| `level`            | Der Schweregrad.                                                                                                                                                                                                                        |
+| `occurredAt`       | Wann es passiert ist.                                                                                                                                                                                                                   |
+| `release`          | Die Version der CLI.                                                                                                                                                                                                                    |
+| `app`              | Immer `agent-native-cli`.                                                                                                                                                                                                               |
+| `template`         | Immer `cli`.                                                                                                                                                                                                                            |
+| `runtime`          | Immer `cli`.                                                                                                                                                                                                                            |
+| `source`           | Immer `cli`.                                                                                                                                                                                                                            |
+| `exceptionTags`    | Wo der Fehler aufgetreten ist; siehe unten.                                                                                                                                                                                             |
+| `exceptionExtra`   | Wie der Fehler geendet hat; siehe unten.                                                                                                                                                                                                |
 
 Diese beiden Felder enthalten nur diese Werte:
 
 - `exceptionTags`: `source` (der fehlgeschlagene Teil der CLI), `buildStep` (einer unserer Build-Schrittnamen), `template` (nur einer unserer eigenen Vorlagennamen), `command` und `handled` (eine Bezeichnung für die Prüfung, die es gemeldet hat).
 - `exceptionExtra`: `exitCode` und `signal` (wie ein Build-Schritt beendet wurde), `stage` und `durationMs`.
 
-Der Hinweis ist der Anfang der Nachricht, eine Nachricht, die mit einem Ihrer Wörter beginnt, könnte also bis zu 20 Zeichen davon enthalten. Ein Pfad kommt nicht durch, weil der Hinweis beim ersten Schrägstrich endet.
+Der Hinweis ist der Anfang der Nachricht, eine Nachricht, die mit einem einfachen Wort von Ihnen beginnt, etwa einem Projektnamen, könnte dieses Wort also enthalten. Ein Pfad, eine URL, eine E-Mail-Adresse oder ein Token kommt nicht durch, denn jedes Wort mit einer Ziffer, einem Unterstrich, einem Schrägstrich oder einem anderen Symbol beendet den Hinweis, ebenso ein Wort, das zu lang ist.
 
 ### Sentry {#sentry}
 
@@ -151,6 +151,6 @@ Wenn `@sentry/node` neben `@agent-native/core` installiert ist, gehen Abstürze 
 - Unveränderte Fehlermeldungen oder Stack-Frames aus Ihrem Code
 - Eine ID für Ihr Projekt
 
-Die einzige Einschränkung dieser Liste ist der oben beschriebene Absturzhinweis, der das erste Wort einer Fehlermeldung enthalten kann.
+Die einzige Einschränkung dieser Liste ist der oben beschriebene Absturzhinweis, der die ersten Wörter einer Fehlermeldung enthalten kann.
 
 Der Dienst, der ein Ereignis empfängt, kann wie jeder Webserver die IP-Adresse der Anfrage sehen. Die CLI schreibt sie nicht in ein Ereignis.

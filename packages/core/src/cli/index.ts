@@ -366,9 +366,8 @@ function inferFirstPartyTemplate(cwd: string): string | undefined {
   const segs = cwd.split(path.sep);
   let template: string | undefined;
   for (let i = 0; i < segs.length - 1; i++) {
-    if (segs[i] === "templates" && getTemplate(segs[i + 1])) {
-      template = segs[i + 1];
-    }
+    const next = segs[i + 1];
+    if (segs[i] === "templates" && next && getTemplate(next)) template = next;
   }
   return template;
 }

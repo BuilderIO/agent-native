@@ -1,4 +1,9 @@
-import type { ErrorEvent, EventHint, StackFrame } from "@sentry/node";
+import type {
+  ErrorEvent,
+  EventHint,
+  Exception,
+  StackFrame,
+} from "@sentry/node";
 
 import {
   loadOptionalPeer,
@@ -53,15 +58,30 @@ function ownFrames(frames: StackFrame[] | undefined): StackFrame[] {
   for (const frame of frames ?? []) {
     const filename = ownFilePath(frame.filename);
     if (!filename) continue;
-    kept.push({
-      filename,
-      function: ownFrameFunction(frame.function),
-      lineno: frame.lineno,
-      colno: frame.colno,
-      in_app: true,
-    });
+    const own: StackFrame = { filename, in_app: true };
+    const name = ownFrameFunction(frame.function);
+    if (name) own.function = name;
+    if (frame.lineno !== undefined) own.lineno = frame.lineno;
+    if (frame.colno !== undefined) own.colno = frame.colno;
+    kept.push(own);
   }
   return kept;
+}
+
+function safeException(value: Exception, original: unknown): Exception {
+  const type = safeErrorName(value.type);
+  const safe: Exception = {
+    type,
+    value: errorHint(original ?? value.value) || type,
+    stacktrace: { frames: ownFrames(value.stacktrace?.frames) },
+  };
+  if (value.mechanism) {
+    safe.mechanism = { type: value.mechanism.type };
+    if (value.mechanism.handled !== undefined) {
+      safe.mechanism.handled = value.mechanism.handled;
+    }
+  }
+  return safe;
 }
 
 // Fixed, because the SDK would otherwise read SENTRY_ENVIRONMENT, which can hold
@@ -79,28 +99,13 @@ export function sanitizeSentryEvent(
 ): ErrorEvent {
   const original = hint?.originalException;
   const code = errorCode(original);
-  return {
+  const safe: ErrorEvent = {
     type: undefined,
-    event_id: event.event_id,
-    timestamp: event.timestamp,
-    platform: event.platform,
-    level: event.level,
-    release: event.release,
     environment: SENTRY_ENVIRONMENT,
-    sdk: event.sdk,
     exception: {
-      values: event.exception?.values?.map((value) => {
-        const type = safeErrorName(value.type);
-        return {
-          type,
-          value: errorHint(original ?? value.value) || type,
-          mechanism: value.mechanism && {
-            type: value.mechanism.type,
-            handled: value.mechanism.handled,
-          },
-          stacktrace: { frames: ownFrames(value.stacktrace?.frames) },
-        };
-      }),
+      values: (event.exception?.values ?? []).map((value) =>
+        safeException(value, original),
+      ),
     },
     tags: {
       ...pickSafeFields(event.tags, CLI_EXCEPTION_TAGS),
@@ -110,6 +115,13 @@ export function sanitizeSentryEvent(
       platform: process.platform,
     },
   };
+  if (event.event_id) safe.event_id = event.event_id;
+  if (event.timestamp) safe.timestamp = event.timestamp;
+  if (event.platform) safe.platform = event.platform;
+  if (event.level) safe.level = event.level;
+  if (event.release) safe.release = event.release;
+  if (event.sdk) safe.sdk = event.sdk;
+  return safe;
 }
 
 function loadSentry(stderr: ErrorOutput): Promise<SentryModule | undefined> {

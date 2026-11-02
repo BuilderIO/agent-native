@@ -86,14 +86,16 @@ const ERROR_NAME_RE = /^[A-Za-z_$][\w$.]{0,99}$/;
 const ERROR_CODE_RE = /^[A-Z][A-Z0-9_]{1,63}$/;
 const FRAME_RE = /^\s*at (?:(.+?) \()?(.+?):(\d+):(\d+)\)?$/;
 const FRAME_FUNCTION_RE = /^[\w$.<> ]+$/;
+const PLAIN_WORD_RE = /^[A-Za-z]+$/;
 
 /** An error whose message is fixed text we wrote, so it is safe to report whole. */
 export class KnownCliError extends Error {}
 
 /**
- * The message of a known error, or else at most the first 20 characters of the
- * message, cut at the first character that is not a letter, digit or space. A
- * path, URL or quoted name ends the hint before any of it gets through.
+ * The message of a known error, or else the message's opening words, up to 20
+ * characters. A word holding anything but letters ends the hint, and so does one
+ * that would run past the limit, so no part of a path, URL, email or token gets
+ * through. A colon may close the last word, to keep the label of "Label: detail".
  */
 export function errorHint(error: unknown): string {
   if (error instanceof KnownCliError) {
@@ -105,8 +107,15 @@ export function errorHint(error: unknown): string {
       : typeof error === "string"
         ? error
         : "";
-  const words = message.match(/^(?:\w| )+/)?.[0] ?? "";
-  return words.slice(0, MAX_HINT_LENGTH).trim();
+  let hint = "";
+  for (const word of message.split(" ")) {
+    const letters = word.endsWith(":") ? word.slice(0, -1) : word;
+    const next = hint ? `${hint} ${letters}` : letters;
+    if (!PLAIN_WORD_RE.test(letters) || next.length > MAX_HINT_LENGTH) break;
+    hint = next;
+    if (letters !== word) break;
+  }
+  return hint;
 }
 
 export function safeErrorName(name: string | undefined): string {

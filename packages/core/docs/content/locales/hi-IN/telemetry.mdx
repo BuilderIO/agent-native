@@ -56,7 +56,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 ## क्या भेजा जाता है {#what-is-sent}
 
-Events `analytics.agent-native.com` पर Agent-Native की अपनी analytics सेवा को जाते हैं, एक write-only key के साथ जो CLI के source में सार्वजनिक है। भेजने से कोई कमांड कभी नहीं रुकता: नेटवर्क धीमा हो तो यह कुछ पलों बाद छोड़ देता है।
+Events `analytics.agent-native.com` पर Agent-Native की अपनी analytics सेवा को जाते हैं, एक write-only key के साथ जो CLI के source में सार्वजनिक है। भेजने से कोई कमांड अधिकतम 1.5 सेकंड तक रुक सकता है, फिर नेटवर्क धीमा हो तो यह छोड़ देता है।
 
 हर event में एक नाम, timestamp, मशीन ID और run ID होती है, साथ में ये properties। `packages/core/src/cli/telemetry.spec.ts` का test तब fail होता है जब CLI की भेजी जा सकने वाली कोई property इस पेज के अंग्रेज़ी संस्करण में न हो।
 
@@ -112,29 +112,29 @@ Events `analytics.agent-native.com` पर Agent-Native की अपनी anal
 
 जब कोई कमांड विफल होता है, तो `$exception` event बताता है कि Agent-Native के कोड में क्या टूटा, और आपके कोड के बारे में कुछ नहीं:
 
-| Property           | यह क्या है                                                                                                                                                                                      |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `exceptionType`    | Error का प्रकार, जैसे `TypeError`।                                                                                                                                                              |
-| `exceptionCode`    | Error का code, जैसे `ENOENT`, अगर हो।                                                                                                                                                           |
-| `exceptionMessage` | एक छोटा संकेत। Agent-Native की अपनी ज्ञात errors अपना तय टेक्स्ट भेजती हैं। कोई भी अन्य संदेश अधिकतम अपने पहले 20 अक्षर भेजता है, जो पहले ऐसे अक्षर पर कट जाते हैं जो अक्षर, अंक या स्पेस न हो। |
-| `exceptionStack`   | Agent-Native की अपनी फ़ाइलों के stack frames, package के सापेक्ष paths के साथ। बाकी सभी frames हटा दिए जाते हैं।                                                                                |
-| `handled`          | `false` जब error ने कमांड को रोक दिया।                                                                                                                                                          |
-| `level`            | गंभीरता।                                                                                                                                                                                        |
-| `occurredAt`       | यह कब हुआ।                                                                                                                                                                                      |
-| `release`          | CLI का version।                                                                                                                                                                                 |
-| `app`              | हमेशा `agent-native-cli`।                                                                                                                                                                       |
-| `template`         | हमेशा `cli`।                                                                                                                                                                                    |
-| `runtime`          | हमेशा `cli`।                                                                                                                                                                                    |
-| `source`           | हमेशा `cli`।                                                                                                                                                                                    |
-| `exceptionTags`    | विफलता कहाँ हुई; नीचे देखें।                                                                                                                                                                    |
-| `exceptionExtra`   | विफलता कैसे समाप्त हुई; नीचे देखें।                                                                                                                                                             |
+| Property           | यह क्या है                                                                                                                                                                                                        |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | Error का प्रकार, जैसे `TypeError`।                                                                                                                                                                                |
+| `exceptionCode`    | Error का code, जैसे `ENOENT`, अगर हो।                                                                                                                                                                             |
+| `exceptionMessage` | एक छोटा संकेत। Agent-Native की अपनी ज्ञात errors अपना तय टेक्स्ट भेजती हैं। कोई भी अन्य संदेश केवल अपने शुरुआती शब्द भेजता है, अधिकतम 20 अक्षर, और उस पहले शब्द पर रुक जाता है जिसमें अक्षरों के अलावा कुछ और हो। |
+| `exceptionStack`   | Agent-Native की अपनी फ़ाइलों के stack frames, package के सापेक्ष paths के साथ। बाकी सभी frames हटा दिए जाते हैं।                                                                                                  |
+| `handled`          | `false` जब error ने कमांड को रोक दिया।                                                                                                                                                                            |
+| `level`            | गंभीरता।                                                                                                                                                                                                          |
+| `occurredAt`       | यह कब हुआ।                                                                                                                                                                                                        |
+| `release`          | CLI का version।                                                                                                                                                                                                   |
+| `app`              | हमेशा `agent-native-cli`।                                                                                                                                                                                         |
+| `template`         | हमेशा `cli`।                                                                                                                                                                                                      |
+| `runtime`          | हमेशा `cli`।                                                                                                                                                                                                      |
+| `source`           | हमेशा `cli`।                                                                                                                                                                                                      |
+| `exceptionTags`    | विफलता कहाँ हुई; नीचे देखें।                                                                                                                                                                                      |
+| `exceptionExtra`   | विफलता कैसे समाप्त हुई; नीचे देखें।                                                                                                                                                                               |
 
 इन दो fields में केवल ये वैल्यू होती हैं:
 
 - `exceptionTags`: `source` (CLI का वह हिस्सा जो विफल हुआ), `buildStep` (हमारे build step नामों में से एक), `template` (केवल हमारे अपने template नामों में से एक), `command` और `handled` (रिपोर्ट करने वाली जाँच का लेबल)।
 - `exceptionExtra`: `exitCode` और `signal` (build step कैसे समाप्त हुआ), `stage` और `durationMs`।
 
-संकेत संदेश की शुरुआत है, इसलिए आपके किसी शब्द से शुरू होने वाला संदेश उसके अधिकतम 20 अक्षर ले जा सकता है। कोई path नहीं जा सकता, क्योंकि संकेत पहले slash पर समाप्त हो जाता है।
+संकेत संदेश की शुरुआत है, इसलिए आपके किसी सादे शब्द, जैसे project के नाम, से शुरू होने वाला संदेश वह शब्द ले जा सकता है। कोई path, URL, email या token नहीं जा सकता, क्योंकि अंक, underscore, slash या किसी अन्य चिह्न वाला कोई भी शब्द संकेत को वहीं समाप्त कर देता है, और बहुत लंबा शब्द भी।
 
 ### Sentry {#sentry}
 
@@ -151,6 +151,6 @@ Events `analytics.agent-native.com` पर Agent-Native की अपनी anal
 - मूल error संदेश, या आपके कोड के stack frames
 - आपके प्रोजेक्ट की कोई ID
 
-इस सूची की एकमात्र सीमा ऊपर बताया गया crash संकेत है, जो error संदेश का पहला शब्द ले जा सकता है।
+इस सूची की एकमात्र सीमा ऊपर बताया गया crash संकेत है, जो error संदेश के शुरुआती शब्द ले जा सकता है।
 
 Event प्राप्त करने वाली सेवा request का IP पता देख सकती है, जैसा कोई भी web server देख सकता है। CLI इसे किसी event में नहीं डालता।
