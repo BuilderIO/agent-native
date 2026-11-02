@@ -1475,7 +1475,9 @@ const requestTranscriptAction = defineAction({
           if (chunkErr.completed.length) {
             partialTranscript = joinChunkTranscripts(
               chunkErr.completed.map(({ index }) => {
-                const chunk = audioMedia.chunks.at(index);
+                const chunk = audioMedia.chunks.find(
+                  (_, chunkIndex) => chunkIndex === index,
+                );
                 if (!chunk)
                   throw new Error(
                     "Completed transcript chunk is missing its audio range.",
@@ -1531,11 +1533,17 @@ const requestTranscriptAction = defineAction({
     if (preserved) return preserved;
 
     const reason =
-      partialTranscript?.fullText || existingNativeTranscript?.fullText?.trim()
-        ? "Transcription did not finish. The available transcript is incomplete."
-        : builderError
-          ? "No native transcript was captured, and Builder transcription could not finish. Retry transcription or check Builder connection and recording audio."
-          : "No transcript was captured by native speech recognition, and Builder transcription is not configured.";
+      builderError && isBuilderCreditsExhaustedMessage(builderError)
+        ? "Builder credits exhausted."
+        : !builderError
+          ? partialTranscript?.fullText ||
+            existingNativeTranscript?.fullText?.trim()
+            ? "The available transcript is incomplete, and Builder transcription is not configured."
+            : "No transcript was captured by native speech recognition, and Builder transcription is not configured."
+          : partialTranscript?.fullText ||
+              existingNativeTranscript?.fullText?.trim()
+            ? "Transcription did not finish. The available transcript is incomplete."
+            : "No native transcript was captured, and Builder transcription could not finish. Retry transcription or check Builder connection and recording audio.";
     const cloudTransient = builderError
       ? isTransientTranscriptionError(new Error(builderError))
       : false;

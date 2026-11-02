@@ -19,6 +19,14 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 
 vi.mock("@agent-native/toolkit/app/settings", () => ({
   openBuilderConnectPopup: vi.fn(),
+  BuilderConnectPopover: ({ children }: { children: React.ReactNode }) =>
+    children,
+  useBuilderConnectFlow: () => ({
+    statusResolved: true,
+    configured: false,
+    connecting: false,
+    error: null,
+  }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -134,6 +142,65 @@ describe("TranscriptPanel no-audio failures", () => {
     expect(container.textContent).toContain(
       "transcriptPanel.partialTranscript",
     );
+  });
+
+  it.each([
+    ["Builder credits exhausted.", "builderCredits.pausedTitle"],
+    [
+      "No transcription provider configured.",
+      "transcriptPanel.enableTranscriptionTitle",
+    ],
+  ])(
+    "shows recovery guidance alongside a partial transcript for %s",
+    (failureReason, expected) => {
+      act(() => {
+        root.render(
+          <TooltipProvider>
+            <TranscriptPanel
+              segments={[
+                { startMs: 0, endMs: 1000, text: "Captured first part." },
+              ]}
+              currentMs={0}
+              onSeek={vi.fn()}
+              status="failed"
+              failureReason={failureReason}
+              onRetry={vi.fn()}
+            />
+          </TooltipProvider>,
+        );
+      });
+      expect(container.textContent).toContain("Captured first part.");
+      expect(container.textContent).toContain(
+        "transcriptPanel.partialTranscript",
+      );
+      expect(container.textContent).toContain(expected);
+    },
+  );
+
+  it("keeps provider recovery details private from viewers of a partial transcript", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[
+              { startMs: 0, endMs: 1000, text: "Captured first part." },
+            ]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="failed"
+            failureReason="Builder credits exhausted."
+            audience="viewer"
+            onRetry={vi.fn()}
+          />
+        </TooltipProvider>,
+      );
+    });
+    expect(container.textContent).toContain("Captured first part.");
+    expect(container.textContent).toContain(
+      "transcriptPanel.partialTranscript",
+    );
+    expect(container.textContent).not.toContain("builderCredits.pausedTitle");
+    expect(container.textContent).not.toContain("transcriptPanel.regenerate");
   });
 
   it("keeps provider failures styled as errors", () => {

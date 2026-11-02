@@ -410,13 +410,26 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
+      {hasPartialTranscript && audience !== "viewer" && builderCreditsPaused ? (
+        <div className="p-4">
+          <BuilderCreditsPausedNotice {...(onRetry ? { onRetry } : {})} />
+        </div>
+      ) : hasPartialTranscript && audience !== "viewer" && needsSetup ? (
+        <TranscriptSetupCard
+          {...(failureReason !== undefined ? { failureReason } : {})}
+          {...(onRetry ? { onRetry } : {})}
+        />
+      ) : null}
       {hasPartialTranscript ? (
         <div
           className="flex items-center justify-between gap-2 border-b border-border p-3 text-sm text-muted-foreground"
           role="status"
         >
           <span>{t("transcriptPanel.partialTranscript")}</span>
-          {audience !== "viewer" && onRetry ? (
+          {audience !== "viewer" &&
+          onRetry &&
+          !builderCreditsPaused &&
+          !needsSetup ? (
             <Button
               size="sm"
               variant="outline"
