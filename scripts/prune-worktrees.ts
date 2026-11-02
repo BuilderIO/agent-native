@@ -169,6 +169,7 @@ export function main(argv = process.argv.slice(2)): number {
     .filter(Boolean);
   const busy = busyDirs();
   let removed = 0;
+  let failed = 0;
   for (const entry of entries) {
     const field = (k: string) =>
       entry
@@ -190,39 +191,49 @@ export function main(argv = process.argv.slice(2)): number {
       continue; // `git worktree prune` below handles directories that are gone
     }
     const branch = field("branch")?.replace("refs/heads/", "") ?? null;
-    const status = tryGit(wt, "status", "--porcelain", "--ignored=matching");
-    const reason = keepReason(
-      {
-        dirty:
-          status === null ||
-          hasUserFiles(status, argv.includes("--discard-tmp")),
-        locked: entry.includes("\nlocked"),
-        inUse:
-          busy === null
-            ? null
-            : busy.some((d) => d === wt || d.startsWith(wt + path.sep)),
-        idleHours: (Date.now() - mtime) / 3_600_000,
-        published: isPublished(wt, branch),
-      },
-      minIdle,
-    );
+    // Re-run right before removal: a process or new work may have appeared.
+    const check = (busyNow: string[] | null) => {
+      const status = tryGit(wt, "status", "--porcelain", "--ignored=matching");
+      return keepReason(
+        {
+          dirty:
+            status === null ||
+            hasUserFiles(status, argv.includes("--discard-tmp")),
+          locked: entry.includes("\nlocked"),
+          inUse:
+            busyNow === null
+              ? null
+              : busyNow.some((d) => d === wt || d.startsWith(wt + path.sep)),
+          idleHours: (Date.now() - mtime) / 3_600_000,
+          published: isPublished(wt, branch),
+        },
+        minIdle,
+      );
+    };
+    const reason = check(busy);
     if (reason) {
       console.log(`keep   ${wt}: ${reason}`);
       continue;
     }
     console.log(`${apply ? "remove" : "would remove"} ${wt}`);
     if (apply) {
+      const again = check(busyDirs());
+      if (again) {
+        console.log(`keep   ${wt}: ${again}`);
+        continue;
+      }
       try {
         git(self, "worktree", "remove", wt);
         removed++;
       } catch {
         console.error(`failed ${wt}: git worktree remove refused`);
+        failed++;
       }
     }
   }
-  if (apply) tryGit(self, "worktree", "prune");
+  if (apply && tryGit(self, "worktree", "prune") === null) failed++;
   console.log(apply ? `removed ${removed}` : "dry run: pass --apply to remove");
-  return 0;
+  return failed > 0 ? 1 : 0;
 }
 
 if (
