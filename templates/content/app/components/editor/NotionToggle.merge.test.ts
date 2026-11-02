@@ -148,6 +148,43 @@ describe("tabs that merge into a Toggle with a title out of place", () => {
     expect(Y.encodeStateVector(b.ydoc)).toEqual(before);
   });
 
+  it("keeps a second title that holds only an inline atom", async () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "notionToggle",
+            content: [
+              {
+                type: "notionToggleSummary",
+                content: [{ type: "text", text: "Plan" }],
+              },
+              {
+                type: "notionToggleSummary",
+                content: [
+                  { type: "notionInlineAtom", attrs: { label: "x^2" } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    editors.push(editor);
+    editor.commands.insertContentAt(editor.state.doc.content.size, {
+      type: "paragraph",
+      content: [{ type: "text", text: "After" }],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const toggle = editor.state.doc.firstChild as ProseMirrorNode;
+    expect(toggle.childCount).toBe(2);
+    expect(toggle.child(1).type.name).toBe("paragraph");
+    expect(toggle.child(1).firstChild?.type.name).toBe("notionInlineAtom");
+  });
+
   it("saves a title out of place as a line of text", () => {
     const markdown = docToNfm({
       type: "doc",

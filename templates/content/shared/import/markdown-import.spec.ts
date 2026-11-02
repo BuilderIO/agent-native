@@ -652,6 +652,28 @@ describe("Markdown import", () => {
     expectEditorAccepts(page);
   });
 
+  it("reads a Toggle saved with a Markdown title as saved Markdown", () => {
+    const page = importMarkdown(
+      [
+        '<details markdown="1">',
+        "<summary>**Known** issues</summary>",
+        "\tLarge PDFs export slowly.",
+        "</details>",
+      ].join("\n"),
+    );
+
+    expect(page.dialect).toBe("nfm");
+    const [toggle] = nodesOfType(page.doc, "notionToggle");
+    expect(toggle.content?.[0]).toEqual({
+      type: "notionToggleSummary",
+      content: [
+        { type: "text", text: "Known", marks: [{ type: "bold" }] },
+        { type: "text", text: " issues" },
+      ],
+    });
+    expectEditorAccepts(page);
+  });
+
   it("indents an untabbed NFM container body instead of dropping it", () => {
     const page = importMarkdown(UNTABBED_CALLOUT_NFM);
 
