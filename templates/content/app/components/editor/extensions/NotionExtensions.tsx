@@ -1660,10 +1660,25 @@ function turnToggleAtTitleMarker(
 /**
  * How long the page has to be quiet before a title out of place is put right.
  * That rewrites the title, and whatever another tab types into the old one
- * before the rewrite reaches it is lost. Whoever typed last is the first to
- * come out of this wait, so it's usually their tab that does it.
+ * before the rewrite reaches it is lost.
  */
 export const STRAY_TITLE_REPAIR_DELAY_MS = 1000;
+
+/**
+ * The most each tab adds to that wait, going by its Yjs client ID. Changing a
+ * node's type in Yjs is a delete and an insert, so two tabs turning one title
+ * into a line at once leave the line twice. With different waits one tab
+ * usually goes first, and the rest find the page already right.
+ */
+export const STRAY_TITLE_REPAIR_SPREAD_MS = 4000;
+
+function strayTitleRepairDelay(state: EditorState): number {
+  const clientID: unknown = ySyncPluginKey.getState(state)?.doc?.clientID;
+  return (
+    STRAY_TITLE_REPAIR_DELAY_MS +
+    (typeof clientID === "number" ? clientID % STRAY_TITLE_REPAIR_SPREAD_MS : 0)
+  );
+}
 
 /**
  * The edit that leaves each Toggle one title, its first child, or null when
@@ -1857,7 +1872,7 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
                 }
                 const repair = repairStrayTitles(view.state);
                 if (repair) view.dispatch(repair);
-              }, STRAY_TITLE_REPAIR_DELAY_MS);
+              }, strayTitleRepairDelay(view.state));
             },
             destroy() {
               if (timer !== null) clearTimeout(timer);

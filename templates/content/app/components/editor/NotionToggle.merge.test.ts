@@ -6,7 +6,10 @@ import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-import { STRAY_TITLE_REPAIR_DELAY_MS } from "./extensions/NotionExtensions";
+import {
+  STRAY_TITLE_REPAIR_DELAY_MS,
+  STRAY_TITLE_REPAIR_SPREAD_MS,
+} from "./extensions/NotionExtensions";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
 // Tabs editing at once merge into shapes neither of them made. y-tiptap
@@ -22,9 +25,15 @@ const OLD_TOGGLE = [
   "After",
 ].join("\n");
 
+const LONGEST_REPAIR_WAIT =
+  STRAY_TITLE_REPAIR_DELAY_MS + STRAY_TITLE_REPAIR_SPREAD_MS;
+
 const editors: Editor[] = [];
 
-/** Two tabs on one page. Lower client IDs come first among inserts at one place. */
+/**
+ * Two tabs on one page, waiting a second apart before they repair a title.
+ * Lower client IDs come first among inserts at one place.
+ */
 function twoTabs(markdown: string) {
   const seed = new Editor({
     extensions: createVisualEditorExtensions(),
@@ -45,18 +54,24 @@ function twoTabs(markdown: string) {
     editors.push(editor);
     return { editor, ydoc };
   };
-  return [open(1), open(2)] as const;
+  return [open(1000), open(2000)] as const;
 }
 
 type Tab = ReturnType<typeof twoTabs>[number];
 
+function exchange(a: Tab, b: Tab) {
+  Y.applyUpdate(b.ydoc, Y.encodeStateAsUpdate(a.ydoc));
+  Y.applyUpdate(a.ydoc, Y.encodeStateAsUpdate(b.ydoc));
+}
+
 /** Lets the tabs exchange changes and put right what they find, until they settle. */
 async function settle(a: Tab, b: Tab) {
-  for (let round = 0; round < 4; round += 1) {
-    Y.applyUpdate(b.ydoc, Y.encodeStateAsUpdate(a.ydoc));
-    Y.applyUpdate(a.ydoc, Y.encodeStateAsUpdate(b.ydoc));
-    await vi.advanceTimersByTimeAsync(STRAY_TITLE_REPAIR_DELAY_MS);
+  const step = 100;
+  for (let waited = 0; waited < 3 * LONGEST_REPAIR_WAIT; waited += step) {
+    exchange(a, b);
+    await vi.advanceTimersByTimeAsync(step);
   }
+  exchange(a, b);
 }
 
 function giveTitle(editor: Editor, text: string) {
@@ -110,12 +125,32 @@ describe("tabs that merge into a Toggle with a title out of place", () => {
     giveTitle(b.editor, "Plan B");
     await settle(a, b);
 
-    for (const tab of [a, b]) {
-      const lines = outline(tab.editor);
-      expect(lines[0]).toBe("notionToggleSummary: Plan");
-      expect(lines).toContain("paragraph: Plan B");
-      expect(lines).toContain("paragraph: Body");
-    }
+    const expected = [
+      "notionToggleSummary: Plan",
+      "paragraph: Plan B",
+      "paragraph: Body",
+      "paragraph: After",
+    ];
+    expect(outline(a.editor)).toEqual(expected);
+    expect(outline(b.editor)).toEqual(expected);
+  });
+
+  it("keeps what both tabs typed when they repair the same title at once", async () => {
+    const [a, b] = twoTabs(OLD_TOGGLE);
+    giveTitle(a.editor, "Plan");
+    giveTitle(b.editor, "Plan B");
+    exchange(a, b);
+    // Neither tab hears from the other until both have repaired.
+    await vi.advanceTimersByTimeAsync(LONGEST_REPAIR_WAIT);
+    await settle(a, b);
+
+    // The line comes out twice, which nobody can prevent from separate tabs.
+    // Nothing is lost, and both tabs show the same page.
+    const lines = outline(a.editor);
+    expect(outline(b.editor)).toEqual(lines);
+    expect(lines[0]).toBe("notionToggleSummary: Plan");
+    expect(lines).toContain("paragraph: Plan B");
+    expect(lines).toContain("paragraph: Body");
   });
 
   it("moves a title up when another tab added a line above it", async () => {
@@ -130,16 +165,14 @@ describe("tabs that merge into a Toggle with a title out of place", () => {
     giveTitle(b.editor, "Plan");
     await settle(a, b);
 
-    // Each tab rewrites the line when it moves the title, so the line can
-    // come out twice. That's the price of this rare race: nothing is lost.
-    const lines = outline(a.editor);
-    expect(outline(b.editor)).toEqual(lines);
-    expect(lines[0]).toBe("notionToggleSummary: Plan");
-    expect(lines).toContain("paragraph: Above");
-    expect(lines).toContain("paragraph: Body");
-    expect(
-      lines.filter((line) => line.startsWith("notionToggleSummary")),
-    ).toEqual(["notionToggleSummary: Plan"]);
+    const expected = [
+      "notionToggleSummary: Plan",
+      "paragraph: Above",
+      "paragraph: Body",
+      "paragraph: After",
+    ];
+    expect(outline(a.editor)).toEqual(expected);
+    expect(outline(b.editor)).toEqual(expected);
   });
 
   it("keeps what's typed in a title while another tab waits to move it", async () => {
@@ -171,7 +204,7 @@ describe("tabs that merge into a Toggle with a title out of place", () => {
     giveTitle(b.editor, "Plan");
     Y.applyUpdate(b.ydoc, Y.encodeStateAsUpdate(a.ydoc));
     const before = Y.encodeStateVector(b.ydoc);
-    await vi.advanceTimersByTimeAsync(STRAY_TITLE_REPAIR_DELAY_MS);
+    await vi.advanceTimersByTimeAsync(LONGEST_REPAIR_WAIT);
 
     expect(Y.encodeStateVector(b.ydoc)).toEqual(before);
   });
@@ -205,7 +238,7 @@ describe("tabs that merge into a Toggle with a title out of place", () => {
       type: "paragraph",
       content: [{ type: "text", text: "After" }],
     });
-    await vi.advanceTimersByTimeAsync(STRAY_TITLE_REPAIR_DELAY_MS);
+    await vi.advanceTimersByTimeAsync(LONGEST_REPAIR_WAIT);
 
     const toggle = editor.state.doc.firstChild as ProseMirrorNode;
     expect(toggle.childCount).toBe(2);
