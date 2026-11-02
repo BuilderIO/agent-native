@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   updateRows: [] as Array<{ status: string; trashedAt: string | null }>,
-  existingRows: [{ id: "rec-1" }],
+  existingRows: [{ id: "rec-1" }] as Array<Record<string, unknown>>,
   afterRows: [] as Array<{ status: string; trashedAt: string | null }>,
   selectCalls: 0,
 }));
@@ -93,5 +93,24 @@ describe("trash-recording", () => {
       action.run({ id: "rec-1", skipIfReady: true }),
     ).resolves.toEqual({ id: "rec-1", trashedAt: null, skipped: true });
     expect(state.selectCalls).toBe(2);
+  });
+
+  it("still reports a skip for a ready recording that is already in trash", async () => {
+    // abandon-recording-start releases hosted storage only when not skipped.
+    state.existingRows = [
+      { status: "ready", trashedAt: "2026-10-20T12:00:00.000Z" },
+    ];
+    const action = trashRecording as unknown as {
+      run: (args: { id: string; skipIfReady?: boolean }) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run({ id: "rec-1", skipIfReady: true }),
+    ).resolves.toEqual({
+      id: "rec-1",
+      trashedAt: "2026-10-20T12:00:00.000Z",
+      skipped: true,
+    });
+    expect(state.selectCalls).toBe(1);
   });
 });

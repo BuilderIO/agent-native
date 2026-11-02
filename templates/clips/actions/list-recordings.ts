@@ -313,6 +313,9 @@ export default defineAction({
       whereClauses.push(eq(schema.recordings.kind, args.kind));
     }
 
+    // createdAt is text, and every insert writes toISOString(), so comparing
+    // it with another ISO-8601 UTC string compares times (the recent sort
+    // relies on the same).
     if (args.createdAfter) {
       whereClauses.push(
         gte(

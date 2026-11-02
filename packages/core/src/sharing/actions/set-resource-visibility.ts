@@ -243,10 +243,13 @@ export default defineAction({
     }
 
     // A failure part-way puts back every resource already written, so a
-    // batch changes all of its resources or none.
+    // batch changes all of its resources or none. If putting one back fails
+    // too, the error names it rather than claiming nothing changed.
     const written: PreparedChange[] = [];
+    let failing: PreparedChange | undefined;
     try {
       for (const change of prepared) {
+        failing = change;
         await persistVisibility(change, args.visibility, change.update);
         written.push(change);
         if (change.visibilityChanged) {
@@ -260,6 +263,7 @@ export default defineAction({
         }
       }
     } catch (error) {
+      const unrestored: string[] = [];
       for (const change of written.reverse()) {
         try {
           await restore(change);
@@ -268,7 +272,23 @@ export default defineAction({
             `[sharing] Could not restore the visibility of ${args.resourceType} ${change.resourceId}:`,
             restoreError,
           );
+          unrestored.push(change.resourceId);
         }
+      }
+      if (unrestored.length) {
+        const reason = error instanceof Error ? error.message : String(error);
+        fail(
+          `${reason} Putting back the earlier changes also failed, so these still have visibility "${args.visibility}": ${unrestored.join(", ")}.`,
+          { errorCode: "visibility_rollback_incomplete", statusCode: 500 },
+        );
+      }
+      // A registration can refuse inside its own persistence (Forms checks a
+      // permission there), which the check-first pass can't see. Report it
+      // the same way as a refusal found up front.
+      if (args.resourceIds && failing && error instanceof ForbiddenError) {
+        throw batchRefusal(ids.length, [
+          { resourceId: failing.resourceId, error },
+        ]);
       }
       throw error;
     }

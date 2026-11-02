@@ -2127,6 +2127,64 @@ describe("set-resource-visibility on several resources", () => {
     });
   });
 
+  it("reports a refusal from a persistence hook like one found up front", async () => {
+    // Forms checks an org permission inside its hook, after the batch's checks.
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-locked") {
+          throw new ForbiddenError("Missing permission: docs.edit");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-open", visibility: "public" });
+    await insertDoc({ id: "doc-locked", visibility: "public" });
+
+    const refused = batch(["doc-open", "doc-locked"], "private");
+    await expect(refused).rejects.toThrow(
+      /Nothing was changed: 1 of 2 .*doc-locked: Missing permission/,
+    );
+    await expect(refused).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await visibilities()).toEqual({
+      "doc-open": "public",
+      "doc-locked": "public",
+    });
+  });
+
+  it("names the resources it couldn't put back", async () => {
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-fails") throw new Error("storage refused");
+        if (resourceId === "doc-first" && update.visibility === "public") {
+          throw new Error("storage went away");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-first", visibility: "public" });
+    await insertDoc({ id: "doc-fails", visibility: "public" });
+
+    await expect(batch(["doc-first", "doc-fails"], "private")).rejects.toThrow(
+      /storage refused Putting back the earlier changes also failed, so these still have visibility "private": doc-first\./,
+    );
+    expect(await visibilities()).toEqual({
+      "doc-first": "private",
+      "doc-fails": "public",
+    });
+  });
+
   it("asks for one approval when any resource would become public", async () => {
     await insertDoc({ id: "doc-private" });
     await insertDoc({ id: "doc-public", visibility: "public" });

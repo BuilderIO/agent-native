@@ -36,7 +36,9 @@ async function trashOne(id: string, skipIfReady: boolean) {
     return {
       status: "unchanged" as const,
       trashedAt: before[0].trashedAt,
-      skipped: false,
+      // Callers such as abandon-recording-start read skipped to tell a
+      // finished upload from a discarded one, already in trash or not.
+      skipped: skipIfReady && before[0].status === "ready",
     };
   }
 
