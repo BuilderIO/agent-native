@@ -35,10 +35,6 @@ function parseJsonProjection(value: unknown, label: string): unknown {
 // reported as too large instead of inflating every gallery page.
 const MAX_PREVIEW_SLIDE_CHARS = 128 * 1024;
 
-// Read in SQL so light lists never load the deck body; the listing WHERE already casts data to jsonb.
-const starredProjection = sql<
-  boolean | null
->`(${schema.decks.data}::jsonb ->> 'starred') = 'true'`;
 const firstSlideText = sql`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
 const previewProjection = {
   previewSlide: sql<
@@ -56,7 +52,6 @@ function previewFromRawData(data: string, deckId: string) {
   let previewSlide: string | null = null;
   let previewTooLarge: boolean | null = null;
   let aspectRatio: string | null = null;
-  let starred = false;
   try {
     const parsed = JSON.parse(data);
     const firstSlide = Array.isArray(parsed?.slides)
@@ -70,14 +65,13 @@ function previewFromRawData(data: string, deckId: string) {
     if (typeof parsed?.aspectRatio === "string") {
       aspectRatio = parsed.aspectRatio;
     }
-    starred = parsed?.starred === true;
   } catch (parseError) {
     captureError(parseError, {
       route: "list-decks",
       extra: { deckId },
     });
   }
-  return { previewSlide, previewTooLarge, aspectRatio, starred };
+  return { previewSlide, previewTooLarge, aspectRatio };
 }
 
 const INVALID_TEXT_REPRESENTATION = "22P02";
@@ -279,7 +273,6 @@ export default defineAction({
         createdAt: schema.decks.createdAt,
         updatedAt: schema.decks.updatedAt,
         visibility: schema.decks.visibility,
-        starred: starredProjection,
       };
       const pagedQuery = db
         .select({
@@ -375,7 +368,6 @@ export default defineAction({
         createdByMe:
           normalizedOwnerEmail !== null &&
           normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-        starred: row.starred === true,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         ...(args.includePreview === "true"
@@ -409,7 +401,6 @@ export default defineAction({
             updatedAt: schema.decks.updatedAt,
             visibility: schema.decks.visibility,
             ownerEmail: schema.decks.ownerEmail,
-            starred: starredProjection,
             ...previewProjection,
           })
           .from(schema.decks)
@@ -461,7 +452,6 @@ export default defineAction({
               createdByMe:
                 normalizedOwnerEmail !== null &&
                 normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-              starred: row.starred === true,
               ...(previewSlide && typeof previewSlide === "object"
                 ? { previewSlide }
                 : {}),
@@ -482,7 +472,6 @@ export default defineAction({
             updatedAt: schema.decks.updatedAt,
             visibility: schema.decks.visibility,
             ownerEmail: schema.decks.ownerEmail,
-            starred: starredProjection,
           })
           .from(schema.decks)
           .where(where)
@@ -499,7 +488,6 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-          starred: row.starred === true,
         })),
       };
     }
@@ -515,7 +503,6 @@ export default defineAction({
             createdAt: schema.decks.createdAt,
             updatedAt: schema.decks.updatedAt,
             visibility: schema.decks.visibility,
-            starred: starredProjection,
           })
           .from(schema.decks)
           .where(where)
@@ -534,7 +521,6 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-          starred: row.starred === true,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
         })),
