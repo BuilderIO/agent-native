@@ -21,6 +21,7 @@ import {
   IconLoader2,
   IconBolt,
   IconRefresh,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -302,6 +303,8 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   };
 
+  const partialTranscript =
+    status === "failed" && (segments.length > 0 || Boolean(fullText?.trim()));
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
@@ -309,7 +312,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     !builderCreditsPaused &&
     isTranscriptionSetupNeeded(failureReason);
 
-  if (status === "failed" && audience === "viewer") {
+  if (status === "failed" && !partialTranscript && audience === "viewer") {
     return (
       <div className="p-4">
         <p className="text-sm text-muted-foreground">
@@ -319,7 +322,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed" && builderCreditsPaused) {
+  if (status === "failed" && !partialTranscript && builderCreditsPaused) {
     return withImport(
       <div className="p-4">
         <BuilderCreditsPausedNotice onRetry={onRetry} />
@@ -327,7 +330,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed" && needsSetup) {
+  if (status === "failed" && !partialTranscript && needsSetup) {
     return withImport(
       <TranscriptSetupCard failureReason={failureReason} onRetry={onRetry} />,
     );
@@ -347,7 +350,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed" && noSpeechFailure) {
+  if (status === "failed" && !partialTranscript && noSpeechFailure) {
     return withImport(
       <div className="p-4 space-y-3">
         <div>
@@ -377,7 +380,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed") {
+  if (status === "failed" && !partialTranscript) {
     return withImport(
       <div className="p-4 space-y-3">
         <div className="text-sm text-destructive">
@@ -481,6 +484,24 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         </div>
       </div>
 
+      {partialTranscript ? (
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground">
+          <IconAlertTriangle className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            {t("transcriptPanel.partialTranscript")}
+          </span>
+          {onRetry ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onRetry}
+              disabled={isRegenerating}
+            >
+              {t("transcriptPanel.regenerate")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="flex-1 overflow-y-auto px-3">
         {filtered.length === 0 ? (
           <Empty className="min-h-full gap-2 rounded-none p-4 md:p-6">

@@ -685,6 +685,7 @@ const messages = {
     noMatches: "Nenhuma correspondência.",
     noTranscript: "Nenhuma transcrição ainda.",
     noTranscriptCaptured: "Nenhuma transcrição foi capturada.",
+    partialTranscript: "Transcrição parcial: a gravação foi cortada, então parte pode estar faltando.",
     backupFailed:
       "Nenhuma fala foi capturada localmente e a transcrição de backup não foi concluída. Tente novamente ou verifique as permissões de microfone e fala.",
     backupNotSetup:
