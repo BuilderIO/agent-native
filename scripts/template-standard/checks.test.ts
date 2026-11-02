@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 
 import {
   checkSsrRootRoute,
+  checkSsrRouteHandler,
   computeMajorityValue,
   extractTsconfigExtends,
   hasUnrenderedPlaceholder,
@@ -169,6 +170,20 @@ describe("checkSsrRootRoute", () => {
       for (const dir of [missing, wrong, ok]) {
         rmSync(dir, { recursive: true, force: true });
       }
+    }
+  });
+
+  it("reports a scaffold source that has no catch-all at all", () => {
+    const empty = mkdtempSync(join(tmpdir(), "ssr-root-route-"));
+    try {
+      assert.deepEqual(
+        [...checkSsrRouteHandler([empty]), ...checkSsrRootRoute([empty])].map(
+          (violation) => violation.rule,
+        ),
+        ["ssr-route-handler", "ssr-root-route"],
+      );
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
     }
   });
 });

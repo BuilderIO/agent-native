@@ -170,26 +170,26 @@ export function checkAuthMiddleware(templates: string[]): Violation[] {
   return violations;
 }
 
-export function checkSsrRouteHandler(templates: string[]): Violation[] {
+export function checkSsrRouteHandler(scaffoldDirs: string[]): Violation[] {
   const violations: Violation[] = [];
-  for (const template of templates) {
-    const path = templatePath(template, SSR_ROUTE_REL);
-    const content = readIfExists(path);
+  for (const dir of scaffoldDirs) {
+    const label = relative(REPO_ROOT, dir);
+    const content = readIfExists(join(dir, SSR_ROUTE_REL));
     if (content === undefined) {
       violations.push({
         rule: "ssr-route-handler",
-        template,
+        template: label,
         severity: "fail",
-        message: `templates/${template}/${SSR_ROUTE_REL} is missing.`,
+        message: `${label}/${SSR_ROUTE_REL} is missing.`,
       });
       continue;
     }
     if (!content.includes(SSR_ROUTE_REQUIRED_IMPORT)) {
       violations.push({
         rule: "ssr-route-handler",
-        template,
+        template: label,
         severity: "fail",
-        message: `templates/${template}/${SSR_ROUTE_REL} does not import ${SSR_ROUTE_REQUIRED_IMPORT}.`,
+        message: `${label}/${SSR_ROUTE_REL} does not import ${SSR_ROUTE_REQUIRED_IMPORT}.`,
       });
     }
   }
@@ -203,7 +203,6 @@ export function isRootSsrRouteReexport(content: string): boolean {
 export function checkSsrRootRoute(scaffoldDirs: string[]): Violation[] {
   const violations: Violation[] = [];
   for (const dir of scaffoldDirs) {
-    if (!existsSync(join(dir, SSR_ROUTE_REL))) continue;
     const label = relative(REPO_ROOT, dir);
     const content = readIfExists(join(dir, SSR_ROOT_ROUTE_REL));
     if (content === undefined) {
@@ -390,13 +389,14 @@ export function runAllChecks(
   templates: string[],
   devPorts: Record<string, number>,
 ): Violation[] {
+  const scaffoldDirs = listScaffoldSourceDirs(templates);
   return [
     ...checkByteSyncedFiles(templates),
     ...checkPackageScripts(templates),
     ...checkTsconfigExtends(templates),
     ...checkAuthMiddleware(templates),
-    ...checkSsrRouteHandler(templates),
-    ...checkSsrRootRoute(listScaffoldSourceDirs(templates)),
+    ...checkSsrRouteHandler(scaffoldDirs),
+    ...checkSsrRootRoute(scaffoldDirs),
     ...checkClaudeMdSymlink(templates),
     ...checkAgentsMdPlaceholders(templates),
     ...checkVitePortMatch(templates, devPorts),
