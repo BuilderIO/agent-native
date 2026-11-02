@@ -7264,7 +7264,8 @@ function stripOptionalToolPlaceholders(
         placeholders.push(key);
         continue;
       }
-      if (schemaAcceptsToolValue(propertySchema, entry))
+      // A valid `false` sets a value; only null, "", [] and {} can clear one.
+      if (entry !== false && schemaAcceptsToolValue(propertySchema, entry))
         emptyValues.valid = true;
     }
     const nested = stripOptionalToolPlaceholders(
