@@ -53,7 +53,6 @@ import { useState } from "react";
 
 import { usePageLinkTarget } from "../../../hooks/use-content-links";
 import { ContentIcon } from "../../icons/ContentIcon";
-import { runPersistableHistoryCommand } from "../editor-transaction-meta";
 import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
 import { isSuggestingEdits } from "../suggestions/read-only-blocks";
@@ -329,11 +328,13 @@ export function unwrapToggleAtTitleStart(editor: Editor): boolean {
   const paragraph = editor.state.schema.nodes.paragraph as NodeType | undefined;
   if (!paragraph) return false;
   const { togglePos, toggle, title } = context;
+  const indent = normalizeIndentAttr(toggle.attrs.indent);
+  const heading = editor.state.schema.nodes.heading as NodeType | undefined;
+  const level = Number(toggle.attrs.headingLevel);
   const blocks: ProseMirrorNode[] = [
-    paragraph.create(
-      { indent: normalizeIndentAttr(toggle.attrs.indent) },
-      title.content,
-    ),
+    level && heading
+      ? heading.create({ level, indent }, title.content)
+      : paragraph.create({ indent }, title.content),
   ];
   toggle.forEach((child, _offset, index) => {
     if (index > 0) blocks.push(child);
@@ -474,6 +475,40 @@ export function joinBlockBelowToToggleTitle(editor: Editor): boolean {
   const tr = editor.state.tr.replaceWith(line.from, line.to, line.rest);
   tr.insert(selection.from, line.content);
   tr.setSelection(TextSelection.create(tr.doc, selection.from));
+  dispatchToggleKeyTransaction(editor, tr);
+  return true;
+}
+
+/**
+ * A selection from a closed Toggle's title to below it looks like it holds no
+ * body, so deleting it leaves the body where it is, as in Notion. What's left
+ * of the last selected line joins the title. Null for any other selection.
+ */
+function deleteFromClosedTitle(state: EditorState): Transaction | null {
+  const { $from, $to, empty } = state.selection;
+  if (
+    empty ||
+    isSuggestingEdits(state) ||
+    $from.parent.type.name !== TOGGLE_TITLE_NODE
+  ) {
+    return null;
+  }
+  const toggle = $from.node(-1);
+  const belowPos = $from.before(-1) + toggle.nodeSize;
+  if (toggle.attrs.open || toggle.childCount === 1 || $to.pos <= belowPos) {
+    return null;
+  }
+  const tr = state.tr.delete(belowPos, $to.pos);
+  const below = tr.doc.nodeAt(belowPos);
+  const line = below ? firstLineOfBlock(below, belowPos) : null;
+  if (line) tr.replaceWith(line.from, line.to, line.rest);
+  tr.replaceWith($from.pos, $from.end(), line ? line.content : Fragment.empty);
+  return tr.setSelection(TextSelection.create(tr.doc, $from.pos));
+}
+
+function deleteSelectionFromClosedTitle(editor: Editor): boolean {
+  const tr = deleteFromClosedTitle(editor.state);
+  if (!tr) return false;
   dispatchToggleKeyTransaction(editor, tr);
   return true;
 }
@@ -627,7 +662,9 @@ export function nestBlockInToggleAbove(editor: Editor): boolean {
     return false;
   }
   const depth =
-    $from.parent.type.name === TOGGLE_TITLE_NODE ? $from.depth - 1 : $from.depth;
+    $from.parent.type.name === TOGGLE_TITLE_NODE
+      ? $from.depth - 1
+      : $from.depth;
   if (depth < 1) return false;
   const blockPos = $from.before(depth);
   const block = $from.node(depth);
@@ -691,78 +728,10 @@ export function shiftToggleAtTitle(editor: Editor, delta: 1 | -1): boolean {
   return true;
 }
 
-export type ToggleSummaryEnterDestination =
-  | "paragraph"
-  | "toggle-body"
-  | "sibling-toggle";
-
 function scheduleEditorViewFocus(editor: Editor) {
   setTimeout(() => {
     if (!editor.isDestroyed) editor.view.focus();
   }, 0);
-}
-
-export function applyToggleSummaryEnter(
-  editor: Editor,
-  pos: number,
-  summary: string,
-): ToggleSummaryEnterDestination | null {
-  const { state, view } = editor;
-  const toggle = state.doc.nodeAt(pos);
-  const paragraphType = state.schema.nodes.paragraph;
-  const toggleType = state.schema.nodes.notionToggle;
-  if (toggle?.type !== toggleType || !paragraphType || !toggleType) return null;
-
-  if (!summary && toggle.childCount === 0) {
-    const tr = state.tr.replaceWith(
-      pos,
-      pos + toggle.nodeSize,
-      paragraphType.create(),
-    );
-    tr.setMeta("preventClearDocument", true);
-    tr.setMeta("uiEvent", "keydown");
-    tr.setSelection(Selection.near(tr.doc.resolve(pos + 1)));
-    view.dispatch(tr.scrollIntoView());
-    scheduleEditorViewFocus(editor);
-    return "paragraph";
-  }
-
-  if (toggle.attrs.open) {
-    if (toggle.childCount === 0) {
-      const tr = state.tr.replaceWith(
-        pos,
-        pos + toggle.nodeSize,
-        toggleType.create({ ...toggle.attrs, summary }, paragraphType.create()),
-      );
-      tr.setMeta("preventClearDocument", true);
-      tr.setMeta("uiEvent", "keydown");
-      tr.setSelection(Selection.near(tr.doc.resolve(pos + 2)));
-      view.dispatch(tr.scrollIntoView());
-      scheduleEditorViewFocus(editor);
-      return "toggle-body";
-    }
-    const tr = state.tr.setNodeMarkup(pos, undefined, {
-      ...toggle.attrs,
-      summary,
-    });
-    tr.setMeta("preventClearDocument", true);
-    tr.setMeta("uiEvent", "keydown");
-    tr.setSelection(Selection.near(tr.doc.resolve(pos + 2)));
-    view.dispatch(tr.scrollIntoView());
-    scheduleEditorViewFocus(editor);
-    return "toggle-body";
-  }
-
-  const tr = state.tr
-    .setNodeMarkup(pos, undefined, { ...toggle.attrs, summary })
-    .insert(
-      pos + toggle.nodeSize,
-      toggleType.create({ summary: "", open: false }),
-    );
-  tr.setMeta("preventClearDocument", true);
-  tr.setMeta("uiEvent", "keydown");
-  view.dispatch(tr.scrollIntoView());
-  return "sibling-toggle";
 }
 
 export function outdentDirectToggleChild(editor: Editor): boolean {
@@ -821,52 +790,40 @@ export function normalizeIndentAttr(value: unknown): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 8) : 0;
 }
 
-export function focusMostRecentEmptyToggleSummary(editor: {
-  view: { dom: HTMLElement };
-}) {
-  const schedule =
-    typeof requestAnimationFrame === "function"
-      ? requestAnimationFrame
-      : (callback: FrameRequestCallback) => setTimeout(callback, 0);
-
-  const focusSummary = (attempt: number) => {
-    let editorDom: HTMLElement;
-    try {
-      editorDom = editor.view.dom;
-    } catch {
-      return;
-    }
-
-    const inputs = Array.from(
-      editorDom.querySelectorAll<HTMLInputElement>(".content-toggle__summary"),
-    );
-    const target =
-      [...inputs].reverse().find((input) => input.value === "") ??
-      inputs[inputs.length - 1];
-
-    if (!target && attempt < 3) {
-      schedule(() => focusSummary(attempt + 1));
-      return;
-    }
-
-    target?.focus({ preventScroll: true });
-    target?.select();
-  };
-
-  schedule(() => focusSummary(0));
-}
-
-export function focusToggleSummaryAtPosition(
-  editor: Pick<Editor, "view">,
-  pos: number,
-) {
-  const nodeDom = editor.view.nodeDOM(pos);
-  if (!(nodeDom instanceof HTMLElement)) return;
-  const target = nodeDom.querySelector<HTMLInputElement>(
-    ".content-toggle__summary",
+/**
+ * Moves an old Toggle's title from its `summary` into the page's text, caret
+ * at the end, so it can be selected, formatted and commented on. Nothing about
+ * the page changes for the person, so it's no undo step. When two tabs do this
+ * at once, repairStrayTitles leaves one title.
+ */
+export function moveToggleSummaryToTitle(editor: Editor, pos: number): boolean {
+  const titleType = editor.schema.nodes[TOGGLE_TITLE_NODE] as
+    | NodeType
+    | undefined;
+  const toggle = editor.state.doc.nodeAt(pos);
+  if (
+    !titleType ||
+    toggle?.type.name !== "notionToggle" ||
+    toggleTitleNode(toggle)
+  ) {
+    return false;
+  }
+  const text = String(toggle.attrs.summary ?? "");
+  const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+    ...toggle.attrs,
+    summary: "",
+  });
+  tr.insert(
+    pos + 1,
+    titleType.create(null, text ? editor.schema.text(text) : null),
   );
-  target?.focus();
-  target?.select();
+  tr.setSelection(TextSelection.create(tr.doc, pos + 2 + text.length));
+  tr.setMeta("addToHistory", false);
+  tr.setMeta("preventClearDocument", true);
+  tr.setMeta("uiEvent", "pointer");
+  editor.view.dispatch(tr);
+  scheduleEditorViewFocus(editor);
+  return true;
 }
 
 /** Where a Toggle's body starts, after its title when it has one. */
@@ -1039,59 +996,6 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
     ).dragging = null;
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!isEditable) return;
-
-    // The page never sees the summary's keys, and the browser's own undo
-    // loses track of a field the page rewrites, so undo and redo use the
-    // page's history, as they do in the body.
-    const key = e.key.toLowerCase();
-    if (
-      (e.metaKey || e.ctrlKey) &&
-      !e.altKey &&
-      !e.nativeEvent.isComposing &&
-      (key === "z" || (key === "y" && !e.shiftKey))
-    ) {
-      e.preventDefault();
-      runPersistableHistoryCommand(
-        editor,
-        key === "z" && !e.shiftKey ? "undo" : "redo",
-        { focusEditor: false },
-      );
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      const pos = getPos();
-      if (typeof pos !== "number") return;
-      const currentInput = e.currentTarget;
-      const destination = applyToggleSummaryEnter(
-        editor,
-        pos,
-        currentInput.value,
-      );
-      if (destination === "sibling-toggle") {
-        setTimeout(() => {
-          focusToggleSummaryAtPosition(editor, pos + node.nodeSize);
-        }, 0);
-      }
-    } else if (e.key === "Backspace" && summary === "") {
-      e.preventDefault();
-      const pos = getPos();
-      if (typeof pos !== "number") return;
-      const paragraph = editor.state.schema.nodes.paragraph;
-      if (!paragraph) return;
-      const tr = editor.state.tr.replaceWith(
-        pos,
-        pos + node.nodeSize,
-        paragraph.create(),
-      );
-      tr.setMeta("preventClearDocument", true);
-      tr.setMeta("uiEvent", "keydown");
-      tr.setSelection(Selection.near(tr.doc.resolve(pos + 1)));
-      editor.view.dispatch(tr.scrollIntoView());
-      scheduleEditorViewFocus(editor);
-    }
-  };
-
   const emptyBodyPlaceholder =
     isEditable && open && bodyHasNoBlocks ? (
       <div
@@ -1168,14 +1072,13 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
         </span>
         {isEditable ? (
           <input
+            readOnly
             value={summary}
-            onChange={(event) =>
-              updateToggleAttributes(
-                { summary: event.currentTarget.value },
-                "input",
-              )
-            }
-            onKeyDown={handleKeyDown}
+            onFocus={() => {
+              const pos = getPos();
+              if (typeof pos === "number")
+                moveToggleSummaryToTitle(editor, pos);
+            }}
             onClick={(e) => e.stopPropagation()}
             placeholder={TOGGLE_SUMMARY_PLACEHOLDER}
             className="content-toggle__summary"
@@ -1561,8 +1464,11 @@ export const NotionToggle = Node.create<NotionToggleOptions>({
     return {
       Enter: ({ editor }) => addBodyLineBelowEmptyLine(editor),
       Backspace: ({ editor }) =>
-        moveLastBodyLineOut(editor) || joinBlockToToggleAbove(editor),
-      Delete: ({ editor }) => joinLineBelowToLine(editor),
+        deleteSelectionFromClosedTitle(editor) ||
+        moveLastBodyLineOut(editor) ||
+        joinBlockToToggleAbove(editor),
+      Delete: ({ editor }) =>
+        deleteSelectionFromClosedTitle(editor) || joinLineBelowToLine(editor),
       Tab: ({ editor }) => nestBlockInToggleAbove(editor),
       "Shift-Tab": ({ editor }) => outdentDirectToggleChild(editor),
     };
@@ -1618,7 +1524,13 @@ const TITLE_DIVIDER_MARKER = /^(?:---|—-|___\s|\*\*\*\s)$/;
 // Other markers typed in a title stay text there, unless they turn the Toggle
 // into another block below: a heading's fourth level has no Toggle in Notion,
 // and a code block or divider has nowhere to keep a title or a body.
-const TITLE_BLOCK_MARKERS = [/^#{4,6}\s$/, TITLE_CODE_MARKER, TITLE_DIVIDER_MARKER];
+const TITLE_BLOCK_MARKERS = [
+  /^#{4,6}\s$/,
+  TITLE_CODE_MARKER,
+  TITLE_DIVIDER_MARKER,
+];
+
+const TITLE_QUOTE_MARKER = /^["|]\s$/;
 
 /** The list a Markdown marker typed at the start of a title makes. */
 function listTypesForMarker(typed: string, schema: Schema) {
@@ -1638,8 +1550,9 @@ function listTypesForMarker(typed: string, schema: Schema) {
 
 /**
  * Turns a Toggle into what the Markdown marker typed at the start of its title
- * makes, as in Notion: `# ` a Toggle heading, `- ` a list item with the body
- * under it, and a code block or divider when there's no text to lose.
+ * makes, as in Notion: `# ` a Toggle heading, `- ` a list item or `" ` a quote
+ * with the body under it, and a code block or divider when there's no text to
+ * lose.
  */
 function turnToggleAtTitleMarker(
   view: EditorView,
@@ -1669,18 +1582,29 @@ function turnToggleAtTitleMarker(
     return true;
   }
 
+  const lines = Fragment.from(paragraph.create(null, rest)).append(
+    toggle.content.cut(title.nodeSize),
+  );
   const list = listTypesForMarker(typed, schema);
   if (list) {
-    const content = Fragment.from(paragraph.create(null, rest)).append(
-      toggle.content.cut(title.nodeSize),
-    );
-    if (!list.item.validContent(content)) return false;
+    if (!list.item.validContent(lines)) return false;
     const tr = state.tr.replaceWith(
       togglePos,
       togglePos + toggle.nodeSize,
-      list.list.create(null, list.item.create(null, content)),
+      list.list.create(null, list.item.create(null, lines)),
     );
     tr.setSelection(TextSelection.create(tr.doc, togglePos + 3));
+    view.dispatch(tr.scrollIntoView());
+    return true;
+  }
+  const quote = schema.nodes.blockquote as NodeType | undefined;
+  if (TITLE_QUOTE_MARKER.test(typed) && quote?.validContent(lines)) {
+    const tr = state.tr.replaceWith(
+      togglePos,
+      togglePos + toggle.nodeSize,
+      quote.create(null, lines),
+    );
+    tr.setSelection(TextSelection.create(tr.doc, togglePos + 2));
     view.dispatch(tr.scrollIntoView());
     return true;
   }
@@ -1919,6 +1843,11 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
           handleTextInput(view, from, to, text) {
             const $from = view.state.doc.resolve(from);
             if ($from.parent.type.name !== TOGGLE_TITLE_NODE) return false;
+            const overHiddenBody = deleteFromClosedTitle(view.state);
+            if (overHiddenBody) {
+              view.dispatch(overHiddenBody.insertText(text));
+              return true;
+            }
             const typed =
               $from.parent.textBetween(0, $from.parentOffset, undefined, "￼") +
               text;

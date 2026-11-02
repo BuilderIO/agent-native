@@ -557,7 +557,10 @@ describe("Tab and Shift+Tab with a Toggle", () => {
 
   it("indents and outdents a Toggle from its title, keeping the keys in the page", () => {
     const body = [paragraph("Body")];
-    const editor = createEditor([paragraph("Before"), toggle("Title", true, body)]);
+    const editor = createEditor([
+      paragraph("Before"),
+      toggle("Title", true, body),
+    ]);
     caretIn(editor, "Title");
 
     expect(press(editor, { key: "Tab" })).toBe(true);
@@ -651,10 +654,30 @@ describe("a block's Markdown marker typed at the start of a title", () => {
       type(editor, marker);
 
       const [made] = editor.getJSON().content ?? [];
-      expect(made?.type).toBe(listName);
-      const [item] = made?.content ?? [];
-      expect(item?.type).toBe(itemName);
-      expect(item?.content).toEqual([paragraph("Title"), paragraph("Body")]);
+      expect(made).toMatchObject({
+        type: listName,
+        content: [
+          { type: itemName, content: [paragraph("Title"), paragraph("Body")] },
+        ],
+      });
+      expect(caret(editor)).toEqual({ line: "Title", offset: 0 });
+    }
+  });
+
+  it("makes a quote holding the title and body on a quote marker", () => {
+    for (const marker of ['" ', "| "]) {
+      const editor = createEditor([
+        toggle("Title", false, [paragraph("Body")]),
+      ]);
+      caretIn(editor, "Title", "start");
+      type(editor, marker);
+
+      expect(editor.getJSON().content).toEqual([
+        {
+          type: "blockquote",
+          content: [paragraph("Title"), paragraph("Body")],
+        },
+      ]);
       expect(caret(editor)).toEqual({ line: "Title", offset: 0 });
     }
   });
@@ -686,6 +709,106 @@ describe("a block's Markdown marker typed at the start of a title", () => {
     type(withBody, "``` ");
     expect(withBody.getJSON().content).toEqual([
       toggle("``` ", true, [paragraph("Body")]),
+    ]);
+  });
+});
+
+describe("deleting a selection from a closed Toggle's title to below it", () => {
+  function selectFromTitleTo(editor: Editor, offset: number, line: string) {
+    caretIn(editor, line, "start");
+    const to = editor.state.selection.from;
+    editor.commands.setTextSelection({ from: 2 + offset, to });
+  }
+
+  for (const [key, label] of [
+    ["Backspace", "Backspace"],
+    ["Delete", "Delete"],
+  ] as const) {
+    it(`keeps the hidden body on ${label}`, () => {
+      const editor = createEditor([
+        toggle("Title", false, [paragraph("Body")]),
+        paragraph("After"),
+      ]);
+      selectFromTitleTo(editor, 0, "After");
+      press(editor, { key });
+
+      expect(editor.getJSON().content).toEqual([
+        toggle("After", false, [paragraph("Body")]),
+      ]);
+      expect(caret(editor)).toEqual({ line: "After", offset: 0 });
+    });
+  }
+
+  it("joins what's left of the title to what's left of the last line", () => {
+    const editor = createEditor([
+      toggle("Title", false, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+    caretIn(editor, "After", "end");
+    const to = editor.state.selection.from - 3;
+    editor.commands.setTextSelection({ from: 3, to });
+    press(editor, { key: "Backspace" });
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("Tter", false, [paragraph("Body")]),
+    ]);
+    expect(caret(editor)).toEqual({ line: "Tter", offset: 1 });
+  });
+
+  it("types over the selection and keeps the hidden body", () => {
+    const editor = createEditor([
+      toggle("Title", false, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+    selectFromTitleTo(editor, 0, "After");
+    type(editor, "X");
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("XAfter", false, [paragraph("Body")]),
+    ]);
+  });
+
+  it("removes every line between the title and the end of the selection", () => {
+    const editor = createEditor([
+      toggle("Title", false, [paragraph("Body")]),
+      paragraph("Middle"),
+      paragraph("After"),
+    ]);
+    selectFromTitleTo(editor, 0, "After");
+    press(editor, { key: "Backspace" });
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("After", false, [paragraph("Body")]),
+    ]);
+  });
+
+  it("deletes everything selected when the Toggle is open", () => {
+    const editor = createEditor([
+      toggle("Title", true, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+    selectFromTitleTo(editor, 2, "After");
+    press(editor, { key: "Backspace" });
+
+    expect(JSON.stringify(editor.getJSON())).not.toContain("Body");
+  });
+});
+
+describe("Backspace at the start of a Toggle heading's title", () => {
+  it("leaves a heading with the same level, and the body below it", () => {
+    const heading = toggle("Title", true, [paragraph("Body")]);
+    heading.attrs = { ...(heading.attrs as object), headingLevel: 2 };
+    const editor = createEditor([heading]);
+    caretIn(editor, "Title", "start");
+    press(editor, { key: "Backspace" });
+
+    expect(editor.getJSON().content).toEqual([
+      {
+        type: "heading",
+        attrs: { level: 2 },
+        content: [{ type: "text", text: "Title" }],
+      },
+      paragraph("Body"),
     ]);
   });
 });

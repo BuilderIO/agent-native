@@ -51,6 +51,18 @@ function nodesOfType(doc: PMDoc | PMNode, type: string): PMNode[] {
   return found;
 }
 
+/** A Toggle's title, wherever it keeps it, and the text under it. */
+function toggleParts(toggle: PMNode) {
+  const [first, ...rest] = toggle.content ?? [];
+  if (first?.type !== "notionToggleSummary") {
+    return { title: String(toggle.attrs?.summary), body: textOf(toggle) };
+  }
+  return {
+    title: textOf(first),
+    body: rest.map((child) => textOf(child)).join(""),
+  };
+}
+
 function textOf(node: PMDoc | PMNode): string {
   if ("text" in node && node.text) return node.text;
   return (node.content ?? []).map((child) => textOf(child)).join("");
@@ -136,8 +148,12 @@ describe("Markdown import", () => {
     );
 
     const [toggle] = nodesOfType(page.doc, "notionToggle");
-    expect(toggle.attrs?.summary).toBe("Known issues");
-    expect(textOf(toggle)).toBe("Large PDFs export slowly.");
+    expect(toggle.content?.[0]?.type).toBe("notionToggleSummary");
+    expect(toggle.attrs?.summary).toBe("");
+    expect(toggleParts(toggle)).toEqual({
+      title: "Known issues",
+      body: "Large PDFs export slowly.",
+    });
 
     expect(page.content).toContain("Press `Ctrl`+`S` to save.\\[1\\]");
     expect(page.content.endsWith("---\n1. Saving also triggers a sync.")).toBe(
@@ -659,7 +675,7 @@ describe("Markdown import", () => {
     expect(textOf(nodesOfType(page.doc, "notionCallout")[0])).toBe(
       "Remember to tab-indent callout bodies.",
     );
-    expect(textOf(nodesOfType(page.doc, "notionToggle")[0])).toBe(
+    expect(toggleParts(nodesOfType(page.doc, "notionToggle")[0]).body).toBe(
       "Hidden detail",
     );
     expect(page.report.status).toBe("preserved");
@@ -864,7 +880,7 @@ describe("Markdown import", () => {
     expect(
       page.doc.content.map((node) =>
         node.type === "notionToggle"
-          ? `${node.attrs?.summary}: ${textOf(node)}`
+          ? `${toggleParts(node).title}: ${toggleParts(node).body}`
           : textOf(node),
       ),
     ).toEqual([
@@ -1085,7 +1101,7 @@ ${"<span>".repeat(70)}deep
     expect(
       page.doc.content.map((node) =>
         node.type === "notionToggle"
-          ? `${node.attrs?.summary}: ${textOf(node).trim()}`
+          ? `${toggleParts(node).title}: ${toggleParts(node).body.trim()}`
           : textOf(node),
       ),
     ).toEqual(["One: Inside one", "After"]);
@@ -1118,10 +1134,7 @@ ${"<span>".repeat(70)}deep
 
     expect(page.content).toContain("Visible after");
     const [toggle] = nodesOfType(page.doc, "notionToggle");
-    expect([toggle?.attrs?.summary, textOf(toggle).trim()]).toEqual([
-      dotted,
-      "Inside",
-    ]);
+    expect(toggleParts(toggle)).toEqual({ title: dotted, body: "Inside" });
     expect(noteKinds(page)).not.toContain("text-not-landed");
   });
 
@@ -1258,7 +1271,7 @@ ${"<span>".repeat(70)}deep
     expect(
       page.doc.content.map((node) =>
         node.type === "notionToggle"
-          ? `${node.attrs?.summary}: ${textOf(node).trim()}`
+          ? `${toggleParts(node).title}: ${toggleParts(node).body.trim()}`
           : textOf(node),
       ),
     ).toEqual(["One: Inside one", "shown"]);

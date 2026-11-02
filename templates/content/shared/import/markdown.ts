@@ -1122,8 +1122,16 @@ class MarkdownConverter {
     return {
       node: {
         type: "notionToggle",
-        attrs: { summary, ...(open ? { open: true } : {}) },
-        content: children,
+        ...(open ? { attrs: { open: true } } : {}),
+        content: [
+          summary
+            ? {
+                type: "notionToggleSummary",
+                content: [{ type: "text", text: summary }],
+              }
+            : { type: "notionToggleSummary" },
+          ...children,
+        ],
       },
       end,
       after,

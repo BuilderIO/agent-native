@@ -430,6 +430,7 @@ export function buildHeadingCommands(
 ): CommandTemplate[] {
   return headingCommandMetadata.map((heading) => ({
     ...heading,
+    searchText: `h${heading.level}`,
     suggestionSafe: true,
     directoryWidgetSafe: true,
     action: (editor) => {
