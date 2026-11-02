@@ -19,6 +19,7 @@ export {
   withDbExec,
   createDbExec,
   getDatabaseUrl,
+  getMigrationDatabaseUrl,
   getRuntimeDatabaseUrl,
   getRuntimeDatabaseSource,
   isLocalDatabase,

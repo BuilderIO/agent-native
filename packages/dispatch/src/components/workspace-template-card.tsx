@@ -14,6 +14,7 @@ import { AppIcon } from "./app-icon";
 import { AppListRow } from "./app-list-row";
 import { AppOpenActions } from "./app-open-actions";
 import { AppRowSettings } from "./app-row-settings";
+import { useNotifyBuildInBuilder } from "./build-in-builder";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -138,11 +139,15 @@ export function WorkspaceTemplateCard({
   const isInstalled = Boolean(template.installed || template.installedAppId);
   const liveUrl = template.liveUrl || template.productUrl;
   const setupNote = template.integrationSetup || template.setupNote;
+  const notifyBuildInBuilder = useNotifyBuildInBuilder();
   const remix = useActionMutation("remix-workspace-template", {
     onSuccess: (result) => {
       const mode = (result as { mode?: string } | null)?.mode;
       const message = (result as { message?: string } | null)?.message;
-      if (mode === "builder") {
+      const url = (result as { url?: string } | null)?.url;
+      if (mode === "builder-managed" && url) {
+        notifyBuildInBuilder(url);
+      } else if (mode === "builder") {
         toast.success(labels.remixSuccess);
       } else if (mode === "builder-unavailable" || mode === "app-id-taken") {
         toast.error(message || labels.remixError);

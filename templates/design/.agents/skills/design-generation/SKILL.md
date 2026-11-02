@@ -895,6 +895,8 @@ to the chosen Aesthetic layer is what keeps designs from sharing a fingerprint:
 | Archivo | Nunito Sans | Friendly SaaS |
 | Instrument Serif | Schibsted Grotesk | Editorial minimal |
 
+Any Google Fonts family works; check an unfamiliar name and the weights it
+ships with `list-google-fonts` (`q`), since css2 rejects a weight a family lacks.
 All of the above are served by Google Fonts (`fonts.googleapis.com/css2`). The
 mandatory `<head>` only loads the Google Fonts CDN (see HTML Structure
 Requirements) — Fontshare-only families (Cabinet Grotesk, Satoshi, Clash

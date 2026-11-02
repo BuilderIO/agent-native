@@ -310,6 +310,29 @@ const messages = {
     clipsRestoreFailed: "클립 {{count}}개를 복원할 수 없습니다",
     clipsPermanentlyDeleted: "클립 {{count}}개 영구 삭제됨",
     clipsDeleteFailed: "클립 {{count}}개를 삭제할 수 없습니다",
+    deletedMediaPending:
+      "녹화가 삭제되었습니다. 미디어 파일은 아직 제거 중입니다.",
+    deletedMediaBlocked:
+      "녹화가 삭제되었지만 미디어 파일을 제거할 수 없습니다.",
+    deletedMediaRetained:
+      "녹화가 삭제되었습니다. 다른 녹화에서 아직 사용하는 미디어 파일은 유지되었습니다.",
+    clipsDeletedMediaPending:
+      "삭제된 녹화: {{count}}개. 미디어 파일은 아직 제거 중입니다.",
+    clipsDeletedMediaBlocked:
+      "삭제된 녹화: {{count}}개. 미디어 파일을 제거할 수 없습니다.",
+    clipsDeletedMediaRetained:
+      "삭제된 녹화: {{count}}개. 다른 녹화에서 아직 사용하는 미디어 파일은 유지되었습니다.",
+    mediaCleanupListLabel: "미디어 제거",
+    mediaCleanupPending: "삭제된 녹화의 미디어 파일을 제거하는 중",
+    mediaCleanupBlocked: "삭제된 녹화의 미디어 파일을 제거할 수 없습니다",
+    mediaCleanupReconnect:
+      "삭제된 녹화의 미디어 파일을 제거하려면 스토리지를 다시 연결하세요",
+    mediaCleanupRetained:
+      "삭제된 녹화의 공유 미디어 파일은 다른 녹화에서 사용하는 동안 유지됩니다",
+    mediaCleanupRemoved: "미디어 파일이 제거됨",
+    mediaCleanupStillBlocked: "미디어 파일을 여전히 제거할 수 없습니다",
+    mediaCleanupRetryFailed: "미디어 제거를 다시 시도할 수 없습니다",
+    mediaCleanupLoadFailed: "미디어 제거 상태를 불러올 수 없습니다",
   },
   recordingRoute: {
     pageTitle: "클립 녹화 · Clips",

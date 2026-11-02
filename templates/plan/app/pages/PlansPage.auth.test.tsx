@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const appBasePathState = vi.hoisted(() => ({ value: "" }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  apiBaseUrl: () => undefined,
   agentNativePath: (path: string) => {
     const basePath = appBasePathState.value;
     return basePath && path.startsWith("/") ? `${basePath}${path}` : path;

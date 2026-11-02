@@ -1,5 +1,37 @@
+import { normalizeCorsOrigin } from "./cors-origin.js";
+
 export const MCP_EMBED_CORS_ALLOW_HEADERS =
   "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Embed-Target,X-Agent-Native-Embed-Transplant";
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/**
+ * `Access-Control-Allow-Headers` for a preflight from an origin that has
+ * already been admitted: the known list plus whatever else the preflight asks
+ * for. The origin check is the gate; a hand-kept list alone silently failed
+ * every cross-origin call that carried a header nobody had added to it. A
+ * malformed request gets the known list only.
+ */
+export function corsAllowHeadersFor(
+  requested: string | null | undefined,
+  known: string,
+): string {
+  const names = String(requested ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (!names.every((name) => HEADER_NAME.test(name))) return known;
+  const listed = new Set(
+    known.split(",").map((name) => name.trim().toLowerCase()),
+  );
+  const extra = names.filter((name) => {
+    const lower = name.toLowerCase();
+    if (listed.has(lower)) return false;
+    listed.add(lower);
+    return true;
+  });
+  return extra.length ? `${known},${extra.join(",")}` : known;
+}
+
 export const EMBED_TRANSPLANT_HEADER = "x-agent-native-embed-transplant";
 
 const CLAUDE_MCP_CONTENT_HOST_RE = /^[a-f0-9]{32}\.claudemcpcontent\.com$/i;
@@ -21,12 +53,13 @@ const MCP_PRODUCT_HOST_ORIGINS = new Set([
 const TRUSTED_NATIVE_APP_ORIGIN_RE =
   /^(?:tauri:\/\/localhost|https?:\/\/tauri\.localhost(?::\d+)?)$/;
 
-function isExplicitCorsAllowedOrigin(origin: string): boolean {
+export function isExplicitCorsAllowedOrigin(origin: string): boolean {
+  const normalizedOrigin = normalizeCorsOrigin(origin);
   return (process.env.CORS_ALLOWED_ORIGINS ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean)
-    .includes(origin);
+    .some((allowed) => normalizeCorsOrigin(allowed) === normalizedOrigin);
 }
 
 export function isLocalMcpEmbedOrigin(

@@ -1,8 +1,3 @@
-import { toPublicFrameworkPath } from "@agent-native/core/shared/framework-route-prefix";
-
-function publicFrameworkPathInBrowser(path: string): string {
-  return toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() });
-}
 import {
   formatAgentChatContextItemsForPrompt,
   normalizeAgentComposerReference,
@@ -14,6 +9,8 @@ import { useVoiceProviderStatus } from "@agent-native/core/client/agent-chat";
 import { SIDEBAR_STATE_CHANGE_EVENT } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
+  agentNativePath,
+  appApiPath,
   appPath,
   frameworkRoutePrefix,
 } from "@agent-native/core/client/api-path";
@@ -33,6 +30,11 @@ import {
   isMcpIntegrationCatalogAvailable,
   useCreateMcpServer,
 } from "@agent-native/core/client/resources";
+import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
+  matchesPathPrefix,
+  toPublicFrameworkPath,
+} from "@agent-native/core/shared/framework-route-prefix";
 import { applyVoiceContextReplacements } from "@agent-native/core/voice";
 import {
   ComposerRuntimeAdaptersProvider,
@@ -51,6 +53,17 @@ import { coreComposerModelAdapters } from "./model-runtime-adapters.js";
 
 const REALTIME_VOICE_REQUEST_SOURCE = "realtime-voice";
 
+function resolveComposerPath(path: string): string {
+  const pathname = path.split(/[?#]/, 1)[0] ?? path;
+  if (matchesPathPrefix(pathname, FRAMEWORK_INTERNAL_ROUTE_PREFIX)) {
+    return agentNativePath(path);
+  }
+  if (matchesPathPrefix(pathname, "/api")) return appApiPath(path);
+  return appPath(
+    toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() }),
+  );
+}
+
 function subscribeSidebarState(
   listener: (detail: { open?: boolean } | undefined) => void,
 ): () => void {
@@ -66,7 +79,7 @@ function subscribeSidebarState(
 type CoreComposerRuntimeAdapters = Omit<ComposerRuntimeAdapters, "translate">;
 
 export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
-  resolvePath: (path) => appPath(publicFrameworkPathInBrowser(path)),
+  resolvePath: resolveComposerPath,
   models: {
     ...coreComposerModelAdapters,
     BuilderSetupCard,

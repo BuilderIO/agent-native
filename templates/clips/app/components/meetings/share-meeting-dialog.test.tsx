@@ -27,7 +27,7 @@ describe("meeting sharing adoption", () => {
     );
   it("confirms organization access before saving and defaults invites to notified Viewer", async () => {
     await render();
-    await select(button("General access"), "Organization");
+    await select(button("General access"), "Anyone in your organization");
     expect(mocks.visibility).not.toHaveBeenCalled();
     await click(button("Share with organization"));
     expect(mocks.visibility).toHaveBeenCalledWith({
@@ -39,7 +39,7 @@ describe("meeting sharing adoption", () => {
       document.querySelector<HTMLInputElement>('input[role="combobox"]')!,
       "invite@example.test",
     );
-    await click(button("Add"));
+    await click(button("Invite"));
     expect(mocks.share).toHaveBeenCalledWith(
       expect.objectContaining({
         resourceType: "meeting",

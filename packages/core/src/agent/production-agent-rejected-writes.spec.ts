@@ -34,6 +34,7 @@ import {
   NoWriteError,
 } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { attachmentFailureToError } from "../private-blob/attachment-errors.js";
 import type {
   AgentEngine,
   EngineEvent,
@@ -146,6 +147,39 @@ beforeEach(() => {
 });
 
 describe("a write rejected before it wrote", () => {
+  it("runs the corrected import after a file path that is not an upload reference", async () => {
+    const imported: string[] = [];
+    const importFile = defineAction({
+      description: "Import an uploaded file.",
+      schema: z.object({ filePath: z.string() }),
+      run: async ({ filePath }) => {
+        if (filePath !== "attachment:v1:example") {
+          throw attachmentFailureToError({
+            status: "malformed",
+            reason: "unrecognized_scheme",
+          });
+        }
+        imported.push(filePath);
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+
+    const events = await runCalls({ "import-file": importFile }, [
+      { name: "import-file", input: { filePath: "deck.pdf" } },
+      { name: "import-file", input: { filePath: "attachment:v1:example" } },
+    ]);
+
+    expect(imported).toEqual(["attachment:v1:example"]);
+    expectNoUnknownStop(events);
+    expect(events.some((event) => event.type === "error")).toBe(false);
+    const [rejected] = toolDones(events);
+    expect(rejected).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+    });
+    expect(rejected?.result).toContain("reference listed for the attachment");
+  });
+
   it("runs the corrected retry after a NoWriteError", async () => {
     const written: string[] = [];
     const events = await runCalls({ patch: patchAction(written) }, [

@@ -28,10 +28,7 @@ import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "@agent-native/core/onboarding/types";
-import {
-  FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
-  FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
-} from "@agent-native/core/shared";
+import { FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID } from "@agent-native/core/shared";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -83,7 +80,6 @@ import {
 
 type FirstRunScreen = "choice" | "role" | "connecting" | "extension";
 type FirstRunExtensionPlacement = "before-setup" | "after-setup";
-const FIRST_RUN_CREDITS_V2_APP_IDS = new Set(["clips", "design", "slides"]);
 type FirstRunSetupMethodId =
   | "builder_create_account"
   | "builder_sign_in"
@@ -239,12 +235,6 @@ export function FirstRunOnboarding({
   } | null>(null);
   const [creditsV2ExposureTracked, setCreditsV2ExposureTracked] =
     useState(false);
-  const creditsV2Flag = useFeatureFlagState(
-    FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
-  );
-  const creditsV2FlagAppliesToApp = FIRST_RUN_CREDITS_V2_APP_IDS.has(
-    profile?.appId ?? "",
-  );
   const creditsV2Exposure = useActionMutation<
     {
       assignment: {
@@ -261,20 +251,16 @@ export function FirstRunOnboarding({
     previewMode &&
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("experiment") === "v2";
-  const creditsV2Enabled =
-    creditsV2FlagAppliesToApp &&
-    creditsV2Flag.status === "ready" &&
-    creditsV2Flag.enabled;
+  const creditsV2Enabled = profile?.firstRunCreditsExperiment === "v2";
   const creditsV2FlowEnabled = creditsV2Enabled || previewCreditsV2;
-  const creditsV2FlagPending =
-    !previewMode &&
-    creditsV2FlagAppliesToApp &&
-    creditsV2Flag.status === "loading";
+  const creditsV2ConfigPending =
+    !previewMode && profile === null && error == null;
   const setupVariant = useMemo(() => {
     const previewVariant =
       previewMode && getPreviewFirstRunSetupVariant(window.location.search);
     if (previewCreditsV2) return previewVariant;
     if (previewVariant) return previewVariant;
+    if (!profile) return null;
     if (creditsV2FlowEnabled) {
       return creditsV2Assignment?.experiment_variant ?? null;
     }
@@ -512,7 +498,7 @@ export function FirstRunOnboarding({
   // The v2 choice event waits until the rendered arm has been attributed.
   const choiceStepKnown =
     screen !== "choice" ||
-    (!creditsV2FlagPending &&
+    (!creditsV2ConfigPending &&
       (!creditsV2FlowEnabled || setupExperimentDecision !== null) &&
       (setupVariant === null || setupExperimentDecision !== null) &&
       (!creditsV2Enabled ||
@@ -794,7 +780,7 @@ export function FirstRunOnboarding({
       previewMode ||
       !firstRun ||
       screen !== "choice" ||
-      creditsV2FlagPending ||
+      creditsV2ConfigPending ||
       creditsV2FlowEnabled ||
       !setupVariant ||
       !setupStatusSettled ||
@@ -819,7 +805,7 @@ export function FirstRunOnboarding({
     firstRun,
     previewMode,
     screen,
-    creditsV2FlagPending,
+    creditsV2ConfigPending,
     creditsV2FlowEnabled,
     setupExperimentEligible,
     setupExperimentDecision,
@@ -894,7 +880,7 @@ export function FirstRunOnboarding({
       previewMode ||
       !firstRun ||
       screen !== "choice" ||
-      creditsV2FlagPending ||
+      creditsV2ConfigPending ||
       (!setupVariant && !creditsV2FlowEnabled) ||
       setupExperimentDecision !== null
     ) {
@@ -908,7 +894,7 @@ export function FirstRunOnboarding({
     return () => window.clearTimeout(timer);
   }, [
     creditsV2FlowEnabled,
-    creditsV2FlagPending,
+    creditsV2ConfigPending,
     firstRun,
     previewMode,
     screen,
@@ -1146,7 +1132,7 @@ export function FirstRunOnboarding({
     const inCreditsArm = setupVariant === "credits";
     if (
       !previewMode &&
-      (creditsV2FlagPending ||
+      (creditsV2ConfigPending ||
         (creditsV2FlowEnabled && setupExperimentDecision === null) ||
         (setupVariant && setupExperimentDecision === null))
     ) {

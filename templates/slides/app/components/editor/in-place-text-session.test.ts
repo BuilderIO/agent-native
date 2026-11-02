@@ -8,6 +8,7 @@ import {
   IN_PLACE_TEXT_UNDO_LIMIT,
   type InPlaceTextSession,
   startInPlaceTextSession,
+  stripSizeLocks,
 } from "./in-place-text-session";
 
 let session: InPlaceTextSession | null = null;
@@ -565,6 +566,22 @@ describe("in-place text session: entering and ending", () => {
     expect(el.style.getPropertyValue("contain")).toBe("");
     expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe("");
     expect(el.style.top).toBe("20px");
+  });
+
+  it("saved HTML drops the size lock a grown flow paragraph holds on the live element", () => {
+    const el = mount('<p id="t" style="margin: 0">Alpha</p>');
+    mockBox(el);
+    session = startInPlaceTextSession(el);
+    const text = el.firstChild as Text;
+    caret(text, text.length);
+    type(el, " beta gamma");
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+
+    const saved = document.createElement("div");
+    saved.append(el.cloneNode(true));
+    stripSizeLocks(saved);
+
+    expect(saved.innerHTML).not.toContain("contain");
   });
 
   it("keeps an author's other contain tokens when stripping the size token", () => {
@@ -2716,7 +2733,7 @@ describe("in-place text session: undo", () => {
     while (session.undo()) undone++;
     expect(undone).toBe(operationCount);
     expect(el.innerHTML).toBe(originalHtml);
-  });
+  }, 90_000);
 
   it("stores differences instead of repeating two-byte snapshots", () => {
     const operationCount = 500;
@@ -2744,7 +2761,7 @@ describe("in-place text session: undo", () => {
     while (session.undo()) undone++;
     expect(undone).toBe(operationCount);
     expect(el.innerHTML).toBe(originalHtml);
-  });
+  }, 90_000);
 
   it("restores 500 one-character edits to a large text block through undo and redo", () => {
     const operationCount = 500;

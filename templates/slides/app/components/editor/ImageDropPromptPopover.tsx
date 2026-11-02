@@ -1,5 +1,5 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconLoader2, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -115,7 +115,7 @@ export default function ImageDropPromptPopover({
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+      const res = await fetch(appApiPath("/api/assets/upload"), {
         method: "POST",
         body: form,
       });

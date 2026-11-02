@@ -17,6 +17,7 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import { apiBaseUrl, appApiPath } from "./api-path.js";
 import { whenConsentAllows } from "./consent.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import {
@@ -864,6 +865,7 @@ function defaultReplayEndpoint(): string {
       )
     : null;
   if (derived) return derived;
+  if (apiBaseUrl()) return appApiPath(DEFAULT_REPLAY_PATH);
   return typeof window !== "undefined"
     ? `${window.location.origin}${DEFAULT_REPLAY_PATH}`
     : DEFAULT_REPLAY_PATH;

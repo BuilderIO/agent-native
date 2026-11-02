@@ -28,6 +28,7 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 
+import { isComposingKey, isCommentSendKey } from "./comment-send-key.js";
 import {
   ReviewComposerEditor,
   type ReviewComposerEditorHandle,
@@ -51,6 +52,23 @@ export interface ReviewCommentComposerProps {
   mentions?: readonly ReviewMention[] | undefined;
   onMentionsChange?: ((mentions: ReviewMention[]) => void) | undefined;
   mentionOptions?: readonly ReviewMentionOption[] | undefined;
+  /**
+   * Called with the text after an `@` as it changes, and with "" once the
+   * picker closes. A host that searches its people list server-side narrows
+   * `mentionOptions` from it.
+   */
+  onMentionQueryChange?: ((query: string) => void) | undefined;
+  /**
+   * True while the host's answer to the current query is still on its way.
+   * With no option matching yet, the picker stays hidden rather than say
+   * "No people found" before the host has said so.
+   */
+  mentionOptionsLoading?: boolean | undefined;
+  /**
+   * True when the host could not get its people for the current query. With no
+   * option matching, the picker says so instead of "No people found".
+   */
+  mentionOptionsFailed?: boolean | undefined;
   showCommentTools?: boolean | undefined;
   /** Rendered at the end of the left tools group, e.g. an image button. */
   commentToolsEnd?: ReactNode;
@@ -61,6 +79,7 @@ export interface ReviewCommentComposerProps {
   mentionLabel?: string | undefined;
   agentsLabel?: string | undefined;
   noMentionsLabel?: string | undefined;
+  mentionFailedLabel?: string | undefined;
   submittingTarget?: ReviewResolutionTarget | null | undefined;
   disabled?: boolean | undefined;
   showCommentAction?: boolean;
@@ -75,6 +94,11 @@ export interface ReviewCommentComposerProps {
   agentLabel?: string;
   contextLabel?: string | undefined;
   autoFocus?: boolean | undefined;
+  /**
+   * Enter sends, Shift+Enter starts a new line, and Cmd/Ctrl+Enter sends too,
+   * as in every comment box. Pass `false` to make Enter start a new line,
+   * leaving Cmd/Ctrl+Enter to send.
+   */
   submitOnEnter?: boolean | undefined;
   enterSubmitTarget?: ReviewResolutionTarget;
   onEscape?: (() => void) | undefined;
@@ -96,6 +120,9 @@ export function ReviewCommentComposer({
   mentions = [],
   onMentionsChange,
   mentionOptions = [],
+  onMentionQueryChange,
+  mentionOptionsLoading = false,
+  mentionOptionsFailed = false,
   showCommentTools = false,
   commentToolsEnd,
   attachments,
@@ -104,6 +131,7 @@ export function ReviewCommentComposer({
   mentionLabel = "Mention someone",
   agentsLabel = "Agents",
   noMentionsLabel = "No people found",
+  mentionFailedLabel = "Couldn't load people",
   submittingTarget = null,
   disabled = false,
   showCommentAction = true,
@@ -114,7 +142,7 @@ export function ReviewCommentComposer({
   agentLabel = "Send to agent",
   contextLabel,
   autoFocus = false,
-  submitOnEnter = false,
+  submitOnEnter = true,
   enterSubmitTarget = "human",
   onEscape,
   variant = "expanded",
@@ -138,6 +166,18 @@ export function ReviewCommentComposer({
   const mentionArmedRef = useRef(false);
   const mentionQueryRef = useRef("");
   const mentionListboxId = useId();
+  const onMentionQueryChangeRef = useRef(onMentionQueryChange);
+  useEffect(() => {
+    onMentionQueryChangeRef.current = onMentionQueryChange;
+  });
+  // A card dismissed with the picker open never reaches `closeMention`, and the
+  // host would keep narrowing the next composer's list by this one's query.
+  useEffect(
+    () => () => {
+      if (mentionQueryRef.current !== "") onMentionQueryChangeRef.current?.("");
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!autoFocus || !editorReady) return;
@@ -153,7 +193,12 @@ export function ReviewCommentComposer({
     return () => cancelAnimationFrame(frame);
   }, [autoFocus, editorReady]);
 
-  const mentionMenuOpen = mentionOpen && mentionOptions.length > 0;
+  // A host that searches server-side can answer a typed query with no one at
+  // all; the picker then says so instead of closing under the caret.
+  const mentionMenuOpen =
+    mentionOpen &&
+    (mentionOptions.length > 0 ||
+      (onMentionQueryChange !== undefined && mentionQuery !== ""));
 
   const filteredMentionOptions = mentionOptions.filter((mention) => {
     const query = mentionQuery.trim().toLowerCase();
@@ -169,9 +214,18 @@ export function ReviewCommentComposer({
     Math.max(filteredMentionOptions.length - 1, 0),
   );
   const mentionListOpen = mentionMenuOpen && filteredMentionOptions.length > 0;
+  const mentionAwaitingHost =
+    mentionMenuOpen &&
+    mentionOptionsLoading &&
+    !mentionOptionsFailed &&
+    filteredMentionOptions.length === 0;
+  const mentionEmptyLabel = mentionOptionsFailed
+    ? mentionFailedLabel
+    : noMentionsLabel;
 
   const closeMention = () => {
     mentionArmedRef.current = false;
+    if (mentionQueryRef.current !== "") onMentionQueryChange?.("");
     mentionQueryRef.current = "";
     setMentionOpen(false);
     setMentionQuery("");
@@ -188,6 +242,7 @@ export function ReviewCommentComposer({
     if (mentionQueryRef.current !== trigger.query) {
       mentionQueryRef.current = trigger.query;
       setMentionQuery(trigger.query);
+      onMentionQueryChange?.(trigger.query);
       setMentionActiveIndex(0);
     }
   };
@@ -251,6 +306,9 @@ export function ReviewCommentComposer({
   };
 
   const handleKeyDown = (event: KeyboardEvent): boolean => {
+    // While an input method is composing, its keys (Escape to cancel, arrows
+    // to pick a candidate, Enter to confirm) belong to it.
+    if (isComposingKey(event)) return false;
     if (event.key === "Escape") {
       if (mentionMenuOpen) {
         closeMention();
@@ -265,8 +323,7 @@ export function ReviewCommentComposer({
       }
       return false;
     }
-    const isComposing = event.isComposing || event.keyCode === 229;
-    if (mentionListOpen && !isComposing) {
+    if (mentionListOpen) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const step = event.key === "ArrowDown" ? 1 : -1;
@@ -286,7 +343,6 @@ export function ReviewCommentComposer({
     if (
       mentionOptions.length > 0 &&
       event.key === "@" &&
-      !isComposing &&
       !event.metaKey &&
       !event.ctrlKey &&
       !event.altKey
@@ -305,10 +361,8 @@ export function ReviewCommentComposer({
       }
     }
     if (
-      submitOnEnter &&
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      !isComposing
+      isCommentSendKey(event) &&
+      (submitOnEnter || event.metaKey || event.ctrlKey)
     ) {
       event.preventDefault();
       submitVisibleAction(enterSubmitTarget);
@@ -370,7 +424,7 @@ export function ReviewCommentComposer({
         </div>
       ) : null}
       <Popover
-        open={mentionMenuOpen}
+        open={mentionMenuOpen && !mentionAwaitingHost}
         onOpenChange={(open) => {
           if (!open) closeMention();
         }}
@@ -548,7 +602,7 @@ export function ReviewCommentComposer({
           onActiveIndexChange={setMentionActiveIndex}
           onSelect={insertMention}
           label={mentionLabel}
-          emptyLabel={noMentionsLabel}
+          emptyLabel={mentionEmptyLabel}
           agentsLabel={agentsLabel}
           listboxId={mentionListboxId}
           // The popover hears Escape on the document before the editor does and
@@ -568,8 +622,10 @@ export function ReviewCommentComposer({
         />
       </Popover>
       <div role="status" aria-live="polite" className="sr-only">
-        {mentionMenuOpen && filteredMentionOptions.length === 0
-          ? noMentionsLabel
+        {mentionMenuOpen &&
+        !mentionAwaitingHost &&
+        filteredMentionOptions.length === 0
+          ? mentionEmptyLabel
           : ""}
       </div>
     </form>

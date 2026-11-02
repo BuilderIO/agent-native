@@ -28,6 +28,7 @@ import {
   canCommand,
   createSlideNavigation,
   reduceSlideNavigation,
+  slideNavigationKeyCommand,
   type SlideNavigationLayout,
   type SlideNavigationState,
 } from "./slide-navigation";
@@ -303,23 +304,14 @@ export default function PresenterView({
       if (isMediaKeyboardEvent(e) || isInteractiveKeyboardEvent(e)) return;
       // Same as the audience view: auto-repeat keydowns are not new presses.
       if (e.repeat) return;
-      switch (e.key) {
-        case "ArrowRight":
-        case "ArrowDown":
-        case " ":
-          e.preventDefault();
-          goNext();
-          break;
-        case "ArrowLeft":
-        case "ArrowUp":
-          e.preventDefault();
-          goPrev();
-          break;
-      }
+      const command = slideNavigationKeyCommand(e.key);
+      if (!command) return;
+      e.preventDefault();
+      send({ type: "command", command });
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [goNext, goPrev]);
+  }, [send]);
 
   // One atomic effect handles both cases so they can't race each other:
   // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds

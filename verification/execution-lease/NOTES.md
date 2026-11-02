@@ -200,6 +200,14 @@ prune after the window expires.
 P8 holds per step row. These paths concern call identity or event persistence,
 which the execution-lease model does not cover.
 
+Private tool inputs retain a server-keyed identity instead of raw arguments.
+Implementation tests check equal-input admission, changed-input rejection and
+unverifiable legacy rows. Recovery stops before model or handler execution when
+a prior private call cannot be reconstructed; a verified, unexecuted approval
+pause remains resumable. These are implementation obligations outside the
+model's step-identity assumption. The additional guards remove possible
+executions without changing the modeled lease, dispatch or effect ordering.
+
 - **F4, not reproduced in current recovery code.** Agent-team retries set
   `recoverCompletedExecutionSteps` after the first claim
   (`server/agent-teams.ts`), which seeds interrupted journal entries even

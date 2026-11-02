@@ -15,5 +15,11 @@ export function resolveOnboardingAppId(explicit?: string): string {
 }
 
 export function getOnboardingAppProfile(appId?: string): OnboardingAppProfile {
-  return getOnboardingAppProfileForId(resolveOnboardingAppId(appId));
+  const onboarding = getAppConfig().onboarding;
+  return {
+    ...getOnboardingAppProfileForId(resolveOnboardingAppId(appId)),
+    firstRunCreditsExperiment:
+      onboarding.firstRunCreditsExperimentOverride ??
+      onboarding.firstRunCreditsExperiment,
+  };
 }

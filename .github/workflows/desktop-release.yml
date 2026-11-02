@@ -186,6 +186,10 @@ jobs:
   build-mac:
     needs: [resolve-version, prepare-release]
     runs-on: macos-latest
+    # A normal build takes 12-20 minutes. Without a bound, one stalled signing
+    # step held a macOS runner for the 6-hour default and kept Release everything
+    # waiting on it.
+    timeout-minutes: 60
     env:
       NODE_OPTIONS: --max-old-space-size=8192
     steps:
@@ -255,6 +259,10 @@ jobs:
           security create-keychain -p "" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
+          # A keychain made by the CLI re-locks after 5 idle minutes. codesign
+          # then waits forever for an unlock prompt a headless runner cannot
+          # show, so any build that spends longer than that before signing hangs.
+          security set-keychain-settings -lut 21600 build.keychain
           security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
           rm certificate.p12

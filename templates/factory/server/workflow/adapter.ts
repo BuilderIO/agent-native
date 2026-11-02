@@ -202,6 +202,28 @@ export interface SaveWorkflowGraphInput {
   source: WorkflowVersionSource;
   summary: string;
   createdBy: string;
+  /** Whose draft the save replaces: deleted in the same write as the version. */
+  discardDraftOf?: string | undefined;
+}
+
+/**
+ * What a member's editor was holding for a workflow. The graph is kept as
+ * written and has not been validated: it may have loose ends or bad paths.
+ */
+export interface WorkflowDraftRecord {
+  workflowId: string;
+  ownerEmail: string;
+  /** The saved version the edits started from; it may no longer be current. */
+  baseVersion: number;
+  graphJson: string;
+  updatedAt: string;
+}
+
+export interface SaveWorkflowDraftInput {
+  workflowId: string;
+  ownerEmail: string;
+  baseVersion: number;
+  graphJson: string;
 }
 
 export interface RunCounts {
@@ -447,6 +469,37 @@ export interface WorkflowStore {
     input: SaveWorkflowGraphInput,
   ): Promise<WorkflowRecord>;
   /**
+   * Keeps the member's one draft for the workflow, replacing the last. The text
+   * must be a JSON object with `nodes` and `edges` arrays and fit the graph
+   * size cap, otherwise `invalid_record`; nothing else about it is checked.
+   * `not_found` for a workflow that is not in this scope.
+   */
+  saveWorkflowDraft(
+    scope: WorkflowScope,
+    input: SaveWorkflowDraftInput,
+  ): Promise<WorkflowDraftRecord>;
+  /**
+   * Another member's draft is never returned. `null` when this member has
+   * none; `corrupt_record` when the stored text is no longer a graph object.
+   */
+  getWorkflowDraft(
+    scope: WorkflowScope,
+    workflowId: string,
+    ownerEmail: string,
+  ): Promise<WorkflowDraftRecord | null>;
+  /** Whether the member has a draft, without reading it: a corrupt one counts. */
+  hasWorkflowDraft(
+    scope: WorkflowScope,
+    workflowId: string,
+    ownerEmail: string,
+  ): Promise<boolean>;
+  /** False when there was none. */
+  discardWorkflowDraft(
+    scope: WorkflowScope,
+    workflowId: string,
+    ownerEmail: string,
+  ): Promise<boolean>;
+  /**
    * Changes the display name only: the version, the graph, whether it is
    * enabled and its dry-run record stay as they were.
    */
@@ -475,7 +528,8 @@ export interface WorkflowStore {
   ): Promise<void>;
   /**
    * Hard delete: the workflow and everything under it, including its runs,
-   * parked items, and cursors. False when there was nothing to delete.
+   * parked items, cursors, and every member's draft. False when there was
+   * nothing to delete.
    */
   deleteWorkflow(scope: WorkflowScope, workflowId: string): Promise<boolean>;
 

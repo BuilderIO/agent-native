@@ -382,9 +382,6 @@ const messages = {
       connectionsNeeded: "{{count}} à connecter",
       connectionsListName: "Connexions requises",
       jumpToProblem: "Afficher sur le canevas",
-      testRun: "Simulation",
-      testing: "Démarrage",
-      saveAndTest: "Enregistrer et lancer une simulation",
       moreActions: "Autres actions",
       runNow: "Exécuter maintenant",
       runNowSaveFirst:
@@ -465,6 +462,14 @@ const messages = {
       body: "Ce flux de travail contient des modifications non enregistrées.",
       stay: "Continuer à modifier",
       discard: "Abandonner",
+    },
+    draft: {
+      restored: "Vos modifications non enregistrées ont été restaurées.",
+      saveFailed:
+        "Impossible d’enregistrer un brouillon de vos modifications. {{reason}}",
+      unreadable:
+        "Vos modifications non enregistrées n’ont pas pu être restaurées : la version enregistrée est ouverte.",
+      discardFailed: "Impossible d’abandonner votre brouillon. {{reason}}",
     },
     liveRun: {
       dialogTitle: "Exécuter réellement ce flux de travail ?",

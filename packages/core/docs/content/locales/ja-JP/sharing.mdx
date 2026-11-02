@@ -118,11 +118,10 @@ description: "使い慣れた一貫性のある共有機能をフレームワー
 
 すべての共有可能なリソースには、ヘッダーに共有ボタンが表示されます。これをクリックすると、ボタンに固定されたポップオーバー (モーダルではなく) が開きます。
 
-- 可視性セレクター (`Private` / `Organization` / `Public link`)。
-- 「ユーザーまたはチームを追加」オートコンプリート — 組織内のユーザーを検索するか、メールを貼り付けます。
-- 個別のメール権限付与用の `ユーザーに通知` チェックボックス。
-- ロールピッカーと削除コントロールを含む現在の許可のリスト。
-- 現在の表示設定を尊重するリンクのコピー ボタン。
+- ユーザー、組織グループ、組織のエージェントを招待する 1 つの入力欄。ロールの選択と「招待」ボタンがあります。メールアドレスを入力すると `Notify people` チェックボックスも表示されます。
+- アクセスできるユーザー: オーナー、ユーザー、グループ、エージェントを 1 つのリストに表示します。ロールは「閲覧可」「コメント可」「編集可」「アクセスを管理可」です。「アクセスを削除」は各行のロールメニューの最後にあります。
+- 一般的なアクセス: 招待されたユーザーのみ / 組織内の全員 / リンクを知っている全員。
+- 「リンクをコピー」と「送信先」メニュー: Claude・Claude Code・Codex で開く、エージェント用プロンプトをコピー、エージェント用リンクをコピー、MCP サーバー設定、アプリが追加する送信先。
 
 リソースを `Private` から `Organization` に変更すると、先に確認が表示されます。確認するまでは何も変わりません。キャンセルまたは Escape を押すと、現在のアクセスが維持されます。保存に失敗した場合、ダイアログにエラーが表示され、もう一度試せます。それ以外の可視性の変更はすぐに保存されます。この確認は共有 UI だけにあります。`set-resource-visibility` は変更されないため、エージェントやその他の呼び出し元はこれまでどおり可視性を直接変更でき、何が許可されるかは引き続きリソースの共有ポリシーが決めます。
 
@@ -136,6 +135,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+組織にサービスエージェント（組織のサービストークンから作られる `svc-<name>@service.<orgId>` の ID）がある場合、招待欄にエージェントが表示されます。通常のユーザーとして共有され、メールは送信されません。MCP や OAuth で接続するエージェントは接続したユーザーとして動作するため、行は表示されません。「送信先」から渡してください。
 
 リストの場合、各行の横に `<VisibilityBadge visibility={row.visibility} />` をドロップすると、ユーザーが何がプライベートか共有かを一目で確認できるようになります。
 
@@ -193,7 +194,7 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
 
-Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Declare `agentRead: { actions: ["get-<thing>"] }` (and `idParam` when the tool's id argument is not `id`) so the share panel's Send to menu offers Open in Claude, Claude Code, and Codex with a prompt that calls that MCP tool with the person's own permissions.
 
 ## 新しいテンプレートに組み込む {#building}
 

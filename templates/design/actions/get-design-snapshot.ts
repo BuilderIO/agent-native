@@ -161,7 +161,7 @@ export default defineAction({
             },
             nextRequiredAction:
               `For an in-place refinement, Call edit-design exactly once with designId ${designId} and fileId ${boundedFile.id} (${boundedFile.filename}). ` +
-              "For a requested HubSpot email rebuild, use this source to author a new email-safe HTML sibling with create-file frameType=hubspot-email and preserve the original. " +
+              'For a requested HubSpot email rebuild, use this source to author a new email-safe HTML sibling with create-file, including `<meta name="agent-native:frame-type" content="hubspot-email">` in its head, and preserve the original. ' +
               "Do not call delete-file or get-design-snapshot again unless edit-design fails with a concrete missing context error.",
           }
         : {}),
