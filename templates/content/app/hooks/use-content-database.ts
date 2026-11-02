@@ -64,6 +64,7 @@ import { OPENING_DATABASE_ROW_LIMIT } from "@shared/database-open-table-query";
 import { hydrateContentDatabaseResponse } from "@shared/database-row-properties";
 import type { Query, QueryClient } from "@tanstack/react-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 import { documentQueryFilter } from "../lib/document-query";
 import {
@@ -929,6 +930,37 @@ export function useContentDatabaseById(
       meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
+}
+
+/**
+ * The view a row's full page was opened from, named in the page's address. It
+ * needs only the collection's metadata; what the collection already read shows
+ * it at once. A view that can't be read leaves the page's own layout.
+ */
+export function useContentDatabaseRowView(
+  databaseId: string | null,
+  databaseDocumentId: string | null,
+  viewId: string | null,
+) {
+  const queryClient = useQueryClient();
+  const read = useContentDatabaseById(viewId ? databaseId : null, {
+    limit: 0,
+  });
+  const cached = useMemo(
+    () =>
+      viewId && databaseDocumentId
+        ? readCachedContentDatabaseResponse(queryClient, databaseDocumentId)
+        : undefined,
+    [databaseDocumentId, queryClient, viewId],
+  );
+  const response =
+    read.data && !isContentDatabaseUnavailable(read.data) ? read.data : cached;
+  return {
+    view:
+      response?.database.viewConfig.views.find((view) => view.id === viewId) ??
+      null,
+    pending: !response && read.isLoading,
+  };
 }
 
 export function useCreateContentDatabase(

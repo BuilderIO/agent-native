@@ -54,7 +54,7 @@ describe("get-agentkit-capabilities", () => {
     });
   });
 
-  it("preserves the Slides 2 app identity for capability discovery", async () => {
+  it("preserves the Slides app identity for capability discovery", async () => {
     const result = {
       sources: { figma: { available: false } },
       integrations: [],
@@ -65,13 +65,13 @@ describe("get-agentkit-capabilities", () => {
       action.run(
         {},
         {
-          appId: "slides-2",
+          appId: "slides",
           userEmail: "member@example.test",
           orgId: "org-1",
         },
       ),
     ).resolves.toEqual(result);
-    expect(mocks.list).toHaveBeenCalledWith("slides-2", {
+    expect(mocks.list).toHaveBeenCalledWith("slides", {
       userEmail: "member@example.test",
       orgId: "org-1",
     });

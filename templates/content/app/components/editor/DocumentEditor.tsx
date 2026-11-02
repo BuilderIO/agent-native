@@ -115,6 +115,7 @@ import {
 import { flushDocumentPropertyWrites } from "@/hooks/document-property-persistence";
 import { useComments, type CommentThread } from "@/hooks/use-comments";
 import {
+  useContentDatabaseRowView,
   useDeleteContentDatabase,
   useProcessBuilderBodyHydration,
 } from "@/hooks/use-content-database";
@@ -244,6 +245,10 @@ import { ContentImportDialog } from "./ContentImportDialog";
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
+import {
+  type DatabaseRowView,
+  databaseRowPropertyOrder,
+} from "./database/row-view-layout";
 import { directoryWidgetEditability } from "./directory-widget-editability";
 import { isPageCommentThread } from "./discussion-panel";
 import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
@@ -321,6 +326,7 @@ import {
   bodyCommentThreads,
   openThreadsByProperty,
   PropertyCommentsContext,
+  threadPropertyId,
   type PropertyCommentsValue,
 } from "./property-comments";
 import { StaticDocumentBody } from "./StaticDocumentBody";
@@ -500,6 +506,8 @@ interface DocumentEditorProps {
   databaseId?: string | null;
   databaseDocumentId?: string | null;
   viewId?: string | null;
+  /** The view a row's full page was opened from, named in its address. */
+  rowViewId?: string | null;
   foreground?: boolean;
 }
 
@@ -522,6 +530,8 @@ export interface PageCommentIntent {
 
 export interface PageEditorSurfaceProps extends DocumentEditorProps {
   host: "page" | "preview";
+  /** The view showing the row panel, which lays out its Properties. */
+  rowView?: DatabaseRowView | null;
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
   focusTitle?: boolean;
@@ -1270,6 +1280,7 @@ export function shouldAttestUnchangedEditorSave(args: {
   contentChanged: boolean;
   editorSessionId?: string;
   editGeneration?: number;
+  confirmedEditGeneration: number;
   isLinkedLocalSource: boolean;
   isLocalFile: boolean;
 }) {
@@ -1277,10 +1288,12 @@ export function shouldAttestUnchangedEditorSave(args: {
     !args.hasUpdates &&
     !args.contentChanged &&
     !!args.editorSessionId &&
-    // Generation 0 is an editor that never edited the page: closing it has
-    // nothing to settle, and the write would claim the stored page as its own.
+    // Only a generation the server has not confirmed has anything to settle.
+    // Generation 0 is the page as loaded: attesting it would claim the stored
+    // page as this editor's. A confirmed generation sent only its changed
+    // fields, and the server refuses it again with a different field set.
     args.editGeneration !== undefined &&
-    args.editGeneration > 0 &&
+    args.editGeneration > args.confirmedEditGeneration &&
     !args.isLinkedLocalSource &&
     !args.isLocalFile
   );
@@ -1521,6 +1534,7 @@ export function DocumentEditor({
   databaseId,
   databaseDocumentId,
   viewId,
+  rowViewId,
   foreground = false,
 }: DocumentEditorProps) {
   return (
@@ -1532,6 +1546,7 @@ export function DocumentEditor({
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
       viewId={viewId}
+      rowViewId={rowViewId}
       foreground={foreground}
       host="page"
     />
@@ -1565,6 +1580,8 @@ export function PageEditorSurface({
   databaseId,
   databaseDocumentId,
   viewId,
+  rowViewId,
+  rowView,
   foreground = false,
   host,
   onSessionChange,
@@ -1812,6 +1829,8 @@ export function PageEditorSurface({
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
         viewId={viewId}
+        rowViewId={rowViewId}
+        rowView={rowView}
         host={host}
         onSessionChange={onSessionChange}
         onDelete={onDelete}
@@ -2186,6 +2205,8 @@ interface DocumentEditorBodyProps {
   databaseId?: string | null;
   databaseDocumentId?: string | null;
   viewId?: string | null;
+  rowViewId?: string | null;
+  rowView?: DatabaseRowView | null;
   host: "page" | "preview";
   onSessionChange?: (session: PageEditorSession | null) => void;
   onDelete?: () => Promise<void>;
@@ -2864,6 +2885,8 @@ function PageEditorSessionBody({
   databaseId,
   databaseDocumentId,
   viewId,
+  rowViewId,
+  rowView: panelRowView,
   host,
   onSessionChange,
   onDelete,
@@ -3479,6 +3502,7 @@ function PageEditorSessionBody({
   const confirmedContentEditVersionRef = useRef(0);
   const contentObservationEpochRef = useRef(0);
   const editorEditGenerationRef = useRef(0);
+  const confirmedEditGenerationRef = useRef(0);
   const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
   const authoredContentBaseRef = useRef(createAuthoredContentBase());
   const authoredContentBase = useCallback(
@@ -4636,6 +4660,10 @@ function PageEditorSessionBody({
       const settleConfirmedEdit = () => {
         if (contentEditVersionRef.current !== contentEditVersion) return;
         confirmedContentEditVersionRef.current = contentEditVersion;
+        confirmedEditGenerationRef.current = Math.max(
+          confirmedEditGenerationRef.current,
+          editorEditGeneration,
+        );
         clearConfirmedDraftJournal(editorEditGeneration);
       };
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
@@ -4710,6 +4738,7 @@ function PageEditorSessionBody({
           contentChanged,
           editorSessionId: options.editorSessionId,
           editGeneration: options.editGeneration,
+          confirmedEditGeneration: confirmedEditGenerationRef.current,
           isLinkedLocalSource: isLinkedLocalSourceDocument,
           isLocalFile: isLocalFileDocument,
         })
@@ -8229,6 +8258,18 @@ function PageEditorSessionBody({
     ? pagePropertiesQuery.data.properties
     : undefined;
   const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
+  const addressRowView = useContentDatabaseRowView(
+    pagePropertiesDatabaseId,
+    databaseDocumentId ??
+      document.databaseMembership?.databaseDocumentId ??
+      null,
+    panelRowView ? null : (rowViewId ?? null),
+  );
+  const rowView = panelRowView ?? addressRowView.view;
+  const discussionProperties = useMemo(
+    () => pageProperties && databaseRowPropertyOrder(pageProperties, rowView),
+    [pageProperties, rowView],
+  );
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -8772,6 +8813,7 @@ function PageEditorSessionBody({
       openThreadsByProperty: openThreadsByProperty(threads),
       pendingPropertyId: pendingComment?.property?.propertyId ?? null,
       activeThreadId,
+      selectedPropertyId: threadPropertyId(threads, selectedThreadId),
       startComment: startPropertyComment,
       openThread: activateCommentThread,
     }),
@@ -8780,6 +8822,7 @@ function PageEditorSessionBody({
       activeThreadId,
       canComment,
       pendingComment?.property?.propertyId,
+      selectedThreadId,
       startPropertyComment,
       threads,
     ],
@@ -9698,7 +9741,7 @@ function PageEditorSessionBody({
             ? [...blockFieldComments.railThreads, ...clipRailThreads]
             : blockFieldComments.railThreads
       }
-      documentProperties={pageProperties}
+      documentProperties={discussionProperties}
       isLoading={commentsLoading}
       pendingComment={
         presentation === "history" || blockFieldComments.pendingVisible
@@ -10042,6 +10085,8 @@ function PageEditorSessionBody({
               additionalBlockContents={additionalBlockContents}
               databaseId={databaseId}
               databaseDocumentId={databaseDocumentId}
+              rowView={rowView}
+              rowViewPending={addressRowView.pending}
               canEdit={editorCanEdit}
               popoverContainer={popoverContainer}
               onSaveDescription={(description) =>
@@ -10489,6 +10534,8 @@ function PageEditorSessionBody({
                           document.databaseMembership.databaseDocumentId ??
                           null
                         }
+                        rowView={rowView}
+                        rowViewPending={addressRowView.pending}
                         canEdit={editorCanEdit}
                         popoversPortalled={false}
                       />
