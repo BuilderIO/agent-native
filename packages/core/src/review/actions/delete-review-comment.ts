@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import { resolveReviewableResourceAccess } from "../registry.js";
@@ -16,7 +16,7 @@ const schema = z.object({
 
 export default defineAction({
   description:
-    "Soft-delete a review comment. Deleting a thread's first comment deletes the whole thread, replies included, so it is allowed only to an editor or to the author of a thread that holds no one else's reply; deleting a reply removes only that reply.",
+    "Delete a review comment, clearing its text, mentions, anchor, image attachments and any resolution note. Deleting a thread's first comment deletes the whole thread, replies included, so it is allowed only to an editor or to the author of a thread that holds no one else's reply; deleting a reply removes only that reply.",
   schema,
   mcpAnnotations: {
     readOnlyHint: false,
@@ -42,7 +42,10 @@ export default defineAction({
       comment.resourceType !== args.resourceType ||
       comment.resourceId !== args.resourceId
     ) {
-      throw new Error("Review comment not found");
+      fail("Review comment not found", {
+        statusCode: 404,
+        errorCode: "not_found",
+      });
     }
     const isAuthor =
       Boolean(actionCtx?.userEmail) &&
@@ -77,7 +80,18 @@ export default defineAction({
       },
     );
     if (updatedCount < 1) {
-      throw new Error("Review comment not found");
+      // A comment already deleted, as a repeated request finds it, stays as
+      // its first delete left it, and the request still succeeds.
+      // raw-sql-ok: the helper's statement is constant text; the id is bound.
+      const current = await getReviewCommentById(comment.id, scope, {
+        bypassScope: true,
+      });
+      if (current?.status !== "deleted") {
+        fail("Review comment not found", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
+      }
     }
     return { commentId: comment.id, deleted: true as const, updatedCount };
   },

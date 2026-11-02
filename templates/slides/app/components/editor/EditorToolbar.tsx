@@ -113,8 +113,7 @@ import {
 } from "../../../shared/slide-transitions";
 import { AppMenu } from "./AppMenu";
 import { DeckPrivacyBadge } from "./DeckPrivacyBadge";
-import { DeckShareAgentTab } from "./DeckShareAgentTab";
-import { useDeckShareLinks } from "./DeckShareButton";
+import { useDeckShareProps } from "./DeckShareButton";
 import {
   registerEditorCommands,
   type EditorCommand,
@@ -311,8 +310,7 @@ export default function EditorToolbar({
       ? `/deck/${deckId}`
       : `${window.location.origin}${appPath(`/deck/${deckId}`)}`;
   const visibility = useDeckVisibility(deckId, deck.visibility);
-  const { primary: primaryShareLink, secondary: secondaryShareLink } =
-    useDeckShareLinks(deckId, visibility, hasSlides);
+  const deckShareProps = useDeckShareProps(deckId, visibility, hasSlides);
 
   const { saving } = useSaveState();
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
@@ -1114,24 +1112,10 @@ export default function EditorToolbar({
           resourceId={deckId}
           resourceTitle={deckTitle}
           panelTitle={t("share.title")}
-          roleCopy={{
-            commenter: {
-              label: t("editorToolbar.commenterRoleLabel"),
-              description: t("editorToolbar.commenterRoleDescription"),
-            },
-          }}
-          shareUrl={primaryShareLink?.url}
-          shareUrlLabel={primaryShareLink?.label}
-          shareUrlDescription={primaryShareLink?.description}
-          secondaryShareUrl={secondaryShareLink?.url}
-          secondaryShareUrlLabel={secondaryShareLink?.label}
-          secondaryShareUrlDescription={secondaryShareLink?.description}
-          showShareLinks={Boolean(primaryShareLink || secondaryShareLink)}
-          shareUrlPlacement="bottom"
+          shareUrl={deckShareProps.shareUrl}
+          shareUrlLabel={deckShareProps.shareUrlLabel}
           peopleAccessLabel={t("share.whoHasAccess")}
-          agentTabContent={
-            widgetEmbed ? undefined : <DeckShareAgentTab deckId={deckId} />
-          }
+          sendTo={widgetEmbed ? undefined : deckShareProps.sendTo}
           basicSharingOnly={widgetEmbed}
           shareTabs={
             creativeContextEnabled && !widgetEmbed

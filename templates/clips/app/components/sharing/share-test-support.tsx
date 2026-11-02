@@ -20,11 +20,25 @@ const mocks = vi.hoisted(() => ({
   clipboard: vi.fn(async (_value: string) => true),
   track: vi.fn(),
 }));
+// The share controller settles each save through mutateAsync; tests drive it
+// through the callbacks recorded on `mutate`.
+function settledThrough(
+  mutate: (variables: unknown, callbacks: unknown) => void,
+) {
+  return {
+    mutate,
+    mutateAsync: (variables: unknown) =>
+      new Promise((resolve, reject) => {
+        mutate(variables, { onSuccess: resolve, onError: reject });
+      }),
+  };
+}
+
 function mutation(name: string) {
   if (name === "set-resource-visibility")
     return { mutateAsync: mocks.visibility };
-  if (name === "share-resource") return { mutate: mocks.share };
-  if (name === "unshare-resource") return { mutate: mocks.unshare };
+  if (name === "share-resource") return settledThrough(mocks.share);
+  if (name === "unshare-resource") return settledThrough(mocks.unshare);
   if (name.includes("agent-link") || name === "create-agent-resource-link")
     return { mutateAsync: mocks.createLink };
   return { mutate: mocks.update };

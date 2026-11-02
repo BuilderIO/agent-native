@@ -126,6 +126,11 @@ rotate.
 - In a task-owned worktree, rotate to a fresh branch from the new
   `origin/main` (`/new-branch`), provided nothing is unpushed or dirty. Leave a
   shared checkout's branch alone.
+- A throwaway worktree for one run (automations create these under
+  `~/.codex/worktrees`) isn't rotated; it is left for
+  `pnpm worktrees:prune --apply` from the main checkout, which removes agent
+  worktrees that are clean, pushed or merged, idle, and not in use. Never
+  leave one dirty or unpushed on purpose.
 
 Merging to `main` publishes beta automatically
 (`deploy-beta-sites-prebuilt.yml`), so "it'll be on beta shortly" is accurate

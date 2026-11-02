@@ -48,6 +48,7 @@ import {
   createLayoutFitRevision,
   hashSlideContent,
 } from "../shared/slide-fit.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
@@ -414,7 +415,7 @@ export default defineAction({
         });
       }
 
-      const deck = JSON.parse(row.data);
+      const deck = withUniqueSlideIds(deckId, JSON.parse(row.data));
       const existingContext = storedCreativeContext(deck.creativeContext);
       if (
         existingContext &&

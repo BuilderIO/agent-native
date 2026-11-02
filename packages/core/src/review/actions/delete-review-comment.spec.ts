@@ -35,6 +35,7 @@ const { __resetReviewableResourcesForTests, registerReviewableResource } =
 const {
   __resetReviewInitForTests,
   ensureReviewTables,
+  getReviewCommentById,
   insertReviewComment,
   insertReviewReply,
   queryReviewComments,
@@ -236,14 +237,27 @@ describe("delete-review-comment", () => {
     ).rejects.toThrow("Review comment not found");
   });
 
-  it("deletes an already deleted comment again without error, and reports an unknown one", async () => {
+  it("deletes an already deleted comment again without error or a new deleter, and reports an unknown one", async () => {
     const root = await thread([]);
     await run(ALICE, root.id);
-
-    await expect(run(ALICE, root.id)).resolves.toMatchObject({ deleted: true });
-    await expect(run(ALICE, "missing-comment")).rejects.toThrow(
-      "Review comment not found",
+    const first = await getReviewCommentById(
+      root.id,
+      {},
+      { bypassScope: true },
     );
+
+    await expect(run(EDITOR, root.id)).resolves.toMatchObject({
+      deleted: true,
+      updatedCount: 0,
+    });
+    expect(
+      await getReviewCommentById(root.id, {}, { bypassScope: true }),
+    ).toMatchObject({ deletedBy: ALICE, deletedAt: first?.deletedAt });
+    await expect(run(ALICE, "missing-comment")).rejects.toMatchObject({
+      message: "Review comment not found",
+      statusCode: 404,
+      errorCode: "not_found",
+    });
   });
 });
 

@@ -37,6 +37,7 @@ import { summarizeDeckStyle } from "../shared/representative-slide.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
 import {
   ensureUniqueSlideIds,
+  repairedSlideId,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
 import { normalizeSlideTransition } from "../shared/slide-transitions.js";
@@ -104,13 +105,6 @@ async function readDeck(
     (index, attempt) => repairedSlideId(deckId, index, attempt),
   );
   return { row, data, accessRole, ...normalized };
-}
-
-// Readers that may not save a duplicate-ID repair see the same replacement IDs
-// that an editor's next load saves, so an ID read before the repair still
-// names the same slide after it.
-function repairedSlideId(deckId: string, index: number, attempt: number) {
-  return `slide-${hashSlideContent(`${deckId}:${index}:${attempt}`).slice(0, 8)}`;
 }
 
 function canPersistSlideIdRepair(

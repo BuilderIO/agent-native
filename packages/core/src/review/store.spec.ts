@@ -31,9 +31,12 @@ const {
   consumeReviewFeedback,
   deleteReviewComment,
   ensureReviewTables,
-  getLiveReviewReplyAuthorsByThread,
+  getLiveReviewAuthorsByThread,
+  getReviewCommentById,
   getReviewStatus,
   insertReviewComment,
+  insertReviewReply,
+  listReviewThreadParticipantEmails,
   queryReviewComments,
   resolveReviewThread,
   sendReviewThreadToAgent,
@@ -353,28 +356,306 @@ describe("review store", () => {
       expect(await liveBodies("p1")).toEqual([]);
     });
 
-    it("lists live reply authors by thread, for one resource, without the deleted", async () => {
+    it("checks and deletes the same replies when a root's thread is not its own id, as a correction comment's isn't", async () => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: "thread-given-at-insert",
+        body: "Root",
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: root.threadId,
+        parentCommentId: root.id,
+        body: "Carol's reply",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const seen: Array<ReadonlyArray<string | null>> = [];
+
+      await expect(
+        deleteReviewComment(root.id, "alice@example.com", {
+          assertThreadDeletable: (authors) => {
+            seen.push(authors);
+            if (authors.some((author) => author !== "alice@example.com")) {
+              throw new Error("refused");
+            }
+          },
+        }),
+      ).rejects.toThrow("refused");
+
+      expect(seen).toEqual([["carol@example.com"]]);
+      expect(await liveBodies("p1")).toEqual(["Root", "Carol's reply"]);
+      expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(2);
+      expect(await liveBodies("p1")).toEqual([]);
+    });
+
+    it("takes the whole thread, another first-level comment included, and checks all its authors", async () => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: "shared-thread",
+        body: "Root",
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const second = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: "shared-thread",
+        body: "Second root",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+        metadata: { resolutionNote: "Carol's note", source: "pin" },
+      });
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: "shared-thread",
+        parentCommentId: second.id,
+        body: "Dave's reply",
+        authorEmail: "dave@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const seen: Array<ReadonlyArray<string | null>> = [];
+      rawClient.execute.mockClear();
+
+      expect(
+        await deleteReviewComment(root.id, "alice@example.com", {
+          assertThreadDeletable: (authors) => {
+            seen.push(authors);
+          },
+        }),
+      ).toBe(3);
+
+      expect(seen.map((authors) => [...authors].sort())).toEqual([
+        ["carol@example.com", "dave@example.com"],
+      ]);
+      // Both first comments are locked, in one order, before anything changes,
+      // so a delete of the other one at the same time waits rather than
+      // deadlocking.
+      const statements = rawClient.execute.mock.calls.map(([input]) =>
+        typeof input === "string" ? input : input.sql,
+      );
+      const lock = statements.findIndex((text) =>
+        /parent_comment_id IS NULL\s+ORDER BY id\s+FOR UPDATE/.test(text),
+      );
+      expect(lock).toBeGreaterThanOrEqual(0);
+      expect(lock).toBeLessThan(
+        statements.findIndex((text) => text.includes("status = 'deleted'")),
+      );
+      expect(await liveBodies("p1")).toEqual([]);
+      expect(
+        await getReviewCommentById(second.id, {}, { bypassScope: true }),
+      ).toMatchObject({ body: "", metadata: { source: "pin" } });
+    });
+
+    it("leaves another resource's replies alone when a given thread id repeats there", async () => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p1",
+        threadId: "repeated-thread",
+        body: "Root",
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const elsewhere = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p2",
+        threadId: "repeated-thread",
+        body: "Other root",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p2",
+        threadId: elsewhere.threadId,
+        parentCommentId: elsewhere.id,
+        body: "Carol's reply",
+        authorEmail: "carol@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const assertThreadDeletable = vi.fn();
+
+      expect(
+        await deleteReviewComment(root.id, "alice@example.com", {
+          assertThreadDeletable,
+        }),
+      ).toBe(1);
+
+      expect(assertThreadDeletable).toHaveBeenCalledWith([]);
+      expect(await liveBodies("p2")).toEqual(["Other root", "Carol's reply"]);
+    });
+
+    it("has a routed reply and routing a thread lock its first comments in a thread delete's order, and a plain reply not", async () => {
+      const { root } = await thread("p-route");
+      const resource = { resourceType: "plan", resourceId: "p-route" };
+      const reply = (body: string) => ({
+        ...resource,
+        threadId: root.threadId,
+        parentCommentId: root.id,
+        body,
+        authorEmail: "bob@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const statements = () =>
+        rawClient.execute.mock.calls.map(([input]) =>
+          typeof input === "string" ? input : input.sql,
+        );
+      const lockAt = (texts: string[]) =>
+        texts.findIndex((text) =>
+          /parent_comment_id IS NULL\s+ORDER BY id\s+FOR UPDATE/.test(text),
+        );
+      // The locks only matter inside a transaction, where the store takes them.
+      Object.assign(rawClient, {
+        transaction: <T>(run: (tx: typeof rawClient) => Promise<T>) =>
+          run(rawClient),
+      });
+      try {
+        rawClient.execute.mockClear();
+        await insertReviewReply(reply("Plain"), null, resource);
+        expect(lockAt(statements())).toBe(-1);
+
+        rawClient.execute.mockClear();
+        await insertReviewReply(reply("Routed"), "human", resource);
+        const routed = statements();
+        expect(lockAt(routed)).toBeGreaterThanOrEqual(0);
+        expect(lockAt(routed)).toBeLessThan(
+          routed.findIndex((text) => text.includes("SET resolution_target")),
+        );
+
+        rawClient.execute.mockClear();
+        await expect(
+          sendReviewThreadToAgent(root.threadId, resource),
+        ).resolves.toBe(1);
+        const sent = statements();
+        expect(lockAt(sent)).toBeGreaterThanOrEqual(0);
+        expect(lockAt(sent)).toBeLessThan(
+          sent.findIndex((text) => text.includes("SET resolution_target")),
+        );
+      } finally {
+        Reflect.deleteProperty(rawClient, "transaction");
+      }
+    });
+
+    it("has resolving a thread and marking its feedback consumed lock its first comments in a thread delete's order", async () => {
+      const { root, reply } = await thread("p-resolve-lock");
+      const resource = { resourceType: "plan", resourceId: "p-resolve-lock" };
+      const statements = () =>
+        rawClient.execute.mock.calls.map(([input]) =>
+          typeof input === "string" ? input : input.sql,
+        );
+      const lockAt = (texts: string[]) =>
+        texts.findIndex((text) =>
+          /parent_comment_id IS NULL\s+ORDER BY id\s+FOR UPDATE/.test(text),
+        );
+      Object.assign(rawClient, {
+        transaction: <T>(run: (tx: typeof rawClient) => Promise<T>) =>
+          run(rawClient),
+      });
+      try {
+        rawClient.execute.mockClear();
+        await expect(
+          resolveReviewThread(root.threadId, "alice@example.com", resource),
+        ).resolves.toBe(2);
+        const resolved = statements();
+        expect(lockAt(resolved)).toBeGreaterThanOrEqual(0);
+        expect(lockAt(resolved)).toBeLessThan(
+          resolved.findIndex((text) => text.includes("SET status")),
+        );
+
+        // Only a reply is named, and its thread's first comment is still
+        // taken first.
+        rawClient.execute.mockClear();
+        await expect(
+          consumeReviewFeedback([reply.id], undefined, resource),
+        ).resolves.toBe(1);
+        const consumed = statements();
+        expect(lockAt(consumed)).toBeGreaterThanOrEqual(0);
+        expect(lockAt(consumed)).toBeLessThan(
+          consumed.findIndex((text) => text.includes("SET consumed_at")),
+        );
+        const lock = rawClient.execute.mock.calls.find(
+          ([input]) =>
+            typeof input !== "string" && /FOR UPDATE/.test(input.sql),
+        );
+        if (!lock) throw new Error("No lock was taken");
+        const [lockInput] = lock;
+        expect((await rawClient.execute(lockInput)).rows).toEqual([
+          { id: root.id },
+        ]);
+      } finally {
+        Reflect.deleteProperty(rawClient, "transaction");
+      }
+    });
+
+    it("deletes a comment whose resolution is plain text, not an object", async () => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p-text-resolution",
+        body: "Root",
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+        metadata: { resolution: "done" },
+      });
+
+      await expect(
+        deleteReviewComment(root.id, "alice@example.com"),
+      ).resolves.toBe(1);
+      expect(
+        await getReviewCommentById(root.id, {}, { bypassScope: true }),
+      ).toMatchObject({ status: "deleted", metadata: { resolution: "done" } });
+    });
+
+    it("lists who wrote in each thread, on one resource, once each, without the deleted", async () => {
       const first = await thread("p1");
       const other = await thread("p2");
+      for (const body of ["Second reply", "Third reply"]) {
+        await insertReviewComment({
+          resourceType: "plan",
+          resourceId: "p1",
+          threadId: first.root.threadId,
+          parentCommentId: first.root.id,
+          body,
+          authorEmail: "carol@example.com",
+          ownerEmail: "alice@example.com",
+        });
+      }
       await insertReviewComment({
         resourceType: "plan",
         resourceId: "p1",
         threadId: first.root.threadId,
-        parentCommentId: first.root.id,
-        body: "Second reply",
-        authorEmail: "carol@example.com",
+        body: "Second root",
+        authorEmail: "dave@example.com",
         ownerEmail: "alice@example.com",
       });
       await deleteReviewComment(first.reply.id, "bob@example.com");
       const resource = { resourceType: "plan", resourceId: "p1" };
 
+      const authors = await getLiveReviewAuthorsByThread(
+        [first.root.threadId, other.root.threadId, first.root.threadId],
+        resource,
+      );
       expect(
-        await getLiveReviewReplyAuthorsByThread(
-          [first.root.threadId, other.root.threadId, first.root.threadId],
-          resource,
+        new Map(
+          [...authors].map(([threadId, emails]) => [
+            threadId,
+            [...emails].sort(),
+          ]),
         ),
-      ).toEqual(new Map([[first.root.threadId, ["carol@example.com"]]]));
-      expect(await getLiveReviewReplyAuthorsByThread([], resource)).toEqual(
+      ).toEqual(
+        new Map([
+          [
+            first.root.threadId,
+            ["alice@example.com", "carol@example.com", "dave@example.com"],
+          ],
+        ]),
+      );
+      expect(await getLiveReviewAuthorsByThread([], resource)).toEqual(
         new Map(),
       );
     });
@@ -411,12 +692,12 @@ describe("review store", () => {
         scope: { userEmail: "alice@example.com" },
         includeDeleted: true,
       });
-      const byBody = Object.fromEntries(
-        rows.map((comment) => [comment.body, comment.deletedBy]),
+      const byId = Object.fromEntries(
+        rows.map((comment) => [comment.id, comment.deletedBy]),
       );
-      expect(byBody).toEqual({
-        Root: "alice@example.com",
-        Reply: "bob@example.com",
+      expect(byId).toEqual({
+        [root.id]: "alice@example.com",
+        [reply.id]: "bob@example.com",
       });
     });
   });
@@ -737,5 +1018,405 @@ describe("review store", () => {
     });
     expect(status?.status).toBe("in_review");
     expect(status?.metadata).toEqual({ gate: "legal" });
+  });
+
+  it("finds a thread's participants on a resource with more comments than a page", async () => {
+    for (let index = 0; index < 205; index += 1) {
+      await insertReviewComment({
+        resourceType: "doc",
+        resourceId: "busy",
+        body: `Older thread ${index}`,
+        authorEmail: "early@example.com",
+      });
+    }
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "busy",
+      body: "Newer thread",
+      authorEmail: "root@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "busy",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "First reply",
+      authorEmail: "replier@example.com",
+    });
+    const deleted = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "busy",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Withdrawn reply",
+      authorEmail: "withdrawn@example.com",
+    });
+    await deleteReviewComment(deleted.id, "withdrawn@example.com");
+
+    const participants = await listReviewThreadParticipantEmails({
+      resourceType: "doc",
+      resourceId: "busy",
+      threadId: root.threadId,
+    });
+    expect(participants.sort()).toEqual([
+      "replier@example.com",
+      "root@example.com",
+    ]);
+  });
+
+  it("clears the text, mentions, anchor, attachments and note of every comment a delete removes", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete",
+      body: "Ask @Bob about this",
+      authorEmail: "alice@example.com",
+      mentions: [{ label: "Bob", email: "bob@example.com" }],
+      anchor: { quote: "the quoted heading", offset: 12 },
+      metadata: {
+        source: "pin",
+        attachments: [
+          { url: "https://cdn.builder.io/api/v1/image/x", name: "shot" },
+        ],
+      },
+    });
+    const reply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "On it, @Alice",
+      authorEmail: "bob@example.com",
+      mentions: [{ label: "Alice", email: "alice@example.com" }],
+      metadata: {
+        attachments: [
+          { url: "https://cdn.builder.io/api/v1/image/z", name: "reply" },
+        ],
+      },
+    });
+    const plainReply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Plain reply",
+      authorEmail: "carol@example.com",
+    });
+    const legacyNote = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Old note",
+      authorEmail: "carol@example.com",
+      metadata: {
+        type: "resolution",
+        note: "Old note",
+        resolvedNote: "Older note",
+        resolution: { note: "Nested note", by: "carol@example.com" },
+      },
+    });
+    await resolveReviewThread(
+      root.threadId,
+      "alice@example.com",
+      { resourceType: "doc", resourceId: "d-delete" },
+      "Fixed in the header",
+    );
+
+    expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(4);
+    expect(await deleteReviewComment("missing", "alice@example.com")).toBe(0);
+
+    const stored = await getReviewCommentById(
+      root.id,
+      {},
+      { bypassScope: true },
+    );
+    expect(stored).toMatchObject({
+      status: "deleted",
+      body: "",
+      mentions: [],
+      anchor: null,
+      metadata: { source: "pin" },
+      deletedBy: "alice@example.com",
+    });
+    const storedReply = await getReviewCommentById(
+      reply.id,
+      {},
+      { bypassScope: true },
+    );
+    expect(storedReply).toMatchObject({
+      status: "deleted",
+      body: "",
+      mentions: [],
+      deletedBy: "alice@example.com",
+    });
+    expect(storedReply?.metadata ?? {}).not.toHaveProperty("attachments");
+    expect(
+      await getReviewCommentById(plainReply.id, {}, { bypassScope: true }),
+    ).toMatchObject({ status: "deleted", body: "" });
+    const storedNote = await getReviewCommentById(
+      legacyNote.id,
+      {},
+      { bypassScope: true },
+    );
+    expect(storedNote?.metadata).toEqual({
+      type: "resolution",
+      resolution: { by: "carol@example.com" },
+    });
+  });
+
+  it("clears a thread of more replies than one statement takes", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-busy",
+      body: "Busy root",
+      authorEmail: "alice@example.com",
+    });
+    const insertReplies = await pglite.prepare(
+      `INSERT INTO agent_review_comments
+         (id, resource_type, resource_id, thread_id, parent_comment_id, body,
+          author_email, created_at, updated_at, metadata_json)
+       SELECT 'busy-' || n, 'doc', 'd-busy', ?, ?, 'Reply ' || n,
+              'bob@example.com', ?, ?,
+              CASE WHEN n % 2 = 0
+                THEN '{"attachments":[{"url":"https://cdn.builder.io/x"}]}'
+              END
+         FROM generate_series(1, 1001) AS n`,
+    );
+    const now = new Date().toISOString();
+    await insertReplies.run(root.threadId, root.id, now, now);
+    rawClient.execute.mockClear();
+
+    expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(1002);
+
+    const replyUpdates = rawClient.execute.mock.calls.filter(
+      ([input]) => typeof input !== "string" && /WHERE id IN/.test(input.sql),
+    );
+    expect(replyUpdates).toHaveLength(2);
+    const left = await pglite.prepare(
+      `SELECT COUNT(*) AS live
+         FROM agent_review_comments
+        WHERE resource_id = 'd-busy' AND parent_comment_id IS NOT NULL
+          AND deleted_at IS NULL`,
+    );
+    const cleared = await pglite.prepare(
+      `SELECT COUNT(metadata_json) AS with_metadata,
+              COUNT(NULLIF(body, '')) AS with_text
+         FROM agent_review_comments
+        WHERE resource_id = 'd-busy' AND parent_comment_id IS NOT NULL`,
+    );
+    expect((await left.all())[0]).toMatchObject({ live: 0 });
+    expect((await cleared.all())[0]).toMatchObject({
+      with_metadata: 0,
+      with_text: 0,
+    });
+  });
+
+  it("lists the live replies of a root deleted before deletes took replies along, newest first too", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-legacy",
+      body: "Old root",
+      authorEmail: "alice@example.com",
+    });
+    const reply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-legacy",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Still here",
+      authorEmail: "bob@example.com",
+    });
+    const markDeleted = await pglite.prepare(
+      `UPDATE agent_review_comments
+          SET status = 'deleted', deleted_at = ?
+        WHERE id = ?`,
+    );
+    await markDeleted.run(new Date().toISOString(), root.id);
+
+    for (const newestFirst of [false, true]) {
+      const live = await queryReviewComments({
+        resourceType: "doc",
+        resourceId: "d-legacy",
+        scope: {},
+        bypassScope: true,
+        newestFirst,
+      });
+      expect(live.map((comment) => comment.id)).toEqual([reply.id]);
+      expect(live[0].threadId).toBe(root.threadId);
+    }
+  });
+
+  it("takes the live replies of a root deleted before deletes took replies along, and leaves the root's own delete alone", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-legacy",
+      body: "Old root",
+      authorEmail: "alice@example.com",
+    });
+    const reply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-legacy",
+      threadId: root.threadId,
+      parentCommentId: root.id,
+      body: "Still here",
+      authorEmail: "bob@example.com",
+    });
+    const markDeleted = await pglite.prepare(
+      `UPDATE agent_review_comments
+          SET status = 'deleted', deleted_by = ?, deleted_at = ?
+        WHERE id = ?`,
+    );
+    await markDeleted.run(
+      "alice@example.com",
+      "2026-01-01T00:00:00.000Z",
+      root.id,
+    );
+
+    expect(await deleteReviewComment(root.id, "editor@example.com")).toBe(1);
+    expect(await deleteReviewComment(root.id, "editor@example.com")).toBe(0);
+
+    expect(
+      await getReviewCommentById(root.id, {}, { bypassScope: true }),
+    ).toMatchObject({
+      deletedBy: "alice@example.com",
+      deletedAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(
+      await getReviewCommentById(reply.id, {}, { bypassScope: true }),
+    ).toMatchObject({
+      status: "deleted",
+      body: "",
+      deletedBy: "editor@example.com",
+    });
+  });
+
+  it("leaves who deleted a comment alone when it's deleted on its own while its thread is being deleted", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete-race",
+      threadId: "race-thread",
+      body: "Root",
+      authorEmail: "alice@example.com",
+    });
+    const second = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete-race",
+      threadId: "race-thread",
+      body: "Second root",
+      authorEmail: "alice@example.com",
+    });
+    const reply = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete-race",
+      threadId: "race-thread",
+      parentCommentId: root.id,
+      body: "Reply",
+      authorEmail: "alice@example.com",
+    });
+    const run = rawClient.execute.getMockImplementation();
+    if (!run) throw new Error("The test client has no implementation");
+    let raced = false;
+    rawClient.execute.mockImplementation(async (input) => {
+      if (
+        !raced &&
+        typeof input !== "string" &&
+        input.sql.includes("status = 'deleted'")
+      ) {
+        raced = true;
+        // Both are deleted on their own after the thread was read.
+        const write = await pglite.prepare(
+          `UPDATE agent_review_comments
+              SET status = 'deleted', deleted_by = ?, deleted_at = ?
+            WHERE id IN (?, ?)`,
+        );
+        await write.run(
+          "bob@example.com",
+          "2026-01-01T00:00:00.000Z",
+          second.id,
+          reply.id,
+        );
+      }
+      return run(input);
+    });
+    try {
+      expect(await deleteReviewComment(root.id, "carol@example.com")).toBe(1);
+    } finally {
+      rawClient.execute.mockImplementation(run);
+    }
+
+    expect(raced).toBe(true);
+    for (const id of [second.id, reply.id]) {
+      expect(
+        await getReviewCommentById(id, {}, { bypassScope: true }),
+      ).toMatchObject({
+        status: "deleted",
+        deletedBy: "bob@example.com",
+        deletedAt: "2026-01-01T00:00:00.000Z",
+      });
+    }
+    expect(
+      await getReviewCommentById(root.id, {}, { bypassScope: true }),
+    ).toMatchObject({ status: "deleted", deletedBy: "carol@example.com" });
+  });
+
+  it("keeps metadata another write adds while a comment is being deleted", async () => {
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d-delete-race",
+      body: "Racing",
+      authorEmail: "alice@example.com",
+      metadata: {
+        source: "pin",
+        attachments: [
+          { url: "https://cdn.builder.io/api/v1/image/y", name: "shot" },
+        ],
+      },
+    });
+    const run = rawClient.execute.getMockImplementation();
+    if (!run) throw new Error("The test client has no implementation");
+    let raced = false;
+    rawClient.execute.mockImplementation(async (input) => {
+      if (
+        !raced &&
+        typeof input !== "string" &&
+        input.sql.includes("status = 'deleted'")
+      ) {
+        raced = true;
+        // Another write lands between the deletion's read and its update.
+        const read = await pglite.prepare(
+          "SELECT metadata_json FROM agent_review_comments WHERE id = ?",
+        );
+        const current = await read.all(root.id);
+        const metadata = JSON.parse(
+          String((current[0] as { metadata_json: string }).metadata_json),
+        ) as Record<string, unknown>;
+        const write = await pglite.prepare(
+          "UPDATE agent_review_comments SET metadata_json = ? WHERE id = ?",
+        );
+        await write.run(
+          JSON.stringify({ ...metadata, label: "kept" }),
+          root.id,
+        );
+      }
+      return run(input);
+    });
+    try {
+      expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(1);
+    } finally {
+      rawClient.execute.mockImplementation(run);
+    }
+
+    expect(raced).toBe(true);
+    const stored = await getReviewCommentById(
+      root.id,
+      {},
+      { bypassScope: true },
+    );
+    expect(stored).toMatchObject({
+      status: "deleted",
+      body: "",
+      metadata: { source: "pin", label: "kept" },
+    });
+    expect(stored?.metadata).not.toHaveProperty("attachments");
   });
 });
