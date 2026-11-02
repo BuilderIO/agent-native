@@ -62,7 +62,9 @@ export function listScaffoldSourceDirs(templates: string[]): string[] {
         .filter(
           (entry) =>
             entry.isDirectory() &&
-            existsSync(join(COMMUNITY_TEMPLATES_DIR, entry.name, "package.json")),
+            existsSync(
+              join(COMMUNITY_TEMPLATES_DIR, entry.name, "package.json"),
+            ),
         )
         .map((entry) => join(COMMUNITY_TEMPLATES_DIR, entry.name))
         .sort()
