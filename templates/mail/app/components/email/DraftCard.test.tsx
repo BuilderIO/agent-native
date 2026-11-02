@@ -268,11 +268,12 @@ describe("DraftCard", () => {
   });
 
   it("starts over when the route moves to another draft", async () => {
-    const drafts = { [newDraft.id]: newDraft, [replyDraft.id]: replyDraft };
+    const drafts = new Map([newDraft, replyDraft].map((d) => [d.id, d]));
     mockCallAction.mockImplementation(
       async (name: string, params: Record<string, unknown>) => {
         const { action: _action, id, ...edits } = params;
-        const draft = drafts[id as string]!;
+        const draft = drafts.get(id as string);
+        if (!draft) throw new Error(`No draft ${String(id)}`);
         if (name === "get-draft-card") return cardData(draft);
         return { draft: { ...draft, ...edits } };
       },
