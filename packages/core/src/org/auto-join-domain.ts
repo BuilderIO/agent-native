@@ -175,7 +175,7 @@ export async function autoJoinDomainMatchingOrgs(
         email,
         orgId: m.orgId,
         federated: m.federated,
-        event: options.event,
+        ...(options.event ? { event: options.event } : {}),
       }),
     );
   }
