@@ -662,6 +662,8 @@ const messages = {
     couldNotEndMeeting: "Não foi possível encerrar a reunião",
   },
   transcriptPanel: {
+    partialTranscript:
+      "Esta transcrição está incompleta. Parte do áudio não pôde ser transcrita.",
     transcribing: "Transcrevendo…",
     pendingDescription:
       "A transcrição ao vivo aparece assim que a fala é capturada. A limpeza continua em segundo plano.",
