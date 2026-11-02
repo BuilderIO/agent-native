@@ -21,6 +21,9 @@ describe("CLI Sentry telemetry", () => {
     vi.stubEnv("DO_NOT_TRACK", "");
     vi.stubEnv("AGENT_NATIVE_TELEMETRY_DISABLED", "");
     vi.stubEnv("AGENT_NATIVE_TELEMETRY_DEBUG", "");
+    vi.stubEnv("CI", "");
+    vi.stubEnv("GITHUB_ACTIONS", "");
+    vi.stubEnv("GITLAB_CI", "");
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.resetModules();
   });
