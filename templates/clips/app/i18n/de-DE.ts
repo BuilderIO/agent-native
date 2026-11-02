@@ -674,8 +674,6 @@ const messages = {
     couldNotEndMeeting: "Meeting konnte nicht beendet werden",
   },
   transcriptPanel: {
-    partialTranscript:
-      "Dieses Transkript ist unvollständig. Ein Teil der Audiodatei konnte nicht transkribiert werden.",
     transcribing: "Transkribieren…",
     pendingDescription:
       "Das Live-Transkript erscheint, sobald die Sprache erfasst wird. Die Bereinigung wird im Hintergrund fortgesetzt.",
