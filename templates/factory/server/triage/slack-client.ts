@@ -7,6 +7,7 @@ import {
   authTest as readAuthTest,
   getThread as readThread,
   getTeamInfo as readTeamInfo,
+  getUserEmail as readUserEmail,
   getUserInfo as readUserInfo,
   postChannelMessage as writeChannelMessage,
   postThreadReply as writeThreadReply,
@@ -15,6 +16,7 @@ import {
   type SlackMessage,
   type SlackPostMessageResult,
   type SlackTeamInfo,
+  type SlackUserEmail,
   type SlackUserInfo,
   type SlackUserLookup,
   type SlackTokenResolver,
@@ -191,6 +193,13 @@ export function createSlackWorkflowClient(identity: SlackReaderIdentity) {
     ): Promise<SlackUserLookup | null> {
       await reader.verifyAgentNativeIdentity(workspace);
       return readUserByEmail(workspace, email, tokenResolver);
+    },
+    async getUserEmail(
+      workspace: Workspace,
+      userId: string,
+    ): Promise<SlackUserEmail> {
+      await reader.verifyAgentNativeIdentity(workspace);
+      return readUserEmail(workspace, userId, tokenResolver);
     },
     async getMessagePermalink(
       workspace: Workspace,

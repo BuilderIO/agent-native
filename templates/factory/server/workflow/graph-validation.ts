@@ -28,7 +28,7 @@ import {
   type OperationDefinition,
   type OperationNodeKind,
 } from "./operations.js";
-import { portsFor, portsWithLimit } from "./ports.js";
+import { ERROR_PORT, portsFor, portsWithLimit } from "./ports.js";
 
 export const ISSUE_CODES = [
   "trigger_count",
@@ -595,7 +595,17 @@ export function validateWorkflowGraph(
   for (const node of graph.nodes) {
     for (const port of portsWithLimit(graph, node)) {
       if (!connected.has(`${node.id}\n${port}`)) {
-        add({ code: "port_leads_nowhere", nodeId: node.id, port });
+        add({
+          code: "port_leads_nowhere",
+          nodeId: node.id,
+          port,
+          // An error output nobody listens to would drop the very items it exists to catch.
+          ...(port === ERROR_PORT
+            ? {
+                detail: `"${node.name}" is set to send failed items to its error output, so that output must lead to a node (or set On error back to stop)`,
+              }
+            : {}),
+        });
       }
     }
   }

@@ -140,6 +140,43 @@ describe("story 2 proofs: Builder to merge", () => {
     expect(callsTo(summary, "factory.mergeGate")).toBe(0);
   });
 
+  it("waits out cancelled checks without a follow-up, a gate or a merge, because cancelled is neither a failure nor green", async () => {
+    const { summary } = await scenario(
+      "cancelled-checks-wait-without-a-fix-or-a-merge",
+    );
+
+    for (const index of [0, 1]) {
+      expect(nodeAt(summary, index, "ci").ports).toEqual({
+        "route:cancelled": 1,
+      });
+      expect(tickAt(summary, index).effects).toEqual([]);
+    }
+    expect(callsTo(summary, "builder.followUp")).toBe(0);
+    expect(callsTo(summary, "factory.mergeGate")).toBe(0);
+    expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+  });
+
+  it("sends Builder back for the real failures only when cancelled runs sit beside them", async () => {
+    const { run, summary } = await scenario(
+      "a-failing-pull-request-with-cancelled-checks-is-sent-back-for-the-failures-only",
+    );
+
+    expect(nodeAt(summary, 0, "ci").ports).toEqual({ "route:failing": 1 });
+    const followUps = effectsOf(summary, "builder.followUp");
+    expect(followUps).toHaveLength(1);
+    expect(followUps[0]?.fields.userMessage).toContain("Content parity");
+    expect(followUps[0]?.fields.userMessage).not.toContain("Design core");
+    // The model is shown 3 failures and 33 cancelled runs, and told to name the failures only.
+    const request = run.ticks[0]?.aiRequests[0];
+    expect(request?.items[0]?.nodes.readPr).toMatchObject({
+      checks: { failed: 3, cancelled: 33, allPassing: false },
+    });
+    expect(request?.instruction).toContain("`failed`");
+    expect(request?.instruction).toContain("`cancelled`");
+    expect(tickAt(summary, 1).calls["builder.followUp"]).toBeUndefined();
+    expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+  });
+
   it("merges a green, eligible pull request once and tells each report's own thread once", async () => {
     const { summary } = await scenario(
       "a-green-pull-request-is-merged-and-every-thread-is-told-once",
@@ -285,7 +322,14 @@ describe("story 2 proofs: Builder to merge", () => {
     });
     expect(item.nodes.readPr).toMatchObject({
       title: "Fix the checkout Pay button",
-      checks: { passed: 3, failed: 0, allPassing: true },
+      // oracle-change: the recorded read now has a real pull request's checks (34 passed beside 33 skipped), not 3 passing and nothing else
+      checks: {
+        passed: 34,
+        failed: 0,
+        cancelled: 0,
+        informational: 33,
+        allPassing: true,
+      },
       verification: {
         present: true,
         hasMedia: true,
@@ -347,19 +391,32 @@ describe("story 2 proofs: Builder to merge", () => {
     });
   });
 
-  it("never reads a judge that cannot sign in as verified: the task fails at the judge, nothing is sent, and a person sees the typed failure", async () => {
+  it("never reads a judge that cannot sign in as verified: the failure leaves by the judge's error output, the triage owner is told its typed code, and a person sees it in Needs you", async () => {
     const { run, summary } = await scenario(
       "a-judge-that-cannot-sign-in-holds-the-pull-request",
     );
 
-    // No credential is not worth retrying, so the first failure hands the task to a person.
-    expect(tickAt(summary, 0).nodes.judge).toMatchObject({
-      status: "failed",
-      error: "credential_missing",
+    // No credential is not worth retrying, so the first failure takes the error output.
+    expect(nodeAt(summary, 0, "judge").ports).toEqual({ error: 1 });
+    expect(tickAt(summary, 0).run?.counts).toMatchObject({
+      errorRouted: 1,
+      needsManual: 1,
     });
+    expect(tickAt(summary, 0).run?.counts.itemFailures).toBeUndefined();
     expect(tickAt(summary, 0).nodes.judged).toBeUndefined();
     expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
-    expect(effectsOf(summary)).toEqual([]);
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([
+      expect.objectContaining({
+        node: "judgeFailed",
+        fields: expect.objectContaining({
+          to: "triage-owner@example.test",
+          text: expect.stringContaining(
+            "could not run (credential_missing): The AI turn failed (credentials): No usable model credential",
+          ),
+        }),
+      }),
+    ]);
+    expect(effectsOf(summary)).toHaveLength(1);
     expect(judgeTurns(summary)).toHaveLength(1);
     expect(summary.statuses).toEqual({
       r1: "needs_manual",
@@ -377,24 +434,34 @@ describe("story 2 proofs: Builder to merge", () => {
     expect(tickAt(summary, 1)).toMatchObject({ calls: {}, effects: [] });
   });
 
-  it("retries a judge that keeps timing out twice, five and then ten minutes on, hands the task to a person after the third try, and never merges", async () => {
+  it("retries a judge that keeps timing out twice, five and then ten minutes on, tells the triage owner once after the third try, and never merges", async () => {
     const { summary } = await scenario(
       "a-judge-that-keeps-timing-out-holds-the-pull-request-after-three-tries",
     );
 
     expect(judgeTurns(summary)).toHaveLength(3);
-    for (const index of [0, 1, 2]) {
+    // The first two failures are parked for a retry and send no alert; only the last takes the error output.
+    for (const index of [0, 1]) {
       expect(tickAt(summary, index).nodes.judge).toMatchObject({
         status: "failed",
         error: "provider_error",
       });
+      expect(tickAt(summary, index).effects).toEqual([]);
+    }
+    expect(nodeAt(summary, 2, "judge").ports).toEqual({ error: 1 });
+    for (const index of [0, 1, 2]) {
       expect(tickAt(summary, index).nodes.judged).toBeUndefined();
     }
     // The reports are offered again while the task waits for its retry, and are not taken a second time.
     expect(tickAt(summary, 1).run?.counts.taken).toBeUndefined();
-    expect(tickAt(summary, 2).run?.counts.needsManual).toBe(1);
+    expect(tickAt(summary, 2).run?.counts).toMatchObject({
+      needsManual: 1,
+      errorRouted: 1,
+    });
     expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
-    expect(effectsOf(summary)).toEqual([]);
+    expect(effectsOf(summary).map((effect) => effect.node)).toEqual([
+      "judgeFailed",
+    ]);
     expect(summary.statuses).toEqual({
       r1: "needs_manual",
       r2: "needs_manual",
@@ -403,25 +470,48 @@ describe("story 2 proofs: Builder to merge", () => {
     expect(tickAt(summary, 3)).toMatchObject({ calls: {}, effects: [] });
   });
 
-  it("never reads an answer outside the declared fields as verified: a verdict that is neither word, verified with no reason, and a wrong-case verdict each fail the task", async () => {
+  it("never reads an answer outside the declared fields as verified: a verdict that is neither word, verified with no reason, and a wrong-case verdict each fail the task, and the last takes the error output", async () => {
     const { summary } = await scenario(
       "a-judge-answer-outside-its-schema-holds-the-pull-request",
     );
 
     expect(judgeTurns(summary)).toHaveLength(3);
-    for (const index of [0, 1, 2]) {
+    for (const index of [0, 1]) {
       expect(tickAt(summary, index).nodes.judge).toMatchObject({
         status: "failed",
         error: "ai_invalid_output",
       });
+    }
+    expect(nodeAt(summary, 2, "judge").ports).toEqual({ error: 1 });
+    for (const index of [0, 1, 2]) {
       expect(tickAt(summary, index).nodes.judged).toBeUndefined();
     }
     expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
-    expect(effectsOf(summary)).toEqual([]);
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([
+      expect.objectContaining({
+        node: "judgeFailed",
+        fields: expect.objectContaining({
+          text: expect.stringContaining("could not run (ai_invalid_output)"),
+        }),
+      }),
+    ]);
     expect(summary.statuses).toEqual({
       r1: "needs_manual",
       r2: "needs_manual",
     });
+  });
+
+  it("says in a dry run that it would tell the triage owner a judge failed, and sends nothing", async () => {
+    const { summary } = await scenario(
+      "a-dry-run-with-a-failing-judge-routes-the-alert-and-sends-nothing",
+    );
+
+    expect(tickAt(summary, 0)).toMatchObject({ mode: "dry", effects: [] });
+    expect(nodeAt(summary, 0, "judge").ports).toEqual({ error: 1 });
+    expect(nodeAt(summary, 0, "judgeFailed").ports).toEqual({ out: 1 });
+    expect(callsTo(summary, "slack.postMessage")).toBe(0);
+    expect(callsTo(summary, "github.mergePullRequest")).toBe(0);
+    expect(summary.statuses).toEqual({});
   });
 
   it("reaches the merge on nothing but a verified from the judge", async () => {
@@ -507,6 +597,9 @@ describe("story 2 proofs: Builder to merge", () => {
     expect(into("judged")).toEqual(["judge:out"]);
     expect(into("merge")).toEqual(["judged:match"]);
     expect(into("judgeHold")).toEqual(["judged:otherwise"]);
+    // A judge that fails never reaches `judged`: it leaves by its error output, to a person, never to the merge.
+    expect(into("judgeFailed")).toEqual(["judge:error"]);
+    expect(into("judgeFailedEnd")).toEqual(["judgeFailed:out"]);
     const judged = graph.nodes.find((node) => node.id === "judged");
     expect(
       judged?.kind === "filter" ? judged.settings.rules : undefined,
@@ -517,6 +610,7 @@ describe("story 2 proofs: Builder to merge", () => {
     expect(judge?.kind === "ai" ? judge.settings : undefined).toMatchObject({
       mode: "perItem",
       batchSize: 1,
+      onError: "route",
       tools: [],
       result: {
         verdict: { type: "enum", enum: ["verified", "unsure"] },

@@ -126,11 +126,12 @@ describe("get-factory-pull-request", () => {
       failed: 1,
       pending: 1,
       informational: 1,
+      cancelled: 0,
       allPassing: false,
+      // oracle-change: a skipped or neutral check blocks nothing, so it is counted but no longer listed as not passing
       notPassing: [
         { name: "tests", state: "failed" },
         { name: "build", state: "queued" },
-        { name: "docs", state: "informational" },
       ],
       notPassingTruncated: false,
     });
@@ -138,6 +139,114 @@ describe("get-factory-pull-request", () => {
       total: 2,
       unresolved: 1,
       unresolvedThreads: [{ threadId: "t2", path: "a.ts" }],
+    });
+  });
+
+  describe("what counts as green on a real pull request", () => {
+    const named = (prefix: string, state: string, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        name: `${prefix} ${index}`,
+        state,
+        observedAt,
+      }));
+    const readChecks = async (
+      checks: unknown[],
+      checksCoverage: "complete" | "partial" = "complete",
+    ) => {
+      createClientMock.mockReturnValue(
+        fakeGitHub({
+          getPullRequestChecks: vi
+            .fn()
+            .mockResolvedValue({ checks, checksCoverage }),
+        }),
+      );
+      return ((await action.run(input, context)) as Record<string, any>).checks;
+    };
+
+    it("is green with 34 passed beside 33 skipped, as on a merged pull request", async () => {
+      const checks = await readChecks([
+        ...named("job", "passed", 34),
+        ...named("skipped job", "informational", 33),
+      ]);
+
+      expect(checks).toMatchObject({
+        total: 67,
+        passed: 34,
+        informational: 33,
+        failed: 0,
+        pending: 0,
+        cancelled: 0,
+        allPassing: true,
+        notPassing: [],
+      });
+    });
+
+    it("is not green when nothing passed, however many checks were skipped", async () => {
+      const checks = await readChecks(
+        named("skipped job", "informational", 33),
+      );
+
+      expect(checks).toMatchObject({ passed: 0, informational: 33 });
+      expect(checks.allPassing).toBe(false);
+      expect((await readChecks([])).allPassing).toBe(false);
+    });
+
+    it("is not green while any check is failed, cancelled or running, or when coverage is partial", async () => {
+      const passed = named("job", "passed", 5);
+      const skipped = named("skipped job", "informational", 20);
+      for (const blocker of ["failed", "cancelled", "queued", "in_progress"]) {
+        const checks = await readChecks([
+          ...passed,
+          ...skipped,
+          ...named("blocker", blocker, 1),
+        ]);
+        expect(checks.allPassing, blocker).toBe(false);
+      }
+      expect(
+        (await readChecks([...passed, ...skipped], "partial")).allPassing,
+      ).toBe(false);
+    });
+
+    it("counts cancelled runs apart from failures: 3 failed and 33 cancelled are not 36 failed", async () => {
+      const checks = await readChecks([
+        ...named("job", "passed", 36),
+        ...named("cancelled job", "cancelled", 33),
+        ...named("failed job", "failed", 3),
+        ...named("skipped job", "informational", 27),
+      ]);
+
+      expect(checks).toMatchObject({
+        total: 99,
+        passed: 36,
+        failed: 3,
+        cancelled: 33,
+        informational: 27,
+        allPassing: false,
+      });
+      // The real failures come first, so a bounded list never cuts them off.
+      expect(checks.notPassing.slice(0, 3)).toEqual([
+        { name: "failed job 0", state: "failed" },
+        { name: "failed job 1", state: "failed" },
+        { name: "failed job 2", state: "failed" },
+      ]);
+      expect(checks.notPassing).toHaveLength(36);
+    });
+
+    it("reads a pull request with 140 checks and lists the one that failed", async () => {
+      const checks = await readChecks([
+        ...named("skipped job", "informational", 79),
+        ...named("job", "passed", 60),
+        ...named("failed job", "failed", 1),
+      ]);
+
+      expect(checks).toMatchObject({
+        total: 140,
+        failed: 1,
+        allPassing: false,
+      });
+      expect(checks.notPassing).toEqual([
+        { name: "failed job 0", state: "failed" },
+      ]);
     });
   });
 

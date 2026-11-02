@@ -13,6 +13,13 @@
           "userMessage": "The unit tests still fail, now on headB. Please look at the failure and push a fix."
         }
       }
+    },
+    "headD": {
+      "perItem": {
+        "*": {
+          "userMessage": "Lint & format, Build artifacts and Content parity failed on headD. Please fix them and push the change."
+        }
+      }
     }
   },
   "judge": {

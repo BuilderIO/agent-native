@@ -275,6 +275,53 @@ describe("evaluateMergeGate", () => {
     );
   });
 
+  describe("checks on a real pull request", () => {
+    const checksOf = (...groups: [string, string, number][]) =>
+      fakeGitHub({
+        getPullRequestChecks: vi.fn().mockResolvedValue({
+          checks: groups.flatMap(([name, state, count]) =>
+            Array.from({ length: count }, (_, index) => ({
+              name: `${name} ${index}`,
+              state,
+              observedAt,
+            })),
+          ),
+          checksCoverage: "complete",
+        }),
+      });
+
+    it("does not refuse for checks when passed ones sit beside 33 skipped ones", async () => {
+      const result = await gate(
+        checksOf(["job", "passed", 34], ["skipped job", "informational", 33]),
+      );
+
+      expect(codes(result)).not.toContain("checks_not_green");
+    });
+
+    it("refuses when every check was skipped, and says nothing passed", async () => {
+      const result = await gate(checksOf(["skipped job", "informational", 33]));
+
+      expect(codes(result)).toContain("checks_not_green");
+      expect(result.reasons[0]?.message).toContain("none passed");
+    });
+
+    it("refuses on cancelled checks and names them, not the skipped ones", async () => {
+      const result = await gate(
+        checksOf(
+          ["job", "passed", 34],
+          ["skipped job", "informational", 33],
+          ["cancelled job", "cancelled", 2],
+        ),
+      );
+
+      const reason = result.reasons.find(
+        (found) => found.code === "checks_not_green",
+      );
+      expect(reason?.message).toContain("cancelled job 0 (cancelled)");
+      expect(reason?.message).not.toContain("skipped job");
+    });
+  });
+
   it("refuses while a review thread is unresolved, and counts it", async () => {
     const github = fakeGitHub({
       listPullRequestReviewThreads: vi.fn().mockResolvedValue({

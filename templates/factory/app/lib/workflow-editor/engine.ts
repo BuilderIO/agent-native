@@ -19,6 +19,7 @@ export {
   type EndOutcome,
   type FieldBinding,
   type NodeKind,
+  type OnErrorMode,
   type ResultField,
   type Rule,
   type RuleOp,
@@ -74,6 +75,7 @@ export {
   type OperationNodeKind,
 } from "../../../server/workflow/operations.js";
 export {
+  ERROR_PORT,
   LIMIT_REACHED_PORT,
   OTHERWISE_PORT,
   OUT_PORT,

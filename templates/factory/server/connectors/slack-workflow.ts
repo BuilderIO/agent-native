@@ -645,3 +645,104 @@ export async function addWorkflowSlackReaction(
     externalRef: `${channel}:${ts}:${name}`,
   };
 }
+
+interface WorkflowSlackUserEmail {
+  ok: true;
+  userId: string;
+  email: string;
+  /** `slack` when Slack gave the address; `fallback` when the person has none and the caller's fallback was used. */
+  emailSource: "slack" | "fallback";
+}
+
+const EMAIL_SCOPE = "users:read.email";
+
+/**
+ * Reads a Slack member's email, so work started for a report is attributed to
+ * the person who wrote it. Three answers, never blurred:
+ * - Slack gave an address: that is the email.
+ * - The person has no email: the caller's `fallbackEmail`, said so by
+ *   `emailSource`, or a refusal when the caller gave none.
+ * - Slack could not be asked, or its answer cannot tell "no email" from
+ *   "not allowed to see it": a typed failure. `users.info` sends no email when
+ *   the token lacks `users:read.email`, so a missing address counts as the
+ *   person's only when Slack lists that scope among the token's.
+ * A fallback is never taken for a failure: it would attribute the work to the
+ * wrong person.
+ */
+export async function readWorkflowSlackUserEmail(
+  slack: SlackReader,
+  input: { workspace: Workspace; userId: string; fallbackEmail?: string },
+): Promise<WorkflowSlackUserEmail> {
+  const userId = input.userId.trim();
+  if (!SLACK_USER_ID.test(userId)) {
+    return failWorkflowAction({
+      message:
+        "The person must be a Slack user id such as U0123ABCD, not a name or an email.",
+      errorCode: "slack_user_invalid",
+      statusCode: 400,
+    });
+  }
+  let found;
+  try {
+    found = await slack.getUserEmail(input.workspace, userId);
+  } catch (error) {
+    const code = slackApiCode(error);
+    if (code === "user_not_found" || code === "users_not_found") {
+      return failWorkflowAction({
+        message: `Slack has no member with the id ${userId}.`,
+        errorCode: "slack_user_not_found",
+        statusCode: 404,
+      });
+    }
+    if (code === "missing_scope") {
+      return failWorkflowAction({
+        message: `Slack refused the connected credential while reading the reporter's email (missing_scope): it needs the users:read and ${EMAIL_SCOPE} scopes. Reconnect Slack with them.`,
+        errorCode: "slack_access_denied",
+        statusCode: 403,
+        details: { slackError: code },
+      });
+    }
+    return failSlackStep(error, "lookup", "reading the reporter's email");
+  }
+  if (found.email !== null) {
+    if (!EMAIL.test(found.email)) {
+      return failWorkflowAction({
+        message: `Slack gave an email for ${userId} that is not an address, so it cannot be used.`,
+        errorCode: "slack_user_email_unreadable",
+        statusCode: 424,
+      });
+    }
+    return { ok: true, userId, email: found.email, emailSource: "slack" };
+  }
+  if (found.grantedScopes === null) {
+    return failWorkflowAction({
+      message: `Slack sent no email for ${userId} and did not list the credential's scopes, so a person with no email cannot be told from a missing ${EMAIL_SCOPE} scope.`,
+      errorCode: "slack_user_email_unreadable",
+      statusCode: 424,
+    });
+  }
+  if (!found.grantedScopes.includes(EMAIL_SCOPE)) {
+    return failWorkflowAction({
+      message: `Slack sent no email for ${userId} because the connected credential lacks the ${EMAIL_SCOPE} scope. Reconnect Slack with it.`,
+      errorCode: "slack_access_denied",
+      statusCode: 403,
+      details: { slackError: "missing_scope" },
+    });
+  }
+  const fallback = input.fallbackEmail?.trim();
+  if (!fallback) {
+    return failWorkflowAction({
+      message: `${userId} has no email in Slack and no fallback email was given.`,
+      errorCode: "slack_user_email_missing",
+      statusCode: 422,
+    });
+  }
+  if (!EMAIL.test(fallback)) {
+    return failWorkflowAction({
+      message: `${userId} has no email in Slack and the fallback email is not an address.`,
+      errorCode: "slack_user_email_missing",
+      statusCode: 422,
+    });
+  }
+  return { ok: true, userId, email: fallback, emailSource: "fallback" };
+}

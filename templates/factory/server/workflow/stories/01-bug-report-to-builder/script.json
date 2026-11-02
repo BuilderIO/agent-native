@@ -25,6 +25,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -60,6 +65,289 @@
         }
       ]
     },
+    "a-reporter-with-a-slack-email-is-who-the-task-is-for": {
+      "description": "The reporter's Slack user id is read to an email, and the Builder start is requested by that address, not by the id the report carries.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives"
+        }
+      ]
+    },
+    "a-reporter-with-no-slack-email-falls-back-to-the-triage-owner": {
+      "description": "A Slack member with no email falls back to the triage owner, said so by emailSource; the start is for the triage owner and still goes ahead.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1NoEmail",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the report arrives"
+        }
+      ]
+    },
+    "a-failed-email-lookup-refuses-loudly-before-any-builder-call": {
+      "description": "When the email cannot be read (the credential lacks users:read.email), the item fails at the lookup with a typed credential failure and a person gets it at once; nothing falls back to the triage owner, Builder is not called, nobody is told, and the report is not tried again.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "scopeMissing"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the email cannot be read, a person is told",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing is tried again",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-slack-error-on-the-email-lookup-is-retried-never-guessed": {
+      "description": "A Slack error that may pass (HTTP 503) on the email lookup sets the report aside for a retry; Builder is not called and nobody is attributed on a guess. Five minutes on, the lookup works and the start is for the reporter.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "slackDown",
+          "calls": 3
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 2
+        },
+        {
+          "kind": "tick",
+          "label": "Slack is down on the lookup",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "the report is offered again",
+          "at": "+6m"
+        }
+      ]
+    },
     "missing-info-asks-waits-is-woken-and-assessed-again": {
       "description": "A report with no steps gets one question, waits parked, is woken by the reply (two replies at once count as one), is read and assessed again, and then goes to Builder.",
       "steps": [
@@ -88,6 +376,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -152,7 +445,7 @@
             "threadTs": "1760000000.000100"
           },
           "at": "+12m",
-          "author": "reporter-1@example.test",
+          "author": "U01REPORT01",
           "text": "Chrome 118 on a Mac"
         },
         {
@@ -194,6 +487,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -244,7 +542,7 @@
             "threadTs": "1760000000.000100"
           },
           "at": "+12m",
-          "author": "reporter-1@example.test",
+          "author": "U01REPORT01",
           "text": "Chrome"
         },
         {
@@ -259,7 +557,7 @@
             "threadTs": "1760000000.000100"
           },
           "at": "+20m",
-          "author": "reporter-1@example.test",
+          "author": "U01REPORT01",
           "text": "Chrome 118"
         },
         {
@@ -296,6 +594,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -386,6 +689,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -454,7 +762,7 @@
             "threadTs": "1760000000.000100"
           },
           "at": "+20m",
-          "author": "reporter-1@example.test",
+          "author": "U01REPORT01",
           "text": "Chrome 118 on a Mac"
         },
         {
@@ -486,6 +794,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -566,6 +879,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -618,6 +936,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -681,6 +1004,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -738,6 +1066,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -812,6 +1145,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -883,6 +1221,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "notAccepted"
         },
@@ -946,6 +1289,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -1018,6 +1366,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -1097,6 +1450,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -1165,6 +1523,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -1246,6 +1609,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -1301,7 +1669,7 @@
             "threadTs": "1760000000.000100"
           },
           "at": "+12m",
-          "author": "reporter-1@example.test",
+          "author": "U01REPORT01",
           "text": "Chrome 118 on a Mac"
         },
         {
@@ -1333,6 +1701,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -1402,6 +1775,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -1461,6 +1839,11 @@
           "kind": "serve",
           "operation": "factory.listItems",
           "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
         },
         {
           "kind": "serve",
@@ -1535,6 +1918,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -1606,6 +1994,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -1666,6 +2059,11 @@
         },
         {
           "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
           "operation": "builder.start",
           "recording": "accepted"
         },
@@ -1698,6 +2096,220 @@
         {
           "kind": "tick",
           "label": "three reports of one defect arrive"
+        }
+      ]
+    },
+    "a-failing-assess-alerts-the-owner-and-starts-nothing": {
+      "description": "The AI step that assesses the report cannot run (no model credential). The failure leaves by its error output, the triage owner is told which step failed and that no Builder task was started, the report goes to a person, and nothing is asked, grouped or started.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "noSignIn"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the assessment cannot run, the owner is told",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing is tried or sent again",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-failing-open-tasks-lookup-alerts-the-owner-and-starts-nothing": {
+      "description": "The lookup of the reports already handed to Builder fails. It leaves by its error output, the triage owner is told that no Builder task was started, and the report goes to a person; the grouping step and the start are never reached.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "unreadable"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "clear"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "the lookup fails, the owner is told",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "nothing is tried or sent again",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-dry-run-with-a-failing-assess-routes-the-alert-and-sends-nothing": {
+      "description": "A dry run whose assessment cannot run takes the same error output a live run does and says it would tell the triage owner, but sends nothing, parks nothing and writes no status.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.readThread",
+          "recording": "reportOnly"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.listItems",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.getUserEmail",
+          "recording": "reporters"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "nothing"
+        },
+        {
+          "kind": "ai",
+          "node": "startBuilder",
+          "recording": "prompt"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "noSignIn"
+        },
+        {
+          "kind": "ai",
+          "node": "group",
+          "recording": "solo"
+        },
+        {
+          "kind": "offer",
+          "source": "feedback",
+          "recording": "m1",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "dry run: the assessment fails",
+          "at": "+0m",
+          "mode": "dry"
         }
       ]
     }

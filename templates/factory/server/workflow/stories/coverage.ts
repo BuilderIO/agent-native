@@ -102,6 +102,7 @@ export const PATHS = [
   "testStep",
   "runFailed",
   "itemFailed",
+  "errorRouted",
   "needsCheck",
   "lookupFailed",
   "aiInvalidOutput",
@@ -184,6 +185,9 @@ export function computeCoverage(runs: StoryRuns): CoverageTable {
         if (mode(tick) === "test") mark("paths", "testStep", story.key);
         if (ran?.run.status === "failed") mark("paths", "runFailed", story.key);
         if (tick.crash !== undefined) mark("paths", "crashRecovery", story.key);
+        if (ran?.run.counts.errorRouted) {
+          mark("paths", "errorRouted", story.key);
+        }
         if (ran?.run.counts.sentBack) mark("loops", "loopBack", story.key);
         if (ran?.run.counts.loopLimited) {
           mark("loops", "loopLimitReached", story.key);

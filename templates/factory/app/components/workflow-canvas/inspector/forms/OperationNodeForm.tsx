@@ -15,6 +15,7 @@ import {
   argsForOperation,
 } from "../OperationFields";
 import { ApiRequestForm } from "./ApiRequestForm";
+import { OnErrorField } from "./OnErrorField";
 import type { FormProps } from "./types";
 import { withOptional } from "./types";
 
@@ -66,6 +67,7 @@ function OperationLookupForm({
           onChange={(into) => onChange(withOptional(settings, "into", into))}
         />
       </Field>
+      <OnErrorField settings={settings} onChange={onChange} />
     </div>
   );
 }
@@ -85,6 +87,7 @@ export function ActionForm({
         operations={operations}
         onChange={(next) =>
           onChange({
+            ...settings,
             operation: next.id,
             args: argsForOperation(next, settings.args),
           })
@@ -96,6 +99,7 @@ export function ActionForm({
         context={context}
         onChange={(args) => onChange({ ...settings, args })}
       />
+      <OnErrorField settings={settings} onChange={onChange} />
     </div>
   );
 }
@@ -146,6 +150,7 @@ export function AgentForm({ settings, onChange, context }: FormProps<"agent">) {
         context={context}
         onChange={(args) => onChange({ ...settings, args })}
       />
+      <OnErrorField settings={settings} onChange={onChange} />
     </div>
   );
 }

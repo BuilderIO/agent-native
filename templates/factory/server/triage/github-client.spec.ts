@@ -727,7 +727,8 @@ describe("GitHub triage client", () => {
       new URL(String(input)).pathname.endsWith("/actions/runs"),
     );
     expect(new URL(String(workflowRequest?.[0])).searchParams).toEqual(
-      new URLSearchParams({ head_sha: "sha-7", per_page: "100" }),
+      // oracle-change: the run list is now read a page at a time, so its first request names page 1
+      new URLSearchParams({ head_sha: "sha-7", per_page: "100", page: "1" }),
     );
   });
 
@@ -1046,6 +1047,143 @@ describe("GitHub client reads and merges for workflows", () => {
     await expect(
       client.getPullRequestChecks(repository, "sha-7"),
     ).rejects.toThrow("cannot treat CI as complete");
+  });
+
+  describe("a head commit with many checks", () => {
+    const run = (index: number, conclusion = "success") => ({
+      name: `check ${index}`,
+      status: "completed",
+      conclusion,
+      completed_at: "2026-08-28T12:02:00Z",
+    });
+    /** Answers a check-runs request the way GitHub pages it: by `page` and `per_page`. */
+    const pagedChecks = (
+      total: number,
+      conclusion = (_i: number) => "success",
+    ) =>
+      vi.fn<typeof fetch>(async (input) => {
+        const url = new URL(String(input));
+        const page = Number(url.searchParams.get("page") ?? 1);
+        const perPage = Number(url.searchParams.get("per_page"));
+        const from = (page - 1) * perPage;
+        const rows = Array.from(
+          { length: Math.max(0, Math.min(perPage, total - from)) },
+          (_, i) => run(from + i, conclusion(from + i)),
+        );
+        return response({ total_count: total, check_runs: rows });
+      });
+    const clientOver = (fetchImpl: ReturnType<typeof pagedChecks>) =>
+      createGitHubClient({ ownerEmail: "owner@example.com", fetchImpl });
+
+    it("reads all 140 checks across pages, not the first 100 only", async () => {
+      const fetchImpl = pagedChecks(140);
+      const { checks, checksCoverage } = await clientOver(
+        fetchImpl,
+      ).getPullRequestChecks(repository, "sha-7");
+
+      expect(checksCoverage).toBe("complete");
+      expect(checks).toHaveLength(140);
+      expect(checks[139]?.name).toBe("check 139");
+      expect(
+        fetchImpl.mock.calls.map(([input]) =>
+          new URL(String(input)).searchParams.get("page"),
+        ),
+      ).toEqual(["1", "2"]);
+    });
+
+    it("finds the failing check on a later page", async () => {
+      const { checks } = await clientOver(
+        pagedChecks(140, (i) => (i === 120 ? "failure" : "success")),
+      ).getPullRequestChecks(repository, "sha-7");
+
+      expect(checks.filter((check) => check.state === "failed")).toEqual([
+        expect.objectContaining({ name: "check 120" }),
+      ]);
+    });
+
+    it("reads exactly the cap, and fails loudly one check past it", async () => {
+      await expect(
+        clientOver(pagedChecks(500)).getPullRequestChecks(repository, "sha-7"),
+      ).resolves.toMatchObject({ checksCoverage: "complete" });
+
+      await expect(
+        clientOver(pagedChecks(501)).getPullRequestChecks(repository, "sha-7"),
+      ).rejects.toThrow(/was truncated; cannot treat CI as complete.*500/);
+    });
+
+    it("fails when GitHub's pages end before its own total, never returning the shorter list", async () => {
+      const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+        const page = new URL(String(input)).searchParams.get("page");
+        return response({
+          total_count: 140,
+          check_runs:
+            page === "1" ? Array.from({ length: 100 }, (_, i) => run(i)) : [],
+        });
+      });
+
+      await expect(
+        clientOver(fetchImpl).getPullRequestChecks(repository, "sha-7"),
+      ).rejects.toThrow("check-run page was truncated");
+    });
+
+    it("pages the workflow-run fallback too, and still says coverage is partial", async () => {
+      const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/check-runs")) {
+          return response(
+            { message: "Resource not accessible by personal access token" },
+            403,
+          );
+        }
+        const page = Number(url.searchParams.get("page"));
+        return response({
+          total_count: 130,
+          workflow_runs: Array.from(
+            { length: page === 1 ? 100 : 30 },
+            (_, i) => ({
+              name: `run ${page}-${i}`,
+              status: "completed",
+              conclusion: "success",
+              updated_at: "2026-08-28T12:03:00Z",
+            }),
+          ),
+        });
+      });
+
+      const result = await clientOver(fetchImpl).getPullRequestChecks(
+        repository,
+        "sha-7",
+      );
+      expect(result.checksCoverage).toBe("partial");
+      expect(result.checks).toHaveLength(130);
+    });
+
+    it("sorts conclusions the way the merge gate needs: skipped and neutral are informational, cancelled, timed out and stale need a rerun, the rest fail", async () => {
+      const conclusions = [
+        "success",
+        "skipped",
+        "neutral",
+        "cancelled",
+        "timed_out",
+        "stale",
+        "failure",
+        "action_required",
+      ];
+      const { checks } = await clientOver(
+        pagedChecks(conclusions.length, (i) => conclusions[i] as string),
+      ).getPullRequestChecks(repository, "sha-7");
+
+      expect(checks.map((check) => check.state)).toEqual([
+        "passed",
+        "informational",
+        "informational",
+        "cancelled",
+        "cancelled",
+        "cancelled",
+        "failed",
+        "failed",
+      ]);
+    });
   });
 
   it("reads which merge methods the repository allows", async () => {

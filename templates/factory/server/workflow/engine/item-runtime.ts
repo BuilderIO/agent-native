@@ -96,6 +96,8 @@ export class ItemRuntime {
   taken = 0;
   failed = 0;
   needsCheck = 0;
+  /** Items that failed at a node set to route errors and left by its `error` port; not failures. */
+  errorRouted = 0;
   /** Waiting: items parked at a Wait, woken from one, or looked at and left waiting. */
   parked = 0;
   woke = 0;

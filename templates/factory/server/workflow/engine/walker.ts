@@ -6,7 +6,7 @@ import {
   type WorkflowErrorCode,
   type WorkflowNode,
 } from "../contract.js";
-import { LIMIT_REACHED_PORT, portsWithLimit } from "../ports.js";
+import { ERROR_PORT, LIMIT_REACHED_PORT, portsWithLimit } from "../ports.js";
 import { assertStepWithinCap, emittedItems } from "./cap.js";
 import { ROUNDS_COUNTER } from "./constants.js";
 import type { GraphPlan } from "./graph-order.js";
@@ -56,6 +56,22 @@ function needsWholeBatch(node: WorkflowNode): boolean {
     node.kind === "combine" ||
     (node.kind === "ai" && node.settings.mode === "wholeList")
   );
+}
+
+/** Adds the items that failed at the node and were routed to the ones it sent out, under its `error` port. */
+function withRoutedErrors(
+  outcome: NodeOutcome,
+  step: StepBuilder,
+): NodeOutcome {
+  const routed = step.routedItems;
+  if (routed.length === 0) return outcome;
+  return {
+    ...outcome,
+    itemsByPort: {
+      ...outcome.itemsByPort,
+      [ERROR_PORT]: [...(outcome.itemsByPort[ERROR_PORT] ?? []), ...routed],
+    },
+  };
 }
 
 /**
@@ -418,7 +434,10 @@ export async function walkGraph(
 
     let outcome: NodeOutcome;
     try {
-      outcome = await executorFor(node)({ ctx, node, input, step, parked });
+      outcome = withRoutedErrors(
+        await executorFor(node)({ ctx, node, input, step, parked }),
+        step,
+      );
       const ports = new Set(portsWithLimit(ctx.graph, node));
       for (const port of Object.keys(outcome.itemsByPort)) {
         // An item sent out of a port the node does not have would reach no edge and vanish.

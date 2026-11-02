@@ -33,7 +33,7 @@ const report = normalizedItem("m1", {
   provider: "slack",
   title: "Checkout button does nothing",
   text: "Clicking Pay does nothing.",
-  author: "reporter@example.test",
+  author: "U01REPORTER",
   thread: THREAD,
 });
 
@@ -149,6 +149,16 @@ async function run(
       kind: "provider",
       operation: "factory.listItems",
       thenAlways: ok({ items: [] }),
+    },
+    {
+      kind: "provider",
+      operation: "slack.getUserEmail",
+      thenAlways: ok({
+        ok: true,
+        userId: "U01REPORTER",
+        email: "reporter@example.test",
+        emailSource: "slack",
+      }),
     },
     {
       kind: "provider",
@@ -274,10 +284,16 @@ describe("story 1 with the real builder.start", () => {
     expect(builder.startAgent).not.toHaveBeenCalled();
     expect(builder.getStatus).not.toHaveBeenCalled();
     const start = stepOf(result, "startBuilder");
-    expect(start.status).toBe("failed");
-    expect(start.error).toMatchObject({ code: "operation_not_allowed" });
-    expect(start.error?.message).toContain("risk_not_low");
-    expect(start.error?.message).toContain("never_automate_category");
+    // The step routes its failures, so the refusal leaves by its error output with the real code and message.
+    expect(start.ports.error).toBeDefined();
+    const errorPort = start.ports.error;
+    if (!errorPort) throw new Error("startBuilder has no error port");
+    expect(errorPort.count).toBe(1);
+    expect(start.fields).toMatchObject({ routedErrors: 1 });
+    const refusal = String(start.fields?.firstRoutedError);
+    expect(refusal).toContain("operation_not_allowed");
+    expect(refusal).toContain("risk_not_low");
+    expect(refusal).toContain("never_automate_category");
     // The reporter was not told Builder had started, and nothing was handed off.
     expect(stepOf(result, "tell").ports.out.count).toBe(0);
     // The refusal is final, so the report is with a person rather than waiting for another try.

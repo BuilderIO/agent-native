@@ -46,6 +46,7 @@ import mergeGate from "../../actions/get-factory-merge-gate.js";
 import getPullRequest from "../../actions/get-factory-pull-request.js";
 import mergePullRequest from "../../actions/merge-factory-pull-request.js";
 import postSlackMessage from "../../actions/post-slack-message.js";
+import readSlackUserEmail from "../../actions/read-slack-user-email.js";
 import removeGithubLabel from "../../actions/remove-github-label.js";
 import sendEmail from "../../actions/send-factory-email.js";
 import { SlackWriteError } from "../connectors/slack.js";
@@ -270,6 +271,29 @@ const RETURNED: Record<string, () => Promise<Record<string, unknown>[]>> = {
       outputs.push(
         (await addSlackReaction.run(
           { channel: "C0123ABCD", ts: "1700000000.000100", name: "eyes" },
+          context,
+        )) as Record<string, unknown>,
+      );
+    }
+    return outputs;
+  },
+  "slack.getUserEmail": async () => {
+    const outputs: Record<string, unknown>[] = [];
+    for (const email of ["ada@example.test", null]) {
+      createSlackMock.mockReturnValue({
+        getUserEmail: vi.fn(async () => ({
+          id: "U01REPORT01",
+          email,
+          isBot: false,
+          grantedScopes: ["users:read.email"],
+        })),
+      });
+      outputs.push(
+        (await readSlackUserEmail.run(
+          {
+            userId: "U01REPORT01",
+            fallbackEmail: "triage-owner@example.test",
+          },
           context,
         )) as Record<string, unknown>,
       );

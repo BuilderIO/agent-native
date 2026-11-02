@@ -92,6 +92,8 @@ describe("describe-workflow-node-catalog", () => {
       condition: ["met", "timedOut"],
     });
     expect(result.graph.loopPort).toBe("limitReached");
+    expect(result.graph.errorPort).toBe("error");
+    expect(result.graph.errorPortNote).toContain("item.error");
   });
 
   it("describes the graph shell: node, edge, settings and limits", async () => {
@@ -328,7 +330,11 @@ describe("describe-workflow-node-catalog: what an agent reads", () => {
     expect(shapeOf("source")).toContain(
       '{source:"status",status:string,takeLimit:1-50}',
     );
-    expect(shapeOf("action")).toBe("{operation:string,args:{<name>:binding}}");
+    // onError is how a step that can fail one item sends it to an error port.
+    expect(shapeOf("action")).toBe(
+      '{operation:string,args:{<name>:binding},onError?:"stop"|"route"}',
+    );
+    expect(shapeOf("filter")).not.toContain("onError");
     expect(Object.keys(result.shapes)).toEqual(
       expect.arrayContaining(["binding", "rule", "resultField"]),
     );

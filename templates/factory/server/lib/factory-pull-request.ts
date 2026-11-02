@@ -131,7 +131,17 @@ export function failGitHubStep(error: unknown, what: string): never {
         details: { status },
       });
     }
-    if (status === 401 || status === 403) {
+    // The token is saved and was sent, so this is neither "not connected" nor
+    // a permission the token lacks: it is expired, revoked or replaced.
+    if (status === 401) {
+      return failWorkflowAction({
+        message: `GitHub rejected the saved GitHub token while ${what} (HTTP 401): it is expired or revoked. Refresh the saved GitHub token by reconnecting GitHub in Dispatch under Integrations, or by saving a new token under Keys in Settings. Retrying will not help.`,
+        errorCode: "github_credential_rejected",
+        statusCode: 401,
+        details: { status },
+      });
+    }
+    if (status === 403) {
       return failWorkflowAction({
         message: `GitHub refused the connected credential while ${what} (HTTP ${status}).`,
         errorCode: "github_access_denied",

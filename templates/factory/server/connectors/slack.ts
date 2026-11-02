@@ -52,6 +52,15 @@ export interface SlackUserInfo {
   isBot?: boolean;
 }
 
+export interface SlackUserEmail {
+  id: string;
+  /** Null when Slack sent the user without an email. With `grantedScopes` that lack `users:read.email`, that is the scope's doing, not the person's. */
+  email: string | null;
+  isBot: boolean;
+  /** The scopes Slack says the token holds (`x-oauth-scopes`); null when the response did not say. */
+  grantedScopes: string[] | null;
+}
+
 export interface SlackUserLookup {
   id: string;
   isBot: boolean;
@@ -113,16 +122,11 @@ function slackCacheScope(token: string): string {
   return createHash("sha256").update(token).digest("hex").slice(0, 16);
 }
 
-async function slackApi<T>(
-  workspace: Workspace,
+async function slackGet<T>(
+  token: string,
   method: string,
   params: Record<string, string> | undefined,
-  tokenResolver?: SlackTokenResolver,
-): Promise<T> {
-  const token = await getToken(workspace, tokenResolver);
-  const cacheKey = `${workspace}:${slackCacheScope(token)}:${method}:${JSON.stringify(params ?? {})}`;
-  const cached = cache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.value as T;
+): Promise<{ data: T; scopes: string[] | null }> {
   const url = new URL(`https://slack.com/api/${method}`);
   for (const [key, value] of Object.entries(params ?? {}))
     url.searchParams.set(key, value);
@@ -136,6 +140,30 @@ async function slackApi<T>(
   const data = (await response.json()) as T & { ok?: boolean; error?: string };
   if (data.ok !== true)
     throw new Error(`Slack API error: ${data.error ?? "unknown_error"}`);
+  const granted = response.headers.get("x-oauth-scopes");
+  return {
+    data,
+    scopes:
+      granted === null
+        ? null
+        : granted
+            .split(",")
+            .map((scope) => scope.trim())
+            .filter(Boolean),
+  };
+}
+
+async function slackApi<T>(
+  workspace: Workspace,
+  method: string,
+  params: Record<string, string> | undefined,
+  tokenResolver?: SlackTokenResolver,
+): Promise<T> {
+  const token = await getToken(workspace, tokenResolver);
+  const cacheKey = `${workspace}:${slackCacheScope(token)}:${method}:${JSON.stringify(params ?? {})}`;
+  const cached = cache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value as T;
+  const { data } = await slackGet<T>(token, method, params);
   cache.set(cacheKey, { value: data, expiresAt: Date.now() + cacheTtlMs });
   return data;
 }
@@ -393,6 +421,42 @@ export async function getUserInfo(
     name: name || null,
     displayName: displayName || null,
     isBot: user.is_bot === true || user.is_app_user === true,
+  };
+}
+
+/**
+ * Reads one member's email. Slack leaves `profile.email` out of `users.info`
+ * when the token lacks `users:read.email`, which looks the same as a person
+ * with no email, so the answer carries the scopes the token holds and the
+ * caller tells the two apart. Not cached: it holds an address.
+ */
+export async function getUserEmail(
+  workspace: Workspace,
+  userId: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackUserEmail> {
+  const id = userId.trim();
+  if (!id) throw new Error("A Slack user id is required.");
+  const token = await getToken(workspace, tokenResolver);
+  const { data, scopes } = await slackGet<{
+    user?: {
+      id?: string;
+      is_bot?: boolean;
+      is_app_user?: boolean;
+      profile?: { email?: string };
+    };
+  }>(token, "users.info", { user: id });
+  const user = data.user;
+  if (!user || typeof user.id !== "string" || !user.id.trim()) {
+    throw new Error("Slack user response is missing a user id.");
+  }
+  const email =
+    typeof user.profile?.email === "string" ? user.profile.email.trim() : "";
+  return {
+    id: user.id.trim(),
+    email: email || null,
+    isBot: user.is_bot === true || user.is_app_user === true,
+    grantedScopes: scopes,
   };
 }
 

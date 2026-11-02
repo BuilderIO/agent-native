@@ -430,6 +430,7 @@ describe("story 6: a support ticket to the right place", () => {
       needsManual: 2,
       released: 0,
       itemFailures: 0,
+      errorRouted: 0,
       needsCheck: 0,
       skippedRows: 0,
       primed: 0,

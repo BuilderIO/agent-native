@@ -104,7 +104,8 @@
         },
         "mode": "perItem",
         "tools": [],
-        "batchSize": 10
+        "batchSize": 10,
+        "onError": "route"
       }
     },
     {
@@ -247,7 +248,7 @@
       "id": "manual",
       "name": "manual",
       "position": {
-        "x": 2912,
+        "x": 3136,
         "y": 402
       },
       "kind": "end",
@@ -269,10 +270,33 @@
       }
     },
     {
+      "id": "reporter",
+      "name": "reporter",
+      "position": {
+        "x": 1120,
+        "y": 96
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "slack.getUserEmail",
+        "args": {
+          "userId": {
+            "mode": "path",
+            "path": "item.author"
+          },
+          "fallbackEmail": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          }
+        },
+        "onError": "route"
+      }
+    },
+    {
       "id": "openTasks",
       "name": "openTasks",
       "position": {
-        "x": 1120,
+        "x": 1344,
         "y": 96
       },
       "kind": "lookup",
@@ -283,14 +307,15 @@
             "mode": "fixed",
             "value": "automation_started"
           }
-        }
+        },
+        "onError": "route"
       }
     },
     {
       "id": "group",
       "name": "group",
       "position": {
-        "x": 1344,
+        "x": 1568,
         "y": 96
       },
       "kind": "ai",
@@ -334,14 +359,15 @@
         },
         "mode": "perItem",
         "tools": [],
-        "batchSize": 10
+        "batchSize": 10,
+        "onError": "route"
       }
     },
     {
       "id": "startBuilder",
       "name": "startBuilder",
       "position": {
-        "x": 1792,
+        "x": 2016,
         "y": 96
       },
       "kind": "agent",
@@ -359,7 +385,7 @@
           },
           "userEmail": {
             "mode": "path",
-            "path": "item.author"
+            "path": "nodes.reporter.email"
           },
           "prompt": {
             "mode": "ai",
@@ -393,14 +419,15 @@
             "mode": "path",
             "path": "nodes.group.categories"
           }
-        }
+        },
+        "onError": "route"
       }
     },
     {
       "id": "accepted",
       "name": "accepted",
       "position": {
-        "x": 2016,
+        "x": 2240,
         "y": 96
       },
       "kind": "filter",
@@ -419,7 +446,7 @@
       "id": "tell",
       "name": "tell",
       "position": {
-        "x": 2464,
+        "x": 2688,
         "y": 0
       },
       "kind": "action",
@@ -445,7 +472,7 @@
       "id": "handed",
       "name": "handed",
       "position": {
-        "x": 2688,
+        "x": 2912,
         "y": 0
       },
       "kind": "end",
@@ -480,7 +507,7 @@
       "id": "byGroup",
       "name": "byGroup",
       "position": {
-        "x": 1568,
+        "x": 1792,
         "y": 96
       },
       "kind": "combine",
@@ -494,12 +521,106 @@
       "id": "reports",
       "name": "reports",
       "position": {
-        "x": 2240,
+        "x": 2464,
         "y": 0
       },
       "kind": "split",
       "settings": {
         "field": "item.reports"
+      }
+    },
+    {
+      "id": "stepFailed",
+      "name": "stepFailed",
+      "position": {
+        "x": 2240,
+        "y": 620
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "\"{{ item.title }}\": the {{ item.error.node }} step failed ({{ item.error.code }}): {{ item.error.message }} No Builder task was started. Needs a person."
+          }
+        }
+      }
+    },
+    {
+      "id": "stepFailedEnd",
+      "name": "stepFailedEnd",
+      "position": {
+        "x": 2464,
+        "y": 620
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual",
+        "reason": "The {{ item.error.node }} step failed ({{ item.error.code }}): {{ item.error.message }}"
+      }
+    },
+    {
+      "id": "startOutcome",
+      "name": "startOutcome",
+      "position": {
+        "x": 2240,
+        "y": 288
+      },
+      "kind": "switch",
+      "settings": {
+        "routes": [
+          {
+            "id": "mayHaveStarted",
+            "label": "The start may have happened",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "item.error.outcomeUnknown",
+                "op": "isTrue"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "startMayHaveHappened",
+      "name": "startMayHaveHappened",
+      "position": {
+        "x": 2464,
+        "y": 288
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "\"{{ item.title }}\": the {{ item.error.node }} step failed ({{ item.error.code }}): {{ item.error.message }} Builder may have started this task: check Builder before starting it again. Factory did not retry it."
+          }
+        }
+      }
+    },
+    {
+      "id": "startMayHaveHappenedEnd",
+      "name": "startMayHaveHappenedEnd",
+      "position": {
+        "x": 2688,
+        "y": 288
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual",
+        "reason": "The {{ item.error.node }} step failed ({{ item.error.code }}): {{ item.error.message }} Builder may have started this task; check Builder before retrying."
       }
     }
   ],
@@ -614,7 +735,7 @@
         "port": "route:clear"
       },
       "to": {
-        "node": "openTasks"
+        "node": "reporter"
       }
     },
     {
@@ -725,6 +846,106 @@
       },
       "to": {
         "node": "dismissed"
+      }
+    },
+    {
+      "id": "e24",
+      "from": {
+        "node": "reporter",
+        "port": "out"
+      },
+      "to": {
+        "node": "openTasks"
+      }
+    },
+    {
+      "id": "e25",
+      "from": {
+        "node": "assess",
+        "port": "error"
+      },
+      "to": {
+        "node": "stepFailed"
+      }
+    },
+    {
+      "id": "e26",
+      "from": {
+        "node": "reporter",
+        "port": "error"
+      },
+      "to": {
+        "node": "stepFailed"
+      }
+    },
+    {
+      "id": "e27",
+      "from": {
+        "node": "openTasks",
+        "port": "error"
+      },
+      "to": {
+        "node": "stepFailed"
+      }
+    },
+    {
+      "id": "e28",
+      "from": {
+        "node": "group",
+        "port": "error"
+      },
+      "to": {
+        "node": "stepFailed"
+      }
+    },
+    {
+      "id": "e29",
+      "from": {
+        "node": "startBuilder",
+        "port": "error"
+      },
+      "to": {
+        "node": "startOutcome"
+      }
+    },
+    {
+      "id": "e30",
+      "from": {
+        "node": "startOutcome",
+        "port": "route:mayHaveStarted"
+      },
+      "to": {
+        "node": "startMayHaveHappened"
+      }
+    },
+    {
+      "id": "e31",
+      "from": {
+        "node": "startOutcome",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "stepFailed"
+      }
+    },
+    {
+      "id": "e32",
+      "from": {
+        "node": "stepFailed",
+        "port": "out"
+      },
+      "to": {
+        "node": "stepFailedEnd"
+      }
+    },
+    {
+      "id": "e33",
+      "from": {
+        "node": "startMayHaveHappened",
+        "port": "out"
+      },
+      "to": {
+        "node": "startMayHaveHappenedEnd"
       }
     }
   ],

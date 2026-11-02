@@ -295,6 +295,18 @@
             ]
           },
           {
+            "id": "cancelled",
+            "label": "Cancelled checks",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.readPr.checks.cancelled",
+                "op": "gt",
+                "right": 0
+              }
+            ]
+          },
+          {
             "id": "green",
             "label": "Green",
             "combinator": "all",
@@ -330,7 +342,7 @@
           },
           "userMessage": {
             "mode": "ai",
-            "instruction": "Ask Builder to fix the failing checks on this pull request. Name each failing check (from readPr.checks.notPassing) and the head commit they ran on (readPr.headSha)."
+            "instruction": "Ask Builder to fix the failing checks on this pull request. Name each check whose state is `failed` (from readPr.checks.notPassing) and the head commit they ran on (readPr.headSha). Skip any check that is `cancelled` or still running: those are not failures and need no fix."
           }
         }
       }
@@ -697,7 +709,8 @@
         "mode": "perItem",
         "tools": [],
         "batchSize": 1,
-        "inputBudgetTokens": 6000
+        "inputBudgetTokens": 6000,
+        "onError": "route"
       }
     },
     {
@@ -739,6 +752,41 @@
             "value": "\"{{ item.title }}\": {{ nodes.readPr.url }} passed the merge gate, but the AI check of its Verified notes is not sure they show the fix: {{ nodes.judge.reason }} Needs a person."
           }
         }
+      }
+    },
+    {
+      "id": "judgeFailed",
+      "name": "judgeFailed",
+      "position": {
+        "x": 2464,
+        "y": 692
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "\"{{ item.title }}\": {{ nodes.readPr.url }} passed the merge gate, but the AI check of its Verified notes could not run ({{ item.error.code }}): {{ item.error.message }} Nothing was merged. Needs a person."
+          }
+        }
+      }
+    },
+    {
+      "id": "judgeFailedEnd",
+      "name": "judgeFailedEnd",
+      "position": {
+        "x": 2688,
+        "y": 692
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual",
+        "reason": "The AI check of the Verified notes could not run ({{ item.error.code }}): {{ item.error.message }}"
       }
     }
   ],
@@ -888,6 +936,16 @@
       "from": {
         "node": "ci",
         "port": "route:pending"
+      },
+      "to": {
+        "node": "keep"
+      }
+    },
+    {
+      "id": "e50",
+      "from": {
+        "node": "ci",
+        "port": "route:cancelled"
       },
       "to": {
         "node": "keep"
@@ -1191,6 +1249,26 @@
       },
       "to": {
         "node": "manual"
+      }
+    },
+    {
+      "id": "e48",
+      "from": {
+        "node": "judge",
+        "port": "error"
+      },
+      "to": {
+        "node": "judgeFailed"
+      }
+    },
+    {
+      "id": "e49",
+      "from": {
+        "node": "judgeFailed",
+        "port": "out"
+      },
+      "to": {
+        "node": "judgeFailedEnd"
       }
     }
   ],

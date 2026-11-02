@@ -152,7 +152,7 @@ const feedbackMessage = (id: string, thread: ThreadRef = FEEDBACK) =>
     provider: "slack",
     title: `Checkout button does nothing (${id})`,
     text: "Clicking Pay does nothing.",
-    author: "reporter@example.test",
+    author: "U01REPORTER",
     url: `https://slack.test/archives/C0FEEDBACK/${id}`,
     thread,
   });
@@ -211,6 +211,16 @@ const bugProviders = (): StoryStep[] => [
   provider("slack.replyInThread", [], slackPosts()),
   provider("slack.postMessage", [], slackPosts()),
   provider("factory.listItems", [], ok({ items: [] })),
+  provider(
+    "slack.getUserEmail",
+    [],
+    ok({
+      ok: true,
+      userId: "U01REPORTER",
+      email: "reporter@example.test",
+      emailSource: "slack",
+    }),
+  ),
   provider(
     "builder.start",
     [],
@@ -659,6 +669,8 @@ const checksOf = (kind: "pending" | "failing" | "green") => ({
   passed: kind === "green" ? 3 : 1,
   failed: kind === "failing" ? 1 : 0,
   pending: kind === "pending" ? 1 : 0,
+  // oracle-change: the real action now returns a cancelled count, which story 2's `ci` switch reads; this recorded answer lacked it
+  cancelled: 0,
   informational: 0,
   allPassing: kind === "green",
 });

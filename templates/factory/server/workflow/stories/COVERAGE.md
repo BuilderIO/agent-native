@@ -91,8 +91,9 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 | `testStep`        |     | ●   |     |     |     | ●   |     |     | ●   |     |
 | `runFailed`       |     |     | ●   |     |     |     |     | ●   |     | ●   |
 | `itemFailed`      | ●   | ●   |     | ●   | ●   | ●   | ●   | ●   | ●   |     |
+| `errorRouted`     | ●   | ●   |     |     |     |     |     |     |     |     |
 | `needsCheck`      | ●   | ●   |     |     | ●   |     |     | ●   | ●   |     |
-| `lookupFailed`    |     |     |     |     | ●   | ●   |     |     |     |     |
+| `lookupFailed`    | ●   |     |     |     | ●   | ●   |     |     |     |     |
 | `aiInvalidOutput` | ●   | ●   |     |     |     | ●   | ●   |     |     |     |
 | `crashRecovery`   | ●   |     |     |     | ●   |     |     |     | ●   |     |
 | `restart`         | ●   |     |     |     | ●   |     |     |     |     |     |
@@ -104,6 +105,7 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 | ------------------------------------------------------------------------------------------------------ | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `slack.readThread`                                                                                     | ●   |     |     |     |     |     |     |     |     |     |
 | `slack.findUserByEmail`                                                                                |     |     |     | ●   |     |     |     |     |     |     |
+| `slack.getUserEmail`                                                                                   | ●   |     |     |     |     |     |     |     |     |     |
 | `slack.postMessage`                                                                                    | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   | ●   |
 | `slack.replyInThread`                                                                                  | ●   | ●   |     |     |     |     |     |     |     |     |
 | `slack.addReaction` (unused on purpose: no story wires it yet, run by issue-writes.scenario.spec.ts)   |     |     |     |     |     |     |     |     |     |     |

@@ -90,6 +90,14 @@
           "reason": "Touches the payment flow; a person should look first."
         }
       }
+    },
+    "noSignIn": {
+      "perItem": {
+        "*": {
+          "fail": "credentials",
+          "reason": "No usable model credential for the \"builder\" engine for triage-owner@example.test. Connect a provider in Settings > Agent > AI providers, or ask a workspace admin to."
+        }
+      }
     }
   },
   "ask": {

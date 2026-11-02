@@ -94,6 +94,7 @@ const scenario: StoryScenario = {
     { kind: "serve", operation: "slack.replyInThread", recording: "posted" },
     { kind: "serve", operation: "slack.postMessage", recording: "posted" },
     { kind: "serve", operation: "factory.listItems", recording: "none" },
+    { kind: "serve", operation: "slack.getUserEmail", recording: "reporters" },
     { kind: "serve", operation: "builder.start", recording: "accepted" },
     { kind: "ai", node: "startBuilder", recording: "prompt" },
     { kind: "ai", node: "assess", recording: "clear" },
@@ -211,12 +212,13 @@ describe("what a model says in the grouping step cannot change what the host kno
     ).toEqual([
       expect.objectContaining({
         title: "Checkout button does nothing",
-        author: "reporter-1@example.test",
+        // oracle-change: a polled Slack row's author is a Slack user id, which the story fixtures now use
+        author: "U01REPORT01",
         thread: THREADS.m1,
       }),
       expect.objectContaining({
         title: "Export to CSV downloads an empty file",
-        author: "reporter-3@example.test",
+        author: "U01REPORT03",
         thread: THREADS.m3,
       }),
     ]);
@@ -252,9 +254,16 @@ describe("what a model says in the grouping step cannot change what the host kno
       expect(errorsOf(run, "m1")[0]).toContain("ai_invalid_output");
       expect(errorsOf(run, "m1")[0]).toContain(message);
       expect(summary.statuses.m1).toBe("needs_manual");
+      // The spent tries leave by the grouping step's error output: the triage owner is told, then the report ends for a person.
       expect((summary.journeys.m1 ?? []).slice(-1)).toEqual([
-        "ended@group:needsManual",
+        "ended@stepFailedEnd:needsManual",
       ]);
+      expect(
+        effectsOf(summary, "slack.postMessage").map((effect) => [
+          effect.item,
+          effect.node,
+        ]),
+      ).toEqual([["m1", "stepFailed"]]);
       // m2 and m3 went on without it: m2 now leads a group of its own, and m1 was neither started nor told.
       expect(
         effectsOf(summary, "builder.start").map(

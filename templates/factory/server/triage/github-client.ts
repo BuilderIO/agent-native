@@ -248,6 +248,8 @@ export interface GitHubOpenItemPage<T> {
 
 const MAX_REVIEW_PAGES = 5;
 const MAX_ISSUE_COMMENT_PAGES = 5;
+// A head commit with more than this many check runs is not read as complete.
+const MAX_CHECK_PAGES = 5;
 
 interface JsonResponse {
   ok: boolean;
@@ -448,12 +450,13 @@ function normalizeCheckState(
   switch (conclusion) {
     case "success":
       return "passed";
+    // A check GitHub gave up waiting on ran to no result, like a cancelled one.
     case "cancelled":
     case "timed_out":
+    case "stale":
       return "cancelled";
     case "neutral":
     case "skipped":
-    case "stale":
       return "informational";
     default:
       return "failed";
@@ -782,6 +785,42 @@ export function createGitHubClient(options: GitHubClientOptions) {
     return cachedConnectorToken;
   }
 
+  /**
+   * Every item of a list GitHub reports with a `total_count`, a page at a time.
+   * A list that ends before its total, or that is still going after
+   * `MAX_CHECK_PAGES`, is a failure, never a shorter list: a missing check
+   * could be the failing one.
+   */
+  async function listCountedPages<T>(
+    path: string,
+    key: string,
+    label: string,
+    parse: (value: unknown) => T,
+  ): Promise<T[]> {
+    const perPage = pageSize();
+    const joiner = path.includes("?") ? "&" : "?";
+    const items: T[] = [];
+    for (let page = 1; page <= MAX_CHECK_PAGES; page += 1) {
+      const body = record(
+        await request<unknown>(
+          `${path}${joiner}per_page=${perPage}&page=${page}`,
+        ),
+      );
+      const rows = requireArray(body[key], label);
+      const total = requiredNumber(body.total_count, `${label} total_count`);
+      items.push(...rows.map(parse));
+      if (items.length >= total) return items;
+      if (rows.length < perPage) {
+        throw new Error(
+          `GitHub ${label} page was truncated; cannot treat CI as complete.`,
+        );
+      }
+    }
+    throw new Error(
+      `GitHub ${label} list was truncated; cannot treat CI as complete: it has more than ${MAX_CHECK_PAGES * perPage}.`,
+    );
+  }
+
   async function graphqlRequest<T>(
     query: string,
     variables: Record<string, unknown>,
@@ -1010,50 +1049,26 @@ export function createGitHubClient(options: GitHubClientOptions) {
       const sha = headSha.trim();
       if (!sha) throw new Error("GitHub pull request head SHA is required");
       const root = repositoryPath(repository);
-      const page = pageSize();
       let checks: PullRequestCheckObservation[];
       let checksCoverage: TriageCoverage = "complete";
       try {
-        const checkBody = record(
-          await request<unknown>(
-            `${root}/commits/${encodeURIComponent(sha)}/check-runs?per_page=${page}`,
-          ),
+        checks = await listCountedPages(
+          `${root}/commits/${encodeURIComponent(sha)}/check-runs`,
+          "check_runs",
+          "check-run",
+          parseCheckRun,
         );
-        const checkRuns = requireArray(checkBody.check_runs, "check-run");
-        const totalCount = requiredNumber(
-          checkBody.total_count,
-          "check-run total_count",
-        );
-        if (totalCount > checkRuns.length) {
-          throw new Error(
-            "GitHub check-run page was truncated; cannot treat CI as complete.",
-          );
-        }
-        checks = checkRuns.map(parseCheckRun);
       } catch (error) {
         if (!isChecksPermissionDenied(error)) throw error;
 
         checksCoverage = "partial";
 
-        const workflowBody = record(
-          await request<unknown>(
-            `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=${page}`,
-          ),
-        );
-        const workflowRuns = requireArray(
-          workflowBody.workflow_runs,
+        checks = await listCountedPages(
+          `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}`,
+          "workflow_runs",
           "workflow-run",
+          parseWorkflowRun,
         );
-        const totalCount = requiredNumber(
-          workflowBody.total_count,
-          "workflow-run total_count",
-        );
-        if (totalCount > workflowRuns.length) {
-          throw new Error(
-            "GitHub workflow-run page was truncated; cannot treat CI as complete.",
-          );
-        }
-        checks = workflowRuns.map(parseWorkflowRun);
       }
       return { checks, checksCoverage };
     },

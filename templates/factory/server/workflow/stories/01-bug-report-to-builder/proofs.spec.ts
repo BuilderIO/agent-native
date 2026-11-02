@@ -7,6 +7,7 @@ import {
   scenarioRun,
   tickAt,
 } from "../proof-kit.js";
+import { STORIES } from "../registry.js";
 
 const STORY = "bug-report-to-builder";
 const DIALOG_HEADLINE =
@@ -67,6 +68,104 @@ describe("story 1 proofs: a bug report to Builder", () => {
         },
       }),
     ]);
+    expect(summary.statuses).toEqual({ m1: "automation_started" });
+  });
+
+  it("asks for the start in the address Slack has for the reporter, read from the id the report carries", async () => {
+    const { summary, run } = await scenario(
+      "a-reporter-with-a-slack-email-is-who-the-task-is-for",
+    );
+
+    // item.author on a polled Slack row is a user id, never an address.
+    const [lookup] = run.world.test.operations.callsTo("slack.getUserEmail");
+    if (!lookup) throw new Error("no slack.getUserEmail call was made");
+    expect(lookup.fields).toEqual({
+      userId: "U01REPORT01",
+      fallbackEmail: "triage-owner@example.test",
+    });
+    const [start] = effectsOf(summary, "builder.start");
+    if (!start) throw new Error("no builder.start effect was recorded");
+    expect(start.fields.userEmail).toBe("reporter-1@example.test");
+    expect(start.fields.userEmail).not.toBe("U01REPORT01");
+    expect(summary.statuses).toEqual({ m1: "automation_started" });
+  });
+
+  it("falls back to the triage owner only when Slack says the reporter has no email, and the start still goes ahead", async () => {
+    const { summary, run } = await scenario(
+      "a-reporter-with-no-slack-email-falls-back-to-the-triage-owner",
+    );
+
+    const [lookup] = run.world.test.operations.callsTo("slack.getUserEmail");
+    if (!lookup) throw new Error("no slack.getUserEmail call was made");
+    expect(lookup.fields).toMatchObject({ userId: "U01NOEMAIL1" });
+    // The recorded answer is the host's (server/connectors/slack-workflow.spec.ts proves when it gives `fallback`); what this proves is the wiring: the setting goes in, the answer comes out as the requester.
+    expect(effectsOf(summary, "builder.start")).toEqual([
+      expect.objectContaining({
+        fields: expect.objectContaining({
+          userEmail: "triage-owner@example.test",
+        }),
+      }),
+    ]);
+    expect(summary.statuses).toEqual({ m1: "automation_started" });
+  });
+
+  it("refuses at the lookup when the email cannot be read: nothing is guessed, Builder is not called, the triage owner is told and the reporter is not", async () => {
+    const { summary, run } = await scenario(
+      "a-failed-email-lookup-refuses-loudly-before-any-builder-call",
+    );
+
+    // No credential is not worth retrying, so the failure leaves by the lookup's error output at once.
+    const reporter = tickAt(summary, 0).nodes.reporter;
+    if (!reporter) throw new Error("tick 0 has no reporter step");
+    expect(reporter.ports).toEqual({ error: 1 });
+    expect(tickAt(summary, 0).run?.counts).toMatchObject({
+      errorRouted: 1,
+      needsManual: 1,
+    });
+    expect(tickAt(summary, 0).run?.counts.itemFailures).toBeUndefined();
+    // The group, the start and the reply sit behind the lookup and are never reached; no model was asked to group it.
+    expect(tickAt(summary, 0).nodes).not.toHaveProperty("openTasks");
+    expect(tickAt(summary, 0).nodes).not.toHaveProperty("startBuilder");
+    expect(callsTo(summary, "builder.start")).toBe(0);
+    expect(callsTo(summary, "slack.replyInThread")).toBe(0);
+    // The failure names the missing scope; it is not turned into the triage owner's address.
+    const reasons = (run.events.m1 ?? [])
+      .filter((event) => event.kind === "error")
+      .map((event) => event.summary);
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toContain("users:read.email");
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([
+      expect.objectContaining({
+        node: "stepFailed",
+        fields: {
+          to: "triage-owner@example.test",
+          text: expect.stringMatching(
+            /^"Checkout button does nothing": the reporter step failed \(credential_missing\): .*users:read\.email.* No Builder task was started\. Needs a person\.$/,
+          ),
+        },
+      }),
+    ]);
+    expect(summary.recorded).toBeUndefined();
+    expect(summary.statuses).toEqual({ m1: "needs_manual" });
+    expect(tickAt(summary, 1).effects).toEqual([]);
+  });
+
+  it("sets a report aside for a retry when Slack is down on the email lookup, and never attributes it on a guess", async () => {
+    const { summary } = await scenario(
+      "a-slack-error-on-the-email-lookup-is-retried-never-guessed",
+    );
+
+    expect(tickAt(summary, 0).nodes.reporter).toMatchObject({
+      status: "failed",
+      error: "lookup_failed",
+    });
+    expect(tickAt(summary, 0).run?.counts.retryParked).toBe(1);
+    expect(tickAt(summary, 0).effects).toEqual([]);
+    // Five minutes on, the lookup works and the start is for the reporter, not the triage owner.
+    const [start] = effectsOf(summary, "builder.start");
+    if (!start) throw new Error("no builder.start effect was recorded");
+    expect(start.fields.userEmail).toBe("reporter-1@example.test");
+    expect(callsTo(summary, "builder.start")).toBe(1);
     expect(summary.statuses).toEqual({ m1: "automation_started" });
   });
 
@@ -203,6 +302,11 @@ describe("story 1 proofs: a bug report to Builder", () => {
       "factory-m1",
       "factory-m3",
     ]);
+    // A group is for its first report's reporter: m2's own address is never the one asked for.
+    expect(starts.map((start) => start.fields.userEmail)).toEqual([
+      "reporter-1@example.test",
+      "reporter-3@example.test",
+    ]);
     const told = effectsOf(summary, "slack.replyInThread");
     expect(
       told.map((effect) => [
@@ -253,15 +357,33 @@ describe("story 1 proofs: a bug report to Builder", () => {
     expect(summary.statuses).toEqual({ m1: "automation_started" });
   });
 
-  it("fails a report whose grouping answer has no declared gate, by name, and neither starts Builder nor tells anyone", async () => {
+  it("fails a report whose grouping answer has no declared gate, by name, tells the triage owner once the tries are spent, and neither starts Builder nor tells the reporter", async () => {
     const { summary, run } = await scenario(
       "a-group-answer-with-the-gate-nested-fails-the-report-and-starts-nothing",
     );
 
-    expect(tickAt(summary, 0).nodes.group).toMatchObject({
-      status: "failed",
-      error: "ai_invalid_output",
-    });
+    // The first two answers are set aside for a retry and send no alert; only the last takes the error output.
+    for (const index of [0, 1]) {
+      expect(tickAt(summary, index).nodes.group).toMatchObject({
+        status: "failed",
+        error: "ai_invalid_output",
+      });
+      expect(tickAt(summary, index).effects).toEqual([]);
+    }
+    const group = tickAt(summary, 2).nodes.group;
+    if (!group) throw new Error("tick 2 has no group step");
+    expect(group.ports).toEqual({ error: 1 });
+    expect(tickAt(summary, 2).run?.counts.errorRouted).toBe(1);
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([
+      expect.objectContaining({
+        node: "stepFailed",
+        fields: expect.objectContaining({
+          text: expect.stringContaining(
+            "the group step failed (ai_invalid_output)",
+          ),
+        }),
+      }),
+    ]);
     const messages = (run.events.m1 ?? [])
       .filter((event) => event.kind === "error")
       .map((event) => event.summary);
@@ -342,7 +464,7 @@ describe("story 1 proofs: a bug report to Builder", () => {
     expect(summary.statuses).toEqual({ m1: "needs_manual" });
   });
 
-  it("does not tell the reporter, and hands the report to a person at once when the gate refuses", async () => {
+  it("does not tell the reporter, tells the triage owner that no task was started, and hands the report to a person at once when the gate refuses", async () => {
     const { summary } = await scenario(
       "a-refused-start-fails-the-item-and-nobody-is-told",
     );
@@ -351,18 +473,38 @@ describe("story 1 proofs: a bug report to Builder", () => {
     // here the engine's side: a refusal fails the item, nothing is announced, and a person gets it now: the same start
     // would be refused again, so nothing tries it a second time.
     expect(effectsOf(summary, "slack.replyInThread")).toEqual([]);
-    expect(tickAt(summary, 0).nodes.startBuilder).toMatchObject({
-      status: "failed",
-      error: "operation_not_allowed",
+    // A refusal is a known no, so the alert says no task was started, not that one may have been.
+    const startBuilder = tickAt(summary, 0).nodes.startBuilder;
+    if (!startBuilder) throw new Error("tick 0 has no startBuilder step");
+    expect(startBuilder.ports).toEqual({ error: 1 });
+    const startOutcome = tickAt(summary, 0).nodes.startOutcome;
+    if (!startOutcome) throw new Error("tick 0 has no startOutcome step");
+    expect(startOutcome.ports).toEqual({
+      otherwise: 1,
     });
-    expect(tickAt(summary, 0).run?.counts.needsManual).toBe(1);
+    expect(tickAt(summary, 0).run?.counts).toMatchObject({
+      errorRouted: 1,
+      needsManual: 1,
+    });
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([
+      expect.objectContaining({
+        node: "stepFailed",
+        fields: {
+          to: "triage-owner@example.test",
+          text: expect.stringMatching(
+            /^"Checkout button does nothing": the startBuilder step failed \(operation_not_allowed\): .*risk_not_low.* No Builder task was started\. Needs a person\.$/,
+          ),
+        },
+      }),
+    ]);
     expect(tickAt(summary, 1).nodes.startBuilder).toBeUndefined();
     expect(tickAt(summary, 2).nodes.startBuilder).toBeUndefined();
     expect(callsTo(summary, "builder.start")).toBe(1);
+    expect(callsTo(summary, "slack.postMessage")).toBe(1);
     expect(summary.statuses).toEqual({ m1: "needs_manual" });
   });
 
-  it("never retries a start that may have happened, even when the report is offered again", async () => {
+  it("never retries a start that may have happened, tells the triage owner it may have, and sends that alert once even when the report is offered again", async () => {
     const { summary } = await scenario(
       "a-timed-out-start-is-never-retried-blind",
     );
@@ -377,9 +519,38 @@ describe("story 1 proofs: a bug report to Builder", () => {
       status: "needs_check",
       error: "effect_needs_check",
     });
-    // Offered again, the engine finds the open receipt and goes no further.
+    // The failure leaves by the start's error output flagged as unknown, to its own alert and not the "nothing started" one.
+    const startBuilder = tickAt(summary, 0).nodes.startBuilder;
+    if (!startBuilder) throw new Error("tick 0 has no startBuilder step");
+    expect(startBuilder.ports).toEqual({ error: 1 });
+    const startOutcome = tickAt(summary, 0).nodes.startOutcome;
+    if (!startOutcome) throw new Error("tick 0 has no startOutcome step");
+    expect(startOutcome.ports).toEqual({
+      "route:mayHaveStarted": 1,
+    });
+    expect(tickAt(summary, 0).run?.counts).toMatchObject({
+      errorRouted: 1,
+      needsCheck: 1,
+    });
+    const alerts = effectsOf(summary, "slack.postMessage");
+    expect(alerts).toEqual([
+      expect.objectContaining({
+        node: "startMayHaveHappened",
+        fields: {
+          to: "triage-owner@example.test",
+          text: expect.stringMatching(
+            /^"Checkout button does nothing": the startBuilder step failed \(effect_needs_check\): .*builder_start_outcome_unknown.* Builder may have started this task: check Builder before starting it again\. Factory did not retry it\.$/,
+          ),
+        },
+      }),
+    ]);
+    const [alert] = alerts;
+    if (!alert) throw new Error("no triage-owner alert was sent");
+    expect(String(alert.fields.text)).not.toContain("No Builder task");
+    // Offered again, the engine finds the open receipt and goes no further, and the alert's own receipt is done: it is not sent twice.
     expect(tickAt(summary, 1).nodes.startBuilder.status).toBe("needs_check");
     expect(tickAt(summary, 1).calls["builder.start"]).toBeUndefined();
+    expect(tickAt(summary, 1).effects).toEqual([]);
     expect(effectsOf(summary, "slack.replyInThread")).toEqual([]);
     expect(summary.statuses).toEqual({ m1: "needs_manual" });
   });
@@ -547,6 +718,134 @@ describe("story 1 proofs: a bug report to Builder", () => {
     expect(summary.recorded?.d1).toMatchObject({
       builderUrl: DIALOG_BUILDER_URL,
     });
+  });
+
+  it("tells the triage owner when the assessment cannot run, so a stuck loop is seen, and neither asks, groups nor starts anything", async () => {
+    const { summary } = await scenario(
+      "a-failing-assess-alerts-the-owner-and-starts-nothing",
+    );
+
+    // No credential is not worth retrying, so the first failure takes the error output.
+    const assess = tickAt(summary, 0).nodes.assess;
+    if (!assess) throw new Error("tick 0 has no assess step");
+    expect(assess.ports).toEqual({ error: 1 });
+    expect(tickAt(summary, 0).nodes.route).toBeUndefined();
+    expect(tickAt(summary, 0).run?.counts).toMatchObject({
+      errorRouted: 1,
+      needsManual: 1,
+    });
+    expect(tickAt(summary, 0).run?.counts.itemFailures).toBeUndefined();
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([
+      expect.objectContaining({
+        node: "stepFailed",
+        item: "m1",
+        fields: {
+          to: "triage-owner@example.test",
+          text: expect.stringMatching(
+            /^"Checkout button does nothing": the assess step failed \(credential_missing\): .*No usable model credential.* No Builder task was started\. Needs a person\.$/,
+          ),
+        },
+      }),
+    ]);
+    expect(effectsOf(summary)).toHaveLength(1);
+    expect(callsTo(summary, "builder.start")).toBe(0);
+    expect(callsTo(summary, "slack.replyInThread")).toBe(0);
+    expect(tickAt(summary, 0).ai.map((turn) => turn.node)).toEqual(["assess"]);
+    expect(summary.statuses).toEqual({ m1: "needs_manual" });
+    expect(tickAt(summary, 1)).toMatchObject({
+      calls: {},
+      ai: [],
+      effects: [],
+    });
+  });
+
+  it("tells the triage owner when the open-tasks lookup fails, and neither groups nor starts anything", async () => {
+    const { summary } = await scenario(
+      "a-failing-open-tasks-lookup-alerts-the-owner-and-starts-nothing",
+    );
+
+    const openTasks = tickAt(summary, 0).nodes.openTasks;
+    if (!openTasks) throw new Error("tick 0 has no openTasks step");
+    expect(openTasks.ports).toEqual({ error: 1 });
+    expect(tickAt(summary, 0).nodes.group).toBeUndefined();
+    expect(tickAt(summary, 0).nodes).not.toHaveProperty("startBuilder");
+    expect(effectsOf(summary, "slack.postMessage")).toEqual([
+      expect.objectContaining({
+        node: "stepFailed",
+        fields: expect.objectContaining({
+          text: expect.stringContaining(
+            "the openTasks step failed (provider_error)",
+          ),
+        }),
+      }),
+    ]);
+    expect(effectsOf(summary)).toHaveLength(1);
+    expect(callsTo(summary, "builder.start")).toBe(0);
+    expect(summary.statuses).toEqual({ m1: "needs_manual" });
+  });
+
+  it("says in a dry run that it would tell the triage owner an assessment failed, and sends nothing", async () => {
+    const { summary } = await scenario(
+      "a-dry-run-with-a-failing-assess-routes-the-alert-and-sends-nothing",
+    );
+
+    expect(tickAt(summary, 0)).toMatchObject({ mode: "dry", effects: [] });
+    const assess = tickAt(summary, 0).nodes.assess;
+    if (!assess) throw new Error("tick 0 has no assess step");
+    expect(assess.ports).toEqual({ error: 1 });
+    const stepFailed = tickAt(summary, 0).nodes.stepFailed;
+    if (!stepFailed) throw new Error("tick 0 has no stepFailed step");
+    expect(stepFailed.ports).toEqual({ out: 1 });
+    expect(callsTo(summary, "slack.postMessage")).toBe(0);
+    expect(callsTo(summary, "builder.start")).toBe(0);
+    expect(summary.statuses).toEqual({});
+  });
+
+  it("sends every failure of a key step to the triage owner and then to a person, never on to Builder or the reporter", () => {
+    const { graph } = STORIES[STORY];
+    const into = (id: string) =>
+      graph.edges
+        .filter((edge) => edge.to.node === id)
+        .map((edge) => `${edge.from.node}:${edge.from.port}`)
+        .sort();
+
+    // Five steps route their failures; the grouping, lookups and assessment share one alert, the start has its own so it can say it may have started.
+    for (const id of [
+      "assess",
+      "reporter",
+      "openTasks",
+      "group",
+      "startBuilder",
+    ]) {
+      const node = graph.nodes.find((entry) => entry.id === id);
+      expect(
+        node && "onError" in node.settings ? node.settings.onError : undefined,
+      ).toBe("route");
+    }
+    expect(into("stepFailed")).toEqual([
+      "assess:error",
+      "group:error",
+      "openTasks:error",
+      "reporter:error",
+      "startOutcome:otherwise",
+    ]);
+    expect(into("startOutcome")).toEqual(["startBuilder:error"]);
+    expect(into("startMayHaveHappened")).toEqual([
+      "startOutcome:route:mayHaveStarted",
+    ]);
+    expect(into("stepFailedEnd")).toEqual(["stepFailed:out"]);
+    expect(into("startMayHaveHappenedEnd")).toEqual([
+      "startMayHaveHappened:out",
+    ]);
+    for (const id of ["stepFailedEnd", "startMayHaveHappenedEnd"]) {
+      const end = graph.nodes.find((entry) => entry.id === id);
+      expect(end?.kind === "end" ? end.settings.outcome : undefined).toBe(
+        "needsManual",
+      );
+    }
+    // The error edges never reach the tell, the handed-off End or the start.
+    expect(into("tell")).toEqual(["reports:out"]);
+    expect(into("handed")).toEqual(["tell:out"]);
   });
 
   it("names the report by its headline when it tells the triage owner", async () => {

@@ -94,13 +94,19 @@ quotes escaped. A parse failure names the position: fix it and send again.
   `agent` have `out`. `filter` has `match` and `otherwise`. `switch` has
   `route:<route id>` for each route and `otherwise`. `wait` has `replied` and
   `timedOut` (reply), `done` (time), `met` and `timedOut` (condition). `end` has
-  none.
+  none. A `lookup`, `action`, `ai` or `agent` node with `onError: "route"` also
+  has `error`, which must lead somewhere too (see "A failed step").
 - Trigger schedules: `{every: "5m"|"10m"|"15m"|"30m"|"60m"}`, `{daily: {at}}`,
   `{weekdays: {at}}`, `{weekly: {day: 0-6, at}}`, `at` as 24-hour `HH:MM`.
   Put `timezone` on the trigger's settings.
 - Workflow `settings.extras` holds free-form values a node reads with a path,
   such as the repository and the channel id. Put them there so a person can
-  change one place.
+  change one place. `extras.repository` (`owner/name`) is also the one
+  repository the merge gate allows, set when the graph is saved: a workflow that
+  merges needs it, and without it the gate refuses with `repository_not_allowed`.
+  A GitHub source polling a different repository fails the save with
+  `repository_conflict`; a value that is not `owner/name` fails with
+  `repository_invalid`.
 - **A Source's scope lives on the Source node.** For an `inbox-poll` source,
   `filter.scopes[0]` is the Slack channel id, the GitHub repo (`owner/name`) or
   the Sentry project (`org/project`), one per workflow. `save-triage-config` is
@@ -285,6 +291,17 @@ scope that is not an id is rejected at save. A post's `to` is not checked at
 save and a dry run never posts, so a name there only fails on the first live
 run.
 
+A Slack report's `item.author` is a user id (`U0123ABCD`), never an email. A
+step that needs the person's address (Builder's `userEmail`) reads it first with
+a Lookup `slack.getUserEmail`: `userId` is `item.author`, and `fallbackEmail`
+is `settings.triageOwnerEmail`. Read `nodes.<lookup>.email`; it is always an
+address, and `emailSource` says `slack` or `fallback`. The fallback is used only
+when Slack says the person has no email. A lookup that failed (a connection
+without the `users:read.email` scope, an unknown id, Slack down) fails the
+step with a typed code and never falls back, because the work would be
+attributed to the wrong person. A `userId` that is not a Slack user id (an email,
+a bot id) fails the step with `slack_user_invalid`.
+
 ## Connecting
 
 Connections are per provider, from `connections` in a save or
@@ -313,6 +330,41 @@ Connections are per provider, from `connections` in a save or
 - `set-factory-workflow-enabled` refuses with `connection_required` until every
   provider is connected. A step that fails `credential_missing` in a dry run
   means the same thing: connect it, then dry run again.
+
+## A failed step
+
+By default an item that fails at a step ends for a person (Needs you) and
+nothing is posted, so nobody learns a loop is stuck. Set `settings.onError` to
+`"route"` on a `lookup`, `action`, `ai` or `agent` node and the step gets an
+extra `error` port: the failed item leaves by it, with the failure at
+`item.error` (`code`, `message`, `node` the step's name, `outcomeUnknown`), and
+is not counted as failed. Absent or `"stop"` is the old behavior.
+
+- **Wire the `error` port, or the save fails** with `port_leads_nowhere` at that
+  node and port. Typically `error` goes to an Action that posts to the owner (a
+  Slack post whose text reads `{{ item.error.code }}` and
+  `{{ item.error.message }}`), then an End with `needsManual` and a `reason`
+  that reads `item.error` too, so Needs you shows the real failure.
+- **The failed step has no output on that path.** Read `item.*`, `item.error.*`
+  and steps before it; `nodes.<failed step>` does not exist there.
+- **Retries still come first.** A failure worth another try (a timeout, an AI
+  answer outside its fields) is retried as before and leaves by `error` only
+  when the attempts are spent, so a flaky minute sends no alert. A failure no
+  retry fixes (no credential) leaves at once. A dry run parks nothing, so it
+  routes at once and its Action only says what it would send.
+- **A write never retries, routed or not.** `outcomeUnknown: true` (code
+  `effect_needs_check`) means the write may have happened. It is still handed to
+  a person and its receipt stays open, so the alert is information and never
+  makes it read as handled: end that path with `needsManual`, never `done`.
+- **A dry run is not clean proof for that step.** The step reads as succeeded
+  and the run's `counts.errorRouted` (and the step's `routedErrors` and
+  `firstRoutedError` fields) say how many items took the error port and why:
+  above zero, read the reason and fix the cause before enabling.
+- **Not covered:** a step that fails as a whole (a result over the step cap, a
+  graph the engine cannot run) still stops the run, and a Source, Filter,
+  Switch, Combine, Split, Wait or End has no `onError`.
+
+The shipped builder-to-merge story routes the AI judge's failures this way.
 
 ## Dry run loop
 
@@ -381,6 +433,11 @@ supplies `externalRef`, `url`, `status` and `projectId` and not `accepted` or
 `branchName`, because a receipt keeps only the fields that name a thing: read
 `externalRef`.
 
+- **Bind `userEmail` to a reporter's email, never to `item.author`.** On a Slack
+  report `item.author` is a user id, and Builder looks `userEmail` up against its
+  Space members. Put a `slack.getUserEmail` Lookup before the start (see Slack
+  channels) and bind `nodes.<lookup>.email`. For a group the start is for its
+  first report's reporter.
 - **Bind `reports` on every `builder.start`** (`item.reports` for a group, `item.id` for one item). Factory reads each report from its inbox and adds its headline, author, link and text after the task your instruction writes, so never have the model copy the report; a start with no report to read is refused.
 - **Never compare the name you asked for with the one Builder returned.** A
   check that `externalRef` equals the asked name turns away every real start.
@@ -439,7 +496,7 @@ short `excerpt` of the Verified section, never the description itself) for a
 graph that wants to route on it. The shipped builder-to-merge story asks an AI
 step, `judge`, after the gate and before the merge whether that excerpt
 plausibly shows the fix: `verified` goes on to the merge, `unsure` (or a judge
-that fails) holds the pull request for a person, and it never approves. Explain
+that fails, which tells the triage owner the typed failure) holds the pull request for a person, and it never approves. Explain
 a hold in those words. Never approve or merge for the user: an approval is a person's, and
 `requeue-factory-item` sends the item back once it is given.
 

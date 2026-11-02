@@ -40,6 +40,7 @@ const scenario: StoryScenario = {
     { kind: "serve", operation: "slack.replyInThread", recording: "posted" },
     { kind: "serve", operation: "slack.postMessage", recording: "posted" },
     { kind: "serve", operation: "factory.listItems", recording: "none" },
+    { kind: "serve", operation: "slack.getUserEmail", recording: "reporters" },
     { kind: "serve", operation: "builder.start", recording: "renamed" },
     { kind: "offer", source: "feedback", recording: "nothing" },
     { kind: "ai", node: "startBuilder", recording: "prompt" },

@@ -134,8 +134,9 @@ describe("how a failed GitHub write is told", () => {
       retryable: false,
       statusCode: 403,
     });
+    // oracle-change: a 401 means the saved token was rejected, now typed github_credential_rejected instead of github_access_denied
     await expect(write(failing(answered(401)))).rejects.toMatchObject({
-      errorCode: "github_access_denied",
+      errorCode: "github_credential_rejected",
     });
   });
 

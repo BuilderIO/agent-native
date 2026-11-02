@@ -477,6 +477,7 @@ export async function runTick(input: RunTickInput): Promise<TickResult> {
     needsManual: runtime.ended.needsManual,
     released: runtime.ended.released,
     itemFailures: runtime.failed,
+    errorRouted: runtime.errorRouted,
     // Rows a provider sent that could not be read are rows to check, the same as items flagged by a write.
     needsCheck: runtime.needsCheck + runtime.skippedRows,
     skippedRows: runtime.skippedRows,

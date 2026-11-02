@@ -331,15 +331,29 @@ const sourceSettingsSchema = z.discriminatedUnion("source", [
   }),
 ]);
 
+/**
+ * What a step does with an item that fails at it. Absent is `stop`, so a graph
+ * saved before this setting existed runs exactly as it did.
+ */
+export const ON_ERROR_MODES = ["stop", "route"] as const;
+const onErrorSchema = z
+  .enum(ON_ERROR_MODES)
+  .describe(
+    "stop (the default): a failed item ends for a person. route: the step gets an extra `error` output and a failed item leaves through it carrying `item.error`, the real code and message; the output must lead to a node.",
+  );
+export type OnErrorMode = z.infer<typeof onErrorSchema>;
+
 const lookupSettingsSchema = z.strictObject({
   operation: operationIdSchema,
   args: argsSchema,
   into: identifierSchema.optional(),
+  onError: onErrorSchema.optional(),
 });
 
 const actionSettingsSchema = z.strictObject({
   operation: operationIdSchema,
   args: argsSchema,
+  onError: onErrorSchema.optional(),
 });
 
 const filterSettingsSchema = z.strictObject({
@@ -473,12 +487,14 @@ const aiSettingsSchema = z.strictObject({
   tools: z.array(z.string().min(1).max(80)).max(10).default([]),
   batchSize: z.number().int().min(1).max(100).default(10),
   inputBudgetTokens: z.number().int().min(100).max(200_000).optional(),
+  onError: onErrorSchema.optional(),
 });
 
 const agentSettingsSchema = z.strictObject({
   agent: z.literal("builder"),
   op: z.enum(["start", "check", "followUp"]),
   args: argsSchema,
+  onError: onErrorSchema.optional(),
 });
 
 const MAX_WAIT_HOURS = 24 * 30;

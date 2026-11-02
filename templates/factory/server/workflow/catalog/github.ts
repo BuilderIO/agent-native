@@ -181,7 +181,7 @@ export const githubOperations: OperationDefinitionInput[] = [
         name: "checks",
         type: "object",
         description:
-          "coverage, total, passed, failed, pending, informational, allPassing, notPassing and notPassingTruncated.",
+          "coverage, total, passed, failed (real failures only), pending, cancelled (not a failure and not green: it needs a rerun), informational (skipped or neutral; blocks nothing), allPassing (at least one passed and none failed, cancelled or pending), notPassing (failed, then cancelled, then pending) and notPassingTruncated.",
       },
       {
         name: "reviewThreads",

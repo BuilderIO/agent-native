@@ -48,6 +48,7 @@ import { useQuietMarks } from "../issue-marks";
 import { argsForOperation } from "../OperationFields";
 import { OptionsSection, ParamsSection } from "./ApiRequestParams";
 import { ImportCurlDialog } from "./ImportCurlDialog";
+import { OnErrorField } from "./OnErrorField";
 import type { FormProps } from "./types";
 import { withOptional } from "./types";
 
@@ -310,6 +311,7 @@ export function ApiRequestForm({
           onChange={(into) => onChange(withOptional(settings, "into", into))}
         />
       </Field>
+      <OnErrorField settings={settings} onChange={onChange} />
 
       <p className="rounded-md border-s-2 border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
         {a.notice}

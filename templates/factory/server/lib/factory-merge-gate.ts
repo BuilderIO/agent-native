@@ -131,7 +131,9 @@ function gateSnapshot(
     checksTotal: checks.length,
     checksPassing: count(["passed"]),
     checksFailing: count(["failed"]),
+    checksCancelled: count(["cancelled"]),
     checksPending: count(["queued", "in_progress"]),
+    checksInformational: count(["informational"]),
     checksCoverage: evidence.checksCoverage,
     threadsTotal: threads.length,
     threadsUnresolved: threads.filter((thread) => !thread.resolved).length,
@@ -315,8 +317,8 @@ export async function evaluateMergeGate(input: {
     }
 
     if (!hasCompletePassingChecks(evidence)) {
-      const notPassing = evidence.checks.filter(
-        (check) => check.state !== "passed",
+      const blocking = evidence.checks.filter(
+        (check) => check.state !== "passed" && check.state !== "informational",
       );
       add(
         "checks_not_green",
@@ -324,7 +326,9 @@ export async function evaluateMergeGate(input: {
           ? `Check coverage on the head commit is ${evidence.checksCoverage}, so CI cannot be called green.`
           : evidence.checks.length === 0
             ? "No checks have reported on the head commit."
-            : `Checks are not all green on the head commit: ${listNames(notPassing.map((check) => `${check.name} (${check.state})`))}.`,
+            : blocking.length === 0
+              ? "Every check on the head commit was skipped or neutral; none passed."
+              : `Checks are not all green on the head commit: ${listNames(blocking.map((check) => `${check.name} (${check.state})`))}.`,
       );
     }
 

@@ -54,6 +54,7 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
         match: t("workflowCanvas.port.match"),
         otherwise: t("workflowCanvas.port.otherwise"),
         limitReached: t("workflowCanvas.port.limitReached"),
+        error: t("workflowCanvas.port.error"),
         replied: t("workflowCanvas.port.replied"),
         timedOut: t("workflowCanvas.port.timedOut"),
         done: t("workflowCanvas.port.done"),
@@ -269,6 +270,11 @@ export function createWorkflowCanvasStrings(t: Translate<CanvasKey>) {
       notInCatalog: (id: string) =>
         t("workflowCanvas.inspector.notInCatalog", { id }),
       resultName: t("workflowCanvas.inspector.resultName"),
+      onError: {
+        label: t("workflowCanvas.inspector.onError.label"),
+        stop: t("workflowCanvas.inspector.onError.stop"),
+        route: t("workflowCanvas.inspector.onError.route"),
+      },
       pathExample: "item.title",
       insertPath: t("workflowCanvas.inspector.insertPath"),
       searchPaths: t("workflowCanvas.inspector.searchPaths"),

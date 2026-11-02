@@ -613,7 +613,8 @@ describe("merge_unexpected_response tripwire", () => {
   });
 
   it.each([
-    [401, "github_access_denied"],
+    // oracle-change: a rejected token (401) is now its own code, github_credential_rejected, no longer the permission refusal (403) github_access_denied
+    [401, "github_credential_rejected"],
     [403, "github_access_denied"],
     [404, "github_not_found"],
   ])(
@@ -837,7 +838,8 @@ describe("a merge attempt that reaches evaluation", () => {
           true,
           401,
         ),
-      "github_access_denied",
+      // oracle-change: this read fails with a 401, now typed github_credential_rejected instead of github_access_denied
+      "github_credential_rejected",
     ],
     [
       "a dropped connection",

@@ -31,6 +31,7 @@ import {
   type OperationOutput,
 } from "../server/workflow/operations.js";
 import {
+  ERROR_PORT,
   LIMIT_REACHED_PORT,
   OTHERWISE_PORT,
   STATIC_PORTS,
@@ -38,15 +39,22 @@ import {
   routePort,
 } from "../server/workflow/ports.js";
 
+// Four kinds can fail one item at a time. The long explanation is said once, on the graph; each kind only points at it.
+const ON_ERROR_NOTE = ' Can set onError "route" (see graph.errorPortNote).';
+const ERROR_PORT_NOTE =
+  'A lookup, action, ai or agent node set to onError "route" gets an extra error port. An item that fails there (after any retries, and at once in a dry run) leaves by it carrying item.error {code, message, node, outcomeUnknown} instead of ending for a person, and is not counted as failed. The failed node has no output on that path, so read item.error, not nodes.<that node>. The error port must lead to a node, or the save is refused (port_leads_nowhere). A write that may have happened (outcomeUnknown true) is never retried and is still handed to a person, so end that path with needsManual.';
+
 const PURPOSE: Record<NodeKind, string> = {
   trigger:
     "Says when the workflow looks for new work. Exactly one per workflow; it has no inputs.",
   source:
     "Starts a list of items: new messages from an inbox poller, a provider query, a time window, or items already in a status. An inbox poller or cursor query starts from the moment the workflow goes live and never works through what was already there.",
   lookup:
-    "Reads one thing about each item (a thread, a ticket, a pull request) and attaches it under the node's name. Runs in a dry run. When no lookup covers an endpoint, <provider>.apiRequest (label API request) sends a read-only GET to any path of a connected provider; read its description with operationIds before using it.",
+    "Reads one thing about each item (a thread, a ticket, a pull request) and attaches it under the node's name. Runs in a dry run. When no lookup covers an endpoint, <provider>.apiRequest (label API request) sends a read-only GET to any path of a connected provider; read its description with operationIds before using it." +
+    ON_ERROR_NOTE,
   action:
-    "Does one write to an outside tool (post a message, create a task, merge). Does not run in a dry run.",
+    "Does one write to an outside tool (post a message, create a task, merge). Does not run in a dry run." +
+    ON_ERROR_NOTE,
   filter:
     "Sends each item to Match or Otherwise by field rules combined with all or any.",
   switch:
@@ -54,9 +62,12 @@ const PURPOSE: Record<NodeKind, string> = {
   combine:
     "Turns many items into one holding a list, a count, groups, or totals against a baseline.",
   split: "Turns one item with a list field into one item per entry.",
-  ai: "Asks the agent for a judgment and returns only the declared result fields. A failure never looks like an answer.",
+  ai:
+    "Asks the agent for a judgment and returns only the declared result fields. A failure never looks like an answer." +
+    ON_ERROR_NOTE,
   agent:
-    "Hands work to another agent (Builder) and follows it: start, check, or follow up.",
+    "Hands work to another agent (Builder) and follows it: start, check, or follow up." +
+    ON_ERROR_NOTE,
   wait: "Parks the item here until a reply arrives, a time passes, or a condition is met; everything else keeps moving.",
   end: "Finishes the item with an outcome: done, dismissed with a reason, needsManual, or released. An optional record writes up to ten named values (typed in, or read from an earlier node or the settings) onto the item with its status.",
 };
@@ -363,6 +374,8 @@ export default defineAction({
                 ...graphShapes(forAgent || compact),
                 limits: { maxNodes: MAX_NODES, maxEdges: MAX_EDGES },
                 loopPort: LIMIT_REACHED_PORT,
+                errorPort: ERROR_PORT,
+                errorPortNote: ERROR_PORT_NOTE,
               },
           shapes:
             !forAgent || sharedUsed.size === 0

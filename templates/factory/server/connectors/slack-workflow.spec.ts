@@ -20,6 +20,7 @@ import {
   neutralizeSlackMentions,
   postWorkflowSlackMessage,
   readWorkflowSlackThread,
+  readWorkflowSlackUserEmail,
   resolveFactorySlackWorkspace,
 } from "./slack-workflow.js";
 import { SlackWriteError, type SlackMessage } from "./slack.js";
@@ -32,6 +33,7 @@ function fakeSlack(overrides: Record<string, unknown> = {}) {
     getAgentNativeIdentity: vi.fn().mockResolvedValue({ userId: "UBOT" }),
     getCompleteThread: vi.fn(),
     findUserByEmail: vi.fn(),
+    getUserEmail: vi.fn(),
     postChannelMessage: vi.fn(),
     postThreadReply: vi.fn(),
     getMessagePermalink: vi
@@ -706,5 +708,181 @@ describe("postWorkflowSlackMessage", () => {
       permalink: null,
       permalinkError: "message_not_found",
     });
+  });
+});
+
+describe("readWorkflowSlackUserEmail", () => {
+  const FALLBACK = "triage-owner@example.test";
+  const found = (extra: Record<string, unknown> = {}) => ({
+    id: "U01REPORT01",
+    email: "ada@example.test",
+    isBot: false,
+    grantedScopes: ["users:read", "users:read.email"],
+    ...extra,
+  });
+  const read = (
+    slack: ReturnType<typeof fakeSlack>,
+    input: { userId?: string; fallbackEmail?: string } = {},
+  ) =>
+    readWorkflowSlackUserEmail(asReader(slack), {
+      workspace: "primary",
+      userId: "U01REPORT01",
+      fallbackEmail: FALLBACK,
+      ...input,
+    });
+  const failure = (code: string, message?: string | RegExp) =>
+    expect.objectContaining({
+      errorCode: code,
+      ...(message === undefined
+        ? {}
+        : { message: expect.stringMatching(message) }),
+    });
+
+  it("gives the address Slack has, and never the fallback, when the person has one", async () => {
+    const slack = fakeSlack({
+      getUserEmail: vi.fn().mockResolvedValue(found()),
+    });
+
+    await expect(read(slack)).resolves.toEqual({
+      ok: true,
+      userId: "U01REPORT01",
+      email: "ada@example.test",
+      emailSource: "slack",
+    });
+    expect(slack.getUserEmail).toHaveBeenCalledWith("primary", "U01REPORT01");
+  });
+
+  it("falls back, and says so, only when Slack looked, may see addresses, and found none", async () => {
+    const slack = fakeSlack({
+      getUserEmail: vi.fn().mockResolvedValue(found({ email: null })),
+    });
+
+    await expect(read(slack)).resolves.toEqual({
+      ok: true,
+      userId: "U01REPORT01",
+      email: FALLBACK,
+      emailSource: "fallback",
+    });
+  });
+
+  it("refuses a person with no email when no usable fallback was given, instead of making one up", async () => {
+    const slack = fakeSlack({
+      getUserEmail: vi.fn().mockResolvedValue(found({ email: null })),
+    });
+
+    // `read` always supplies a fallback, so this calls the reader without the key to make the fallback absent.
+    await expect(
+      readWorkflowSlackUserEmail(asReader(slack), {
+        workspace: "primary",
+        userId: "U01REPORT01",
+      }),
+    ).rejects.toEqual(failure("slack_user_email_missing", /no email in Slack/));
+    await expect(read(slack, { fallbackEmail: "  " })).rejects.toEqual(
+      failure("slack_user_email_missing"),
+    );
+    await expect(
+      read(slack, { fallbackEmail: "not-an-email" }),
+    ).rejects.toEqual(failure("slack_user_email_missing", /not an address/));
+  });
+
+  it("reads a missing address as a missing scope, not as a person with none, when the token lacks users:read.email", async () => {
+    const slack = fakeSlack({
+      getUserEmail: vi
+        .fn()
+        .mockResolvedValue(
+          found({ email: null, grantedScopes: ["users:read"] }),
+        ),
+    });
+
+    await expect(read(slack)).rejects.toEqual(
+      failure("slack_access_denied", /users:read\.email/),
+    );
+  });
+
+  it("refuses when Slack sent no email and did not say what the token may see", async () => {
+    const slack = fakeSlack({
+      getUserEmail: vi
+        .fn()
+        .mockResolvedValue(found({ email: null, grantedScopes: null })),
+    });
+
+    await expect(read(slack)).rejects.toEqual(
+      failure(
+        "slack_user_email_unreadable",
+        /did not list the credential's scopes/,
+      ),
+    );
+  });
+
+  it("refuses an email that is not an address", async () => {
+    const slack = fakeSlack({
+      getUserEmail: vi.fn().mockResolvedValue(found({ email: "not an email" })),
+    });
+
+    await expect(read(slack)).rejects.toEqual(
+      failure("slack_user_email_unreadable"),
+    );
+  });
+
+  it("refuses an author that is not a Slack user id before asking Slack", async () => {
+    const slack = fakeSlack();
+
+    for (const userId of ["ada@example.test", "Ada", "B0BOT", ""]) {
+      await expect(read(slack, { userId })).rejects.toEqual(
+        failure("slack_user_invalid"),
+      );
+    }
+    expect(slack.getUserEmail).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "an unknown id",
+      new Error("Slack API error: user_not_found"),
+      "slack_user_not_found",
+      /no member/,
+    ],
+    [
+      "a token without users:read",
+      new Error("Slack API error: missing_scope"),
+      "slack_access_denied",
+      /users:read.*users:read\.email/,
+    ],
+    [
+      "a revoked token",
+      new Error("Slack API error: token_revoked"),
+      "slack_access_denied",
+      /token_revoked/,
+    ],
+    [
+      "Slack down",
+      new Error("Slack API error 503: unavailable"),
+      "slack_lookup_failed",
+      /HTTP 503/,
+    ],
+    [
+      "a bot token that is not set",
+      new Error("No Slack bot token configured. Connect Slack."),
+      "slack_not_connected",
+      /not connected/,
+    ],
+  ])(
+    "fails with a typed error for %s, never the fallback",
+    async (_name, error, code, message) => {
+      const slack = fakeSlack({
+        getUserEmail: vi.fn().mockRejectedValue(error),
+      });
+
+      await expect(read(slack)).rejects.toEqual(failure(code, message));
+    },
+  );
+
+  it("passes an unreadable key through as itself", async () => {
+    const unreadable = new UnreadableSecretError("SLACK_BOT_TOKEN");
+    const slack = fakeSlack({
+      getUserEmail: vi.fn().mockRejectedValue(unreadable),
+    });
+
+    await expect(read(slack)).rejects.toBe(unreadable);
   });
 });

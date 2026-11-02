@@ -93,6 +93,7 @@ const HOST_ACTIONS = [
   "merge-factory-pull-request",
   "post-slack-message",
   "read-slack-thread",
+  "read-slack-user-email",
   "remove-github-label",
   "resolve-sentry-issue",
   "send-factory-email",

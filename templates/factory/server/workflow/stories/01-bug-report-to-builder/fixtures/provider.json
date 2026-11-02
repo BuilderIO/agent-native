@@ -7,7 +7,7 @@
         "messages": [
           {
             "ts": "1760000000.000100",
-            "user": "reporter-1@example.test",
+            "user": "U01REPORT01",
             "text": "Clicking Pay does nothing.",
             "reactions": []
           }
@@ -21,7 +21,7 @@
         "messages": [
           {
             "ts": "1760000000.000100",
-            "user": "reporter-1@example.test",
+            "user": "U01REPORT01",
             "text": "Clicking Pay does nothing.",
             "reactions": []
           },
@@ -33,7 +33,7 @@
           },
           {
             "ts": "1760000200.000100",
-            "user": "reporter-1@example.test",
+            "user": "U01REPORT01",
             "text": "Chrome 118 on a Mac",
             "reactions": []
           }
@@ -85,6 +85,13 @@
       "output": {
         "items": []
       }
+    },
+    "unreadable": {
+      "ok": false,
+      "code": "provider_error",
+      "message": "Factory could not read its open items (the database did not answer).",
+      "retryable": false,
+      "sideEffect": "none"
     }
   },
   "builder.start": {
@@ -133,6 +140,138 @@
       "retryable": false,
       "sideEffect": "maybe",
       "message": "Builder may have started the task for builder.start, and Factory could not confirm either way; check the branch before starting again (builder_start_outcome_unknown)."
+    }
+  },
+  "slack.getUserEmail": {
+    "reporters": {
+      "match": [
+        {
+          "when": {
+            "userId": "U01REPORT01"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "userId": "U01REPORT01",
+              "email": "reporter-1@example.test",
+              "emailSource": "slack"
+            }
+          }
+        },
+        {
+          "when": {
+            "userId": "U01REPORT02"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "userId": "U01REPORT02",
+              "email": "reporter-2@example.test",
+              "emailSource": "slack"
+            }
+          }
+        },
+        {
+          "when": {
+            "userId": "U01REPORT03"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "userId": "U01REPORT03",
+              "email": "reporter-3@example.test",
+              "emailSource": "slack"
+            }
+          }
+        },
+        {
+          "when": {
+            "userId": "U01REPORT04"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "userId": "U01REPORT04",
+              "email": "reporter-4@example.test",
+              "emailSource": "slack"
+            }
+          }
+        },
+        {
+          "when": {
+            "userId": "U01REPORT05"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "userId": "U01REPORT05",
+              "email": "reporter-5@example.test",
+              "emailSource": "slack"
+            }
+          }
+        },
+        {
+          "when": {
+            "userId": "U01REPORT06"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "userId": "U01REPORT06",
+              "email": "reporter-6@example.test",
+              "emailSource": "slack"
+            }
+          }
+        },
+        {
+          "when": {
+            "userId": "U01REPORT07"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "userId": "U01REPORT07",
+              "email": "reporter-7@example.test",
+              "emailSource": "slack"
+            }
+          }
+        },
+        {
+          "when": {
+            "userId": "U01NOEMAIL1"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "userId": "U01NOEMAIL1",
+              "email": "{fields.fallbackEmail}",
+              "emailSource": "fallback"
+            }
+          }
+        }
+      ]
+    },
+    "scopeMissing": {
+      "ok": false,
+      "code": "credential_missing",
+      "message": "Slack sent no email for U01REPORT01 because the connected credential lacks the users:read.email scope. Reconnect Slack with it. (slack_access_denied)",
+      "retryable": false,
+      "sideEffect": "none"
+    },
+    "slackDown": {
+      "ok": false,
+      "code": "lookup_failed",
+      "message": "Slack failed while reading the reporter's email (HTTP 503). (slack_lookup_failed)",
+      "retryable": true,
+      "sideEffect": "none"
     }
   }
 }

@@ -74,6 +74,42 @@ export const slackOperations: OperationDefinitionInput[] = [
     credential: { provider: "slack" },
   },
   {
+    id: "slack.getUserEmail",
+    provider: "slack",
+    label: "Slack: read a person's email",
+    description:
+      "Reads a Slack member's email from their user id (U...), as a report's item.author holds it. emailSource says slack when Slack gave the address and fallback when the person has none and fallbackEmail was used. A lookup that failed, such as a credential without the users:read.email scope, fails the step and never falls back.",
+    nodeKinds: ["lookup"],
+    effect: "read",
+    fields: [
+      { name: "userId", type: "string", required: true, label: "Person" },
+      {
+        name: "fallbackEmail",
+        type: "string",
+        label: "Use this email when the person has none",
+        description:
+          "Bind a setting such as settings.triageOwnerEmail. Used only when Slack says the person has no email, never when the lookup fails.",
+      },
+    ],
+    implementation: { type: "action", action: "read-slack-user-email" },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      { name: "userId", type: "string" },
+      {
+        name: "email",
+        type: "string",
+        description:
+          "Always an address: the person's, or fallbackEmail when emailSource is fallback.",
+      },
+      {
+        name: "emailSource",
+        type: "string",
+        description: "slack or fallback.",
+      },
+    ],
+    credential: { provider: "slack" },
+  },
+  {
     id: "slack.postMessage",
     provider: "slack",
     label: "Slack: post a message",

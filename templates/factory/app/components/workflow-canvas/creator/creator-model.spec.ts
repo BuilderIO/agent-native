@@ -248,6 +248,8 @@ describe("apps", () => {
     expect(labelsOf(items)).toEqual([
       strings.creator.actions,
       "Find a person by email",
+      // oracle-change: Slack gained a step that reads a member's email from their user id
+      "Read a person's email",
       "Read a thread",
       // oracle-change: Slack gained a step that puts a reaction on a message
       "Add a reaction",

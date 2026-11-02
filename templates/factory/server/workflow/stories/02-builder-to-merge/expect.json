@@ -500,6 +500,173 @@
       "r2": ["ended@keep:released", "ended@keep:released"]
     }
   },
+  "cancelled-checks-wait-without-a-fix-or-a-merge": {
+    "ticks": [
+      {
+        "label": "checks cancelled",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:cancelled": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": { "builder.check": 1, "github.readPullRequest": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "still cancelled",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:cancelled": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": { "builder.check": 1, "github.readPullRequest": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:cancelled",
+        "ended@keep:released",
+        "decision@state:route:hasPr",
+        "decision@ci:route:cancelled",
+        "ended@keep:released"
+      ],
+      "r1": ["ended@keep:released", "ended@keep:released"],
+      "r2": ["ended@keep:released", "ended@keep:released"]
+    }
+  },
+  "a-failing-pull-request-with-cancelled-checks-is-sent-back-for-the-failures-only": {
+    "ticks": [
+      {
+        "label": "3 failed and 33 cancelled: sent back for the failures",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "otherwise": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "fix": { "in": 1, "ports": { "out": 1 } },
+          "fixedTask": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "roundCap": { "in": 1, "ports": { "otherwise": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "builder.followUp": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "fix",
+            "item": "group:byHead:90fa4e10a5da4",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "Lint & format, Build artifacts and Content parity failed on headD. Please fix them and push the change."
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "fix",
+            "mode": "perItem",
+            "items": ["group:byHead:90fa4e10a5da4"]
+          }
+        ]
+      },
+      {
+        "label": "same head, same failures: not sent again",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "match": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": { "builder.check": 1, "github.readPullRequest": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "group:byHead:90fa4e10a5da4": [
+        "decision@askedForHead:otherwise",
+        "effect@fix",
+        "decision@askedForHead:match",
+        "ended@keep:released"
+      ],
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match",
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match"
+      ],
+      "group:fixedTask:75aea82993fbf": [
+        "decision@roundCap:otherwise",
+        "ended@keep:released"
+      ],
+      "r1": ["ended@keep:released", "ended@keep:released"],
+      "r2": ["ended@keep:released", "ended@keep:released"]
+    }
+  },
   "a-green-pull-request-is-merged-and-every-thread-is-told-once": {
     "ticks": [
       {
@@ -994,7 +1161,7 @@
           "counts": {
             "taken": 2,
             "needsManual": 1,
-            "itemFailures": 1,
+            "errorRouted": 1,
             "modelCalls": 1
           }
         },
@@ -1005,22 +1172,35 @@
           "eligible": { "in": 1, "ports": { "match": 1 } },
           "gate": { "in": 1, "ports": { "out": 1 } },
           "inFlight": { "in": 0, "ports": { "out": 2 } },
-          "judge": {
-            "in": 1,
-            "ports": {},
-            "status": "failed",
-            "error": "credential_missing"
-          },
+          "judge": { "in": 1, "ports": { "error": 1 } },
+          "judgeFailed": { "in": 1, "ports": { "out": 1 } },
+          "judgeFailedEnd": { "in": 1, "ports": {} },
           "readPr": { "in": 1, "ports": { "out": 1 } },
           "state": { "in": 1, "ports": { "route:hasPr": 1 } }
         },
         "calls": {
           "builder.check": 1,
           "github.readPullRequest": 1,
-          "factory.mergeGate": 1
+          "factory.mergeGate": 1,
+          "slack.postMessage": 1
         },
         "windows": {},
-        "effects": [],
+        "effects": [
+          {
+            "node": "judgeFailed",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "\"Checkout button does nothing\": https://github.example.test/example-org/example-repo/pull/7 passed the merge gate, but the AI check of its Verified notes could not run (credential_missing): The AI turn failed (credentials): No usable model credential for the \"builder\" engine for triage-owner@example.test. Connect a provider in Settings > Agent > AI providers, or ask a workspace admin to. Nothing was merged. Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
         "ai": [
           {
             "node": "judge",
@@ -1050,10 +1230,12 @@
         "decision@ci:route:green",
         "decision@eligible:match",
         "error@judge:credential_missing",
-        "ended@judge:needsManual"
+        "decision@judge:error",
+        "effect@judgeFailed",
+        "ended@judgeFailedEnd:needsManual"
       ],
-      "r1": ["ended@judge:needsManual"],
-      "r2": ["ended@judge:needsManual"]
+      "r1": ["ended@judgeFailedEnd:needsManual"],
+      "r2": ["ended@judgeFailedEnd:needsManual"]
     }
   },
   "a-judge-that-keeps-timing-out-holds-the-pull-request-after-three-tries": {
@@ -1142,22 +1324,34 @@
           "status": "succeeded",
           "counts": {
             "needsManual": 1,
-            "itemFailures": 1,
+            "errorRouted": 1,
             "modelCalls": 1,
             "retried": 1
           }
         },
         "nodes": {
-          "judge": {
-            "in": 1,
-            "ports": {},
-            "status": "failed",
-            "error": "provider_error"
-          }
+          "judge": { "in": 1, "ports": { "error": 1 } },
+          "judgeFailed": { "in": 1, "ports": { "out": 1 } },
+          "judgeFailedEnd": { "in": 1, "ports": {} }
         },
-        "calls": {},
+        "calls": { "slack.postMessage": 1 },
         "windows": {},
-        "effects": [],
+        "effects": [
+          {
+            "node": "judgeFailed",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "\"Checkout button does nothing\": https://github.example.test/example-org/example-repo/pull/7 passed the merge gate, but the AI check of its Verified notes could not run (provider_error): The AI turn failed (timeout): The turn did not finish within 120 seconds. Nothing was merged. Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
         "ai": [
           {
             "node": "judge",
@@ -1193,10 +1387,16 @@
         "parked@judge",
         "woke@judge:?",
         "error@judge:provider_error",
-        "ended@judge:needsManual"
+        "decision@judge:error",
+        "effect@judgeFailed",
+        "ended@judgeFailedEnd:needsManual"
       ],
-      "r1": ["parked@judge", "parked@judge", "ended@judge:needsManual"],
-      "r2": ["parked@judge", "parked@judge", "ended@judge:needsManual"]
+      "r1": [
+        "parked@judge",
+        "parked@judge",
+        "ended@judgeFailedEnd:needsManual"
+      ],
+      "r2": ["parked@judge", "parked@judge", "ended@judgeFailedEnd:needsManual"]
     }
   },
   "a-judge-answer-outside-its-schema-holds-the-pull-request": {
@@ -1285,22 +1485,34 @@
           "status": "succeeded",
           "counts": {
             "needsManual": 1,
-            "itemFailures": 1,
+            "errorRouted": 1,
             "modelCalls": 1,
             "retried": 1
           }
         },
         "nodes": {
-          "judge": {
-            "in": 1,
-            "ports": {},
-            "status": "failed",
-            "error": "ai_invalid_output"
-          }
+          "judge": { "in": 1, "ports": { "error": 1 } },
+          "judgeFailed": { "in": 1, "ports": { "out": 1 } },
+          "judgeFailedEnd": { "in": 1, "ports": {} }
         },
-        "calls": {},
+        "calls": { "slack.postMessage": 1 },
         "windows": {},
-        "effects": [],
+        "effects": [
+          {
+            "node": "judgeFailed",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "\"Checkout button does nothing\": https://github.example.test/example-org/example-repo/pull/7 passed the merge gate, but the AI check of its Verified notes could not run (ai_invalid_output): The AI answer does not fit the declared fields: \"verdict\" must be one of verified, unsure. Nothing was merged. Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
         "ai": [
           {
             "node": "judge",
@@ -1336,10 +1548,16 @@
         "parked@judge",
         "woke@judge:?",
         "error@judge:ai_invalid_output",
-        "ended@judge:needsManual"
+        "decision@judge:error",
+        "effect@judgeFailed",
+        "ended@judgeFailedEnd:needsManual"
       ],
-      "r1": ["parked@judge", "parked@judge", "ended@judge:needsManual"],
-      "r2": ["parked@judge", "parked@judge", "ended@judge:needsManual"]
+      "r1": [
+        "parked@judge",
+        "parked@judge",
+        "ended@judgeFailedEnd:needsManual"
+      ],
+      "r2": ["parked@judge", "parked@judge", "ended@judgeFailedEnd:needsManual"]
     }
   },
   "a-pull-request-merged-by-someone-else-goes-straight-to-the-threads": {
@@ -2115,6 +2333,68 @@
       ],
       "r1": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"],
       "r2": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"]
+    }
+  },
+  "a-dry-run-with-a-failing-judge-routes-the-alert-and-sends-nothing": {
+    "ticks": [
+      {
+        "label": "dry run: the judge fails",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "dry",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 2,
+            "needsManual": 1,
+            "errorRouted": 1,
+            "modelCalls": 1
+          }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "judge": { "in": 1, "ports": { "error": 1 } },
+          "judgeFailed": { "in": 1, "ports": { "out": 1 } },
+          "judgeFailedEnd": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1
+        },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          {
+            "node": "judge",
+            "mode": "perItem",
+            "items": ["group:byTask:75aea82993fbf"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "error@judge:credential_missing",
+        "decision@judge:error",
+        "effect@judgeFailed",
+        "ended@judgeFailedEnd:needsManual"
+      ],
+      "r1": ["ended@judgeFailedEnd:needsManual"],
+      "r2": ["ended@judgeFailedEnd:needsManual"]
     }
   },
   "a-test-of-one-node-reads-but-writes-nothing": {

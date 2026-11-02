@@ -270,6 +270,121 @@
         }
       ]
     },
+    "cancelled-checks-wait-without-a-fix-or-a-merge": {
+      "description": "A pull request whose checks were cancelled and none failed is not sent back to Builder and is not merged: cancelled is neither a failure nor green, so it waits for the checks to be run again. 33 cancelled runs sit among 34 passing and no failing check.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "cancelledChecks"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "checks cancelled",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "still cancelled",
+          "at": "+5m"
+        }
+      ]
+    },
+    "a-failing-pull-request-with-cancelled-checks-is-sent-back-for-the-failures-only": {
+      "description": "A pull request with 3 real failures and 33 cancelled runs is sent back to Builder once, for the failures only: the cancelled runs are not named and do not count as failed.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "failingWithCancelled"
+        },
+        {
+          "kind": "ai",
+          "node": "fix",
+          "recording": "headD"
+        },
+        {
+          "kind": "tick",
+          "label": "3 failed and 33 cancelled: sent back for the failures",
+          "at": "+0m"
+        },
+        {
+          "kind": "tick",
+          "label": "same head, same failures: not sent again",
+          "at": "+5m"
+        }
+      ]
+    },
     "a-green-pull-request-is-merged-and-every-thread-is-told-once": {
       "description": "A green pull request that clears the merge gate is merged once, and each of the task's reports is told in its own thread once.",
       "steps": [
@@ -641,7 +756,7 @@
       ]
     },
     "a-judge-that-cannot-sign-in-holds-the-pull-request": {
-      "description": "A judge that cannot sign in fails the task at once, never reads as verified, and never merges: both reports go to a person with the typed failure.",
+      "description": "A judge that cannot sign in fails the task at once, never reads as verified, and never merges: the failure leaves the judge by its error output with its typed code, the triage owner is told, and both reports go to a person.",
       "steps": [
         {
           "kind": "serve",
@@ -706,7 +821,7 @@
       ]
     },
     "a-judge-that-keeps-timing-out-holds-the-pull-request-after-three-tries": {
-      "description": "A judge that times out on every try is retried twice, five and ten minutes on, and then the task goes to a person; no tick merges anything.",
+      "description": "A judge that times out on every try is retried twice, five and ten minutes on, and only then leaves by its error output: the triage owner is told once, both reports go to a person and no tick merges anything.",
       "steps": [
         {
           "kind": "serve",
@@ -781,7 +896,7 @@
       ]
     },
     "a-judge-answer-outside-its-schema-holds-the-pull-request": {
-      "description": "Answers outside the declared fields never read as verified: a verdict that is not one of the two words, then verified with no reason, then a wrong-case verdict. Each fails the task, and after the third the reports go to a person; nothing is merged.",
+      "description": "Answers outside the declared fields never read as verified: a verdict that is not one of the two words, then verified with no reason, then a wrong-case verdict. Each fails the task, and after the third the failure leaves by the judge's error output, the triage owner is told and the reports go to a person; nothing is merged.",
       "steps": [
         {
           "kind": "serve",
@@ -1388,6 +1503,62 @@
         }
       ]
     },
+    "a-dry-run-with-a-failing-judge-routes-the-alert-and-sends-nothing": {
+      "description": "A dry run whose judge cannot sign in takes the same error output a live run does, and says it would tell the triage owner, but sends nothing and merges nothing.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "slack.replyInThread",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.followUp",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "factory.mergeGate",
+          "recording": "eligible"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.mergePullRequest",
+          "recording": "merged"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.check",
+          "recording": "prOpen"
+        },
+        {
+          "kind": "serve",
+          "operation": "github.readPullRequest",
+          "recording": "green"
+        },
+        {
+          "kind": "ai",
+          "node": "judge",
+          "recording": "noSignIn"
+        },
+        {
+          "kind": "offer",
+          "source": "inFlight",
+          "recording": "twoReports"
+        },
+        {
+          "kind": "tick",
+          "label": "dry run: the judge fails",
+          "at": "+0m",
+          "mode": "dry"
+        }
+      ]
+    },
     "a-test-of-one-node-reads-but-writes-nothing": {
       "description": "Testing the pull request read on a pinned sample runs only that node: a read is real, and nothing downstream runs.",
       "steps": [
@@ -1458,10 +1629,12 @@
                     "excerpt": "Ran the checkout spec: it fails without the fix and passes with it."
                   },
                   "checks": {
-                    "total": 3,
-                    "passed": 3,
+                    "total": 67,
+                    "passed": 34,
                     "failed": 0,
                     "pending": 0,
+                    "cancelled": 0,
+                    "informational": 33,
                     "allPassing": true
                   }
                 }

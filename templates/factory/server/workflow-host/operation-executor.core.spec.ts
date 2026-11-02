@@ -495,6 +495,24 @@ describe("a typed failure carries its own retry flag", () => {
     });
   });
 
+  it("does not call a rejected GitHub token missing: the step keeps its own code and says to refresh the token", async () => {
+    behavior.read = () =>
+      failGitHubStep(
+        new GitHubRequestError("Bad credentials", true, 401),
+        "reading the pull request",
+      );
+    // raw-sql-ok: the workflow operation executor, not a database call; the guard reads any execute() argument it cannot prove literal as SQL
+    expect(await executor.execute(mergeGate())).toMatchObject({
+      ok: false,
+      code: "lookup_failed",
+      sideEffect: "none",
+      retryable: false,
+      message: expect.stringMatching(
+        /github_credential_rejected.*Refresh the saved GitHub token|Refresh the saved GitHub token.*github_credential_rejected/s,
+      ),
+    });
+  });
+
   it("retries a Slack thread read that stopped paging, and not one that is too long", async () => {
     behavior.read = () =>
       readWorkflowSlackThread(
