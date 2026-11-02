@@ -8,6 +8,7 @@ import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
+  isUrlPropertyValue,
   normalizePropertyValue,
   serializePropertyOptions,
 } from "../shared/properties.js";
@@ -375,15 +376,10 @@ export function normalizeMigrationValue(
   if (definition.type === "url") {
     if (typeof normalized !== "string")
       throw new Error(`URL property ${definition.name} must be a string.`);
-    try {
-      const url = new URL(normalized);
-      if (url.protocol !== "http:" && url.protocol !== "https:")
-        throw new Error();
-    } catch {
+    if (!isUrlPropertyValue(normalized))
       throw new Error(
-        `URL property ${definition.name} must be an http/https URL.`,
+        `URL property ${definition.name} must be an http/https URL or a t3-thread link.`,
       );
-    }
   }
   if (definition.type === "date" && normalized === null)
     throw new Error(`Date property ${definition.name} cannot be null.`);

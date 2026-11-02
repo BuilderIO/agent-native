@@ -35,9 +35,11 @@ import {
   documentPropertyDateIncludesTime,
   documentPropertyDateKey,
   documentPropertyDatePart,
+  isAppLinkUrl,
   isEmptyPropertyValue,
   isComputedPropertyType,
   isOnlyBlocksFieldDeletion,
+  isUrlPropertyValue,
   MAX_RELATION_TARGETS,
   normalizeDatePropertyValue,
   type DocumentPropertyDateValue,
@@ -314,9 +316,11 @@ function propertyValueTextClass(presentation: PropertyValuePresentation) {
     : "truncate whitespace-nowrap";
 }
 
-/** A URL property's value as a link target: only http(s) addresses open. */
+/** A URL property's value as a link target: web addresses and named app links open. */
 export function propertyUrlHref(value: DocumentProperty["value"]) {
-  return typeof value === "string" && isHttpUrl(value) ? value.trim() : null;
+  return typeof value === "string" && isUrlPropertyValue(value)
+    ? value.trim()
+    : null;
 }
 
 /**
@@ -339,7 +343,10 @@ const keepEventOnLink = {
   onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation(),
 };
 
-/** A web address that opens in a new tab. */
+/**
+ * A web address opens in a new tab. An app link stays in this one, which hands
+ * it to the app without leaving a blank tab behind.
+ */
 export function PropertyUrlLink({
   href,
   className,
@@ -352,8 +359,9 @@ export function PropertyUrlLink({
   return (
     <a
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
+      {...(isAppLinkUrl(href)
+        ? {}
+        : { target: "_blank", rel: "noopener noreferrer" })}
       title={href}
       // Ringed inside, since cells, rows and cards clip what overflows them.
       className={cn(

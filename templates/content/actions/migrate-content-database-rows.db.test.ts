@@ -683,6 +683,22 @@ describe("migrate-content-database-rows", () => {
     ).toHaveLength(20);
   });
 
+  it("lets a URL value be a t3-thread link and refuses other app schemes", () => {
+    const definition = {
+      id: "open",
+      name: "Open",
+      type: "url",
+      visibility: "always_show",
+    } as const;
+    const threadLink = "t3-thread://v1/thread-1";
+    expect(serializeMigrationValue(definition, threadLink)).toBe(
+      JSON.stringify(threadLink),
+    );
+    expect(() => serializeMigrationValue(definition, "ms-msdt:/id")).toThrow(
+      "must be an http/https URL or a t3-thread link",
+    );
+  });
+
   it("refuses unauthorised, stale, and unknown-option plans before a write", async () => {
     const seed = await fixture();
     const input: any = structuredClone(plan(seed));
