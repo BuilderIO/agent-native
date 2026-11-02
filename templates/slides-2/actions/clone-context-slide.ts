@@ -29,6 +29,7 @@ import { validateNativeSlideHtml } from "../app/lib/validate-native-slide-html.j
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
 import {
@@ -158,7 +159,10 @@ export default defineAction({
           errorCode: "deck_not_found",
           statusCode: 404,
         });
-      const deck = JSON.parse(row.data) as Record<string, unknown>;
+      const deck = withUniqueSlideIds(
+        deckId,
+        JSON.parse(row.data) as Record<string, unknown>,
+      );
       assertSlides2DeckData(deck);
       const slides = Array.isArray(deck.slides)
         ? ([...deck.slides] as Array<Record<string, unknown>>)

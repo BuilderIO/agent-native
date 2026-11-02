@@ -129,11 +129,10 @@ A few areas are intentionally outside the sharing system:
 
 Every shareable resource gets a share button in its header. Clicking it opens a popover anchored to the button (not a modal) with:
 
-- "Add people or teams" autocomplete — search users in the org or paste an email, plus a role picker.
-- A Google Docs-style `Notify people` checkbox for individual email grants.
-- A list of current grants with role pickers and a remove control.
-- General access: visibility selector (`Private` / `Organization` / `Public link`).
-- A copy-link button that respects the current visibility.
+- One invite field for people, organization groups, and the org's agents, with a role picker and Invite. A typed email also gets a `Notify people` checkbox.
+- People with access: the owner, people, groups, and agents in one list. Roles read Can view, Can comment, Can edit, and Can manage access. Remove access is the last item in each row's role menu.
+- General access: Only people invited / Anyone at the organization / Anyone with the link.
+- Copy link, and a Send to menu: Open in Claude, Claude Code, or Codex, Copy agent prompt, Copy agent link, MCP server settings, and any destinations the app adds.
 
 Moving a resource from `Private` to `Organization` asks for confirmation first. Nothing changes until the user confirms. Cancel or Escape keeps the current access. If saving fails, the dialog shows the error and the user can try again. Other visibility changes save at once. The confirmation lives in the share UI only. `set-resource-visibility` is unchanged, so the agent and any other caller still change visibility directly and the resource's sharing policy still decides what is allowed.
 
@@ -142,7 +141,7 @@ Moving a resource from `Private` to `Organization` asks for confirmation first. 
     surface="popover"
     caption="Share popover — anchored to the header button, not a modal"
     html={
-      "<div style='display:flex;flex-direction:column;gap:16px;padding:18px 20px;min-width:360px;box-sizing:border-box'><div style='display:flex;align-items:stretch;gap:8px'><input placeholder='Add people or teams' style='flex:1'/><span class='wf-pill'>Editor</span></div><label style='display:flex;align-items:center;gap:8px' class='wf-muted'><input type='checkbox' checked/> Notify people</label><div style='display:flex;flex-direction:column;gap:10px'><strong>People with access</strong><div style='display:flex;align-items:center;gap:10px'><span class='wf-pill'>AL</span><span style='flex:1'>Ada Lovelace (you)</span><span class='wf-muted'>Owner</span></div><div style='display:flex;align-items:center;gap:10px'><span class='wf-pill'>MT</span><span style='flex:1'>marketing@company.com</span><span class='wf-pill'>Editor</span><span class='wf-muted'>Remove</span></div></div><div style='display:flex;flex-direction:column;gap:8px;padding-top:14px;border-top:1.4px solid var(--wf-line)'><strong>General access</strong><div style='display:flex;align-items:center;gap:10px'><span class='wf-pill accent'>Organization</span><span class='wf-muted'>Anyone at the org can view</span></div></div><div style='display:flex;gap:8px'><input readonly value='https://app.example.com/share/8fq2k1' style='flex:1'/><button class='primary'>Copy link</button></div></div>"
+      "<div style='display:flex;flex-direction:column;gap:16px;padding:18px 20px;min-width:384px;box-sizing:border-box'><div style='display:flex;align-items:stretch;gap:8px'><input placeholder='Add people or agents' style='flex:1'/><span class='wf-pill'>Can view</span><button class='primary'>Invite</button></div><div style='display:flex;flex-direction:column;gap:10px'><strong>People with access</strong><div style='display:flex;align-items:center;gap:10px'><span class='wf-pill'>AL</span><span style='flex:1'>Ada Lovelace <span class='wf-muted'>you</span></span><span class='wf-muted'>Owner</span></div><div style='display:flex;align-items:center;gap:10px'><span class='wf-pill'>MT</span><span style='flex:1'>marketing@company.com</span><span class='wf-muted'>Can edit</span></div><div style='display:flex;align-items:center;gap:10px'><span class='wf-pill'>RV</span><span style='flex:1'>reviewer <span class='wf-pill'>Agent</span></span><span class='wf-muted'>Can comment</span></div></div><div style='display:flex;flex-direction:column;gap:8px'><strong>General access</strong><div style='display:flex;align-items:center;gap:10px'><span class='wf-pill accent'>Anyone at the org</span><span style='flex:1'></span><span class='wf-muted'>Can view</span></div></div><div style='display:flex;justify-content:space-between;gap:8px'><button>Copy link</button><span class='wf-muted'>Send to</span></div></div>"
     }
   />
 </WireframeBlock>
@@ -157,6 +156,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+Agents appear in the invite field when the organization has service agents (`svc-<name>@service.<orgId>` identities from org service tokens). They are shared as ordinary user principals and are never emailed. Agents that connect over MCP or OAuth act as the person who connected them, so they get no row. Hand the resource to them from Send to.
 
 For lists, drop a `<VisibilityBadge visibility={row.visibility} />` next to each row so users can see at a glance what's private vs. shared.
 
@@ -232,6 +233,7 @@ registerShareableResource({
   displayName: "Deck",
   titleColumn: "title",
   getResourcePath: (deck) => `/p/${deck.id}`,
+  agentRead: { actions: ["get-deck"] },
   agentReadable: {
     resourceKind: "slides:deck",
     getContextPath: () => "/api/deck-agent-context.json",
@@ -240,6 +242,8 @@ registerShareableResource({
   getDb,
 });
 ```
+
+`agentRead` names the MCP tool that reads one resource. With it, the share panel's Send to menu offers Open in Claude, Claude Code, and Codex and Copy agent prompt. The prompt sends the agent to the app's MCP server to call that tool with the person's own permissions. List several tools when one type spans kinds that read differently, and set `idParam` when the tool's id argument is not `id`.
 
 The context endpoint must be read-only. It should return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Set `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, and avoid including write credentials, provider blob URLs, or secrets. Token links should not change the resource visibility.
 

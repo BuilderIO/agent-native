@@ -273,6 +273,14 @@ function normalizeActionDataWidgetResult(
   return null;
 }
 
+function semanticModelName(resultJson: unknown): string | null {
+  if (!isRecord(resultJson) || !isRecord(resultJson.summary)) return null;
+  const name = resultJson.summary.semanticModelName;
+  if (typeof name !== "string") return null;
+  const normalized = name.trim();
+  return normalized.length > 0 && normalized.length <= 200 ? normalized : null;
+}
+
 function renderDataWidget(context: ToolRendererContext) {
   const result =
     normalizeActionDataWidgetResult(context) ??
@@ -287,14 +295,29 @@ function renderDataWidget(context: ToolRendererContext) {
     );
   }
   if (widget === DATA_CHART_WIDGET && result.chartSeries) {
+    const modelName = semanticModelName(context.resultJson);
     return (
-      <Suspense fallback={<BuiltinToolRendererSkeleton />}>
-        <LazyDataChartWidget
-          chart={result.chartSeries}
-          display={result.display}
-          layout={context.dataChartLayout}
-        />
-      </Suspense>
+      <>
+        <Suspense fallback={<BuiltinToolRendererSkeleton />}>
+          <LazyDataChartWidget
+            chart={result.chartSeries}
+            {...(result.display === undefined
+              ? {}
+              : { display: result.display })}
+            {...(context.dataChartLayout === undefined
+              ? {}
+              : { layout: context.dataChartLayout })}
+          />
+        </Suspense>
+        {modelName && (
+          <p
+            data-testid="data-widget-semantic-model-attribution"
+            className="px-3 pb-3 text-xs text-muted-foreground"
+          >
+            {modelName}
+          </p>
+        )}
+      </>
     );
   }
   if (widget === DATA_INSIGHTS_WIDGET) {

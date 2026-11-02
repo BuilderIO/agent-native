@@ -1274,6 +1274,15 @@ describe("get-deck", () => {
     });
   });
 
+  it("leaves list columns unwritten for an outside agent's read", async () => {
+    if (!currentResource) throw new Error("expected a deck row");
+    currentResource.slideCount = null;
+
+    await action.run({ id: "deck-1" }, { caller: "mcp" });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it("does not write list columns a deck already has", async () => {
     if (!currentResource) throw new Error("expected a deck row");
     currentResource.slideCount = 2;

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
@@ -74,6 +76,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 const {
   AgentRunEventNotPersistedError,
   beginAgentExecutionStep,
+  privateExecutionStepInputJson,
   claimBackgroundRun,
   claimTaskExecutionLease,
   claimTurnExecutionLease,
@@ -1713,4 +1716,130 @@ describe("run event batches", () => {
       { seq: 1, event_at: 1_001, event_data: events[1]!.eventData },
     ]);
   });
+});
+
+it("rejects an unbound private legacy step intent", async () => {
+  const threadId = "thread-private-legacy-intent";
+  const turnId = "turn-private-legacy-intent";
+  const runId = "run-private-legacy-intent";
+  await insertRun(runId, threadId, turnId);
+  const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+  const intent = {
+    ...fence,
+    stepId: "private-step",
+    operationId: "private-step",
+    toolName: "private-action",
+    inputJson: JSON.stringify({ omitFromPersistedHistory: true }),
+    replayPolicy: "never" as const,
+  };
+  await expect(
+    withExecutionFence(fence, () => beginAgentExecutionStep(intent)),
+  ).rejects.toThrow(/private.*identity/i);
+});
+
+it("binds a private step to opaque scoped argument identity", async () => {
+  const threadId = "thread-private-bound-intent";
+  const turnId = "turn-private-bound-intent";
+  const runId = "run-private-bound-intent";
+  const sentinel = "private-argument-sentinel";
+  const argumentsHash = createHash("sha256").update(sentinel).digest("hex");
+  await insertRun(runId, threadId, turnId);
+  const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+  const inputJson = privateExecutionStepInputJson({
+    threadId,
+    turnId,
+    toolName: "private-action",
+    argumentsHash,
+  });
+  const intent = {
+    ...fence,
+    stepId: "private-step",
+    operationId: "private-step",
+    toolName: "private-action",
+    inputJson,
+    replayPolicy: "never" as const,
+  };
+  await withExecutionFence(fence, async () => {
+    expect(await beginAgentExecutionStep(intent)).toMatchObject({
+      status: "execute",
+    });
+    expect(await beginAgentExecutionStep(intent)).toMatchObject({
+      status: "execute",
+    });
+    const different = privateExecutionStepInputJson({
+      threadId,
+      turnId,
+      toolName: "private-action",
+      argumentsHash: createHash("sha256").update("different").digest("hex"),
+    });
+    await expect(
+      beginAgentExecutionStep({ ...intent, inputJson: different }),
+    ).rejects.toThrow("was retried with a different intent");
+  });
+  const { rows } = await pglite.query<{ input_json: string }>(
+    "SELECT input_json FROM agent_execution_steps WHERE thread_id = $1 AND step_id = $2",
+    [threadId, intent.stepId],
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.input_json).toBe(inputJson);
+  expect(inputJson).not.toContain(sentinel);
+  expect(inputJson).not.toContain(argumentsHash);
+  expect(JSON.parse(inputJson)).toEqual({
+    omitFromPersistedHistory: true,
+    identity: expect.stringMatching(/^hmac-v1:[a-f0-9]{64}$/),
+  });
+});
+
+it("refuses an existing unbound private row and a changed keyed identity", async () => {
+  const threadId = "thread-private-old-intent";
+  const turnId = "turn-private-old-intent";
+  const runId = "run-private-old-intent";
+  await insertRun(runId, threadId, turnId);
+  const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+  const intent = {
+    ...fence,
+    stepId: "legacy-private-step",
+    operationId: "legacy-private-step",
+    toolName: "private-action",
+    inputJson: privateExecutionStepInputJson({
+      threadId,
+      turnId,
+      toolName: "private-action",
+      argumentsHash: "synthetic-argument-hash",
+    }),
+    replayPolicy: "never" as const,
+  };
+  await pglite.query(
+    `INSERT INTO agent_execution_steps
+      (thread_id, turn_id, step_id, operation_id, tool_name, input_json,
+       replay_policy, status, run_id, generation)
+      VALUES ($1, $2, $3, $4, $5, $6, 'never', 'prepared', $7, CAST($8 AS BIGINT))`,
+    [
+      threadId,
+      turnId,
+      intent.stepId,
+      intent.operationId,
+      intent.toolName,
+      JSON.stringify({ omitFromPersistedHistory: true }),
+      runId,
+      fence.generation,
+    ],
+  );
+  await expect(
+    withExecutionFence(fence, () => beginAgentExecutionStep(intent)),
+  ).rejects.toThrow(/private.*identity/i);
+  await pglite.query(
+    "UPDATE agent_execution_steps SET input_json = $1 WHERE thread_id = $2 AND step_id = $3",
+    [
+      JSON.stringify({
+        omitFromPersistedHistory: true,
+        identity: `hmac-v1:${"f".repeat(64)}`,
+      }),
+      threadId,
+      intent.stepId,
+    ],
+  );
+  await expect(
+    withExecutionFence(fence, () => beginAgentExecutionStep(intent)),
+  ).rejects.toThrow("was retried with a different intent");
 });
