@@ -21,7 +21,10 @@ type WidgetWriteAuthorizationInput = {
   args: Record<string, unknown>;
   result: unknown;
   target: { targetPath: string; resourceIds: Record<string, string> };
-  identity: { userEmail?: string; orgId?: string | null };
+  identity: {
+    userEmail?: string | undefined;
+    orgId?: string | null | undefined;
+  };
 };
 
 /**
