@@ -3,6 +3,7 @@ import fs from "fs";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:http";
+import { createServer as createTcpServer, type Socket } from "node:net";
 import os from "os";
 import path from "path";
 
@@ -1370,6 +1371,32 @@ describe("sparse first-party tag fetches", () => {
     }
 
     expect(server.requests).toHaveLength(1);
+  });
+
+  it("gives up quickly on a server that never answers", async () => {
+    const sockets = new Set<Socket>();
+    const server = createTcpServer((socket) => sockets.add(socket));
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Silent test server did not get a TCP address.");
+    }
+    try {
+      await expect(
+        _extractSparseTag(
+          `http://127.0.0.1:${address.port}/remote`,
+          tag,
+          "templates/layer",
+          path.join(tmpDir, "sparse"),
+          { retryDelaysMs: [0], responseTimeoutMs: 100 },
+        ),
+      ).rejects.toThrow("after 2 attempts (no response within 0.1s)");
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      server.close();
+      await once(server, "close");
+    }
   });
 });
 

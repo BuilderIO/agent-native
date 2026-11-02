@@ -20,6 +20,7 @@ const GIT_DIRECTORY_MODE = "40000";
 /** Waits before each retry; together they ride out ten seconds of outage. */
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 3_000, 4_000];
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const RESPONSE_TIMEOUT_MS = 10_000;
 const STALL_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 512 * 1024 * 1024;
 const PROTOCOL_HEADERS = {
@@ -41,6 +42,8 @@ export interface GitTree {
 
 export interface GitHttpOptions {
   retryDelaysMs?: readonly number[];
+  /** How long a request may wait for the response to start. */
+  responseTimeoutMs?: number;
   onRetry?: (notice: string) => void;
 }
 
@@ -222,7 +225,7 @@ async function request(
       const delay = delays[attempt];
       if (delay === undefined) {
         throw new GitHttpUnavailableError(
-          `${connection.host} is still unavailable after ${attempt + 1} attempts (${error.message}).`,
+          `${connection.host} is still unavailable after ${attempt + 1} ${attempt === 0 ? "attempt" : "attempts"} (${error.message}).`,
         );
       }
       connection.options.onRetry?.(
@@ -240,11 +243,15 @@ async function requestOnce(
 ): Promise<Buffer> {
   const url = `${connection.url}/${resource}`;
   const controller = new AbortController();
-  // Aborts a transfer that stops moving without capping one that is slow.
-  const stall = setTimeout(() => controller.abort(), STALL_TIMEOUT_MS);
+  const responseTimeoutMs =
+    connection.options.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS;
+  // A server that never answers fails fast. Once the response starts, the
+  // timer only aborts a transfer that stops moving, so a slow one finishes.
+  let timeoutReason = `no response within ${responseTimeoutMs / 1000}s`;
+  let timer = setTimeout(() => controller.abort(), responseTimeoutMs);
   const transportError = (error: unknown) =>
     controller.signal.aborted
-      ? new TransientRequestError(`no data for ${STALL_TIMEOUT_MS / 1000}s`)
+      ? new TransientRequestError(timeoutReason)
       : networkError(error);
   try {
     let response;
@@ -267,6 +274,9 @@ async function requestOnce(
     } catch (error) {
       throw transportError(error);
     }
+    clearTimeout(timer);
+    timeoutReason = `no data for ${STALL_TIMEOUT_MS / 1000}s`;
+    timer = setTimeout(() => controller.abort(), STALL_TIMEOUT_MS);
     if (!response.ok) {
       await response.body?.cancel();
       const message = `HTTP ${response.status}`;
@@ -289,7 +299,7 @@ async function requestOnce(
         throw transportError(error);
       }
       if (chunk.done) break;
-      stall.refresh();
+      timer.refresh();
       received += chunk.value.byteLength;
       if (received > MAX_RESPONSE_BYTES) {
         await reader.cancel();
@@ -301,7 +311,7 @@ async function requestOnce(
     }
     return Buffer.concat(chunks);
   } finally {
-    clearTimeout(stall);
+    clearTimeout(timer);
   }
 }
 
