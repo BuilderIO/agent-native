@@ -305,6 +305,7 @@ const messages = {
       "Schreibe los oder erstelle Sprechernotizen schnell mit dem Agenten",
   },
   editorToolbar: {
+    saving: "Wird gespeichert...",
     layoutTitle: "Titel",
     layoutSection: "Abschnittstrenner",
     layoutContent: "Inhalt",

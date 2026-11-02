@@ -289,6 +289,7 @@ const messages = {
     placeholder: "开始输入，或让智能体快速生成演讲者备注",
   },
   editorToolbar: {
+    saving: "保存中...",
     layoutTitle: "标题",
     layoutSection: "分节页",
     layoutContent: "内容",

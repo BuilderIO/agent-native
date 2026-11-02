@@ -298,6 +298,7 @@ const messages = {
       "Start writing or generate speaker notes quickly with the agent",
   },
   editorToolbar: {
+    saving: "Saving...",
     layoutTitle: "Title",
     layoutSection: "Section Divider",
     layoutContent: "Content",

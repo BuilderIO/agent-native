@@ -298,6 +298,7 @@ const messages = {
       "직접 작성하거나 에이전트로 발표자 노트를 빠르게 생성해 보세요",
   },
   editorToolbar: {
+    saving: "저장 중...",
     layoutTitle: "제목",
     layoutSection: "섹션 구분",
     layoutContent: "콘텐츠",

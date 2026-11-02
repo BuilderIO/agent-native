@@ -288,6 +288,7 @@ const messages = {
     placeholder: "開始輸入，或讓代理快速產生講者備忘稿",
   },
   editorToolbar: {
+    saving: "儲存中...",
     layoutTitle: "標題",
     layoutSection: "分節頁面",
     layoutContent: "內容",
