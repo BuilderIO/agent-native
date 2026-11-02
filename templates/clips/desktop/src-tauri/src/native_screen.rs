@@ -163,8 +163,8 @@ use live_upload::{
 };
 mod upload_sizing;
 use upload_sizing::{
-    encode_is_worth_uploading, kept_original_expired, transcode_dimensions, transcode_scale_filter,
-    transcode_video_rate_kbps, AVCONVERT_PRESET, TRANSCODE_AUDIO_BITRATE_KBPS, TRANSCODE_CRF,
+    avconvert_presets, encode_is_worth_uploading, kept_original_expired, transcode_dimensions,
+    transcode_scale_filter, transcode_video_rate_kbps, TRANSCODE_AUDIO_BITRATE_KBPS, TRANSCODE_CRF,
 };
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -6508,12 +6508,18 @@ fn keep_uploaded_original(app: &AppHandle, saved: &SavedNativeRecording) -> Resu
             Err(err) => return Err(format!("keeping {} failed: {err}", path.display())),
         }
         // A rename keeps the recording's own timestamp. Restart it so a retried
-        // older recording still gets its full week.
-        File::options()
+        // older recording still gets its full week. The file is kept either
+        // way; if this fails it may just be pruned sooner.
+        if let Err(err) = File::options()
             .write(true)
             .open(&kept)
             .and_then(|file| file.set_modified(std::time::SystemTime::now()))
-            .map_err(|err| format!("dating kept recording {} failed: {err}", kept.display()))?;
+        {
+            eprintln!(
+                "[clips-tray] kept {} but could not restart its 7-day timestamp, so it may be removed sooner: {err}",
+                kept.display()
+            );
+        }
     }
     Ok(())
 }
@@ -9444,34 +9450,37 @@ fn prepare_recording_file(
     }
 
     if std::path::Path::new(AVCONVERT_PATH).exists() {
-        emit_native_upload_progress(
-            app,
-            recording_id,
-            "compressing",
-            "Optimizing clip",
-            None,
-            Some(0.0),
-        );
-        let compressed_path = compressed_recording_path(path);
-        let _ = std::fs::remove_file(&compressed_path);
-        match transcode_with_avconvert(path, &compressed_path, AVCONVERT_PRESET) {
-            Ok(()) => {
-                if let Some(prepared) = accept_transcoded_recording(
-                    app,
-                    recording_id,
-                    "avconvert",
-                    compressed_path,
-                    &original,
-                    has_audio,
-                    ffmpeg_path.as_deref(),
-                    &mut smallest_attempt_bytes,
-                )? {
-                    return Ok(prepared);
+        let presets = avconvert_presets(source_bytes, max_upload_bytes());
+        for (index, preset) in presets.iter().enumerate() {
+            emit_native_upload_progress(
+                app,
+                recording_id,
+                "compressing",
+                "Optimizing clip",
+                None,
+                Some(index as f32 / presets.len() as f32),
+            );
+            let compressed_path = compressed_recording_path(path);
+            let _ = std::fs::remove_file(&compressed_path);
+            match transcode_with_avconvert(path, &compressed_path, preset) {
+                Ok(()) => {
+                    if let Some(prepared) = accept_transcoded_recording(
+                        app,
+                        recording_id,
+                        "avconvert",
+                        compressed_path,
+                        &original,
+                        has_audio,
+                        ffmpeg_path.as_deref(),
+                        &mut smallest_attempt_bytes,
+                    )? {
+                        return Ok(prepared);
+                    }
                 }
-            }
-            Err(err) => {
-                let _ = std::fs::remove_file(&compressed_path);
-                eprintln!("[clips-tray] avconvert transcode failed with {AVCONVERT_PRESET}: {err}");
+                Err(err) => {
+                    let _ = std::fs::remove_file(&compressed_path);
+                    eprintln!("[clips-tray] avconvert transcode failed with {preset}: {err}");
+                }
             }
         }
     } else {

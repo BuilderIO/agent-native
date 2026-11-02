@@ -45,10 +45,11 @@ const UPLOAD_LIMIT_HEADROOM: f64 = 0.9;
 pub(super) const TRANSCODE_CRF: u8 = 22;
 pub(super) const TRANSCODE_AUDIO_BITRATE_KBPS: u32 = 160;
 
-/// The closest Apple `avconvert` preset (it fits a 1280x720 box, so 16:10
-/// comes out a little smaller), used only when ffmpeg is missing or fails:
-/// a development build without the bundled sidecar.
-pub(super) const AVCONVERT_PRESET: &str = "Preset1280x720";
+/// Apple `avconvert` presets, used only when ffmpeg is missing or fails: a
+/// development build without the bundled sidecar. The first is the closest to
+/// the ffmpeg encode (it fits a 1280x720 box, so 16:10 comes out a little
+/// smaller).
+const AVCONVERT_PRESETS: [&str; 3] = ["Preset1280x720", "Preset960x540", "Preset640x480"];
 
 fn even_dimension(value: u32) -> u32 {
     ((value.max(2)) / 2) * 2
@@ -119,6 +120,17 @@ pub(super) fn encode_is_worth_uploading(
     limit_bytes: u64,
 ) -> bool {
     encoded_bytes < source_bytes && encoded_bytes <= limit_bytes
+}
+
+/// The `avconvert` presets to try in order. The smaller ones run only when the
+/// original is itself over the upload limit, so a clip that couldn't be sent
+/// any other way still uploads, and every other clip keeps the 1280 picture.
+pub(super) fn avconvert_presets(source_bytes: u64, limit_bytes: u64) -> &'static [&'static str] {
+    if source_bytes > limit_bytes {
+        &AVCONVERT_PRESETS
+    } else {
+        &AVCONVERT_PRESETS[..1]
+    }
 }
 
 /// How long an uploaded recording's original stays on the Mac, so a clip that
@@ -227,6 +239,19 @@ mod tests {
         assert!(!encode_is_worth_uploading(40 * MIB, 30 * MIB, 250 * MIB));
         assert!(!encode_is_worth_uploading(30 * MIB, 30 * MIB, 250 * MIB));
         assert!(!encode_is_worth_uploading(300 * MIB, 400 * MIB, 250 * MIB));
+    }
+
+    #[test]
+    fn avconvert_steps_down_only_when_the_original_cannot_upload() {
+        assert_eq!(avconvert_presets(300 * MIB, 2048 * MIB), ["Preset1280x720"]);
+        assert_eq!(
+            avconvert_presets(2048 * MIB, 2048 * MIB),
+            ["Preset1280x720"]
+        );
+        assert_eq!(
+            avconvert_presets(3000 * MIB, 2048 * MIB),
+            ["Preset1280x720", "Preset960x540", "Preset640x480"]
+        );
     }
 
     #[test]
