@@ -42,12 +42,7 @@ function visitorNetwork(address: string): string | null {
   let ip = address.toLowerCase();
   const embedded = /(?:^|:)(\d+\.\d+\.\d+\.\d+)$/.exec(ip)?.[1];
   if (embedded) {
-    const [a, b, c, d] = embedded.split(".").map(Number) as [
-      number,
-      number,
-      number,
-      number,
-    ];
+    const [a = 0, b = 0, c = 0, d = 0] = embedded.split(".").map(Number);
     ip = `${ip.slice(0, -embedded.length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
   }
   const [head = "", tail] = ip.split("::");
@@ -61,13 +56,9 @@ function visitorNetwork(address: string): string | null {
   if (hextets.length !== 8) return null;
 
   // An IPv4-mapped address is that IPv4 reader.
-  if (hextets.slice(0, 5).every((h) => h === 0) && hextets[5] === 0xffff) {
-    return [
-      hextets[6]! >> 8,
-      hextets[6]! & 0xff,
-      hextets[7]! >> 8,
-      hextets[7]! & 0xff,
-    ].join(".");
+  const [a = 0, b = 0, c = 0, d = 0, e = 0, f = 0, g = 0, h = 0] = hextets;
+  if (a === 0 && b === 0 && c === 0 && d === 0 && e === 0 && f === 0xffff) {
+    return [g >> 8, g & 0xff, h >> 8, h & 0xff].join(".");
   }
   return `${hextets
     .slice(0, 4)
