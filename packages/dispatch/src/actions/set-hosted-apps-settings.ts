@@ -10,6 +10,11 @@ import {
 } from "../server/lib/hosted-apps-settings.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Show or hide Agent-Native.com hosted apps (built-in apps) in this organization's Dispatch app lists and agent context. Organization owners and admins only. Pins are kept while hidden.",
   authorize: authorizeOrgOwnerOrAdmin,
