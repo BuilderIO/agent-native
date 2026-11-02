@@ -256,22 +256,20 @@ function DeckCard({
                 {t("creativeContext.addToContext" /* i18n-key-ignore */)}
               </DropdownMenuItem>
             ) : null}
-            {canSetWorkspaceDefault &&
-              deck.canManage === true &&
-              onSetWorkspaceDefault && (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    pendingWorkspaceDefaultRef.current = true;
-                    setMenuOpen(false);
-                  }}
-                >
-                  <IconBuildingCommunity className="w-3.5 h-3.5 me-2" />
-                  {isWorkspaceDefault
-                    ? t("home.clearWorkspaceDefault")
-                    : t("home.setWorkspaceDefault")}
-                </DropdownMenuItem>
-              )}
+            {canSetWorkspaceDefault && onSetWorkspaceDefault && (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  pendingWorkspaceDefaultRef.current = true;
+                  setMenuOpen(false);
+                }}
+              >
+                <IconBuildingCommunity className="w-3.5 h-3.5 me-2" />
+                {isWorkspaceDefault
+                  ? t("home.clearWorkspaceDefault")
+                  : t("home.setWorkspaceDefault")}
+              </DropdownMenuItem>
+            )}
             {deck.canManage === true && (
               <>
                 <DropdownMenuSeparator />

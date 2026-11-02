@@ -139,7 +139,7 @@ export default function ImageOverlay({
         <IconDownload className="w-3.5 h-3.5 text-muted-foreground" />
         Download
       </button>
-      {!isPlaceholder && (
+      {!isPlaceholder && !readOnly && (
         <>
           <div className="mx-1.5 border-t border-border" />
           <button onClick={onToggleObjectFit} className="image-overlay-btn">

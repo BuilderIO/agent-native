@@ -174,17 +174,18 @@ describe("deleteDeck", () => {
     });
   });
 
-  it("answers 403 for a deck the caller cannot delete and 404 only when it is gone", async () => {
-    mocks.assertAccess.mockRejectedValue(
-      new ForbiddenError("Requires admin role"),
-    );
+  it("answers 403 for a visible deck the caller cannot delete and 404 when it is not visible", async () => {
+    mocks.assertAccess.mockImplementation(async (_t, _id, role) => {
+      if (role === "admin") throw new ForbiddenError("Requires admin role");
+      return { resource: {} };
+    });
 
     await expect(deleteDeck.run({ id: "deck-1" })).rejects.toMatchObject({
       statusCode: 403,
       message: "You don't have permission to delete this deck.",
     });
 
-    deckExists = false;
+    mocks.assertAccess.mockRejectedValue(new ForbiddenError("No access"));
     await expect(deleteDeck.run({ id: "deck-1" })).rejects.toMatchObject({
       statusCode: 404,
     });
