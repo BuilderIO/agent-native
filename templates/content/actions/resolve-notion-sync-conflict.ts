@@ -1,7 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { getDb } from "../server/db/index.js";
 import { resolveDocumentSyncConflict } from "../server/lib/notion-sync.js";
+import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
 import {
   flushNotionDocumentEditor,
   getNotionDocumentOwner,
@@ -16,9 +18,13 @@ export default defineAction({
     direction: z.enum(["pull", "push"]),
   }),
   http: { method: "POST" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const documentId = resolveDocumentId(args);
     const owner = await getNotionDocumentOwner(documentId);
+    if (args.direction === "pull") {
+      // Pulling writes Notion's text into the page. Pushing leaves the page alone.
+      await assertAgentsMayEditPagesText(getDb(), [documentId], ctx);
+    }
     await flushNotionDocumentEditor(documentId, owner);
     return resolveDocumentSyncConflict(owner, documentId, args.direction);
   },

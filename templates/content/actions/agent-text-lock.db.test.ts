@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,7 +9,10 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { serializeContentSourceDocument } from "../shared/content-source.js";
-import { isAgentCall } from "./_document-agent-lock.js";
+import {
+  isAgentCall,
+  keepAgentCallProvenance,
+} from "./_document-agent-lock.js";
 
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   ...(await importOriginal<
@@ -59,6 +62,16 @@ let deleteDatabase: typeof import("./delete-content-database.js").default;
 let deleteProperty: typeof import("./delete-document-property.js").default;
 let resolveDraft: typeof import("./resolve-preview-document-draft.js").default;
 let rollbackSlash: typeof import("./rollback-created-slash-document.js").default;
+let updateDraft: typeof import("./update-preview-document-draft.js").default;
+let applyTranscript: typeof import("./transcribe-media.js").applyTranscriptToDocument;
+let connectFolder: typeof import("./connect-local-folder-source.js").default;
+let syncFolder: typeof import("./sync-local-folder-source.js").default;
+let syncManifestFolder: typeof import("./sync-manifest-local-folder-source.js").default;
+let resolveFolderConflict: typeof import("./resolve-local-folder-conflict.js").default;
+let pullNotion: typeof import("./pull-notion-page.js").default;
+let resolveNotionConflict: typeof import("./resolve-notion-sync-conflict.js").default;
+let rewriteLiveCopy: typeof import("../server/live-copy/write.js").rewriteContentLiveCopyBody;
+let liveCopyPage: typeof import("../server/test-support/live-copy-page.js");
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER, orgId: null }, run);
@@ -102,6 +115,21 @@ beforeAll(async () => {
   resolveDraft = (await import("./resolve-preview-document-draft.js")).default;
   rollbackSlash = (await import("./rollback-created-slash-document.js"))
     .default;
+  updateDraft = (await import("./update-preview-document-draft.js")).default;
+  applyTranscript = (await import("./transcribe-media.js"))
+    .applyTranscriptToDocument;
+  connectFolder = (await import("./connect-local-folder-source.js")).default;
+  syncFolder = (await import("./sync-local-folder-source.js")).default;
+  syncManifestFolder = (await import("./sync-manifest-local-folder-source.js"))
+    .default;
+  resolveFolderConflict = (await import("./resolve-local-folder-conflict.js"))
+    .default;
+  pullNotion = (await import("./pull-notion-page.js")).default;
+  resolveNotionConflict = (await import("./resolve-notion-sync-conflict.js"))
+    .default;
+  rewriteLiveCopy = (await import("../server/live-copy/write.js"))
+    .rewriteContentLiveCopyBody;
+  liveCopyPage = await import("../server/test-support/live-copy-page.js");
   ({ getDb, schema } = await import("../server/db/index.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
@@ -255,6 +283,30 @@ describe("who counts as an agent", () => {
 
   it("doesn't count the server's own calls, which carry no context", () => {
     expect(isAgentCall(undefined)).toBe(false);
+  });
+
+  it("counts a token claiming to be the browser, but not an embedded session", () => {
+    const frontend = (headers: Record<string, string>) => ({
+      caller: "frontend" as const,
+      requestHeaders: new Headers(headers),
+    });
+    expect(isAgentCall(frontend({ authorization: "Bearer token" }))).toBe(true);
+    expect(
+      isAgentCall(
+        frontend({
+          authorization: "Bearer token",
+          "x-agent-native-embed-target": "/page/one",
+        }),
+      ),
+    ).toBe(false);
+    expect(isAgentCall(frontend({}))).toBe(false);
+  });
+
+  it("keeps counting an agent's call that runs as the browser's", () => {
+    const relabeled = { ...agent, caller: "frontend" as const };
+    expect(isAgentCall(keepAgentCallProvenance(relabeled, agent))).toBe(true);
+    const personal = { ...person };
+    expect(isAgentCall(keepAgentCallProvenance(personal, person))).toBe(false);
   });
 
   it("doesn't count a person typing in a chat widget", () => {
@@ -997,6 +1049,431 @@ describe("Agents can't edit the text of this", () => {
       expect((await readPage(row.documentId)).content).not.toContain(
         "Refused block",
       );
+    });
+  });
+});
+
+/** Turns the lock on as the next transaction opens: after the action's first read, before its write. */
+async function lockedAsTransactionOpens<T>(id: string, run: () => Promise<T>) {
+  const db = getDb() as unknown as {
+    transaction: (...args: unknown[]) => Promise<unknown>;
+  };
+  const original = db.transaction;
+  db.transaction = async function (this: unknown, ...args: unknown[]) {
+    db.transaction = original;
+    await setLock.run({ id, locked: true }, person);
+    return original.apply(this, args);
+  };
+  try {
+    return await run();
+  } finally {
+    db.transaction = original;
+  }
+}
+
+async function unlockedPage(content: string, parentId?: string) {
+  const { id } = (await createDocument.run(
+    { title: "Unlocked page", content, parentId },
+    person,
+  )) as { id: string };
+  return readPage(id);
+}
+
+describe("a lock turned on while a write is under way", () => {
+  it("stops an agent's save at its commit", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Before");
+      await expect(
+        lockedAsTransactionOpens(page.id, () =>
+          updateDocument.run({ id: page.id, title: "Agent title" }, agent),
+        ),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).title).toBe(page.title);
+    });
+  });
+
+  it("stops an agent's version restore at its commit", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Current text");
+      const now = new Date().toISOString();
+      const versionId = `version-${page.id}`;
+      await getDb().insert(schema.documentVersions).values({
+        id: versionId,
+        ownerEmail: OWNER,
+        documentId: page.id,
+        title: page.title,
+        content: "Older text",
+        groupId: versionId,
+        groupKind: "operation",
+        actorKind: "system",
+        origin: "test",
+        operation: "test",
+        checkpointKind: "before",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await expect(
+        lockedAsTransactionOpens(page.id, () =>
+          restoreVersion.run(
+            {
+              documentId: page.id,
+              versionId,
+              expectedUpdatedAt: page.updatedAt,
+            } as never,
+            agent,
+          ),
+        ),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).toContain("Current text");
+    });
+  });
+
+  it("stops an agent's Blocks value at its commit", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      await setLock.run({ id: row.documentId, locked: false }, person);
+      const { listed } = await rowRevision(row.databaseId, row.blocksId, row);
+      await expect(
+        lockedAsTransactionOpens(row.documentId, () =>
+          setProperty.run(
+            {
+              databaseId: row.databaseId,
+              documentId: row.documentId,
+              propertyId: row.blocksId,
+              value: "Changed block",
+              expectedBlocksFieldRevision: listed.fieldRevision,
+            },
+            agent,
+          ),
+        ),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(row.documentId)).content).toContain("First block");
+    });
+  });
+
+  it("stops an agent keeping a preview draft, and leaves the draft", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Saved text");
+      await updateDraft.run({
+        operation: "upsert",
+        documentId: page.id,
+        expectedVersion: null,
+        draft: {
+          title: page.title,
+          content: "Draft text",
+          baseDocumentUpdatedAt: page.updatedAt,
+          loadedContentWasEmpty: false,
+          deferredReason: "conflict" as const,
+          editorSessionId: `session-${page.id}`,
+          editGeneration: 5,
+        },
+      });
+      const request = {
+        choice: "keep_mine" as const,
+        documentId: page.id,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: page.title,
+        expectedDraftContent: "Draft text",
+        expectedDocumentUpdatedAt: page.updatedAt,
+      };
+      await expect(
+        lockedAsTransactionOpens(page.id, () =>
+          resolveDraft.run(request, { caller: "http", userEmail: OWNER }),
+        ),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).toContain("Saved text");
+      const [draft] = await getDb()
+        .select()
+        .from(schema.documentPreviewDrafts)
+        .where(eq(schema.documentPreviewDrafts.documentId, page.id));
+      expect(draft.content).toBe("Draft text");
+    });
+  });
+
+  it("stops a transcript that finishes after the lock, and keeps a person's", async () => {
+    await asOwner(async () => {
+      const page = await lockedPage("Transcript placeholder");
+      const apply = (ctx: typeof agent | typeof person) =>
+        applyTranscript({
+          documentId: page.id,
+          mediaUrl: "https://example.com/talk.mp4",
+          mediaType: "video",
+          placeholderText: "Transcript placeholder",
+          transcript: "The transcript",
+          ctx,
+        });
+      await expect(apply(agent)).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).not.toContain("The transcript");
+      await apply(person);
+      expect((await readPage(page.id)).content).toContain("The transcript");
+    });
+  });
+
+  it("stops an agent's write through the live copy at its commit", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Live text");
+      await liveCopyPage.putPageOnLiveCopy(page.id, { seeded: true });
+      try {
+        await setLock.run({ id: page.id, locked: true }, person);
+        const base = (await readPage(page.id)).content;
+        const write = (ctx: typeof agent | typeof person, candidate: string) =>
+          rewriteLiveCopy(page.id, {
+            cause: { ctx, operation: "agent-text-lock-test" },
+            base,
+            candidate,
+          });
+        await expect(write(agent, "Agent text")).rejects.toMatchObject(locked);
+        expect((await readPage(page.id)).content).toBe(base);
+        await write(person, "Person text");
+        expect((await readPage(page.id)).content).toContain("Person text");
+      } finally {
+        await liveCopyPage.turnLiveCopyFlagsOff();
+      }
+    });
+  });
+});
+
+describe("an agent's call that reaches a locked page another way", () => {
+  it("refuses trashing a page that holds a locked sub-page, and lets a person", async () => {
+    await asOwner(async () => {
+      const parent = await unlockedPage("Parent");
+      const child = await unlockedPage("Child", parent.id);
+      await setLock.run({ id: child.id, locked: true }, person);
+
+      await expect(
+        deleteDocument.run(
+          {
+            id: parent.id,
+            expectedUpdatedAt: parent.updatedAt,
+            idempotencyKey: `trash-${parent.id}`,
+          },
+          agent,
+        ),
+      ).rejects.toMatchObject(locked);
+      const trashedAt = async (id: string) =>
+        (
+          await getDb()
+            .select({ trashedAt: schema.documents.trashedAt })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id))
+        )[0].trashedAt;
+      expect(await trashedAt(child.id)).toBeNull();
+      expect(await trashedAt(parent.id)).toBeNull();
+
+      await deleteDocument.run({ id: parent.id }, person);
+      expect(await trashedAt(child.id)).not.toBeNull();
+    });
+  });
+
+  it("doesn't move or reorder a page its import skipped", async () => {
+    await asOwner(async () => {
+      const other = await unlockedPage("Other");
+      const page = await lockedPage("The body");
+      const place = async () =>
+        (
+          await getDb()
+            .select({
+              parentId: schema.documents.parentId,
+              position: schema.documents.position,
+            })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, page.id))
+        )[0];
+      const before = await place();
+      const files = {
+        "notes/moved.md": serializeContentSourceDocument({
+          id: page.id,
+          parentId: other.id,
+          title: page.title,
+          description: "",
+          content: "Imported text",
+          icon: null,
+          position: before.position + 7,
+          isFavorite: false,
+          hideFromSearch: false,
+          visibility: "private",
+        }),
+      };
+      const result = (await importSource.run(
+        { files, dryRun: false },
+        agent,
+      )) as { skipped: unknown[] };
+      expect(result.skipped).toHaveLength(1);
+      expect(await place()).toEqual(before);
+    });
+  });
+
+  async function connectedFile(connectionId: string) {
+    const connection = (await connectFolder.run(
+      {
+        connectionId,
+        label: connectionId,
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      } as never,
+      person,
+    )) as { sourceId: string };
+    const first = (await syncFolder.run(
+      {
+        sourceId: connection.sourceId,
+        files: { "guide.md": "# Guide\n\nFirst." },
+      },
+      person,
+    )) as { created: Array<{ id: string }> };
+    return { sourceId: connection.sourceId, documentId: first.created[0].id };
+  }
+
+  it("refuses a local folder sync whose text an agent supplies, and lets a person", async () => {
+    await asOwner(async () => {
+      const { sourceId, documentId } = await connectedFile("lock-folder-sync");
+      await setLock.run({ id: documentId, locked: true }, person);
+      const files = { "guide.md": "# Guide\n\nAgent text." };
+
+      await expect(
+        syncFolder.run({ sourceId, files, dryRun: true }, agent),
+      ).rejects.toMatchObject(locked);
+      await expect(
+        syncFolder.run({ sourceId, files }, agent),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(documentId)).content).toContain("First.");
+
+      await syncFolder.run({ sourceId, files }, person);
+      expect((await readPage(documentId)).content).toContain("Agent text.");
+    });
+  });
+
+  it("refuses a manifest folder sync an agent starts", async () => {
+    await asOwner(async () => {
+      const workspace = mkdtempSync(join(tmpdir(), "agent-lock-manifest-"));
+      const manifestPath = join(workspace, "agent-native.json");
+      const connectionId = "local-folder:agent-lock";
+      mkdirSync(join(workspace, "docs"));
+      writeFileSync(join(workspace, "docs", "hello.md"), "# Hello\n\nFirst.");
+      writeFileSync(
+        manifestPath,
+        JSON.stringify({
+          version: 1,
+          apps: {
+            content: {
+              roots: [
+                {
+                  name: "Lock docs",
+                  path: "docs",
+                  extensions: [".md", ".mdx"],
+                  source: {
+                    type: "local-folder",
+                    connectionId,
+                    truthPolicy: "source_primary",
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      );
+      const previousManifest = process.env.AGENT_NATIVE_MANIFEST_PATH;
+      process.env.AGENT_NATIVE_MANIFEST_PATH = manifestPath;
+      try {
+        const request = {
+          connectionId,
+          file: "docs/hello.md",
+          dryRun: false,
+        };
+        const first = (await syncManifestFolder.run(request, person)) as {
+          requestedDocumentId: string;
+        };
+        const documentId = first.requestedDocumentId;
+        await setLock.run({ id: documentId, locked: true }, person);
+        writeFileSync(
+          join(workspace, "docs", "hello.md"),
+          "# Hello\n\nChanged.",
+        );
+        await expect(
+          syncManifestFolder.run(request, agent),
+        ).rejects.toMatchObject(locked);
+        expect((await readPage(documentId)).content).toContain("First.");
+      } finally {
+        if (previousManifest === undefined) {
+          delete process.env.AGENT_NATIVE_MANIFEST_PATH;
+        } else {
+          process.env.AGENT_NATIVE_MANIFEST_PATH = previousManifest;
+        }
+        rmSync(workspace, { force: true, recursive: true });
+      }
+    });
+  });
+
+  it("refuses an agent accepting a folder's text over a locked page, and lets a person", async () => {
+    await asOwner(async () => {
+      const { sourceId, documentId } = await connectedFile(
+        "lock-folder-conflict",
+      );
+      await getDb()
+        .update(schema.documents)
+        .set({
+          content: "Content-side edit",
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.documents.id, documentId));
+      const sourceContent = "# Guide\n\nFolder-side edit.";
+      await syncFolder.run(
+        { sourceId, files: { "guide.md": sourceContent } },
+        person,
+      );
+      const [changeSet] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, sourceId));
+      await setLock.run({ id: documentId, locked: true }, person);
+      const accept = {
+        changeSetId: changeSet.id,
+        decision: "accept_source" as const,
+        sourceContent,
+      };
+
+      await expect(
+        resolveFolderConflict.run(accept, agent),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(documentId)).content).toBe("Content-side edit");
+
+      await resolveFolderConflict.run(accept, person);
+      expect((await readPage(documentId)).content).toContain(
+        "Folder-side edit.",
+      );
+    });
+  });
+
+  it("refuses an agent pulling a linked Notion page's text, not a push or a person", async () => {
+    await asOwner(async () => {
+      const page = await lockedPage("Keep this");
+      const outcome = (run: Promise<unknown>) =>
+        run.catch((error: { errorCode?: string }) => error) as Promise<{
+          errorCode?: string;
+        }>;
+
+      await expect(
+        pullNotion.run({ documentId: page.id }, agent),
+      ).rejects.toMatchObject(locked);
+      await expect(
+        resolveNotionConflict.run(
+          { documentId: page.id, direction: "pull" },
+          agent,
+        ),
+      ).rejects.toMatchObject(locked);
+
+      const allowed = await Promise.all([
+        outcome(pullNotion.run({ documentId: page.id }, person)),
+        outcome(
+          resolveNotionConflict.run(
+            { documentId: page.id, direction: "push" },
+            agent,
+          ),
+        ),
+      ]);
+      for (const result of allowed) {
+        expect(result.errorCode).not.toBe("AGENT_TEXT_LOCKED");
+      }
+      expect((await readPage(page.id)).content).toContain("Keep this");
     });
   });
 });

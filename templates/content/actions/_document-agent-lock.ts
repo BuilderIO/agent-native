@@ -6,8 +6,38 @@ import { getDb, schema } from "../server/db/index.js";
 
 type CallProvenance = Pick<
   ActionRunContext,
-  "caller" | "networkProtocol" | "automation"
+  "caller" | "networkProtocol" | "automation" | "requestHeaders"
 >;
+
+/** Core's `EMBED_TARGET_HEADER`: the app's own frontend sends it with an embedded session's token. */
+const EMBED_TARGET_HEADER = "x-agent-native-embed-target";
+
+const relabeledAgentCalls = new WeakSet<object>();
+
+/**
+ * For a save that runs as the browser's so it takes the editor's path: the lock
+ * still sees whoever started it.
+ */
+export function keepAgentCallProvenance<Ctx extends CallProvenance>(
+  relabeled: Ctx,
+  original: CallProvenance | undefined,
+): Ctx {
+  if (isAgentCall(original)) relabeledAgentCalls.add(relabeled);
+  return relabeled;
+}
+
+/**
+ * The frontend header is only the client's claim. The browser signs in with a
+ * cookie, so a token alongside the header comes from outside it. A cookie isn't
+ * told apart here: whoever holds one could mint the browser's UI proof as well.
+ */
+function claimsBrowserWithToken(ctx: CallProvenance) {
+  return (
+    ctx.caller === "frontend" &&
+    ctx.requestHeaders?.has("authorization") === true &&
+    !ctx.requestHeaders.has(EMBED_TARGET_HEADER)
+  );
+}
 
 /**
  * Whether an agent made this call: Content's own agent, an MCP client, or
@@ -17,8 +47,9 @@ type CallProvenance = Pick<
  * the one typing.
  */
 export function isAgentCall(ctx: CallProvenance | undefined) {
+  if (ctx === undefined) return false;
+  if (relabeledAgentCalls.has(ctx) || claimsBrowserWithToken(ctx)) return true;
   return (
-    ctx !== undefined &&
     ctx.caller !== "mcp-widget-write" &&
     (ctx.caller === "tool" || isOutsideAgentCall(ctx))
   );

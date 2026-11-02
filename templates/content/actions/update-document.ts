@@ -1204,6 +1204,10 @@ const updateDocumentAction = defineAction({
           // After the replay check, so a retried save that already landed
           // still gets its receipt. The page lock above makes this see Trash.
           if (!favoriteOnly) assertEditableDocument(existing);
+          // Again under the page lock, which a person's switch has to wait for.
+          if (titleChanged || contentChanged || descriptionChanged) {
+            assertAgentsMayEditPageText(existing, ctx);
+          }
           if (settlesPreviewDraft) {
             await lockPreviewDocumentDraftSettlement({
               db: tx,

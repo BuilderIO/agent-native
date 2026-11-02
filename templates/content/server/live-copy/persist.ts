@@ -11,6 +11,7 @@ import {
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
+import { assertAgentsMayEditPageText } from "../../actions/_document-agent-lock.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -148,6 +149,7 @@ const pageColumns = {
   orgId: schema.documents.orgId,
   updatedAt: schema.documents.updatedAt,
   trashedAt: schema.documents.trashedAt,
+  agentTextLocked: schema.documents.agentTextLocked,
   sourceMode: schema.documents.sourceMode,
   sourceRootPath: schema.documents.sourceRootPath,
   sourcePath: schema.documents.sourcePath,
@@ -166,6 +168,7 @@ export type PageRow = {
   orgId: string | null;
   updatedAt: string;
   trashedAt: string | null;
+  agentTextLocked: number;
   sourceMode: string | null;
   sourceRootPath: string | null;
   sourcePath: string | null;
@@ -489,6 +492,8 @@ async function writeBody(args: {
     args.locked;
   const changed = text !== page.content;
   if (changed) {
+    // A cause carries the caller; the editor's own updates have none.
+    assertAgentsMayEditPageText(page, cause?.ctx);
     await assertMembershipsLocked(db, documentId, lockedMembershipIds);
   }
   const bodyRevision = page.bodyRevision + (changed ? 1 : 0);

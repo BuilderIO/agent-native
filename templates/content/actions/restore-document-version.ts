@@ -501,6 +501,7 @@ export default defineAction({
         linkedLocalRestoreUnsupported();
       }
       assertSourceAllowsPageEdit(current);
+      assertAgentsMayEditPageText(current, ctx);
       if (current.updatedAt !== expectedUpdatedAt) {
         restoreConflict(
           "The document changed after this restore was prepared.",

@@ -171,7 +171,15 @@ export default defineAction({
         now: Date.now(),
       });
       assertAgentsMayEditPageText(child, context);
-      return trashDocumentSubtree(tx, id, ownerEmail, undefined, locks);
+      return trashDocumentSubtree(
+        tx,
+        id,
+        ownerEmail,
+        undefined,
+        locks,
+        undefined,
+        context,
+      );
     });
     if (deletedIds.length > 0) {
       await writeAppState("refresh-signal", { ts: Date.now() });

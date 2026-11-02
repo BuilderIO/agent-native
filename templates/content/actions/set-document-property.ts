@@ -402,10 +402,14 @@ export default defineAction({
           documentId,
         ]);
         const [lockedPage] = await tx
-          .select({ trashedAt: schema.documents.trashedAt })
+          .select({
+            trashedAt: schema.documents.trashedAt,
+            agentTextLocked: schema.documents.agentTextLocked,
+          })
           .from(schema.documents)
           .where(eq(schema.documents.id, documentId));
         assertEditableDocument(lockedPage);
+        assertAgentsMayEditPageText(lockedPage, ctx);
         const [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)

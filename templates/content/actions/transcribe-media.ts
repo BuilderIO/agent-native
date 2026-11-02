@@ -368,7 +368,7 @@ async function transcribeMedia(media: AudioOnlyTranscriptionMedia) {
   }
 }
 
-async function applyTranscriptToDocument({
+export async function applyTranscriptToDocument({
   documentId,
   mediaUrl,
   mediaType,
@@ -385,6 +385,8 @@ async function applyTranscriptToDocument({
 }): Promise<{ sqlUpdated: boolean; collabUpdated: boolean }> {
   const freshAccess = await assertAccess("document", documentId, "editor");
   const freshDoc = freshAccess.resource;
+  // Transcribing can take minutes, and the page may have been locked since.
+  assertAgentsMayEditPageText(freshDoc, ctx);
 
   const content = freshDoc.content ?? "";
   let nextContent: string | null = null;

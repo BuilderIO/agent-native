@@ -666,6 +666,8 @@ export default defineAction({
             path: file.path,
             reason: `A person has locked the text of document "${id}" against agents.`,
           });
+          desiredParentById.delete(id);
+          desiredPositionById.delete(id);
           continue;
         }
         if (mutation.visibilityForbidden) {

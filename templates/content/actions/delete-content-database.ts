@@ -12,10 +12,7 @@ import {
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import {
-  assertAgentsMayEditPageText,
-  assertAgentsMayEditPagesText,
-} from "./_document-agent-lock.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   lockLifecycleGroup,
   trashDocumentSubtree,
@@ -88,12 +85,6 @@ export default defineAction({
               "Use the owning page to manage an inline database.",
               400,
             );
-          if (!context.database.deletedAt)
-            await assertAgentsMayEditPagesText(
-              tx,
-              [context.database.documentId],
-              ctx,
-            );
           const deletedAt =
             context.database.deletedAt ?? new Date().toISOString();
           const ids = context.database.deletedAt
@@ -104,6 +95,8 @@ export default defineAction({
                 context.database.ownerEmail,
                 deletedAt,
                 locks!,
+                undefined,
+                ctx,
               );
           return {
             outcome: context.database.deletedAt
@@ -145,6 +138,8 @@ export default defineAction({
         database.ownerEmail,
         deletedAt,
         locks,
+        undefined,
+        ctx,
       );
     });
 

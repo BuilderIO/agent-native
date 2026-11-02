@@ -152,6 +152,7 @@ export default defineAction({
           undefined,
           locks,
           ctx?.caller,
+          ctx,
         );
         if (!subtree.includes(page.id)) {
           fail(

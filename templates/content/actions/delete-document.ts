@@ -31,7 +31,10 @@ import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-gua
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
 import { setupError } from "./_database-setup-mutation.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
+import {
+  assertAgentsMayEditPagesText,
+  assertAgentsMayEditPageText,
+} from "./_document-agent-lock.js";
 import {
   assertPageLifecycleTarget,
   claimDocumentLifecycleIntent,
@@ -724,6 +727,7 @@ export async function trashDocumentSubtree(
   trashedAt = new Date().toISOString(),
   locks: LifecycleGroupLocks,
   origin?: string,
+  ctx?: ActionRunContext,
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, [id], ownerEmail);
@@ -780,6 +784,7 @@ export async function trashDocumentSubtree(
         ),
     );
   }
+  await assertAgentsMayEditPagesText(db, activeDocumentIds, ctx);
 
   const activeMemberships = await selectMembershipsForDocuments(
     db,
@@ -1522,6 +1527,7 @@ async function trashDocumentWithReceipt(
       undefined,
       locks,
       origin,
+      ctx,
     );
     const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
     if (!after.trashedAt || after.trashRootId !== input.id)
@@ -1639,6 +1645,7 @@ export default defineAction({
         undefined,
         locks,
         ctx?.caller,
+        ctx,
       );
     });
 
