@@ -122,7 +122,10 @@ export async function runDbQuery(
         // From here on the transaction cannot write, so a data-modifying CTE,
         // SELECT INTO, or EXPLAIN ANALYZE of a write fails instead of running.
         await timedTx.unsafe("SET TRANSACTION READ ONLY");
-        await verifyRawDbStatement(timedTx, executed.statement);
+        await verifyRawDbStatement(timedTx, executed.statement, {
+          deniedTables: scoping.deniedTables,
+          deniedColumns: scoping.deniedColumns,
+        });
         const result = await timedTx.unsafe(executed.sql, sqlArgs, {
           singleStatement: true,
         });

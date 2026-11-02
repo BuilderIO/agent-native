@@ -1,5 +1,6 @@
 import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 
+import messages from "../../app/i18n/en-US";
 import { type FileUploadStatusProbe } from "../../shared/file-upload-status";
 import {
   MEDIA_PERMISSION_DEVICES,
@@ -63,6 +64,7 @@ type NativeRecording = {
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
+  diagnosticFailureCode?: string;
   savedToDisk?: boolean;
   savedFilename?: string;
 };
@@ -71,6 +73,8 @@ type PopupStatusResponse = {
   ok?: boolean;
   activeRecording?: NativeRecording | null;
   arming?: boolean;
+  diagnosticLocalSaveFailed?: boolean;
+  diagnosticPending?: number;
   error?: string;
 };
 
@@ -407,7 +411,15 @@ function sendStartMessage(
 ): Promise<PopupStartResponse> {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage(
-      { type: "CLIPS_POPUP_START", settings },
+      {
+        type: "CLIPS_POPUP_START",
+        settings,
+        diagnosticConsent: byId<HTMLInputElement>("private-context-consent")
+          .checked,
+        requestedHistorySeconds: Number(
+          byId<HTMLInputElement>("private-context-history").value,
+        ),
+      },
       (response: PopupStartResponse | undefined) => {
         if (chrome.runtime.lastError) {
           resolve({ ok: false, error: chrome.runtime.lastError.message });
@@ -841,6 +853,8 @@ function renderActiveRecording(
   idleContent.hidden = active;
   activeContent.hidden = !active;
   start.hidden = controlVisibility.startHidden;
+  const contextControl = document.getElementById("private-context-control");
+  if (contextControl) contextControl.hidden = controlVisibility.startHidden;
   start.disabled = arming;
   signIn.hidden = controlVisibility.signInHidden;
   if (recordingActions) recordingActions.hidden = !active;
@@ -884,13 +898,37 @@ function renderActiveRecording(
         : recording.status === "error"
           ? errorText
           : `Recording ${formatDuration(recording.startedAtMs)}`;
+  if (recording.diagnosticFailureCode)
+    recordingStatus.textContent += ` · ${messages.privateContext.captureFailed}`;
   recordingStatus.dataset.kind =
-    recording.status === "error" ? "error" : "info";
+    recording.status === "error" || recording.diagnosticFailureCode
+      ? "error"
+      : "info";
   setStorageHelp(recording.status === "error" && storageFailure);
 }
 
 async function init(): Promise<void> {
   const settings = await readSettings();
+  const contextConsent = document.createElement("label");
+  contextConsent.id = "private-context-control";
+  contextConsent.className = "toggle-row";
+  const contextCheckbox = document.createElement("input");
+  contextCheckbox.id = "private-context-consent";
+  contextCheckbox.type = "checkbox";
+  contextConsent.append(
+    contextCheckbox,
+    document.createTextNode(messages.privateContext.consent),
+  );
+  const history = document.createElement("input");
+  history.id = "private-context-history";
+  history.type = "number";
+  history.min = "0";
+  history.max = "300";
+  history.value = "30";
+  history.setAttribute("aria-label", messages.privateContext.history);
+  history.style.width = "4rem";
+  contextConsent.append(history);
+  byId<HTMLButtonElement>("start").before(contextConsent);
   try {
     chrome.runtime.sendMessage(
       { type: "CLIPS_PREWARM" },
@@ -1039,6 +1077,10 @@ async function init(): Promise<void> {
       await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
     activeRecording = status.activeRecording ?? null;
     arming = Boolean(status.arming);
+    if (status.diagnosticLocalSaveFailed)
+      setStatus(messages.privateContext.localStoreFailed, "error");
+    else if (status.diagnosticPending)
+      setStatus(messages.privateContext.saveFailed, "error");
     renderActiveRecording(activeRecording, arming, authStatus);
   };
   await refreshActiveRecording();
@@ -1298,7 +1340,19 @@ async function init(): Promise<void> {
       const storageStatus = await readVideoStorageStatus(settings);
       if (storageStatus !== "configured") {
         await saveSettings(settings);
-        await createTab(recordFirstUrl(settings));
+        const prepared = await sendRuntimeMessage<PopupStartResponse>({
+          type: "CLIPS_PREPARE_WEB_CAPTURE",
+          settings,
+          diagnosticConsent: byId<HTMLInputElement>("private-context-consent")
+            .checked,
+          requestedHistorySeconds: Number(
+            byId<HTMLInputElement>("private-context-history").value,
+          ),
+        });
+        if (!prepared.ok)
+          throw new Error(
+            prepared.error || messages.privateContext.captureFailed,
+          );
         window.close();
         return;
       }
@@ -1307,6 +1361,11 @@ async function init(): Promise<void> {
           type: "CLIPS_POPUP_PREPARE_PERMISSION_START",
           settings,
           targetTabId: activeTab?.id,
+          diagnosticConsent: byId<HTMLInputElement>("private-context-consent")
+            .checked,
+          requestedHistorySeconds: Number(
+            byId<HTMLInputElement>("private-context-history").value,
+          ),
         });
         if (!prepare.ok) {
           start.disabled = false;

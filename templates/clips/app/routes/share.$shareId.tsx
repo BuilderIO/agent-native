@@ -241,6 +241,8 @@ function failureDetail(reason: string | null | undefined): string | null {
 }
 
 export async function loader({ params, url }: LoaderFunctionArgs) {
+  const { loadPublicRecordingDescription } =
+    await import("../../server/lib/recording-public-description.js");
   const id = params.shareId;
   if (!id) return emptyLoaderData(url);
   const [
@@ -263,6 +265,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       id: schema.recordings.id,
       title: schema.recordings.title,
       description: schema.recordings.description,
+      descriptionSource: schema.recordings.descriptionSource,
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
       updatedAt: schema.recordings.updatedAt,
@@ -337,7 +340,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
   const recording: SharePageMetaRecording = {
     id: rec.id,
     title: rec.title,
-    description: rec.description,
+    description: await loadPublicRecordingDescription(rec),
     ownerInitial: rec.ownerEmail.trim().charAt(0).toUpperCase() || "C",
     brandLogoUrl: storedBrandLogoUrl
       ? usesOrganizationLogoRoute(storedBrandLogoUrl) && rec.organizationId

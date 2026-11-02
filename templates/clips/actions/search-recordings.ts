@@ -11,6 +11,10 @@ import {
 } from "../server/lib/agent-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
+import {
+  loadLegacyDescriptionPublication,
+  publicRecordingDescription,
+} from "../server/lib/recording-public-description.js";
 import { ownerEmailMatches } from "../server/lib/recordings.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
@@ -137,6 +141,7 @@ export default defineAction({
         id: schema.recordings.id,
         title: schema.recordings.title,
         description: schema.recordings.description,
+        descriptionSource: schema.recordings.descriptionSource,
         thumbnailUrl: schema.recordings.thumbnailUrl,
         kind: schema.recordings.kind,
         mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
@@ -158,7 +163,15 @@ export default defineAction({
             recordingAccess,
           ),
           lifecycleFilter,
-          sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\')`,
+          sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR (
+            lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\'
+            AND ${schema.recordings.descriptionSource} <> 'report'
+            AND (${schema.recordings.descriptionSource} = 'user' OR NOT EXISTS (
+              SELECT 1 FROM ${schema.recordingBugReports}
+              WHERE ${schema.recordingBugReports.recordingId} = ${schema.recordings.id}
+                AND ${schema.recordingBugReports.description} = ${schema.recordings.description}
+            ))
+          ))`,
         ),
       )
       .limit(args.limit);
@@ -171,6 +184,7 @@ export default defineAction({
         id: schema.recordings.id,
         title: schema.recordings.title,
         description: schema.recordings.description,
+        descriptionSource: schema.recordings.descriptionSource,
         thumbnailUrl: schema.recordings.thumbnailUrl,
         kind: schema.recordings.kind,
         mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
@@ -209,6 +223,7 @@ export default defineAction({
         id: schema.recordings.id,
         title: schema.recordings.title,
         description: schema.recordings.description,
+        descriptionSource: schema.recordings.descriptionSource,
         thumbnailUrl: schema.recordings.thumbnailUrl,
         kind: schema.recordings.kind,
         mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
@@ -249,10 +264,17 @@ export default defineAction({
       recordingId: r.recordingId,
       ...transcriptMatch(r.fullText, r.segmentsJson, args.query),
     }));
+    const descriptions = await loadLegacyDescriptionPublication([
+      ...recMatches,
+      ...transcriptRows,
+      ...commentRows,
+    ]);
+    const publicDescription = (recording: (typeof recMatches)[number]) =>
+      publicRecordingDescription(recording, descriptions.get(recording.id));
     const transcriptRecordings = transcriptRows.map((r) => ({
       id: r.id,
       title: r.title,
-      description: r.description,
+      description: publicDescription(r),
       thumbnailUrl: listingThumbnailUrl(r),
       trashedAt: r.trashedAt,
       durationMs: r.durationMs,
@@ -264,7 +286,7 @@ export default defineAction({
     const commentRecordings = commentRows.map((r) => ({
       id: r.id,
       title: r.title,
-      description: r.description,
+      description: publicDescription(r),
       thumbnailUrl: listingThumbnailUrl(r),
       trashedAt: r.trashedAt,
       durationMs: r.durationMs,
@@ -295,7 +317,8 @@ export default defineAction({
         ...r,
         thumbnailUrl: listingThumbnailUrl(r),
         matchType: "title-description",
-        snippet: buildSnippet(r.description, args.query),
+        description: publicDescription(r),
+        snippet: buildSnippet(publicDescription(r), args.query),
         matchMs: null,
         matchPanel: null,
       });

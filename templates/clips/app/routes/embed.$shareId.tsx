@@ -39,14 +39,18 @@ type EmbedMetaLoaderData = {
 };
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
+  const { loadPublicRecordingDescription } =
+    await import("../../server/lib/recording-public-description.js");
   const url = new URL(request.url);
   const basePath = getConfiguredAppBasePath();
   const [row] = params.shareId
     ? await getDb()
         .select({
           id: schema.recordings.id,
+          ownerEmail: schema.recordings.ownerEmail,
           title: schema.recordings.title,
           description: schema.recordings.description,
+          descriptionSource: schema.recordings.descriptionSource,
           thumbnailUrl: schema.recordings.thumbnailUrl,
           animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
           visibility: schema.recordings.visibility,
@@ -73,7 +77,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       ? {
           id: row.id,
           title: row.title,
-          description: row.description,
+          description: await loadPublicRecordingDescription(row),
           thumbnailUrl: row.thumbnailUrl,
           animatedThumbnailUrl: row.animatedThumbnailUrl,
           visibility: "public" as const,

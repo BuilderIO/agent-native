@@ -101,13 +101,17 @@ export function formatProblemReportSummary(
         ),
       ],
       [
-        "Pending work:",
+        report.pendingAt
+          ? `Pending work (sampled ${report.pendingAt}):`
+          : "Pending work:",
         report.pending.map(
           (work) => `${work.type} ${work.name} ${Math.round(work.ageMs)}ms`,
         ),
       ],
       [
-        "Watched values:",
+        report.watchedAt
+          ? `Watched values (sampled ${report.watchedAt}):`
+          : "Watched values:",
         Object.keys(report.watched).length > 0
           ? [
               clipText(

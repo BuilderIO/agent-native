@@ -436,7 +436,10 @@ Options:
       for (const statement of scoping.setup) await timedTx.unsafe(statement);
       let operationFailed = false;
       try {
-        await verifyRawDbStatement(timedTx, select.statement);
+        await verifyRawDbStatement(timedTx, select.statement, {
+          deniedTables: scoping.deniedTables,
+          deniedColumns: scoping.deniedColumns,
+        });
         const selected = await timedTx.unsafe(select.sql, [], {
           singleStatement: true,
         });
@@ -459,7 +462,10 @@ Options:
         }
         const edited = applyEditsToValue(original, options);
         if (edited.applied > 0) {
-          await verifyRawDbStatement(timedTx, update.statement);
+          await verifyRawDbStatement(timedTx, update.statement, {
+            deniedTables: scoping.deniedTables,
+            deniedColumns: scoping.deniedColumns,
+          });
           await timedTx.unsafe(update.sql, [edited.content], {
             singleStatement: true,
           });

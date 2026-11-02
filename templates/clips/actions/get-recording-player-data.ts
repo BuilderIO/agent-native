@@ -13,6 +13,8 @@ import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { recordingMediaProvenance } from "../server/lib/recording-media-provenance.js";
+import { loadPublicRecordingDescription } from "../server/lib/recording-public-description.js";
 const IMAGE_TOKEN_STEP_SECONDS = 5 * 60;
 
 /** Seconds to the end of the next whole step: between one and two steps. */
@@ -78,8 +80,6 @@ import {
 import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
 import { listTranscriptVersions } from "../server/lib/transcript-versions.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
-import { parseAppActivitySummary } from "../shared/app-activity.js";
-import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   CLIPS_BUILDER_CREDITS_STATE_KEY,
   normalizeBuilderCreditsStatus,
@@ -92,39 +92,6 @@ import {
 } from "../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
 import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
-
-function safeJsonObject(raw: string | null | undefined) {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function mapBugReport(row: typeof schema.recordingBugReports._.inferSelect) {
-  return {
-    recordingId: row.recordingId,
-    projectId: row.projectId,
-    title: row.title,
-    description: row.description,
-    severity: row.severity,
-    sourceUrl: row.sourceUrl,
-    pageTitle: row.pageTitle,
-    appVersion: row.appVersion,
-    environment: row.environment,
-    reporterEmail: row.reporterEmail,
-    reporterName: row.reporterName,
-    reporterId: row.reporterId,
-    metadata: safeJsonObject(row.metadataJson),
-    submittedAt: row.submittedAt,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -283,26 +250,6 @@ export default defineAction({
       .orderBy(asc(schema.recordingTags.tag));
     const tags = tagRows.map((row) => row.tag);
 
-    const [browserDiagnosticsRow] = await db
-      .select()
-      .from(schema.recordingBrowserDiagnostics)
-      .where(
-        eq(schema.recordingBrowserDiagnostics.recordingId, args.recordingId),
-      )
-      .limit(1);
-    const browserDiagnostics = parseBrowserDiagnosticsRow(
-      browserDiagnosticsRow,
-    );
-    const canInspectSensitiveContext =
-      access.role === "owner" ||
-      access.role === "admin" ||
-      access.role === "editor";
-    const [bugReportRow] = await db
-      .select()
-      .from(schema.recordingBugReports)
-      .where(eq(schema.recordingBugReports.recordingId, args.recordingId))
-      .limit(1);
-
     let meeting: { id: string; title: string } | null = null;
     try {
       const [linkedMeeting] = await db
@@ -387,9 +334,10 @@ export default defineAction({
       agentViewCount,
       recording: {
         id: rec.id,
+        ...recordingMediaProvenance(rec),
         organizationId: rec.organizationId,
         title: rec.title,
-        description: rec.description,
+        description: await loadPublicRecordingDescription(rec),
         kind: resolveRecordingKind(rec.kind),
         // A screenshot is served through the thumbnail route, which is the
         // full stored image and already enforces the share password, expiry
@@ -426,8 +374,6 @@ export default defineAction({
         filmstripRows: rec.filmstripRows ?? 0,
         filmstripFrameWidth: rec.filmstripFrameWidth ?? 0,
         filmstripFrameHeight: rec.filmstripFrameHeight ?? 0,
-        sourceAppName: rec.sourceAppName,
-        sourceWindowTitle: rec.sourceWindowTitle,
         durationMs: rec.durationMs,
         // Same reasoning as the public endpoint: a viewer of a screenshot has
         // no use for the mark list, and `redactions` would tell them where
@@ -562,20 +508,6 @@ export default defineAction({
         color: c.color,
         placement: c.placement,
       })),
-      browserDiagnostics: browserDiagnostics
-        ? canInspectSensitiveContext
-          ? {
-              ...browserDiagnostics,
-              appActivity: parseAppActivitySummary(
-                browserDiagnosticsRow?.appActivitySummaryJson,
-              ),
-            }
-          : { summary: browserDiagnostics.summary }
-        : null,
-      bugReport:
-        bugReportRow && canInspectSensitiveContext
-          ? mapBugReport(bugReportRow)
-          : null,
       meeting,
     };
   },

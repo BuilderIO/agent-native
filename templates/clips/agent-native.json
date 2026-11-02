@@ -8,7 +8,8 @@
   },
   "doctor": {
     "dbToolScopingDenylist": {
-      "recording_agent_views": "Agent telemetry is scoped through authorized parent recordings."
+      "recording_agent_views": "Agent telemetry is scoped through authorized parent recordings.",
+      "recording_diagnostic_cleanup": "Private object deletion outbox is managed by the diagnostic worker."
     },
     "failOnBuild": false
   }

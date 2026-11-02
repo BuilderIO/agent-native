@@ -491,6 +491,11 @@ export class RecorderEngine {
   private chunkIndex = 0;
   private chunkQueue: Promise<unknown> = Promise.resolve();
   private startedAtMs: number | null = null;
+  private startedAtEpochMs: number | null = null;
+  private diagnosticPauses: Array<{
+    startedAtMs: number;
+    endedAtMs: number | null;
+  }> = [];
   private pausedAccumMs = 0;
   private pausedStartedMs: number | null = null;
   private uploadFailure: Error | null = null;
@@ -513,6 +518,7 @@ export class RecorderEngine {
   private backupCleared = false;
   private backupDetails: {
     ownerEmail: string | null;
+    ownerOrgId?: string | null;
     title: string | null;
     recordingPlatform?: LocalRecorderPlatform | null;
     createdAt: string;
@@ -770,6 +776,24 @@ export class RecorderEngine {
     return Math.max(0, now - this.startedAtMs - this.pausedAccumMs - pausedNow);
   }
 
+  getDiagnosticClock(): {
+    startedAtMs: number;
+    nowMs: number;
+    pauses: Array<{ startedAtMs: number; endedAtMs: number }>;
+  } | null {
+    if (this.startedAtMs === null || this.startedAtEpochMs === null)
+      return null;
+    const nowMs = this.startedAtEpochMs + performance.now() - this.startedAtMs;
+    return {
+      startedAtMs: this.startedAtEpochMs,
+      nowMs,
+      pauses: this.diagnosticPauses.map((pause) => ({
+        startedAtMs: pause.startedAtMs,
+        endedAtMs: pause.endedAtMs ?? nowMs,
+      })),
+    };
+  }
+
   canDownloadBufferedRecording(): boolean {
     return this.localChunks.length > 0;
   }
@@ -811,6 +835,7 @@ export class RecorderEngine {
     hasAudio: boolean;
     hasCamera: boolean;
     ownerEmail: string | null;
+    ownerOrgId: string | null;
     recordingPlatform: LocalRecorderPlatform | null;
     whole: boolean;
   } | null {
@@ -826,6 +851,7 @@ export class RecorderEngine {
       hasAudio: meta.hasAudio,
       hasCamera: meta.hasCamera,
       ownerEmail: this.backupDetails?.ownerEmail ?? null,
+      ownerOrgId: this.backupDetails?.ownerOrgId ?? null,
       recordingPlatform: this.backupDetails?.recordingPlatform ?? null,
       whole: this.captureComplete,
     };
@@ -1116,6 +1142,7 @@ export class RecorderEngine {
 
   setBackupDetails(details: {
     ownerEmail: string | null;
+    ownerOrgId?: string | null;
     title: string | null;
     recordingPlatform?: LocalRecorderPlatform | null;
   }): void {
@@ -1273,6 +1300,8 @@ export class RecorderEngine {
     }
     this.recordedCameraVideo = startsWithCameraVideo;
     this.startedAtMs = performance.now();
+    this.startedAtEpochMs = Date.now();
+    this.diagnosticPauses = [];
     this.transition("recording");
   }
 
@@ -1285,6 +1314,9 @@ export class RecorderEngine {
       return;
     }
     this.pausedStartedMs = performance.now();
+    const clock = this.getDiagnosticClock();
+    if (clock)
+      this.diagnosticPauses.push({ startedAtMs: clock.nowMs, endedAtMs: null });
     this.transition("paused");
   }
 
@@ -1298,6 +1330,11 @@ export class RecorderEngine {
     }
     if (this.pausedStartedMs !== null) {
       this.pausedAccumMs += performance.now() - this.pausedStartedMs;
+      const clock = this.getDiagnosticClock();
+      const pause = this.diagnosticPauses.find(
+        (pause) => pause.endedAtMs === null,
+      );
+      if (clock && pause) pause.endedAtMs = clock.nowMs;
       this.pausedStartedMs = null;
     }
     this.transition("recording");
@@ -1322,6 +1359,11 @@ export class RecorderEngine {
       }
       if (this.pausedStartedMs !== null) {
         this.pausedAccumMs += performance.now() - this.pausedStartedMs;
+        const clock = this.getDiagnosticClock();
+        const pause = this.diagnosticPauses.find(
+          (pause) => pause.endedAtMs === null,
+        );
+        if (clock && pause) pause.endedAtMs = clock.nowMs;
         this.pausedStartedMs = null;
       }
     }
@@ -1829,6 +1871,8 @@ export class RecorderEngine {
     this.uploadAttemptId = null;
     this.uploadGenerationId = null;
     this.startedAtMs = null;
+    this.startedAtEpochMs = null;
+    this.diagnosticPauses = [];
     this.pausedAccumMs = 0;
     this.pausedStartedMs = null;
     this.localChunks = [];

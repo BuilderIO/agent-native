@@ -97,10 +97,26 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function retryTransport(url: string): Response | null {
+  if (url.includes("/resume?"))
+    return json({
+      resumable: true,
+      attemptId: new URL(url, "https://clips.local").searchParams.get(
+        "attemptId",
+      ),
+      uploadGenerationId: "claimed-generation",
+    });
+  if (url.endsWith("/reset-chunks"))
+    return json({ uploadGenerationId: "reset-generation" });
+  return null;
+}
+
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   mocks.updateRecordingBackupMeta.mockResolvedValue({});
-  fetchMock.mockResolvedValue(json({}));
+  fetchMock.mockImplementation(
+    async (url: string) => retryTransport(url) ?? json({}),
+  );
   mocks.callAction.mockImplementation(
     async (name: string, args: { id?: string }) =>
       name === "create-recording" ? created(args.id!) : {},
@@ -417,13 +433,39 @@ describe("uploadLocalRecording", () => {
     expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
   });
 
-  it("re-uploads under a fresh id and trashes every superseded attempt once ready", async () => {
+  it("creates a fresh upload when the remembered server row no longer exists", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({ serverRecordingId: "missing-row" }),
+    );
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith("/status")
+        ? json({ error: "not found" }, 404)
+        : (retryTransport(String(url)) ?? readyFor(10)),
+    );
+    mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
+
+    const result = await uploadLocalRecording("local-1", ME);
+
+    expect(result.status).toBe("ready");
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "create-recording",
+      expect.objectContaining({ id: "missing-row" }),
+      expect.anything(),
+    );
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/resume?")),
+    ).toBe(false);
+  });
+
+  // oracle-change: Recovery preserves the original Clip and its private context instead of creating a replacement row.
+  it("replays an interrupted take into its original Clip with the claimed upload generation", async () => {
     mocks.readRecoverableRecordingBackup.mockResolvedValue(
       copy({
         recordingId: "srv-old",
         localOnly: false,
         completedAt: null,
         state: "recording",
+        ownerOrgId: "org-a",
         serverRecordingId: "retry-1",
         staleServerRecordingIds: ["srv-old"],
       }),
@@ -432,24 +474,98 @@ describe("uploadLocalRecording", () => {
       json({ recording: { status: "failed", verificationPending: false } }),
     );
     mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
-
-    const result = await uploadLocalRecording("srv-old", ME);
-
-    expect(result.recordingId).not.toMatch(/^(srv-old|retry-1)$/);
-    expect(mocks.updateRecordingBackupMeta).toHaveBeenCalledWith(
-      "srv-old",
-      expect.objectContaining({
-        state: "uploading",
-        staleServerRecordingIds: ["srv-old", "retry-1"],
-      }),
+    const result = await uploadLocalRecording("srv-old", {
+      ...ME,
+      ownerOrgId: "org-a",
+    });
+    expect(result.recordingId).toBe("srv-old");
+    expect(
+      mocks.callAction.mock.calls.some(([name]) => name === "create-recording"),
+    ).toBe(false);
+    const claimUrl = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/resume?"),
+    )?.[0] as string;
+    const claim = new URL(claimUrl, "https://clips.local");
+    expect(claim.pathname).toBe("/api/uploads/srv-old/resume");
+    expect(claim.searchParams.get("expectedOwnerEmail")).toBe(ME.ownerEmail);
+    expect(claim.searchParams.get("expectedOrgId")).toBe("org-a");
+    const reset = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/reset-chunks"),
     );
-    for (const id of ["srv-old", "retry-1"]) {
-      expect(mocks.callAction).toHaveBeenCalledWith("trash-recording", {
-        id,
-        skipIfReady: true,
-      });
-    }
+    expect(JSON.parse(reset?.[1].body)).toMatchObject({
+      attemptId: claim.searchParams.get("attemptId"),
+      uploadGenerationId: "claimed-generation",
+      useGenerationFence: true,
+    });
+    const upload = mocks.uploadChunkRequest.mock.calls[0]?.[0];
+    const chunk = new URL(upload.url, "https://clips.local");
+    expect(chunk.pathname).toBe("/api/uploads/srv-old/chunk");
+    expect(chunk.searchParams.get("attemptId")).toBe(
+      claim.searchParams.get("attemptId"),
+    );
+    expect(chunk.searchParams.get("uploadGenerationId")).toBe(
+      "reset-generation",
+    );
+    expect(upload).toMatchObject({
+      expectedOwnerEmail: ME.ownerEmail,
+      expectedOrgId: "org-a",
+    });
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "trash-recording",
+      expect.objectContaining({ id: "srv-old" }),
+    );
     expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("srv-old");
+  });
+
+  it("retains the copy without creating a substitute Clip when the original retry is denied", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({ localOnly: false }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      json({ recording: { status: "failed", verificationPending: false } }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      json({ error: "A newer retry is active" }, 409),
+    );
+    await expect(uploadLocalRecording("local-1", ME)).rejects.toThrow(
+      /resume 409/,
+    );
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    expect(mocks.uploadChunkRequest).not.toHaveBeenCalled();
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("refuses the same account's backup from a different workspace before any network work", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({ ownerOrgId: "org-a" }),
+    );
+    await expect(
+      uploadLocalRecording("local-1", { ...ME, ownerOrgId: "org-b" }),
+    ).rejects.toMatchObject({ code: "owner_mismatch" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    expect(mocks.uploadChunkRequest).not.toHaveBeenCalled();
+  });
+
+  it("stops before replaying bytes when the account changes during the retry claim", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({ localOnly: false }),
+    );
+    let current = true;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/status"))
+        return json({
+          recording: { status: "failed", verificationPending: false },
+        });
+      if (url.endsWith("/reset-chunks")) current = false;
+      return retryTransport(url) ?? json({});
+    });
+    await expect(
+      uploadLocalRecording("local-1", { ...ME, stillOwner: () => current }),
+    ).rejects.toMatchObject({ code: "owner_mismatch" });
+    expect(mocks.uploadChunkRequest).not.toHaveBeenCalled();
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+    expect(mocks.callAction).not.toHaveBeenCalled();
   });
 
   it("uploads from memory when the local copy could not be written", async () => {
@@ -518,21 +634,18 @@ describe("uploadLocalRecording", () => {
       expectAcceptedByCreateRecording();
     });
 
-    it("names the local copy as the take on a retry under a fresh row id", async () => {
+    // oracle-change: Existing server rows resume in place; platform is preserved without issuing create-recording again.
+    it("preserves the existing Clip on replay without changing its provenance", async () => {
       mocks.readRecoverableRecordingBackup.mockResolvedValue(
         copy({ serverRecordingId: "rec-earlier", recordingPlatform: "web" }),
       );
-      // The earlier attempt's row failed, so this upload opens a fresh one.
       fetchMock.mockResolvedValueOnce(
         json({ recording: { status: "failed", verificationPending: false } }),
       );
       mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
-
-      await uploadLocalRecording("local-1", ME);
-
-      expect(createArgs()?.id).not.toBe("local-1");
-      expect(createArgs()?.recordingAttemptId).toBe("local-1");
-      expectAcceptedByCreateRecording();
+      const result = await uploadLocalRecording("local-1", ME);
+      expect(result.recordingId).toBe("rec-earlier");
+      expect(createArgs()).toBeUndefined();
     });
 
     it("keeps the platform of a memory-only copy", async () => {
@@ -706,15 +819,17 @@ describe("uploadLocalRecording", () => {
     mocks.readRecoverableRecordingBackup.mockResolvedValue(
       copy({ serverRecordingId: "srv-1", state: "uploaded" }),
     );
-    fetchMock.mockImplementation(async () =>
-      json({
-        recording: {
-          status: "ready",
-          verificationPending: false,
-          sourceSizeBytes: 3,
-          durationMs: 5_000,
-        },
-      }),
+    fetchMock.mockImplementation(
+      async (url: string) =>
+        retryTransport(url) ??
+        json({
+          recording: {
+            status: "ready",
+            verificationPending: false,
+            sourceSizeBytes: 3,
+            durationMs: 5_000,
+          },
+        }),
     );
     mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
 
@@ -726,7 +841,8 @@ describe("uploadLocalRecording", () => {
       ...ME,
       reuploadMismatched: true,
     });
-    expect(again.recordingId).not.toBe("srv-1");
+    // oracle-change: An explicit replay uses the original Clip and preserves its context association.
+    expect(again.recordingId).toBe("srv-1");
     expect(again.kept).toBeUndefined();
     expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
   });
@@ -742,7 +858,9 @@ describe("uploadLocalRecording", () => {
         uploadedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
       }),
     );
-    fetchMock.mockImplementation(async () => processing.clone());
+    fetchMock.mockImplementation(
+      async (url: string) => retryTransport(url) ?? processing.clone(),
+    );
     mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
 
     const kept = await uploadLocalRecording("local-1", ME);
@@ -753,7 +871,8 @@ describe("uploadLocalRecording", () => {
       ...ME,
       reuploadMismatched: true,
     });
-    expect(again.recordingId).not.toBe("srv-1");
+    // oracle-change: An explicit replay uses the original Clip and preserves its context association.
+    expect(again.recordingId).toBe("srv-1");
     expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
   });
 
@@ -765,8 +884,12 @@ describe("uploadLocalRecording", () => {
         uploadedAt: new Date().toISOString(),
       }),
     );
-    fetchMock.mockImplementation(async () =>
-      json({ recording: { status: "processing", verificationPending: true } }),
+    fetchMock.mockImplementation(
+      async (url: string) =>
+        retryTransport(url) ??
+        json({
+          recording: { status: "processing", verificationPending: true },
+        }),
     );
 
     const result = await uploadLocalRecording("local-1", {
@@ -782,8 +905,10 @@ describe("uploadLocalRecording", () => {
     mocks.readRecoverableRecordingBackup.mockResolvedValue(
       copy({ serverRecordingId: "srv-1", state: "uploaded" }),
     );
-    fetchMock.mockImplementation(async () =>
-      json({ recording: { status: "ready", verificationPending: false } }),
+    fetchMock.mockImplementation(
+      async (url: string) =>
+        retryTransport(url) ??
+        json({ recording: { status: "ready", verificationPending: false } }),
     );
     mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
 
@@ -792,7 +917,8 @@ describe("uploadLocalRecording", () => {
       reuploadMismatched: true,
     });
 
-    expect(again.recordingId).not.toBe("srv-1");
+    // oracle-change: An explicit replay uses the original Clip and preserves its context association.
+    expect(again.recordingId).toBe("srv-1");
     expect(again.kept).toBeUndefined();
     expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
   });

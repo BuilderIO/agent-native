@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
+import { loadPublicRecordingDescription } from "../server/lib/recording-public-description.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -164,6 +165,7 @@ async function loadContextPackets(
         id: schema.recordings.id,
         title: schema.recordings.title,
         description: schema.recordings.description,
+        descriptionSource: schema.recordings.descriptionSource,
         visibility: schema.recordings.visibility,
         ownerEmail: schema.recordings.ownerEmail,
         expiresAt: schema.recordings.expiresAt,
@@ -251,21 +253,24 @@ async function loadContextPackets(
     }
   }
 
-  const packets = job.recordingIds.map((recordingId) => {
-    const recording = recordingById.get(recordingId);
-    const senderEmail = senderByRecordingId.get(recordingId);
-    if (!recording || !senderEmail) return null;
-    return {
-      recordingId,
-      title: boundedText(recording.title, MAX_TITLE_LENGTH),
-      description: boundedText(recording.description, MAX_DESCRIPTION_LENGTH),
-      senderEmail,
-      transcriptExcerpt: boundedText(
-        transcriptById.get(recordingId),
-        MAX_TRANSCRIPT_EXCERPT_LENGTH,
-      ),
-    };
-  });
+  const packets = await Promise.all(
+    job.recordingIds.map(async (recordingId) => {
+      const recording = recordingById.get(recordingId);
+      const senderEmail = senderByRecordingId.get(recordingId);
+      if (!recording || !senderEmail) return null;
+      const description = await loadPublicRecordingDescription(recording);
+      return {
+        recordingId,
+        title: boundedText(recording.title, MAX_TITLE_LENGTH),
+        description: boundedText(description, MAX_DESCRIPTION_LENGTH),
+        senderEmail,
+        transcriptExcerpt: boundedText(
+          transcriptById.get(recordingId),
+          MAX_TRANSCRIPT_EXCERPT_LENGTH,
+        ),
+      };
+    }),
+  );
 
   return packets.length === 2 && packets[0] && packets[1]
     ? [packets[0], packets[1]]

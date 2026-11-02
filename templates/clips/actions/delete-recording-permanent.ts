@@ -11,6 +11,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { deleteStoredAgentFrames } from "../server/lib/agent-frame-store.js";
 import { deleteAppActivityBlob } from "../server/lib/app-activity.js";
+import { sealRecordingDiagnostics } from "../server/lib/diagnostic-context.js";
 import { countPendingRedactions } from "../server/lib/pending-redactions.js";
 import {
   deleteRecordingMediaObjects,
@@ -262,6 +263,7 @@ export default defineAction({
           statusCode: 404,
         });
       }
+      await sealRecordingDiagnostics(tx, args.id);
       const protectedUrls = await mediaUsedElsewhere(
         tx,
         args.id,

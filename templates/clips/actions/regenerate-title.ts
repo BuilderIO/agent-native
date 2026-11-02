@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { loadPublicRecordingDescription } from "../server/lib/recording-public-description.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
@@ -164,15 +165,18 @@ export default defineAction({
     const [rec] = await db
       .select({
         id: schema.recordings.id,
+        ownerEmail: schema.recordings.ownerEmail,
         title: schema.recordings.title,
         titleSource: schema.recordings.titleSource,
         updatedAt: schema.recordings.updatedAt,
         description: schema.recordings.description,
+        descriptionSource: schema.recordings.descriptionSource,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
       .limit(1);
     if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
+    rec.description = await loadPublicRecordingDescription(rec);
 
     if (args.automatic && rec.titleSource === "manual") {
       return {

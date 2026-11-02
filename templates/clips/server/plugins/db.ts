@@ -12,6 +12,11 @@ import { z } from "zod";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import {
+  DIAGNOSTIC_CONTEXT_MIGRATION_SQL,
+  DIAGNOSTIC_RAW_DB_POLICY_SQL,
+  DIAGNOSTIC_DESCRIPTION_POLICY_SQL,
+} from "../lib/diagnostic-context-migration.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
 import {
   uploadLeaseExpiry,
@@ -201,6 +206,7 @@ function scheduleRecordingOrgIdBackfill(): void {
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v41 incident documented on v41 below.
+// raw-sql-ok: Migration SQL is reviewed static DDL; imported constants contain no interpolated inputs.
 export const migrations = runMigrations(
   orderMigrationsByVersion([
     {
@@ -1388,6 +1394,21 @@ export const migrations = runMigrations(
       version: 98,
       name: "recording-content-binding-upload-start-failed",
       sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_start_failed_at TEXT`,
+    },
+    {
+      version: 99,
+      name: "private-recording-diagnostic-context",
+      sql: DIAGNOSTIC_CONTEXT_MIGRATION_SQL,
+    },
+    {
+      version: 100,
+      name: "diagnostic-raw-db-policy",
+      sql: DIAGNOSTIC_RAW_DB_POLICY_SQL,
+    },
+    {
+      version: 101,
+      name: "diagnostic-description-publication",
+      sql: DIAGNOSTIC_DESCRIPTION_POLICY_SQL,
     },
   ]),
   { table: "clips_migrations" },

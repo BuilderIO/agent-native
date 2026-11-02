@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { loadPublicRecordingDescription } from "../server/lib/recording-public-description.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import cleanupTranscript from "./cleanup-transcript.js";
@@ -35,8 +36,10 @@ export default defineAction({
     const [rec] = await db
       .select({
         id: schema.recordings.id,
+        ownerEmail: schema.recordings.ownerEmail,
         title: schema.recordings.title,
         description: schema.recordings.description,
+        descriptionSource: schema.recordings.descriptionSource,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -87,7 +90,11 @@ export default defineAction({
 
       await db
         .update(schema.recordings)
-        .set({ description, updatedAt: new Date().toISOString() })
+        .set({
+          description,
+          descriptionSource: "ai",
+          updatedAt: new Date().toISOString(),
+        })
         .where(eq(schema.recordings.id, args.recordingId));
       await writeAppState("refresh-signal", { ts: Date.now() });
 
@@ -115,7 +122,7 @@ export default defineAction({
       recordingId: args.recordingId,
       requestedAt,
       currentTitle: rec.title,
-      currentDescription: rec.description,
+      currentDescription: await loadPublicRecordingDescription(rec),
       transcriptStatus: transcript?.status ?? "pending",
       transcriptText: transcript?.fullText ?? "",
       includeFullVideoInAi,

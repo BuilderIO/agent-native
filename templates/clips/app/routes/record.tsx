@@ -6,14 +6,19 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   callAction,
   getBrowserTabId,
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
+import type { AppActivity } from "@shared/app-activity";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
+import type { DiagnosticContextInput } from "@shared/diagnostic-context";
+import { CLIPS_PRIVATE_DIAGNOSTIC_CAPTURE_FLAG } from "@shared/feature-flags";
 import {
   isStoredButUnservableFinalizeError,
   waitForAcceptedRecordingAfterFinalizeError,
@@ -51,8 +56,10 @@ import { Navigate, useLocation, useNavigate } from "react-router";
 
 import { LocalRecordingPreview } from "@/components/recorder/local-recording-preview";
 import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
+import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
   offerLocalRecording,
@@ -70,10 +77,7 @@ import {
   type VideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
-import {
-  createBrowserDiagnosticsCapture,
-  type BrowserDiagnosticsCapture,
-} from "@/lib/browser-diagnostics-capture";
+import { type BrowserDiagnosticsCapture } from "@/lib/browser-diagnostics-capture";
 import {
   getCaptureHostApp,
   macPermissionGuidanceFor,
@@ -93,6 +97,15 @@ import {
   createCountdownAudioCue,
   type CountdownAudioCue,
 } from "@/lib/countdown-audio-cue";
+import {
+  diagnosticCapturePayload,
+  validatedDiagnosticContext,
+} from "@/lib/diagnostic-capture";
+import {
+  enqueueDiagnosticContext,
+  retainDiagnosticDraft,
+  retryDiagnosticContext,
+} from "@/lib/diagnostic-outbox";
 import { LocalCopyOwnership } from "@/lib/local-copy-ownership";
 import { trackLocalRecordingSaved } from "@/lib/local-recording-saved";
 import {
@@ -246,6 +259,8 @@ type ClipsExtensionCapture = {
 type ClipsExtensionDiagnosticsResponse = {
   ok?: boolean;
   diagnostics?: BrowserDiagnosticsData;
+  appActivity?: AppActivity;
+  diagnosticContext?: DiagnosticContextInput;
   error?: string;
 };
 
@@ -1370,7 +1385,42 @@ export default function RecordRoute() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
-  const { session: authSession } = useSession();
+  const { session: authSession, status: authStatus } = useSession();
+  const organization = useOrg({ enabled: authStatus === "authenticated" });
+  const activeOrgId = organization.data
+    ? organization.data.orgId
+    : (authSession?.orgId ?? null);
+  const privateCaptureEnabled = useFeatureFlag(
+    CLIPS_PRIVATE_DIAGNOSTIC_CAPTURE_FLAG.key,
+  );
+  const [diagnosticConsent, setDiagnosticConsent] = useState(() => {
+    const params = new URLSearchParams(location.search);
+    return (
+      !!params.get("clipsExtensionId") &&
+      !!params.get("clipsCaptureSessionId") &&
+      params.get("privateContextConsent") === "1"
+    );
+  });
+  const [diagnosticHistorySeconds, setDiagnosticHistorySeconds] = useState(
+    () => {
+      const value = Number(
+        new URLSearchParams(location.search).get(
+          "privateContextHistorySeconds",
+        ),
+      );
+      return Number.isInteger(value) && value >= 1 && value <= 300 ? value : 30;
+    },
+  );
+  const diagnosticCaptureRef = useRef<{
+    ownerEmail: string;
+    orgId: string;
+    captureId: string;
+    captureAuthorization: string;
+    startedAtMs: number;
+    historySeconds: number;
+  } | null>(null);
+  const authSessionOrgRef = useRef<string | null>(null);
+  authSessionOrgRef.current = activeOrgId;
   const authSessionEmailRef = useRef<string | null>(null);
   authSessionEmailRef.current = authSession?.email ?? null;
   const {
@@ -1859,6 +1909,7 @@ export default function RecordRoute() {
         };
         engine.setBackupDetails({
           ownerEmail: authSessionEmailRef.current,
+          ownerOrgId: authSessionOrgRef.current,
           title: recordingTitle,
           recordingPlatform: browserRecorderPlatform(),
         });
@@ -2043,6 +2094,8 @@ export default function RecordRoute() {
     },
     [
       applyUploadTarget,
+      privateCaptureEnabled,
+      diagnosticConsent,
       holdLocalCopy,
       liveTranscription,
       markStorageConfigured,
@@ -2648,19 +2701,18 @@ export default function RecordRoute() {
 
   const saveBrowserDiagnostics = useCallback(
     async (recordingId: string) => {
+      const clock = engineRef.current?.getDiagnosticClock();
+      const stoppedAtMs = clock?.nowMs ?? Date.now();
+      const approved = diagnosticCaptureRef.current;
+      diagnosticCaptureRef.current = null;
+      const pauses =
+        clock?.pauses.map((pause) => ({
+          from: new Date(pause.startedAtMs).toISOString(),
+          to: new Date(pause.endedAtMs).toISOString(),
+        })) ?? [];
       const capture = browserDiagnosticsRef.current;
       browserDiagnosticsRef.current = null;
-      if (extensionCapture && !extensionCapture.developerLogsEnabled) {
-        capture?.dispose();
-        return;
-      }
-      let localSnapshot: BrowserDiagnosticsData | null = null;
-      try {
-        localSnapshot = capture?.stop() ?? null;
-      } catch (err) {
-        capture?.dispose();
-        console.warn("[recorder] browser diagnostics stop failed:", err);
-      }
+      capture?.dispose();
       let extensionResponse: ClipsExtensionDiagnosticsResponse | null = null;
       if (extensionCapture) {
         try {
@@ -2671,39 +2723,85 @@ export default function RecordRoute() {
                 type: "CLIPS_CAPTURE_STOP",
                 sessionId: extensionCapture.sessionId,
                 recordingId,
+                recordingStoppedAtMs: stoppedAtMs,
+                pauses: clock?.pauses ?? [],
               },
             );
         } catch (err) {
           console.warn("[recorder] extension diagnostics stop failed:", err);
         }
       }
-      const extensionSnapshot =
-        extensionResponse?.ok && extensionResponse.diagnostics
-          ? extensionResponse.diagnostics
-          : null;
-      const snapshot = extensionSnapshot ?? localSnapshot;
-      if (!snapshot) return;
+      if (!approved) return;
+      const stillOwner = () =>
+        authSessionEmailRef.current?.toLowerCase() ===
+          approved.ownerEmail.toLowerCase() &&
+        authSessionOrgRef.current === approved.orgId;
+      if (!stillOwner()) return;
+      let payload: DiagnosticContextInput;
       try {
-        await callAction(
-          "save-browser-diagnostics" as any,
+        payload = validatedDiagnosticContext(
+          extensionResponse?.diagnosticContext,
           {
             recordingId,
-            source: extensionSnapshot ? "extension" : "browser-recorder",
-            phase: "recording",
-            pageUrl: snapshot.pageUrl,
-            userAgent: snapshot.userAgent,
-            startedAt: snapshot.startedAt,
-            endedAt: snapshot.endedAt,
-            consoleLogs: snapshot.consoleLogs,
-            networkRequests: snapshot.networkRequests,
-            interactionEvents: snapshot.interactionEvents,
-          } as any,
+            captureId: approved.captureId,
+            captureAuthorization: approved.captureAuthorization,
+          },
         );
-      } catch (err) {
-        console.warn("[recorder] browser diagnostics save failed:", err);
+      } catch (error) {
+        if (extensionCapture)
+          console.warn(
+            "[recorder] canonical diagnostic context unavailable:",
+            error,
+          );
+        payload = diagnosticCapturePayload({
+          recordingId,
+          captureId: approved.captureId,
+          captureAuthorization: approved.captureAuthorization,
+          startedAtMs: approved.startedAtMs,
+          stoppedAtMs,
+          historySeconds: approved.historySeconds,
+          pauses,
+          ...(extensionCapture
+            ? { failureCode: "extension_context_unavailable" }
+            : {}),
+        });
+      }
+      let entry;
+      try {
+        entry = await enqueueDiagnosticContext(approved, payload, stillOwner);
+      } catch {
+        retainDiagnosticDraft(approved, payload, stillOwner);
+        return;
+      }
+      const outboxId = entry.id;
+      try {
+        await retryDiagnosticContext(
+          outboxId,
+          approved,
+          (frozen) => callAction("save-recording-diagnostic-context", frozen),
+          stillOwner,
+        );
+      } catch {
+        if (!stillOwner()) return;
+        toast.error(t("privateContext.saveFailed"), {
+          id: `diagnostic:${outboxId}`,
+          duration: Infinity,
+          action: {
+            label: t("privateContext.retry"),
+            onClick: () => {
+              void retryDiagnosticContext(
+                outboxId,
+                approved,
+                (frozen) =>
+                  callAction("save-recording-diagnostic-context", frozen),
+                stillOwner,
+              ).catch(() => toast.error(t("privateContext.saveFailed")));
+            },
+          },
+        });
       }
     },
-    [extensionCapture],
+    [extensionCapture, t],
   );
 
   const onCountdownComplete = useCallback(async () => {
@@ -2711,6 +2809,8 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
+      const actualStartedAtMs =
+        engine.getDiagnosticClock()?.startedAtMs ?? Date.now();
       const captureType = captureTypeFor(recordingMode, resolvedDisplaySurface);
       recordingCaptureTypeRef.current = captureType;
       trackEvent("app.first_action", {
@@ -2739,25 +2839,63 @@ export default function RecordRoute() {
       countdownAudioCueRef.current?.cleanup();
       countdownAudioCueRef.current = null;
       browserDiagnosticsRef.current?.dispose();
-      browserDiagnosticsRef.current =
-        extensionCapture && !extensionCapture.developerLogsEnabled
-          ? null
-          : createBrowserDiagnosticsCapture();
       const recordingId = pendingRef.current?.id;
-      if (
-        extensionCapture &&
-        extensionCapture.developerLogsEnabled &&
-        recordingId
-      ) {
-        void sendClipsExtensionMessage(extensionCapture.extensionId, {
-          type: "CLIPS_CAPTURE_START",
-          sessionId: extensionCapture.sessionId,
-          recordingId,
-          pageUrl: extensionCapture.sourceUrl ?? window.location.href,
-        });
-      }
+      const ownerEmail = authSessionEmailRef.current;
       setUiState("recording");
       setIsPaused(false);
+      const consented =
+        privateCaptureEnabled &&
+        diagnosticConsent &&
+        ownerEmail &&
+        recordingId &&
+        !pendingRef.current?.localOnly;
+      if (consented) {
+        const captureId = crypto.randomUUID();
+        try {
+          const permission = await callAction<{
+            authorized: true;
+            ownerEmail: string;
+            orgId: string;
+            captureAuthorization: string;
+          }>("authorize-diagnostic-capture", {
+            recordingId,
+            captureId,
+            consent: true,
+          });
+          if (
+            pendingRef.current?.id !== recordingId ||
+            engineRef.current?.getState() !== "recording" ||
+            permission.ownerEmail.toLowerCase() !==
+              authSessionEmailRef.current?.toLowerCase() ||
+            permission.orgId !== authSessionOrgRef.current
+          )
+            return;
+          diagnosticCaptureRef.current = {
+            ownerEmail: permission.ownerEmail,
+            orgId: permission.orgId,
+            captureId,
+            captureAuthorization: permission.captureAuthorization,
+            startedAtMs: actualStartedAtMs,
+            historySeconds: diagnosticHistorySeconds,
+          };
+          browserDiagnosticsRef.current = null;
+          if (extensionCapture) {
+            await sendClipsExtensionMessage(extensionCapture.extensionId, {
+              type: "CLIPS_CAPTURE_START",
+              sessionId: extensionCapture.sessionId,
+              recordingId,
+              captureId,
+              captureAuthorization: permission.captureAuthorization,
+              pageUrl: extensionCapture.sourceUrl ?? window.location.href,
+              diagnosticConsent: true,
+              requestedHistorySeconds: diagnosticHistorySeconds,
+              startedAtMs: actualStartedAtMs,
+            });
+          }
+        } catch {
+          toast.error(t("privateContext.captureFailed"));
+        }
+      }
     } catch (err) {
       browserDiagnosticsRef.current?.dispose();
       browserDiagnosticsRef.current = null;
@@ -2791,6 +2929,9 @@ export default function RecordRoute() {
     }
   }, [
     extensionCapture,
+    privateCaptureEnabled,
+    diagnosticConsent,
+    diagnosticHistorySeconds,
     recordingMode,
     releaseLocalCopy,
     resolvedDisplaySurface,
@@ -2933,8 +3074,14 @@ export default function RecordRoute() {
         update({ needsStorage: false, progress: 0 });
         startUploadToast(t("recordRoute.savingRecording"));
         const memory = bufferedEngineRef.current?.getBufferedRecordingSource();
+        const ownerOrgId = authSessionOrgRef.current;
         const result = await uploadLocalRecording(recordingId, {
           ownerEmail,
+          ownerOrgId,
+          stillOwner: () =>
+            authSessionEmailRef.current?.toLowerCase() ===
+              ownerEmail.toLowerCase() &&
+            authSessionOrgRef.current === ownerOrgId,
           signal: abort.signal,
           reuploadMismatched: options.reuploadMismatched,
           // A memory-only copy recorded in this tab belongs to whoever was
@@ -3575,10 +3722,12 @@ export default function RecordRoute() {
     liveTranscription.stop();
     browserDiagnosticsRef.current?.dispose();
     browserDiagnosticsRef.current = null;
+    diagnosticCaptureRef.current = null;
     if (extensionCapture) {
       void sendClipsExtensionMessage(extensionCapture.extensionId, {
         type: "CLIPS_CAPTURE_CANCEL",
         sessionId: extensionCapture.sessionId,
+        discard: true,
       });
     }
     // The copy's lock is kept until the engine and the discard above have
@@ -3956,6 +4105,7 @@ export default function RecordRoute() {
         fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
         fileUploadAbortRef.current = null;
       }
+      const diagnosticClock = engineRef.current?.getDiagnosticClock();
       stopLiveTranscription();
       browserDiagnosticsRef.current?.dispose();
       browserDiagnosticsRef.current = null;
@@ -3963,6 +4113,12 @@ export default function RecordRoute() {
         void sendClipsExtensionMessage(extensionCapture.extensionId, {
           type: "CLIPS_CAPTURE_CANCEL",
           sessionId: extensionCapture.sessionId,
+          ...(diagnosticClock
+            ? {
+                recordingStoppedAtMs: diagnosticClock.nowMs,
+                pauses: diagnosticClock.pauses,
+              }
+            : {}),
         });
       }
       const engine = engineRef.current;
@@ -4208,6 +4364,39 @@ export default function RecordRoute() {
                 </div>
               ) : (
                 <div className="grid gap-2">
+                  {privateCaptureEnabled &&
+                  authSession?.email &&
+                  extensionCapture ? (
+                    <div className="grid gap-2 rounded-lg border p-3">
+                      <label className="flex items-center justify-between gap-3 text-sm">
+                        {t("privateContext.consent")}
+                        <Switch
+                          checked={diagnosticConsent}
+                          onCheckedChange={setDiagnosticConsent}
+                        />
+                      </label>
+                      {diagnosticConsent ? (
+                        <label className="flex items-center justify-between gap-3 text-sm">
+                          {t("privateContext.history")}
+                          <Input
+                            type="number"
+                            min={1}
+                            max={300}
+                            value={diagnosticHistorySeconds}
+                            className="w-20"
+                            onChange={(event) =>
+                              setDiagnosticHistorySeconds(
+                                Math.min(
+                                  300,
+                                  Math.max(1, Number(event.target.value) || 1),
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <PreRecordPanel
                     onStart={startFlow}
                     initialMode={

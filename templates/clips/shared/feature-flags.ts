@@ -31,6 +31,20 @@ export const CLIPS_HOSTED_FREE_CLIPS_FLAG = defineFeatureFlag({
     "Let targeted users record their first Clips before connecting their own storage.",
 });
 
+export const CLIPS_PRIVATE_DIAGNOSTIC_CAPTURE_FLAG = defineFeatureFlag({
+  key: "clips-private-diagnostic-capture",
+  displayName: "Private diagnostic capture",
+  description:
+    "Allow explicitly approved private app context collection for Clips.",
+});
+
+export const CLIPS_DIAGNOSTIC_AGENT_GRANTS_FLAG = defineFeatureFlag({
+  key: "clips-diagnostic-agent-grants",
+  displayName: "Diagnostic agent grants",
+  description:
+    "Allow context owners to create revocable, scoped diagnostic access.",
+});
+
 export const CLIPS_LEGACY_FEATURE_FLAGS = [
   USE_CUSTOM_SCK_PIPELINE_FLAG,
   CUSTOM_SCK_LIVE_UPLOAD_FLAG,
@@ -40,4 +54,6 @@ export const CLIPS_LEGACY_FEATURE_FLAGS = [
 export const CLIPS_FEATURE_FLAGS = defineFeatureFlags([
   ...CLIPS_LEGACY_FEATURE_FLAGS,
   CLIPS_HOSTED_FREE_CLIPS_FLAG,
+  CLIPS_PRIVATE_DIAGNOSTIC_CAPTURE_FLAG,
+  CLIPS_DIAGNOSTIC_AGENT_GRANTS_FLAG,
 ]);

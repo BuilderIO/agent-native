@@ -12,6 +12,7 @@ import {
   isNotNull,
   not,
   notInArray,
+  notExists,
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
@@ -32,6 +33,11 @@ import {
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
+import { recordingMediaProvenance } from "../server/lib/recording-media-provenance.js";
+import {
+  loadLegacyDescriptionPublication,
+  publicRecordingDescription,
+} from "../server/lib/recording-public-description.js";
 import {
   countedViewCondition,
   getActiveOrganizationId,
@@ -276,7 +282,27 @@ export default defineAction({
     if (args.search) {
       const pat = `%${escapeLike(args.search)}%`;
       whereClauses.push(
-        sql`(${schema.recordings.title} LIKE ${pat} ESCAPE '\\' OR ${schema.recordings.description} LIKE ${pat} ESCAPE '\\')`,
+        sql`(${schema.recordings.title} LIKE ${pat} ESCAPE '\\' OR (
+          ${schema.recordings.description} LIKE ${pat} ESCAPE '\\'
+          AND ${schema.recordings.descriptionSource} <> 'report'
+          AND (${schema.recordings.descriptionSource} = 'user' OR ${notExists(
+            db
+              .select({ id: schema.recordingBugReports.recordingId })
+              .from(schema.recordingBugReports)
+              .where(
+                and(
+                  eq(
+                    schema.recordingBugReports.recordingId,
+                    schema.recordings.id,
+                  ),
+                  eq(
+                    schema.recordingBugReports.description,
+                    schema.recordings.description,
+                  ),
+                ),
+              ),
+          )})
+        ))`,
       );
     }
 
@@ -338,6 +364,7 @@ export default defineAction({
           sourceAppName: schema.recordings.sourceAppName,
           sourceWindowTitle: schema.recordings.sourceWindowTitle,
           description: schema.recordings.description,
+          descriptionSource: schema.recordings.descriptionSource,
           kind: schema.recordings.kind,
           thumbnailUrl: schema.recordings.thumbnailUrl,
           animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
@@ -460,6 +487,9 @@ export default defineAction({
       );
     }
 
+    const legacyDescriptions = await loadLegacyDescriptionPublication(
+      rows.map((row) => row.recording),
+    );
     const recordings = rows.map((row) => {
       const r = row.recording;
       const edits = parseEdits(r.editsJson);
@@ -467,9 +497,11 @@ export default defineAction({
         id: r.id,
         title: r.title,
         titleSource: r.titleSource,
-        sourceAppName: r.sourceAppName,
-        sourceWindowTitle: r.sourceWindowTitle,
-        description: r.description,
+        ...recordingMediaProvenance(r),
+        description: publicRecordingDescription(
+          r,
+          legacyDescriptions.get(r.id),
+        ),
         // A screenshot card has no duration, play affordance or transcript,
         // so the grid has to be able to tell the two apart.
         kind: resolveRecordingKind(r.kind),

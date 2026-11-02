@@ -61,6 +61,16 @@ vi.mock("../server/lib/share-password.js", () => ({
     value ? "encrypted-value" : null,
 }));
 
+vi.mock("../server/lib/recording-public-description.js", () => ({
+  loadPublicRecordingDescription: async (recording: {
+    description?: string;
+    descriptionSource?: string;
+  }) =>
+    recording.descriptionSource === "report"
+      ? ""
+      : (recording.description ?? ""),
+}));
+
 import action from "./update-recording";
 
 function recording(overrides: Record<string, unknown> = {}) {
@@ -92,6 +102,18 @@ beforeEach(() => {
 });
 
 describe("update-recording share password version", () => {
+  it("marks a deliberate description edit as published by the recording editor", async () => {
+    await action.run({
+      id: "rec-1",
+      description: "reviewed for video viewers",
+    });
+    expect(state.patches).toContainEqual(
+      expect.objectContaining({
+        description: "reviewed for video viewers",
+        descriptionSource: "user",
+      }),
+    );
+  });
   it("rotates the version when a password is set", async () => {
     await run({ id: "recording-1", password: "example-share-value" });
 
@@ -117,6 +139,26 @@ describe("update-recording share password version", () => {
 
     expect(state.patches[0]).toMatchObject({ title: "Updated title" });
     expect(state.patches[0]).not.toHaveProperty("sharePasswordVersion");
+  });
+
+  it("omits private description provenance and window titles from the returned row", async () => {
+    const privateRow = recording({
+      description: "private report details",
+      descriptionSource: "report",
+      sourceWindowTitle: "Private document title",
+      ownerEmail: "owner@example.test",
+    });
+    state.selectRows = [[recording()], [privateRow]];
+
+    const result = await run({ id: "recording-1", title: "Updated title" });
+    const returned = (result as { recording: Record<string, unknown> })
+      .recording;
+
+    expect(returned).toMatchObject({ description: "" });
+    expect(returned).not.toHaveProperty("descriptionSource");
+    expect(returned).not.toHaveProperty("sourceWindowTitle");
+    expect(JSON.stringify(result)).not.toContain("Private document title");
+    expect(JSON.stringify(result)).not.toContain("private report details");
   });
 
   it("keeps recording revisions monotonic for metadata updates", async () => {
@@ -282,7 +324,7 @@ it.each(["owner", "editor"])(
     expect(state.patches).toHaveLength(1);
     expect(result).toEqual(
       role === "owner"
-        ? { id: before.id, recording: after }
+        ? { id: before.id, recording: { ...after, description: "" } }
         : { id: before.id, recording: null, reason: "unavailable" },
     );
   },

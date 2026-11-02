@@ -11,6 +11,7 @@ export type RecordingEmbedProvider = "loom" | "youtube";
 export function recordingEmbedProvider(
   recording: LoomRecordingLike | null | undefined,
 ): RecordingEmbedProvider | null {
+  if (recording?.embedProvider !== undefined) return recording.embedProvider;
   if (isYouTubeEmbedBackedRecording(recording)) return "youtube";
   if (isLoomEmbedBackedRecording(recording)) return "loom";
   return null;

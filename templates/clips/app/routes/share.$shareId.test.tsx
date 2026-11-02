@@ -215,6 +215,7 @@ describe("share page server data for a clip in Trash", () => {
       id: SHARE_ID,
       title: "Quarterly roadmap",
       description: "Pricing changes for Q4",
+      descriptionSource: "user",
       thumbnailUrl: "https://media.example.test/clip-1/thumb.jpg",
       animatedThumbnailUrl: null,
       updatedAt: "2026-10-24T12:00:00.000Z",

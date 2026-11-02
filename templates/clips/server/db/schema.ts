@@ -115,6 +115,11 @@ export const recordings = table("recordings", {
   sourceAppName: text("source_app_name"),
   sourceWindowTitle: text("source_window_title"),
   description: text("description").notNull().default(""),
+  descriptionSource: text("description_source", {
+    enum: ["legacy", "user", "report", "ai"],
+  })
+    .notNull()
+    .default("legacy"),
 
   thumbnailUrl: text("thumbnail_url"),
   // Terminal outcome of the last thumbnail generation attempt. NULL means
@@ -905,4 +910,80 @@ export const hostedClipAllowances = table(
       sql`${allowance.quotaBytes} >= 0`,
     ),
   }),
+);
+
+export const recordingDiagnosticContexts = table(
+  "recording_diagnostic_contexts",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    captureId: text("capture_id").notNull(),
+    contextVersion: integer("context_version").notNull(),
+    digest: text("digest").notNull(),
+    recordingStartedAt: text("recording_started_at").notNull(),
+    requestedFrom: text("requested_from").notNull(),
+    requestedTo: text("requested_to").notNull(),
+    coverageJson: text("coverage_json").notNull(),
+    gapsJson: text("gaps_json").notNull(),
+    pausesJson: text("pauses_json").notNull(),
+    droppedEvents: integer("dropped_events").notNull(),
+    captured: text("captured").notNull(),
+    failureCode: text("failure_code"),
+    blobJson: text("blob_json").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    removedAt: text("removed_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    ...ownableColumns(),
+  },
+  (context) => ({
+    captureUnique: uniqueIndex("recording_diagnostic_capture_unique_idx").on(
+      context.ownerEmail,
+      context.captureId,
+      context.contextVersion,
+    ),
+    recordingIndex: index("recording_diagnostic_recording_idx").on(
+      context.recordingId,
+      context.ownerEmail,
+    ),
+    expiryIndex: index("recording_diagnostic_expiry_idx").on(context.expiresAt),
+  }),
+);
+export const recordingDiagnosticContextShares = createSharesTable(
+  "recording_diagnostic_context_shares",
+);
+export const recordingDiagnosticGrants = table(
+  "recording_diagnostic_grants",
+  {
+    id: text("id").primaryKey(),
+    contextId: text("context_id").notNull(),
+    contextVersion: integer("context_version").notNull(),
+    label: text("label").notNull(),
+    scopesJson: text("scopes_json").notNull(),
+    fromMs: real("from_ms"),
+    toMs: real("to_ms"),
+    issuerEmail: text("issuer_email").notNull(),
+    orgId: text("org_id").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    revokedAt: text("revoked_at"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (grant) => ({
+    contextIndex: index("recording_diagnostic_grant_context_idx").on(
+      grant.contextId,
+    ),
+    expiryIndex: index("recording_diagnostic_grant_expiry_idx").on(
+      grant.expiresAt,
+    ),
+  }),
+);
+export const recordingDiagnosticCleanup = table(
+  "recording_diagnostic_cleanup",
+  {
+    contextId: text("context_id").primaryKey(),
+    blobJson: text("blob_json").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    nextAttemptAt: text("next_attempt_at").notNull().default(now()),
+    createdAt: text("created_at").notNull().default(now()),
+  },
 );

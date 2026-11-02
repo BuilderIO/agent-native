@@ -122,6 +122,7 @@ describe("regenerate-summary", () => {
     });
     expect(mockUpdateSet).toHaveBeenCalledWith({
       description: "A concise summary.",
+      descriptionSource: "ai",
       updatedAt: expect.any(String),
     });
     expect(mockWriteAppState).toHaveBeenCalledWith(

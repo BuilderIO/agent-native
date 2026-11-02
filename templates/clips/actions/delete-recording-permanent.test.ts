@@ -1,3 +1,6 @@
+const mockSealDiagnostics = vi.hoisted(() =>
+  vi.fn(async (_tx: unknown, _recordingId: string) => undefined),
+);
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockExistingRecording = vi.hoisted(() => ({
@@ -195,6 +198,10 @@ vi.mock("../server/lib/agent-frame-store.js", () => ({
     mockDeleteStoredAgentFrames(...args),
 }));
 
+vi.mock("../server/lib/diagnostic-context.js", () => ({
+  sealRecordingDiagnostics: mockSealDiagnostics,
+}));
+
 vi.mock("../server/lib/app-activity.js", () => ({
   deleteAppActivityBlob: (blobJson: string, recordingId: string) =>
     mockDeleteAppActivityBlob(blobJson, recordingId),
@@ -252,6 +259,25 @@ describe("delete-recording-permanent", () => {
       .mockResolvedValueOnce([]);
     mockContextItemsWhere.mockResolvedValue([]);
     mockDiagnosticsWhere.mockResolvedValue([]);
+  });
+
+  it("seals diagnostic grants and queues blobs in the recording deletion transaction before removing rows", async () => {
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+    expect(mockSealDiagnostics).toHaveBeenCalledWith(mockDb, "rec_1");
+    expect(mockSealDiagnostics.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDbDelete.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("keeps recording rows and media if diagnostic revocation cannot be persisted", async () => {
+    mockSealDiagnostics.mockRejectedValueOnce(
+      new Error("diagnostic write failed"),
+    );
+    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
+      "diagnostic write failed",
+    );
+    expect(mockDbDelete).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingMediaObjects).not.toHaveBeenCalled();
   });
 
   it("deletes stored agent frames after the recording rows", async () => {

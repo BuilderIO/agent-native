@@ -7,6 +7,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AppActivityCollector,
   type AppActivityRead,
   AppActivityReadTimeoutError,
   buildAppActivity,
@@ -395,5 +396,308 @@ describe("buildAppActivity", () => {
     expect(bytes).toBeLessThanOrEqual(MAX_APP_ACTIVITY_BYTES);
     expect(activity!.events.length).toBeLessThan(1_500);
     expect(activity!.dropped).toBe(1_500 - activity!.events.length);
+  });
+});
+
+describe("incremental private app collection", () => {
+  afterEach(() => vi.useRealTimers());
+
+  function sourceRead(
+    now: number,
+    events: RecorderEvent[] = [],
+    documentId = "design-document",
+  ) {
+    return {
+      status: "ok" as const,
+      read: read(now, {
+        documentId,
+        recordingSince: START - 600_000,
+        at: new Date(now).toISOString(),
+        windowSeconds: 120,
+        events: events.map((entry, index) => ({
+          ...entry,
+          documentId,
+          seq: entry.seq ?? index + 1,
+        })),
+      }),
+    };
+  }
+
+  it("retains a middle event after it leaves the source buffer and deduplicates overlapping sequence identities", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(START);
+    const middle = event(START + 45_000, { seq: 1, name: "duplicate-screen" });
+    const collector = new AppActivityCollector({
+      startedAtMs: START,
+      requestedHistorySeconds: 30,
+      clock: () => clock,
+      read: async () =>
+        sourceRead(
+          Date.now(),
+          Date.now() >= middle.at && Date.now() - middle.at < 120_000
+            ? [middle]
+            : [],
+        ),
+    });
+    await collector.start();
+    for (let ms = 15_000; ms <= 300_000; ms += 15_000) {
+      vi.setSystemTime(START + ms);
+      await collector.sample();
+    }
+    const activity = await collector.stop();
+    expect(
+      activity.events.map((entry) => [entry.name, entry.documentId, entry.seq]),
+    ).toEqual([["duplicate-screen", "design-document", 1]]);
+    expect(activity.sourceCoverage).toEqual([
+      {
+        documentId: "design-document",
+        fromMs: START - 30_000,
+        toMs: START + 300_000,
+      },
+    ]);
+    expect(activity.collectionStatus).toBe("ready");
+  });
+
+  it("keeps identical same-millisecond events distinct and treats reload as a new source", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(START);
+    let documentId = "before-reload";
+    const events = [event(START, { seq: 1 }), event(START, { seq: 2 })];
+    const collector = new AppActivityCollector({
+      startedAtMs: START,
+      requestedHistorySeconds: 30,
+      clock: () => clock,
+      read: async () => sourceRead(Date.now(), events, documentId),
+    });
+    await collector.start();
+    await collector.sample();
+    documentId = "after-reload";
+    await collector.sample();
+    const activity = await collector.stop();
+    expect(
+      activity.events.map((entry) => [entry.documentId, entry.seq]),
+    ).toEqual([
+      ["before-reload", 1],
+      ["before-reload", 2],
+      ["after-reload", 1],
+      ["after-reload", 2],
+    ]);
+  });
+
+  it("reports a five-minute request as partial against two-minute retention", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(START);
+    const collector = new AppActivityCollector({
+      startedAtMs: START,
+      requestedHistorySeconds: 300,
+      clock: () => clock,
+      read: async () => sourceRead(Date.now(), [event(START - 110_000)]),
+    });
+    await collector.start();
+    const activity = await collector.stop();
+    expect(activity.collectionStatus).toBe("partial");
+    expect(activity.events[0]?.elapsedMs).toBe(-110_000);
+    expect(activity.gaps).toEqual([
+      {
+        fromMs: START - 300_000,
+        toMs: START - 120_000,
+        reason: "source-not-observed",
+      },
+    ]);
+  });
+
+  it("recomputes retained event coordinates using final pauses and does not invent paused footage", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(START + 30_000);
+    const pauses: Array<{ startedAtMs: number; endedAtMs: number }> = [];
+    const collector = new AppActivityCollector({
+      startedAtMs: START,
+      requestedHistorySeconds: 30,
+      clock: () => ({ startedAtMs: START, pauses }),
+      read: async () =>
+        sourceRead(Date.now(), [
+          event(START + 15_000, { seq: 1 }),
+          event(START + 25_000, { seq: 2 }),
+        ]),
+    });
+    await collector.start();
+    pauses.push({ startedAtMs: START + 10_000, endedAtMs: START + 20_000 });
+    const activity = await collector.stop(START + 26_000);
+    expect(
+      activity.events.map((entry) => [
+        entry.elapsedMs,
+        entry.duringPause === true,
+      ]),
+    ).toEqual([
+      [10_000, true],
+      [15_000, false],
+    ]);
+    expect(activity.requestedWindow?.toMs).toBe(START + 26_000);
+  });
+
+  it.each(["absent", "denied", "failed", "unsupported"] as const)(
+    "keeps %s distinguishable from successful empty collection",
+    async (status) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(START);
+      const collector = new AppActivityCollector({
+        startedAtMs: START,
+        requestedHistorySeconds: 30,
+        clock: () => clock,
+        read: async () =>
+          status === "absent" ? { status } : { status, reason: "test-outcome" },
+      });
+      await collector.start();
+      const activity = await collector.stop();
+      expect(activity.collectionStatus).toBe(
+        status === "absent" ? "unsupported" : status,
+      );
+      expect(
+        activity.collectionOutcomes?.[activity.collectionOutcomes.length - 1]
+          ?.status,
+      ).toBe(status);
+      expect(activity.gaps).toEqual([
+        { fromMs: START - 30_000, toMs: START, reason: "source-not-observed" },
+      ]);
+    },
+  );
+
+  it("surfaces local quota failure while preserving the collected payload", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(START);
+    const collector = new AppActivityCollector({
+      startedAtMs: START,
+      requestedHistorySeconds: 30,
+      clock: () => clock,
+      read: async () => sourceRead(Date.now(), [event(START)]),
+      onSnapshot: async () => {
+        throw new Error("quota-exceeded");
+      },
+    });
+    await collector.start();
+    const activity = await collector.stop();
+    expect(activity.collectionStatus).toBe("partial");
+    expect(activity.events).toHaveLength(1);
+    expect(
+      activity.collectionOutcomes?.[activity.collectionOutcomes.length - 1],
+    ).toEqual({ atMs: START, status: "failed", reason: "quota-exceeded" });
+  });
+
+  it("resumes a retained journal without duplicating original source events", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(START);
+    const options = {
+      startedAtMs: START,
+      requestedHistorySeconds: 30,
+      clock: () => clock,
+      read: async () => sourceRead(Date.now(), [event(START)]),
+    };
+    const first = new AppActivityCollector(options);
+    await first.start();
+    const persisted = first.snapshot();
+    first.cancel();
+    vi.setSystemTime(START + 300_000);
+    const resumed = new AppActivityCollector({
+      ...options,
+      initialActivity: persisted,
+      read: async () => sourceRead(Date.now()),
+    });
+    await resumed.start();
+    const activity = await resumed.stop();
+    expect(activity.events).toHaveLength(1);
+    expect(activity.gaps).toEqual([
+      { fromMs: START, toMs: START + 180_000, reason: "source-not-observed" },
+    ]);
+  });
+  it("restores source sequence and cumulative drop cursors without counting prior loss twice", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(START);
+    const result = sourceRead(START, [event(START, { seq: 100 })]);
+    result.read.dropped = 7;
+    const options = {
+      startedAtMs: START,
+      requestedHistorySeconds: 30,
+      clock: () => clock,
+      read: async () => result,
+    };
+    const first = new AppActivityCollector(options);
+    await first.start();
+    const persisted = first.snapshot();
+    first.cancel();
+    const resumed = new AppActivityCollector({
+      ...options,
+      initialActivity: persisted,
+    });
+    await resumed.start();
+    const activity = await resumed.stop();
+    expect(activity.events).toHaveLength(1);
+    expect(activity.dropped).toBe(7);
+    expect(activity.sourceCursors).toEqual([
+      { documentId: "design-document", seq: 100, dropped: 7 },
+    ]);
+  });
+
+  it("discards an in-flight local snapshot after capture is cancelled", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(START);
+    let resolveRead: (result: ReturnType<typeof sourceRead>) => void = () => {
+      throw new Error("missing pending read");
+    };
+    const persisted = vi.fn(async () => {});
+    const collector = new AppActivityCollector({
+      startedAtMs: START,
+      requestedHistorySeconds: 30,
+      clock: () => clock,
+      read: () =>
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+      onSnapshot: persisted,
+    });
+    const pending = collector.start();
+    await Promise.resolve();
+    collector.cancel();
+    resolveRead(sourceRead(START, [event(START)]));
+    await pending;
+    expect(persisted).not.toHaveBeenCalled();
+  });
+  it("reports bounded source overflow as partial evidence instead of an unhandled poll failure", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(START);
+    let document = 0;
+    const collector = new AppActivityCollector({
+      startedAtMs: START,
+      requestedHistorySeconds: 0,
+      clock: () => clock,
+      read: async () => {
+        const result = sourceRead(
+          Date.now(),
+          [event(Date.now())],
+          `document-${document}`,
+        );
+        result.read.recordingSince = Date.now();
+        return result;
+      },
+    });
+    await collector.start();
+    for (document = 1; document <= 100; document += 1) {
+      vi.setSystemTime(START + document * 1000);
+      await collector.sample();
+    }
+    const activity = await collector.stop();
+    expect(activity.collectionStatus).toBe("partial");
+    expect(activity.sources).toHaveLength(100);
+    expect(activity.events).toHaveLength(100);
+    expect(
+      activity.collectionOutcomes?.[activity.collectionOutcomes.length - 1],
+    ).toMatchObject({
+      status: "failed",
+      reason: "App activity source limit reached",
+    });
+    expect(activity.gaps).toContainEqual({
+      fromMs: START + 99_000,
+      toMs: START + 100_000,
+      reason: "collector-failed",
+    });
   });
 });

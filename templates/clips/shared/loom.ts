@@ -105,6 +105,8 @@ export function isLoomSourceName(value: string | null | undefined): boolean {
 }
 
 export type LoomRecordingLike = {
+  sourceProvider?: "loom" | "youtube" | "video-link" | null;
+  embedProvider?: "loom" | "youtube" | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   videoUrl?: string | null;
@@ -114,6 +116,8 @@ export function isLoomRecordingSource(
   recording: LoomRecordingLike | null | undefined,
 ): boolean {
   if (!recording) return false;
+  if (recording.sourceProvider !== undefined)
+    return recording.sourceProvider === "loom";
   return (
     isLoomSourceName(recording.sourceAppName) ||
     isLoomEmbedUrl(recording.videoUrl)
@@ -124,6 +128,8 @@ export function isLoomEmbedBackedRecording(
   recording: LoomRecordingLike | null | undefined,
 ): boolean {
   if (!recording) return false;
+  if (recording.embedProvider !== undefined)
+    return recording.embedProvider === "loom";
   if (isLoomEmbedUrl(recording.videoUrl)) return true;
   if (!isLoomSourceName(recording.sourceAppName)) return false;
 

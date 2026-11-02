@@ -102,6 +102,7 @@ describe("recording search with PostgreSQL queries", () => {
       schema.recordings,
       schema.recordingTranscripts,
       schema.recordingComments,
+      schema.recordingBugReports,
     ])
       await createQueryTable(table);
     vi.spyOn(Date, "now").mockReturnValue(Date.parse(now));
@@ -109,6 +110,7 @@ describe("recording search with PostgreSQL queries", () => {
   beforeEach(async () => {
     await db.delete(schema.recordingComments);
     await db.delete(schema.recordingTranscripts);
+    await db.delete(schema.recordingBugReports);
     await db.delete(schema.recordings);
   });
   afterAll(async () => {
@@ -268,4 +270,43 @@ describe("recording search with PostgreSQL queries", () => {
       expect(result.results.map((row) => row.id)).toEqual(["fake-recording"]);
     },
   );
+
+  it("does not match or return a legacy bug-report description", async () => {
+    await db.insert(schema.recordings).values({
+      id: "bug-report-recording",
+      organizationId: "fake-workspace",
+      ownerEmail: "owner@example.test",
+      title: "Fake recording",
+      description: "Private legacy bug report text",
+      descriptionSource: "legacy",
+      kind: "video",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.recordingBugReports).values({
+      recordingId: "bug-report-recording",
+      ownerEmail: "owner@example.test",
+      organizationId: "fake-workspace",
+      description: "Private legacy bug report text",
+    });
+
+    const privateSearch = await action.run(
+      { query: "Private legacy bug report", limit: 30 },
+      { userEmail: "owner@example.test" } as never,
+    );
+    const titleSearch = await action.run(
+      { query: "Fake recording", limit: 30 },
+      { userEmail: "owner@example.test" } as never,
+    );
+
+    expect(privateSearch.results).toEqual([]);
+    expect(titleSearch.results[0]).toMatchObject({
+      id: "bug-report-recording",
+      description: "",
+      snippet: null,
+    });
+    expect(JSON.stringify(titleSearch)).not.toContain(
+      "Private legacy bug report",
+    );
+  });
 });

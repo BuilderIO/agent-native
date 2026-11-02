@@ -36,7 +36,16 @@ function eventsOf(type: RecorderEvent["type"]) {
   return recorder
     .report()
     .events.filter((event) => event.type === type)
-    .map(({ t: _t, at: _at, ms: _ms, ...event }) => event);
+    .map(
+      ({
+        t: _t,
+        at: _at,
+        ms: _ms,
+        documentId: _documentId,
+        seq: _seq,
+        ...event
+      }) => event,
+    );
 }
 
 function abortableFetch() {
@@ -64,6 +73,35 @@ afterEach(() => {
 });
 
 describe("recorder buffer", () => {
+  it("creates source identity without secure-origin randomUUID support", () => {
+    const getRandomValues = globalThis.crypto.getRandomValues.bind(
+      globalThis.crypto,
+    );
+    vi.stubGlobal("crypto", { getRandomValues });
+    clearRecorder();
+    expect(recorder.report().documentId).toMatch(
+      /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+    );
+  });
+
+  it("preserves same-clock event identity and isolates frozen reports from later mutation", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    recorder.log("same", { value: 1 });
+    recorder.log("same", { value: 1 });
+    const frozen = recorder.report();
+    const [first, second] = frozen.events;
+    expect(first?.at).toBe(second?.at);
+    expect(first?.seq).not.toBe(second?.seq);
+    expect(first?.documentId).toBe(frozen.documentId);
+    if (!first?.data) throw new Error("missing event data");
+    first.data.value = 9;
+    expect(recorder.report().events[0]?.data?.value).toBe(1);
+    const document = frozen.documentId;
+    clearRecorder();
+    recorder.log("after-clear");
+    expect(recorder.report().documentId).not.toBe(document);
+    expect(recorder.report().events[0]?.seq).toBe(1);
+  });
   it("keeps the newest 2,000 events and counts the ones it dropped", () => {
     for (let i = 0; i < 2_005; i += 1) recorder.log("tick", { i });
 
@@ -90,6 +128,44 @@ describe("recorder buffer", () => {
     expect(report.events.map((event) => event.name)).toEqual(["recent"]);
     expect(report.windowSeconds).toBe(30);
     expect(report.dropped).toBe(0);
+  });
+
+  it("does not recover expired history by expanding retention after the incident", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.parse("2026-10-14T16:00:00.000Z");
+    vi.setSystemTime(start);
+    clearRecorder();
+    recorder.log("old-incident");
+    vi.setSystemTime(start + 300_000);
+    configureRecorder({ windowSeconds: 300 });
+    const late = recorder.report({ seconds: 300 });
+    expect(late.events).toEqual([]);
+    expect(late.coverageFrom).toBe(start + 180_000);
+    expect(late.dropped).toBe(0);
+    clearRecorder();
+    recorder.log("retention-configured-before-incident");
+    vi.setSystemTime(start + 600_000);
+    const prepared = recorder.report({ seconds: 300 });
+    expect(prepared.events.map((event) => event.name)).toEqual([
+      "retention-configured-before-incident",
+    ]);
+    expect(prepared.coverageFrom).toBe(start + 300_000);
+  });
+
+  it("starts a new observed generation when collection resumes after being disabled", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.parse("2026-10-14T16:00:00.000Z");
+    vi.setSystemTime(start);
+    clearRecorder();
+    configureRecorder({ enabled: false });
+    const disabled = recorder.report();
+    vi.setSystemTime(start + 90_000);
+    configureRecorder({ enabled: true });
+    const resumed = recorder.report();
+    expect(resumed.documentId).not.toBe(disabled.documentId);
+    expect(resumed.coverageFrom).toBe(start + 90_000);
+    expect(resumed.recordingSince).toBe(start + 90_000);
+    expect(resumed.windowSeconds).toBe(0);
   });
 
   it("reports only the seconds it has been recording since a clear", () => {
@@ -552,6 +628,12 @@ describe("recorder report", () => {
     const report = recorder.report({ reason: "test" });
 
     expect(report).toEqual({
+      documentId: expect.stringMatching(/^[a-f0-9-]{36}$/),
+      generation: expect.any(Number),
+      recordingSince: Date.parse("2026-10-14T16:18:00.000Z"),
+      coverageFrom: Date.parse("2026-10-14T16:18:05.120Z"),
+      watchedAt: "2026-10-14T16:20:05.120Z",
+      pendingAt: "2026-10-14T16:20:05.120Z",
       app: "design",
       build: "unknown",
       url: "/designs/d1?file=[redacted]",
@@ -560,18 +642,24 @@ describe("recorder report", () => {
       windowSeconds: 120,
       events: [
         {
+          documentId: report.documentId,
+          seq: 1,
           t: -5.12,
           at: Date.parse("2026-10-14T16:20:00.000Z"),
           type: "nav",
           name: "/designs/d1",
         },
         {
+          documentId: report.documentId,
+          seq: 2,
           t: -5.12,
           at: Date.parse("2026-10-14T16:20:00.000Z"),
           type: "log",
           name: "first",
         },
         {
+          documentId: report.documentId,
+          seq: 3,
           t: -1.62,
           at: Date.parse("2026-10-14T16:20:03.500Z"),
           type: "log",

@@ -11,10 +11,7 @@ import { getDb, schema } from "../../db/index.js";
 import {
   applyAgentJsonHeaders,
   buildPublicAgentContext,
-  canReadAppActivityEvents,
   describeAgentAccessFailure,
-  loadAgentBugReport,
-  loadAgentBrowserDiagnostics,
   loadAgentCtas,
   loadAgentTranscript,
   loadPublicAgentAccess,
@@ -55,8 +52,6 @@ export default defineEventHandler(async (event: H3Event) => {
     commentCountRows,
     reactionCountRows,
     ctas,
-    browserDiagnostics,
-    bugReport,
   ] = await Promise.all([
     loadAgentTranscript(recording.id, recording.durationMs),
     commentsReadable
@@ -109,8 +104,6 @@ export default defineEventHandler(async (event: H3Event) => {
           .where(eq(schema.recordingReactions.recordingId, recording.id))
       : Promise.resolve([{ count: 0 }]),
     loadAgentCtas(recording.id),
-    loadAgentBrowserDiagnostics(recording.id),
-    loadAgentBugReport(recording.id),
   ]);
   const chapters = parseAgentChapters(recording);
   const comments = (await hydrateCommentAuthorNames(commentRows)).slice(
@@ -120,10 +113,6 @@ export default defineEventHandler(async (event: H3Event) => {
   const reactions = reactionRows.slice(0, MAX_PUBLIC_AGENT_HISTORY_ITEMS);
   const commentCount = Number(commentCountRows[0]?.count ?? comments.length);
   const reactionCount = Number(reactionCountRows[0]?.count ?? reactions.length);
-
-  const appActivityEventsReadable = await canReadAppActivityEvents(
-    accessResult.access,
-  );
 
   return buildPublicAgentContext({
     event,
@@ -142,8 +131,5 @@ export default defineEventHandler(async (event: H3Event) => {
       reactionRows.length > MAX_PUBLIC_AGENT_HISTORY_ITEMS ||
       reactionCount > reactions.length,
     ctas,
-    browserDiagnostics,
-    bugReport,
-    appActivityEventsReadable,
   });
 });

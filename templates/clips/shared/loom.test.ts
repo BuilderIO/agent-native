@@ -67,6 +67,35 @@ describe("Loom URL helpers", () => {
     ).toBe(null);
   });
 
+  it("recognizes safe source and embed provider fields without private host metadata", () => {
+    expect(
+      isLoomRecordingSource({
+        sourceProvider: "loom",
+        videoUrl: "/api/video/clip-1",
+      }),
+    ).toBe(true);
+    expect(
+      isLoomEmbedBackedRecording({
+        sourceProvider: "loom",
+        embedProvider: "loom",
+        videoUrl: "/api/video/clip-1",
+      }),
+    ).toBe(true);
+    expect(
+      isLoomEmbedBackedRecording({
+        sourceProvider: "loom",
+        embedProvider: null,
+        videoUrl: "/api/video/clip-1",
+      }),
+    ).toBe(false);
+    expect(
+      isLoomRecordingSource({
+        sourceProvider: "video-link",
+        videoUrl: "/api/video/clip-2",
+      }),
+    ).toBe(false);
+  });
+
   it("recognizes legacy Loom embed metadata after Clips proxies the player URL", () => {
     const recording = {
       sourceAppName: "Loom",

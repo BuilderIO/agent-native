@@ -176,6 +176,7 @@ function sanitizeInteractionEvent(
 }
 
 export default defineAction({
+  audit: { recordInputs: false },
   description:
     "Save redacted browser timeline, console, and network diagnostics captured during a Clips recording session. UI/internal use only.",
   agentTool: false,

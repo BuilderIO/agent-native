@@ -1,7 +1,13 @@
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
-import { describe, expect, it } from "vitest";
+import { getTableName, type Table } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -9,24 +15,6 @@ const { PGlite } = createRequire(
 
 import * as schema from "../db/schema";
 import { getRecordingAccessTokenResourceId } from "../lib/share-password.js";
-
-/**
- * Regression guard, mirroring templates/analytics/server/plugins/db.spec.ts.
- *
- * This walks every Drizzle table exported from schema.ts and asserts every
- * declared SQL column name appears somewhere in the migrations source
- * (db.ts) — either in the table's original `CREATE TABLE` or in a later
- * `ADD COLUMN` migration. It can't prove *ordering* (a column could still be
- * referenced only in a comment), but it catches the exact failure mode this
- * guard exists for: a schema column with zero mentions in the migration
- * history, which silently 500s every query touching a pre-existing
- * production table once the column is used.
- *
- * A small number of columns are intentionally NOT asserted here (see
- * `KNOWN_COVERAGE_DRIFT` below) — pre-existing drift unrelated to this
- * change, where `ensureAdditiveColumns` (wired in db.ts below) self-heals the
- * gap at boot instead of a hand-written migration.
- */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
 const failureBackfillSource = readFileSync(
@@ -59,22 +47,60 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
   );
 }
 
-const KNOWN_COVERAGE_DRIFT = new Set<string>([]);
+let migrationDb: Awaited<ReturnType<typeof PGlite.create>> | undefined;
+let migrationRoot: string | undefined;
+const migratedColumns = new Map<string, Set<string>>();
+beforeAll(async () => {
+  const scratch = fileURLToPath(new URL("../../../../.tmp/", import.meta.url));
+  await mkdir(scratch, { recursive: true });
+  migrationRoot = await mkdtemp(join(scratch, "clips-schema-test-"));
+  const databasePath = join(migrationRoot, "db");
+  await promisify(execFile)(
+    process.execPath,
+    ["--import", "tsx", "scripts/migrate-production.ts"],
+    {
+      cwd: fileURLToPath(new URL("../../", import.meta.url)),
+      env: {
+        ...process.env,
+        DATABASE_URL: `pglite:${databasePath}`,
+        NODE_ENV: "test",
+      },
+      maxBuffer: 8 * 1024 * 1024,
+    },
+  );
+  migrationDb = await PGlite.create(databasePath);
+  const rows = await migrationDb.query(
+    "SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public'",
+  );
+  for (const row of rows.rows as Array<{
+    table_name: string;
+    column_name: string;
+  }>) {
+    const columns = migratedColumns.get(row.table_name) ?? new Set<string>();
+    columns.add(row.column_name);
+    migratedColumns.set(row.table_name, columns);
+  }
+}, 60_000);
+afterAll(async () => {
+  await migrationDb?.close();
+  if (migrationRoot) await rm(migrationRoot, { recursive: true, force: true });
+});
 
-describe("clips db migrations cover every schema.ts column", () => {
+describe("fresh Clips migrations create every declared schema column", () => {
   for (const [exportName, exported] of Object.entries(schema)) {
     if (!isDrizzleTable(exported)) continue;
     const columns = columnsOf(exported as DrizzleTable);
     if (!columns.length) continue;
 
-    it(`every column on schema.${exportName} is mentioned in db.ts migrations`, () => {
-      const missing = columns
-        .map((c) => c.name)
-        .filter(
-          (columnName) => !new RegExp(`\\b${columnName}\\b`).test(dbTsSource),
-        )
-        .filter((columnName) => !KNOWN_COVERAGE_DRIFT.has(columnName));
-      expect(missing).toEqual([]);
+    it(`every column on schema.${exportName} exists after production migrations`, () => {
+      const tableName = getTableName(exported as unknown as Table);
+      const actual = migratedColumns.get(tableName);
+      expect(actual).toBeDefined();
+      expect(
+        columns
+          .map((column) => column.name)
+          .filter((column) => !actual?.has(column)),
+      ).toEqual([]);
     });
   }
 });

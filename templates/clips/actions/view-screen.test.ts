@@ -212,7 +212,10 @@ vi.mock("../server/lib/user-identities.js", () => ({
   hydrateCommentAuthorNames: async (rows: unknown[]) => rows,
 }));
 
-vi.mock("../shared/browser-diagnostics.js", () => ({
+vi.mock("../shared/browser-diagnostics.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../shared/browser-diagnostics.js")
+  >()),
   parseBrowserDiagnosticsRow: () => null,
 }));
 
@@ -356,7 +359,7 @@ describe("view-screen recording access", () => {
       expiresAt: null,
     },
   ])(
-    "keeps authorized completed bug-report context: %j",
+    "keeps playable recording metadata while sealing unverified legacy bug context: %j",
     async ({ email, role, ...settings }) => {
       context.navigation.view = "bug-report-done";
       context.email = email;
@@ -366,10 +369,10 @@ describe("view-screen recording access", () => {
       const screen = JSON.parse(await action.run({}));
 
       expect(screen.recording.id).toBe("rec-test");
-      expect(screen.bugReport).toMatchObject({
-        title: "Fake report",
-        projectId: "fake-project",
-      });
+      expect(screen).not.toHaveProperty("bugReport");
+      expect(context.childReads).not.toHaveBeenCalledWith(
+        "recordingBugReports",
+      );
     },
   );
 

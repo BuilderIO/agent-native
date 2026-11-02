@@ -15,6 +15,7 @@ import {
   type ClipsUserPrefs,
 } from "../../shared/clips-ai-prefs.js";
 import { getDb, schema } from "../db/index.js";
+import { loadPublicRecordingDescription } from "./recording-public-description.js";
 
 export function getCurrentOwnerEmail(): string {
   const email = getRequestUserEmail();
@@ -371,7 +372,7 @@ export async function getRecordingOrThrow(id: string): Promise<RecordingRow> {
   return {
     id: row.id,
     title: row.title,
-    description: row.description,
+    description: await loadPublicRecordingDescription(row),
     thumbnailUrl: row.thumbnailUrl,
     animatedThumbnailUrl: row.animatedThumbnailUrl,
     durationMs: row.durationMs,

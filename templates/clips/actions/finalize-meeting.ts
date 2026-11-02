@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
+import { loadPublicRecordingDescription } from "../server/lib/recording-public-description.js";
 import { nanoid } from "../server/lib/recordings.js";
 import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../shared/meeting-finalization.js";
 import cleanupTranscript, { CleanupResult } from "./cleanup-transcript.js";
@@ -69,19 +70,32 @@ export default defineAction({
     );
     if (linked.sourcePresent && !linked.canReadTranscript)
       throw new ForbiddenError();
-    const [linkedRecording] =
-      linked.canReadRecording && meeting.recordingId
-        ? await db
-            .select({
-              title: schema.recordings.title,
-              sourceAppName: schema.recordings.sourceAppName,
-              sourceWindowTitle: schema.recordings.sourceWindowTitle,
-              description: schema.recordings.description,
-            })
-            .from(schema.recordings)
-            .where(eq(schema.recordings.id, meeting.recordingId))
-            .limit(1)
-        : [];
+    const loadLinkedRecording = async (recordingId: string | null) => {
+      if (recordingId === null) return undefined;
+      const [recording] = await db
+        .select({
+          title: schema.recordings.title,
+          sourceAppName: schema.recordings.sourceAppName,
+          sourceWindowTitle: schema.recordings.sourceWindowTitle,
+          description: schema.recordings.description,
+          descriptionSource: schema.recordings.descriptionSource,
+          id: schema.recordings.id,
+          ownerEmail: schema.recordings.ownerEmail,
+        })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, recordingId))
+        .limit(1);
+      return recording;
+    };
+    const linkedRecordingRow = linked.canReadRecording
+      ? await loadLinkedRecording(meeting.recordingId)
+      : undefined;
+    const linkedRecording = linkedRecordingRow
+      ? {
+          ...linkedRecordingRow,
+          description: await loadPublicRecordingDescription(linkedRecordingRow),
+        }
+      : undefined;
     const transcriptText =
       args.overrideTranscript || linked.transcript?.fullText || "";
     if (!transcriptText.trim()) {

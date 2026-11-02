@@ -40,6 +40,7 @@ import {
   renewUploadLease,
   uploadLeaseExpiry,
 } from "../../../../lib/upload-lease.js";
+import { assertUploadRecoveryIdentity } from "../../../../lib/upload-recovery-identity.js";
 import {
   reacquireHostedClipRecordingForRetry,
   resolveClipsVideoStorage,
@@ -166,6 +167,8 @@ export async function handleResetRecordingChunks(
         }),
       );
   const body = (await readBody(event).catch(() => null)) as {
+    expectedOwnerEmail?: string;
+    expectedOrgId?: string;
     compression?: CompressionMeta | null;
     requestStreaming?: boolean;
     mimeType?: string;
@@ -173,6 +176,10 @@ export async function handleResetRecordingChunks(
     uploadGenerationId?: string;
     useGenerationFence?: boolean;
   } | null;
+  const expected = assertUploadRecoveryIdentity(body ?? {}, {
+    ownerEmail,
+    orgId,
+  });
   const requestedStreamingMimeType =
     body?.requestStreaming === true
       ? normalizeVideoMimeType(body.mimeType)
@@ -211,6 +218,9 @@ export async function handleResetRecordingChunks(
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ...(expected.expectedOrgId
+            ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+            : []),
         ),
       );
 
@@ -363,6 +373,9 @@ export async function handleResetRecordingChunks(
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ...(expected.expectedOrgId
+            ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+            : []),
           eq(schema.recordings.status, existing.status),
           or(
             isNull(schema.recordings.failureCode),
@@ -532,6 +545,9 @@ export async function handleResetRecordingChunks(
                   and(
                     eq(schema.recordings.id, recordingId),
                     ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                    ...(expected.expectedOrgId
+                      ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+                      : []),
                     eq(schema.recordings.status, "uploading"),
                     nextGenerationId === null
                       ? isNull(schema.recordings.uploadGenerationId)
@@ -658,6 +674,9 @@ export async function handleResetRecordingChunks(
           and(
             eq(schema.recordings.id, recordingId),
             ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            ...(expected.expectedOrgId
+              ? [eq(schema.recordings.orgId, expected.expectedOrgId)]
+              : []),
           ),
         );
       if (

@@ -1,5 +1,6 @@
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -75,6 +76,7 @@ async function deleteConfirmedCopy(
 export async function findLocalRecordingsToFinish(
   ownerEmail: string,
   nowMs = Date.now(),
+  ownerOrgId?: string | null,
 ): Promise<LocalRecordingScan> {
   const [metas, liveIds] = await Promise.all([
     listRecordingBackupMetas(),
@@ -86,6 +88,7 @@ export async function findLocalRecordingsToFinish(
   for (const meta of selectRecoverableRecordingBackups(metas, {
     liveIds,
     ownerEmail,
+    ownerOrgId,
   })) {
     try {
       const serverId =
@@ -169,6 +172,7 @@ export function watchLocalRecordings(
     onError: (error: unknown, retry: () => void) => void;
   },
   delaysMs: readonly number[] = PROCESSING_RECHECK_MS,
+  ownerOrgId?: string | null,
 ): () => void {
   let stopped = false;
   let attempt = 0;
@@ -176,7 +180,7 @@ export function watchLocalRecordings(
   const scan = () => {
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
-    void findLocalRecordingsToFinish(ownerEmail).then(
+    void findLocalRecordingsToFinish(ownerEmail, Date.now(), ownerOrgId).then(
       (result) => {
         if (stopped) return;
         handlers.onResult(result);
@@ -291,36 +295,48 @@ export function useLocalRecordingRecovery(
 ) {
   const t = useT();
   const navigate = useNavigate();
-  const { session } = useSession();
+  const { session, status } = useSession();
+  const organization = useOrg({ enabled: status === "authenticated" });
+  const ownerOrgId = organization.data?.orgId ?? session?.orgId ?? null;
   const ownerEmail = session?.email ?? null;
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
 
   useEffect(() => {
     if (!enabled || !ownerEmail || !recordingBackupAvailable()) return;
-    return watchLocalRecordings(ownerEmail, {
-      onResult: ({ pending }) => {
-        const newest = pending[0];
-        if (!newest) return;
-        // One prompt for the newest; finishing it rescans on the next load.
-        offerLocalRecording({
-          meta: newest,
-          t,
-          navigate,
-          onFinish: onFinishRef.current
-            ? (recordingId) => onFinishRef.current?.(recordingId)
-            : undefined,
-        });
+    return watchLocalRecordings(
+      ownerEmail,
+      {
+        onResult: ({ pending }) => {
+          const newest = pending.find(
+            (meta) => meta.bytes > 0 || meta.chunkCount > 0,
+          );
+          if (!newest) return;
+          // One prompt for the newest; finishing it rescans on the next load.
+          offerLocalRecording({
+            meta: newest,
+            t,
+            navigate,
+            ...(onFinishRef.current
+              ? {
+                  onFinish: (recordingId: string) =>
+                    onFinishRef.current?.(recordingId),
+                }
+              : {}),
+          });
+        },
+        onError: (error, retry) => {
+          console.warn("[clips] local recording recovery scan failed:", error);
+          toast.error(t("recordRoute.savedRecordingsUnreadable"), {
+            id: RECOVERY_TOAST_ID,
+            duration: Infinity,
+            closeButton: true,
+            action: { label: t("recordRoute.tryAgain"), onClick: retry },
+          });
+        },
       },
-      onError: (error, retry) => {
-        console.warn("[clips] local recording recovery scan failed:", error);
-        toast.error(t("recordRoute.savedRecordingsUnreadable"), {
-          id: RECOVERY_TOAST_ID,
-          duration: Infinity,
-          closeButton: true,
-          action: { label: t("recordRoute.tryAgain"), onClick: retry },
-        });
-      },
-    });
-  }, [enabled, navigate, ownerEmail, t]);
+      PROCESSING_RECHECK_MS,
+      ownerOrgId,
+    );
+  }, [enabled, navigate, ownerEmail, ownerOrgId, t]);
 }
