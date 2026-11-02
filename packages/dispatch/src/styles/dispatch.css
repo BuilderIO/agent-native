@@ -58,7 +58,7 @@
 .dispatch-chat-intro h1 {
   margin: 0;
   color: hsl(var(--foreground));
-  font-size: 2.5rem;
+  font-size: 2.25rem;
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.12;
@@ -105,6 +105,25 @@
   min-height: 5.0625rem;
   font-size: 1rem;
   line-height: 1.625rem;
+}
+
+/* The surface class sits on an ancestor of the AgentKit section, so the
+   centered home state is matched by descendant selectors. */
+.dispatch-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .dispatch-chat-intro {
+  padding-top: clamp(2rem, 8vh, 4rem);
+}
+
+/* The composer sits inside a 2rem gutter of the lane, so the attached card
+   subtracts 2rem more to keep 1rem of inset on each side. */
+.dispatch-chat-panel
+  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .agent-builder-setup-card--attached {
+  inline-size: min(
+    calc(100% - 2rem),
+    calc(var(--agent-kit-conversation-max-width) - 4rem)
+  );
 }
 
 @media (max-width: 767px) {
