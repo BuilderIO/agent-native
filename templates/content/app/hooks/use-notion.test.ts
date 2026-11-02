@@ -9,6 +9,7 @@ import {
   documentSyncRefetchIntervalMs,
   invalidateDocumentQueries,
   openNotionOAuthUrl,
+  resolveNotionSetupTarget,
 } from "./use-notion";
 
 function status(
@@ -114,6 +115,34 @@ describe("currentRedirectTarget", () => {
   it("falls back to / at the root with no query string", () => {
     window.history.pushState({}, "", "/");
     expect(currentRedirectTarget()).toBe("/");
+  });
+});
+
+describe("resolveNotionSetupTarget", () => {
+  const originalFetch = window.fetch;
+
+  afterEach(() => {
+    window.fetch = originalFetch;
+  });
+
+  it("starts Notion OAuth when only the MCP server is connected", async () => {
+    window.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: "https://api.notion.com/v1/oauth/authorize" }),
+    }) as unknown as typeof fetch;
+
+    await expect(
+      resolveNotionSetupTarget({ error: undefined }),
+    ).resolves.toEqual({
+      kind: "oauth",
+      url: "https://api.notion.com/v1/oauth/authorize",
+    });
+  });
+
+  it("falls back to settings when OAuth credentials are missing", async () => {
+    await expect(
+      resolveNotionSetupTarget({ error: "missing_credentials" }),
+    ).resolves.toEqual({ kind: "settings" });
   });
 });
 

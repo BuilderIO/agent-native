@@ -109,6 +109,7 @@ import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
+  resolveNotionSetupTarget,
   useNotionConnection,
   useDocumentSyncStatus,
   useLinkDocumentToNotion,
@@ -1462,8 +1463,22 @@ export function DocumentToolbar({
     [createAndLink, documentId, t],
   );
 
-  const handleSetup = () => {
+  const handleSetup = async () => {
     setOpen(false);
+    try {
+      const target = await resolveNotionSetupTarget(connection);
+      if (target.kind === "oauth") {
+        window.location.href = target.url;
+        return;
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.setUpNotionFirst"),
+      );
+      return;
+    }
     void navigate(`${buildSettingsRoute("integrations")}?q=Notion`);
   };
 

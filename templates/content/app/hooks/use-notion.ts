@@ -124,6 +124,15 @@ export async function openNotionOAuthUrl() {
   return fetchNotionAuthUrl();
 }
 
+// Settings > Integrations lists only the Notion MCP server, which is not the
+// account documents sync with; sending a user there with OAuth ready is a loop.
+export async function resolveNotionSetupTarget(
+  connection: Pick<NotionConnectionStatus, "error"> | undefined,
+): Promise<{ kind: "settings" } | { kind: "oauth"; url: string }> {
+  if (connection?.error === "missing_credentials") return { kind: "settings" };
+  return { kind: "oauth", url: await fetchNotionAuthUrl() };
+}
+
 const UNLINKED_SYNC_POLL_MS = 60_000;
 
 export function documentSyncRefetchIntervalMs(
