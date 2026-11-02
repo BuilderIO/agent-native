@@ -530,6 +530,31 @@ export async function hasBuilderOAuthSession(
 }
 
 /**
+ * Whether a grant `hasBuilderOAuthSession` would consider is stored at all,
+ * including one this deployment can no longer decrypt. Such a row is not
+ * custody, but it is why its owner's Builder requests fail, so status
+ * surfaces must ask them to reconnect rather than report never-connected.
+ */
+export async function hasStoredBuilderOAuthGrantForUse(
+  ownerEmail: string,
+  orgId?: string | null,
+  access: { orgOnly?: boolean } = {},
+): Promise<boolean> {
+  for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
+    forUse: true,
+    orgOnly: access.orgOnly,
+  })) {
+    const stored = await getOAuthTokens(
+      "mcp",
+      options.key,
+      `${options.scope}:${options.scopeId}`,
+    );
+    if (stored !== null) return true;
+  }
+  return false;
+}
+
+/**
  * Read the saved Builder grant without refreshing its access token. The
  * status route and chat preflight need a cheap readiness answer; runtime
  * dispatch owns token refresh and reports a reconnect error if refresh fails.

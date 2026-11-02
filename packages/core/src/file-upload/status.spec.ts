@@ -13,7 +13,11 @@ import {
 } from "./registry.js";
 import { getFileUploadStatusForRequest } from "./status.js";
 
-const auth = vi.hoisted(() => ({ custody: vi.fn(), authorize: vi.fn() }));
+const auth = vi.hoisted(() => ({
+  custody: vi.fn(),
+  authorize: vi.fn(),
+  stored: vi.fn(),
+}));
 vi.mock("../client/client-status-requests.js", () => ({
   fetchFileUploadStatus: async () => ({
     state: "available",
@@ -25,6 +29,7 @@ vi.mock("../server/builder-api-auth.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/builder-api-auth.js")>()),
   hasBuilderApiCredentialCustody: auth.custody,
   canAuthorizeBuilderApiRequest: auth.authorize,
+  hasStoredBuilderApiOAuthGrant: auth.stored,
 }));
 
 function clearProviders() {
@@ -36,6 +41,7 @@ beforeEach(() => {
   clearProviders();
   auth.custody.mockReset().mockResolvedValue(false);
   auth.authorize.mockReset().mockResolvedValue(false);
+  auth.stored.mockReset().mockResolvedValue(false);
 });
 afterEach(clearProviders);
 
@@ -227,6 +233,31 @@ describe("file upload status", () => {
         { id: "custom", configured: true },
       ],
       builderReauthorizationRequired: true,
+    });
+  });
+
+  it("asks to reconnect a stored grant this deployment cannot read", async () => {
+    auth.stored.mockResolvedValue(true);
+
+    await expect(getFileUploadStatusForRequest()).resolves.toMatchObject({
+      configured: false,
+      activeProvider: null,
+      builderConfigured: false,
+      builderUploadConfigured: false,
+      builderUnavailable: false,
+      builderReauthorizationRequired: true,
+    });
+  });
+
+  it("does not ask to reconnect when a private key still authorizes uploads", async () => {
+    auth.custody.mockResolvedValue(true);
+    auth.authorize.mockResolvedValue(true);
+    auth.stored.mockResolvedValue(true);
+
+    await expect(getFileUploadStatusForRequest()).resolves.toMatchObject({
+      configured: true,
+      builderUploadConfigured: true,
+      builderReauthorizationRequired: false,
     });
   });
 
