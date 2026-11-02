@@ -11,10 +11,13 @@ import {
   type AgentToolCall,
   type AgentTransport,
 } from "@agent-native/agentkit/protocol";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../../i18n.js";
+import { ThumbsFeedback } from "../../observability/ThumbsFeedback.js";
 import { AgentKitChat } from "./components.js";
 import { AgentKitProvider, type AgentKitRunUsageLoader } from "./context.js";
 
@@ -114,6 +117,7 @@ async function renderChat(
     onThreadForked?: () => void;
     followUpModel?: string;
     formatModelName?: (model: string) => string;
+    feedbackNote?: boolean;
   } = {},
 ) {
   const submitFeedback = options.submitFeedback ?? vi.fn(async () => undefined);
@@ -183,15 +187,32 @@ async function renderChat(
       await Promise.resolve();
     });
   await render(
-    <AgentKitProvider
-      controller={client}
-      threadId={THREAD}
-      onThreadForked={options.onThreadForked ?? (() => undefined)}
-      loadRunUsage={options.loadRunUsage}
-      formatModelName={options.formatModelName}
+    <AgentNativeI18nProvider
+      catalog={createToolkitI18nCatalog({ messages: {} })}
+      persistPreference={false}
     >
-      <AgentKitChat composer={false} />
-    </AgentKitProvider>,
+      <AgentKitProvider
+        controller={client}
+        threadId={THREAD}
+        slots={
+          options.feedbackNote
+            ? {
+                feedbackNote: ({ renderTrigger, ...props }) => (
+                  <ThumbsFeedback
+                    {...props}
+                    renderNegativeTrigger={renderTrigger}
+                  />
+                ),
+              }
+            : undefined
+        }
+        onThreadForked={options.onThreadForked ?? (() => undefined)}
+        loadRunUsage={options.loadRunUsage}
+        formatModelName={options.formatModelName}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>
+    </AgentNativeI18nProvider>,
   );
   cleanups.push(async () => {
     await act(async () => {
@@ -251,6 +272,76 @@ function thumb(toolbar: HTMLElement, value: "positive" | "negative") {
 }
 
 describe("assistant reply toolbar", () => {
+  it("opens the note form after one negative vote and delivers the note to both destinations", async () => {
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_FEEDBACK_URL",
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/api/forms/public/")
+        ? Response.json({
+            id: "form-1",
+            fields: [{ id: "feedback", type: "textarea" }],
+          })
+        : Response.json({}),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { toolbar, submitFeedback } = await renderChat({
+        feedbackNote: true,
+      });
+      await press(thumb(toolbar("assistant-latest"), "negative"));
+      expect(submitFeedback).toHaveBeenCalledOnce();
+      let input = document.body.querySelector<HTMLTextAreaElement>("textarea");
+      expect(input).not.toBeNull();
+      const negative = thumb(toolbar("assistant-latest"), "negative");
+      expect(negative.getAttribute("aria-expanded")).toBe("true");
+      expect(
+        document.getElementById(negative.getAttribute("aria-controls")!),
+      ).not.toBeNull();
+      await act(async () => {
+        input!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        );
+      });
+      expect(document.activeElement).toBe(negative);
+      await press(negative);
+      input = document.body.querySelector<HTMLTextAreaElement>("textarea");
+      expect(input).not.toBeNull();
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value",
+        )?.set?.call(input, "The answer used the wrong source.");
+        input!.dispatchEvent(new Event("input", { bubbles: true }));
+        input!.form?.requestSubmit();
+      });
+      await vi.waitFor(() =>
+        expect(
+          fetchMock.mock.calls.some(([url]) =>
+            String(url).includes("/api/submit/"),
+          ),
+        ).toBe(true),
+      );
+      const calls = fetchMock.mock.calls as unknown as Array<
+        [RequestInfo | URL, RequestInit?]
+      >;
+      expect(
+        calls.some(
+          ([url, init]) =>
+            String(url).includes("/observability/feedback") &&
+            JSON.parse(String(init?.body)).feedbackType === "text",
+        ),
+      ).toBe(true);
+      expect(submitFeedback).toHaveBeenCalledOnce();
+      await vi.waitFor(() =>
+        expect(document.body.querySelector("textarea")).toBeNull(),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
   it("shows Copy, both thumbs and More at rest, with no rating menu or timestamp", async () => {
     const { footer, toolbar } = await renderChat();
     const latest = toolbar("assistant-latest");
