@@ -279,7 +279,7 @@ function DeckCard({
                     pendingDeleteRef.current = true;
                     setMenuOpen(false);
                   }}
-                  className="text-red-400 focus:text-red-400"
+                  className="text-destructive focus:text-destructive"
                 >
                   <IconTrash className="w-3.5 h-3.5 me-2" />
                   {t("home.deleteDeck")}

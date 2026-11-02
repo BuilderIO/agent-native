@@ -6207,8 +6207,17 @@ export default function DeckEditor() {
                 setShowUploadStorageSetup(true);
               }
             }}
-            onDropImage={canEdit ? uploadAndApplyImage : undefined}
-            onDropVideo={canEdit ? uploadAndApplyVideo : undefined}
+            onDropImage={
+              canEdit
+                ? (replaceSrc, file, position) =>
+                    void uploadAndApplyImage(replaceSrc, file, position)
+                : undefined
+            }
+            onDropVideo={
+              canEdit
+                ? (file, position) => void uploadAndApplyVideo(file, position)
+                : undefined
+            }
             fileStorageConfigured={fileStorageConfigured}
             onDropImageUrl={canEdit ? dropImageUrlOnSlide : undefined}
             onToggleObjectFit={toggleObjectFit}
