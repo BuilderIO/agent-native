@@ -134,7 +134,7 @@ Ces deux champs ne contiennent que ces valeurs :
 - `exceptionTags` : `source` (la partie de la CLI qui a échoué), `buildStep` (l’un de nos noms d’étape de build), `template` (uniquement l’un de nos noms de modèle), `command` et `handled` (un libellé de la vérification qui l’a signalé).
 - `exceptionExtra` : `exitCode` et `signal` (comment une étape de build s’est terminée), `stage` et `durationMs`.
 
-L’indice est le début du message, donc un message commençant par un mot simple à vous, comme un nom de projet, pourrait contenir ce mot. Un chemin, une URL, un e-mail ou un jeton ne peut pas passer, car tout mot contenant un chiffre, un tiret bas, une barre oblique ou un autre symbole met fin à l’indice, tout comme un mot trop long.
+L’indice est le début du message, donc un message commençant par des mots simples à vous, comme un nom de projet, pourrait les contenir. Un chiffre, un tiret bas, une barre oblique ou un autre symbole met fin à l’indice, tout comme un mot trop long : les chemins, URL, e-mails et la plupart des jetons ne peuvent donc pas passer.
 
 ### Sentry {#sentry}
 

@@ -125,8 +125,8 @@ export class KnownCliError extends Error {}
 /**
  * The message of a known error, or else the message's opening words, up to 20
  * characters. A word holding anything but letters ends the hint, and so does one
- * that would run past the limit, so no part of a path, URL, email or token gets
- * through. A colon may close the last word, to keep the label of "Label: detail".
+ * that would run past the limit, so no part of a path, URL, email or most tokens
+ * gets through. A colon may close the last word, to keep the label of "Label: detail".
  */
 export function errorHint(error: unknown): string {
   if (error instanceof KnownCliError) {

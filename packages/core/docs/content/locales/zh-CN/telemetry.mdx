@@ -134,7 +134,7 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 - `exceptionTags`：`source`（失败的 CLI 部分）、`buildStep`（我们的构建步骤名称之一）、`template`（仅限我们自己的模板名称）、`command` 和 `handled`（报告它的检查的标签）。
 - `exceptionExtra`：`exitCode` 和 `signal`（构建步骤的退出方式）、`stage` 和 `durationMs`。
 
-提示是消息的开头，因此以你的某个普通词（例如项目名称）开头的消息可能带上这个词。路径、URL、电子邮件或令牌无法通过，因为任何含有数字、下划线、斜杠或其他符号的词都会结束提示，过长的词也一样。
+提示是消息的开头，因此以你的普通词（例如项目名称）开头的消息可能带上这些词。数字、下划线、斜杠或其他符号会结束提示，过长的词也一样，因此路径、URL、电子邮件和大多数令牌无法通过。
 
 ### Sentry {#sentry}
 

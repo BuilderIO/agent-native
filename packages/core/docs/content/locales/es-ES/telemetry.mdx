@@ -134,7 +134,7 @@ Esos dos campos solo contienen estos valores:
 - `exceptionTags`: `source` (la parte de la CLI que falló), `buildStep` (uno de nuestros nombres de pasos de compilación), `template` (solo uno de nuestros nombres de plantilla), `command` y `handled` (una etiqueta de la comprobación que lo notificó).
 - `exceptionExtra`: `exitCode` y `signal` (cómo terminó un paso de compilación), `stage` y `durationMs`.
 
-La pista es el principio del mensaje, así que un mensaje que empiece con una palabra corriente tuya, como el nombre de un proyecto, podría llevar esa palabra. Una ruta, URL, correo electrónico o token no puede pasar, porque cualquier palabra con un dígito, guion bajo, barra u otro símbolo termina la pista, y también una palabra demasiado larga.
+La pista es el principio del mensaje, así que un mensaje que empiece con palabras corrientes tuyas, como el nombre de un proyecto, podría llevarlas. Un dígito, guion bajo, barra u otro símbolo termina la pista, y también una palabra demasiado larga, así que las rutas, URL, correos electrónicos y la mayoría de los tokens no pueden pasar.
 
 ### Sentry {#sentry}
 

@@ -125,12 +125,12 @@ export function printTelemetryNoticeOnce(): void {
   if (noticeChecked) return;
   noticeChecked = true;
   if (isCiEnvironment()) return;
-  const settings = readTelemetrySettings();
-  if (settings.notifiedAt) return;
+  if (readTelemetrySettings().notifiedAt) return;
   process.stderr.write(TELEMETRY_NOTICE);
   try {
+    // Read again, so this can't undo a disable from another command.
     writeTelemetrySettings({
-      ...settings,
+      ...readTelemetrySettings(),
       notifiedAt: new Date().toISOString(),
     });
     // coercion-ok: with a read-only home the notice just prints again next run

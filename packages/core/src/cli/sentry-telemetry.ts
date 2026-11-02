@@ -142,6 +142,8 @@ function loadSentry(stderr: ErrorOutput): Promise<SentryModule | undefined> {
           defaultIntegrations: false,
           sendDefaultPii: false,
           beforeSend(event, hint) {
+            // Telemetry may have been turned off while this report waited.
+            if (cliTelemetryMode() !== "on") return null;
             const exceptionType = event.exception?.values?.[0]?.type;
             if (
               exceptionType === "ValidationError" ||
@@ -189,8 +191,7 @@ export function captureSentryException(
   reporting = reporting
     .then(async () => {
       const sentry = await loadSentry(stderr);
-      // Telemetry may have been turned off while this report waited.
-      if (cliTelemetryMode() === "on") sentry?.captureException(error, context);
+      sentry?.captureException(error, context);
     })
     .catch((reportingError: unknown) =>
       reportUnavailable(reportingError, stderr),

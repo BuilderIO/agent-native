@@ -126,21 +126,25 @@ describe("CLI Sentry telemetry", () => {
     ).toContain("Agent-Native collects anonymous usage data.");
   });
 
-  it("drops a report when telemetry is turned off while Sentry loads", async () => {
-    const captureException = vi.fn();
-    const { setTelemetryEnabled } = await import("./telemetry-settings.js");
+  it("drops a report when telemetry is turned off before Sentry sends it", async () => {
+    let beforeSend: ((event: object, hint: object) => unknown) | undefined;
     vi.doMock("../shared/optional-peer.js", () => ({
       OptionalPeerDependencyError: class extends Error {},
-      loadOptionalPeer: async () => {
-        setTelemetryEnabled(false);
-        return { init: vi.fn(), captureException };
-      },
+      loadOptionalPeer: async () => ({
+        init: (options: { beforeSend: typeof beforeSend }) => {
+          beforeSend = options.beforeSend;
+        },
+        captureException: vi.fn(),
+      }),
     }));
     const { captureSentryException } = await import("./sentry-telemetry.js");
-
+    const { setTelemetryEnabled } = await import("./telemetry-settings.js");
     await captureSentryException(new Error("boom"));
+    expect(beforeSend?.({}, {})).not.toBeNull();
 
-    expect(captureException).not.toHaveBeenCalled();
+    setTelemetryEnabled(false);
+
+    expect(beforeSend?.({}, {})).toBeNull();
   });
 
   it("sends the real SDK's report with no hostname, path, log or identity", async () => {

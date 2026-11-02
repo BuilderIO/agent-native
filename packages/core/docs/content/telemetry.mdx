@@ -134,7 +134,7 @@ Those two fields hold only these values:
 - `exceptionTags`: `source` (the part of the CLI that failed), `buildStep` (one of our build step names), `template` (only one of our own template names), `command` and `handled` (a label for the check that reported it).
 - `exceptionExtra`: `exitCode` and `signal` (how a build step exited), `stage` and `durationMs`.
 
-The hint is the start of the message, so a message that opens with a plain word of yours, such as a project name, could carry that word. A path, URL, email or token can't get through, because any word holding a digit, underscore, slash or other symbol ends the hint, and so does a word too long to fit.
+The hint is the start of the message, so a message that opens with plain words of yours, such as a project name, could carry them. A digit, underscore, slash or other symbol ends the hint, and so does a word too long to fit, so paths, URLs, emails and most tokens can't get through.
 
 ### Sentry
 

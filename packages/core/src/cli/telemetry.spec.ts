@@ -77,6 +77,22 @@ describe("CLI telemetry", () => {
   }
 
   describe("notice", () => {
+    it("keeps a disable that lands while the notice prints", async () => {
+      const {
+        printTelemetryNoticeOnce,
+        setTelemetryEnabled,
+        telemetryOffReason,
+      } = await import("./telemetry-settings.js");
+      vi.mocked(process.stderr.write).mockImplementation(() => {
+        setTelemetryEnabled(false);
+        return true;
+      });
+
+      printTelemetryNoticeOnce();
+
+      expect(telemetryOffReason()).toBe("setting");
+    });
+
     it("prints once on this machine, before the first send, to stderr", async () => {
       (await newRun()).track("test_event");
 
