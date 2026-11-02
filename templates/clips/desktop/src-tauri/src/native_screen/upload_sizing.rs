@@ -1,10 +1,13 @@
 //! How a finished desktop recording is sized for upload.
 //!
-//! One re-encode, sized by the picture and never by the clip's length: half
-//! the capture's bits per pixel, at the size the native capture already
-//! records (a 1280-pixel long edge). Even a square 1280x1280 region comes to
-//! about 222 MiB over 10 minutes, under free hosted storage's 250 MiB per-clip
-//! cap, so no recording needs a smaller picture to fit.
+//! One re-encode, sized by the picture: half the capture's bits per pixel, at
+//! the size the native capture already records (a 1280-pixel long edge). Even
+//! a square 1280x1280 region comes to about 222 MiB over 10 minutes, under free
+//! hosted storage's 250 MiB per-clip cap, so no recording needs a smaller
+//! picture to fit. The clip's length matters only for a recording too long to
+//! fit under the upload limit at that rate (at the default 2 GiB, past about
+//! 80 minutes of a square region or two hours of a 16:10 screen): it gets a
+//! lower bitrate, never a smaller picture.
 //!
 //! This replaced a fixed 18 MB target (BuilderIO/agent-native#8360). It took
 //! the bitrate from 18 MB divided by the duration, so every clip past about
@@ -32,6 +35,10 @@ const TRANSCODE_MAX_LONG_EDGE: u32 = 1280;
 /// The picture budgeted for when the source size is unknown: the largest the
 /// long-edge cap allows, so whatever ffmpeg scales it to is never starved.
 const UNKNOWN_SOURCE_DIMENSIONS: (u32, u32) = (TRANSCODE_MAX_LONG_EDGE, TRANSCODE_MAX_LONG_EDGE);
+
+/// Share of the upload limit a long clip's encode is sized to, leaving room
+/// for the MP4 container and the encoder overshooting its target.
+const UPLOAD_LIMIT_HEADROOM: f64 = 0.9;
 
 /// libx264 quality, used only when the ffmpeg build has libx264. The bundled
 /// sidecar encodes with VideoToolbox, which takes the bitrate instead.
@@ -82,12 +89,26 @@ pub(super) fn transcode_scale_filter(dimensions: Option<(u32, u32)>) -> String {
     }
 }
 
-/// Video bitrate for the re-encode's picture, in kbit/s.
-pub(super) fn transcode_video_rate_kbps(dimensions: Option<(u32, u32)>) -> u32 {
+/// Video bitrate for the re-encode, in kbit/s: the picture's rate, lowered only
+/// when the clip is too long to fit under `limit_bytes` at that rate.
+pub(super) fn transcode_video_rate_kbps(
+    dimensions: Option<(u32, u32)>,
+    duration_ms: Option<u128>,
+    limit_bytes: u64,
+) -> u32 {
     let (width, height) = dimensions.unwrap_or(UNKNOWN_SOURCE_DIMENSIONS);
     let bits_per_second =
         TRANSCODE_BITS_PER_PIXEL * f64::from(width) * f64::from(height) * TRANSCODE_RATE_FPS;
-    (bits_per_second / 1000.0).round().max(1.0) as u32
+    let picture_kbps = (bits_per_second / 1000.0).round();
+    let fitting_kbps = duration_ms
+        .filter(|&ms| ms > 0)
+        .map(|ms| {
+            let budget_bits = limit_bytes as f64 * UPLOAD_LIMIT_HEADROOM * 8.0;
+            let total_kbps = budget_bits / (ms as f64 / 1000.0) / 1000.0;
+            (total_kbps - f64::from(TRANSCODE_AUDIO_BITRATE_KBPS)).floor()
+        })
+        .unwrap_or(f64::INFINITY);
+    picture_kbps.min(fitting_kbps).max(1.0) as u32
 }
 
 /// Whether a finished re-encode should be uploaded instead of the capture: it
@@ -117,11 +138,36 @@ mod tests {
 
     #[test]
     fn bitrate_depends_on_the_picture_not_the_clip_length() {
-        // Half of 0.15 bits per pixel at 24 fps. There is no duration input:
-        // a 13-minute 720p screen share gets the same 1.66 Mbit/s as a
-        // 30-second one, where the old 18 MB target gave it 350 kbit/s.
-        assert_eq!(transcode_video_rate_kbps(Some((1280, 720))), 1659);
-        assert_eq!(transcode_video_rate_kbps(Some((1280, 832))), 1917);
+        // Half of 0.15 bits per pixel at 24 fps. A 13-minute 720p screen share
+        // gets the same 1.66 Mbit/s as a 30-second one, where the old 18 MB
+        // target gave it 350 kbit/s.
+        let rate = |dimensions: Option<(u32, u32)>, duration_ms: Option<u128>| {
+            transcode_video_rate_kbps(dimensions, duration_ms, 2048 * MIB)
+        };
+        assert_eq!(rate(Some((1280, 720)), Some(30_000)), 1659);
+        assert_eq!(rate(Some((1280, 720)), Some(13 * 60_000)), 1659);
+        assert_eq!(rate(Some((1280, 832)), Some(13 * 60_000)), 1917);
+        assert_eq!(rate(Some((1280, 832)), None), 1917);
+    }
+
+    #[test]
+    fn a_clip_too_long_for_the_limit_keeps_its_picture_at_a_lower_bitrate() {
+        // Own storage has no duration cap. Three hours of a 16:10 screen at
+        // the picture's rate would be about 2.6 GiB, over the default 2 GiB
+        // limit, so the bitrate comes down until it fits.
+        let limit = 2048 * MIB;
+        let three_hours_ms: u128 = 3 * 60 * 60_000;
+        let kbps = transcode_video_rate_kbps(Some((1280, 832)), Some(three_hours_ms), limit);
+        assert!(kbps < 1917, "{kbps}");
+        let seconds = (three_hours_ms / 1000) as u64;
+        let bytes = u64::from(kbps + TRANSCODE_AUDIO_BITRATE_KBPS) * 1000 / 8 * seconds;
+        assert!(bytes <= limit * 9 / 10, "{bytes}");
+        // Two hours still fits at the picture's rate.
+        let two_hours_ms: u128 = 2 * 60 * 60_000;
+        assert_eq!(
+            transcode_video_rate_kbps(Some((1280, 832)), Some(two_hours_ms), limit),
+            1917
+        );
     }
 
     #[test]
@@ -136,14 +182,17 @@ mod tests {
              'if(gte(iw,ih),-2,trunc(min(ih,1280)/2)*2)':flags=lanczos"
         );
         // Budgeted as a 1280x1280 square, so no shape ffmpeg picks is starved.
-        assert_eq!(transcode_video_rate_kbps(None), 2949);
+        assert_eq!(transcode_video_rate_kbps(None, None, 2048 * MIB), 2949);
     }
 
     #[test]
     fn ten_minutes_fits_free_hosted_storage_at_any_shape() {
         // A square region is the most pixels a 1280 long edge allows.
         let dimensions = transcode_dimensions(Some(1280), Some(1280));
-        let kbps = u64::from(transcode_video_rate_kbps(dimensions) + TRANSCODE_AUDIO_BITRATE_KBPS);
+        // Sized against the hosted cap, 10 minutes still gets the full rate.
+        let video_kbps = transcode_video_rate_kbps(dimensions, Some(600_000), 250 * MIB);
+        assert_eq!(video_kbps, 2949);
+        let kbps = u64::from(video_kbps + TRANSCODE_AUDIO_BITRATE_KBPS);
         let ten_minute_bytes = kbps * 1000 / 8 * 600;
         assert!(ten_minute_bytes < 225 * MIB, "{ten_minute_bytes}");
         assert!(ten_minute_bytes < 250 * MIB);

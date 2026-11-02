@@ -7514,6 +7514,7 @@ pub(crate) async fn upload_finalized_native_artifact(
         artifact.mime_type,
         artifact.width,
         artifact.height,
+        Some(artifact.duration_ms),
         has_audio,
         artifact.mic_captured,
         artifact.system_audio_captured,
@@ -7581,6 +7582,7 @@ fn prepare_saved_recording_file(
         &saved.mime_type,
         saved.width,
         saved.height,
+        Some(saved.duration_ms),
         saved.has_audio,
         saved.mic_captured,
         saved.system_audio_captured,
@@ -9256,6 +9258,7 @@ fn prepare_recording_file(
     mime_type: &str,
     width: Option<u32>,
     height: Option<u32>,
+    duration_ms: Option<u128>,
     has_audio: bool,
     mic_captured_audio: bool,
     system_audio_captured: bool,
@@ -9411,6 +9414,7 @@ fn prepare_recording_file(
             path,
             &compressed_path,
             dimensions,
+            duration_ms,
             has_audio,
             downmix_audio,
             denoise_audio,
@@ -9756,6 +9760,7 @@ fn transcode_with_ffmpeg(
     source: &Path,
     output: &Path,
     dimensions: Option<(u32, u32)>,
+    duration_ms: Option<u128>,
     normalize_audio: bool,
     downmix_audio: bool,
     denoise_audio: bool,
@@ -9786,8 +9791,10 @@ fn transcode_with_ffmpeg(
         ));
     }
 
-    // Sized by the picture, never by the clip's length (see `upload_sizing`).
-    let video_rate_kbps = transcode_video_rate_kbps(dimensions);
+    // Sized by the picture. Only a clip too long to fit under the upload limit
+    // at that rate gets a lower bitrate, never a smaller picture (see
+    // `upload_sizing`).
+    let video_rate_kbps = transcode_video_rate_kbps(dimensions, duration_ms, max_upload_bytes());
     let maxrate = format!("{video_rate_kbps}k");
     let bufsize = format!("{}k", video_rate_kbps * 2);
     let audio_bitrate = format!("{TRANSCODE_AUDIO_BITRATE_KBPS}k");
