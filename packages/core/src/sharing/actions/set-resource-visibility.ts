@@ -217,12 +217,22 @@ export default defineAction({
       // Another request may have changed the resource since this call wrote
       // it; keep that newer value rather than putting back an older one.
       // Reading first narrows that window without closing it, since a
-      // registration's own persistence can't take a condition.
+      // registration's own persistence can't take a condition. When this call
+      // also attached the resource to an organization, a different
+      // organization there now is a newer change too.
+      const attachedOrg =
+        change.update.orgId !== undefined && !!reg.resourceTable.orgId;
       const [current] = await db
-        .select({ visibility: reg.resourceTable.visibility })
+        .select({
+          visibility: reg.resourceTable.visibility,
+          ...(attachedOrg ? { orgId: reg.resourceTable.orgId } : {}),
+        })
         .from(reg.resourceTable)
         .where(eq(reg.resourceTable.id, change.resourceId));
-      if (current?.visibility === args.visibility) {
+      if (
+        current?.visibility === args.visibility &&
+        (!attachedOrg || current.orgId === change.update.orgId)
+      ) {
         const previous: Record<string, unknown> = {
           visibility: change.access.resource.visibility,
         };

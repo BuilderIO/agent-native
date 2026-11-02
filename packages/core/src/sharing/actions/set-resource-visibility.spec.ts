@@ -697,6 +697,33 @@ describe("set-resource-visibility on several resources", () => {
     expect(calls.invalidated).toEqual([`${resourceType}:doc-first`]);
   });
 
+  it("keeps an organization another request attached before the rollback", async () => {
+    register({
+      persistVisibilityChange: async ({ resourceId, update }) => {
+        if (resourceId === "doc-fails") {
+          // Someone else moves doc-loose to another organization, leaving its
+          // visibility as this batch wrote it.
+          await db
+            .update(docs)
+            .set({ orgId: "org-other" })
+            .where(eq(docs.id, "doc-loose"));
+          throw new Error("storage refused");
+        }
+        await db.update(docs).set(update).where(eq(docs.id, resourceId));
+      },
+    });
+    await insertDoc({ id: "doc-loose", orgId: null });
+    await insertDoc({ id: "doc-fails" });
+
+    await expect(batch(["doc-loose", "doc-fails"], "org")).rejects.toThrow(
+      /^storage refused$/,
+    );
+    expect(await rows()).toEqual({
+      "doc-loose": { visibility: "org", orgId: "org-other" },
+      "doc-fails": { visibility: "private", orgId },
+    });
+  });
+
   it("reports a refusal from a persistence hook like one found up front", async () => {
     // Forms checks an org permission inside its hook, after the batch's checks.
     register({

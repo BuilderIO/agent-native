@@ -241,8 +241,25 @@ async function deleteOne(
   });
   return {
     alreadyDeleted: !deletedHere,
-    mediaCleanup: await mediaCleanupSummary(id, ownerEmail),
+    mediaCleanup: await cleanupAfterDelete(id, ownerEmail),
   };
+}
+
+// The delete has committed by now, so a failed read leaves the result
+// reporting a deleted recording whose cleanup state couldn't be read.
+async function cleanupAfterDelete(
+  id: string,
+  ownerEmail: string,
+): Promise<MediaCleanupSummary | null> {
+  try {
+    return await mediaCleanupSummary(id, ownerEmail);
+  } catch (error) {
+    console.error(
+      `[clips] Could not read the media cleanup state of ${id} after deleting it:`,
+      error,
+    );
+    return null;
+  }
 }
 
 export default defineAction({

@@ -5,6 +5,7 @@ import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { writeAppState } from "@agent-native/core/application-state";
 import * as schema from "../server/db/schema.js";
 import { recordingMediaCleanupMigration } from "../server/lib/recording-media-cleanup-schema.js";
 import { buildRecordingMediaReferenceIndexes } from "../server/lib/recording-media-reference-indexes.js";
@@ -28,9 +29,9 @@ const mocks = vi.hoisted(() => ({
   role: vi.fn(),
   privateBlob: vi.fn(),
   scope: vi.fn(),
-  // Which reads of a recording's cleanup summary come back missing, as if
-  // the read failed, counting reads from 1 since the last clear.
-  unreadableSummaries: new Map<string, (read: number) => boolean>(),
+  // Which reads of a recording's cleanup summary come back missing, or throw
+  // ("throws"), counting reads from 1 since the last clear.
+  unreadableSummaries: new Map<string, (read: number) => boolean | "throws">(),
   summaryReads: new Map<string, number>(),
 }));
 vi.mock("../server/lib/recording-media-cleanup-worker.js", async (original) => {
@@ -43,7 +44,10 @@ vi.mock("../server/lib/recording-media-cleanup-worker.js", async (original) => {
     mediaCleanupSummary: (id: string, ownerEmail: string) => {
       const read = (mocks.summaryReads.get(id) ?? 0) + 1;
       mocks.summaryReads.set(id, read);
-      return mocks.unreadableSummaries.get(id)?.(read)
+      const unreadable = mocks.unreadableSummaries.get(id)?.(read);
+      if (unreadable === "throws")
+        return Promise.reject(new Error("cleanup summary read failed"));
+      return unreadable
         ? Promise.resolve(null)
         : actual.mediaCleanupSummary(id, ownerEmail);
     },
@@ -967,5 +971,39 @@ describe("permanent deletion of several recordings in one call", () => {
       mocks.unreadableSummaries.clear();
       mocks.summaryReads.clear();
     }
+  });
+  it("reports a deletion as done when reading its cleanup state fails after the delete", async () => {
+    await insertRecording("rec-2", video + "-2");
+    await insertRecording("rec-3", video + "-3");
+    // Read 1 is the delete's own first look; read 2 follows the commit.
+    mocks.unreadableSummaries.set("rec-2", (read) => read === 2 && "throws");
+    mocks.unreadableSummaries.set("rec-3", (read) => read === 2 && "throws");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await action.run({ ids: ["rec-1", "rec-2"] });
+      expect(result).toMatchObject({ changed: 2, unchanged: 0, skipped: 0 });
+      expect("results" in result && result.results[1]).toEqual({
+        id: "rec-2",
+        status: "changed",
+        recordingRemoved: true,
+        mediaCleanup: null,
+        reason:
+          "Deleted, but its media cleanup state couldn't be read. Call again with this id to read it.",
+      });
+      vi.mocked(writeAppState).mockClear();
+      await expect(action.run({ id: "rec-3" })).rejects.toThrow(
+        "Recording cleanup could not be read",
+      );
+      expect(writeAppState).toHaveBeenCalledWith(
+        "refresh-signal",
+        expect.anything(),
+      );
+    } finally {
+      errors.mockRestore();
+      mocks.unreadableSummaries.clear();
+      mocks.summaryReads.clear();
+    }
+    expect(await rows("recordings")).toEqual([]);
+    expect(await rows("recording_media_cleanups")).toHaveLength(3);
   });
 });
