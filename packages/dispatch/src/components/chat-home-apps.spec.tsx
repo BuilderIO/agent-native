@@ -147,7 +147,9 @@ describe("DispatchChatHomeApps", () => {
       renderChatHome(root);
     });
 
-    const section = container.querySelector("section[aria-label='Workspace apps']");
+    const section = container.querySelector(
+      "section[aria-label='Workspace apps']",
+    );
     const grid = section?.querySelector(".grid.grid-cols-1");
     expect(grid?.className.split(" ")).toContain("sm:grid-cols-2");
     expect(section?.querySelectorAll("article")).toHaveLength(1);
@@ -276,7 +278,8 @@ describe("DispatchChatHomeApps", () => {
     await act(async () => renderChatHome(root));
 
     expect(
-      container.querySelector("section[aria-label='Workspace apps']")?.textContent,
+      container.querySelector("section[aria-label='Workspace apps']")
+        ?.textContent,
     ).toContain("dispatch.pages.chatFirstNoWorkspaceApps");
     expect(
       container.querySelectorAll("section[aria-label='Hosted apps'] article"),
@@ -299,7 +302,9 @@ describe("DispatchChatHomeApps", () => {
 
     await act(async () => renderChatHome(root));
 
-    const apps = container.querySelector("section[aria-label='Workspace apps']");
+    const apps = container.querySelector(
+      "section[aria-label='Workspace apps']",
+    );
     expect(apps?.textContent).toContain("New");
     expect(apps?.textContent).toContain(
       "dispatch.pages.chatFirstNoWorkspaceApps",

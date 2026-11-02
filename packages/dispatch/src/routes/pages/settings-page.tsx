@@ -68,7 +68,8 @@ registerSettingsPages([
       {
         id: "hosted-apps",
         labelKey: "dispatch.pages.showHostedApps",
-        keywords: "agent-native.com hosted apps built-in agent-native mail calendar hide",
+        keywords:
+          "agent-native.com hosted apps built-in agent-native mail calendar hide",
         anchor: "show-hosted-apps",
       },
     ],

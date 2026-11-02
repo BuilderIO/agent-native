@@ -476,7 +476,8 @@ const messages = {
       newApp: "新增應用程式",
       viewAllApps: "查看全部",
       manageHostedApps: "管理",
-      manageHostedAppsAdminOnly: "只有組織管理員可以變更 Agent-Native.com 託管應用程式。",
+      manageHostedAppsAdminOnly:
+        "只有組織管理員可以變更 Agent-Native.com 託管應用程式。",
       showHostedApps: "顯示 Agent-Native.com 託管應用程式",
       hostedAppsSaveFailed: "無法儲存 Agent-Native.com 託管應用程式設定。",
       hostedAppsSettingInvalid:

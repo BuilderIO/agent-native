@@ -389,7 +389,9 @@ describe("DispatchControlPlane", () => {
 
     const tier = (label: string) =>
       container.querySelector(`section[aria-label="${label}"]`);
-    expect(tier("dispatch.pages.workspaceApps")?.textContent).toContain("Onboarding");
+    expect(tier("dispatch.pages.workspaceApps")?.textContent).toContain(
+      "Onboarding",
+    );
     const hosted = tier("dispatch.pages.hostedApps");
     expect(hosted?.textContent).toContain("Clips");
     expect(hosted?.textContent).toContain("Mail");

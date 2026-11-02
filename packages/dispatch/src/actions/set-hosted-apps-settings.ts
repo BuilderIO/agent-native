@@ -16,7 +16,9 @@ export default defineAction({
   schema: z.object({
     showHostedApps: z
       .boolean()
-      .describe("true shows Agent-Native.com hosted apps; false hides them for everyone."),
+      .describe(
+        "true shows Agent-Native.com hosted apps; false hides them for everyone.",
+      ),
   }),
   outputSchema: hostedAppsSettingsViewSchema,
   run: async ({ showHostedApps }) => {
@@ -25,7 +27,9 @@ export default defineAction({
       action: "hosted-apps.updated",
       targetType: "dispatch-settings",
       targetId: HOSTED_APPS_SETTINGS_KEY,
-      summary: showHostedApps ? "Showed Agent-Native.com hosted apps" : "Hid Agent-Native.com hosted apps",
+      summary: showHostedApps
+        ? "Showed Agent-Native.com hosted apps"
+        : "Hid Agent-Native.com hosted apps",
       metadata: saved,
     });
     return saved;

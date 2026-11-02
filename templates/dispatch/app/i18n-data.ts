@@ -527,7 +527,8 @@ const enUS = {
       manageHostedAppsAdminOnly:
         "Only organization admins can change Agent-Native.com hosted apps.",
       showHostedApps: "Show Agent-Native.com hosted apps",
-      hostedAppsSaveFailed: "The Agent-Native.com hosted apps setting could not be saved.",
+      hostedAppsSaveFailed:
+        "The Agent-Native.com hosted apps setting could not be saved.",
       hostedAppsSettingInvalid:
         "The stored Agent-Native.com hosted apps setting is invalid. Saving a value replaces it.",
       appPinSaveFailed: "App pins could not be saved.",
@@ -1590,7 +1591,8 @@ export const messagesByLocale = {
           newApp: "新建应用",
           viewAllApps: "查看全部",
           manageHostedApps: "管理",
-          manageHostedAppsAdminOnly: "只有组织管理员可以更改 Agent-Native.com 托管应用。",
+          manageHostedAppsAdminOnly:
+            "只有组织管理员可以更改 Agent-Native.com 托管应用。",
           showHostedApps: "显示 Agent-Native.com 托管应用",
           hostedAppsSaveFailed: "无法保存 Agent-Native.com 托管应用设置。",
           hostedAppsSettingInvalid:
@@ -2558,7 +2560,8 @@ export const messagesByLocale = {
           manageHostedApps: "Gérer",
           manageHostedAppsAdminOnly:
             "Seuls les administrateurs de l’organisation peuvent modifier les applications hébergées sur Agent-Native.com.",
-          showHostedApps: "Afficher les applications hébergées sur Agent-Native.com",
+          showHostedApps:
+            "Afficher les applications hébergées sur Agent-Native.com",
           hostedAppsSaveFailed:
             "Impossible d’enregistrer le paramètre des applications hébergées sur Agent-Native.com.",
           hostedAppsSettingInvalid:
@@ -3518,7 +3521,8 @@ export const messagesByLocale = {
           manageHostedAppsAdminOnly:
             "Agent-Native.com のホスト型アプリを変更できるのは組織の管理者だけです。",
           showHostedApps: "Agent-Native.com のホスト型アプリを表示",
-          hostedAppsSaveFailed: "Agent-Native.com のホスト型アプリの設定を保存できませんでした。",
+          hostedAppsSaveFailed:
+            "Agent-Native.com のホスト型アプリの設定を保存できませんでした。",
           hostedAppsSettingInvalid:
             "保存されている Agent-Native.com のホスト型アプリの設定が無効です。値を保存すると置き換えられます。",
           adminDescription: "ワークスペースの管理と運用",
@@ -3988,7 +3992,8 @@ export const messagesByLocale = {
           manageHostedAppsAdminOnly:
             "조직 관리자만 Agent-Native.com 호스팅 앱을 변경할 수 있습니다.",
           showHostedApps: "Agent-Native.com 호스팅 앱 표시",
-          hostedAppsSaveFailed: "Agent-Native.com 호스팅 앱 설정을 저장하지 못했습니다.",
+          hostedAppsSaveFailed:
+            "Agent-Native.com 호스팅 앱 설정을 저장하지 못했습니다.",
           hostedAppsSettingInvalid:
             "저장된 Agent-Native.com 호스팅 앱 설정이 올바르지 않습니다. 값을 저장하면 대체됩니다.",
           adminDescription: "워크스페이스 제어 및 운영",
@@ -4937,7 +4942,8 @@ export const messagesByLocale = {
           manageHostedAppsAdminOnly:
             "केवल संगठन के एडमिन ही Agent-Native.com पर होस्ट किए गए ऐप बदल सकते हैं।",
           showHostedApps: "Agent-Native.com पर होस्ट किए गए ऐप दिखाएं",
-          hostedAppsSaveFailed: "Agent-Native.com पर होस्ट किए गए ऐप की सेटिंग सहेजी नहीं जा सकी।",
+          hostedAppsSaveFailed:
+            "Agent-Native.com पर होस्ट किए गए ऐप की सेटिंग सहेजी नहीं जा सकी।",
           hostedAppsSettingInvalid:
             "सहेजी गई Agent-Native.com पर होस्ट किए गए ऐप की सेटिंग अमान्य है। कोई मान सहेजने पर यह बदल जाएगी।",
           adminDescription: "वर्कस्पेस नियंत्रण और संचालन",
@@ -5436,7 +5442,8 @@ export const messagesByLocale = {
           manageHostedAppsAdminOnly:
             "يمكن لمسؤولي المؤسسة فقط تغيير التطبيقات المستضافة على Agent-Native.com.",
           showHostedApps: "إظهار التطبيقات المستضافة على Agent-Native.com",
-          hostedAppsSaveFailed: "تعذّر حفظ إعداد التطبيقات المستضافة على Agent-Native.com.",
+          hostedAppsSaveFailed:
+            "تعذّر حفظ إعداد التطبيقات المستضافة على Agent-Native.com.",
           hostedAppsSettingInvalid:
             "إعداد التطبيقات المستضافة على Agent-Native.com المحفوظ غير صالح. يؤدي حفظ قيمة إلى استبداله.",
           adminDescription: "عناصر التحكم في مساحة العمل وعملياتها",
