@@ -367,6 +367,23 @@ describe("summarizeMcpApproval", () => {
     ]);
   });
 
+  it("reaches the real address of a guest whose name reads like another", () => {
+    const summary = summarizeMcpApproval({
+      entry: undefined,
+      actionName: "create-event",
+      argumentsJson: JSON.stringify({
+        attendees: [
+          { email: "eve@example.com", displayName: "dana@example.com" },
+        ],
+      }),
+      labels,
+    });
+    expect(summary.fields).toEqual([
+      { label: "Attendees", value: "dana@example.com <eve@example.com>" },
+    ]);
+    expect(summary.recipients).toEqual(["eve@example.com", "dana@example.com"]);
+  });
+
   it("says a choice in words, with the schema's own title for it when there is one", () => {
     const summary = summarizeMcpApproval({
       entry: entry({
