@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
+import { COLLAB_OUTBOX_PREFIXES } from "@agent-native/core/collab/outbox-keys";
 import {
   expect,
   test,
@@ -77,7 +78,6 @@ const SESSION_PATH = "/_agent-native/auth/session";
 const EVENTS_PATH = "/_agent-native/events";
 const POLL_PATH = "/_agent-native/poll";
 const COLLAB_UPDATE_PATH = /^\/_agent-native\/collab\/[^/]+\/update$/;
-export const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
 
 /**
  * The request that saves a tab's typing. A legacy page saves its whole body
@@ -807,11 +807,16 @@ export class TabSet {
     for (const [page, record] of this.tabs) {
       if (page.isClosed()) continue;
       const state = await page
-        .evaluate((prefix) => {
+        .evaluate((prefixes) => {
           let outbox = 0;
           for (let index = 0; index < localStorage.length; index++) {
             const key = localStorage.key(index);
-            if (key?.startsWith(prefix) && localStorage.getItem(key)) outbox++;
+            if (
+              key &&
+              prefixes.some((prefix) => key.startsWith(prefix)) &&
+              localStorage.getItem(key)
+            )
+              outbox++;
           }
           const pending = (globalThis as { __pendingSaves?: unknown })
             .__pendingSaves;
@@ -819,7 +824,7 @@ export class TabSet {
             pending: typeof pending === "number" ? pending : null,
             outbox,
           };
-        }, OUTBOX_PREFIX)
+        }, COLLAB_OUTBOX_PREFIXES)
         .catch((error: unknown) => String(error).slice(0, 120));
       if (typeof state === "string")
         unsettled.push(`${record.label}: unreadable (${state})`);
@@ -1249,12 +1254,13 @@ export async function outboxEntries(
   documentId: string,
 ): Promise<string[]> {
   return page.evaluate(
-    ({ prefix, doc }) => {
+    ({ prefixes, doc }) => {
       const keys: string[] = [];
       for (let index = 0; index < localStorage.length; index++) {
         const key = localStorage.key(index);
         if (
-          key?.startsWith(prefix) &&
+          key &&
+          prefixes.some((prefix) => key.startsWith(prefix)) &&
           key.includes(doc) &&
           localStorage.getItem(key)
         )
@@ -1263,8 +1269,41 @@ export async function outboxEntries(
       return keys;
     },
     // A key names the doc as encodeURIComponent(`${baseUrl}\0${docId}`).
-    { prefix: OUTBOX_PREFIX, doc: `%00${encodeURIComponent(documentId)}:` },
+    {
+      prefixes: COLLAB_OUTBOX_PREFIXES,
+      doc: `%00${encodeURIComponent(documentId)}:`,
+    },
   );
+}
+
+/**
+ * Makes the page's next outbox write throw a quota error, once. The page's
+ * `__outboxSetItemFailed` turns true when that write was attempted, and
+ * `__outboxOriginalSetItem` holds the setItem to restore.
+ */
+export async function failNextOutboxWrite(page: Page): Promise<void> {
+  await page.evaluate((prefixes) => {
+    const flags = window as unknown as {
+      __outboxOriginalSetItem?: Storage["setItem"];
+      __outboxSetItemFailed?: boolean;
+    };
+    const original = Storage.prototype.setItem;
+    flags.__outboxOriginalSetItem = original;
+    flags.__outboxSetItemFailed = false;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (
+        !flags.__outboxSetItemFailed &&
+        prefixes.some((prefix) => key.startsWith(prefix))
+      ) {
+        flags.__outboxSetItemFailed = true;
+        throw new DOMException(
+          "Simulated one-time outbox write failure",
+          "QuotaExceededError",
+        );
+      }
+      return original.call(this, key, value);
+    };
+  }, COLLAB_OUTBOX_PREFIXES);
 }
 
 export function delay(ms: number): Promise<void> {

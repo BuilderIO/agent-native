@@ -17,6 +17,7 @@ import {
   EDITOR,
   EDITOR_BODY,
   expectEditorReady,
+  failNextOutboxWrite,
   getDocument,
   getPreviewDraft,
   integrityFailures,
@@ -25,7 +26,6 @@ import {
   NOT_DERIVED,
   observeIntegrity,
   outboxEntries,
-  OUTBOX_PREFIX,
   PAGE_PARAGRAPHS,
   postAction,
   RequestGate,
@@ -367,22 +367,7 @@ async function peerTitleWhileUpdatesFail(
       body: "Collaboration update refused while another tab renames the page",
     });
   });
-  if (outboxWriteFailsOnce)
-    await a.evaluate((prefix) => {
-      const original = Storage.prototype.setItem;
-      (window as any).__outboxOriginalSetItem = original;
-      (window as any).__outboxSetItemFailed = false;
-      Storage.prototype.setItem = function (key: string, value: string) {
-        if (!(window as any).__outboxSetItemFailed && key.startsWith(prefix)) {
-          (window as any).__outboxSetItemFailed = true;
-          throw new DOMException(
-            "Simulated one-time outbox write failure",
-            "QuotaExceededError",
-          );
-        }
-        return original.call(this, key, value);
-      };
-    }, OUTBOX_PREFIX);
+  if (outboxWriteFailsOnce) await failNextOutboxWrite(a);
 
   await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
   await expect.poll(() => failedCollabUpdates).toBeGreaterThan(0);
