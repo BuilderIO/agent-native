@@ -154,9 +154,9 @@ const listed = (id: string, status: string) => ({
   updatedAt: "2026-10-28T10:05:00.000Z",
 });
 
-const PENDING_TOAST = "Removed from Clips; storage removal not yet confirmed";
+const PENDING_TOAST = "Video removed from Clips. Deletion checks are running.";
 const UNCONFIRMED_TOAST =
-  "Removed from Clips; storage removal could not be confirmed";
+  "Video removed from Clips. Couldn't confirm file deletion.";
 const RETAINED_TOAST =
   "Recording deleted. Media files other recordings still use were kept.";
 const RETAINED_ROW =
@@ -247,7 +247,7 @@ describe("TrashRoute permanent delete", () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
 
-  it("reports accounting-only finalization without claiming storage is unknown or cleanup is complete", async () => {
+  it("reports an owed storage usage update without claiming files are unknown or cleanup is complete", async () => {
     mocks.recordings = [{ id: "rec-1" }];
     mocks.purge.mockResolvedValue({
       ...deleted("rec-1", "blocked"),
@@ -264,7 +264,7 @@ describe("TrashRoute permanent delete", () => {
     await click(dialogAction());
 
     expect(toast.info).toHaveBeenCalledWith(
-      "Removed from Clips; finalizing cleanup",
+      "Video removed from Clips. Storage usage update needs a retry.",
     );
     expect(toast.success).not.toHaveBeenCalled();
     expect(toast.warning).not.toHaveBeenCalled();
@@ -310,17 +310,17 @@ describe("TrashRoute permanent delete", () => {
     expect(toast.success).toHaveBeenCalledTimes(1);
     expect(toast.success).toHaveBeenCalledWith("1 clips permanently deleted");
     expect(toast.info).toHaveBeenCalledWith(
-      "Recordings removed from Clips: 1; storage removal not yet confirmed",
+      "Videos removed from Clips: 1. Deletion checks are running.",
     );
     expect(toast.info).toHaveBeenCalledWith(
       "Recordings deleted: 1. Media files other recordings still use were kept.",
     );
     expect(toast.info).toHaveBeenCalledWith(
-      "Recordings removed from Clips: 1; storage removal could not be confirmed",
+      "Videos removed from Clips: 1. Couldn't confirm file deletion.",
     );
     expect(toast.warning).not.toHaveBeenCalled();
     expect(toast.info).toHaveBeenCalledWith(
-      "Recordings removed from Clips: 1; finalizing cleanup",
+      "Videos removed from Clips: 1. Storage usage update needs a retry.",
     );
     expect(toast.error).toHaveBeenCalledTimes(1);
     expect(toast.error).toHaveBeenCalledWith("1 clips could not be deleted");
@@ -344,7 +344,7 @@ describe("TrashRoute permanent delete", () => {
 
     expect(container.querySelector('[data-testid="empty-trash"]')).toBeTruthy();
     expect(container.textContent).toContain(
-      "Storage removal could not be confirmed",
+      "Couldn't confirm video file deletion",
     );
   });
 

@@ -251,32 +251,45 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clips permanently deleted",
     clipsDeleteFailed: "{{count}} clips could not be deleted",
     deletedMediaPending:
-      "Removed from Clips; storage removal not yet confirmed",
+      "Video removed from Clips. Deletion checks are running.",
     deletedMediaBlocked:
-      "Removed from Clips; storage removal could not be confirmed",
+      "Video removed from Clips. Couldn't confirm file deletion.",
     deletedMediaRetained:
       "Recording deleted. Media files other recordings still use were kept.",
     clipsDeletedMediaPending:
-      "Recordings removed from Clips: {{count}}; storage removal not yet confirmed",
+      "Videos removed from Clips: {{count}}. Deletion checks are running.",
     clipsDeletedMediaBlocked:
-      "Recordings removed from Clips: {{count}}; storage removal could not be confirmed",
+      "Videos removed from Clips: {{count}}. Couldn't confirm file deletion.",
     clipsDeletedMediaRetained:
       "Recordings deleted: {{count}}. Media files other recordings still use were kept.",
-    deletedMediaFinalizing: "Removed from Clips; finalizing cleanup",
+    deletedMediaFinalizing:
+      "Video removed from Clips. Storage usage update needs a retry.",
     clipsDeletedMediaFinalizing:
-      "Recordings removed from Clips: {{count}}; finalizing cleanup",
-    mediaCleanupFinalizing: "Finalizing cleanup for the removed recording",
+      "Videos removed from Clips: {{count}}. Storage usage update needs a retry.",
+    mediaCleanupFinalizing: "Storage usage update needs a retry",
+    mediaCleanupFinalizingHelp:
+      "The file-removal checks finished, but your storage usage hasn't been updated. Retry asks Clips to update it again.",
     mediaCleanupListLabel: "Media removal",
-    mediaCleanupPending:
-      "Removed from Clips; storage removal not yet confirmed",
-    mediaCleanupBlocked: "Storage removal could not be confirmed",
+    mediaCleanupPending: "Deletion checks in progress",
+    mediaCleanupPendingHelp:
+      "Clips continues checking in the background. You can leave this page.",
+    mediaCleanupBlocked: "Couldn't confirm video file deletion",
+    mediaCleanupBlockedHelp:
+      "The video is no longer in Clips. Its stored files may still exist. Retry asks Clips to try removing them again.",
     mediaCleanupReconnect:
       "Reconnect storage to remove media files from deleted recordings",
     mediaCleanupRetained:
       "Shared media files from deleted recordings are kept while other recordings use them",
+    mediaCleanupHelp: "More info",
+    mediaCleanupRetryFiles: "Retry removal",
+    mediaCleanupRetryingFiles: "Retrying video file deletion",
+    mediaCleanupRetryUsage: "Retry usage update",
+    mediaCleanupRetryingUsage: "Retrying storage usage update",
     mediaCleanupRemoved: "Media files removed",
-    mediaCleanupStillBlocked: "Storage removal still could not be confirmed",
-    mediaCleanupRetryFailed: "Couldn't retry media removal",
+    mediaCleanupUsageUpdated: "Storage usage updated",
+    mediaCleanupStillBlocked: "Still couldn't confirm video file deletion",
+    mediaCleanupStillFinalizing: "Storage usage update still needs a retry",
+    mediaCleanupRetryFailed: "Couldn't start the retry. Try again.",
     mediaCleanupLoadFailed: "Couldn't load media removal status",
   },
   recordingRoute: {

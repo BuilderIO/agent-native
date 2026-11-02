@@ -319,35 +319,52 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clips eliminados permanentemente",
     clipsDeleteFailed: "{{count}} clips no se pudieron eliminar",
     deletedMediaPending:
-      "Eliminado de Clips; aún no se ha confirmado la eliminación del almacenamiento",
+      "Vídeo eliminado de Clips. Se están realizando las comprobaciones de eliminación.",
     deletedMediaBlocked:
-      "Eliminado de Clips; no se pudo confirmar la eliminación del almacenamiento",
+      "Vídeo eliminado de Clips. No se pudo confirmar la eliminación de los archivos.",
     deletedMediaRetained:
       "Grabación eliminada. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
     clipsDeletedMediaPending:
-      "Grabaciones eliminadas de Clips: {{count}}; aún no se ha confirmado la eliminación del almacenamiento",
+      "Vídeos eliminados de Clips: {{count}}. Se están realizando las comprobaciones de eliminación.",
     clipsDeletedMediaBlocked:
-      "Grabaciones eliminadas de Clips: {{count}}; no se pudo confirmar la eliminación del almacenamiento",
+      "Vídeos eliminados de Clips: {{count}}. No se pudo confirmar la eliminación de los archivos.",
     clipsDeletedMediaRetained:
       "Grabaciones eliminadas: {{count}}. Se conservaron los archivos multimedia que otras grabaciones aún usan.",
-    deletedMediaFinalizing: "Eliminado de Clips; finalizando la limpieza",
+    deletedMediaFinalizing:
+      "Vídeo eliminado de Clips. Hay que reintentar la actualización del uso de almacenamiento.",
     clipsDeletedMediaFinalizing:
-      "Grabaciones eliminadas de Clips: {{count}}; finalizando la limpieza",
-    mediaCleanupFinalizing: "Finalizando la limpieza de la grabación eliminada",
+      "Vídeos eliminados de Clips: {{count}}. Hay que reintentar la actualización del uso de almacenamiento.",
+    mediaCleanupFinalizing:
+      "Hay que reintentar la actualización del uso de almacenamiento",
+    mediaCleanupFinalizingHelp:
+      "Las comprobaciones de eliminación de archivos terminaron, pero tu uso de almacenamiento no se ha actualizado. Al reintentar, Clips intentará actualizarlo de nuevo.",
     mediaCleanupListLabel: "Eliminación de archivos multimedia",
-    mediaCleanupPending:
-      "Eliminado de Clips; aún no se ha confirmado la eliminación del almacenamiento",
+    mediaCleanupPending: "Comprobaciones de eliminación en curso",
+    mediaCleanupPendingHelp:
+      "Clips sigue comprobando en segundo plano. Puedes salir de esta página.",
     mediaCleanupBlocked:
-      "No se pudo confirmar la eliminación del almacenamiento",
+      "No se pudo confirmar la eliminación de los archivos de vídeo",
+    mediaCleanupBlockedHelp:
+      "El vídeo ya no está en Clips. Es posible que sus archivos almacenados aún existan. Al reintentar, Clips intentará eliminarlos de nuevo.",
     mediaCleanupReconnect:
       "Vuelve a conectar el almacenamiento para eliminar los archivos multimedia de grabaciones eliminadas",
     mediaCleanupRetained:
       "Los archivos multimedia compartidos de grabaciones eliminadas se conservan mientras otras grabaciones los usen",
+    mediaCleanupHelp: "Más información",
+    mediaCleanupRetryFiles: "Reintentar eliminación",
+    mediaCleanupRetryingFiles:
+      "Reintentando la eliminación de los archivos de vídeo",
+    mediaCleanupRetryUsage: "Reintentar actualización de uso",
+    mediaCleanupRetryingUsage:
+      "Reintentando la actualización del uso de almacenamiento",
     mediaCleanupRemoved: "Archivos multimedia eliminados",
+    mediaCleanupUsageUpdated: "Uso de almacenamiento actualizado",
     mediaCleanupStillBlocked:
-      "Todavía no se pudo confirmar la eliminación del almacenamiento",
+      "Todavía no se pudo confirmar la eliminación de los archivos de vídeo",
+    mediaCleanupStillFinalizing:
+      "Todavía hay que reintentar la actualización del uso de almacenamiento",
     mediaCleanupRetryFailed:
-      "No se pudo reintentar la eliminación de archivos multimedia",
+      "No se pudo iniciar el reintento. Vuelve a intentarlo.",
     mediaCleanupLoadFailed:
       "No se pudo cargar el estado de eliminación de archivos multimedia",
   },

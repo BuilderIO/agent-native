@@ -321,35 +321,52 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clips supprimés définitivement",
     clipsDeleteFailed: "{{count}} clips n’ont pas pu être supprimés",
     deletedMediaPending:
-      "Retiré de Clips ; suppression du stockage pas encore confirmée",
+      "Vidéo retirée de Clips. Vérifications de suppression en cours.",
     deletedMediaBlocked:
-      "Retiré de Clips ; la suppression du stockage n’a pas pu être confirmée",
+      "Vidéo retirée de Clips. Impossible de confirmer la suppression des fichiers.",
     deletedMediaRetained:
       "Enregistrement supprimé. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
     clipsDeletedMediaPending:
-      "Enregistrements retirés de Clips : {{count}} ; suppression du stockage pas encore confirmée",
+      "Vidéos retirées de Clips : {{count}}. Vérifications de suppression en cours.",
     clipsDeletedMediaBlocked:
-      "Enregistrements retirés de Clips : {{count}} ; la suppression du stockage n’a pas pu être confirmée",
+      "Vidéos retirées de Clips : {{count}}. Impossible de confirmer la suppression des fichiers.",
     clipsDeletedMediaRetained:
       "Enregistrements supprimés : {{count}}. Les fichiers multimédias encore utilisés par d’autres enregistrements ont été conservés.",
-    deletedMediaFinalizing: "Retiré de Clips ; finalisation du nettoyage",
+    deletedMediaFinalizing:
+      "Vidéo retirée de Clips. La mise à jour de l’utilisation du stockage doit être relancée.",
     clipsDeletedMediaFinalizing:
-      "Enregistrements retirés de Clips : {{count}} ; finalisation du nettoyage",
+      "Vidéos retirées de Clips : {{count}}. La mise à jour de l’utilisation du stockage doit être relancée.",
     mediaCleanupFinalizing:
-      "Finalisation du nettoyage de l’enregistrement retiré",
+      "La mise à jour de l’utilisation du stockage doit être relancée",
+    mediaCleanupFinalizingHelp:
+      "Les vérifications de suppression des fichiers sont terminées, mais votre utilisation du stockage n’a pas été mise à jour. Relancer demande à Clips de la mettre à jour à nouveau.",
     mediaCleanupListLabel: "Suppression des fichiers multimédias",
-    mediaCleanupPending:
-      "Retiré de Clips ; suppression du stockage pas encore confirmée",
-    mediaCleanupBlocked: "La suppression du stockage n’a pas pu être confirmée",
+    mediaCleanupPending: "Vérifications de suppression en cours",
+    mediaCleanupPendingHelp:
+      "Clips poursuit les vérifications en arrière-plan. Vous pouvez quitter cette page.",
+    mediaCleanupBlocked:
+      "Impossible de confirmer la suppression des fichiers vidéo",
+    mediaCleanupBlockedHelp:
+      "La vidéo n’est plus dans Clips. Ses fichiers stockés existent peut-être encore. Relancer demande à Clips d’essayer à nouveau de les supprimer.",
     mediaCleanupReconnect:
       "Reconnectez le stockage pour supprimer les fichiers multimédias des enregistrements supprimés",
     mediaCleanupRetained:
       "Les fichiers multimédias partagés des enregistrements supprimés sont conservés tant que d’autres enregistrements les utilisent",
+    mediaCleanupHelp: "Plus d’informations",
+    mediaCleanupRetryFiles: "Relancer la suppression",
+    mediaCleanupRetryingFiles:
+      "Nouvelle tentative de suppression des fichiers vidéo",
+    mediaCleanupRetryUsage: "Relancer la mise à jour de l’utilisation",
+    mediaCleanupRetryingUsage:
+      "Nouvelle tentative de mise à jour de l’utilisation du stockage",
     mediaCleanupRemoved: "Fichiers multimédias supprimés",
+    mediaCleanupUsageUpdated: "Utilisation du stockage mise à jour",
     mediaCleanupStillBlocked:
-      "La suppression du stockage n’a toujours pas pu être confirmée",
+      "Toujours impossible de confirmer la suppression des fichiers vidéo",
+    mediaCleanupStillFinalizing:
+      "La mise à jour de l’utilisation du stockage doit toujours être relancée",
     mediaCleanupRetryFailed:
-      "Impossible de relancer la suppression des fichiers multimédias",
+      "Impossible de lancer la nouvelle tentative. Réessayez.",
     mediaCleanupLoadFailed:
       "Impossible de charger l’état de suppression des fichiers multimédias",
   },

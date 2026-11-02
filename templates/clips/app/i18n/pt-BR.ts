@@ -319,35 +319,52 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} clipes excluídos permanentemente",
     clipsDeleteFailed: "{{count}} clipes não puderam ser excluídos",
     deletedMediaPending:
-      "Removido de Clips; a remoção do armazenamento ainda não foi confirmada",
+      "Vídeo removido do Clips. As verificações de exclusão estão em andamento.",
     deletedMediaBlocked:
-      "Removido de Clips; não foi possível confirmar a remoção do armazenamento",
+      "Vídeo removido do Clips. Não foi possível confirmar a exclusão dos arquivos.",
     deletedMediaRetained:
       "Gravação excluída. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
     clipsDeletedMediaPending:
-      "Gravações removidas de Clips: {{count}}; a remoção do armazenamento ainda não foi confirmada",
+      "Vídeos removidos do Clips: {{count}}. As verificações de exclusão estão em andamento.",
     clipsDeletedMediaBlocked:
-      "Gravações removidas de Clips: {{count}}; não foi possível confirmar a remoção do armazenamento",
+      "Vídeos removidos do Clips: {{count}}. Não foi possível confirmar a exclusão dos arquivos.",
     clipsDeletedMediaRetained:
       "Gravações excluídas: {{count}}. Os arquivos de mídia que outras gravações ainda usam foram mantidos.",
-    deletedMediaFinalizing: "Removido do Clips; finalizando a limpeza",
+    deletedMediaFinalizing:
+      "Vídeo removido do Clips. A atualização do uso de armazenamento precisa ser repetida.",
     clipsDeletedMediaFinalizing:
-      "Gravações removidas do Clips: {{count}}; finalizando a limpeza",
-    mediaCleanupFinalizing: "Finalizando a limpeza da gravação removida",
+      "Vídeos removidos do Clips: {{count}}. A atualização do uso de armazenamento precisa ser repetida.",
+    mediaCleanupFinalizing:
+      "A atualização do uso de armazenamento precisa ser repetida",
+    mediaCleanupFinalizingHelp:
+      "As verificações de remoção de arquivos terminaram, mas seu uso de armazenamento ainda não foi atualizado. Ao tentar novamente, o Clips tentará atualizá-lo outra vez.",
     mediaCleanupListLabel: "Remoção de mídia",
-    mediaCleanupPending:
-      "Removido de Clips; a remoção do armazenamento ainda não foi confirmada",
+    mediaCleanupPending: "Verificações de exclusão em andamento",
+    mediaCleanupPendingHelp:
+      "O Clips continua verificando em segundo plano. Você pode sair desta página.",
     mediaCleanupBlocked:
-      "Não foi possível confirmar a remoção do armazenamento",
+      "Não foi possível confirmar a exclusão dos arquivos de vídeo",
+    mediaCleanupBlockedHelp:
+      "O vídeo não está mais no Clips. Os arquivos armazenados dele ainda podem existir. Ao tentar novamente, o Clips tentará removê-los outra vez.",
     mediaCleanupReconnect:
       "Reconecte o armazenamento para remover os arquivos de mídia de gravações excluídas",
     mediaCleanupRetained:
       "Os arquivos de mídia compartilhados de gravações excluídas são mantidos enquanto outras gravações os usarem",
+    mediaCleanupHelp: "Mais informações",
+    mediaCleanupRetryFiles: "Tentar remover novamente",
+    mediaCleanupRetryingFiles:
+      "Tentando excluir os arquivos de vídeo novamente",
+    mediaCleanupRetryUsage: "Tentar atualizar o uso novamente",
+    mediaCleanupRetryingUsage:
+      "Tentando atualizar o uso de armazenamento novamente",
     mediaCleanupRemoved: "Arquivos de mídia removidos",
+    mediaCleanupUsageUpdated: "Uso de armazenamento atualizado",
     mediaCleanupStillBlocked:
-      "Ainda não foi possível confirmar a remoção do armazenamento",
+      "Ainda não foi possível confirmar a exclusão dos arquivos de vídeo",
+    mediaCleanupStillFinalizing:
+      "A atualização do uso de armazenamento ainda precisa ser repetida",
     mediaCleanupRetryFailed:
-      "Não foi possível tentar remover a mídia novamente",
+      "Não foi possível iniciar a nova tentativa. Tente novamente.",
     mediaCleanupLoadFailed:
       "Não foi possível carregar o status da remoção de mídia",
   },

@@ -304,31 +304,45 @@ const messages = {
     clipsPermanentlyDeleted: "تم حذف {{count}} مقاطع نهائيا",
     clipsDeleteFailed: "تعذر حذف {{count}} مقاطع",
     deletedMediaPending:
-      "تمت الإزالة من Clips؛ لم يتم تأكيد الإزالة من التخزين بعد",
-    deletedMediaBlocked: "تمت الإزالة من Clips؛ تعذر تأكيد الإزالة من التخزين",
+      "تمت إزالة الفيديو من Clips. عمليات التحقق من الحذف جارية.",
+    deletedMediaBlocked: "تمت إزالة الفيديو من Clips. تعذر تأكيد حذف الملفات.",
     deletedMediaRetained:
       "تم حذف التسجيل. تم الاحتفاظ بملفات الوسائط التي لا تزال تسجيلات أخرى تستخدمها.",
     clipsDeletedMediaPending:
-      "التسجيلات التي أُزيلت من Clips: {{count}}؛ لم يتم تأكيد الإزالة من التخزين بعد",
+      "مقاطع الفيديو التي أُزيلت من Clips: {{count}}. عمليات التحقق من الحذف جارية.",
     clipsDeletedMediaBlocked:
-      "التسجيلات التي أُزيلت من Clips: {{count}}؛ تعذر تأكيد الإزالة من التخزين",
+      "مقاطع الفيديو التي أُزيلت من Clips: {{count}}. تعذر تأكيد حذف الملفات.",
     clipsDeletedMediaRetained:
       "التسجيلات المحذوفة: {{count}}. تم الاحتفاظ بملفات الوسائط التي لا تزال تسجيلات أخرى تستخدمها.",
-    deletedMediaFinalizing: "أُزيل من Clips؛ جارٍ استكمال التنظيف",
+    deletedMediaFinalizing:
+      "تمت إزالة الفيديو من Clips. يلزم إعادة محاولة تحديث استخدام التخزين.",
     clipsDeletedMediaFinalizing:
-      "التسجيلات المُزالة من Clips: {{count}}؛ جارٍ استكمال التنظيف",
-    mediaCleanupFinalizing: "جارٍ استكمال تنظيف التسجيل المُزال",
+      "مقاطع الفيديو التي أُزيلت من Clips: {{count}}. يلزم إعادة محاولة تحديث استخدام التخزين.",
+    mediaCleanupFinalizing: "يلزم إعادة محاولة تحديث استخدام التخزين",
+    mediaCleanupFinalizingHelp:
+      "انتهت عمليات التحقق من إزالة الملفات، لكن لم يتم تحديث استخدام التخزين بعد. تطلب إعادة المحاولة من Clips تحديثه مرة أخرى.",
     mediaCleanupListLabel: "إزالة الوسائط",
-    mediaCleanupPending:
-      "تمت الإزالة من Clips؛ لم يتم تأكيد الإزالة من التخزين بعد",
-    mediaCleanupBlocked: "تعذر تأكيد الإزالة من التخزين",
+    mediaCleanupPending: "عمليات التحقق من الحذف جارية",
+    mediaCleanupPendingHelp:
+      "يواصل Clips التحقق في الخلفية. يمكنك مغادرة هذه الصفحة.",
+    mediaCleanupBlocked: "تعذر تأكيد حذف ملفات الفيديو",
+    mediaCleanupBlockedHelp:
+      "لم يعد الفيديو موجودًا في Clips. قد تظل ملفاته المخزنة موجودة. تطلب إعادة المحاولة من Clips محاولة إزالتها مرة أخرى.",
     mediaCleanupReconnect:
       "أعد ربط التخزين لإزالة ملفات الوسائط من التسجيلات المحذوفة",
     mediaCleanupRetained:
       "يتم الاحتفاظ بملفات الوسائط المشتركة من التسجيلات المحذوفة ما دامت تسجيلات أخرى تستخدمها",
+    mediaCleanupHelp: "مزيد من المعلومات",
+    mediaCleanupRetryFiles: "إعادة محاولة الإزالة",
+    mediaCleanupRetryingFiles: "جارٍ إعادة محاولة حذف ملفات الفيديو",
+    mediaCleanupRetryUsage: "إعادة محاولة تحديث الاستخدام",
+    mediaCleanupRetryingUsage: "جارٍ إعادة محاولة تحديث استخدام التخزين",
     mediaCleanupRemoved: "تمت إزالة ملفات الوسائط",
-    mediaCleanupStillBlocked: "لا يزال تأكيد الإزالة من التخزين متعذرًا",
-    mediaCleanupRetryFailed: "تعذرت إعادة محاولة إزالة الوسائط",
+    mediaCleanupUsageUpdated: "تم تحديث استخدام التخزين",
+    mediaCleanupStillBlocked: "لا يزال تأكيد حذف ملفات الفيديو متعذرًا",
+    mediaCleanupStillFinalizing:
+      "لا يزال تحديث استخدام التخزين يحتاج إلى إعادة المحاولة",
+    mediaCleanupRetryFailed: "تعذر بدء إعادة المحاولة. حاول مرة أخرى.",
     mediaCleanupLoadFailed: "تعذر تحميل حالة إزالة الوسائط",
   },
   recordingRoute: {

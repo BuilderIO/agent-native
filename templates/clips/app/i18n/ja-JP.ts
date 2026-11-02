@@ -316,33 +316,46 @@ const messages = {
     clipsPermanentlyDeleted: "{{count}} 件のクリップを完全に削除しました",
     clipsDeleteFailed: "{{count}} 件のクリップを削除できませんでした",
     deletedMediaPending:
-      "Clips から削除しました。ストレージからの削除はまだ確認されていません",
+      "Clips から動画を削除しました。削除の確認を実行中です。",
     deletedMediaBlocked:
-      "Clips から削除しました。ストレージからの削除を確認できませんでした",
+      "Clips から動画を削除しました。ファイルの削除を確認できませんでした。",
     deletedMediaRetained:
       "録画を削除しました。他の録画で使用中のメディアファイルは残しました。",
     clipsDeletedMediaPending:
-      "Clips から削除した録画：{{count}} 件。ストレージからの削除はまだ確認されていません",
+      "Clips から削除した動画：{{count}} 件。削除の確認を実行中です。",
     clipsDeletedMediaBlocked:
-      "Clips から削除した録画：{{count}} 件。ストレージからの削除を確認できませんでした",
+      "Clips から削除した動画：{{count}} 件。ファイルの削除を確認できませんでした。",
     clipsDeletedMediaRetained:
       "削除した録画：{{count}} 件。他の録画で使用中のメディアファイルは残しました。",
     deletedMediaFinalizing:
-      "Clips から削除済み。クリーンアップを完了しています",
+      "Clips から動画を削除しました。ストレージ使用量の更新を再試行する必要があります。",
     clipsDeletedMediaFinalizing:
-      "Clips から削除した録画: {{count}}。クリーンアップを完了しています",
-    mediaCleanupFinalizing: "削除した録画のクリーンアップを完了しています",
+      "Clips から削除した動画：{{count}} 件。ストレージ使用量の更新を再試行する必要があります。",
+    mediaCleanupFinalizing: "ストレージ使用量の更新を再試行する必要があります",
+    mediaCleanupFinalizingHelp:
+      "ファイル削除の確認は完了しましたが、ストレージ使用量はまだ更新されていません。再試行すると、Clips がもう一度更新を試みます。",
     mediaCleanupListLabel: "メディアの削除",
-    mediaCleanupPending:
-      "Clips から削除しました。ストレージからの削除はまだ確認されていません",
-    mediaCleanupBlocked: "ストレージからの削除を確認できませんでした",
+    mediaCleanupPending: "削除の確認を実行中",
+    mediaCleanupPendingHelp:
+      "Clips はバックグラウンドで確認を続けます。このページを離れてもかまいません。",
+    mediaCleanupBlocked: "動画ファイルの削除を確認できませんでした",
+    mediaCleanupBlockedHelp:
+      "この動画はもう Clips にありません。保存されたファイルはまだ残っている可能性があります。再試行すると、Clips がもう一度削除を試みます。",
     mediaCleanupReconnect:
       "削除した録画のメディアファイルを削除するには、ストレージを再接続してください",
     mediaCleanupRetained:
       "削除した録画の共有メディアファイルは、他の録画で使用されている間は保持されます",
+    mediaCleanupHelp: "詳細",
+    mediaCleanupRetryFiles: "削除を再試行",
+    mediaCleanupRetryingFiles: "動画ファイルの削除を再試行しています",
+    mediaCleanupRetryUsage: "使用量の更新を再試行",
+    mediaCleanupRetryingUsage: "ストレージ使用量の更新を再試行しています",
     mediaCleanupRemoved: "メディアファイルを削除しました",
-    mediaCleanupStillBlocked: "ストレージからの削除をまだ確認できません",
-    mediaCleanupRetryFailed: "メディアの削除を再試行できませんでした",
+    mediaCleanupUsageUpdated: "ストレージ使用量を更新しました",
+    mediaCleanupStillBlocked: "動画ファイルの削除をまだ確認できません",
+    mediaCleanupStillFinalizing: "ストレージ使用量の更新はまだ再試行が必要です",
+    mediaCleanupRetryFailed:
+      "再試行を開始できませんでした。もう一度お試しください。",
     mediaCleanupLoadFailed: "メディアの削除状況を読み込めませんでした",
   },
   recordingRoute: {

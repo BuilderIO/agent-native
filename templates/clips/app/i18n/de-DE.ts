@@ -323,38 +323,51 @@ const messages = {
       "{{count}} Clips konnten nicht wiederhergestellt werden",
     clipsPermanentlyDeleted: "{{count}} Clips endgültig gelöscht",
     clipsDeleteFailed: "{{count}} Clips konnten nicht gelöscht werden",
-    deletedMediaPending:
-      "Aus Clips entfernt; Entfernung aus dem Speicher noch nicht bestätigt",
+    deletedMediaPending: "Video aus Clips entfernt. Löschprüfungen laufen.",
     deletedMediaBlocked:
-      "Aus Clips entfernt; Entfernung aus dem Speicher konnte nicht bestätigt werden",
+      "Video aus Clips entfernt. Löschung der Dateien konnte nicht bestätigt werden.",
     deletedMediaRetained:
       "Aufnahme gelöscht. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
     clipsDeletedMediaPending:
-      "Aus Clips entfernte Aufnahmen: {{count}}; Entfernung aus dem Speicher noch nicht bestätigt",
+      "Aus Clips entfernte Videos: {{count}}. Löschprüfungen laufen.",
     clipsDeletedMediaBlocked:
-      "Aus Clips entfernte Aufnahmen: {{count}}; Entfernung aus dem Speicher konnte nicht bestätigt werden",
+      "Aus Clips entfernte Videos: {{count}}. Löschung der Dateien konnte nicht bestätigt werden.",
     clipsDeletedMediaRetained:
       "Gelöschte Aufnahmen: {{count}}. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
     deletedMediaFinalizing:
-      "Aus Clips entfernt; Bereinigung wird abgeschlossen",
+      "Video aus Clips entfernt. Aktualisierung der Speichernutzung muss wiederholt werden.",
     clipsDeletedMediaFinalizing:
-      "Aus Clips entfernte Aufnahmen: {{count}}; Bereinigung wird abgeschlossen",
+      "Aus Clips entfernte Videos: {{count}}. Aktualisierung der Speichernutzung muss wiederholt werden.",
     mediaCleanupFinalizing:
-      "Bereinigung der entfernten Aufnahme wird abgeschlossen",
+      "Aktualisierung der Speichernutzung muss wiederholt werden",
+    mediaCleanupFinalizingHelp:
+      "Die Prüfungen zum Entfernen der Dateien sind abgeschlossen, aber deine Speichernutzung wurde noch nicht aktualisiert. Bei einem erneuten Versuch versucht Clips noch einmal, sie zu aktualisieren.",
     mediaCleanupListLabel: "Entfernen von Mediendateien",
-    mediaCleanupPending:
-      "Aus Clips entfernt; Entfernung aus dem Speicher noch nicht bestätigt",
+    mediaCleanupPending: "Löschprüfungen laufen",
+    mediaCleanupPendingHelp:
+      "Clips prüft im Hintergrund weiter. Du kannst diese Seite verlassen.",
     mediaCleanupBlocked:
-      "Entfernung aus dem Speicher konnte nicht bestätigt werden",
+      "Löschung der Videodateien konnte nicht bestätigt werden",
+    mediaCleanupBlockedHelp:
+      "Das Video ist nicht mehr in Clips. Seine gespeicherten Dateien sind möglicherweise noch vorhanden. Bei einem erneuten Versuch versucht Clips noch einmal, sie zu entfernen.",
     mediaCleanupReconnect:
       "Verbinde den Speicher erneut, um Mediendateien gelöschter Aufnahmen zu entfernen",
     mediaCleanupRetained:
       "Geteilte Mediendateien gelöschter Aufnahmen bleiben erhalten, solange andere Aufnahmen sie verwenden",
+    mediaCleanupHelp: "Weitere Informationen",
+    mediaCleanupRetryFiles: "Entfernen wiederholen",
+    mediaCleanupRetryingFiles: "Löschung der Videodateien wird erneut versucht",
+    mediaCleanupRetryUsage: "Nutzung erneut aktualisieren",
+    mediaCleanupRetryingUsage:
+      "Aktualisierung der Speichernutzung wird erneut versucht",
     mediaCleanupRemoved: "Mediendateien entfernt",
+    mediaCleanupUsageUpdated: "Speichernutzung aktualisiert",
     mediaCleanupStillBlocked:
-      "Entfernung aus dem Speicher konnte weiterhin nicht bestätigt werden",
+      "Löschung der Videodateien konnte weiterhin nicht bestätigt werden",
+    mediaCleanupStillFinalizing:
+      "Aktualisierung der Speichernutzung muss weiterhin wiederholt werden",
     mediaCleanupRetryFailed:
-      "Mediendateien konnten nicht erneut entfernt werden",
+      "Erneuter Versuch konnte nicht gestartet werden. Versuche es noch einmal.",
     mediaCleanupLoadFailed:
       "Status der Medienentfernung konnte nicht geladen werden",
   },
