@@ -15,12 +15,12 @@ import {
   normalizeLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
-import { getArticleTopics } from "../lib/article-topics";
 import {
   ARTICLES_BASE,
   ARTICLES_PAGE_SIZE,
   USE_CASES_BASE,
   articleMarkdown,
+  translatedArticleLocales,
   type CampaignContent,
 } from "../lib/campaign-content";
 import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
@@ -199,28 +199,34 @@ export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
     const latest = dates.sort().at(-1);
     return latest ? new Date(`${latest}T00:00:00Z`) : undefined;
   };
-  const articleIndex = (
-    base: string,
-    title: string,
-    items: typeof articles,
-  ): AgentWebPage[] =>
-    Array.from(
-      { length: Math.max(1, Math.ceil(items.length / ARTICLES_PAGE_SIZE)) },
-      (_, index) => ({
-        path: index === 0 ? `${base}/` : `${base}/page/${index + 1}/`,
-        title,
-        markdown: `# ${title}\n\n${items
-          .slice(index * ARTICLES_PAGE_SIZE, (index + 1) * ARTICLES_PAGE_SIZE)
-          .map(
-            (article) =>
-              `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
-          )
-          .join("\n")}\n`,
-        lastmod: latestDate(
-          items.map((article) => article.updated ?? article.published),
+  // A language's grid lists every article, translated where it can be.
+  const articleIndex = (locale: string): AgentWebPage[] => {
+    const base = sitePathForLocale(ARTICLES_BASE, locale);
+    const cards = articles.map((entry) => {
+      const translation = entry.translations[locale];
+      return {
+        title: (translation ?? entry).title,
+        updated: (translation ?? entry).updated,
+        path: sitePathForLocale(
+          `${ARTICLES_BASE}/${entry.slug}/`,
+          translation ? locale : DEFAULT_LOCALE,
         ),
+      };
+    });
+    const lastmod = latestDate(cards.map((card) => card.updated));
+    return Array.from(
+      { length: Math.max(1, Math.ceil(cards.length / ARTICLES_PAGE_SIZE)) },
+      (_, index) => ({
+        path: index === 0 ? base : `${base}page/${index + 1}/`,
+        title: "Articles",
+        markdown: `# Articles\n\n${cards
+          .slice(index * ARTICLES_PAGE_SIZE, (index + 1) * ARTICLES_PAGE_SIZE)
+          .map((card) => `- [${card.title}](${card.path})`)
+          .join("\n")}\n`,
+        ...(lastmod ? { lastmod } : {}),
       }),
     );
+  };
   const useCasesUpdated = latestDate(useCases.map((item) => item.updated));
   const pages: AgentWebPage[] = [
     {
@@ -262,33 +268,24 @@ export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
             ...page.faqs.items.flatMap((faq) => [`### ${faq.q}`, faq.a]),
           ].join("\n\n") + "\n",
       })),
-    ...articleIndex(ARTICLES_BASE, "Articles", articles),
-    ...getArticleTopics(articles).map((topic) => {
-      const items = articles.filter((article) => article.topic === topic.slug);
-      const lastmod = latestDate(
-        items.map((article) => article.updated ?? article.published),
-      );
-      return {
-        path: `${ARTICLES_BASE}/topic/${topic.slug}/`,
-        title: topic.name,
-        description: topic.description,
-        markdown: `# ${topic.name}\n\n${topic.description}\n\n${items
-          .map(
-            (article) =>
-              `- [${article.title}](${ARTICLES_BASE}/${article.slug}/)`,
-          )
-          .join("\n")}\n`,
-        ...(lastmod ? { lastmod } : {}),
-      };
-    }),
-    ...articles.map((article) => ({
-      path: `${ARTICLES_BASE}/${article.slug}/`,
-      title: article.title,
-      description: article.meta_description,
-      lastmod: new Date(`${article.updated ?? article.published}T00:00:00Z`),
-      markdown: articleMarkdown(article),
-      markdownPath: `${ARTICLES_BASE}/${article.slug}.md`,
-    })),
+    ...[DEFAULT_LOCALE, ...translatedArticleLocales(articles)].flatMap(
+      articleIndex,
+    ),
+    ...articles
+      .flatMap((entry) => [
+        { article: entry, locale: DEFAULT_LOCALE },
+        ...Object.entries(entry.translations).flatMap(([locale, article]) =>
+          article ? [{ article, locale }] : [],
+        ),
+      ])
+      .map(({ article, locale }) => ({
+        path: sitePathForLocale(`${ARTICLES_BASE}/${article.slug}/`, locale),
+        title: article.title,
+        description: article.meta_description,
+        lastmod: new Date(`${article.updated}T00:00:00Z`),
+        markdown: articleMarkdown(article),
+        markdownPath: `${sitePathForLocale(ARTICLES_BASE, locale)}${article.slug}.md`,
+      })),
   ];
   return pages;
 }

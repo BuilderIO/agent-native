@@ -9,6 +9,9 @@ export function campaignMeta(
   path: string,
   type: "website" | "article" = "website",
   locale?: string,
+  image?: string,
+  /** The share title, when it differs from the <title> (an article's H1 vs its SEO title). */
+  socialTitle = title,
 ): MetaDescriptor[] {
   if (!path.startsWith("/") || path.startsWith("//") || /[?#\\]/.test(path)) {
     throw new Error(
@@ -22,15 +25,37 @@ export function campaignMeta(
   return withDefaultSocialImage(
     [
       { title: `${title} | Agent-Native` },
-      { property: "og:title", content: title },
+      { property: "og:title", content: socialTitle },
       { name: "description", content: description },
       { name: "robots", content: "index, max-image-preview:large" },
       { tagName: "link", rel: "canonical", href: canonical },
       { property: "og:url", content: canonical },
       { property: "og:type", content: type },
-      { name: "twitter:title", content: title },
+      { name: "twitter:title", content: socialTitle },
       { name: "twitter:description", content: description },
     ],
-    agentNativeSocialImageUrl(title),
+    image ?? agentNativeSocialImageUrl(socialTitle),
   );
+}
+
+/** hreflang links: every language version names all the others, and English is the default. */
+export function localeAlternates(
+  path: string,
+  locales: readonly string[],
+): MetaDescriptor[] {
+  const site = "https://www.agent-native.com";
+  return [
+    ...locales.map((locale) => ({
+      tagName: "link",
+      rel: "alternate",
+      hrefLang: locale,
+      href: `${site}${sitePathForLocale(path, locale)}`,
+    })),
+    {
+      tagName: "link",
+      rel: "alternate",
+      hrefLang: "x-default",
+      href: `${site}${sitePathForLocale(path)}`,
+    },
+  ];
 }

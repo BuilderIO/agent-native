@@ -1,24 +1,13 @@
 import { useT, useLocale } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
-import {
-  ARTICLE_TOPICS,
-  getArticleTopics,
-  type ArticleTopic,
-  type ArticleTopicSummary,
-} from "../../../lib/article-topics";
-import {
-  ARTICLES_BASE,
-  USE_CASES_BASE,
-  type UseCase,
-} from "../../../lib/campaign-content";
-import { sitePathForLocale } from "../docs-locale";
+import { ARTICLES_BASE, USE_CASES_BASE } from "../../../lib/campaign-content";
+import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "../docs-locale";
 import { TemplateLandingShell } from "../template-landing";
 import { Button } from "../website-redesign/ds/button";
-import { ContentCard } from "../website-redesign/ds/content-card";
 import { SectionHeader } from "../website-redesign/ds/section-header";
-import { ArticleBody, parseArticle, sanitizedMarkdown } from "./markdown";
-import { campaignHref, safeHref, type Article } from "./public-content";
+import { ArticleBody, sanitizedMarkdown } from "./markdown";
+import { safeHref, type Article } from "./public-content";
 import {
   CampaignBand,
   CampaignDate,
@@ -27,71 +16,123 @@ import {
   faqSchema,
 } from "./shared";
 
+const SITE = "https://www.agent-native.com";
+const PUBLISHER = {
+  "@type": "Organization",
+  name: "Agent-Native",
+  url: SITE,
+  logo: { "@type": "ImageObject", url: `${SITE}/favicon.svg` },
+};
+// English unless the article has a page in this language.
+const articlePath = (slug: string, locale: string, translated: boolean) =>
+  sitePathForLocale(
+    `${ARTICLES_BASE}/${slug}/`,
+    translated ? locale : DEFAULT_DOCS_LOCALE,
+  );
+
+// A card in the 3×3 grid: the article's share image as its thumbnail, at the share image's own ratio.
+function ArticleCard({
+  article,
+  translated,
+  heading: Heading = "h2",
+}: {
+  article: Article;
+  /** Whether the article has a page in the current language. */
+  translated: boolean;
+  /** h3 under another section's heading, such as "More articles". */
+  heading?: "h2" | "h3";
+}) {
+  const { locale } = useLocale();
+  const image = safeHref(article.og_image);
+  return (
+    <Link
+      to={articlePath(article.slug, locale, translated)}
+      className="group flex h-full flex-col bg-[var(--docs-bg,var(--b-bg-default))] no-underline"
+    >
+      <div className="aspect-[1200/630] w-full overflow-hidden border-b border-[var(--docs-border)] bg-[var(--b-bg-raised)]">
+        {image ? (
+          <img
+            src={image}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="block h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+          />
+        ) : null}
+      </div>
+      <div className="flex flex-1 flex-col gap-3 p-6 transition-colors group-hover:bg-[var(--b-bg-raised)]">
+        <Heading className="campaign-card-title m-0">{article.title}</Heading>
+        <p className="m-0 line-clamp-2 text-sm text-[var(--fg-secondary)]">
+          {article.meta_description}
+        </p>
+        <p className="m-0 mt-auto pt-2 text-sm text-[var(--fg-secondary)]">
+          {article.author.name} ·{" "}
+          <CampaignDate date={article.updated} month="short" />
+        </p>
+      </div>
+    </Link>
+  );
+}
+
 export function ArticlesList({
   articles,
-  topic,
-  topics = getArticleTopics(articles),
+  translatedSlugs = [],
   page,
   hasMore,
 }: {
   articles: Article[];
-  topic?: ArticleTopic;
-  topics?: ArticleTopicSummary[];
+  /** The listed articles that have a page in the current language. */
+  translatedSlugs?: readonly string[];
   page: number;
   hasMore: boolean;
 }) {
   const t = useT();
   const { locale } = useLocale();
-  const intro = t("campaign.articlesIntro", { useCases: "{{useCases}}" }).split(
-    "{{useCases}}",
-  );
   return (
     <TemplateLandingShell className="builder-brand-tokens campaign-page campaign-articles-page pb-16">
+      <JsonLd
+        value={{
+          "@context": "https://schema.org",
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            {
+              "@type": "ListItem",
+              position: 1,
+              name: t("campaign.articles"),
+              item: `${SITE}${sitePathForLocale(ARTICLES_BASE, locale)}`,
+            },
+          ],
+        }}
+      />
+      <JsonLd
+        value={{
+          "@context": "https://schema.org",
+          "@type": "ItemList",
+          itemListElement: articles.map((article, i) => ({
+            "@type": "ListItem",
+            position: i + 1,
+            url: `${SITE}${articlePath(article.slug, locale, translatedSlugs.includes(article.slug))}`,
+            name: article.title,
+          })),
+        }}
+      />
       <div className="campaign-section border-x border-[var(--docs-border)]">
         <SectionHeader
-          eyebrow={topic ? t("campaign.articles") : undefined}
           as="h1"
-          heading={topic ? ARTICLE_TOPICS[topic].name : t("campaign.articles")}
-          subheading={
-            topic ? (
-              ARTICLE_TOPICS[topic].description
-            ) : (
-              <>
-                {intro[0]}
-                <Link
-                  to={sitePathForLocale(USE_CASES_BASE, locale)}
-                  className="campaign-inline-link text-[var(--docs-accent)]"
-                >
-                  {t("campaign.useCasesLink")}
-                </Link>
-                {intro[1]}
-              </>
-            )
-          }
+          heading={t("campaign.articles")}
+          subheading={t("campaign.articlesIntro")}
         />
       </div>
-      <section className="border border-[var(--docs-border)]">
-        {!topic ? (
-          <div className="campaign-section">
-            <SectionHeader heading={t("campaign.allArticles")} />
-          </div>
-        ) : null}
-        {articles.map((article) => (
-          <article
-            key={article.slug}
-            className="border-t border-[var(--docs-border)] first:border-t-0"
-          >
-            <Link
-              to={sitePathForLocale(`${ARTICLES_BASE}/${article.slug}`, locale)}
-              className="grid gap-3 p-6 no-underline hover:bg-[var(--b-bg-raised)] sm:grid-cols-[1fr_2fr] sm:p-8"
-            >
-              <span className="campaign-label">
-                {ARTICLE_TOPICS[article.topic].name}
-              </span>
-              <h2 className="campaign-card-title">{article.title}</h2>
-            </Link>
-          </article>
-        ))}
+      <section className="template-section-flush border border-[var(--docs-border)]">
+        <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">
+          {articles.map((article) => (
+            <ArticleCard
+              key={article.slug}
+              article={article}
+              translated={translatedSlugs.includes(article.slug)}
+            />
+          ))}
+        </div>
       </section>
       {hasMore ? (
         <div className="border-x border-b border-[var(--docs-border)] p-6 text-center">
@@ -106,39 +147,6 @@ export function ArticlesList({
           </Button>
         </div>
       ) : null}
-      {!topic ? (
-        <section className="mt-16 border border-[var(--docs-border)]">
-          <div className="campaign-section">
-            <SectionHeader heading={t("campaign.allTopics")} />
-          </div>
-          <ul className="m-0 list-none border-t border-[var(--docs-border)] p-0 lg:columns-2 lg:gap-0">
-            {topics
-              .filter((item) => item.count > 0)
-              .map((item) => (
-                <li
-                  key={item.slug}
-                  className="break-inside-avoid border-b border-[var(--docs-border)] last:border-b-0"
-                >
-                  <Link
-                    to={sitePathForLocale(
-                      `${ARTICLES_BASE}/topic/${item.slug}`,
-                      locale,
-                    )}
-                    className="flex h-full flex-col gap-3 p-6 no-underline hover:bg-[var(--b-bg-raised)] sm:p-8"
-                  >
-                    <h3 className="campaign-card-title">{item.name}</h3>
-                    <p className="m-0 text-[var(--fg-secondary)]">
-                      {item.description}
-                    </p>
-                    <span className="campaign-label">
-                      {t("campaign.articleCount", { count: item.count })}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-          </ul>
-        </section>
-      ) : null}
     </TemplateLandingShell>
   );
 }
@@ -147,22 +155,26 @@ export function ArticlePage({
   article,
   useCase,
   more,
+  translatedSlugs = [],
 }: {
   article: Article;
-  useCase: Pick<UseCase, "slug" | "title"> | null;
+  useCase: { slug: string; title: string } | null;
   more: Article[];
+  /** The "More articles" that have a page in the current language. */
+  translatedSlugs?: readonly string[];
 }) {
   const t = useT();
   const { locale } = useLocale();
-  const parsed = parseArticle(article.body);
   const words = sanitizedMarkdown(article.body)
     .trim()
     .split(/\s+/)
     .filter(Boolean).length;
   const minutes = Math.max(1, Math.ceil(words / 200));
-  const avatar = article.author_avatar
-    ? safeHref(article.author_avatar)
-    : undefined;
+  const { author } = article;
+  const photo = author.photo ? safeHref(author.photo) : undefined;
+  const authorHref = safeHref(author.url);
+  // The page itself only renders in a language it is translated into.
+  const url = `${SITE}${articlePath(article.slug, locale, true)}`;
   return (
     <TemplateLandingShell className="builder-brand-tokens campaign-page campaign-articles-page">
       <CampaignView item={article} />
@@ -171,21 +183,46 @@ export function ArticlePage({
           "@context": "https://schema.org",
           "@type": "Article",
           headline: article.title,
+          inLanguage: locale,
           description: article.meta_description,
-          articleSection: ARTICLE_TOPICS[article.topic].name,
+          image: article.og_image,
           datePublished: article.published,
-          dateModified: article.updated ?? article.published,
-          author: { "@type": "Person", name: article.author },
-          publisher: {
-            "@type": "Organization",
-            name: "Agent-Native",
-            url: "https://www.agent-native.com",
+          dateModified: article.updated,
+          mainEntityOfPage: url,
+          author: {
+            "@type": "Person",
+            name: author.name,
+            url: author.url,
+            ...(author.same_as?.length ? { sameAs: author.same_as } : {}),
+            ...(author.role ? { jobTitle: author.role } : {}),
+            ...(author.photo ? { image: author.photo } : {}),
           },
+          publisher: PUBLISHER,
         }}
       />
-      {parsed.faqs.length ? <JsonLd value={faqSchema(parsed.faqs)} /> : null}
+      {article.faqs.length ? <JsonLd value={faqSchema(article.faqs)} /> : null}
+      <JsonLd
+        value={{
+          "@context": "https://schema.org",
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            {
+              "@type": "ListItem",
+              position: 1,
+              name: t("campaign.articles"),
+              item: `${SITE}${sitePathForLocale(ARTICLES_BASE, locale)}`,
+            },
+            {
+              "@type": "ListItem",
+              position: 2,
+              name: article.title,
+              item: url,
+            },
+          ],
+        }}
+      />
       <div className="campaign-section border-x border-[var(--docs-border)]">
-        <div className="mx-auto max-w-[720px]">
+        <div className="mx-auto max-w-[760px]">
           <nav
             aria-label={t("campaign.breadcrumb")}
             className="mb-8 flex flex-wrap items-center gap-2 text-sm text-[var(--fg-secondary)]"
@@ -193,49 +230,56 @@ export function ArticlePage({
             <Link to={sitePathForLocale(ARTICLES_BASE, locale)}>
               {t("campaign.articles")}
             </Link>
-            <span aria-hidden="true">/</span>
-            <Link
-              to={sitePathForLocale(
-                `${ARTICLES_BASE}/topic/${article.topic}`,
-                locale,
-              )}
-            >
-              {ARTICLE_TOPICS[article.topic].name}
-            </Link>
           </nav>
           <h1 className="m-0 text-3xl font-medium leading-tight tracking-tight sm:text-5xl">
             {article.title}
           </h1>
-          <div className="my-8 flex flex-wrap items-center gap-4">
-            {avatar ? (
+          <div className="my-8 flex flex-wrap items-center gap-x-4 gap-y-2">
+            {photo ? (
               <img
-                src={avatar}
-                alt={article.author}
+                src={photo}
+                alt=""
                 loading="lazy"
                 decoding="async"
                 className="size-10 rounded-full object-cover"
               />
             ) : null}
             <div>
-              <p className="m-0 font-medium">{article.author}</p>
-              {article.author_role ? (
+              <p className="m-0 font-medium">
+                {authorHref ? (
+                  <a
+                    href={authorHref}
+                    rel="author"
+                    className="campaign-inline-link"
+                  >
+                    {author.name}
+                  </a>
+                ) : (
+                  author.name
+                )}
+              </p>
+              {author.role ? (
                 <p className="m-0 text-sm text-[var(--fg-secondary)]">
-                  {article.author_role}
+                  {author.role}
                 </p>
               ) : null}
             </div>
             <span className="text-sm text-[var(--fg-secondary)]">
-              <CampaignDate
-                date={article.updated ?? article.published}
-                kind={article.updated ? "updated" : "published"}
-              />
+              <CampaignDate date={article.published} kind="published" />
+              {article.updated !== article.published ? (
+                <>
+                  {" · "}
+                  <CampaignDate date={article.updated} />
+                </>
+              ) : null}
             </span>
             <span className="text-sm text-[var(--fg-secondary)]">
               {t("campaign.readTime", { count: minutes })}
             </span>
           </div>
+          <ArticleBody article={article} />
           {useCase ? (
-            <p className="mb-8 text-[var(--fg-secondary)]">
+            <p className="my-12 text-[var(--fg-secondary)]">
               {t("campaign.partOf")}{" "}
               <Link
                 to={sitePathForLocale(
@@ -248,83 +292,20 @@ export function ArticlePage({
               </Link>
             </p>
           ) : null}
-          <ArticleBody article={article} />
-          {useCase || article.related_resources.length ? (
-            <section className="docs-content my-12">
-              <h2>{t("campaign.relatedResources")}</h2>
-              <ul className="mt-6 list-disc space-y-3 ps-6">
-                {useCase ? (
-                  <li>
-                    <Link
-                      to={sitePathForLocale(
-                        `${USE_CASES_BASE}/${useCase.slug}`,
-                        locale,
-                      )}
-                      className="campaign-inline-link text-[var(--docs-accent)]"
-                    >
-                      {useCase.title}
-                    </Link>
-                  </li>
-                ) : null}
-                {article.related_resources.map((resource, i) => {
-                  const href = safeHref(resource.url);
-                  return (
-                    <li key={i}>
-                      {href ? (
-                        href.startsWith("/") ? (
-                          <Link
-                            to={campaignHref(href, locale)}
-                            className="campaign-inline-link text-[var(--docs-accent)]"
-                          >
-                            {resource.label}
-                          </Link>
-                        ) : (
-                          <a
-                            href={href}
-                            className="campaign-inline-link text-[var(--docs-accent)]"
-                          >
-                            {resource.label}
-                          </a>
-                        )
-                      ) : (
-                        resource.label
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ) : null}
         </div>
       </div>
       {more.length ? (
-        <section className="border border-[var(--docs-border)]">
+        <section className="template-section-flush border border-[var(--docs-border)]">
           <div className="campaign-section">
-            <SectionHeader
-              heading={
-                more.some((item) => item.topic !== article.topic)
-                  ? t("campaign.genericMore")
-                  : t("campaign.moreOnTopic", {
-                      topic: ARTICLE_TOPICS[article.topic].name,
-                    })
-              }
-            />
+            <SectionHeader heading={t("campaign.genericMore")} />
           </div>
           <div className="grid gap-px bg-[var(--docs-border)] sm:grid-cols-2 lg:grid-cols-3">
             {more.map((item) => (
-              <ContentCard
+              <ArticleCard
                 key={item.slug}
-                href={sitePathForLocale(
-                  `${ARTICLES_BASE}/${item.slug}`,
-                  locale,
-                )}
-                eyebrow={
-                  <span className="campaign-label">
-                    {ARTICLE_TOPICS[item.topic].name}
-                  </span>
-                }
-                title={item.title}
-                body={item.meta_description}
+                article={item}
+                translated={translatedSlugs.includes(item.slug)}
+                heading="h3"
               />
             ))}
           </div>

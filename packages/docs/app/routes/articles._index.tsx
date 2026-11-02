@@ -1,36 +1,90 @@
 import { useLoaderData } from "react-router";
 
-import { getArticleTopics } from "../../lib/article-topics";
-import { ARTICLES_BASE, ARTICLES_PAGE_SIZE } from "../../lib/campaign-content";
+import {
+  ARTICLES_BASE,
+  ARTICLES_PAGE_SIZE,
+  translatedArticleLocales,
+  type ArticleEntry,
+} from "../../lib/campaign-content";
 import { loadCampaignContent } from "../../lib/campaign-content.server";
 import { ArticlesList } from "../components/campaign/articles";
 import {
+  articleCards,
   newestArticles,
-  publicArticle,
 } from "../components/campaign/public-content";
-import enUS from "../i18n/en-US";
-import { campaignMeta } from "../lib/campaign-seo";
+import {
+  DEFAULT_DOCS_LOCALE,
+  type DocsLocale,
+} from "../components/docs-locale";
+import { articlesListCopy } from "../lib/articles-copy.server";
+import { campaignMeta, localeAlternates } from "../lib/campaign-seo";
 
-export const meta = ({ params }: { params?: { locale?: string } } = {}) =>
-  campaignMeta(
-    enUS.campaign.articles,
-    enUS.campaign.articlesIntro.replace(
-      "{{useCases}}",
-      enUS.campaign.useCasesLink,
-    ),
-    ARTICLES_BASE,
-    "website",
-    params?.locale,
+/**
+ * One page of the articles grid in one language. Every language with a
+ * translated article gets the whole grid, its untranslated cards in English.
+ */
+export function articlesPageData(
+  articles: ArticleEntry[],
+  page: number,
+  locale: DocsLocale,
+) {
+  const sorted = newestArticles(articles);
+  const start = (page - 1) * ARTICLES_PAGE_SIZE;
+  const cards = articleCards(
+    sorted.slice(start, start + ARTICLES_PAGE_SIZE),
+    locale,
   );
-export function loader() {
-  const articles = newestArticles(loadCampaignContent().articles);
   return {
-    articles: articles.slice(0, ARTICLES_PAGE_SIZE).map(publicArticle),
-    topics: getArticleTopics(articles),
-    page: 1,
-    hasMore: articles.length > ARTICLES_PAGE_SIZE,
+    articles: cards.articles,
+    translatedSlugs: cards.translatedSlugs,
+    page,
+    hasMore: start + ARTICLES_PAGE_SIZE < sorted.length,
+    locales: [DEFAULT_DOCS_LOCALE, ...translatedArticleLocales(articles)],
+  };
+}
+/** The grid's <title> and description in its language, from the server-only catalog lookup. */
+export type ArticlesPageData = ReturnType<typeof articlesPageData> & {
+  copy: { title: string; description: string };
+};
+
+export const meta = ({
+  data,
+  loaderData,
+  params,
+}: {
+  params?: { locale?: string };
+  data?: ArticlesPageData;
+  loaderData?: ArticlesPageData;
+} = {}) => {
+  const content = data ?? loaderData;
+  return content
+    ? [
+        ...campaignMeta(
+          content.copy.title,
+          content.copy.description,
+          ARTICLES_BASE,
+          "website",
+          params?.locale,
+        ),
+        ...localeAlternates(`${ARTICLES_BASE}/`, content.locales),
+      ]
+    : [];
+};
+export function loader(): ArticlesPageData {
+  return {
+    ...articlesPageData(loadCampaignContent().articles, 1, DEFAULT_DOCS_LOCALE),
+    copy: articlesListCopy(DEFAULT_DOCS_LOCALE),
   };
 }
 export default function ArticlesRoute() {
-  return <ArticlesList {...useLoaderData<typeof loader>()} />;
+  const { articles, translatedSlugs, page, hasMore } =
+    useLoaderData<typeof loader>();
+  return (
+    <ArticlesList
+      articles={articles}
+      translatedSlugs={translatedSlugs}
+      page={page}
+      hasMore={hasMore}
+    />
+  );
 }

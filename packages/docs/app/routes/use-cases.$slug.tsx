@@ -1,10 +1,5 @@
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import {
-  redirect,
-  useLoaderData,
-  type LoaderFunctionArgs,
-  type MetaDescriptor,
-} from "react-router";
+import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 
 import {
   USE_CASES_BASE,
@@ -14,13 +9,8 @@ import {
 import { loadCampaignContent } from "../../lib/campaign-content.server";
 import { UseCasePage } from "../components/campaign/use-case-page";
 import { movedUseCaseSlug } from "../components/campaign/use-case-redirects";
-import {
-  DEFAULT_DOCS_LOCALE,
-  sitePathForLocale,
-} from "../components/docs-locale";
-import { campaignMeta } from "../lib/campaign-seo";
-
-const SITE_URL = "https://www.agent-native.com";
+import { DEFAULT_DOCS_LOCALE } from "../components/docs-locale";
+import { campaignMeta, localeAlternates } from "../lib/campaign-seo";
 
 /** A use-case page in one language, and every language it exists in. */
 export function pageDataFor(entry: UseCaseEntry, page: UseCase) {
@@ -54,22 +44,6 @@ export const meta = ({
 }) => {
   const content = data ?? loaderData;
   if (!content) return [];
-  const path = `${USE_CASES_BASE}/${content.page.slug}/`;
-  // Every language version names all the others, and English is the default.
-  const alternates: MetaDescriptor[] = [
-    ...content.locales.map((locale) => ({
-      tagName: "link",
-      rel: "alternate",
-      hrefLang: locale,
-      href: `${SITE_URL}${sitePathForLocale(path, locale)}`,
-    })),
-    {
-      tagName: "link",
-      rel: "alternate",
-      hrefLang: "x-default",
-      href: `${SITE_URL}${path}`,
-    },
-  ];
   return [
     ...campaignMeta(
       content.page.seo_title,
@@ -78,7 +52,10 @@ export const meta = ({
       "website",
       params?.locale,
     ),
-    ...alternates,
+    ...localeAlternates(
+      `${USE_CASES_BASE}/${content.page.slug}/`,
+      content.locales,
+    ),
   ];
 };
 export default function UseCaseRoute() {

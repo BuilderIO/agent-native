@@ -25,14 +25,14 @@ export function loadCampaignContentFromDisk(rootDir: string): CampaignContent {
       });
     }
   }
-  // Translated use-case pages live in one folder per locale.
-  function localeFolders(): string[] {
-    const dir = path.resolve(rootDir, "content", "use-cases");
+  // Translations live in one folder per locale.
+  function localeFolders(directory: string): string[] {
+    const dir = path.resolve(rootDir, "content", directory);
     try {
       return fs
         .readdirSync(dir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
-        .map((entry) => path.join("use-cases", entry.name));
+        .map((entry) => path.join(directory, entry.name));
     } catch (cause) {
       throw new Error(`Unable to enumerate/read campaign content in ${dir}`, {
         cause,
@@ -43,8 +43,14 @@ export function loadCampaignContentFromDisk(rootDir: string): CampaignContent {
     useCases: readSources("use-cases", ".yaml"),
     useCaseTranslations: Object.assign(
       {},
-      ...localeFolders().map((folder) => readSources(folder, ".yaml")),
+      ...localeFolders("use-cases").map((folder) =>
+        readSources(folder, ".yaml"),
+      ),
     ),
     articles: readSources("articles", ".md"),
+    articleTranslations: Object.assign(
+      {},
+      ...localeFolders("articles").map((folder) => readSources(folder, ".md")),
+    ),
   });
 }

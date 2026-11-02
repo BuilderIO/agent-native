@@ -1,43 +1,62 @@
-import type { PublicArticle } from "../../../lib/campaign-content";
+import type {
+  ArticleEntry,
+  PublicArticle,
+} from "../../../lib/campaign-content";
 import { sitePathForLocale } from "../docs-locale";
 
 export type Article = PublicArticle;
 
 // Project nested objects as well: additions to the content source must not widen the public loader contract.
 export function publicArticle(item: Article): Article {
+  const { name, url, same_as, role, photo, bio } = item.author;
   return {
     slug: item.slug,
-    use_case: item.use_case,
-    job_id: item.job_id,
+    type: item.type,
     title: item.title,
+    seo_title: item.seo_title,
+    og_line: item.og_line,
     meta_description: item.meta_description,
-    topic: item.topic,
-    apps: item.apps,
+    og_image: item.og_image,
     published: item.published,
     updated: item.updated,
-    author: item.author,
-    author_role: item.author_role,
-    author_avatar: item.author_avatar,
-    app_cta_url: item.app_cta_url,
-    cta_label: item.cta_label,
-    screenshot_alt: item.screenshot_alt,
-    cta_band_heading: item.cta_band_heading,
-    cta_band_subhead: item.cta_band_subhead,
-    related_resources: item.related_resources.map(({ label, url }) => ({
-      label,
-      url,
-    })),
-    related: item.related,
+    author: { name, url, same_as, role, photo, bio },
+    app: item.app,
+    cta: item.cta
+      ? {
+          label: item.cta.label,
+          url: item.cta.url,
+          heading: item.cta.heading,
+          prompt: item.cta.prompt,
+        }
+      : undefined,
+    use_case: item.use_case,
+    images: item.images.map(({ dark, light, alt }) => ({ dark, light, alt })),
+    faqs: item.faqs.map(({ q, a }) => ({ q, a })),
     body: item.body,
   };
 }
 
-export function newestArticles<
-  T extends { published: string; updated?: string },
->(articles: T[]): T[] {
-  return [...articles].sort((a, b) =>
-    (b.updated ?? b.published).localeCompare(a.updated ?? a.published),
-  );
+/** Newest first, by the date each article was last updated. */
+export function newestArticles<T extends { updated: string }>(
+  articles: T[],
+): T[] {
+  return [...articles].sort((a, b) => b.updated.localeCompare(a.updated));
+}
+
+/**
+ * Cards for a list of articles in one language: each translated card where
+ * one exists, the English card otherwise, and the slugs that have a page in
+ * that language (only those cards may link to it).
+ */
+export function articleCards(articles: ArticleEntry[], locale: string) {
+  const translatedSlugs: string[] = [];
+  const cards = articles.map((entry) => {
+    const translation = entry.translations[locale];
+    if (!translation) return publicArticle(entry);
+    translatedSlugs.push(entry.slug);
+    return publicArticle(translation);
+  });
+  return { articles: cards, translatedSlugs };
 }
 
 export function campaignHref(href: string, locale: unknown): string {

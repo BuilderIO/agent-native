@@ -6,22 +6,16 @@ import { useSearchParams } from "react-router";
 
 import { buildCampaignCtaUrl } from "../../lib/campaign-links";
 import { TemplateFinalCta } from "../template-landing";
-import {
-  TEMPLATE_SCREENSHOTS,
-  getScreenshotTileScaleX,
-} from "../template-screenshots";
-import { TemplateScreenshot } from "../TemplateScreenshot";
 import { Button } from "../website-redesign/ds/button";
 import { copyText } from "../website-redesign/ds/clipboard";
-import { SectionHeader } from "../website-redesign/ds/section-header";
 import { useSnackbar } from "../website-redesign/ds/snackbar";
 import { safeHref, type Article } from "./public-content";
 
 export function CampaignView({ item }: { item: Article }) {
-  const { slug, job_id, use_case, topic } = item;
+  const { slug, type, app, use_case } = item;
   useEffect(() => {
-    trackEvent("article_view", { slug, use_case, job_id, topic });
-  }, [slug, job_id, use_case, topic]);
+    trackEvent("article_view", { slug, type, app, use_case });
+  }, [slug, type, app, use_case]);
   return null;
 }
 
@@ -33,8 +27,13 @@ export function CampaignCta({
   location: "inline" | "band";
 }) {
   const [searchParams] = useSearchParams();
+  if (!item.cta) return null;
   const href = safeHref(
-    buildCampaignCtaUrl(item.app_cta_url, item.job_id, searchParams.toString()),
+    buildCampaignCtaUrl(
+      item.cta.url,
+      `article-${item.slug}`,
+      searchParams.toString(),
+    ),
   );
   if (!href) throw new Error("Campaign CTA requires a safe destination");
   return (
@@ -45,46 +44,73 @@ export function CampaignCta({
       onClick={() => {
         trackEvent("article_cta_click", {
           slug: item.slug,
+          app: item.app,
           use_case: item.use_case,
-          job_id: item.job_id,
-          topic: item.topic,
           location,
         });
       }}
     >
-      {item.cta_label}
+      {item.cta.label}
     </Button>
   );
 }
 
-export function CampaignBand({ item }: { item: Article }) {
+// The guide's app: its heading, the button to open it, and a prompt to paste into its agent.
+export function CampaignCallout({
+  item,
+  location,
+}: {
+  item: Article;
+  location: "inline" | "band";
+}) {
+  const t = useT();
+  const notify = useSnackbar();
+  if (!item.cta?.heading || !item.app) return null;
+  const { heading, prompt } = item.cta;
+  const Heading = location === "band" ? "h2" : "p";
   return (
-    <TemplateFinalCta contentClassName="campaign-section">
-      <div className="flex flex-col items-start gap-[var(--spacing-4)] text-start">
-        <SectionHeader heading={item.cta_band_heading} />
-        <p className="campaign-body m-0">{item.cta_band_subhead}</p>
-        <CampaignCta item={item} location="band" />
+    <div className={`campaign-callout campaign-callout-${location}`}>
+      <Heading className="campaign-callout-heading">{heading}</Heading>
+      <div className="flex flex-wrap items-center gap-3">
+        <CampaignCta item={item} location={location} />
+        {prompt ? (
+          <Button
+            variant="secondary"
+            icon={null}
+            onClick={() => {
+              void copyText(prompt).then((copied) => {
+                notify(t(copied ? "campaign.copied" : "campaign.copyFailed"));
+                if (copied)
+                  trackEvent("article_prompt_copy", {
+                    slug: item.slug,
+                    app: item.app,
+                    location,
+                  });
+              });
+            }}
+          >
+            <IconCopy size={16} aria-hidden="true" />
+            {t("campaign.copyPrompt")}
+          </Button>
+        ) : null}
       </div>
-    </TemplateFinalCta>
+      {prompt ? (
+        <p className="campaign-callout-hint">
+          {t("campaign.promptHint", { app: item.app })}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
-export function CampaignScreenshot({ item }: { item: Article }) {
-  const app = item.apps?.[0];
-  if (!app) return null;
-  const appKey = app === "plans" ? "plan" : app;
+export function CampaignBand({ item }: { item: Article }) {
+  if (!item.cta?.heading || !item.app) return null;
   return (
-    <figure className="docs-content m-0">
-      <div className="docs-image-frame relative aspect-[1200/750] overflow-hidden rounded-xl">
-        <TemplateScreenshot
-          variants={TEMPLATE_SCREENSHOTS[appKey]}
-          frame
-          alt={item.screenshot_alt ?? item.title}
-          scaleX={getScreenshotTileScaleX(appKey)}
-          sizes="(max-width: 767px) 100vw, 1200px"
-        />
+    <TemplateFinalCta contentClassName="campaign-section">
+      <div className="mx-auto w-full max-w-[760px]">
+        <CampaignCallout item={item} location="band" />
       </div>
-    </figure>
+    </TemplateFinalCta>
   );
 }
 
@@ -117,9 +143,12 @@ export function faqSchema(items: { q: string; a: string }[]) {
 export function CampaignDate({
   date,
   kind = "updated",
+  month = "long",
 }: {
   date: string;
   kind?: "updated" | "published";
+  /** "short" (Oct) where space is tight, such as article cards. */
+  month?: "long" | "short";
 }) {
   const t = useT();
   const format = useFormatters();
@@ -132,7 +161,7 @@ export function CampaignDate({
         {
           date: format.formatDate(new Date(date), {
             year: "numeric",
-            month: "long",
+            month,
             day: "numeric",
             timeZone: "UTC",
           }),

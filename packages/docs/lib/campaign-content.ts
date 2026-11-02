@@ -1,7 +1,10 @@
 import matter from "gray-matter";
 import { z } from "zod";
 
-import { ARTICLE_TOPICS, type ArticleTopic } from "./article-topics";
+import {
+  DEFAULT_DOCS_LOCALE,
+  DOCS_LOCALES,
+} from "../app/components/docs-locale";
 
 export const USE_CASES_BASE = "/use-cases";
 export const ARTICLES_BASE = "/articles";
@@ -20,16 +23,14 @@ export const categories = [
   "plans",
   "analytics",
 ] as const;
-export const ARTICLES_PAGE_SIZE = 12;
+// The articles index is a 3×3 grid of cards.
+export const ARTICLES_PAGE_SIZE = 9;
 
 const text = z
   .string()
   .refine((value) => value.trim().length > 0, "Expected nonempty text");
 const slug = text.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 const app = z.enum([...categories, "content"]);
-const topic = z.enum(
-  Object.keys(ARTICLE_TOPICS) as [ArticleTopic, ...ArticleTopic[]],
-);
 export function isSafeCampaignUrl(value: string): boolean {
   if (/[\s\\\u0000-\u001f\u007f]/.test(value)) return false;
   if (value.startsWith("/") && !value.startsWith("//")) return true;
@@ -81,28 +82,41 @@ const role = z.enum([
   "finance",
   "everyone",
 ]);
+// An article as the content factory writes it (its how-to-guide skill's references/site-template.md).
+const articleImage = z.object({ dark: safeUrl, light: safeUrl, alt: text });
 const articleSchema = z.object({
   slug,
-  job_id: text,
+  type: z.enum(["how-to-guide"]),
   title: text,
+  seo_title: text,
+  og_line: text,
   meta_description: text,
-  app_cta_url: appUrl,
-  cta_label: text,
-  screenshot_alt: text.optional(),
-  cta_band_heading: text,
-  cta_band_subhead: text,
-  use_case: slug.optional(),
-  topic,
-  apps: z.array(app).optional(),
+  og_image: safeUrl,
   published: date,
-  updated: date.optional(),
-  author: text,
-  author_role: text.optional(),
-  author_avatar: safeUrl.optional(),
-  related_resources: z.array(z.object({ label: text, url: safeUrl })),
-  related: z.array(slug).optional(),
+  updated: date,
+  author: z.object({
+    name: text,
+    url: safeUrl,
+    same_as: z.array(safeUrl).optional(),
+    role: text.optional(),
+    photo: safeUrl.optional(),
+    bio: text.optional(),
+  }),
+  app: text.optional(),
+  cta: z
+    .object({
+      label: text,
+      url: appUrl,
+      heading: text.optional(),
+      prompt: text.optional(),
+    })
+    .optional(),
+  use_case: slug.optional(),
+  images: z.array(articleImage),
+  faqs: z.array(z.object({ q: text, a: text })),
   body: text,
 });
+
 const themedImage = z.object({ dark: safeUrl, light: safeUrl, alt: text });
 // Use-case pages, written by Content Factory.
 const useCaseSchema = z.object({
@@ -178,17 +192,26 @@ export type UseCaseEntry = UseCase & {
   translations: Partial<Record<string, UseCase>>;
 };
 export type PublicArticle = z.infer<typeof articleSchema>;
+/** An article in English, with its translations keyed by locale ("de-DE"). */
+export type ArticleEntry = PublicArticle & {
+  translations: Partial<Record<string, PublicArticle>>;
+};
 export type CampaignContent = {
   useCases: UseCaseEntry[];
-  articles: PublicArticle[];
+  articles: ArticleEntry[];
 };
 export type CampaignSources = {
   useCases: Record<string, string>;
   /** content/use-cases/<locale>/<slug>.yaml: translations of the pages. */
   useCaseTranslations?: Record<string, string>;
   articles: Record<string, string>;
+  /** content/articles/<locale>/<slug>.md: translations of the articles. */
+  articleTranslations?: Record<string, string>;
 };
-const LOCALE_FOLDER = /\/([a-z]{2}-[A-Z]{2})\/[^/]+\.yaml$/;
+const LOCALE_FOLDER = /\/([a-z]{2}-[A-Z]{2})\/[^/]+\.(?:yaml|md)$/;
+const TRANSLATED_LOCALES: readonly string[] = DOCS_LOCALES.filter(
+  (locale) => locale !== DEFAULT_DOCS_LOCALE,
+);
 
 function parseFiles<T extends { slug: string }>(
   sources: Record<string, string>,
@@ -227,36 +250,72 @@ function parseFiles<T extends { slug: string }>(
     });
 }
 
+// A translation that matches nothing must fail the build: dropping it would
+// ship a page that silently stays English.
+function attachTranslations<T extends { slug: string }>(
+  entries: (T & { translations: Partial<Record<string, T>> })[],
+  sources: Record<string, string>,
+  schema: z.ZodType<T>,
+  markdown: boolean,
+  /** What a translation must share with its English entry besides the slug. */
+  matchKey: (item: T) => string,
+  rule: string,
+): void {
+  const bySlug = new Map(entries.map((entry) => [entry.slug, entry]));
+  const files = Object.keys(sources).sort((a, b) => a.localeCompare(b));
+  parseFiles(sources, schema, markdown).forEach((translation, index) => {
+    const file = files[index];
+    const locale = file && LOCALE_FOLDER.exec(file)?.[1];
+    const entry = bySlug.get(translation.slug);
+    if (
+      !locale ||
+      !TRANSLATED_LOCALES.includes(locale) ||
+      !entry ||
+      matchKey(entry) !== matchKey(translation)
+    )
+      throw new Error(
+        `[campaign-content] ${file}: invalid content (a translation must sit in a site locale folder and match ${rule})`,
+      );
+    entry.translations[locale] = translation;
+  });
+}
+
 export function parseCampaignContent(
   sources: CampaignSources,
 ): CampaignContent {
-  const translations = parseFiles(
-    sources.useCaseTranslations ?? {},
-    useCaseSchema,
-    false,
-  );
-  const translationFiles = Object.keys(sources.useCaseTranslations ?? {}).sort(
-    (a, b) => a.localeCompare(b),
-  );
   const useCases = parseFiles(sources.useCases, useCaseSchema, false).map(
     (page): UseCaseEntry => ({ ...page, translations: {} }),
   );
-  const pagesBySlug = new Map(useCases.map((page) => [page.slug, page]));
-  translations.forEach((translation, index) => {
-    const file = translationFiles[index];
-    const locale = file && LOCALE_FOLDER.exec(file)?.[1];
-    const page = pagesBySlug.get(translation.slug);
-    if (!locale || !page || page.app !== translation.app)
-      throw new Error(
-        `[campaign-content] ${file}: invalid content (a translation must sit in a locale folder and match an English page's slug and app)`,
-      );
-    page.translations[locale] = translation;
-  });
-  const articles = parseFiles(sources.articles, articleSchema, true).sort(
-    (a, b) =>
-      b.published.localeCompare(a.published) || a.slug.localeCompare(b.slug),
+  attachTranslations(
+    useCases,
+    sources.useCaseTranslations ?? {},
+    useCaseSchema,
+    false,
+    (page) => page.app,
+    "an English page's slug and app",
+  );
+  const articles = parseFiles(sources.articles, articleSchema, true)
+    .sort(
+      (a, b) =>
+        b.updated.localeCompare(a.updated) || a.slug.localeCompare(b.slug),
+    )
+    .map((article): ArticleEntry => ({ ...article, translations: {} }));
+  attachTranslations(
+    articles,
+    sources.articleTranslations ?? {},
+    articleSchema,
+    true,
+    (article) => JSON.stringify([article.type, article.app ?? null]),
+    "an English article's slug, type and app",
   );
   return { useCases, articles };
+}
+
+/** The other languages at least one article is translated into, in site order. */
+export function translatedArticleLocales(articles: ArticleEntry[]): string[] {
+  return TRANSLATED_LOCALES.filter((locale) =>
+    articles.some((article) => article.translations[locale]),
+  );
 }
 
 export function articleMarkdown(article: PublicArticle): string {

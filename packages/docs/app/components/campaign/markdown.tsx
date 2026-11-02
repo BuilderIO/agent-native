@@ -1,32 +1,37 @@
-import { useT, useLocale } from "@agent-native/core/client/i18n";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { marked, type Token, type Tokens } from "marked";
 import { Fragment, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { TemplateLandingFaq } from "../template-landing";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "../ui/dialog";
 import { CodeBlock } from "../website-redesign/ds/code-block";
 import { campaignHref, safeHref, type Article } from "./public-content";
-import { CampaignCta, CampaignScreenshot, CopyControl } from "./shared";
+import { CampaignCallout, CopyControl } from "./shared";
 
 export function sanitizedMarkdown(body: string): string {
   const source = body.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
   const tokens = marked.lexer(source);
   return tokens
     .map((token) => {
-      if (
-        token.type === "html" &&
-        !/^<!-- (screenshot|try-it) -->\s*$/.test(token.raw)
-      )
-        return "";
+      if (token.type === "html") return "";
       return token.raw;
     })
     .join("");
 }
 
+// Marks (\p{M}) carry Devanagari vowel signs and Arabic diacritics; dropping
+// them turns a Hindi heading's id into a different word.
 export function headingId(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s-]/gu, "")
+    .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, "")
     .trim()
     .replace(/\s+/g, "-");
 }
@@ -150,13 +155,10 @@ export interface ArticleFaq {
 
 export function parseArticle(body: string) {
   const tokens = marked.lexer(sanitizedMarkdown(body));
-  const start = tokens.findIndex(
-    (token) =>
-      token.type === "heading" &&
-      token.depth === 2 &&
-      inlineText(token.tokens).trim().toLowerCase() ===
-        "frequently asked questions",
-  );
+  // The questions are the article's last "##" section.
+  let start = -1;
+  for (const [i, token] of tokens.entries())
+    if (token.type === "heading" && token.depth === 2) start = i;
   if (start < 0)
     return {
       before: tokens,
@@ -203,14 +205,41 @@ export function parseArticle(body: string) {
   };
 }
 
+const STEP = /^(\d+)\.\s+/;
+
+// "### 1. Pull the numbers": the number becomes a badge, the rest stays the heading.
+function withoutStepNumber(tokens: Token[] | undefined): Token[] {
+  return requiredTokens(tokens).map((token, i) => {
+    if (i > 0 || token.type !== "text") return token;
+    const text = token.text.replace(STEP, "");
+    return { ...token, raw: text, text, tokens: undefined } as Token;
+  });
+}
+
+// The "##" section's numbered steps, for the list of steps under its heading.
+function stepsAfter(tokens: Token[], index: number) {
+  const steps: { id: string; title: string }[] = [];
+  for (const token of tokens.slice(index + 1)) {
+    if (token.type !== "heading") continue;
+    if (token.depth <= 2) break;
+    const title = inlineText(token.tokens);
+    if (token.depth === 3 && STEP.test(title))
+      steps.push({ id: headingId(title), title: title.replace(STEP, "") });
+  }
+  return steps;
+}
+
 export function MarkdownBlocks({
   tokens,
   article,
   headingIds = new Map<string, number>(),
+  stepList,
 }: {
   tokens: Token[];
   article: Article;
   headingIds?: Map<string, number>;
+  /** The index of the "##" heading that gets a list of its steps. */
+  stepList?: number;
 }) {
   const { locale } = useLocale();
   return (
@@ -229,20 +258,61 @@ export function MarkdownBlocks({
               | "h4"
               | "h5"
               | "h6";
+            const step =
+              token.depth === 3
+                ? STEP.exec(inlineText(token.tokens))?.[1]
+                : undefined;
+            const steps = i === stepList ? stepsAfter(tokens, i) : [];
             node = (
-              <Heading
-                id={id}
-                className="group scroll-mt-24 flex items-start gap-2"
-              >
-                {inline(token.tokens, locale)}
-                <CopyControl text={id} heading />
-              </Heading>
+              <>
+                <Heading
+                  id={id}
+                  className={`group scroll-mt-24 flex items-start gap-2${step ? " article-step-heading" : ""}`}
+                >
+                  {step ? (
+                    <>
+                      <span className="article-step-number" aria-hidden="true">
+                        {step.padStart(2, "0")}
+                      </span>
+                      <span className="sr-only">{`${step}. `}</span>
+                    </>
+                  ) : null}
+                  {inline(
+                    step ? withoutStepNumber(token.tokens) : token.tokens,
+                    locale,
+                  )}
+                  <CopyControl text={id} heading />
+                </Heading>
+                {steps.length ? (
+                  <ol className="article-step-list">
+                    {steps.map((item) => (
+                      <li key={item.id}>
+                        <a href={`#${item.id}`}>{item.title}</a>
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
+              </>
             );
             break;
           }
-          case "paragraph":
-            node = <p>{inline(token.tokens, locale)}</p>;
+          case "paragraph": {
+            // A paragraph that is only a screenshot shows the reader's theme.
+            const only = token.tokens?.filter(
+              (child) => !(child.type === "text" && !child.raw.trim()),
+            );
+            const first = only?.length === 1 ? only[0] : undefined;
+            const image =
+              first?.type === "image"
+                ? article.images.find((item) => item.dark === first.href)
+                : undefined;
+            node = image ? (
+              <ArticleImage image={image} />
+            ) : (
+              <p>{inline(token.tokens, locale)}</p>
+            );
             break;
+          }
           case "text":
             node = (
               <>{token.tokens ? inline(token.tokens, locale) : token.text}</>
@@ -286,7 +356,7 @@ export function MarkdownBlocks({
           }
           case "table":
             node = (
-              <div className="max-w-full overflow-x-auto">
+              <div className="article-table max-w-full overflow-x-auto">
                 <table>
                   <thead>
                     <tr>
@@ -312,14 +382,7 @@ export function MarkdownBlocks({
             node = <hr />;
             break;
           case "html":
-            node =
-              token.raw.trim() === "<!-- screenshot -->" ? (
-                <CampaignScreenshot item={article} />
-              ) : token.raw.trim() === "<!-- try-it -->" ? (
-                <div className="not-prose my-8">
-                  <CampaignCta item={article} location="inline" />
-                </div>
-              ) : null;
+            node = null;
             break;
           default:
             node = null;
@@ -330,23 +393,111 @@ export function MarkdownBlocks({
   );
 }
 
-export function ArticleBody({ article }: { article: Article }) {
+// Both themes of one screenshot, stacked; the site's theme classes show the right one.
+function ThemedImage({
+  dark,
+  light,
+  alt,
+}: {
+  dark: string;
+  light: string;
+  alt: string;
+}) {
+  return (
+    <>
+      <img
+        src={dark}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        className="theme-img-dark absolute inset-0 block h-full w-full object-contain"
+      />
+      <img
+        src={light}
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        decoding="async"
+        className="theme-img-light absolute inset-0 block h-full w-full object-contain"
+      />
+    </>
+  );
+}
+
+// A 16:9 screenshot; clicking it opens it as large as the window allows.
+function ArticleImage({ image }: { image: Article["images"][number] }) {
   const t = useT();
+  const dark = safeHref(image.dark);
+  const light = safeHref(image.light);
+  if (!dark || !light) return null;
+  return (
+    <figure className="not-prose my-8">
+      <Dialog>
+        <DialogTrigger asChild>
+          <button
+            type="button"
+            className="article-image relative block aspect-video w-full cursor-zoom-in overflow-hidden rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-raised)] p-0"
+          >
+            <ThemedImage dark={dark} light={light} alt={image.alt} />
+            <span className="sr-only">{t("campaign.enlargeImage")}</span>
+          </button>
+        </DialogTrigger>
+        <DialogContent
+          aria-describedby={undefined}
+          className="builder-brand-tokens article-image-zoom max-w-none"
+        >
+          <DialogTitle className="sr-only">{image.alt}</DialogTitle>
+          <DialogClose asChild>
+            <button
+              type="button"
+              className="relative block aspect-video w-full cursor-zoom-out overflow-hidden rounded-[var(--b-radius)] bg-[var(--b-bg-raised)] p-0"
+            >
+              <ThemedImage dark={dark} light={light} alt={image.alt} />
+              <span className="sr-only">{t("campaign.closeImage")}</span>
+            </button>
+          </DialogClose>
+        </DialogContent>
+      </Dialog>
+    </figure>
+  );
+}
+
+export function ArticleBody({ article }: { article: Article }) {
   const parsed = parseArticle(article.body);
   const ids = new Map<string, number>();
+  // The intro (and its image) comes before the first "##"; the app's callout follows it.
+  const firstSection = parsed.before.findIndex(
+    (token) => token.type === "heading" && token.depth === 2,
+  );
+  const split = firstSection < 0 ? parsed.before.length : firstSection;
+  const sections = parsed.before.slice(split);
+  const stepList = sections.findIndex(
+    (token, i) =>
+      token.type === "heading" &&
+      token.depth === 2 &&
+      stepsAfter(sections, i).length >= 3,
+  );
   return (
     <div className="campaign-article-content">
       <div className="docs-content min-w-0 max-w-none break-words">
         <MarkdownBlocks
-          tokens={parsed.before}
+          tokens={parsed.before.slice(0, split)}
           article={article}
           headingIds={ids}
         />
+        <CampaignCallout item={article} location="inline" />
+        <MarkdownBlocks
+          tokens={sections}
+          article={article}
+          headingIds={ids}
+          {...(stepList < 0 ? {} : { stepList })}
+        />
       </div>
       {parsed.faqTitle && parsed.faqs.length ? (
-        <div className="not-prose my-12">
+        <div className="campaign-article-faq not-prose my-12">
           <TemplateLandingFaq
-            eyebrow={t("campaign.faqs")}
+            layout="stacked"
+            eyebrow={null}
             title={parsed.faqTitle}
             headingId={headingId(parsed.faqTitle)}
             headingAction={
@@ -357,7 +508,6 @@ export function ArticleBody({ article }: { article: Article }) {
               id: faq.id,
               question: faq.q,
               headingId: faq.id,
-              headingAction: <CopyControl text={faq.id} heading />,
               answer: (
                 <div className="docs-content max-w-none">
                   <MarkdownBlocks tokens={faq.answer} article={article} />

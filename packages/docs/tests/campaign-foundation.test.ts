@@ -9,26 +9,13 @@ import { buildCampaignCtaUrl } from "../app/lib/campaign-links";
 import { campaignMeta } from "../app/lib/campaign-seo";
 import { buildCampaignPages } from "../app/vite-sitemap-plugin";
 import {
-  ARTICLE_TOPICS,
-  getArticleTopics,
-  type ArticleTopic,
-  type ArticleTopicSummary,
-} from "../lib/article-topics";
-import { articleMarkdown, parseCampaignContent } from "../lib/campaign-content";
+  ARTICLES_PAGE_SIZE,
+  articleMarkdown,
+  parseCampaignContent,
+} from "../lib/campaign-content";
 import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
 import { loadCampaignContent } from "../lib/campaign-content.server";
 
-const common = {
-  slug: "sample",
-  job_id: "sample-job",
-  title: "Sample",
-  meta_description: "Sample description",
-  app_cta_url: "https://example.com/app?existing=1",
-  cta_label: "Try",
-  screenshot_alt: "Sample image",
-  cta_band_heading: "Try the workflow",
-  cta_band_subhead: "Start here",
-};
 const image = {
   dark: "https://example.com/dark.png",
   light: "https://example.com/light.png",
@@ -92,16 +79,34 @@ const roles = [
   "finance",
   "everyone",
 ];
+// A how-to guide as the content factory's prepare step writes it.
 const article = {
-  ...common,
-  use_case: "sample",
-  topic: "coding-agents",
-  apps: ["clips"],
+  slug: "sample",
+  type: "how-to-guide",
+  title: "Sample",
+  seo_title: "Sample search title",
+  og_line: "Sample share line",
+  meta_description: "Sample description",
+  og_image: "https://example.com/og.png",
   published: "2026-09-02",
-  author: "Writer",
-  related_resources: [
-    { label: "Docs", url: "/docs/", internal: "PRIVATE-LINK" },
-  ],
+  updated: "2026-09-02",
+  author: {
+    name: "Writer",
+    url: "https://example.com/writer",
+    same_as: ["https://example.com/writer"],
+    internal: "PRIVATE-AUTHOR",
+  },
+  app: "Clips",
+  cta: {
+    label: "Try",
+    url: "https://example.com/app?existing=1",
+    heading: "Try the workflow",
+    prompt: "Read this guide and help me.",
+    internal: "PRIVATE-CTA",
+  },
+  use_case: "sample",
+  images: [{ ...image, internal: "PRIVATE-IMAGE" }],
+  faqs: [{ q: "Why?", a: "Time", internal: "PRIVATE-FAQ" }],
   audience: "PRIVATE-AUDIENCE",
   internal: "PRIVATE-STRATEGY",
 };
@@ -109,14 +114,28 @@ const yaml = (value: unknown) => JSON.stringify(value);
 const markdown = (value: unknown, body = "Public article body.") =>
   `---\n${yaml(value)}\n---\n\n${body}`;
 function sources(
-  useCases = { "sample.yaml": yaml(useCase) },
-  articles = { "sample.md": markdown(article) },
+  useCases: Record<string, string> = { "sample.yaml": yaml(useCase) },
+  articles: Record<string, string> = { "sample.md": markdown(article) },
 ) {
   return { useCases, articles };
+}
+function articleError(value: unknown): string {
+  try {
+    parseCampaignContent(
+      sources(undefined, {
+        "sample.md": markdown(value),
+        "valid.md": markdown({ ...article, slug: "valid" }),
+      }),
+    );
+  } catch (error) {
+    return (error as Error).message;
+  }
+  return "";
 }
 
 afterEach(() => vi.restoreAllMocks());
 
+// oracle-change: articles were rebuilt as how-to guides; the topic, category, apps, screenshot and related-resource fields were removed from the schema, so their tests went with them and the new schema is tested here.
 describe("campaign content", () => {
   it("strips private and unknown fields recursively, including Markdown mirrors", () => {
     const content = parseCampaignContent(sources());
@@ -172,152 +191,186 @@ describe("campaign content", () => {
     const content = parseCampaignContent(
       sources(
         { "sample.yaml": yaml({ ...useCase, app: "content" }) },
-        { "sample.md": markdown({ ...article, apps: ["content"] }) },
+        { "sample.md": markdown({ ...article, app: "Content" }) },
       ),
     );
     expect(content.useCases[0].app).toBe("content");
-    expect(content.articles[0].apps).toEqual(["content"]);
+    expect(content.articles[0].app).toBe("Content");
     expect(error).not.toHaveBeenCalled();
     const paths = buildCampaignPages(content).map((page) => page.path);
     expect(paths).toContain("/use-cases/sample/");
-    expect(paths.some((path) => path.includes("/category/"))).toBe(false);
+    expect(paths.some((path) => /\/(category|topic)\//.test(path))).toBe(false);
   });
 
-  it.each(Object.keys(ARTICLE_TOPICS) as ArticleTopic[])(
-    "accepts the configured article topic %s",
-    (topic) => {
-      const content = parseCampaignContent(
-        sources(undefined, {
-          "sample.md": markdown({
-            ...article,
-            topic,
-            category: "unknown-legacy-category",
-          }),
-        }),
-      );
-      expect(content.articles[0].topic).toBe(topic);
-      expect(content.articles[0]).not.toHaveProperty("category");
-    },
-  );
+  it("keeps every field of a full guide, including nested author, cta, images and faqs", () => {
+    const [parsed] = parseCampaignContent(sources()).articles;
+    expect(parsed).toEqual({
+      slug: "sample",
+      type: "how-to-guide",
+      title: "Sample",
+      seo_title: "Sample search title",
+      og_line: "Sample share line",
+      meta_description: "Sample description",
+      og_image: "https://example.com/og.png",
+      published: "2026-09-02",
+      updated: "2026-09-02",
+      author: {
+        name: "Writer",
+        url: "https://example.com/writer",
+        same_as: ["https://example.com/writer"],
+      },
+      app: "Clips",
+      cta: {
+        label: "Try",
+        url: "https://example.com/app?existing=1",
+        heading: "Try the workflow",
+        prompt: "Read this guide and help me.",
+      },
+      use_case: "sample",
+      images: [image],
+      faqs: [{ q: "Why?", a: "Time" }],
+      body: "\nPublic article body.",
+      translations: {},
+    });
+  });
 
-  it.each([undefined, null, "", "clips", "unknown", [], 1])(
-    "throws on an absent or invalid required article topic (%j)",
-    (topic) => {
-      expect(() =>
-        parseCampaignContent(
-          sources(undefined, {
-            "sample.md": markdown({ ...article, topic, category: "clips" }),
-            "valid.md": markdown({ ...article, slug: "valid" }),
-          }),
-        ),
-      ).toThrow(/sample\.md: invalid content \(topic/);
-    },
-  );
-
-  it.each([
-    undefined,
-    [],
-    ["clips"],
-    ["design"],
-    ["plans"],
-    ["analytics"],
-    ["slides"],
-    ["content"],
-    ["clips", "design", "plans", "analytics", "slides", "content"],
-  ])(
-    "accepts optional article apps without inventing defaults (%j)",
-    (apps) => {
-      const error = vi.spyOn(console, "error").mockImplementation(() => {});
-      const content = parseCampaignContent(
-        sources(undefined, {
-          "sample.md": markdown({ ...article, apps }),
-        }),
-      );
-      expect(content.articles).toHaveLength(1);
-      if (apps === undefined)
-        expect(content.articles[0]).not.toHaveProperty("apps");
-      else expect(content.articles[0].apps).toEqual(apps);
-      expect(error).not.toHaveBeenCalled();
-    },
-  );
-
-  it("accepts a standalone article without a use case or screenshot alt", () => {
+  it("accepts a guide with no app, call to action, use case or optional author fields without inventing them", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { use_case: _useCase, screenshot_alt: _alt, ...standalone } = article;
-    const content = parseCampaignContent(
+    const { app: _app, cta: _cta, use_case: _useCase, ...standalone } = article;
+    const [parsed] = parseCampaignContent(
       sources(
         {},
         {
           "sample.md": markdown({
             ...standalone,
-            topic: "agentic-apps",
-            apps: [],
+            author: { name: "Writer", url: "/about/" },
+            images: [],
+            faqs: [],
+          }),
+        },
+      ),
+    ).articles;
+    expect(parsed.author).toEqual({ name: "Writer", url: "/about/" });
+    for (const key of ["app", "cta", "use_case"])
+      expect(parsed).not.toHaveProperty(key);
+    expect(parsed.images).toEqual([]);
+    expect(parsed.faqs).toEqual([]);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("accepts a call to action without a callout heading or prompt", () => {
+    const [parsed] = parseCampaignContent(
+      sources(undefined, {
+        "sample.md": markdown({
+          ...article,
+          cta: { label: "Try", url: "https://example.com/app" },
+        }),
+      }),
+    ).articles;
+    expect(parsed.cta).toEqual({
+      label: "Try",
+      url: "https://example.com/app",
+    });
+  });
+
+  it.each([
+    ["type", { type: undefined }],
+    ["type", { type: "article" }],
+    ["seo_title", { seo_title: undefined }],
+    ["og_line", { og_line: " " }],
+    ["og_image", { og_image: undefined }],
+    ["og_image", { og_image: "javascript:evil()" }],
+    ["updated", { updated: undefined }],
+    ["published", { published: "2026-02-30" }],
+    ["author", { author: "Writer" }],
+    ["author.url", { author: { name: "Writer" } }],
+    ["author.url", { author: { name: "Writer", url: "//evil.example" } }],
+    [
+      "author.same_as.0",
+      { author: { ...article.author, same_as: ["javascript:evil()"] } },
+    ],
+    ["cta.label", { cta: { url: "https://example.com/app" } }],
+    ["cta.url", { cta: { label: "Try", url: "/relative-app" } }],
+    ["cta.url", { cta: { label: "Try", url: "javascript:evil()" } }],
+    ["images", { images: undefined }],
+    ["images.0.light", { images: [{ dark: image.dark, alt: image.alt }] }],
+    ["images.0.alt", { images: [{ dark: image.dark, light: image.light }] }],
+    ["faqs", { faqs: undefined }],
+    ["faqs.0.a", { faqs: [{ q: "Why?" }] }],
+    ["use_case", { use_case: "Not A Slug" }],
+  ] as const)(
+    "rejects an invalid or missing %s without leaking input",
+    (field, override) => {
+      const message = articleError({ ...article, ...override });
+      expect(message).toContain(`sample.md: invalid content (${field}:`);
+      expect(message).not.toContain("PRIVATE");
+      expect(message).not.toContain("valid.md");
+    },
+  );
+
+  it("drops the old article format's fields instead of carrying them forward", () => {
+    const [parsed] = parseCampaignContent(
+      sources(undefined, {
+        "sample.md": markdown({
+          ...article,
+          job_id: "PRIVATE-JOB",
+          topic: "coding-agents",
+          apps: ["clips"],
+          app_cta_url: "https://example.com/app",
+          screenshot_alt: "PRIVATE-ALT",
+          related_resources: [{ label: "Docs", url: "/docs/" }],
+        }),
+      }),
+    ).articles;
+    for (const key of [
+      "job_id",
+      "topic",
+      "apps",
+      "app_cta_url",
+      "screenshot_alt",
+      "related_resources",
+    ])
+      expect(parsed).not.toHaveProperty(key);
+  });
+
+  it("sorts articles newest first by updated date, then by slug", () => {
+    const content = parseCampaignContent(
+      sources(
+        {},
+        {
+          "b-tie.md": markdown({
+            ...article,
+            slug: "b-tie",
+            published: "2026-01-01",
+            updated: "2026-05-01",
+          }),
+          "a-tie.md": markdown({
+            ...article,
+            slug: "a-tie",
+            published: "2026-01-01",
+            updated: "2026-05-01",
+          }),
+          "newly-published.md": markdown({
+            ...article,
+            slug: "newly-published",
+            published: "2026-04-01",
+            updated: "2026-04-01",
+          }),
+          "recently-updated.md": markdown({
+            ...article,
+            slug: "recently-updated",
+            published: "2025-01-01",
+            updated: "2026-06-01",
           }),
         },
       ),
     );
-    expect(content.articles).toHaveLength(1);
-    expect(content.articles[0]).toMatchObject({
-      slug: article.slug,
-      title: article.title,
-      topic: "agentic-apps",
-      apps: [],
-      body: "\nPublic article body.",
-    });
-    expect(content.articles[0]).not.toHaveProperty("use_case");
-    expect(content.articles[0]).not.toHaveProperty("screenshot_alt");
-    expect(error).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    null,
-    "clips",
-    {},
-    ["unknown"],
-    ["plan"],
-    ["clips", "unknown"],
-    [1],
-    [null],
-  ])("throws on invalid article apps (%j)", (apps) => {
-    expect(() =>
-      parseCampaignContent(
-        sources(undefined, {
-          "sample.md": markdown({ ...article, apps }),
-        }),
-      ),
-    ).toThrow(/sample\.md: invalid content \(apps/);
-  });
-
-  it("summarizes only populated configured topics, in configuration order, without mutating input", () => {
-    const topics = Object.keys(ARTICLE_TOPICS) as ArticleTopic[];
-    const fixtures = [
-      { topic: topics[1] },
-      { topic: topics[0] },
-      { topic: topics[1] },
-    ];
-    const original = structuredClone(fixtures);
-    const summaries: ArticleTopicSummary[] = getArticleTopics(fixtures);
-    expect(summaries).toEqual([
-      { slug: topics[0], ...ARTICLE_TOPICS[topics[0]], count: 1 },
-      { slug: topics[1], ...ARTICLE_TOPICS[topics[1]], count: 2 },
+    expect(content.articles.map((item) => item.slug)).toEqual([
+      "recently-updated",
+      "a-tie",
+      "b-tie",
+      "newly-published",
     ]);
-    expect(getArticleTopics([])).toEqual([]);
-    expect(fixtures).toEqual(original);
-    for (const slug of topics) {
-      expect(getArticleTopics([{ topic: slug }])).toEqual([
-        { slug, ...ARTICLE_TOPICS[slug], count: 1 },
-      ]);
-      const content = parseCampaignContent(
-        sources(undefined, {
-          "sample.md": markdown({ ...article, topic: slug }),
-        }),
-      );
-      const paths = buildCampaignPages(content).map((page) => page.path);
-      expect(paths).toContain(`/articles/topic/${slug}/`);
-      expect(
-        paths.filter((path) => path.startsWith("/articles/topic/")),
-      ).toEqual([`/articles/topic/${slug}/`]);
-    }
   });
 
   it("does not validate or project removed screenshot fields and preserves original public text", () => {
@@ -339,7 +392,6 @@ describe("campaign content", () => {
       expect(item).not.toHaveProperty("screenshot_url");
       expect(item).not.toHaveProperty("screenshot_brief");
     }
-    expect(content.articles[0].screenshot_alt).toBe("Sample image");
     expect(JSON.stringify(content)).not.toContain("PRIVATE-SCREENSHOT");
     expect(content.useCases[0].title).toBe(" Sample ");
     expect(content.articles[0].body).toBe("\nPublic article body.");
@@ -347,7 +399,7 @@ describe("campaign content", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it("validates every use case and eleven articles through bundled and disk loaders without warnings", () => {
+  it("validates every use case and article through bundled and disk loaders without warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const bundled = loadCampaignContent();
@@ -371,100 +423,25 @@ describe("campaign content", () => {
       "visually-recap-agent-changes",
       "weekly-marketing-report",
     ]);
-    expect(bundled.articles).toHaveLength(11);
-    expect(
-      bundled.articles.map(({ slug, topic, apps }) => ({ slug, topic, apps })),
-    ).toEqual([
-      {
-        slug: "can-people-and-an-ai-agent-edit-the-same-document",
-        topic: "agentic-apps",
-        apps: [],
-      },
-      {
-        slug: "how-do-you-add-skills-to-claude-code-and-codex",
-        topic: "coding-agents",
-        apps: ["plans"],
-      },
-      {
-        slug: "how-to-make-a-pitch-deck-with-ai",
-        topic: "presentations",
-        apps: ["slides"],
-      },
-      {
-        slug: "how-to-turn-a-design-brief-into-a-prototype-with-ai",
-        topic: "prototyping",
-        apps: ["design"],
-      },
-      {
-        slug: "how-to-use-ai-to-take-meeting-notes",
-        topic: "meetings-and-notes",
-        apps: ["clips"],
-      },
-      {
-        slug: "what-is-an-agent-native-app",
-        topic: "agentic-apps",
-        apps: [],
-      },
-      {
-        slug: "how-do-you-build-a-landing-page-with-ai",
-        topic: "prototyping",
-        apps: ["design"],
-      },
-      {
-        slug: "how-to-write-a-bug-report",
-        topic: "coding-agents",
-        apps: ["clips"],
-      },
-      {
-        slug: "what-goes-in-a-technical-design-document",
-        topic: "coding-agents",
-        apps: ["plans"],
-      },
-      {
-        slug: "what-should-a-saas-metrics-dashboard-include",
-        topic: "metrics",
-        apps: ["analytics"],
-      },
-      {
-        slug: "what-should-you-look-for-in-dictation-software",
-        topic: "meetings-and-notes",
-        apps: ["clips"],
-      },
-    ]);
+    expect(bundled.articles.map((item) => item.slug)).toContain(
+      "qbr-presentation",
+    );
     for (const item of bundled.articles) {
-      expect(item).not.toHaveProperty("category");
-      if (item.topic === "agentic-apps") {
-        expect(item).not.toHaveProperty("use_case");
-        expect(item).not.toHaveProperty("screenshot_alt");
-      }
-    }
-    expect(
-      bundled.articles.find(
-        (item) =>
-          item.slug === "how-do-you-add-skills-to-claude-code-and-codex",
-      )?.use_case,
-    ).toBe("visual-plan-mode");
-    expect(
-      getArticleTopics(bundled.articles).map(({ count }) => count),
-    ).toEqual([2, 3, 2, 2, 1, 1]);
-    for (const item of bundled.articles) {
-      if (!item.use_case) continue;
-      expect(
-        bundled.useCases.map((page) => page.slug),
-        item.slug,
-      ).toContain(item.use_case);
+      expect(item.type, item.slug).toBe("how-to-guide");
+      if (item.use_case)
+        expect(
+          bundled.useCases.map((page) => page.slug),
+          item.slug,
+        ).toContain(item.use_case);
     }
     expect(bundled).toEqual(disk);
     expect(warn).not.toHaveBeenCalled();
-    for (const item of [...bundled.useCases, ...bundled.articles]) {
-      expect(item).not.toHaveProperty("screenshot_url");
-      expect(item).not.toHaveProperty("screenshot_brief");
-    }
     expect(error).not.toHaveBeenCalled();
     const serialized = JSON.stringify(bundled);
     expect(serialized).not.toMatch(/"internal":/);
     for (const item of [...bundled.useCases, ...bundled.articles]) {
       expect(item).not.toHaveProperty("audience");
+      expect(item).not.toHaveProperty("screenshot_url");
     }
   });
 
@@ -483,12 +460,28 @@ describe("campaign content", () => {
         sources({ "sample.yaml": yaml({ ...useCase, updated: "2026-02-30" }) }),
       ),
     ).toThrow(/sample\.yaml: invalid content \(updated/);
+    const articleYaml = `---\n${Object.entries(article)
+      .filter(([key]) => !["published", "updated"].includes(key))
+      .map(([key, value]) => `${key}: ${yaml(value)}`)
+      .join("\n")}\npublished: 2026-09-02\nupdated: 2026-10-28\n---\n\nBody.`;
+    const [parsed] = parseCampaignContent(
+      sources(undefined, { "sample.md": articleYaml }),
+    ).articles;
+    expect([parsed.published, parsed.updated]).toEqual([
+      "2026-09-02",
+      "2026-10-28",
+    ]);
   });
 
   it("throws on invalid files, filename mismatches and unsafe URLs without leaking input", () => {
     expect(() =>
       parseCampaignContent(sources({ "wrong.yaml": yaml(useCase) })),
     ).toThrow("wrong.yaml: invalid content (slug must match filename wrong)");
+    expect(() =>
+      parseCampaignContent(
+        sources(undefined, { "wrong.md": markdown(article) }),
+      ),
+    ).toThrow("wrong.md: invalid content (slug must match filename wrong)");
     expect(() =>
       parseCampaignContent(
         sources({ "sample.yaml": "title: PRIVATE-SECRET\n[broken" }),
@@ -516,16 +509,6 @@ describe("campaign content", () => {
         }),
       ),
     ).toThrow(/sample\.yaml: invalid content \(hero\.button\.url/);
-    expect(() =>
-      parseCampaignContent(
-        sources(undefined, {
-          "sample.md": markdown({
-            ...article,
-            app_cta_url: "javascript:evil()",
-          }),
-        }),
-      ),
-    ).toThrow(/sample\.md: invalid content \(app_cta_url/);
   });
 
   it("allows an absent matching use case and valid content without screenshot warnings", () => {
@@ -561,6 +544,19 @@ describe("campaign content", () => {
         yaml(useCase),
       );
       expect(loadCampaignContentFromDisk(root).useCases).toHaveLength(1);
+      fs.mkdirSync(path.join(root, "content", "articles", "de-DE"));
+      fs.writeFileSync(
+        path.join(root, "content", "articles", "sample.md"),
+        markdown(article),
+      );
+      fs.writeFileSync(
+        path.join(root, "content", "articles", "de-DE", "sample.md"),
+        markdown({ ...article, title: "Beispiel" }),
+      );
+      expect(
+        loadCampaignContentFromDisk(root).articles[0]?.translations["de-DE"]
+          ?.title,
+      ).toBe("Beispiel");
       const read = vi.spyOn(fs, "readFileSync").mockImplementation(() => {
         throw new Error("Unreadable");
       });
@@ -573,20 +569,67 @@ describe("campaign content", () => {
     }
   });
 
-  it("includes only populated topics, index pagination at twelve, supplied dates and safe article mirrors", () => {
+  it("attaches article translations from site locale folders and rejects mismatches", () => {
+    const german = { ...article, title: "Beispiel", updated: "2026-09-03" };
+    const content = parseCampaignContent({
+      ...sources(),
+      articleTranslations: {
+        "articles/de-DE/sample.md": markdown(german, "Deutscher Text."),
+      },
+    });
+    const entry = content.articles.at(0);
+    if (!entry) throw new Error("Expected the English article");
+    expect(entry.title).toBe("Sample");
+    expect(Object.keys(entry.translations)).toEqual(["de-DE"]);
+    expect(entry.translations["de-DE"]).toMatchObject({
+      slug: "sample",
+      title: "Beispiel",
+      body: "\nDeutscher Text.",
+    });
+    expect(JSON.stringify(content)).not.toContain("PRIVATE");
+    for (const [file, value] of [
+      ["articles/de-DE/other.md", { ...german, slug: "other" }],
+      ["articles/de-DE/sample.md", { ...german, app: "Slides" }],
+      ["articles/de-DE/sample.md", { ...german, app: undefined }],
+      ["articles/xx-XX/sample.md", german],
+      ["articles/en-US/sample.md", german],
+      ["articles/sample.md", german],
+    ] as const)
+      expect(
+        () =>
+          parseCampaignContent({
+            ...sources(),
+            articleTranslations: { [file]: markdown(value) },
+          }),
+        file,
+      ).toThrow(
+        `${file}: invalid content (a translation must sit in a site locale folder and match an English article's slug, type and app)`,
+      );
+    expect(() =>
+      parseCampaignContent({
+        ...sources(),
+        articleTranslations: {
+          "articles/de-DE/sample.md": markdown({ ...german, type: "guide" }),
+        },
+      }),
+    ).toThrow(/de-DE\/sample\.md: invalid content \(type/);
+  });
+
+  it("paginates the index at nine, with supplied dates, safe article mirrors and no topic pages", () => {
+    expect(ARTICLES_PAGE_SIZE).toBe(9);
     const content = parseCampaignContent(sources());
-    content.articles = Array.from({ length: 13 }, (_, index) => ({
+    content.articles = Array.from({ length: 10 }, (_, index) => ({
       ...content.articles[0],
       slug: `article-${index}`,
     }));
     const pages = buildCampaignPages(content);
-    expect(pages.map((page) => page.path)).toEqual(
+    const paths = pages.map((page) => page.path);
+    expect(paths).toEqual(
       expect.arrayContaining([
         "/use-cases/",
         "/use-cases/sample/",
         "/articles/",
         "/articles/page/2/",
-        "/articles/topic/coding-agents/",
       ]),
     );
     expect(
@@ -595,22 +638,17 @@ describe("campaign content", () => {
     expect(
       pages.find((page) => page.path === "/articles/article-0/")?.markdownPath,
     ).toBe("/articles/article-0.md");
-    expect(
-      pages.find((page) => page.path === "/articles/page/2/")?.markdown,
-    ).toContain("article-12");
-    expect(pages.map((page) => page.path)).not.toContain("/articles/page/1/");
-    expect(pages.some((page) => page.path.includes("/category/"))).toBe(false);
-    expect(pages.some((page) => /\/topic\/[^/]+\/page\//.test(page.path))).toBe(
-      false,
-    );
-    expect(pages.some((page) => page.path.includes("/topic/metrics/"))).toBe(
-      false,
-    );
-    const topic = pages.find(
-      (page) => page.path === "/articles/topic/coding-agents/",
-    )!;
-    expect(topic.markdown?.match(/^- \[/gm)).toHaveLength(13);
-    expect(topic.markdown).toContain("article-12");
+    const index = pages.find((page) => page.path === "/articles/");
+    if (!index) throw new Error("Expected the articles index");
+    expect(index.markdown?.match(/^- \[/gm)).toHaveLength(9);
+    expect(index.markdown).not.toContain("article-9/");
+    const second = pages.find((page) => page.path === "/articles/page/2/");
+    if (!second) throw new Error("Expected the second index page");
+    expect(second.markdown?.match(/^- \[/gm)).toHaveLength(1);
+    expect(second.markdown).toContain("(/articles/article-9/)");
+    expect(paths).not.toContain("/articles/page/1/");
+    expect(paths).not.toContain("/articles/page/3/");
+    expect(paths.some((path) => /\/(category|topic)\//.test(path))).toBe(false);
   });
 });
 
@@ -693,5 +731,21 @@ describe("campaign CTA and SEO", () => {
     expect(() =>
       campaignMeta("Title", "Description", "//evil.example"),
     ).toThrow();
+  });
+
+  it("uses a supplied share image for og:image instead of the title endpoint", () => {
+    const meta = campaignMeta(
+      "Sample",
+      "Description",
+      "/articles/sample/",
+      "article",
+      undefined,
+      "https://example.com/og.png",
+    );
+    expect(meta).toContainEqual({
+      property: "og:image",
+      content: "https://example.com/og.png",
+    });
+    expect(JSON.stringify(meta)).not.toContain("title=Sample");
   });
 });

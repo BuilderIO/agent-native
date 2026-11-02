@@ -19,6 +19,11 @@ const bundledSources: CampaignSources = {
     import: "default",
     eager: true,
   }),
+  articleTranslations: import.meta.glob<string>("../content/articles/*/*.md", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }),
 };
 
 export function loadCampaignContent(): CampaignContent {

@@ -70,7 +70,7 @@ export function routeLocaleFromPathname(
   return undefined;
 }
 
-// Campaign pages are English unless a use-case page has a translation; any
+// Campaign pages are English unless a use-case page or article has a translation; any
 // other locale-prefixed URL 301s to the English path, so nothing may offer a
 // switch to it (see usePageLocales for the translated ones).
 export function isCampaignPathname(pathname: string) {
