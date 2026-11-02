@@ -61,6 +61,7 @@ export function useSaveConflictPrompt<T>({
   tRef.current = t;
   const mountedRef = React.useRef(true);
   const waitingRef = React.useRef(new Set<PendingChoice<T>>());
+  const newestChoiceRef = React.useRef<PendingChoice<T> | null>(null);
   // A save waiting on a choice nobody can make any more must fail, not hang.
   React.useEffect(() => {
     mountedRef.current = true;
@@ -112,14 +113,18 @@ export function useSaveConflictPrompt<T>({
         ? [overlap.keepMine, overlap.useTheirs]
         : [overlap.useTheirs, overlap.keepMine];
     waitingRef.current.delete(pending);
+    newestChoiceRef.current = pending;
     count(kept === "mine" ? "keep_mine" : "use_theirs", overlap.fields.length);
     setSettled(null);
     setQueue((current) => current.slice(1));
     resolve(chosen);
     // A restore while this save is out would be undone when it comes back, since
-    // it can look like no edit at all next to what was sent.
+    // it can look like no edit at all next to what was sent. The notice doesn't
+    // say which record it means, so an older save finishing late can't take it.
     void finished.then(() => {
-      setSettled({ kept, chosen, other });
+      if (newestChoiceRef.current === pending) {
+        setSettled({ kept, chosen, other });
+      }
     });
   }
 

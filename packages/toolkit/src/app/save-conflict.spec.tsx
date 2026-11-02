@@ -175,6 +175,34 @@ describe("useSaveConflictPrompt", () => {
     expect(screen.queryByText("saveConflict.getOtherBack")).toBeNull();
   });
 
+  it("keeps the newest choice's notice when an older save finishes last", async () => {
+    const { ask, onRestore } = setup();
+    const newer: SaveOverlap<Draft> = {
+      ...overlap,
+      keepMine: { subject: "newer mine", body: "new" },
+      useTheirs: { subject: "newer theirs", body: "new" },
+    };
+    let finishOlder = () => {};
+    const older = new Promise<void>((resolve) => {
+      finishOlder = resolve;
+    });
+    act(() => {
+      void ask(overlap, older);
+      void ask(newer);
+    });
+    await choose("saveConflict.keepMine");
+    await choose("saveConflict.keepMine");
+
+    await act(async () => {
+      finishOlder();
+      await older;
+    });
+    act(() => screen.getByText("saveConflict.getOtherBack").click());
+
+    expect(onRestore).toHaveBeenCalledTimes(1);
+    expect(onRestore.mock.lastCall?.[1]).toEqual(newer.useTheirs);
+  });
+
   it("counts each prompt, each choice and each restore", async () => {
     const { ask } = setup();
     act(() => {

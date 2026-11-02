@@ -112,7 +112,8 @@ export default defineAction({
       const { outcome, current } = await saveIfCurrent({
         record: "form_fields",
         expectedRevision: args.expectedRevision,
-        // Only adding a field can't undo something another writer just did.
+        // Adding a field can't undo another writer's edit. The one exception, a
+        // caller reusing an ID someone removed, only brings that field back.
         requireRevision: ({ value }) =>
           ops.some(
             (op) =>
