@@ -24,32 +24,40 @@ export function boundedTaskSourcePlugin() {
   return {
     name: "agent-native-bounded-task-source",
     enforce: "pre" as const,
-    async resolveId(this: PluginContext, source: string, importer?: string) {
-      if (!source.endsWith(QUERY)) return null;
-      const request = source.slice(0, -QUERY.length);
-      const resolved = await this.resolve(request, importer, {
-        skipSelf: true,
-      });
-      if (!resolved || resolved.external) {
-        throw new Error(
-          `Cannot resolve bounded task module ${request}${importer ? ` from ${importer}` : ""}`,
-        );
-      }
-      return RESOLVED_PREFIX + resolved.id.split("?")[0];
+    // The filters let the bundler skip this plugin natively for every other
+    // import, instead of calling into JS for each one.
+    resolveId: {
+      filter: { id: /\?bounded-task$/ },
+      async handler(this: PluginContext, source: string, importer?: string) {
+        if (!source.endsWith(QUERY)) return null;
+        const request = source.slice(0, -QUERY.length);
+        const resolved = await this.resolve(request, importer, {
+          skipSelf: true,
+        });
+        if (!resolved || resolved.external) {
+          throw new Error(
+            `Cannot resolve bounded task module ${request}${importer ? ` from ${importer}` : ""}`,
+          );
+        }
+        return RESOLVED_PREFIX + resolved.id.split("?")[0];
+      },
     },
-    async load(this: PluginContext, id: string) {
-      if (!id.startsWith(RESOLVED_PREFIX)) return null;
-      const entry = id.slice(RESOLVED_PREFIX.length);
-      const bundled = await bundleBoundedTaskSource(entry, {
-        name: path.basename(entry).replace(/\.[^.]+$/, ""),
-      });
-      for (const input of bundled.inputs) this.addWatchFile(input);
-      const source = {
-        kind: bundled.kind,
-        name: bundled.name,
-        code: bundled.code,
-      };
-      return `export default Object.freeze(${JSON.stringify(source)});\n`;
+    load: {
+      filter: { id: new RegExp(`^${RESOLVED_PREFIX}`) },
+      async handler(this: PluginContext, id: string) {
+        if (!id.startsWith(RESOLVED_PREFIX)) return null;
+        const entry = id.slice(RESOLVED_PREFIX.length);
+        const bundled = await bundleBoundedTaskSource(entry, {
+          name: path.basename(entry).replace(/\.[^.]+$/, ""),
+        });
+        for (const input of bundled.inputs) this.addWatchFile(input);
+        const source = {
+          kind: bundled.kind,
+          name: bundled.name,
+          code: bundled.code,
+        };
+        return `export default Object.freeze(${JSON.stringify(source)});\n`;
+      },
     },
   };
 }
