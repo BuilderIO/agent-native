@@ -33,6 +33,16 @@ function xmlBody(state: Uint8Array): string {
   }
 }
 
+function xmlBase(state: Uint8Array): Record<string, unknown> {
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, state);
+    return doc.getMap("agentNativeSnapshotAdoption").toJSON();
+  } finally {
+    doc.destroy();
+  }
+}
+
 function createPgliteExec(
   pglite: Awaited<ReturnType<typeof createTestPglite>>,
   gate: { armed: boolean; paused: boolean; onMissingRead: () => Promise<void> },
@@ -361,6 +371,70 @@ it("accepts one initial XmlFragment seed across independent manager instances", 
   } finally {
     releaseRead.resolve();
     managers.forEach((manager) => manager.releaseDoc(docId));
+    await pglite.close();
+  }
+});
+
+it("does not reseed a marked live document after its text is intentionally deleted", async () => {
+  const pglite = await createTestPglite();
+  const docId = "xml-seed:cleared-marked-body";
+  const emit = vi.fn();
+  let manager: typeof import("./ydoc-manager.js") | null = null;
+  const peer = new Y.Doc();
+  try {
+    await pglite.exec(`
+      CREATE TABLE _collab_docs (
+        doc_id TEXT PRIMARY KEY,
+        yjs_state TEXT NOT NULL,
+        text_snapshot TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT NOW()::text
+      )
+    `);
+    const exec = createPgliteExec(pglite, {
+      armed: false,
+      paused: false,
+      onMissingRead: async () => {},
+    });
+    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+    vi.doMock("../db/ddl-guard.js", () => ({
+      ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+      ensureTableExists: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock("./emitter.js", () => ({ emitCollabUpdate: emit }));
+    manager = await import("./ydoc-manager.js");
+    const base = { revision: "revision-1", body: "saved body" };
+    const initial = await manager.seedXmlFragmentIfEmpty(
+      docId,
+      xmlSeedUpdate(base.body),
+      "first-tab",
+    );
+    const adopted = await manager.adoptSnapshotOnce(
+      docId,
+      initial.state,
+      base.revision,
+      { body: base.body },
+    );
+    expect(adopted.status).toBe("adopted");
+    Y.applyUpdate(peer, adopted.state);
+    const fragment = peer.getXmlFragment("default");
+    fragment.delete(0, fragment.length);
+    await manager.applyUpdate(docId, Y.encodeStateAsUpdate(peer), "delete-all");
+    expect(emit).toHaveBeenCalledTimes(3);
+
+    const reopened = await manager.seedXmlFragmentIfEmpty(
+      docId,
+      xmlSeedUpdate(base.body),
+      "fresh-tab",
+    );
+    expect(reopened.seeded).toBe(false);
+    expect(xmlBody(reopened.state)).toBe("");
+    expect(xmlBase(reopened.state)).toEqual(base);
+    expect(emit).toHaveBeenCalledTimes(3);
+    expect(xmlBody(await manager.getState(docId))).toBe("");
+  } finally {
+    manager?.releaseDoc(docId);
+    peer.destroy();
     await pglite.close();
   }
 });
