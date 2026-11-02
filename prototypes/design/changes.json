@@ -1,5 +1,185 @@
 [
   {
+    "date": "2026-11-02",
+    "text": "This is now the Design prototype. The first editor prototype's own log continues below the line where this concept started from it"
+  },
+  {
+    "date": "2026-11-02",
+    "text": "The Library tab uses the File tab's layers grid. Section chevrons sit in the left gutter with titles at 16px, group labels and icons line up under the title, names start at 40px, and values and header buttons end 16px from the right. Rows are full width and 32px tall like layer rows, and the icon grid is on a 32px pitch with its first and last icons on those edges"
+  },
+  {
+    "date": "2026-10-30",
+    "text": "Three elevation levels replace the one shared shadow. Docked panels, the mode bar and the tool dock sit lowest; the floating prompt bar, selection toolbar and hint rows float above the page with a deeper shadow; popovers opened from those sit highest. In dark mode raised surfaces also step up to the popover colour with a faint top highlight"
+  },
+  {
+    "date": "2026-10-30",
+    "text": "The review strip names the concept Design"
+  },
+  {
+    "date": "2026-10-30",
+    "text": "Brand chip in the review strip switches between Builder blue and the colour board's six directions, Signal through Periwinkle. Each uses its own 12-step scale in light and dark: fill step 9, hover 10, text and icons 11, selection tints 4 and 3"
+  },
+  {
+    "date": "2026-10-29",
+    "text": "Your avatar (first in the top-right stack) opens the account menu below it: organizations, Settings, Usage and Log out. It used to open above, off the top of the window"
+  },
+  {
+    "date": "2026-10-29",
+    "text": "In dark mode, blue icons and text on a blue tint (pressed tools such as Auto layout, the current rail item, chips) use #67A0F2, so they clear the 3:1 non-text contrast minimum (4.2:1, up from 2.5:1)"
+  },
+  {
+    "date": "2026-10-29",
+    "text": "The Pages list drops the All pages row"
+  },
+  {
+    "date": "2026-10-29",
+    "text": "Brand accent is Builder's platform blue, nudged under a degree to #1A70EB so white text on it passes AA (4.6:1). Dark mode uses #67A0F2 for text and active icons"
+  },
+  {
+    "date": "2026-10-29",
+    "text": "Chat header follows the agent sidebar: below 384px of panel the tabs become one thread switcher (active chat and a chevron; New chat, then each open chat with a check and close), wider panels get the tab strip with an N more menu. Comments is a plain tab. Search (⌘K, across actions, pages, layers and chats) and a notifications bell sit in the header, and the Actions field left the logo menu"
+  },
+  {
+    "date": "2026-10-29",
+    "text": "Chat tabs shrink between 150 and 56px like the agent sidebar's and scroll only past that. The composer is tightened (no empty context row, 8px frame). Interact's bar centres on the window, so it stays put when the left panel opens or closes"
+  },
+  {
+    "date": "2026-10-29",
+    "text": "Interact's left panel is the chat alone, with a tab per conversation (+ for a new chat, the clock for earlier ones). The page controls joined the Interact and Design switch in one bar. Collapsing the panel brings back the floating prompt over the page"
+  },
+  {
+    "date": "2026-10-29",
+    "text": "One shell in both modes: chat moved into the left panel as a Chat tab beside File, Library and Comments, and Interact keeps the islands. The page sits in a pane between them with its own bar (back, forward, reload, address, desktop, tablet and phone sizes, Select, Comment, Capture) and a status line for hints and draw tools"
+  },
+  {
+    "date": "2026-10-29",
+    "text": "Interact tightened after the Cursor Annotate teardown: Select clicks a layer or drags an area to sketch in; each change gets a numbered pin and a chip in the composer, and one button saves or sends them all; the toolbar shows old and new values and a note line; a row under the bar holds the hint and Sizes (presets, W × H, rotate, Fit)"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Export fixes: settings and dropdowns work on every kind of object, including pages and video captures (a page's key broke its menus), and video renders report above the composer instead of covering the inspector"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Export belongs to the object: each layer, page and capture has an Export section with settings (scale and format, a code target such as React, HTML or a HubSpot module, or MP4 with motion, aspect and length), a Copy as menu and an Export button. File › Export… (⇧⌘E) exports everything with settings on the page or in the file. Videos render with progress, and Capture in Interact can record a video. Share is one button"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Share is one popover: add people or agents in one field with suggestions and a role, one list of who has access (names over emails, agents marked), General access on its own row, then Copy link and a Send to menu that replaces the Agents tab"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "New: start from your app. Connect your app (File, or New design › From your app) reads a GitHub repository or an app on this computer, runs it with the steps shown, and opens it in Interact: routes are the pages, components fill the Library. Selections know their file and line, Design shows the code for a selection, changes that land on the branch update the pages live with a marker, and captures say Design only until Build this puts them in code"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Layers shows how deep a selection goes: the selected layer has the strong tint and everything inside it a faint one"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Brand color is a deep agent-native cyan, #007A99, with white text: it passes contrast on the white page (4.9:1), on dark chrome (3.3:1) and for text on it (4.9:1). Share, Save, Send and the other primary actions use it. Pages are listed by name: Home, Docs, Pricing"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "The canvas keeps its own color in Design, light or dark: click empty canvas and the Canvas section sets it (F5F5F5 by default). Screens are now Pages everywhere. Icons draw at 1.25px"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "New: the home page is a full landing page to scroll and use in Interact: customer logos, How it works with step tabs and code, a template gallery with filters, features, a call to action, an FAQ and a footer. Tabs, filters, the FAQ and Copy work when you browse; every part is a layer, and the template cards and their buttons are component instances"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Comment pins show who's in the thread: their avatars, plus the message count once there's a reply. Clicking a pin opens the thread beside it, never under the bars or the composer. Mentions read as badges with the person's avatar or agent's mark, and the More menu offers Send to agent first. Comments are the same in Interact and Design, so a thread left in one is answered in the other"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "New: buttons, cards, the badge, the code block and Nav are component instances. One click picks the whole instance and the toolbar shows its props (Variant, Size, Icon, and toggles like Eyebrow or Copy button), the same props Design's inspector now shows first. The words inside are edited in place, and the component chip offers Show in Library, Reset changes and Detach"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "New: in Interact, a toolbar sits on the selection with only that layer's controls: text gets Edit, Font, Weight, Size, Align, Color and spacing; buttons, icons and frames get their own. Words are edited in place. Edits wait in a bar above the composer: Save puts them in the design or, with a repository, has the agent make them in code. Discard puts everything back"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "The logo menu is the way out plus the app's menus: Back to dashboard, Actions, then File, Edit, View, Preferences and Help. Rename, Duplicate, Version history and Move to trash moved into File, and items listed twice are gone"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "New: Capture in Interact puts the whole page, what's on screen or a part you pick onto the canvas beside the screen. In Design, Make 3 versions lays the agent's versions out beside it, so the capture stays to compare"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Interact works on the page: Select picks the thing under the pointer, the tag shows its path (Nav › Logo › Mark) and each step selects that layer. The panel is the short version of the Design inspector for text, icons, links and frames, and ends in Ask the agent"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "The logo's mark is an icon layer inside Nav, swapped from the Library like any icon. A change inside Nav asks Every screen or This screen"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Double-click words to type, in Interact and Design. Tool tips say what each tool does, a drawing tool shows Done (Esc), and the file opens in the mode you last used (Interact the first time)"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "New: Interact is down to the page and one bar: the page, device, Select, Comment and Share. Select (V) picks anything on the page instead of following its link and opens a short panel for its text, size, weight, color, align, fill and corners. Edits apply live and carry into Design. The composer is one line, with the selection as its chip"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "The dot grid is back on the canvas, fainter than before. It scrolls with the frame and turns off in Interact"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "New: Components join the Library. Components, Icons and Tokens are now inspector-style sections, each with its own add and import buttons, under one search field. Clicking a component selects its instances on the screen"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "The logo menu holds everything: Back to dashboard, Rename, Duplicate, Version history, File, Edit, View and Move to trash. The file name renames on click and the Designs link is gone. Share is one split button"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Interact is a fullscreen preview of the running page: the islands and tools step aside, the page fills the window at 100%, and Esc returns to Design"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "New: an icon library in the Library tab (was Tokens). A connected repository's icon package replaces the stock set; press I to place one, drag a tile onto a layer, swap and size it in the inspector, and the agent picks from it or draws a missing icon into the file"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "The composer's + adds context to this file (files, folders, linked chats and branches) or attaches to one message (files, Figma, the canvas selection, design references); Commands opens the / list"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Connect a repository asks only for the repository and the branch to start from; the tool column drops Insert and the comment count"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Comment pins sit outside their layer with a comment glyph and count, and show who wrote them on hover; primary buttons are near-white in dark mode"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Compare shows two branches side by side at a zoom that fits, read-only, with Switch to or Use this hero and Close"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Agent edits that override a token say so, with Update the tokens; hovering a change outlines its layer"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Promoted Text, Shapes and Insert to the tool column; Screen moved to the Screens section's +"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Follow-ups typed while the agent works are folded into its changes; Stop and Esc halt it, and finished steps fold into one line"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Branches live in the File tab after Connect a repository, with Send for review, Get updates from Main, and Developer details for git"
+  },
+  {
+    "date": "2026-10-28",
+    "text": "Started the Design hybrid concept from the Design prototype: islands that collapse to their headers, a tool column on the canvas, and the agent under the frame"
+  },
+  {
     "date": "2026-10-12",
     "text": "Drew the Settings profile photo as the app does, so its letter shows in dark mode, and kept menus above dialogs"
   },
