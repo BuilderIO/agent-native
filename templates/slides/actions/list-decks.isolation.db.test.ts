@@ -268,8 +268,10 @@ describe("list-decks cross-organization isolation", () => {
         await runWithRequestContext(
           { userEmail: ALICE, orgId: ORG_A },
           async () => {
-            const result: any = await listDecks.run(args as any, {} as any);
-            const decks = result.decks as any[];
+            const result = await listDecks.run(
+              args as Parameters<typeof listDecks.run>[0],
+            );
+            const decks = result.decks;
             expect(decks.find((d) => d.id === "deck-a-starred")?.starred).toBe(
               true,
             );
@@ -315,11 +317,8 @@ describe("list-decks cross-organization isolation", () => {
       await runWithRequestContext(
         { userEmail: ALICE, orgId: ORG_A },
         async () => {
-          const result: any = await listDecks.run(
-            { light: "true" } as any,
-            {} as any,
-          );
-          const decks = result.decks as any[];
+          const result = await listDecks.run({ light: "true" });
+          const decks = result.decks;
           expect(decks.find((d) => d.id === "deck-a-starred")?.starred).toBe(
             true,
           );
