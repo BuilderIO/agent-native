@@ -16,6 +16,7 @@ import {
   moveToggleSummaryToTitle,
   NotionToggle,
   rangeTouchesToggleTitle,
+  splitToggleTitle,
 } from "./extensions/NotionExtensions";
 
 const editors: Editor[] = [];
@@ -218,20 +219,83 @@ describe("a Toggle's title as page text", () => {
     ]);
   });
 
-  it("gives a Toggle an empty title when an edit takes its title away", () => {
+  it("makes a Toggle heading when a command turns the title into a heading", () => {
     const editor = createEditor([titled("Title", true, [paragraph("Body")])]);
     editor.commands.setTextSelection(4);
     editor.commands.setNode("heading", { level: 2 });
 
+    const made = titled("Title", true, [paragraph("Body")]);
+    made.attrs = { ...(made.attrs as object), headingLevel: 2 };
+    expect(editor.getJSON().content).toEqual([made]);
+  });
+
+  it("keeps the title when a command turns it into a smaller heading or a paragraph", () => {
+    const editor = createEditor([titled("Title", true, [paragraph("Body")])]);
+    const expected = editor.getJSON();
+    editor.commands.setTextSelection(4);
+
+    editor.commands.setNode("heading", { level: 5 });
+    expect(editor.getJSON()).toEqual(expected);
+
+    editor.commands.setNode("paragraph");
+    expect(editor.getJSON()).toEqual(expected);
+  });
+
+  it("gives a Toggle an empty title when a list command takes its line away", () => {
+    const editor = createEditor([titled("Title", true, [paragraph("Body")])]);
+    editor.commands.setTextSelection(4);
+    editor.commands.toggleBulletList();
+
     expect(editor.getJSON().content).toEqual([
       titled("", true, [
         {
-          type: "heading",
-          attrs: { level: 2 },
-          content: [{ type: "text", text: "Title" }],
+          type: "bulletList",
+          content: [{ type: "listItem", content: [paragraph("Title")] }],
         },
         paragraph("Body"),
       ]),
+    ]);
+  });
+
+  it("keeps a list marker typed at the start of a title as text", () => {
+    for (const marker of ["- ", "1. "]) {
+      const editor = createEditor([titled("Title", true, [paragraph("Body")])]);
+      editor.commands.setTextSelection(2);
+      for (const char of marker) {
+        const { view } = editor;
+        const { from, to } = view.state.selection;
+        const handled = view.someProp("handleTextInput", (handle) =>
+          handle(view, from, to, char, () =>
+            view.state.tr.insertText(char, from, to),
+          ),
+        );
+        if (!handled) view.dispatch(view.state.tr.insertText(char, from, to));
+      }
+
+      expect(editor.getJSON().content).toEqual([
+        titled(`${marker}Title`, true, [paragraph("Body")]),
+      ]);
+    }
+  });
+
+  it("gives the Toggle Enter makes after a closed one the same indent and color", () => {
+    const closed = titled("Title", false, [paragraph("Body")]);
+    closed.attrs = { ...(closed.attrs as object), indent: 2, color: "blue" };
+    const editor = createEditor([closed]);
+    editor.commands.setTextSelection(4);
+    expect(splitToggleTitle(editor)).toBe(true);
+
+    expect(editor.getJSON().content).toEqual([
+      expect.anything(),
+      expect.objectContaining({
+        attrs: {
+          summary: "",
+          color: "blue",
+          headingLevel: null,
+          open: false,
+          indent: 2,
+        },
+      }),
     ]);
   });
 

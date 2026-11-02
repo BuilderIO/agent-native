@@ -308,7 +308,10 @@ export function splitToggleTitle(editor: Editor): boolean {
   const after = togglePos + shortened.nodeSize;
   tr.insert(
     after,
-    toggle.type.create({ open: false }, titleType.create(null, rest)),
+    toggle.type.create(
+      { ...toggle.attrs, summary: "", open: false },
+      titleType.create(null, rest),
+    ),
   );
   tr.setSelection(TextSelection.create(tr.doc, after + 2));
   dispatchToggleKeyTransaction(editor, tr);
@@ -1664,7 +1667,7 @@ function repairStrayTitles(state: EditorState): Transaction | null {
     if (!first) continue;
     for (const stray of titles.reverse()) {
       const at = tr.mapping.map(stray.pos);
-      if (!stray.node.textContent || stray.node.eq(first.node)) {
+      if (!stray.node.content.size || stray.node.eq(first.node)) {
         tr.delete(at, at + stray.node.nodeSize);
       } else if (paragraph) {
         tr.setNodeMarkup(at, paragraph);
@@ -1860,10 +1863,12 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
           },
         },
         // An edit that takes a titled Toggle's title away, such as deleting
-        // from the block above into the title, or turning the title into a
-        // heading, leaves the Toggle an empty title rather than none. The
-        // text it moved stays where the edit put it. Another tab's change is
-        // left to that tab.
+        // from the block above into the title, leaves the Toggle an empty
+        // title rather than none. The text it moved stays where the edit put
+        // it. A command that only turned the title into another kind of line,
+        // such as a heading shortcut or the toolbar's style menu, leaves it
+        // the title, and a heading makes a Toggle heading. Another tab's
+        // change is left to that tab.
         appendTransaction(transactions, oldState, newState) {
           if (!editor.isEditable || !transactions.some(isEdit)) return null;
           const titleType = newState.schema.nodes[TOGGLE_TITLE_NODE] as
@@ -1879,9 +1884,10 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
             const start = mapKept(transactions, pos, 1);
             if (start !== null) keptUntitled.add(start);
           }
-          const untitled = new Set<number>();
+          const untitled = new Map<number, ProseMirrorNode | null>();
           for (const [pos, toggle] of touched) {
-            if (!toggleTitleNode(toggle)) continue;
+            const title = toggleTitleNode(toggle);
+            if (!title) continue;
             const mapped = toggleAfterChanges(
               transactions,
               pos,
@@ -1894,13 +1900,29 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
               after?.type.name === "notionToggle" &&
               !toggleTitleNode(after)
             ) {
-              untitled.add(mapped);
+              const line = after.firstChild;
+              const sameLine =
+                line?.isTextblock &&
+                line.content.eq(title.content) &&
+                mapKept(transactions, pos + 2, 1) === mapped + 2;
+              untitled.set(mapped, sameLine ? line : null);
             }
           }
           if (untitled.size === 0) return null;
           const tr = newState.tr;
-          for (const pos of [...untitled].sort((left, right) => right - left)) {
-            tr.insert(pos + 1, titleType.create());
+          const lastFirst = [...untitled].sort(
+            ([left], [right]) => right - left,
+          );
+          for (const [pos, line] of lastFirst) {
+            if (!line) {
+              tr.insert(pos + 1, titleType.create());
+              continue;
+            }
+            tr.setNodeMarkup(pos + 1, titleType);
+            const level = Number(line.attrs.level);
+            if (line.type.name === "heading" && level <= 3) {
+              tr.setNodeAttribute(pos, "headingLevel", level);
+            }
           }
           return tr;
         },

@@ -98,6 +98,7 @@ const NFM_SIGNALS = [
   /<mention-[a-z-]+\b/,
   /\{(?:color|toggle)="[^"]*"\}\s*$/m,
   /^\t*<table\s+header-(?:row|column)=/m,
+  /^\t*<details\s+markdown="1">/m,
 ];
 
 const GITHUB_ALERTS: Record<string, { icon: string; color: string }> = {
