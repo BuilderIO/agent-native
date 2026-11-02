@@ -43,6 +43,7 @@ import {
   formatAuthoringFuzzFailure,
   finalizeDeferredOutgoingBrowserSessionAbort,
   isConflictResourceConsoleError,
+  isThirdPartyFontPreviewConsoleError,
   isBrowserSessionPath,
   isCompetingBrowserSessionRegistration,
   isCompetingOutgoingBrowserSessionRequest,
@@ -631,6 +632,37 @@ it("recognizes resource conflicts with or without browser status text", () => {
     isConflictResourceConsoleError(
       "Failed to load resource: the server responded with a status of 503 ()",
     ),
+  ).toBe(false);
+});
+
+it("ignores only third-party font preview load errors", () => {
+  const gstatic = { url: "https://fonts.gstatic.com/l/font?kit=abc" };
+  expect(
+    isThirdPartyFontPreviewConsoleError(
+      "Failed to load resource: the server responded with a status of 504 (Gateway Timeout)",
+      gstatic,
+    ),
+  ).toBe(true);
+  expect(
+    isThirdPartyFontPreviewConsoleError(
+      '[JavaScript Error: "downloadable font: COLR: Required cpal table missing (font-family: "Noto Color Emoji Font Picker Preview" style:normal)"]',
+      { url: "" },
+    ),
+  ).toBe(true);
+  expect(
+    isThirdPartyFontPreviewConsoleError(
+      "Failed to load resource: the server responded with a status of 504 (Gateway Timeout)",
+      { url: "http://localhost:8099/_agent-native/actions/save-slide" },
+    ),
+  ).toBe(false);
+  expect(
+    isThirdPartyFontPreviewConsoleError(
+      '[JavaScript Error: "downloadable font: download failed (font-family: "Inter" style:normal)"]',
+      { url: "" },
+    ),
+  ).toBe(false);
+  expect(
+    isThirdPartyFontPreviewConsoleError("TypeError: x is undefined", gstatic),
   ).toBe(false);
 });
 

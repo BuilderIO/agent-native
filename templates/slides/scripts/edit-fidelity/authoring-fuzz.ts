@@ -2149,6 +2149,19 @@ export function isConflictResourceConsoleError(message: string) {
   return /\bstatus of 409\b/.test(message);
 }
 
+// The font picker warms previews of Google fonts on mount; a third-party font
+// file that fails to download or parse only leaves that row in the UI font.
+export function isThirdPartyFontPreviewConsoleError(
+  message: string,
+  location: { url?: string } | undefined,
+) {
+  if (/downloadable font:.*\bFont Picker Preview\b/.test(message)) return true;
+  return (
+    /^Failed to load resource:/.test(message) &&
+    (location?.url ?? "").startsWith("https://fonts.gstatic.com/l/font")
+  );
+}
+
 export function authoringFuzzLineNavigationKeys(
   platform: string,
   override?: ReturnType<typeof lineNavigationKeys>,
@@ -3286,6 +3299,11 @@ export async function runAuthoringFuzz(
     }
     if (isConflictResourceConsoleError(message.text())) {
       conflictResourceErrors += 1;
+      return;
+    }
+    if (
+      isThirdPartyFontPreviewConsoleError(message.text(), message.location())
+    ) {
       return;
     }
     const consoleText = message.text();
