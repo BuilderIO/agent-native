@@ -176,11 +176,8 @@ describe("provider API base URL validation", () => {
 });
 
 describe("provider API template-use allow-list", () => {
-  it("supports Slides 2 with its own template-use id", () => {
-    expect(listProviderApiIdsForTemplateUse("slides-2")).toEqual([
-      "google_drive",
-      "google_slides",
-    ]);
+  // oracle-change: remove tests for the deleted Slides 2 template
+  it("supports the Slides template", () => {
     expect(listProviderApiIdsForTemplateUse("slides")).toEqual([
       "google_drive",
       "google_slides",
