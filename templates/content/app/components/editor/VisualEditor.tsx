@@ -62,6 +62,7 @@ import {
   DOMSerializer,
   Fragment,
   Slice,
+  type NodeType,
   type Node as ProseMirrorNode,
   type ResolvedPos,
   type Schema,
@@ -753,8 +754,10 @@ const NotionMarkdownShortcuts = Extension.create({
             if (!paragraph) return false;
 
             if (shortcut.marker === ">") {
-              const toggle = schema.nodes.notionToggle;
-              const title = schema.nodes[TOGGLE_TITLE_NODE];
+              const toggle = schema.nodes.notionToggle as NodeType | undefined;
+              const title = schema.nodes[TOGGLE_TITLE_NODE] as
+                | NodeType
+                | undefined;
               if (!toggle || !title) return false;
 
               // In a list the item leaves the list and becomes the Toggle.

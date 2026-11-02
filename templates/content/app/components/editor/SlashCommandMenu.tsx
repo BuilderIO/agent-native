@@ -40,6 +40,7 @@ import {
   IconMathFunction,
   IconSquareRoot2,
 } from "@tabler/icons-react";
+import type { NodeType } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import { Editor, type JSONContent } from "@tiptap/react";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
@@ -287,7 +288,7 @@ function moveSlashQueryBelowToggle(editor: Editor) {
   const { $from } = editor.state.selection;
   if ($from.parent.type.name !== TOGGLE_TITLE_NODE) return;
   const range = getActiveSlashCommandRange(editor);
-  const paragraph = editor.schema.nodes.paragraph;
+  const paragraph = editor.schema.nodes.paragraph as NodeType | undefined;
   if (!range || !paragraph) return;
   const after = $from.after(-1);
   const query = editor.state.doc.slice(range.from, range.to).content;

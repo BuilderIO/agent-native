@@ -59,15 +59,17 @@ function toggle(
 
 /** Puts the caret at the start or end of the first line with this text. */
 function caretIn(editor: Editor, text: string, where: "start" | "end" = "end") {
-  let found: number | null = null;
+  const lines: { text: string; at: number }[] = [];
   editor.state.doc.descendants((node, pos) => {
-    if (found === null && node.isTextblock && node.textContent === text) {
-      found = pos + 1 + (where === "end" ? node.content.size : 0);
-    }
-    return found === null;
+    if (!node.isTextblock) return;
+    lines.push({
+      text: node.textContent,
+      at: pos + 1 + (where === "end" ? node.content.size : 0),
+    });
   });
-  if (found === null) throw new Error(`no line reads "${text}"`);
-  editor.commands.setTextSelection(found);
+  const line = lines.find((candidate) => candidate.text === text);
+  if (!line) throw new Error(`no line reads "${text}"`);
+  editor.commands.setTextSelection(line.at);
 }
 
 function press(editor: Editor, init: KeyboardEventInit) {
@@ -653,7 +655,7 @@ describe("a block's Markdown marker typed at the start of a title", () => {
       caretIn(editor, "Title", "start");
       type(editor, marker);
 
-      const [made] = editor.getJSON().content ?? [];
+      const [made] = editor.getJSON().content;
       expect(made).toMatchObject({
         type: listName,
         content: [
@@ -686,7 +688,8 @@ describe("a block's Markdown marker typed at the start of a title", () => {
     const code = createEditor([toggle("", true)]);
     code.commands.setTextSelection(2);
     type(code, "``` ");
-    expect(code.getJSON().content?.[0]?.type).toBe("codeBlock");
+    const [made] = code.getJSON().content;
+    expect(made).toMatchObject({ type: "codeBlock" });
 
     const divider = createEditor([toggle("", true)]);
     divider.commands.setTextSelection(2);

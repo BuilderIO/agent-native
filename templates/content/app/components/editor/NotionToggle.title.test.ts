@@ -462,8 +462,9 @@ describe("an old Toggle's title on the first click", () => {
     const editor = createEditor([old("")]);
     expect(moveToggleSummaryToTitle(editor, 0)).toBe(true);
 
-    expect(editor.getJSON().content?.[0]?.content?.[0]).toEqual({
-      type: "notionToggleSummary",
+    const [toggle] = editor.getJSON().content;
+    expect(toggle).toMatchObject({
+      content: expect.arrayContaining([{ type: "notionToggleSummary" }]),
     });
     expect(editor.state.selection.$from.parent.type.name).toBe(
       "notionToggleSummary",

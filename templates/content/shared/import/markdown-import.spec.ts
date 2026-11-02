@@ -52,7 +52,8 @@ function nodesOfType(doc: PMDoc | PMNode, type: string): PMNode[] {
 }
 
 /** A Toggle's title, wherever it keeps it, and the text under it. */
-function toggleParts(toggle: PMNode) {
+function toggleParts(toggle: PMNode | undefined) {
+  if (!toggle) throw new Error("no Toggle");
   const [first, ...rest] = toggle.content ?? [];
   if (first?.type !== "notionToggleSummary") {
     return { title: String(toggle.attrs?.summary), body: textOf(toggle) };
@@ -148,8 +149,8 @@ describe("Markdown import", () => {
     );
 
     const [toggle] = nodesOfType(page.doc, "notionToggle");
-    expect(toggle.content?.[0]?.type).toBe("notionToggleSummary");
-    expect(toggle.attrs?.summary).toBe("");
+    expect(toggle?.content?.[0]?.type).toBe("notionToggleSummary");
+    expect(toggle?.attrs?.summary).toBe("");
     expect(toggleParts(toggle)).toEqual({
       title: "Known issues",
       body: "Large PDFs export slowly.",
