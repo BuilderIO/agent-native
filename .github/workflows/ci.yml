@@ -1223,9 +1223,10 @@ jobs:
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
           CONTENT_BLOCK_ACTION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_block_action_test
 
-  # The convergence steps run as three isolated groups in parallel; each group
-  # has its own Postgres, build and server, so no group's pages or flags leak
-  # into another's. The Content convergence job below merges their reports.
+  # The convergence steps run as isolated groups in parallel, the regular
+  # gate-off group as two Playwright shards. Each group has its own Postgres,
+  # build and server, so no group's pages or flags leak into another's. The
+  # Content convergence job below merges their reports.
   content-convergence-groups:
     name: Content convergence (${{ matrix.label }})
     needs: change-scope
@@ -1240,10 +1241,18 @@ jobs:
       matrix:
         include:
           - group: regular-off
-            label: regular, gate off
+            leg: regular-off-1
+            shard: 1/2
+            label: regular, gate off, shard 1 of 2
+          - group: regular-off
+            leg: regular-off-2
+            shard: 2/2
+            label: regular, gate off, shard 2 of 2
           - group: regular-on
+            leg: regular-on
             label: regular, gate on
           - group: known-loss
+            leg: known-loss
             label: known loss, not blocking
     services:
       postgres:
@@ -1300,14 +1309,15 @@ jobs:
             e2e/two-tab-convergence.spec.ts \
             e2e/chatgpt-widget-body-paint.spec.ts \
             --workers=1 \
-            --grep-invert @known-loss --output test-results/gate-off
+            --grep-invert @known-loss --output test-results/gate-off \
+            --shard=${{ matrix.shard }}
         env:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_LIVE_BODY_GATE: "off"
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
-          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/gate-off.json
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/gate-off.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       # Main still loses text in these. They report every run without failing
@@ -1325,8 +1335,8 @@ jobs:
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_LIVE_BODY_GATE: "off"
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
-          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/gate-off-known-loss.json
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/gate-off-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       # The same scenarios on pages switched to the live-body writer (decision
@@ -1346,8 +1356,8 @@ jobs:
           CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
           AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
-          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/gate-on.json
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/gate-on.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Run Content two-tab scenarios main still loses text in, with the live-body gate on
@@ -1365,8 +1375,8 @@ jobs:
           CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
           AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
-          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/gate-on-known-loss.json
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/gate-on-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       # The stored-form acceptance checks (SF-02 to SF-12), on both sides of
@@ -1377,12 +1387,13 @@ jobs:
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
             -c e2e/playwright.config.ts e2e/stored-form/ --workers=2 \
-            --grep-invert @known-loss --output test-results/stored-form-gate-off
+            --grep-invert @known-loss --output test-results/stored-form-gate-off \
+            --shard=${{ matrix.shard }}
         env:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_LIVE_BODY_GATE: "off"
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/stored-form-gate-off.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/stored-form-gate-off.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Run Content stored-form checks main still fails
@@ -1397,7 +1408,7 @@ jobs:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_LIVE_BODY_GATE: "off"
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/stored-form-gate-off-known-loss.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/stored-form-gate-off-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Run Content stored-form acceptance checks with the live-body gate on
@@ -1413,7 +1424,7 @@ jobs:
           CONTENT_LIVE_BODY_GATE: "on"
           CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
           AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test,e2e+autoz-live-body-gate-landing@content.test
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/stored-form-gate-on.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/stored-form-gate-on.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Run Content stored-form checks main still fails, with the live-body gate on
@@ -1430,7 +1441,7 @@ jobs:
           CONTENT_LIVE_BODY_GATE: "on"
           CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
           AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test,e2e+autoz-live-body-gate-landing@content.test
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/stored-form-gate-on-known-loss.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}/stored-form-gate-on-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       # The merge job reads this file, not the job result, to tell a known-loss
@@ -1438,7 +1449,7 @@ jobs:
       - name: Record the group's result
         if: ${{ always() }}
         env:
-          GROUP_DIR: ${{ runner.temp }}/content-convergence/${{ matrix.group }}
+          GROUP_DIR: ${{ runner.temp }}/content-convergence/${{ matrix.leg }}
           JOB_STATUS: ${{ job.status }}
         run: |
           mkdir -p "$GROUP_DIR"
@@ -1451,7 +1462,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: content-convergence-${{ matrix.group }}-attempt-${{ github.run_attempt }}
+          name: content-convergence-${{ matrix.leg }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/content-convergence/
           if-no-files-found: error
           retention-days: 14
@@ -1499,28 +1510,29 @@ jobs:
             echo "| Group | Result | Attempt |"
             echo "| --- | --- | --: |"
           } >> "$GITHUB_STEP_SUMMARY"
-          for group in regular-off regular-on known-loss; do
+          for leg in regular-off-1 regular-off-2 regular-on known-loss; do
             attempt=""
-            for dir in "$GROUPS_DIR"/content-convergence-"$group"-attempt-*; do
+            for dir in "$GROUPS_DIR"/content-convergence-"$leg"-attempt-*; do
               [ -d "$dir" ] || continue
               n="${dir##*-attempt-}"
               if [ -z "$attempt" ] || [ "$n" -gt "$attempt" ]; then attempt="$n"; fi
             done
             result="missing"
             if [ -n "$attempt" ]; then
-              src="$GROUPS_DIR/content-convergence-$group-attempt-$attempt/$group"
+              src="$GROUPS_DIR/content-convergence-$leg-attempt-$attempt/$leg"
               result="$(cat "$src/result" 2>/dev/null || echo missing)"
               if [ -f "$src/convergence.jsonl" ]; then
                 cat "$src/convergence.jsonl" >> "$REPORT_DIR/convergence.jsonl"
               fi
+              mkdir -p "$REPORT_DIR/$leg"
               for report in "$src"/*.json; do
-                [ -f "$report" ] && cp "$report" "$REPORT_DIR/"
+                [ -f "$report" ] && cp "$report" "$REPORT_DIR/$leg/"
               done
             fi
-            echo "| $group | $result | ${attempt:-none} |" >> "$GITHUB_STEP_SUMMARY"
-            case "$group:$result" in
+            echo "| $leg | $result | ${attempt:-none} |" >> "$GITHUB_STEP_SUMMARY"
+            case "$leg:$result" in
               known-loss:*|*:success) ;;
-              *) failed="$failed $group" ;;
+              *) failed="$failed $leg" ;;
             esac
           done
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -1535,14 +1547,16 @@ jobs:
         run: >-
           node --experimental-strip-types e2e/convergence-summary.ts
           "$REPORT_DIR/convergence.jsonl"
-          --required "$REPORT_DIR/gate-off.json"
-          "$REPORT_DIR/gate-off-known-loss.json"
-          --required "$REPORT_DIR/gate-on.json"
-          "$REPORT_DIR/gate-on-known-loss.json"
-          --required "$REPORT_DIR/stored-form-gate-off.json"
-          "$REPORT_DIR/stored-form-gate-off-known-loss.json"
-          --required "$REPORT_DIR/stored-form-gate-on.json"
-          "$REPORT_DIR/stored-form-gate-on-known-loss.json"
+          --required "$REPORT_DIR/regular-off-1/gate-off.json"
+          --required "$REPORT_DIR/regular-off-2/gate-off.json"
+          "$REPORT_DIR/known-loss/gate-off-known-loss.json"
+          --required "$REPORT_DIR/regular-on/gate-on.json"
+          "$REPORT_DIR/known-loss/gate-on-known-loss.json"
+          --required "$REPORT_DIR/regular-off-1/stored-form-gate-off.json"
+          --required "$REPORT_DIR/regular-off-2/stored-form-gate-off.json"
+          "$REPORT_DIR/known-loss/stored-form-gate-off-known-loss.json"
+          --required "$REPORT_DIR/regular-on/stored-form-gate-on.json"
+          "$REPORT_DIR/known-loss/stored-form-gate-on-known-loss.json"
           >> "$GITHUB_STEP_SUMMARY"
 
       - name: Require the regular groups to pass
