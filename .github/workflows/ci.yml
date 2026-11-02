@@ -1482,10 +1482,12 @@ jobs:
           merge-multiple: false
 
       # Earlier attempts' artifacts stay downloadable, so the run's job list,
-      # not the newest artifact, names the attempt that counts for each group:
-      # a rerun of failed jobs keeps passing groups at their earlier attempt,
-      # and a rerun of all jobs must not fall back to an older upload.
-      - name: Read each group's latest attempt
+      # not the newest artifact, names the attempt whose report counts. A rerun
+      # of failed jobs copies each job it does not rerun into the new attempt,
+      # with the new run_attempt but the original started_at; that copy never
+      # uploaded anything. So the job with the latest start time ran the group,
+      # and among equal start times the lowest attempt is the one that ran it.
+      - name: Read the attempt that last ran each group
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1493,8 +1495,8 @@ jobs:
         run: |
           mkdir -p .tmp
           gh api --paginate \
-            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
-            --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.conclusion // "none")] | @tsv' \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100" \
+            --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.started_at // ""), (.conclusion // "none")] | @tsv' \
             > "$JOBS_FILE"
 
       - name: Merge Content convergence group reports
@@ -1510,14 +1512,23 @@ jobs:
           {
             echo "## Content convergence groups"
             echo ""
-            echo "| Group | Latest attempt | Result |"
+            echo "| Group | Attempt | Result |"
             echo "| --- | --: | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
           for entry in "regular-off:regular, gate off" "regular-on:regular, gate on" "known-loss:known loss, not blocking"; do
             group="${entry%%:*}"
-            latest="$(awk -F '\t' -v name="Content convergence (${entry#*:})" \
-              '$1 == name && $2 + 0 > max { max = $2 + 0; result = $3 } END { if (max) print max, result }' \
-              "$JOBS_FILE" 2>/dev/null || true)"
+            # A newest attempt that never started has no start time to compare,
+            # so it must not let an older attempt's start time win.
+            latest="$(awk -F '\t' -v name="Content convergence (${entry#*:})" '
+              $1 != name { next }
+              { a = $2 + 0 }
+              a > maxAttempt { maxAttempt = a; maxStart = $3 }
+              !seen || $3 > start || ($3 == start && a < attempt) { seen = 1; start = $3; attempt = a; result = $4 }
+              END {
+                if (!seen) exit
+                if (maxStart == "") print maxAttempt, "not started"
+                else print attempt, result
+              }' "$JOBS_FILE" 2>/dev/null || true)"
             attempt="${latest%% *}"
             result="${latest#* }"
             src="$GROUPS_DIR/content-convergence-$group-attempt-$attempt/$group"

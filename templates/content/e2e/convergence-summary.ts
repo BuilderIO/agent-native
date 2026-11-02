@@ -1,8 +1,8 @@
 // Renders the two-tab convergence report as a job summary:
 //   node --experimental-strip-types e2e/convergence-summary.ts <report.jsonl> [[--required] playwright-report.json...]
 // Each Playwright report is one group, headed by its file name. A report after
-// --required must exist, read as a Playwright report with at least one test,
-// and have no failed test, or the summary exits 1. Any other report that is
+// --required must exist, read as a Playwright report with at least one test
+// that ran (not skipped), and have no failed test, or the summary exits 1. Any other report that is
 // missing or unreadable is listed and never changes the exit status.
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
@@ -213,10 +213,13 @@ const reports = playwrightReportPaths.filter(existsSync).flatMap((file) => {
     return [];
   }
   if (required) {
-    const tests = specs.flatMap((spec) => spec.tests ?? []);
-    // A skipped test still ran far enough to report its reason; a flaky one
-    // passed on retry. Only an unexpected result is a failure.
-    if (!tests.length) requiredProblems.push(`- \`${file}\`: reports no tests`);
+    // Skips are listed, but a report of nothing but skips checked nothing. A
+    // flaky test passed on retry; only an unexpected result is a failure.
+    const ran = specs
+      .flatMap((spec) => spec.tests ?? [])
+      .filter((test) => test.status !== "skipped");
+    if (!ran.length)
+      requiredProblems.push(`- \`${file}\`: reports no test that ran`);
     const failedTitles = specs
       .filter((spec) =>
         spec.tests?.some((test) => test.status === "unexpected"),
