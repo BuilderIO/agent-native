@@ -316,6 +316,47 @@ export function canRemoveVoicePreview(options: {
   return options.currentText === options.previewText;
 }
 
+export function isVoicePreviewRangeValid(options: {
+  documentSize: number;
+  anchor: number;
+  previewText: string;
+  currentText: string;
+}): boolean {
+  if (options.anchor < 1) return false;
+  if (options.anchor + options.previewText.length > options.documentSize) {
+    return false;
+  }
+  return options.currentText === options.previewText;
+}
+
+// The doc can change under dictation (edit, clear, submit), so the stored
+// anchor/preview must be re-checked against it before any range edit.
+function isVoicePreviewIntact(
+  doc: {
+    content: { size: number };
+    textBetween(
+      from: number,
+      to: number,
+      blockSeparator?: string,
+      leafText?: string,
+    ): string;
+  },
+  anchor: number,
+  previewText: string,
+): boolean {
+  const documentSize = doc.content.size;
+  const end = anchor + previewText.length;
+  return isVoicePreviewRangeValid({
+    documentSize,
+    anchor,
+    previewText,
+    currentText:
+      anchor >= 1 && end <= documentSize
+        ? doc.textBetween(anchor, end, "", "\n")
+        : "",
+  });
+}
+
 export function getComposerSendTooltipKey(
   willQueue: boolean,
 ): "composer.queueMessage" | "composer.sendMessage" {
@@ -4532,6 +4573,18 @@ function TiptapComposerSurface({
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
 
+      if (
+        voiceAnchorRef.current != null &&
+        !isVoicePreviewIntact(
+          ed.state.doc,
+          voiceAnchorRef.current,
+          prevVoiceInsertRef.current,
+        )
+      ) {
+        voiceAnchorRef.current = null;
+        prevVoiceInsertRef.current = "";
+      }
+
       if (voiceAnchorRef.current == null) {
         const { from } = ed.state.selection;
         const prevChar =
@@ -4564,6 +4617,18 @@ function TiptapComposerSurface({
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
       const formattedText = formatVoiceTranscriptForComposer(text);
+
+      if (
+        voiceAnchorRef.current != null &&
+        !isVoicePreviewIntact(
+          ed.state.doc,
+          voiceAnchorRef.current,
+          prevVoiceInsertRef.current,
+        )
+      ) {
+        voiceAnchorRef.current = null;
+        prevVoiceInsertRef.current = "";
+      }
 
       const anchor = voiceAnchorRef.current;
       if (anchor != null) {
