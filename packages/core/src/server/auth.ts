@@ -1228,7 +1228,12 @@ async function getBearerLegacySession(
 ): Promise<AuthSession | null> {
   const bearerToken = getBearerSessionToken(event);
   if (!bearerToken) return null;
-  const email = await getSessionEmail(bearerToken);
+  // /auth/session hands out the Better Auth token; sign-in paths that skip the
+  // legacy `sessions` mirror, or a mirror row past its max age, would otherwise
+  // make that token worthless as a bearer.
+  const email =
+    (await getSessionEmail(bearerToken)) ??
+    (await emailFromActiveBetterAuthSessionToken(bearerToken));
   return email
     ? enrichLegacySessionIdentity(await mapLegacySession(email, bearerToken))
     : null;
@@ -1517,6 +1522,26 @@ async function emailFromBetterAuthSessionToken(
   try {
     const { rows } = await db.execute({
       sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+      args: [token],
+    });
+    return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
+  } catch (error) {
+    if (
+      isMissingBetterAuthTable(error, "session") ||
+      isMissingBetterAuthTable(error, "user")
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function emailFromActiveBetterAuthSessionToken(
+  token: string,
+): Promise<string | null> {
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > NOW() LIMIT 1',
       args: [token],
     });
     return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
