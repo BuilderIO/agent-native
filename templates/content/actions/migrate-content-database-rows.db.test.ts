@@ -694,6 +694,13 @@ describe("migrate-content-database-rows", () => {
     expect(serializeMigrationValue(definition, threadLink)).toBe(
       JSON.stringify(threadLink),
     );
+    // Row writes refuse padding, so a migrated value is stored trimmed.
+    expect(serializeMigrationValue(definition, ` ${threadLink} `)).toBe(
+      JSON.stringify(threadLink),
+    );
+    expect(serializeMigrationValue(definition, " https://example.com/a ")).toBe(
+      JSON.stringify("https://example.com/a"),
+    );
     expect(() => serializeMigrationValue(definition, "ms-msdt:/id")).toThrow(
       "must be an http/https URL or a t3-thread link",
     );

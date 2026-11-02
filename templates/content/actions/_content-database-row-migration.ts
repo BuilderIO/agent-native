@@ -382,6 +382,8 @@ export function normalizeMigrationValue(
         `URL property ${definition.name} must be an http/https URL or a t3-thread link.`,
         { errorCode: "invalid_url_property_value", statusCode: 422 },
       );
+    // Stored trimmed, as row writes require.
+    return normalized.trim();
   }
   if (definition.type === "date" && normalized === null)
     throw new Error(`Date property ${definition.name} cannot be null.`);
