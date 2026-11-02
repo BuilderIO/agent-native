@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-02",
+    "text": "A message sent while the agent works goes to the chat it's running in, even after New chat, and Esc with a menu open closes the menu instead of stopping the agent. Pasted markup in the composer, a capture, the Share field or icon search stays text and never runs"
+  },
+  {
+    "date": "2026-11-02",
     "text": "This is now the Design prototype. The first editor prototype's own log continues below the line where this concept started from it"
   },
   {

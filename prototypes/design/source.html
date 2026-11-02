@@ -5208,11 +5208,12 @@ function insertSkillRef(name) {
 function sendAsk() {
   const ed = $("#ask"); if (!ed) return;
   const text = ed.innerText.replace(/ /g, " ").trim(); if (!text) return;
-  const html = ed.innerHTML, skill = ed.querySelector("[data-skill]")?.dataset.skill, layer = ed.querySelector("[data-layer]")?.dataset.layer;
+  const html = cleanClone(ed).innerHTML, skill = ed.querySelector("[data-skill]")?.dataset.skill, layer = ed.querySelector("[data-layer]")?.dataset.layer;
   const agent = [...ed.querySelectorAll("[data-who]")].map(x => x.dataset.who).find(n => PEOPLE[n]?.agent);
   const person = [...ed.querySelectorAll("[data-who]")].map(x => x.dataset.who).find(n => PEOPLE[n] && !PEOPLE[n].agent);
   ed.innerHTML = "";
   if (RUN.on) {
+    S.chat = RUN.chat;
     if (/^(stop|cancel|wait|hold on)\b/i.test(text)) { S.chat.msgs.push({ user: true, text }); return stopAgent(); }
     S.chat.msgs.push({ user: true, text, html }, { text: `Got it. I'll fold that in before I finish.` }); RUN.steer.push(text.replace(/^(also|and|then)\s+/i, "")); HY.thread = true; return renderAgents();
   }
@@ -5392,7 +5393,7 @@ document.addEventListener("click", e => {
 }, true);
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && $("#hy-dlg")) { closeDlg(); return; }
-  if (e.key === "Escape" && RUN.on && !e.target.closest?.(".mention-pop")) { stopAgent(); return; }
+  if (e.key === "Escape" && RUN.on && !e.target.closest?.(".mention-pop") && !document.querySelector(".menu")) { stopAgent(); return; }
   if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === "\\") { e.preventDefault(); HY.rc = !HY.rc; renderTopbar(); islandsChanged(); }
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "\\") { e.preventDefault(); const both = app.classList.contains("no-panel") && HY.rc; app.classList.toggle("no-panel", !both); HY.rc = !both; renderTopbar(); islandsChanged(); }
 }, true);
@@ -5560,7 +5561,7 @@ function openIconPicker(anchor, { node = dropTarget(), swap = false } = {}) {
   const fill = () => {
     const q = $("#icp-q").value.trim(), gs = iconGroups(q), cur = PLACED[node]?.name;
     pk.querySelector(".icp-b").innerHTML = gs.length ? gs.map(([label, k, list]) => `${libGl(label, k === "set" ? ICON_SRC().pkg : "")}<div class="ic-grid">${list.map((n, i) => tile(n, n === cur)).join("")}</div>`).join("")
-      : `<div class="icp-none"><span>No “${q}” icon in ${ICON_SRC().name}.</span><button class="btn secondary sm" data-icp-draw="${q}">${ic("sparkles", "s14")}Draw it with the agent</button></div>`;
+      : `<div class="icp-none"><span>No “${esc(q)}” icon in ${ICON_SRC().name}.</span><button class="btn secondary sm" data-icp-draw="${escA(q)}">${ic("sparkles", "s14")}Draw it with the agent</button></div>`;
     pk.querySelector(".icp-b .ic-tile")?.classList.add("first");
   };
   fill(); $("#icp-q").addEventListener("input", fill);
@@ -5920,7 +5921,7 @@ addEventListener("click", e => { if (HY.eatClick) { HY.eatClick = 0; e.stopPropa
 addEventListener("pointerup", () => { if (HY.eatClick) setTimeout(() => { HY.eatClick = 0; }); }, true);
 function editAt(e, el) {
   const cf = S.mode === "design" && el.closest(".cap-f");
-  if (cf) { if (!leaf(el)) return false; const c = capById(cf.dataset.cap); editInPlace(el, () => { c.inner = el.closest(".cap-page").innerHTML; }); return true; }
+  if (cf) { if (!leaf(el)) return false; const c = capById(cf.dataset.cap); editInPlace(el, () => { c.inner = cleanClone(el.closest(".cap-page")).innerHTML; }); return true; }
   if (S.mode === "interact" && S.tool === "browse" && e.target.closest("[data-href]")) return false;
   const id = el.dataset.node, isIcon = FLAT[id]?.kind === "icon";
   if (!isIcon && !labelLeaf(el)) return false;
@@ -5955,9 +5956,12 @@ let capN = 0;
 const capById = id => id && HY.caps.find(c => c.id === id);
 const pageVars = p => (p.getAttribute("style") || "").split(";").filter(x => x.trim().startsWith("--")).join(";");
 function capTarget(n) { while (n && ["text", "icon"].includes(FLAT[n.dataset.node]?.kind)) n = n.parentElement.closest("[data-node]"); return n; }
+// Captures and sent messages are painted back with innerHTML, so the clone also drops anything a paste or a drop
+// could make run there: scripts and embeds, on* handlers, srcdoc and javascript: URLs.
 function cleanClone(el) {
-  const c = el.cloneNode(true); c.querySelectorAll(".sel-tag, .sel-size").forEach(x => x.remove());
-  [c, ...c.querySelectorAll("*")].forEach(x => { x.classList?.remove("sel", "ihov", "iedit", "hl-node", "drop-on"); x.removeAttribute?.("contenteditable"); x.removeAttribute?.("data-capname"); });
+  const c = el.cloneNode(true); c.querySelectorAll(".sel-tag, .sel-size, script, iframe, frame, object, embed, base, meta, link").forEach(x => x.remove());
+  [c, ...c.querySelectorAll("*")].forEach(x => { x.classList?.remove("sel", "ihov", "iedit", "hl-node", "drop-on"); x.removeAttribute?.("contenteditable"); x.removeAttribute?.("data-capname");
+    [...(x.attributes || [])].forEach(a => { if (/^on/i.test(a.name) || a.name === "srcdoc" || /^\s*javascript:/i.test(a.value)) x.removeAttribute(a.name); }); });
   return c;
 }
 function addCap(c, after) {
@@ -6444,11 +6448,11 @@ function shareDialog() {
   const sugg = () => { const q = sh.q.trim().toLowerCase(); if (!q) return []; return DIRECTORY.filter(([n, e]) => !sh.people.some(p => p[0] === n) && !sh.chips.includes(n) && (n.toLowerCase().startsWith(q) || (e || "").startsWith(q))).slice(0, 5); };
   const paint = () => {
     const keep = document.activeElement?.id === "sp-q", list = sugg(), canInvite = sh.chips.length || /\S+@\S+\.\S+/.test(sh.q);
-    pop.innerHTML = `<div class="sp-inv"><div class="sp-in"><div class="sp-tok">${sh.chips.map(n => `<span class="sp-chip">${av(n, "cav")}${n}<button data-sp-unchip="${n}" aria-label="Remove ${n}">${ic("x", "s12")}</button></span>`).join("")}<input id="sp-q" value="${sh.q}" placeholder="${sh.chips.length ? "" : "Add people or agents"}" aria-label="Add people or agents" autocomplete="off"></div><button class="sp-r" data-sp-role="invite">${sh.role}${ic("chevron-down", "s12")}</button></div>
+    pop.innerHTML = `<div class="sp-inv"><div class="sp-in"><div class="sp-tok">${sh.chips.map(n => `<span class="sp-chip">${av(n, "cav")}${esc(n)}<button data-sp-unchip="${escA(n)}" aria-label="Remove ${escA(n)}">${ic("x", "s12")}</button></span>`).join("")}<input id="sp-q" value="${escA(sh.q)}" placeholder="${sh.chips.length ? "" : "Add people or agents"}" aria-label="Add people or agents" autocomplete="off"></div><button class="sp-r" data-sp-role="invite">${sh.role}${ic("chevron-down", "s12")}</button></div>
         <button class="btn primary" id="sp-invite" ${canInvite ? "" : "disabled"}>Invite</button></div>
       ${list.length ? `<div class="sp-sugg" role="listbox">${list.map(([n, e], i) => `<button role="option" data-sp-pick="${n}" aria-selected="${i === 0}">${av(n, "cav")}<span class="nm"><b>${n}${PEOPLE[n]?.agent ? ' <span class="agent-badge">Agent</span>' : ""}</b>${e ? `<small>${e}</small>` : ""}</span></button>`).join("")}</div>` : ""}
       <div class="sp-h">People with access</div>
-      <div class="sp-list">${sh.people.map(([n, e, role]) => `<div class="sp-p">${av(n, "cav")}<span class="nm"><b>${n}${me(n) ? '<span class="you">you</span>' : ""}${PEOPLE[n]?.agent ? '<span class="agent-badge">Agent</span>' : ""}</b>${e ? `<small>${e}</small>` : ""}</span>${role === "Owner" ? `<span class="sp-own">Owner</span>` : `<button class="sp-r" data-sp-role="${n}">${role}${ic("chevron-down", "s12")}</button>`}</div>`).join("")}</div>
+      <div class="sp-list">${sh.people.map(([n, e, role]) => `<div class="sp-p">${av(n, "cav")}<span class="nm"><b>${esc(n)}${me(n) ? '<span class="you">you</span>' : ""}${PEOPLE[n]?.agent ? '<span class="agent-badge">Agent</span>' : ""}</b>${e ? `<small>${esc(e)}</small>` : ""}</span>${role === "Owner" ? `<span class="sp-own">Owner</span>` : `<button class="sp-r" data-sp-role="${escA(n)}">${role}${ic("chevron-down", "s12")}</button>`}</div>`).join("")}</div>
       <div class="sp-h">General access</div>
       <div class="sp-p sp-gen"><span class="sp-gi">${ic(sh.vis === "private" ? "lock" : "world", "s14")}</span><button class="sp-r strong" id="sp-vis">${visLabel[sh.vis]}${ic("chevron-down", "s12")}</button><span class="grow"></span>${sh.vis === "private" ? "" : `<button class="sp-r" data-sp-role="general">${sh.visRole}${ic("chevron-down", "s12")}</button>`}</div>
       <div class="sp-f"><button class="btn outline" id="sp-copy">${ic("link", "s14")}<span>Copy link</span></button><button class="btn ghost" id="sp-send" aria-haspopup="menu">Send to${ic("chevron-down", "s12")}</button></div>`;
