@@ -178,6 +178,19 @@ describe("CLI telemetry", () => {
       expect(await runCommand(["status"])).toContain("nothing is sent");
     });
 
+    it("stops a running command's events once telemetry is disabled", async () => {
+      const cli = await newRun();
+      cli.track("test_event");
+      const sentBefore = fetchMock.mock.calls.length;
+      expect(sentBefore).toBeGreaterThan(0);
+
+      await runCommand(["disable"]);
+      cli.track("test_event");
+      cli.captureException(new Error("boom"));
+
+      expect(fetchMock).toHaveBeenCalledTimes(sentBefore);
+    });
+
     it("enable says so when an environment variable still wins", async () => {
       vi.stubEnv("DO_NOT_TRACK", "1");
 
@@ -414,6 +427,14 @@ describe("CLI telemetry", () => {
       const { ownFilePath } = await import("./telemetry-sanitize.js");
 
       expect(ownFilePath(file)).toBe(owned);
+    });
+
+    it("doesn't treat a folder beside the package as ours", async () => {
+      const { ownFilePath } = await import("./telemetry-sanitize.js");
+
+      expect(
+        ownFilePath(path.resolve(here, "../../../skills/private.js")),
+      ).toBeNull();
     });
 
     it("never reports the fuzz harness's intercepted process.exit", async () => {

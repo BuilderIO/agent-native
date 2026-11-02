@@ -117,7 +117,6 @@ function exceptionProperties(
 
 export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
   const publicKey = resolvePublicKey();
-  const mode = publicKey ? cliTelemetryMode() : "off";
   const endpoint = resolveEndpoint();
   let installId: string | undefined;
   const runId = crypto.randomUUID();
@@ -135,6 +134,8 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
   };
 
   function emit(event: string, properties: Record<string, unknown>): void {
+    // Read for each event, so disabling telemetry also stops a running command.
+    const mode = publicKey ? cliTelemetryMode() : "off";
     if (mode === "off") return;
     installId ??= resolveInstallId({ persist: mode === "on" });
     const legacyProperties = { ...base, installId, ...properties };

@@ -144,13 +144,6 @@ const OWN_PACKAGES = new Set(["@agent-native/core", "@agent-native/skills"]);
 const OWN_PACKAGE_ROOT = forwardSlashes(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
 );
-const OWN_PACKAGE_ROOTS: ReadonlyArray<readonly [string, string]> = [
-  [OWN_PACKAGE_ROOT, "@agent-native/core"],
-  [
-    forwardSlashes(path.resolve(OWN_PACKAGE_ROOT, "../skills")),
-    "@agent-native/skills",
-  ],
-];
 
 function underRoot(file: string, root: string): string | null {
   const start = `${root}/`;
@@ -188,11 +181,8 @@ export function ownFilePath(file: string | undefined): string | null {
       ? `${owner}/${rest.join("/")}`
       : null;
   }
-  for (const [root, name] of OWN_PACKAGE_ROOTS) {
-    const relative = underRoot(normalized, root);
-    if (relative) return `${name}/${relative}`;
-  }
-  return null;
+  const relative = underRoot(normalized, OWN_PACKAGE_ROOT);
+  return relative ? `@agent-native/core/${relative}` : null;
 }
 
 export function ownFrameFunction(name: string | undefined): string | undefined {
