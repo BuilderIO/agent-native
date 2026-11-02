@@ -7,7 +7,14 @@ import {
 } from "@agent-native/core/client/generation-stream";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  ensureGoogleFontStylesheets,
+  googleFontStylesheetUrl,
+  injectGoogleFontStylesheet,
+  resolveGoogleFont,
+} from "@agent-native/toolkit/design-tweaks/google-fonts";
+import {
   createContext,
+  memo,
   useState,
   useEffect,
   useMemo,
@@ -181,6 +188,27 @@ const markdownComponents = {
     return <pre {...props}>{children}</pre>;
   },
 };
+
+const markdownRehypePlugins = [rehypeRaw];
+
+/**
+ * Parsing Markdown is the costliest part of re-rendering a slide, and its
+ * source alone decides the output, so a nudge elsewhere never re-parses it.
+ */
+const SlideMarkdown = memo(function SlideMarkdown({
+  source,
+}: {
+  source: string;
+}) {
+  return (
+    <ReactMarkdown
+      components={markdownComponents}
+      rehypePlugins={markdownRehypePlugins}
+    >
+      {source}
+    </ReactMarkdown>
+  );
+});
 
 const MIN_AUTOFIT_SCALE = 0.65;
 const VERTICAL_OVERFLOW_TOLERANCE_PX = 8;
@@ -639,166 +667,48 @@ export function slideDeclaresTextColor(html: string): boolean {
 
 const AUTHORED_COLOR_SCOPE = "authored-colors";
 
-const VARIABLE_AXIS_GOOGLE_FONTS = [
-  "Archivo",
-  "Asap",
-  "Catamaran",
-  "Chivo",
-  "DM Sans",
-  "Epilogue",
-  "Exo 2",
-  "Fraunces",
-  "Geist",
-  "Geist Mono",
-  "Heebo",
-  "Inter",
-  "Jost",
-  "League Spartan",
-  "Lexend",
-  "Libre Franklin",
-  "Montserrat",
-  "Noto Sans",
-  "Noto Serif",
-  "Onest",
-  "Outfit",
-  "Overpass",
-  "Public Sans",
-  "Raleway",
-  "Roboto",
-  "Roboto Condensed",
-  "Roboto Slab",
-  "Urbanist",
-  "Work Sans",
-];
-
-const STATIC_WEIGHT_GOOGLE_FONTS = [
-  "Abril Fatface",
-  "Anton",
-  "Arimo",
-  "Assistant",
-  "Barlow",
-  "Barlow Condensed",
-  "Bebas Neue",
-  "Bodoni Moda",
-  "Bricolage Grotesque",
-  "Cabin",
-  "Caveat",
-  "Cormorant Garamond",
-  "Cousine",
-  "Crimson Text",
-  "Dancing Script",
-  "David Libre",
-  "EB Garamond",
-  "Figtree",
-  "Fira Sans",
-  "Hind",
-  "Homemade Apple",
-  "IBM Plex Sans",
-  "Inconsolata",
-  "Instrument Sans",
-  "Josefin Sans",
-  "JetBrains Mono",
-  "Kanit",
-  "Karla",
-  "Lato",
-  "Libre Baskerville",
-  "Lora",
-  "Manrope",
-  "Merriweather",
-  "Mulish",
-  "Nova Square",
-  "Nunito",
-  "Nunito Sans",
-  "Open Sans",
-  "Oswald",
-  "Oxygen",
-  "PT Sans",
-  "PT Serif",
-  "Pacifico",
-  "Playfair Display",
-  "Plus Jakarta Sans",
-  "Poppins",
-  "Prompt",
-  "Quicksand",
-  "Red Hat Display",
-  "Roboto Mono",
-  "Rubik",
-  "Schibsted Grotesk",
-  "Sora",
-  "Source Sans 3",
-  "Space Grotesk",
-  "Syne",
-  "Teko",
-  "Tinos",
-  "Titillium Web",
-  "Ubuntu",
-  "Yanone Kaffeesatz",
-];
-
-const GOOGLE_FONT_ALIASES: Record<string, string> = {
-  "source sans pro": "source sans 3",
-  bodoni: "bodoni moda",
-};
-
-const FONT_WEIGHT_SUFFIX =
-  /\s+(?:thin|extra ?light|ultra ?light|light|book|regular|normal|medium|semi ?bold|demi ?bold|bold|extra ?bold|ultra ?bold|black|heavy|italic|oblique)$/i;
-
-const GOOGLE_FONTS = new Map<string, { family: string; href: string }>();
-for (const [families, axis] of [
-  [VARIABLE_AXIS_GOOGLE_FONTS, "ital,wght@0,100..900;1,100..900"],
-  [STATIC_WEIGHT_GOOGLE_FONTS, "ital,wght@0,400;0,700;1,400;1,700"],
-] as const) {
-  for (const family of families) {
-    GOOGLE_FONTS.set(family.toLowerCase(), {
-      family,
-      href: `https://fonts.googleapis.com/css2?family=${family.replace(/ /g, "+")}:${axis}&display=swap`,
-    });
-  }
-}
-
 export function resolveImportedFont(
   name: string,
 ): { family: string; href: string } | undefined {
-  const key = name
-    .replace(/["']/g, "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-  if (!key) return undefined;
-  const lookup = (candidate: string) =>
-    GOOGLE_FONTS.get(GOOGLE_FONT_ALIASES[candidate] ?? candidate);
-  return lookup(key) ?? lookup(key.replace(FONT_WEIGHT_SUFFIX, "").trim());
+  const font = resolveGoogleFont(name);
+  const href = font && googleFontStylesheetUrl(font);
+  return font && href ? { family: font.family, href } : undefined;
 }
 
+/**
+ * Canonicalizes quoted Google family names in slide HTML. `hrefs` are the
+ * stylesheets known now; `pendingFamilies` are names only the live catalog
+ * can answer, loaded by `loadImportedFonts` once it arrives.
+ */
 export function prepareImportedFonts(html: string): {
   html: string;
   hrefs: string[];
+  pendingFamilies: string[];
 } {
   const hrefs = new Set<string>();
+  const pendingFamilies = new Set<string>();
   const rewritten = html.replace(
     /(font-family:\s*)(["'])(.*?)\2/gi,
     (match, prefix: string, quote: string, name: string) => {
       const font = resolveImportedFont(name);
-      if (!font) return match;
+      if (!font) {
+        if (name.trim()) pendingFamilies.add(name.trim());
+        return match;
+      }
       hrefs.add(font.href);
       return `${prefix}${quote}${font.family}${quote}`;
     },
   );
-  return { html: rewritten, hrefs: [...hrefs] };
+  return {
+    html: rewritten,
+    hrefs: [...hrefs],
+    pendingFamilies: [...pendingFamilies],
+  };
 }
 
-const injectedFontHrefs = new Set<string>();
-
-function loadImportedFonts(hrefs: string[]) {
-  if (typeof document === "undefined") return;
-  for (const href of hrefs) {
-    if (injectedFontHrefs.has(href)) continue;
-    injectedFontHrefs.add(href);
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = href;
-    document.head.appendChild(link);
-  }
+function loadImportedFonts(hrefs: string[], pendingFamilies: string[]) {
+  for (const href of hrefs) injectGoogleFontStylesheet(href);
+  if (pendingFamilies.length) void ensureGoogleFontStylesheets(pendingFamilies);
 }
 
 const renderedSlideSources = new WeakMap<HTMLElement, RenderedSlideSource>();
@@ -889,7 +799,7 @@ export function applyRemoteSlideContentUnderEdit(
   }
   const result = applyRemoteHtmlUnderEdit(root, edited, prev.html, next.html);
   if (result !== "applied") return result;
-  loadImportedFonts(next.fontHrefs);
+  loadImportedFonts(next.fontHrefs, next.pendingFontFamilies);
   registerRenderedSlideSource(root, { ...next.source, base: next.html });
   return "applied";
 }
@@ -916,6 +826,7 @@ export function renderRawSlideHtml(
   html: string;
   mermaidBlocks: string[];
   fontHrefs: string[];
+  pendingFontFamilies: string[];
   source: Omit<RenderedSlideSource, "base"> | null;
 } {
   const stamped =
@@ -948,11 +859,12 @@ export function renderRawSlideHtml(
       disableVideoAutoplay: options.disableVideoAutoplay,
     },
   );
-  const { html, hrefs } = prepareImportedFonts(sanitized);
+  const { html, hrefs, pendingFamilies } = prepareImportedFonts(sanitized);
   return {
     html,
     mermaidBlocks: blocks,
     fontHrefs: hrefs,
+    pendingFontFamilies: pendingFamilies,
     source:
       stamped && options.stampNonce !== undefined
         ? { stored: content, ranges: stamped.ranges, nonce: options.stampNonce }
@@ -1143,26 +1055,32 @@ function BlankSlideContent({
   const scopeSelector = `[data-slide-content-scope="${scopeId}"]`;
   const nonce =
     stampNonce === undefined ? undefined : `${scopeId}.${stampNonce}`;
-  const { mermaidBlocks, htmlWithPlaceholders, fontHrefs, source } =
-    useMemo(() => {
-      const rendered = renderRawSlideHtml(content, {
-        scopeSelector,
-        stampNonce: nonce,
-        disableVideoAutoplay,
-      });
-      return {
-        mermaidBlocks: rendered.mermaidBlocks,
-        htmlWithPlaceholders: rendered.html,
-        fontHrefs: rendered.fontHrefs,
-        source: rendered.source
-          ? { ...rendered.source, base: rendered.html }
-          : null,
-      };
-    }, [content, scopeSelector, nonce, disableVideoAutoplay]);
+  const {
+    mermaidBlocks,
+    htmlWithPlaceholders,
+    fontHrefs,
+    pendingFontFamilies,
+    source,
+  } = useMemo(() => {
+    const rendered = renderRawSlideHtml(content, {
+      scopeSelector,
+      ...(nonce !== undefined ? { stampNonce: nonce } : {}),
+      ...(disableVideoAutoplay !== undefined ? { disableVideoAutoplay } : {}),
+    });
+    return {
+      mermaidBlocks: rendered.mermaidBlocks,
+      htmlWithPlaceholders: rendered.html,
+      fontHrefs: rendered.fontHrefs,
+      pendingFontFamilies: rendered.pendingFontFamilies,
+      source: rendered.source
+        ? { ...rendered.source, base: rendered.html }
+        : null,
+    };
+  }, [content, scopeSelector, nonce, disableVideoAutoplay]);
 
   useEffect(() => {
-    loadImportedFonts(fontHrefs);
-  }, [fontHrefs]);
+    loadImportedFonts(fontHrefs, pendingFontFamilies);
+  }, [fontHrefs, pendingFontFamilies]);
 
   return (
     <RawSlideHtmlContent
@@ -1388,12 +1306,7 @@ export function SlideInner({
           onOverflowChange={(info) => reportTargetOverflow("left", info)}
           onAutofitSettled={onAutofitSettled}
         >
-          <ReactMarkdown
-            components={markdownComponents}
-            rehypePlugins={[rehypeRaw]}
-          >
-            {left.trim()}
-          </ReactMarkdown>
+          <SlideMarkdown source={left.trim()} />
         </AutoFitContent>
         <AutoFitContent
           canvasWidth={dims.width}
@@ -1406,12 +1319,7 @@ export function SlideInner({
           onOverflowChange={(info) => reportTargetOverflow("right", info)}
           onAutofitSettled={onAutofitSettled}
         >
-          <ReactMarkdown
-            components={markdownComponents}
-            rehypePlugins={[rehypeRaw]}
-          >
-            {right.trim()}
-          </ReactMarkdown>
+          <SlideMarkdown source={right.trim()} />
         </AutoFitContent>
       </div>
     );
@@ -1468,18 +1376,13 @@ export function SlideInner({
         onOverflowChange={(info) => reportTargetOverflow("markdown", info)}
         onAutofitSettled={onAutofitSettled}
       >
-        <ReactMarkdown
-          components={markdownComponents}
-          rehypePlugins={[rehypeRaw]}
-        >
-          {content}
-        </ReactMarkdown>
+        <SlideMarkdown source={content} />
       </AutoFitContent>
     </div>
   );
 }
 
-export default function SlideRenderer({
+function SlideRenderer({
   slide,
   className = "",
   thumbnail = true,
@@ -1554,6 +1457,19 @@ export default function SlideRenderer({
     </div>
   );
 }
+
+// A rail or grid of slides re-renders only the slides whose props changed.
+// `slidePosition` is compared by value: callers build it inline.
+export default memo(
+  SlideRenderer,
+  (previous, next) =>
+    previous.slidePosition?.number === next.slidePosition?.number &&
+    previous.slidePosition?.count === next.slidePosition?.count &&
+    (Object.keys(next) as Array<keyof SlideRendererProps>).every(
+      (key) => key === "slidePosition" || previous[key] === next[key],
+    ) &&
+    Object.keys(previous).length === Object.keys(next).length,
+);
 
 function ScaleHelper({
   targetWidth = 960,

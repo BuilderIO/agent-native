@@ -58,6 +58,8 @@ const resolveReviewThreadAction = (await import("./resolve-review-thread.js"))
   .default;
 const updateReviewCommentAction = (await import("./update-review-comment.js"))
   .default;
+const deleteReviewCommentAction = (await import("./delete-review-comment.js"))
+  .default;
 const sendReviewThreadToAgentAction = (
   await import("./send-review-thread-to-agent.js")
 ).default;
@@ -560,6 +562,59 @@ describe("review actions", () => {
     ).rejects.toThrow();
   });
 
+  it("lets authors and editors delete a comment, which clears its text", async () => {
+    expect(deleteReviewCommentAction.tool.description).toContain(
+      "clearing its text, mentions, anchor, image attachments and any resolution note",
+    );
+    expect(deleteReviewCommentAction.tool.description).toContain(
+      "deleting a reply removes only that reply",
+    );
+    const insert = (body: string) =>
+      insertReviewComment({
+        resourceType: "doc",
+        resourceId: "public",
+        body,
+        authorEmail: COMMENTER_EMAIL,
+        visibility: "public",
+      });
+    const remove = (commentId: string, userEmail: string) =>
+      deleteReviewCommentAction.run(
+        { resourceType: "doc", resourceId: "public", commentId },
+        { userEmail },
+      );
+
+    const byAuthor = await insert("Mine to remove");
+    await expect(remove(byAuthor.id, COMMENTER_EMAIL)).resolves.toEqual({
+      commentId: byAuthor.id,
+      deleted: true,
+      updatedCount: 1,
+    });
+    const [stored] = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "public",
+      bypassScope: true,
+      includeDeleted: true,
+    });
+    expect(stored).toMatchObject({ id: byAuthor.id, status: "deleted" });
+    expect(stored?.body).toBe("");
+
+    const byEditor = await insert("An editor may remove this");
+    await expect(remove(byEditor.id, EDITOR_EMAIL)).resolves.toMatchObject({
+      deleted: true,
+    });
+
+    const notYours = await insert("Only the author or an editor");
+    await expect(remove(notYours.id, "outsider@example.com")).rejects.toThrow(
+      /Not allowed/,
+    );
+    await expect(
+      deleteReviewCommentAction.run(
+        { resourceType: "doc", resourceId: "other", commentId: notYours.id },
+        { userEmail: EDITOR_EMAIL },
+      ),
+    ).rejects.toThrow("Review comment not found");
+  });
+
   it("marks multiple review threads read in one authorized action", async () => {
     const first = await insertReviewComment({
       resourceType: "doc",
@@ -1009,7 +1064,7 @@ describe("review actions", () => {
       scope: { userEmail: OWNER_EMAIL },
       includeDeleted: true,
     });
-    expect(comments.map((comment) => comment.body)).toEqual(["Deleted root"]);
+    expect(comments.map((comment) => comment.id)).toEqual([root.id]);
   });
 
   it("filters the distinct root queue before limit and returns oldest first", async () => {

@@ -2,6 +2,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import type { DeckAccessRequestRole } from "@shared/deck-access";
 
 export type DeckAccessStatusResponse = {
   exists: boolean;
@@ -34,6 +35,7 @@ export type RequestDeckAccessResult = {
   alreadyHasAccess: boolean;
   notifiedOwner: boolean;
   requestId?: string;
+  alreadyRequested?: boolean;
   message: string;
 };
 
@@ -45,6 +47,8 @@ export function useRequestDeckAccess() {
       deckId: string;
       note?: string;
       requesterEmail?: string;
+      /** Defaults to editor on the server. */
+      role?: DeckAccessRequestRole;
     }
   >("request-deck-access");
 }

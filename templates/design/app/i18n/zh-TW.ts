@@ -586,6 +586,7 @@ export default {
       font: "字型",
       baseSize: "底座尺寸",
       size: "尺寸",
+      fontSizes: "字級階梯",
       weight: "重量",
       color: "顏色",
       align: "對齊",
@@ -1033,6 +1034,9 @@ export default {
       right: "右",
       bottom: "乙",
       left: "L",
+    },
+    fontPicker: {
+      catalogUnavailable: "無法載入完整字型庫。",
     },
     fontFamilies: {
       inherit: "繼承",
@@ -2937,8 +2941,6 @@ export default {
       dismiss: "關閉",
     },
     import: "匯入",
-    importOptions: "匯入選項",
-    figmaLink: "Figma 連結",
     importFromFigma: "從 Figma 匯入",
     figmaFile: "Figma 檔案 (.fig)",
     figmaFileMaxSize: "最大 {{max}} GB",

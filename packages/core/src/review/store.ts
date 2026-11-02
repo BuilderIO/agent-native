@@ -4,6 +4,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { sql } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
@@ -517,6 +518,30 @@ async function assertLiveReviewRoot(
   if (rows.length === 0) throw new Error("Open review thread not found");
 }
 
+/**
+ * Locks every first comment in a thread `FOR UPDATE`, in id order. A thread
+ * delete, a routed reply, routing a thread, resolving it and marking its
+ * feedback consumed all change them, and taking them in one order makes each
+ * wait for the other rather than each holding a row the other needs.
+ */
+async function lockReviewThreadRoots(
+  client: DbExec,
+  threadId: string,
+  resource?: { resourceType: string; resourceId: string },
+): Promise<void> {
+  const onResource = resource
+    ? sql`AND resource_type = ${sql.value(resource.resourceType)}
+        AND resource_id = ${sql.value(resource.resourceId)}`
+    : sql``;
+  await client.execute(sql`SELECT id
+       FROM agent_review_comments
+      WHERE thread_id = ${sql.value(threadId)}
+        ${onResource}
+        AND parent_comment_id IS NULL
+      ORDER BY id
+        FOR UPDATE`);
+}
+
 export async function insertReviewReply(
   input: InsertReviewCommentInput & {
     threadId: string;
@@ -528,6 +553,9 @@ export async function insertReviewReply(
   await ensureReviewTables();
   const client = getDbExec();
   const insertAndRoute = async (tx: DbExec) => {
+    // Routing updates every first comment in the thread, so a routed reply
+    // takes them all up front, in the order a thread delete does.
+    if (routeTarget) await lockReviewThreadRoots(tx, input.threadId, resource);
     // raw-sql-ok: the helper's statement is constant text; the ids are bound.
     await assertLiveReviewRoot(tx, input.threadId, resource);
     if (routeTarget) {
@@ -580,6 +608,9 @@ export async function insertReviewReplyIdempotently(
   await ensureReviewTables();
   const client = getDbExec();
   const insertAndRoute = async (tx: DbExec) => {
+    // As in insertReviewReply, a routed reply locks the thread's first
+    // comments in a thread delete's order before it changes them.
+    if (routeTarget) await lockReviewThreadRoots(tx, input.threadId, resource);
     // raw-sql-ok: the helper's statement is constant text; the ids are bound.
     await assertLiveReviewRoot(tx, input.threadId, resource);
     const result = await insertReviewCommentIdempotentlyWithClient(
@@ -887,6 +918,9 @@ function stableReviewReceiptJson(value: unknown): string {
     .join(",")}}`;
 }
 
+/** Leave out deleted comments. Neither takes a parameter. */
+const LIVE_COMMENT_FILTERS = ["deleted_at IS NULL", "status <> 'deleted'"];
+
 export async function queryReviewComments(
   input: QueryReviewCommentsInput,
 ): Promise<ReviewComment[]> {
@@ -902,8 +936,7 @@ export async function queryReviewComments(
     ...params,
   ];
   if (!input.includeDeleted) {
-    filters.push("deleted_at IS NULL");
-    filters.push("status <> 'deleted'");
+    filters.push(...LIVE_COMMENT_FILTERS);
   }
   if (!input.includeResolved) {
     filters.push("status <> 'resolved'");
@@ -972,7 +1005,12 @@ export async function queryReviewComments(
   }
 
   if (input.newestFirst && !input.rootOnly) {
-    const rootFilters = [...filters, "parent_comment_id IS NULL"];
+    // A root deleted before deletes took replies along still anchors its live
+    // replies, so they list here as they do oldest first.
+    const rootFilters = [
+      ...filters.filter((filter) => !LIVE_COMMENT_FILTERS.includes(filter)),
+      "parent_comment_id IS NULL",
+    ];
     const rootFilterSql = rootFilters
       .map((filter) => filter.replace(/\bcomment\./g, "roots."))
       .join(" AND ");
@@ -1187,6 +1225,10 @@ export async function resolveReviewThreadWithClient(
   if (status === "open" && resolutionNote !== undefined) {
     throw new Error("Resolution notes are only supported when resolving");
   }
+  // Resolving updates every comment in the thread. It takes the first ones in
+  // the order a thread delete does, so neither holds one while it waits for
+  // another the other holds.
+  await lockReviewThreadRoots(client, threadId, resource);
   const now = new Date().toISOString();
   const resourceClause = resource
     ? "AND resource_type = ? AND resource_id = ?"
@@ -1262,12 +1304,21 @@ export async function routeReviewThread(
   resource: { resourceType: string; resourceId: string },
 ): Promise<number> {
   await ensureReviewTables();
-  return routeReviewThreadWithClient(
-    getDbExec(),
-    threadId,
-    resolutionTarget,
-    resource,
-  );
+  const client = getDbExec();
+  // Routing updates every first comment in the thread. It takes them in the
+  // order a thread delete and a routed reply do, so none of them holds one
+  // while it waits for another that one of the others holds.
+  const route = async (tx: DbExec) => {
+    await lockReviewThreadRoots(tx, threadId, resource);
+    // raw-sql-ok: the helper's statement is constant text; the ids are bound.
+    return routeReviewThreadWithClient(
+      tx,
+      threadId,
+      resolutionTarget,
+      resource,
+    );
+  };
+  return client.transaction ? client.transaction(route) : route(client);
 }
 
 async function routeReviewThreadWithClient(
@@ -1308,25 +1359,25 @@ export async function sendReviewThreadToAgent(
 }
 
 /**
- * Who wrote each live reply, by the thread it sits under. Read on its own, so a
- * list cut short by its limit cannot hide a reply from the answer.
+ * Who wrote each thread's live comments, its first comment included, each
+ * author once. Read on its own, so a list cut short by its limit cannot hide
+ * one from the answer.
  */
-export async function getLiveReviewReplyAuthorsByThread(
+export async function getLiveReviewAuthorsByThread(
   threadIds: ReadonlyArray<string>,
   resource: { resourceType: string; resourceId: string },
 ): Promise<Map<string, Array<string | null>>> {
-  const authorsByThread = new Map<string, Array<string | null>>();
   const ids = [...new Set(threadIds)];
-  if (!ids.length) return authorsByThread;
+  if (!ids.length) return new Map();
   await ensureReviewTables();
   // raw-sql-ok: the interpolation is only `?` placeholders; the ids are bound.
   const { rows } = await getDbExec().execute({
-    sql: `SELECT thread_id, author_email FROM agent_review_comments
-           WHERE resource_type = ? AND resource_id = ?
-             AND parent_comment_id IS NOT NULL AND deleted_at IS NULL
+    sql: `SELECT DISTINCT thread_id, author_email FROM agent_review_comments
+           WHERE resource_type = ? AND resource_id = ? AND deleted_at IS NULL
              AND thread_id IN (${ids.map(() => "?").join(",")})`,
     args: [resource.resourceType, resource.resourceId, ...ids],
   });
+  const authorsByThread = new Map<string, Array<string | null>>();
   for (const row of rows) {
     const { thread_id: threadId, author_email: email } = row as {
       thread_id: unknown;
@@ -1341,15 +1392,22 @@ export async function getLiveReviewReplyAuthorsByThread(
 
 export interface DeleteReviewCommentOptions {
   /**
-   * Called for a thread's first comment with the author of each live reply,
-   * read after the thread is locked, so no reply can land between the check and
-   * the delete. Throwing refuses the delete and removes nothing.
+   * Called for a thread's first comment with the author of every other live
+   * comment in the thread, which the delete takes along. They're read after the
+   * thread is locked, so no reply can land between the check and the delete.
+   * Throwing refuses the delete and removes nothing.
    */
   assertThreadDeletable?: (
     replyAuthorEmails: ReadonlyArray<string | null>,
   ) => void;
 }
 
+/**
+ * Soft-deletes a comment, and with a thread's first comment the rest of the
+ * thread too. Each row stays, but what someone wrote or attached is cleared:
+ * its text, mentions, anchor, image attachments and any resolution note, as
+ * they are in apps that remove the row.
+ */
 export async function deleteReviewComment(
   id: string,
   deletedBy?: string | null,
@@ -1357,51 +1415,258 @@ export async function deleteReviewComment(
 ): Promise<number> {
   await ensureReviewTables();
   const now = new Date().toISOString();
+  const actor = deletedBy ?? null;
   const client = getDbExec();
   const deleteIn = async (tx: DbExec) => {
-    // A reply still being written holds its root `FOR SHARE`. Taking the root
-    // `FOR UPDATE` first waits that out, so everything read or updated below
-    // sees the reply and takes it along. A later reply finds the root gone and
-    // refuses.
     // raw-sql-ok: the statement is constant text; the id is bound.
     const { rows: roots } = await tx.execute({
-      sql: `SELECT id FROM agent_review_comments
-             WHERE id = ? AND parent_comment_id IS NULL FOR UPDATE`,
+      sql: `SELECT thread_id, resource_type, resource_id
+              FROM agent_review_comments
+             WHERE id = ? AND parent_comment_id IS NULL`,
       args: [id],
     });
-    if (roots.length > 0 && options.assertThreadDeletable) {
-      // raw-sql-ok: the statement is constant text; the id is bound.
-      const { rows: replies } = await tx.execute({
-        sql: `SELECT author_email FROM agent_review_comments
-               WHERE thread_id = ? AND parent_comment_id IS NOT NULL
-                 AND deleted_at IS NULL`,
-        args: [id],
+    const root = roots[0] as
+      | { thread_id: unknown; resource_type: unknown; resource_id: unknown }
+      | undefined;
+    if (root) {
+      // A reply still being written holds its root `FOR SHARE`. Taking every
+      // first comment in the thread `FOR UPDATE` first waits that out, so
+      // everything read or updated below sees the reply and takes it along. A
+      // later reply finds its root gone and refuses. They're taken in id
+      // order, as another delete or a routed reply in the thread takes them,
+      // so neither holds one the other is waiting for.
+      await lockReviewThreadRoots(tx, String(root.thread_id), {
+        resourceType: String(root.resource_type),
+        resourceId: String(root.resource_id),
       });
+    }
+    // A thread's first comment is the thread. Comments left behind would have
+    // no root for any list to hang them on, but would still sit in the table.
+    // A thread is everything that shares its id, as listing, resolving and
+    // muting take it, so that's what goes, including any other comment with no
+    // parent. A root's thread isn't always its own id (a suggestion's
+    // correction comment opens one of its own), and a thread given at insert
+    // could repeat on another resource, so the rest of the thread is found by
+    // the thread and resource stored on the root. The check is shown exactly
+    // the comments the delete takes.
+    const rest: DeletedCommentRow[] = root
+      ? ((
+          await tx.execute(sql`SELECT id, parent_comment_id, author_email,
+                metadata_json
+               FROM agent_review_comments
+              WHERE thread_id = ${sql.value(String(root.thread_id))}
+                AND resource_type = ${sql.value(String(root.resource_type))}
+                AND resource_id = ${sql.value(String(root.resource_id))}
+                AND id <> ${sql.value(id)}
+                AND deleted_at IS NULL`)
+        ).rows as DeletedCommentRow[])
+      : [];
+    if (root && options.assertThreadDeletable) {
       options.assertThreadDeletable(
-        replies.map((row) => {
-          const email = (row as { author_email?: unknown }).author_email;
-          return typeof email === "string" ? email : null;
-        }),
+        rest.map((comment) =>
+          typeof comment.author_email === "string"
+            ? comment.author_email
+            : null,
+        ),
       );
     }
-    // A thread's first comment is the thread. Replies left behind would have no
-    // root for any list to hang them on, but would still sit in the table.
-    // raw-sql-ok: the statement is constant text; the ids and actor are bound.
-    const result = await tx.execute({
-      sql: `UPDATE agent_review_comments
-          SET status = 'deleted',
-              deleted_by = ?,
-              deleted_at = ?,
-              updated_at = ?
-        WHERE id = ?
-           OR (deleted_at IS NULL AND thread_id = (
-                SELECT thread_id FROM agent_review_comments
-                 WHERE id = ? AND parent_comment_id IS NULL))`,
-      args: [deletedBy ?? null, now, now, id, id],
-    });
-    return result.rowsAffected > 0 ? result.rowsAffected : 0;
+    let deleted = await clearDeletedReviewComment(tx, id, actor, now);
+    // Another comment with no parent can have its metadata changed while this
+    // runs, as resolving writes a note to each, so it gets the same rechecked
+    // update as the root.
+    for (const other of rest.filter((comment) => !comment.parent_comment_id)) {
+      deleted += await clearDeletedReviewComment(
+        tx,
+        String(other.id),
+        actor,
+        now,
+      );
+    }
+    const replies = rest.filter((comment) => comment.parent_comment_id);
+    const deletedReplies = await clearDeletedReviewReplies(
+      tx,
+      replies,
+      actor,
+      now,
+    );
+    return deleted + deletedReplies;
   };
   return client.transaction ? client.transaction(deleteIn) : deleteIn(client);
+}
+
+interface DeletedCommentRow {
+  id: unknown;
+  parent_comment_id?: unknown;
+  author_email?: unknown;
+  metadata_json?: unknown;
+}
+
+/** A `type` or `kind` that marks a comment's metadata as a resolution note. */
+const RESOLUTION_NOTE_MARKERS = new Set([
+  "resolution",
+  "resolution_note",
+  "resolution-note",
+]);
+
+/** Takes `key` out of `record`, saying whether it was there. */
+function dropKey(record: Record<string, unknown>, key: string): boolean {
+  if (!(key in record)) return false;
+  delete record[key];
+  return true;
+}
+
+/**
+ * The metadata a deleted comment keeps, or `undefined` when nothing in it
+ * needs clearing. What goes is what someone wrote or attached: image
+ * attachments, and a resolution note in each shape the kit's comment card
+ * reads one from.
+ */
+function metadataAfterDelete(metadataJson: unknown): string | null | undefined {
+  const metadata = parseObject(metadataJson);
+  if (!metadata) return undefined;
+  let changed = false;
+  for (const key of ["attachments", "resolutionNote", "resolvedNote"]) {
+    changed = dropKey(metadata, key) || changed;
+  }
+  // A comment marked as a resolution note keeps its note under `note`.
+  const marker = metadata.type ?? metadata.kind;
+  if (typeof marker === "string" && RESOLUTION_NOTE_MARKERS.has(marker)) {
+    changed = dropKey(metadata, "note") || changed;
+  }
+  // Metadata is decoded already, and a resolution given as plain text, as any
+  // caller may store, has no note to take. The comment card reads one only
+  // from an object.
+  const resolution = isPlainObject(metadata.resolution)
+    ? metadata.resolution
+    : null;
+  if (resolution && dropKey(resolution, "note")) {
+    changed = true;
+    if (Object.keys(resolution).length > 0) metadata.resolution = resolution;
+    else delete metadata.resolution;
+  }
+  if (!changed) return undefined;
+  return Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null;
+}
+
+/** How many times a deletion rereads a comment that changed under it. */
+const DELETE_COMMENT_ATTEMPTS = 5;
+
+/**
+ * Marks one comment deleted and clears what someone wrote or attached in it.
+ * Another write, such as a resolution note, can change the metadata between
+ * the read and the update. The update only lands on the metadata it read, and
+ * reads again when that changed, so the other write isn't lost.
+ */
+async function clearDeletedReviewComment(
+  client: DbExec,
+  id: string,
+  deletedBy: string | null,
+  now: string,
+): Promise<number> {
+  // Only a live comment is cleared. One already deleted, earlier or on its own
+  // while its thread was being deleted, keeps who deleted it and when.
+  for (let attempt = 0; attempt < DELETE_COMMENT_ATTEMPTS; attempt += 1) {
+    const existing = await client.execute(sql`SELECT metadata_json
+         FROM agent_review_comments
+        WHERE id = ${sql.value(id)} AND deleted_at IS NULL
+        LIMIT 1`);
+    const row = existing.rows[0] as Record<string, unknown> | undefined;
+    if (!row) return 0;
+    const read = typeof row.metadata_json === "string" ? row.metadata_json : "";
+    const remainingMetadata = metadataAfterDelete(row.metadata_json);
+    const metadata =
+      remainingMetadata === undefined
+        ? sql`metadata_json`
+        : sql`${sql.value(remainingMetadata)}`;
+    const result = await client.execute(sql`UPDATE agent_review_comments
+          SET status = 'deleted',
+              body = '',
+              mentions_json = NULL,
+              anchor_json = NULL,
+              metadata_json = ${metadata},
+              deleted_by = ${sql.value(deletedBy)},
+              deleted_at = ${sql.value(now)},
+              updated_at = ${sql.value(now)}
+        WHERE id = ${sql.value(id)}
+          AND deleted_at IS NULL
+          AND COALESCE(metadata_json, '') = ${sql.value(read)}`);
+    if (result.rowsAffected > 0) return result.rowsAffected;
+  }
+  throw new Error(
+    `Comment ${id} kept changing while it was being deleted; try again.`,
+  );
+}
+
+/** Replies cleared per statement, well inside PostgreSQL's 65,535 bound values. */
+const DELETED_REPLIES_PER_STATEMENT = 1_000;
+
+/**
+ * Clears a deleted thread's replies, a thousand to a statement. Only a comment
+ * with no parent has its metadata changed after it's written, so each reply's
+ * metadata, read under the thread's lock, is still current here. A reply can
+ * still be deleted on its own in between, as that takes no thread lock, so
+ * only those still live are cleared, and one deleted meanwhile keeps who
+ * deleted it and when.
+ */
+async function clearDeletedReviewReplies(
+  client: DbExec,
+  replies: readonly DeletedCommentRow[],
+  deletedBy: string | null,
+  now: string,
+): Promise<number> {
+  let deleted = 0;
+  for (
+    let start = 0;
+    start < replies.length;
+    start += DELETED_REPLIES_PER_STATEMENT
+  ) {
+    const batch = replies.slice(start, start + DELETED_REPLIES_PER_STATEMENT);
+    const rewrites = batch.flatMap((reply) => {
+      const remainingMetadata = metadataAfterDelete(reply.metadata_json);
+      return remainingMetadata === undefined
+        ? []
+        : [
+            sql`WHEN ${sql.value(String(reply.id))} THEN ${sql.value(remainingMetadata)}`,
+          ];
+    });
+    const metadata =
+      rewrites.length > 0
+        ? sql`CASE id ${sql.join(rewrites, sql` `)} ELSE metadata_json END`
+        : sql`metadata_json`;
+    const result = await client.execute(sql`UPDATE agent_review_comments
+          SET status = 'deleted',
+              body = '',
+              mentions_json = NULL,
+              anchor_json = NULL,
+              metadata_json = ${metadata},
+              deleted_by = ${sql.value(deletedBy)},
+              deleted_at = ${sql.value(now)},
+              updated_at = ${sql.value(now)}
+        WHERE id IN ${sql.in(batch.map((reply) => String(reply.id)))}
+          AND deleted_at IS NULL`);
+    deleted += result.rowsAffected;
+  }
+  return deleted;
+}
+
+/** Distinct authors of a thread's live comments, for reply emails. */
+export async function listReviewThreadParticipantEmails(input: {
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
+}): Promise<string[]> {
+  await ensureReviewTables();
+  const result = await getDbExec().execute(sql`SELECT DISTINCT author_email
+       FROM agent_review_comments
+      WHERE resource_type = ${sql.value(input.resourceType)}
+        AND resource_id = ${sql.value(input.resourceId)}
+        AND thread_id = ${sql.value(input.threadId)}
+        AND author_email IS NOT NULL
+        AND deleted_at IS NULL
+        AND status <> 'deleted'`);
+  return result.rows
+    .map((row) => nullableString((row as Record<string, unknown>).author_email))
+    .filter((email): email is string => Boolean(email));
 }
 
 export async function updateReviewComment(
@@ -1452,23 +1717,34 @@ export async function consumeReviewFeedback(
     return 0;
   }
   await ensureReviewTables();
-  const placeholders = ids.map(() => "?").join(", ");
-  const resourceClause = resource
-    ? "AND resource_type = ? AND resource_id = ?"
-    : "";
-  const result = await getDbExec().execute({
-    sql: `UPDATE agent_review_comments
-        SET consumed_at = ?,
-            updated_at = ?
-      WHERE id IN (${placeholders}) ${resourceClause}`,
-    args: [
-      consumedAt,
-      consumedAt,
-      ...ids,
-      ...(resource ? [resource.resourceType, resource.resourceId] : []),
-    ],
-  });
-  return result.rowsAffected ?? 0;
+  const onResource = resource
+    ? sql`AND resource_type = ${sql.value(resource.resourceType)}
+        AND resource_id = ${sql.value(resource.resourceId)}`
+    : sql``;
+  const client = getDbExec();
+  const consume = async (tx: DbExec) => {
+    // The comments can be in several threads. The first comments of each are
+    // taken in one id order, as a thread delete takes its own, so neither
+    // holds one while it waits for another the other holds.
+    await tx.execute(sql`SELECT id
+         FROM agent_review_comments
+        WHERE thread_id IN (
+                SELECT thread_id
+                  FROM agent_review_comments
+                 WHERE id IN ${sql.in(ids)}
+                   ${onResource})
+          ${onResource}
+          AND parent_comment_id IS NULL
+        ORDER BY id
+          FOR UPDATE`);
+    const result = await tx.execute(sql`UPDATE agent_review_comments
+          SET consumed_at = ${sql.value(consumedAt)},
+              updated_at = ${sql.value(consumedAt)}
+        WHERE id IN ${sql.in(ids)}
+          ${onResource}`);
+    return result.rowsAffected;
+  };
+  return client.transaction ? client.transaction(consume) : consume(client);
 }
 
 export async function upsertReviewStatus(
@@ -1747,9 +2023,11 @@ function parseOptionalJson(value: unknown): unknown {
 
 function parseObject(value: unknown): Record<string, unknown> | null {
   const parsed = parseOptionalJson(value);
-  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : null;
+  return isPlainObject(parsed) ? parsed : null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseMentions(value: unknown): ReviewMention[] {

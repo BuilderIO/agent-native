@@ -46,6 +46,7 @@ import {
 } from "../lib/simple-agent-profile.js";
 import { ActionQueryError } from "./action-query-error";
 import { AppIcon } from "./app-icon";
+import { useNotifyBuildInBuilder } from "./build-in-builder";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1157,11 +1158,16 @@ function AgentRow({
     { agentId: resource.id },
     { enabled: false },
   );
+  const notifyBuildInBuilder = useNotifyBuildInBuilder();
   const promote = useActionMutation<
     AgentAppCreationResult,
     AgentAppCreationInput
   >("start-workspace-app-creation", {
     onSuccess: (result) => {
+      if (result.mode === "builder-managed" && result.url) {
+        notifyBuildInBuilder(result.url);
+        return;
+      }
       if (result.mode === "local-agent") {
         sendToAgentChat({
           message: result.prompt ?? result.message,
@@ -1317,6 +1323,7 @@ interface AgentAppCreationInput {
 interface AgentAppCreationResult {
   mode:
     | "builder"
+    | "builder-managed"
     | "local-agent"
     | "builder-unavailable"
     | "app-id-taken"

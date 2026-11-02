@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 const MAX_FINAL_CHUNK_RECOVERY_ATTEMPTS = 24;
@@ -103,7 +103,7 @@ async function readChunkedUploadStatus(
   sessionId: string,
 ): Promise<ChunkedUploadStatus> {
   const response = await fetch(
-    `${appBasePath()}/api/uploads-chunked/${sessionId}/status`,
+    appApiPath(`/api/uploads-chunked/${sessionId}/status`),
     { cache: "no-store", credentials: "include" },
   );
   let parsed: unknown;
@@ -201,7 +201,7 @@ async function resolveFinalChunk(
 async function uploadVideoMultipart(file: File): Promise<UploadedSlideVideo> {
   const body = new FormData();
   body.append("file", file);
-  const response = await fetch(`${appBasePath()}/api/assets/upload-video`, {
+  const response = await fetch(appApiPath("/api/assets/upload-video"), {
     method: "POST",
     credentials: "include",
     body,
@@ -211,20 +211,17 @@ async function uploadVideoMultipart(file: File): Promise<UploadedSlideVideo> {
 }
 
 async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
-  const startResponse = await fetch(
-    `${appBasePath()}/api/uploads-chunked/start`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        filename: file.name,
-        mimetype: file.type || "application/octet-stream",
-        declaredSize: file.size,
-        uploadType: "video",
-      }),
-    },
-  );
+  const startResponse = await fetch(appApiPath("/api/uploads-chunked/start"), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      filename: file.name,
+      mimetype: file.type || "application/octet-stream",
+      declaredSize: file.size,
+      uploadType: "video",
+    }),
+  });
   const startData = await readVideoUploadResponse(startResponse);
   if (startData.uploadMode === "multipart") {
     return uploadVideoMultipart(file);
@@ -244,7 +241,9 @@ async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
   try {
     for (let index = 0; index < totalChunks; index++) {
       const isFinal = index === totalChunks - 1;
-      const chunkUrl = `${appBasePath()}/api/uploads-chunked/${startData.sessionId}/chunk?index=${index}&isFinal=${isFinal ? "1" : "0"}`;
+      const chunkUrl = appApiPath(
+        `/api/uploads-chunked/${startData.sessionId}/chunk?index=${index}&isFinal=${isFinal ? "1" : "0"}`,
+      );
       const body = file.slice(
         index * chunkSize,
         Math.min((index + 1) * chunkSize, file.size),
@@ -283,7 +282,7 @@ async function uploadVideoChunked(file: File): Promise<UploadedSlideVideo> {
     if (!finalChunkAttempted) {
       try {
         const cleanupResponse = await fetch(
-          `${appBasePath()}/api/uploads-chunked/${startData.sessionId}`,
+          appApiPath(`/api/uploads-chunked/${startData.sessionId}`),
           { method: "DELETE", credentials: "include" },
         );
         if (!cleanupResponse.ok) {
@@ -316,7 +315,7 @@ export async function uploadSlideVideo(
 
 export async function discardUploadedSlideVideo(id: string): Promise<void> {
   const response = await fetch(
-    `${appBasePath()}/api/assets/video-uploads?id=${encodeURIComponent(id)}`,
+    appApiPath(`/api/assets/video-uploads?id=${encodeURIComponent(id)}`),
     { method: "DELETE", credentials: "include" },
   );
   const data = await readVideoUploadResponse(response);

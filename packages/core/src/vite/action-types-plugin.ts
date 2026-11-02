@@ -499,7 +499,7 @@ function scanActionFiles(actionsDir: string): string[] {
       const reexportsDefaultAction =
         /export\s*\{\s*default\s*\}\s*from\s*["'][^"']+["']/.test(content);
       const exportsActionFactory =
-        /export\s+default\s+(?:create[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
+        /export\s+default\s+(?:(?:create|define)[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
           content,
         );
       if (

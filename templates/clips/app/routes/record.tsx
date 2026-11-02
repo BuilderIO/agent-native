@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
+  appApiPath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
@@ -1655,8 +1656,8 @@ export default function RecordRoute() {
   /** Point the engine at its server upload. */
   const applyUploadTarget = useCallback(
     (engine: RecorderEngine, info: CreatedUploadTarget): string => {
-      const uploadChunkUrl = `${appBasePath()}${info.uploadChunkUrl}`;
-      const abortUrl = `${appBasePath()}${info.abortUrl}`;
+      const uploadChunkUrl = appApiPath(info.uploadChunkUrl);
+      const abortUrl = appApiPath(info.abortUrl);
       pendingRef.current = {
         id: info.id,
         uploadChunkUrl,
@@ -1669,7 +1670,7 @@ export default function RecordRoute() {
         uploadUrl: uploadChunkUrl,
         abortUrl,
         resetUrl: info.resetChunksUrl
-          ? `${appBasePath()}${info.resetChunksUrl}`
+          ? appApiPath(info.resetChunksUrl)
           : undefined,
         uploadMode: info.uploadMode,
         maxUploadBytes: info.clientLimits?.maxClipBytes,
@@ -1993,7 +1994,7 @@ export default function RecordRoute() {
               ? "user_cancelled"
               : "recording_interrupted";
             if (info) {
-              fetch(`${appBasePath()}${info.abortUrl}`, {
+              fetch(appApiPath(info.abortUrl), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -2327,7 +2328,7 @@ export default function RecordRoute() {
         createdId = info.id;
         fileUploadRecordingIdRef.current = createdId;
         fileUploadAbortUrlRef.current =
-          intake && info.abortUrl ? `${appBasePath()}${info.abortUrl}` : null;
+          intake && info.abortUrl ? appApiPath(info.abortUrl) : null;
         if (!intake) await saveBugReportContextRef.current(info.id);
         if (isStale()) throw makeAbortError("Upload cancelled");
         if (!intake) {
@@ -2341,7 +2342,7 @@ export default function RecordRoute() {
           });
         }
         if (isStale()) throw makeAbortError("Upload cancelled");
-        const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
+        const uploadBase = appApiPath(info.uploadChunkUrl);
 
         const totalChunks = Math.max(
           1,
@@ -2639,7 +2640,7 @@ export default function RecordRoute() {
         if (createdId && !serverRejectedTooLarge && !preserveBufferedChunks) {
           fetch(
             fileUploadAbortUrlRef.current ??
-              `${appBasePath()}/api/uploads/${createdId}/abort`,
+              appApiPath(`/api/uploads/${createdId}/abort`),
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },

@@ -518,15 +518,14 @@ export async function sessionEventFilterConditions(
     // index never saw.
     ...(associationsReady
       ? [
+          // Start from the session's associations: started from the
+          // recordings, Postgres scans the whole table once per candidate.
           sql`not exists (
-            select 1 from ${r} as ${sibling}
-            where ${recordingTenantSql(sibling)} = ${recordingTenant}
+            select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociation}
+            inner join ${r} as ${sibling} on ${sibling.id} = ${siblingAssociation.recordingId}
+            where ${siblingAssociation.sessionId} = ${sessionId}
+              and ${recordingTenantSql(sibling)} = ${recordingTenant}
               and ${sibling.startedAt} < ${coverageStart}
-              and exists (
-                select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociation}
-                where ${siblingAssociation.recordingId} = ${sibling.id}
-                  and ${siblingAssociation.sessionId} = ${sessionId}
-              )
           )`,
           sql`not exists (
             select 1 from ${r} as ${sibling}

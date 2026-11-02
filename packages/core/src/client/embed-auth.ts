@@ -23,6 +23,7 @@ import {
 } from "../shared/sign-in-journey.js";
 import {
   frameworkRoutePrefix,
+  isApiBaseUrl,
   isWorkspaceRuntime,
   resolveAppBasePath,
   resolveExternalEmbedTargetAppBasePath,
@@ -633,7 +634,7 @@ function inputUrl(input: RequestInfo | URL, win: Window): URL | null {
 function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
   const url = inputUrl(input, win);
   const origin = currentAppOrigin(win);
-  return !!url && !!origin && url.origin === origin;
+  return !!url && ((!!origin && url.origin === origin) || isApiBaseUrl(url));
 }
 
 function isAgentNativeRuntimePath(pathname: string): boolean {
@@ -821,9 +822,9 @@ function requestUrlAndKey(
       shouldGuard: boolean;
     }
   | undefined {
+  if (!sameOrigin(input, win)) return undefined;
   const url = inputUrl(input, win);
-  const origin = currentAppOrigin(win);
-  if (!url || !origin || url.origin !== origin) return undefined;
+  if (!url) return undefined;
   const method = requestMethod(input, init);
   return {
     key: authFailureKey(method, url),

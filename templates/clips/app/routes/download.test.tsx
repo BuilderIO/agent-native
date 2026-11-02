@@ -23,6 +23,7 @@ const {
 });
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  appApiPath: (path: string) => `${appBasePathMock()}${path}`,
   appBasePath: appBasePathMock,
   appPath: (path: string) => `${appBasePathMock()}${path}`,
   WorkspaceAppMountResolutionError,

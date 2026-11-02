@@ -5,10 +5,17 @@ import {
   IconArrowBackUp,
   IconTrash,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/library/empty-state";
+import {
+  MEDIA_CLEANUPS_ACTION,
+  MediaCleanupStatus,
+  permanentDeleteOutcome,
+  type PermanentDeleteResult,
+} from "@/components/library/media-cleanup-status";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { RecordingCard } from "@/components/library/recording-card";
 import { SortMenu, type SortKey } from "@/components/library/sort-menu";
@@ -50,6 +57,7 @@ const PAGE_SIZE = 20;
 
 export default function TrashRoute() {
   const t = useT();
+  const queryClient = useQueryClient();
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -106,6 +114,17 @@ export default function TrashRoute() {
       ),
     [data?.pages],
   );
+
+  // A delete that failed on the client may still have removed the recording,
+  // so selection follows the refetched list rather than the failure.
+  useEffect(() => {
+    setSelected((prev) => {
+      const present = new Set(recordings.map((r) => r.id));
+      const next = new Set(Array.from(prev).filter((id) => present.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [recordings]);
+
   const requestKey = JSON.stringify(args);
   const fetchNextPageIfIdle = useCallback(() => {
     if (nextPageInFlightRef.current === requestKey) return;
@@ -174,7 +193,7 @@ export default function TrashRoute() {
   ]);
 
   const restore = useActionMutation<any, { id: string }>("restore-recording");
-  const purge = useActionMutation<any, { id: string }>(
+  const purge = useActionMutation<PermanentDeleteResult, { id: string }>(
     "delete-recording-permanent",
   );
 
@@ -248,39 +267,81 @@ export default function TrashRoute() {
     if (ids.length === 0) return;
     setIsBulkPending(true);
     try {
+      const results = await Promise.allSettled(
+        ids.map((id) => purge.mutateAsync({ id })),
+      );
+      const outcomes = results.map((result) =>
+        result.status === "fulfilled"
+          ? permanentDeleteOutcome(result.value)
+          : null,
+      );
+      const removedIds = ids.filter((_, i) => outcomes[i] !== null);
+      const tally = (outcome: ReturnType<typeof permanentDeleteOutcome>) =>
+        outcomes.filter((value) => value === outcome).length;
+      const complete = tally("complete");
+      const pending = tally("pending");
+      const blocked = tally("blocked");
+      const retained = tally("retained_shared");
+      const failed = tally(null);
+
+      if (removedIds.length > 0) {
+        setSelected((prev) => {
+          const next = new Set(prev);
+          removedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+      if (failed > 0) {
+        // A request can fail after the server removed the recording, and a
+        // failed mutation refreshes nothing on its own.
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-recordings"],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["action", MEDIA_CLEANUPS_ACTION],
+        });
+      }
+
       if (ids.length === 1) {
-        try {
-          await purge.mutateAsync({ id: ids[0] });
+        const [outcome] = outcomes;
+        const result = results.shift();
+        if (outcome === "complete") {
           toast.success(t("trashRoute.permanentlyDeleted"));
-          setSelected((prev) => {
-            const next = new Set(prev);
-            next.delete(ids[0]);
-            return next;
-          });
-        } catch (err: any) {
-          toast.error(err?.message ?? t("trashRoute.deleteFailed"));
+        } else if (outcome === "pending") {
+          toast.info(t("trashRoute.deletedMediaPending"));
+        } else if (outcome === "blocked") {
+          toast.warning(t("trashRoute.deletedMediaBlocked"));
+        } else if (outcome === "retained_shared") {
+          toast.info(t("trashRoute.deletedMediaRetained"));
+        } else {
+          toast.error(
+            result?.status === "rejected" && result.reason instanceof Error
+              ? result.reason.message
+              : t("trashRoute.deleteFailed"),
+          );
         }
         return;
       }
 
-      const results = await Promise.allSettled(
-        ids.map((id) => purge.mutateAsync({ id })),
-      );
-      const succeededIds = ids.filter(
-        (_, i) => results[i].status === "fulfilled",
-      );
-      const failed = ids.length - succeededIds.length;
-      if (succeededIds.length > 0) {
+      if (complete > 0) {
         toast.success(
-          t("trashRoute.clipsPermanentlyDeleted", {
-            count: succeededIds.length,
-          }),
+          t("trashRoute.clipsPermanentlyDeleted", { count: complete }),
         );
-        setSelected((prev) => {
-          const next = new Set(prev);
-          succeededIds.forEach((id) => next.delete(id));
-          return next;
-        });
+      }
+      if (pending > 0) {
+        toast.info(
+          t("trashRoute.clipsDeletedMediaPending", { count: pending }),
+        );
+      }
+      if (blocked > 0) {
+        toast.warning(
+          t("trashRoute.clipsDeletedMediaBlocked", { count: blocked }),
+        );
+      }
+      if (retained > 0) {
+        toast.info(
+          t("trashRoute.clipsDeletedMediaRetained", { count: retained }),
+        );
       }
       if (failed > 0) {
         toast.error(t("trashRoute.clipsDeleteFailed", { count: failed }));
@@ -354,6 +415,7 @@ export default function TrashRoute() {
         ref={scrollRootRef}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5"
       >
+        <MediaCleanupStatus />
         {isLoading ? (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
             {Array.from({ length: 6 }).map((_, i) => (

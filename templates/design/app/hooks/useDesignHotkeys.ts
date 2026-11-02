@@ -1,3 +1,4 @@
+import { normalizeCanvasHotkeyKey } from "@agent-native/toolkit/canvas-interactions";
 import { cancelActiveScrubInputs } from "@agent-native/toolkit/design-tweaks";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
@@ -268,8 +269,8 @@ function isDesignHistoryHotkey(event: KeyboardEvent) {
   return (
     isPlatformPrimaryModifier(event) &&
     !event.altKey &&
-    (normalizeDesignHotkeyKey(event) === "z" ||
-      normalizeDesignHotkeyKey(event) === "y")
+    (normalizeCanvasHotkeyKey(event) === "z" ||
+      normalizeCanvasHotkeyKey(event) === "y")
   );
 }
 
@@ -288,7 +289,7 @@ export function isOptedInDesignHistoryHotkey(event: KeyboardEvent) {
 export function isNativePlainPasteHotkey(event: KeyboardEvent) {
   return (
     isPlatformPrimaryModifier(event) &&
-    normalizeDesignHotkeyKey(event) === "v" &&
+    normalizeCanvasHotkeyKey(event) === "v" &&
     !event.altKey &&
     !event.shiftKey &&
     (event as KeyboardEvent & { __agentNativeIframeHotkey?: boolean })
@@ -309,7 +310,7 @@ export function isShowKeyboardShortcutsHotkey(event: KeyboardEvent) {
   if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) {
     return false;
   }
-  const key = normalizeDesignHotkeyKey(event);
+  const key = normalizeCanvasHotkeyKey(event);
   return key === "?" || key === "/";
 }
 
@@ -399,7 +400,7 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
       if (current.preventDefault !== false) event.preventDefault();
       current.onOpacityChange?.({
         event,
-        key: normalizeDesignHotkeyKey(event),
+        key: normalizeCanvasHotkeyKey(event),
         primary: false,
         shift: false,
         alt: false,
@@ -423,7 +424,7 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
         isDesignHotkeyEditableTarget(event.target) &&
         isPlatformPrimaryModifier(event) &&
         !event.altKey &&
-        ["=", "+", "-", "0"].includes(normalizeDesignHotkeyKey(event))
+        ["=", "+", "-", "0"].includes(normalizeCanvasHotkeyKey(event))
       ) {
         event.preventDefault();
         resetOpacitySequence();
@@ -485,7 +486,7 @@ export function handleDesignHotkey(
   event: KeyboardEvent,
   props: UseDesignHotkeysProps,
 ) {
-  const key = normalizeDesignHotkeyKey(event);
+  const key = normalizeCanvasHotkeyKey(event);
   const primary = isPlatformPrimaryModifier(event);
   const isLayoutGridControlChord =
     event.ctrlKey &&
@@ -886,37 +887,6 @@ export function handleDesignHotkey(
   return false;
 }
 
-const DESIGN_HOTKEY_CODE_FALLBACKS: Record<string, string> = {
-  KeyA: "a",
-  KeyB: "b",
-  KeyC: "c",
-  KeyD: "d",
-  KeyE: "e",
-  KeyF: "f",
-  KeyG: "g",
-  KeyH: "h",
-  KeyI: "i",
-  KeyJ: "j",
-  KeyK: "k",
-  KeyL: "l",
-  KeyM: "m",
-  KeyN: "n",
-  KeyO: "o",
-  KeyP: "p",
-  KeyQ: "q",
-  KeyR: "r",
-  KeyS: "s",
-  KeyT: "t",
-  KeyU: "u",
-  KeyV: "v",
-  KeyW: "w",
-  KeyX: "x",
-  KeyY: "y",
-  KeyZ: "z",
-  BracketRight: "]",
-  BracketLeft: "[",
-};
-
 export function isApplePlatform() {
   if (typeof navigator === "undefined") return false;
   const userAgentDataPlatform = (
@@ -933,15 +903,6 @@ export function isPlatformPrimaryModifier(event: KeyboardEvent) {
   return isApplePlatform()
     ? event.metaKey && !event.ctrlKey
     : event.ctrlKey && !event.metaKey;
-}
-
-export function normalizeDesignHotkeyKey(
-  event: Pick<KeyboardEvent, "key" | "code"> & { altKey?: boolean },
-) {
-  if (event.key === " ") return "space";
-  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-  if (/^[a-z]$/.test(key)) return key;
-  return DESIGN_HOTKEY_CODE_FALLBACKS[event.code] ?? key;
 }
 
 function digitFromEvent(event: KeyboardEvent) {

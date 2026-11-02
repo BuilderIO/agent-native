@@ -18,6 +18,7 @@ import {
   DIAGNOSTIC_DESCRIPTION_POLICY_SQL,
 } from "../lib/diagnostic-context-migration.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
+import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import {
   uploadLeaseExpiry,
   waitingStorageLeaseExpiry,
@@ -206,7 +207,11 @@ function scheduleRecordingOrgIdBackfill(): void {
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v41 incident documented on v41 below.
-// raw-sql-ok: Migration SQL is reviewed static DDL; imported constants contain no interpolated inputs.
+const mediaCleanupMigration = {
+  version: 99,
+  name: "recording-durable-media-cleanup",
+  sql: recordingMediaCleanupMigration,
+}; // raw-sql-ok: fixed additive DDL with no runtime interpolation; the shared definition is exercised on PostgreSQL and PGlite.
 export const migrations = runMigrations(
   orderMigrationsByVersion([
     {
@@ -1395,18 +1400,19 @@ export const migrations = runMigrations(
       name: "recording-content-binding-upload-start-failed",
       sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_start_failed_at TEXT`,
     },
+    mediaCleanupMigration,
     {
-      version: 99,
+      version: 100,
       name: "private-recording-diagnostic-context",
       sql: DIAGNOSTIC_CONTEXT_MIGRATION_SQL,
     },
     {
-      version: 100,
+      version: 101,
       name: "diagnostic-raw-db-policy",
       sql: DIAGNOSTIC_RAW_DB_POLICY_SQL,
     },
     {
-      version: 101,
+      version: 102,
       name: "diagnostic-description-publication",
       sql: DIAGNOSTIC_DESCRIPTION_POLICY_SQL,
     },

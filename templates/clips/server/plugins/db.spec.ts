@@ -7,13 +7,15 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { getTableName, type Table } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
 
+import * as mediaCleanupTables from "../db/media-cleanup-tables.js";
 import * as schema from "../db/schema";
+import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import { getRecordingAccessTokenResourceId } from "../lib/share-password.js";
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
@@ -50,6 +52,44 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
 let migrationDb: Awaited<ReturnType<typeof PGlite.create>> | undefined;
 let migrationRoot: string | undefined;
 const migratedColumns = new Map<string, Set<string>>();
+
+describe("recording media cleanup migration", () => {
+  for (const [exportName, exported] of Object.entries(mediaCleanupTables)) {
+    const columns = columnsOf(exported as unknown as DrizzleTable);
+
+    it(`creates schema.${exportName} columns and can apply its DDL repeatedly`, async () => {
+      const { splitSqlStatements } = await vi.importActual<{
+        splitSqlStatements: (sql: string) => string[];
+      }>("../../../../packages/core/src/db/migrations.js");
+      const database = await PGlite.create("memory://");
+      try {
+        await database.exec(`CREATE TABLE recordings(id TEXT PRIMARY KEY,video_url TEXT,thumbnail_url TEXT,animated_thumbnail_url TEXT,filmstrip_url TEXT,image_url TEXT,base_image_url TEXT,edits_json TEXT DEFAULT '{}');
+          CREATE TABLE recording_agent_frames(recording_id TEXT,storage_url TEXT);
+          CREATE TABLE recording_browser_diagnostics(recording_id TEXT,app_activity_blob_json TEXT);`);
+        for (let pass = 0; pass < 2; pass++)
+          for (const statement of splitSqlStatements(
+            recordingMediaCleanupMigration,
+          ))
+            await database.exec(statement);
+        const result = await database.query(
+          "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1",
+          [getTableName(exported as unknown as Table)],
+        );
+        const actual = new Set(
+          result.rows.map((row: { column_name: string }) => row.column_name),
+        );
+        expect(
+          columns
+            .map((column) => column.name)
+            .filter((name) => !actual.has(name)),
+        ).toEqual([]);
+      } finally {
+        await database.close();
+      }
+    });
+  }
+});
+
 beforeAll(async () => {
   const scratch = fileURLToPath(new URL("../../../../.tmp/", import.meta.url));
   await mkdir(scratch, { recursive: true });

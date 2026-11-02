@@ -509,6 +509,7 @@ export async function handleResetRecordingChunks(
                 ...session.meta,
                 stableUrl: true,
                 recordAsset: false,
+                clipsHiddenUpload: true,
               },
               bytesUploaded: 0,
               lastCommittedIndex: -1,

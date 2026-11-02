@@ -20,6 +20,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
+  appApiPath: (path: string) => path,
   appBasePath: () => "",
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
