@@ -3,11 +3,8 @@ import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   AGENT_ACCESS_PARAM,
-  verifyScopedAgentAccessToken,
-} from "@agent-native/core/server";
-import {
   getConfiguredAppBasePath,
-  getRequestUserEmail,
+  verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
@@ -16,7 +13,6 @@ import {
   buildResourceSocialMeta,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
 import {
   CLIP_EMBED_BLOCK_TYPE,
@@ -33,12 +29,13 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { data, redirect, useLoaderData } from "react-router";
+import { data, useLoaderData } from "react-router";
 
 import { publicContentBlockRegistry } from "@/blocks/publicBlockRegistry";
 import { ContentErrorBoundaryBody } from "@/components/ContentErrorBoundary";
 import { clipShareUrl } from "@/components/editor/clip-embed/use-clips-links";
 import { VisualEditor } from "@/components/editor/VisualEditor";
+import { messagesByLocale } from "@/i18n-data";
 import {
   HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
   privateDocumentRedirectHref,
@@ -130,14 +127,10 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   );
   const origin = new URL(request.url).origin;
 
+  // Core renders this without the visitor's cookies and serves the answer to
+  // everyone, so it can't tell a member from a stranger. The private notice's
+  // script sends a signed-in browser on to the page.
   const basePath = getConfiguredAppBasePath();
-  const withBase = (path: string) => `${basePath}${path}`;
-
-  const userEmail = getRequestUserEmail();
-  if (userEmail) {
-    const access = await resolveAccess("document", id);
-    if (access) throw redirect(withBase(`/page/${encodeURIComponent(id)}`));
-  }
 
   const [doc] = await getDb()
     .select({
@@ -180,12 +173,19 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   });
 }
 
+// A document this page can't show may be anyone's, and a member's browser goes
+// straight on to the editor, so the page wears the editor's own title and
+// description instead of calling the document public.
+const appMeta = messagesByLocale["en-US"].root;
+
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
-  const title = loaderData?.document?.title ?? "Public document";
-  const description = buildPublicDocumentDescription({
-    title,
-    content: loaderData?.document?.content,
-  });
+  const title = loaderData?.document?.title ?? appMeta.metaTitle;
+  const description = loaderData?.document
+    ? buildPublicDocumentDescription({
+        title,
+        content: loaderData.document.content,
+      })
+    : appMeta.metaDescription;
   const documentId = loaderData?.document?.id ?? loaderData?.unavailable?.id;
   const discovery = documentId
     ? buildContentDocumentAgentDiscovery({

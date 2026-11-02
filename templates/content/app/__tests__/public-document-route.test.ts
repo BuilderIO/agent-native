@@ -35,17 +35,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => configuredBasePath.current,
-  getRequestUserEmail: () => null,
   verifyScopedAgentAccessToken: (token: unknown, options: unknown) =>
     mockVerifyScopedAgentAccessToken(token, options),
 }));
 
 vi.mock("../../server/lib/clips-peer", () => ({
   resolveClipsAppUrl: () => clipsAppUrl.current,
-}));
-
-vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccess: vi.fn(),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -70,6 +65,7 @@ vi.mock("../../server/db", () => ({
 
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { messagesByLocale } from "../i18n-data";
 import {
   AgentReadableDocumentDiscovery,
   headers,
@@ -190,6 +186,35 @@ describe("public document route", () => {
       href: "/content/api/document-agent-context.json?id=doc-1",
       title: "Agent-readable Content document",
     });
+  });
+
+  it("titles a page it can't show as the editor does, never as public", () => {
+    const appMeta = messagesByLocale["en-US"].root;
+    const privateMeta =
+      meta({
+        loaderData: {
+          document: null,
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+          unavailable: {
+            reason: "private",
+            id: "doc-1",
+            basePath: "/content",
+          },
+        },
+      } as never) ?? [];
+
+    expect(privateMeta).toContainEqual({ title: appMeta.metaTitle });
+    expect(privateMeta).toContainEqual({
+      property: "og:title",
+      content: appMeta.metaTitle,
+    });
+    expect(privateMeta).toContainEqual({
+      name: "description",
+      content: appMeta.metaDescription,
+    });
+    expect(JSON.stringify(privateMeta).toLowerCase()).not.toContain("public");
   });
 
   it("uses document-aware social images only for public documents", () => {
