@@ -2,7 +2,32 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
 
-import { pnpmCommand, WINDOWS_COMMAND_LINE_LIMIT } from "./pnpm-command.ts";
+import {
+  pnpmCommand,
+  startCommand,
+  WINDOWS_COMMAND_LINE_LIMIT,
+} from "./pnpm-command.ts";
+
+describe("startCommand", () => {
+  it("sends pnpm through pnpmCommand", () => {
+    assert.deepEqual(
+      startCommand("pnpm", ["run", "build"], "win32"),
+      pnpmCommand(["run", "build"], "win32"),
+    );
+    assert.deepEqual(
+      startCommand("pnpm", ["run", "build"], "linux"),
+      pnpmCommand(["run", "build"], "linux"),
+    );
+  });
+
+  it("starts any other command as given", () => {
+    assert.deepEqual(startCommand("git", ["status"], "win32"), {
+      command: "git",
+      args: ["status"],
+      shell: false,
+    });
+  });
+});
 
 describe("pnpmCommand", () => {
   it("starts pnpm directly with its arguments outside Windows", () => {

@@ -1262,10 +1262,26 @@ async function runCommand(
   options: { cwd: string; env: NodeJS.ProcessEnv },
 ): Promise<0 | 1> {
   return new Promise<0 | 1>((resolve, reject) => {
-    const child = spawn(command, args, {
-      ...options,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    // On Windows pnpm is a pnpm.cmd shim, which only starts through a shell.
+    // Quote each argument there so a path or URL stays one argument. cmd.exe
+    // still expands %NAME% inside quotes and can't escape a quote, so refuse
+    // those.
+    const windows = process.platform === "win32";
+    const unsafe = windows ? args.find((arg) => /["%]/.test(arg)) : undefined;
+    if (unsafe !== undefined) {
+      throw couldNotRun(
+        `cmd.exe would change ${JSON.stringify(unsafe)}: use a value without a quote or a percent sign on Windows.`,
+      );
+    }
+    const child = spawn(
+      windows ? [command, ...args].map((arg) => `"${arg}"`).join(" ") : command,
+      windows ? [] : args,
+      {
+        ...options,
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: windows,
+      },
+    );
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));

@@ -41,7 +41,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { pnpmCommand } from "./lib/pnpm-command.ts";
+import { pnpmCommand, startCommand } from "./lib/pnpm-command.ts";
 import {
   baseEnv,
   dropDatabase,
@@ -323,11 +323,13 @@ async function runLive(
 ): Promise<string> {
   assertNotInterrupted();
   log(`${options.label}: ${cmd} ${args.join(" ")}`);
-  const child = spawn(cmd, args, {
+  const start = startCommand(cmd, args);
+  const child = spawn(start.command, start.args, {
     cwd: options.cwd,
     env: options.env ?? baseEnv(),
     detached: true,
     stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+    shell: start.shell,
   });
   activeRuns.add(child);
   child.once("close", () => activeRuns.delete(child));

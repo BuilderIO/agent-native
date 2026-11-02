@@ -18,9 +18,11 @@
  *
  * The command is found on a best-effort basis: through literals, ternaries,
  * `??`/`||`/`&&` fallbacks, variables, destructuring, a local zero-argument
- * function, and `.command` of a `pnpmCommand(...)` result. The shell has to be
- * shown to be on: `true`, a shell path, `process.platform === "win32"`, the
- * helper's `.shell`, or a variable whose every value is one of those.
+ * function, the parameters of a local function its callers pass pnpm to, and
+ * `.command` of a `pnpmCommand(...)` or `startCommand(...)` result. The shell
+ * has to be shown to be on: `true`, a shell path,
+ * `process.platform === "win32"`, the helper's `.shell`, or a variable whose
+ * every value is one of those.
  * Variables are matched by name, not scope, which that rule keeps on the safe
  * side. Properties and spreads are read in order, so a later one wins, and a
  * spread the guard can't read counts as no shell. Spawners imported from
@@ -64,6 +66,7 @@ const SPAWNERS = new Set(["spawn", "spawnSync", "execFile", "execFileSync"]);
 const PNPM = /^pnp[mx](?:\.cmd)?$/i;
 const CMD_SHIM = /^pnp[mx]\.cmd$/i;
 const CHILD_PROCESS = /^(?:node:)?child_process$/;
+const COMMAND_HELPERS = new Set(["pnpmCommand", "startCommand"]);
 const LOGICAL_OPERATORS = new Set([
   ts.SyntaxKind.QuestionQuestionToken,
   ts.SyntaxKind.BarBarToken,
@@ -181,9 +184,32 @@ function spawnerAliases(sourceFile: ts.SourceFile) {
   return aliases;
 }
 
+/** The parameters of the file's own functions, by function name. */
+function functionParameters(sourceFile: ts.SourceFile) {
+  const found = new Map<string, readonly ts.ParameterDeclaration[]>();
+  const visit = (node: ts.Node) => {
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      found.set(node.name.text, node.parameters);
+    } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      (ts.isArrowFunction(node.initializer) ||
+        ts.isFunctionExpression(node.initializer))
+    ) {
+      found.set(node.name.text, node.initializer.parameters);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
 /**
- * Every value the file gives each variable name: its initializer and any
- * later `name = <value>` assignment, for `const`, `let` and `var` alike.
+ * Every value the file gives each variable name: its initializer, any later
+ * `name = <value>` assignment, and, for a parameter of a local function, its
+ * default and what callers pass. So `function run(cmd) { spawn(cmd, []); }`
+ * with `run("pnpm")` reads like `spawn("pnpm", [])`.
  */
 function variableValues(sourceFile: ts.SourceFile) {
   const found = new Map<string, ts.Expression[]>();
@@ -226,10 +252,57 @@ function variableValues(sourceFile: ts.SourceFile) {
       ts.isIdentifier(node.left)
     ) {
       add(node.left.text, node.right);
+    } else if (
+      ts.isParameter(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer
+    ) {
+      add(node.name.text, node.initializer);
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
+
+  const parameters = functionParameters(sourceFile);
+  // The local functions a callee can be, through variables and fallbacks such
+  // as `const run = options.run ?? spawnBuild`.
+  const localFunctions = (
+    node: ts.Expression,
+    seen = new Set<string>(),
+  ): string[] => {
+    const inner = unwrap(node);
+    if (
+      ts.isBinaryExpression(inner) &&
+      LOGICAL_OPERATORS.has(inner.operatorToken.kind)
+    ) {
+      return [
+        ...localFunctions(inner.left, seen),
+        ...localFunctions(inner.right, seen),
+      ];
+    }
+    if (!ts.isIdentifier(inner) || seen.has(inner.text)) return [];
+    seen.add(inner.text);
+    return parameters.has(inner.text)
+      ? [inner.text]
+      : (found.get(inner.text) ?? []).flatMap((value) =>
+          localFunctions(value, seen),
+        );
+  };
+  const visitCalls = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      for (const name of localFunctions(node.expression)) {
+        const params = parameters.get(name) ?? [];
+        for (const [index, argument] of node.arguments.entries()) {
+          // A spread shifts every later argument by an unknown amount.
+          if (ts.isSpreadElement(argument) || index >= params.length) break;
+          const param = params[index].name;
+          if (ts.isIdentifier(param)) add(param.text, argument);
+        }
+      }
+    }
+    ts.forEachChild(node, visitCalls);
+  };
+  visitCalls(sourceFile);
   return found;
 }
 
@@ -300,7 +373,8 @@ export function findBarePnpmSpawns(
     return SPAWNERS.has(resolved) ? resolved : null;
   };
 
-  // A `pnpmCommand(...)` call, directly or through a variable.
+  // A `pnpmCommand(...)` or `startCommand(...)` call, directly or through a
+  // variable.
   const fromPnpmCommand = (node: ts.Expression): boolean => {
     const target = unwrap(node);
     const candidates = ts.isIdentifier(target)
@@ -308,7 +382,9 @@ export function findBarePnpmSpawns(
       : [target];
     return candidates.some((candidate) => {
       const call = unwrap(candidate);
-      return ts.isCallExpression(call) && calleeName(call) === "pnpmCommand";
+      return (
+        ts.isCallExpression(call) && COMMAND_HELPERS.has(calleeName(call) ?? "")
+      );
     });
   };
 

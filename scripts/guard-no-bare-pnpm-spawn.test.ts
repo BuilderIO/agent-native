@@ -51,6 +51,73 @@ describe("bare pnpm spawn guard", () => {
     assert.deepEqual(flagged(source, "all"), [2, 4]);
   });
 
+  it("follows a command a local helper takes as a parameter", () => {
+    const source = [
+      "function run(cmd, args) {",
+      "  return spawn(cmd, args);",
+      "}",
+      'run("pnpm", ["build"]);',
+      "const runLive = async (bin, args) => spawn(bin, args);",
+      'await runLive("pnpm", ["build"]);',
+      "function other(name) {",
+      "  return spawn(name, []);",
+      "}",
+      'other("git");',
+      "function spawnBuild(program) {",
+      "  return spawn(program, []);",
+      "}",
+      "const launch = options.launch ?? spawnBuild;",
+      'launch("pnpm");',
+      'function defaulted(exe = "pnpm") {',
+      "  return spawn(exe, []);",
+      "}",
+      "defaulted();",
+      "function outer(tool) {",
+      "  return inner(tool);",
+      "}",
+      "function inner(binary) {",
+      "  return spawn(binary, []);",
+      "}",
+      'outer("pnpm");',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [2, 5, 12, 17, 24]);
+  });
+
+  it("reads a helper's shell from what its callers pass", () => {
+    const source = [
+      "function withOptions(cmd, options) {",
+      "  return spawn(cmd, [], options);",
+      "}",
+      'withOptions("pnpm", { shell: true });',
+      "function withShell(cmd, shell) {",
+      "  return spawn(cmd, [], { shell });",
+      "}",
+      'withShell("pnpm", true);',
+      "function mixed(cmd, on) {",
+      "  return spawn(cmd, [], { shell: on });",
+      "}",
+      'mixed("pnpm", true);',
+      'mixed("pnpm", false);',
+      "function spreadFirst(spreadCommand) {",
+      "  return spawn(spreadCommand, []);",
+      "}",
+      'spreadFirst(...["pnpm"]);',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [10]);
+  });
+
+  it("flags startCommand's command passed without its shell", () => {
+    const source = [
+      "const start = startCommand(cmd, args);",
+      "spawn(start.command, start.args);",
+      "spawn(start.command, start.args, { shell: start.shell });",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [2]);
+  });
+
   it("follows fallbacks and destructured helper results", () => {
     const source = [
       'spawn(process.env.PNPM_BIN ?? "pnpm", args);',

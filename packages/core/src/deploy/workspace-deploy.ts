@@ -579,7 +579,14 @@ function spawnBuild(
   options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, options);
+    // On Windows pnpm is a pnpm.cmd shim, which only starts through a shell.
+    // Quote each argument there so it stays one argument.
+    const windows = process.platform === "win32";
+    const child = spawn(
+      windows ? [cmd, ...args].map((arg) => `"${arg}"`).join(" ") : cmd,
+      windows ? [] : args,
+      { ...options, shell: windows },
+    );
     // Buffered so parallel builds print as whole blocks instead of interleaving.
     const chunks: Buffer[] = [];
     child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));

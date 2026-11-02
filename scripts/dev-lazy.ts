@@ -1563,7 +1563,7 @@ function killPort(port: number): void {
 
 function openBrowser(url: string): void {
   if (!shouldOpen) return;
-  const command =
+  const opener =
     process.platform === "darwin"
       ? "open"
       : process.platform === "win32"
@@ -1571,7 +1571,7 @@ function openBrowser(url: string): void {
         : "xdg-open";
   const openArgs =
     process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  const child = spawn(command, openArgs, {
+  const child = spawn(opener, openArgs, {
     stdio: "ignore",
     detached: true,
   });

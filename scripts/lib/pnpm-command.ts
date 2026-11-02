@@ -11,8 +11,13 @@
  *   const pnpm = pnpmCommand(["run", "build"]);
  *   spawn(pnpm.command, pnpm.args, { cwd, stdio: "inherit", shell: pnpm.shell });
  *
+ * A helper that runs any command, pnpm among them, uses startCommand instead,
+ * and stopProcessTree to stop what it started.
+ *
  * guard:no-bare-pnpm-spawn keeps new scripts on this path.
  */
+
+import { spawnSync, type ChildProcess } from "node:child_process";
 
 export type PnpmCommand = {
   command: string;
@@ -41,6 +46,34 @@ export function pnpmCommand(
     );
   }
   return { command, args: [], shell: true };
+}
+
+/** pnpm goes through pnpmCommand; any other command starts as given. */
+export function startCommand(
+  command: string,
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): PnpmCommand {
+  return command === "pnpm"
+    ? pnpmCommand(args, platform)
+    : { command, args: [...args], shell: false };
+}
+
+/**
+ * Stops a command from startCommand. Under a shell, `child.kill()` would stop
+ * only cmd.exe and leave pnpm running, so Windows stops the whole tree.
+ */
+export function stopProcessTree(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+): void {
+  if (process.platform === "win32" && child.pid && child.exitCode === null) {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
+    return;
+  }
+  child.kill(signal);
 }
 
 function quoteForCmd(arg: string): string {
