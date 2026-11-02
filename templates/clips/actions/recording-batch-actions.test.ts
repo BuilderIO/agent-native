@@ -155,6 +155,27 @@ describe("batch recording actions", () => {
     expect(identity.writeAppState).toHaveBeenCalledTimes(1);
   });
 
+  it("still reports a committed batch when the refresh signal fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    identity.writeAppState.mockRejectedValueOnce(
+      new Error("app state unavailable"),
+    );
+    await insertRecording("a");
+    await insertRecording("b");
+
+    const result = await archive.run(archive.schema.parse({ ids: ["a", "b"] }));
+
+    expect(result).toMatchObject({ changed: 2, unchanged: 0, skipped: 0 });
+    expect((await recordingRow("b")).archivedAt).toBeTruthy();
+    expect(consoleError).toHaveBeenCalledWith(
+      "[clips] Could not send the refresh signal after a batch change:",
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
+  });
+
   it("changes nothing, and names the recording, when one can't be edited", async () => {
     await insertRecording("a");
     await insertRecording("b");
@@ -350,8 +371,16 @@ describe("list-recordings batch filters", () => {
   });
 
   it("rejects a date it can't read", () => {
-    expect(list.schema.safeParse({ createdBefore: "last week" }).success).toBe(
-      false,
-    );
+    for (const createdBefore of [
+      "last week",
+      "10/25/2026",
+      "2026-02-30",
+      "2026-10-25T12:00",
+    ]) {
+      expect(list.schema.safeParse({ createdBefore }).success).toBe(false);
+    }
+    for (const createdAfter of ["2028-02-29", "2026-10-25T12:00:00+02:00"]) {
+      expect(list.schema.safeParse({ createdAfter }).success).toBe(true);
+    }
   });
 });

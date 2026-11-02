@@ -43,8 +43,11 @@ import {
 import { profileNameFor } from "../server/lib/user-identities.js";
 import { transcriptHasTextSql } from "./lib/transcript-text.js";
 
-const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
-  message: "Use an ISO date or date-time, like 2026-10-25.",
+// A calendar date (2026-10-25) or a date-time with its offset
+// (2026-10-25T12:00:00Z). Date.parse alone would also take 10/25/2026 and
+// roll 2026-02-30 over into March.
+const isoDate = z.union([z.iso.date(), z.iso.datetime({ offset: true })], {
+  error: "Use an ISO date or date-time, like 2026-10-25.",
 });
 
 function escapeLike(s: string): string {

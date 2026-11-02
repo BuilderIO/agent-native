@@ -1,4 +1,5 @@
 import { fail } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { MAX_RECORDING_BATCH } from "@shared/recording-batch";
 import { z } from "zod";
@@ -97,6 +98,23 @@ export async function assertRecordingsEditable(ids: string[]): Promise<void> {
   if (failures.length) {
     throw new ForbiddenError(
       `Nothing was changed: ${failures.length} of ${ids.length} recordings can't be edited. ${failures.join("; ")}`,
+    );
+  }
+}
+
+/**
+ * Tells open libraries to refresh after a batch changed any recording. The
+ * changes have already committed, so a failed signal is logged rather than
+ * replacing the batch's per-recording result with an error.
+ */
+export async function refreshAfterBatch(changed: number): Promise<void> {
+  if (!changed) return;
+  try {
+    await writeAppState("refresh-signal", { ts: Date.now() });
+  } catch (error) {
+    console.error(
+      "[clips] Could not send the refresh signal after a batch change:",
+      error,
     );
   }
 }

@@ -9,6 +9,7 @@ import {
   applyToRecordings,
   recordingBatchSchema,
   recordingIdsField,
+  refreshAfterBatch,
   requestedRecordingIds,
 } from "../server/lib/recording-batch.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
@@ -96,9 +97,7 @@ export default defineAction({
       const batch = await applyToRecordings(ids, (id) =>
         tagOne(id, args.tag, args.op),
       );
-      if (batch.changed) {
-        await writeAppState("refresh-signal", { ts: Date.now() });
-      }
+      await refreshAfterBatch(batch.changed);
       return batch;
     }
 

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   recordingIdsField,
+  refreshAfterBatch,
   requestedRecordingIds,
 } from "../server/lib/recording-batch.js";
 import { mediaCleanupSummary } from "../server/lib/recording-media-cleanup-worker.js";
@@ -304,7 +305,7 @@ export default defineAction({
       }
     }
     const changed = results.filter((r) => r.status === "changed").length;
-    if (changed) await writeAppState("refresh-signal", { ts: Date.now() });
+    await refreshAfterBatch(changed);
     return {
       results,
       changed,

@@ -97,7 +97,8 @@ For a request over many of the user's own clips, such as "make my clips older
 than a week private unless I've shared them with someone", find them with one
 `list-recordings` call and change them with one call per 100:
 
-- `list-recordings` takes `createdBefore` / `createdAfter` (ISO dates),
+- `list-recordings` takes `createdBefore` / `createdAfter` (an ISO date such
+  as `2026-10-25`, or a date-time with its offset such as `2026-10-25T12:00:00Z`),
   `visibility` (a list, such as `["public", "org"]`) and `hasShares`
   (`false` for clips whose share list names no person, group or org; it
   reads that list, not visibility, and only ever matches the user's own
