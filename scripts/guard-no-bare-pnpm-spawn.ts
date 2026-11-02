@@ -216,6 +216,8 @@ function functionParameters(sourceFile: ts.SourceFile) {
 
 /** The value of a parameter a caller leaves out. */
 const LEFT_OUT = ts.factory.createIdentifier("undefined");
+/** A value the guard can't see, so never one it can show turns the shell on. */
+const HIDDEN = ts.factory.createIdentifier("<hidden>");
 
 /**
  * Every value the file gives each variable name: its initializer, any later
@@ -270,6 +272,14 @@ function variableValues(sourceFile: ts.SourceFile) {
       node.initializer
     ) {
       add(node.name.text, node.initializer);
+    } else if (ts.isParameter(node) && ts.isObjectBindingPattern(node.name)) {
+      // `function run({ shell = false } = {})` can't borrow another scope's
+      // `shell`. Without a default, the value is whatever the caller passes.
+      for (const element of node.name.elements) {
+        if (ts.isIdentifier(element.name)) {
+          add(element.name.text, element.initializer ?? HIDDEN);
+        }
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -306,12 +316,15 @@ function variableValues(sourceFile: ts.SourceFile) {
         (name) => parameters.get(name) ?? [],
       );
       for (const params of lists) {
+        let hidden = false;
         for (const [index, param] of params.entries()) {
           const argument = node.arguments.at(index);
-          // A spread shifts every later argument by an unknown amount.
-          if (argument && ts.isSpreadElement(argument)) break;
+          // A spread can fill this parameter and shifts every later one, so
+          // none of them can rely on their defaults.
+          hidden ||= argument !== undefined && ts.isSpreadElement(argument);
           if (!ts.isIdentifier(param.name)) continue;
-          if (argument) add(param.name.text, argument);
+          if (hidden) add(param.name.text, HIDDEN);
+          else if (argument) add(param.name.text, argument);
           // Left out, it's undefined, so another call's shell can't cover it.
           else if (!param.initializer && !param.dotDotDotToken) {
             add(param.name.text, LEFT_OUT);

@@ -165,6 +165,31 @@ describe("bare pnpm spawn guard", () => {
     assert.deepEqual(flagged(source, "all"), [2, 8, 19]);
   });
 
+  it("doesn't trust a default a spread or destructuring can hide", () => {
+    const source = [
+      "function viaSpread(cmd, opts = { shell: true }) {",
+      "  return spawn(cmd, [], opts);",
+      "}",
+      'viaSpread("pnpm", ...more);',
+      "function destructured(args, { shell = false } = {}) {",
+      '  return spawn("pnpm", args, { shell });',
+      "}",
+      "function elsewhere() {",
+      '  const shell = process.platform === "win32";',
+      "  return shell;",
+      "}",
+      "function supplied({ on }) {",
+      '  return spawn("pnpm", [], { shell: on });',
+      "}",
+      "const on = true;",
+      'function defaultedOn({ enabled = process.platform === "win32" } = {}) {',
+      '  return spawn("pnpm", [], { shell: enabled });',
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [2, 6, 13]);
+  });
+
   it("flags startCommand's command passed without its shell", () => {
     const source = [
       "const start = startCommand(cmd, args);",

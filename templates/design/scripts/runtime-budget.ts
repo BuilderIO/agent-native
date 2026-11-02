@@ -76,12 +76,13 @@ function seedDesign(url: string): string {
   ];
   // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
   // shell. Quote each argument there so the title stays one argument. cmd.exe
-  // still expands %NAME% inside quotes and can't escape a quote, so refuse those.
+  // still expands %NAME% inside quotes, can't escape a quote and ends a line at
+  // a line break, so refuse those.
   const windows = process.platform === "win32";
-  const unsafe = windows ? args.find((arg) => /["%]/.test(arg)) : undefined;
+  const unsafe = windows ? args.find((arg) => /["%\r\n]/.test(arg)) : undefined;
   if (unsafe !== undefined) {
     throw new Error(
-      `cmd.exe would change ${JSON.stringify(unsafe)}: pass a --base-url without a quote or percent sign on Windows.`,
+      `cmd.exe would change ${JSON.stringify(unsafe)}: pass a --base-url without a quote, percent sign or line break on Windows.`,
     );
   }
   const output = execFileSync(

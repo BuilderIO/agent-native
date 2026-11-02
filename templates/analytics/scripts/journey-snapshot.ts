@@ -1264,13 +1264,15 @@ async function runCommand(
   return new Promise<0 | 1>((resolve, reject) => {
     // On Windows pnpm is a pnpm.cmd shim, which only starts through a shell.
     // Quote each argument there so a path or URL stays one argument. cmd.exe
-    // still expands %NAME% inside quotes and can't escape a quote, so refuse
-    // those.
+    // still expands %NAME% inside quotes, can't escape a quote and ends a line
+    // at a line break, so refuse those.
     const windows = process.platform === "win32";
-    const unsafe = windows ? args.find((arg) => /["%]/.test(arg)) : undefined;
+    const unsafe = windows
+      ? args.find((arg) => /["%\r\n]/.test(arg))
+      : undefined;
     if (unsafe !== undefined) {
       throw couldNotRun(
-        `cmd.exe would change ${JSON.stringify(unsafe)}: use a value without a quote or a percent sign on Windows.`,
+        `cmd.exe would change ${JSON.stringify(unsafe)}: use a value without a quote, percent sign or line break on Windows.`,
       );
     }
     const child = spawn(
