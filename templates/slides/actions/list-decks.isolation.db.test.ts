@@ -240,4 +240,59 @@ describe("list-decks cross-organization isolation", () => {
         .where(eq(schema.decks.id, "deck-a-corrupted"));
     }
   });
+
+  it("returns starred decks as starred in the light list Home sends, and still lists a non-JSON deck unstarred", async () => {
+    await getDb()
+      .insert(schema.decks)
+      .values([
+        {
+          id: "deck-a-starred",
+          title: "Org A starred",
+          data: JSON.stringify({ starred: true, slides: [{ id: "s1" }] }),
+          ownerEmail: ALICE,
+          orgId: ORG_A,
+          visibility: "private",
+          createdAt: "2026-05-08T00:00:00.000Z",
+          updatedAt: "2026-05-08T00:00:00.000Z",
+        },
+        {
+          id: "deck-a-corrupted",
+          title: "Org A corrupted",
+          data: "not valid json {{{",
+          ownerEmail: ALICE,
+          orgId: ORG_A,
+          visibility: "private",
+          createdAt: "2026-05-09T00:00:00.000Z",
+          updatedAt: "2026-05-09T00:00:00.000Z",
+        },
+      ]);
+    try {
+      await runWithRequestContext(
+        { userEmail: ALICE, orgId: ORG_A },
+        async () => {
+          const result: any = await listDecks.run(
+            { light: "true" } as any,
+            {} as any,
+          );
+          const decks = result.decks as any[];
+          expect(decks.find((d) => d.id === "deck-a-starred")?.starred).toBe(
+            true,
+          );
+          expect(decks.find((d) => d.id === "deck-a-private")?.starred).toBe(
+            false,
+          );
+          expect(decks.find((d) => d.id === "deck-a-corrupted")?.starred).toBe(
+            false,
+          );
+        },
+      );
+    } finally {
+      await getDb()
+        .delete(schema.decks)
+        .where(eq(schema.decks.id, "deck-a-starred"));
+      await getDb()
+        .delete(schema.decks)
+        .where(eq(schema.decks.id, "deck-a-corrupted"));
+    }
+  });
 });

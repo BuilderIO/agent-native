@@ -363,6 +363,11 @@ describe("list-decks", () => {
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
       ownerEmail: "owner_email_col",
+      starred: expect.objectContaining({
+        strings: expect.arrayContaining([
+          "::jsonb ->> 'starred') = 'true' else false end)",
+        ]),
+      }),
     });
     expect(result.decks[0]).toMatchObject({
       id: "deck_123",

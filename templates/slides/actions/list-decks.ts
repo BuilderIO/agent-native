@@ -39,16 +39,22 @@ const legacyPreviewProjection = {
   >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`,
 };
 
+// Unlike the listing WHERE in slides-2, v1 has no JSON guard, so a non-JSON row
+// must not fail the cast here; it lists as unstarred.
+const starredProjection = sql<boolean>`(case when ${schema.decks.data} is json object then (${schema.decks.data}::jsonb ->> 'starred') = 'true' else false end)`;
+
 type DeckPreview = {
   previewSlide: string | null;
   previewTooLarge: boolean | null;
   aspectRatio: string | null;
+  starred: boolean;
 };
 
 function previewFromRawData(data: string, deckId: string): DeckPreview {
   let previewSlide: string | null = null;
   let previewTooLarge: boolean | null = null;
   let aspectRatio: string | null = null;
+  let starred = false;
   try {
     const parsed = JSON.parse(data);
     const firstSlide = Array.isArray(parsed?.slides)
@@ -62,16 +68,17 @@ function previewFromRawData(data: string, deckId: string): DeckPreview {
     if (typeof parsed?.aspectRatio === "string") {
       aspectRatio = parsed.aspectRatio;
     }
+    starred = parsed?.starred === true;
   } catch (parseError) {
     captureError(parseError, {
       route: "list-decks",
       extra: { deckId },
     });
   }
-  return { previewSlide, previewTooLarge, aspectRatio };
+  return { previewSlide, previewTooLarge, aspectRatio, starred };
 }
 
-function previewFields(preview: DeckPreview) {
+function previewFields(preview: Omit<DeckPreview, "starred">) {
   return {
     ...(preview.previewSlide !== null
       ? {
@@ -399,17 +406,44 @@ export default defineAction({
     }
 
     if (args.light === "true") {
-      const rows = await db
+      const lightQuery = db
         .select({
           id: schema.decks.id,
           title: schema.decks.title,
           updatedAt: schema.decks.updatedAt,
           visibility: schema.decks.visibility,
           ownerEmail: schema.decks.ownerEmail,
+          starred: starredProjection,
         })
         .from(schema.decks)
         .where(where)
         .orderBy(desc(schema.decks.updatedAt));
+      let rows: Awaited<typeof lightQuery>;
+      try {
+        rows = await lightQuery;
+      } catch (error) {
+        if (!isInvalidJsonCastError(error)) throw error;
+        captureError(error, {
+          route: "list-decks",
+          extra: { light: true },
+        });
+        const rawRows = await db
+          .select({
+            id: schema.decks.id,
+            title: schema.decks.title,
+            updatedAt: schema.decks.updatedAt,
+            visibility: schema.decks.visibility,
+            ownerEmail: schema.decks.ownerEmail,
+            data: schema.decks.data,
+          })
+          .from(schema.decks)
+          .where(where)
+          .orderBy(desc(schema.decks.updatedAt));
+        rows = rawRows.map(({ data, ...meta }) => ({
+          ...meta,
+          starred: previewFromRawData(data, meta.id).starred,
+        }));
+      }
       return {
         count: rows.length,
         decks: rows.map((row) => ({
@@ -421,6 +455,7 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+          starred: row.starred === true,
         })),
       };
     }
