@@ -9,6 +9,14 @@ describe("isRunFailureRetryable", () => {
     "error:credits-limit-daily",
     "error:credits-limit-monthly",
     "error:http_402",
+    "error:invalid_attachment",
+    "error:model_not_found",
+    "error:builder_model_unauthorized",
+    "error:builder_auth_error",
+    "error:missing_credentials",
+    "error:http_401",
+    "error:authentication_error",
+    "missing_api_key",
   ])("does not retry %s, which fails the same way again", (reason) => {
     expect(isRunFailureRetryable(reason)).toBe(false);
   });
