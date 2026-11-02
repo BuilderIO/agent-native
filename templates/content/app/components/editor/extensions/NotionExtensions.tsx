@@ -1076,7 +1076,10 @@ export const NotionToggle = Node.create<NotionToggleOptions>({
   group: "block",
   // The title is optional: Toggles saved before titles were page text keep
   // theirs in `summary`, and every reader must still take them as they are.
-  content: `${TOGGLE_TITLE_NODE}? block*`,
+  // One may also stand out of place until repairStrayTitles moves it: tabs
+  // editing at once can merge into that, and y-tiptap deletes any node the
+  // schema refuses, in every tab, with everything in it.
+  content: `${TOGGLE_TITLE_NODE}? (block | ${TOGGLE_TITLE_NODE})*`,
   defining: true,
   draggable: true,
 
@@ -1241,6 +1244,48 @@ const TITLE_BLOCK_MARKERS = [
   /^(?:---|—-|___\s|\*\*\*\s)$/,
 ];
 
+/**
+ * The edit that leaves each Toggle one title, its first child, or null when
+ * they all have that. A second title that only repeats the first goes, and one
+ * with text of its own stays as a body line. Each tab sees the same merge, so
+ * they delete the same nodes and the page settles on one title.
+ */
+function repairStrayTitles(state: EditorState): Transaction | null {
+  const paragraph = state.schema.nodes.paragraph as NodeType | undefined;
+  const tr = state.tr;
+  const toggles: { pos: number; node: ProseMirrorNode }[] = [];
+  state.doc.descendants((node, pos) => {
+    if (node.type.name === "notionToggle") toggles.push({ pos, node });
+    return !node.isTextblock;
+  });
+  // From the end, so a change never moves what's left to do.
+  for (const { pos, node } of toggles.reverse()) {
+    const titles: { pos: number; node: ProseMirrorNode }[] = [];
+    node.forEach((child, offset) => {
+      if (child.type.name === TOGGLE_TITLE_NODE) {
+        titles.push({ pos: pos + 1 + offset, node: child });
+      }
+    });
+    const first = titles.shift();
+    if (!first) continue;
+    for (const stray of titles.reverse()) {
+      const at = tr.mapping.map(stray.pos);
+      if (!stray.node.textContent || stray.node.eq(first.node)) {
+        tr.delete(at, at + stray.node.nodeSize);
+      } else if (paragraph) {
+        tr.setNodeMarkup(at, paragraph);
+      }
+    }
+    if (first.pos !== pos + 1) {
+      const at = tr.mapping.map(first.pos);
+      tr.delete(at, at + first.node.nodeSize);
+      tr.insert(tr.mapping.map(pos + 1), first.node);
+    }
+  }
+  if (!tr.docChanged) return null;
+  return tr.setMeta("addToHistory", false);
+}
+
 /** The Toggles of the old document that the changes touched, by position. */
 function togglesTouchedBy(
   transactions: readonly Transaction[],
@@ -1347,6 +1392,35 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
           | undefined) ?? transaction,
       );
     return [
+      // After the change, not with it: y-tiptap doesn't write what follows a
+      // change that came from another tab.
+      new Plugin({
+        key: new PluginKey("notionToggleStrayTitles"),
+        view() {
+          let timer: ReturnType<typeof setTimeout> | null = null;
+          return {
+            update(view, prevState) {
+              if (timer !== null || view.state.doc.eq(prevState.doc)) return;
+              timer = setTimeout(() => {
+                timer = null;
+                if (
+                  view.isDestroyed ||
+                  view.composing ||
+                  !editor.isEditable ||
+                  isSuggestingEdits(view.state)
+                ) {
+                  return;
+                }
+                const repair = repairStrayTitles(view.state);
+                if (repair) view.dispatch(repair);
+              }, 0);
+            },
+            destroy() {
+              if (timer !== null) clearTimeout(timer);
+            },
+          };
+        },
+      }),
       new Plugin({
         key: new PluginKey("notionToggleSummary"),
         props: {
