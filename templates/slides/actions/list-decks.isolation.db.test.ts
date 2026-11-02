@@ -240,4 +240,101 @@ describe("list-decks cross-organization isolation", () => {
         .where(eq(schema.decks.id, "deck-a-corrupted"));
     }
   });
+
+  it.each([
+    ["light", { light: "true" }],
+    ["light + preview", { light: "true", includePreview: "true" }],
+    ["default", {}],
+    ["paged", { limit: 100 }],
+  ])(
+    "returns starred decks as starred in the %s listing",
+    async (_label, args) => {
+      await getDb()
+        .insert(schema.decks)
+        .values({
+          id: "deck-a-starred",
+          title: "Org A starred",
+          data: JSON.stringify({
+            starred: true,
+            slides: [{ id: "s1" }],
+          }),
+          ownerEmail: ALICE,
+          orgId: ORG_A,
+          visibility: "private",
+          createdAt: "2026-05-08T00:00:00.000Z",
+          updatedAt: "2026-05-08T00:00:00.000Z",
+        });
+      try {
+        await runWithRequestContext(
+          { userEmail: ALICE, orgId: ORG_A },
+          async () => {
+            const result: any = await listDecks.run(args as any, {} as any);
+            const decks = result.decks as any[];
+            expect(decks.find((d) => d.id === "deck-a-starred")?.starred).toBe(
+              true,
+            );
+            expect(decks.find((d) => d.id === "deck-a-private")?.starred).toBe(
+              false,
+            );
+          },
+        );
+      } finally {
+        await getDb()
+          .delete(schema.decks)
+          .where(eq(schema.decks.id, "deck-a-starred"));
+      }
+    },
+  );
+
+  it("keeps stars on a light listing that includes a malformed deck, and marks the malformed one unknown", async () => {
+    await getDb()
+      .insert(schema.decks)
+      .values([
+        {
+          id: "deck-a-starred",
+          title: "Org A starred",
+          data: JSON.stringify({ starred: true, slides: [{ id: "s1" }] }),
+          ownerEmail: ALICE,
+          orgId: ORG_A,
+          visibility: "private",
+          createdAt: "2026-05-08T00:00:00.000Z",
+          updatedAt: "2026-05-08T00:00:00.000Z",
+        },
+        {
+          id: "deck-a-malformed",
+          title: "Org A malformed",
+          data: "{not json",
+          ownerEmail: ALICE,
+          orgId: ORG_A,
+          visibility: "private",
+          createdAt: "2026-05-07T00:00:00.000Z",
+          updatedAt: "2026-05-07T00:00:00.000Z",
+        },
+      ]);
+    try {
+      await runWithRequestContext(
+        { userEmail: ALICE, orgId: ORG_A },
+        async () => {
+          const result: any = await listDecks.run(
+            { light: "true" } as any,
+            {} as any,
+          );
+          const decks = result.decks as any[];
+          expect(decks.find((d) => d.id === "deck-a-starred")?.starred).toBe(
+            true,
+          );
+          expect(
+            decks.find((d) => d.id === "deck-a-malformed")?.starred,
+          ).toBeNull();
+        },
+      );
+    } finally {
+      await getDb()
+        .delete(schema.decks)
+        .where(eq(schema.decks.id, "deck-a-starred"));
+      await getDb()
+        .delete(schema.decks)
+        .where(eq(schema.decks.id, "deck-a-malformed"));
+    }
+  });
 });
