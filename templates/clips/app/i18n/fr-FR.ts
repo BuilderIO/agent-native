@@ -668,6 +668,8 @@ const messages = {
     couldNotEndMeeting: "Impossible de terminer la réunion",
   },
   transcriptPanel: {
+    partialTranscript:
+      "Cette transcription est incomplète. Une partie de l’audio n’a pas pu être transcrite.",
     transcribing: "Transcription…",
     pendingDescription:
       "La transcription en direct apparaît dès que la parole est capturée. Le nettoyage se poursuit en arrière-plan.",

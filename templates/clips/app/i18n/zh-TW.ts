@@ -605,6 +605,7 @@ const messages = {
     couldNotEndMeeting: "無法結束會議",
   },
   transcriptPanel: {
+    partialTranscript: "此逐字稿不完整。部分音訊無法轉錄。",
     transcribing: "正在轉錄…",
     pendingDescription:
       "擷取到語音後，即時逐字稿就會出現。清理工作會在背景繼續進行。",
