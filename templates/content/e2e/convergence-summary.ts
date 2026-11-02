@@ -149,23 +149,18 @@ if (notes.length)
 
 const missing = playwrightReportPaths.filter((file) => !existsSync(file));
 const missingRequired = requiredReportPaths.filter((file) => !existsSync(file));
-// Shards of one step write reports with the same file name, so reports that
-// share a name are one group.
-const reportsByLabel = new Map<string, PlaywrightSpec[]>();
-for (const file of playwrightReportPaths.filter(existsSync)) {
+const reports = playwrightReportPaths.filter(existsSync).map((file) => {
   const report = JSON.parse(readFileSync(file, "utf8")) as {
     suites: PlaywrightSuite[];
   };
-  const label = basename(file, ".json");
-  const specs = reportsByLabel.get(label) ?? [];
+  const specs: PlaywrightSpec[] = [];
   const walk = (suite: PlaywrightSuite) => {
     specs.push(...(suite.specs ?? []));
     for (const child of suite.suites ?? []) walk(child);
   };
   for (const suite of report.suites) walk(suite);
-  reportsByLabel.set(label, specs);
-}
-const reports = [...reportsByLabel].map(([label, specs]) => ({ label, specs }));
+  return { label: basename(file, ".json"), specs };
+});
 const specs = reports.flatMap((report) => report.specs);
 // The JSON report strips the `@` from tags.
 const groups = reports
