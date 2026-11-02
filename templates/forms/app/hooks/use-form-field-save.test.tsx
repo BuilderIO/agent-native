@@ -267,6 +267,40 @@ describe("useFormFieldSave", () => {
     });
   });
 
+  it("tries a failed edit once more on leaving", async () => {
+    mutateAsync.mockRejectedValueOnce(new Error("offline"));
+    mutateAsync.mockResolvedValueOnce({
+      fields: [field("a", "Mine"), field("b", "B")],
+      revision: "rev-2",
+    });
+    const { edit } = setup();
+
+    edit(renamed("a", "Mine"));
+    await settle();
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+
+    act(() => root?.unmount());
+    root = undefined;
+    await settle();
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends nothing on leaving once everything is saved", async () => {
+    mutateAsync.mockResolvedValueOnce({
+      fields: [field("a", "Mine"), field("b", "B")],
+      revision: "rev-2",
+    });
+    const { edit } = setup();
+
+    edit(renamed("a", "Mine"));
+    await settle();
+
+    act(() => root?.unmount());
+    root = undefined;
+    await settle();
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+  });
+
   it("adopts newer server fields only when nothing local is unsaved", async () => {
     mutateAsync.mockImplementation(() => new Promise(() => {}));
     const { edit, fields, rerender } = setup();

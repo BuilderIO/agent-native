@@ -150,7 +150,7 @@ export function useFormFieldSave(
 
   useEffect(
     () => () => {
-      if (timerRef.current === undefined) return;
+      if (!dirtyRef.current) return;
       clearTimeout(timerRef.current);
       void flushRef.current();
     },

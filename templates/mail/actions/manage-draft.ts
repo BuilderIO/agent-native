@@ -1,5 +1,3 @@
-import { isDeepStrictEqual } from "node:util";
-
 import { embedApp, isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import {
@@ -238,22 +236,23 @@ type GmailDraftRef = {
 };
 
 /**
- * Stores a new compose draft only while its key is empty, and returns
- * whether it did. The write can commit before it throws, so a throw rereads
- * the key, and finding this draft there counts as stored. Anything else
- * means it wasn't: the Gmail draft this call saved, if any, is removed and
- * the error rethrown. If that Gmail draft can't be removed, the error names
- * it instead. If the reread fails too, the outcome is unknown, so
- * that Gmail draft stays (Mail may point at it) and the error says to check
- * before creating the draft again.
+ * Stores a compose draft only while its key still holds `expected` (null for a
+ * new draft), and returns whether it did. The write can commit before it
+ * throws, so a throw rereads the key, and finding this draft there counts as
+ * stored. Anything else means it wasn't: the Gmail draft this call made, if
+ * any, is removed and the error rethrown. If that Gmail draft can't be removed,
+ * the error names it instead. If the reread fails too, the outcome is unknown,
+ * so that Gmail draft stays (Mail may point at it) and the error says to check
+ * before trying again.
  */
-async function storeNewComposeDraft(
+async function storeComposeDraft(
   draft: ComposeState,
+  expected: Record<string, unknown> | null,
   newGmailDraft: GmailDraftRef | null,
 ): Promise<boolean> {
   const key = `compose-${draft.id}`;
   try {
-    return await compareAndSetAppState(key, null, draft);
+    return await compareAndSetAppState(key, expected, draft);
   } catch (error) {
     let stored: Record<string, unknown> | null;
     try {
@@ -267,7 +266,7 @@ async function storeNewComposeDraft(
         ? `, so it kept the Gmail draft it saved (${newGmailDraft.draftId})`
         : "";
       fail(
-        `Mail couldn't confirm whether draft "${draft.id}" was stored${kept}. Check for draft "${draft.id}" before creating it again.`,
+        `Mail couldn't confirm whether draft "${draft.id}" was stored${kept}. Check for draft "${draft.id}" before ${expected ? "trying again" : "creating it again"}.`,
         {
           errorCode: "draft_store_unconfirmed",
           statusCode: 503,
@@ -278,11 +277,12 @@ async function storeNewComposeDraft(
         },
       );
     }
-    // A Gmail draft ID belongs to this call alone. Without one, only the
+    // A draft ID this call made belongs to it alone. Without one, only the
     // exact draft this call wrote counts as stored.
-    const stillOurs = draft.savedDraftId
-      ? stored?.savedDraftId === draft.savedDraftId
-      : isDeepStrictEqual(stored, draft);
+    const ownDraftId = expected ? newGmailDraft?.draftId : draft.savedDraftId;
+    const stillOurs = ownDraftId
+      ? stored?.savedDraftId === ownDraftId
+      : isSameRecord(stored, draft);
     if (stillOurs) return true;
     if (newGmailDraft && !(await discardUnstoredGmailDraft(newGmailDraft))) {
       console.error(`[manage-draft] draft ${draft.id} write failed:`, error);
@@ -482,7 +482,7 @@ export default defineAction({
               draftId: savedGmailDraft.draftId,
             }
           : null;
-      if (!(await storeNewComposeDraft(draft, newGmailDraft))) {
+      if (!(await storeComposeDraft(draft, null, newGmailDraft))) {
         const leftover =
           newGmailDraft && !(await discardUnstoredGmailDraft(newGmailDraft))
             ? newGmailDraft.draftId
@@ -692,22 +692,19 @@ export default defineAction({
         draft.savedDraftAccountEmail = savedGmailDraft.accountEmail;
         draft.accountEmail = savedGmailDraft.accountEmail;
       }
+      const newGmailDraft =
+        savedGmailDraft?.created && ownerEmail
+          ? {
+              ownerEmail,
+              accountEmail: savedGmailDraft.accountEmail,
+              draftId: savedGmailDraft.draftId,
+            }
+          : null;
       // The revision was checked before Gmail. This catches a save in between.
-      const stored = await compareAndSetAppState(
-        `compose-${safeId}`,
-        storedDraft,
-        draft as unknown as Record<string, unknown>,
-      );
-      if (!stored) {
+      if (!(await storeComposeDraft(draft, storedDraft, newGmailDraft))) {
         // Nothing points at a Gmail draft this call made, and a redo makes another.
         const discarded =
-          !savedGmailDraft?.created ||
-          !ownerEmail ||
-          (await discardUnstoredGmailDraft({
-            ownerEmail,
-            accountEmail: savedGmailDraft.accountEmail,
-            draftId: savedGmailDraft.draftId,
-          }));
+          !newGmailDraft || (await discardUnstoredGmailDraft(newGmailDraft));
         const latest = await readAppState(`compose-${safeId}`);
         throw saveConflict(
           "draft",
@@ -715,7 +712,7 @@ export default defineAction({
           latest ? saveRevisionOf(latest) : null,
           discarded
             ? undefined
-            : { leftoverGmailDraftId: savedGmailDraft.draftId },
+            : { leftoverGmailDraftId: newGmailDraft.draftId },
         );
       }
       countSaveOutcome("draft", "written");
