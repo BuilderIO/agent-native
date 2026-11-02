@@ -267,6 +267,10 @@ const UI_CAPABILITY_MINT_TIMEOUT_MS = 10_000;
 let uiCapabilityRequest: Promise<void> | undefined;
 let uiCapability: { identity: string | null | undefined; at: number } | null =
   null;
+// Counts forgets, so a mint still in flight when the capability is forgotten
+// (a sign-out, or another account or org) neither keeps its answer nor serves
+// the callers that come after.
+let uiCapabilityGeneration = 0;
 // The account and org of the last published session. The remembered
 // capability is tied to it, so a reload in another org doesn't reuse it.
 let publishedSessionScope: string | null | undefined;
@@ -333,6 +337,8 @@ function hasFreshUiCapability(): boolean {
 /** Drop the remembered capability so the next call that needs one mints it. */
 export function forgetUiActionCapability(): void {
   uiCapability = null;
+  uiCapabilityGeneration += 1;
+  uiCapabilityRequest = undefined;
   try {
     globalThis.sessionStorage.removeItem(uiCapabilityStorageKey());
   } catch {
@@ -347,6 +353,7 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   const identity = currentSessionIdentity();
   const request = uiCapabilityRequest ?? (uiCapabilityRequest = mint());
   function mint(): Promise<void> {
+    const generation = uiCapabilityGeneration;
     const controller =
       typeof AbortController === "undefined" ? null : new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -364,15 +371,19 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       if (!res.ok) {
         throw new Error("Could not establish the browser UI capability.");
       }
+      if (generation !== uiCapabilityGeneration) return;
       uiCapability = { identity, at: Date.now() };
       if (typeof identity === "string") {
         rememberUiCapability(identity, uiCapability.at);
       }
     });
-    return Promise.race([response, timedOut]).finally(() => {
-      clearTimeout(timer);
-      uiCapabilityRequest = undefined;
-    });
+    const settled: Promise<void> = Promise.race([response, timedOut]).finally(
+      () => {
+        clearTimeout(timer);
+        if (uiCapabilityRequest === settled) uiCapabilityRequest = undefined;
+      },
+    );
+    return settled;
   }
   if (!signal) return request;
   return new Promise<void>((resolve, reject) => {

@@ -2004,6 +2004,43 @@ describe("the UI capability on writes from the signed-in app", () => {
     );
   });
 
+  it("keeps nothing from a mint the account changed under", async () => {
+    const stored = stubSessionStorage();
+    const remembered = () =>
+      [...stored.keys()].filter((key) =>
+        key.startsWith("agent-native:ui-capability:"),
+      );
+    const mints: Array<(response: Response) => void> = [];
+    const fetchMock = routeFetch(
+      () => new Promise<Response>((resolve) => mints.push(resolve)),
+    );
+    signIn("user-1");
+    notifySessionIdentityPublished("user-1\nauth-1\norg-1");
+    prepareUiActionCapability();
+    await vi.waitFor(() => expect(mints).toHaveLength(1));
+
+    recordSessionIdentity("user-2");
+    notifySessionIdentityPublished("user-2\nauth-2\norg-1");
+    const write = callAction("delete-file", { id: "file-1" });
+    await vi.waitFor(() => expect(mints).toHaveLength(2));
+    mints[0]?.(jsonResponse({ ok: true }));
+    // Microtasks, not a timer: an earlier test in this block leaves fake
+    // timers on.
+    for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
+
+    expect(remembered()).toHaveLength(0);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([MINT, MINT]);
+    mints[1]?.(jsonResponse({ ok: true }));
+    await write;
+
+    expect(remembered()).toHaveLength(1);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      MINT,
+      MINT,
+      "/_agent-native/actions/delete-file",
+    ]);
+  });
+
   it("re-mints when the server rejects a remembered capability", async () => {
     signIn();
     let actionCalls = 0;
