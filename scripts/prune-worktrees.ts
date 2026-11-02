@@ -14,18 +14,27 @@ export type WorktreeState = {
 };
 
 /** Why this worktree must stay, or `null` when it is safe to remove. */
-export function keepReason(s: WorktreeState, minIdleHours: number): string | null {
+export function keepReason(
+  s: WorktreeState,
+  minIdleHours: number,
+): string | null {
   if (s.locked) return "locked";
   if (s.inUse) return "a process is running in it";
   if (s.dirty) return "uncommitted changes";
-  if (s.published === null) return "could not check whether its commits are pushed";
+  if (s.published === null)
+    return "could not check whether its commits are pushed";
   if (!s.published) return "commits not pushed or merged anywhere";
-  if (s.idleHours < minIdleHours) return `touched ${s.idleHours.toFixed(1)}h ago`;
+  if (s.idleHours < minIdleHours)
+    return `touched ${s.idleHours.toFixed(1)}h ago`;
   return null;
 }
 
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
 
 function tryGit(cwd: string, ...args: string[]): string | null {
   try {
@@ -44,7 +53,14 @@ export function isAgentWorktree(p: string, home = os.homedir()): boolean {
 }
 
 function isPublished(wt: string, branch: string | null): boolean | null {
-  const unpushed = tryGit(wt, "rev-list", "HEAD", "--not", "--remotes", "--count");
+  const unpushed = tryGit(
+    wt,
+    "rev-list",
+    "HEAD",
+    "--not",
+    "--remotes",
+    "--count",
+  );
   if (unpushed === null) return null;
   if (unpushed.trim() === "0") return true;
   // Squash merges leave the branch's commits off every remote ref.
@@ -53,10 +69,21 @@ function isPublished(wt: string, branch: string | null): boolean | null {
   try {
     const out = execFileSync(
       "gh",
-      ["pr", "list", "--head", branch, "--state", "merged", "--json", "headRefOid"],
+      [
+        "pr",
+        "list",
+        "--head",
+        branch,
+        "--state",
+        "merged",
+        "--json",
+        "headRefOid",
+      ],
       { cwd: wt, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
     );
-    return (JSON.parse(out) as { headRefOid: string }[]).some((p) => p.headRefOid === head);
+    return (JSON.parse(out) as { headRefOid: string }[]).some(
+      (p) => p.headRefOid === head,
+    );
   } catch {
     return null;
   }
@@ -70,7 +97,10 @@ function busyDirs(): string[] | null {
       stdio: ["ignore", "pipe", "ignore"],
       maxBuffer: 64 * 1024 * 1024,
     });
-    return out.split("\n").filter((l) => l.startsWith("n")).map((l) => l.slice(1));
+    return out
+      .split("\n")
+      .filter((l) => l.startsWith("n"))
+      .map((l) => l.slice(1));
   } catch {
     return null;
   }
@@ -87,18 +117,28 @@ export function main(argv = process.argv.slice(2)): number {
     return 2;
   }
   tryGit(self, "fetch", "--quiet", "origin");
-  const entries = git(self, "worktree", "list", "--porcelain").split("\n\n").filter(Boolean);
+  const entries = git(self, "worktree", "list", "--porcelain")
+    .split("\n\n")
+    .filter(Boolean);
   const busy = busyDirs();
   let removed = 0;
   for (const entry of entries) {
-    const field = (k: string) => entry.split("\n").find((l) => l.startsWith(k))?.slice(k.length + 1);
+    const field = (k: string) =>
+      entry
+        .split("\n")
+        .find((l) => l.startsWith(k))
+        ?.slice(k.length + 1);
     const wt = field("worktree");
     if (!wt || wt === self || !isAgentWorktree(wt)) continue;
     let mtime: number;
     try {
       mtime = statSync(wt).mtimeMs;
       const gitDir = tryGit(wt, "rev-parse", "--git-dir")?.trim();
-      if (gitDir) mtime = Math.max(mtime, statSync(path.resolve(wt, gitDir, "index")).mtimeMs);
+      if (gitDir)
+        mtime = Math.max(
+          mtime,
+          statSync(path.resolve(wt, gitDir, "index")).mtimeMs,
+        );
     } catch {
       continue; // `git worktree prune` below handles directories that are gone
     }
@@ -108,7 +148,9 @@ export function main(argv = process.argv.slice(2)): number {
       {
         dirty: status === null || status.trim() !== "",
         locked: entry.includes("\nlocked"),
-        inUse: busy === null || busy.some((d) => d === wt || d.startsWith(wt + path.sep)),
+        inUse:
+          busy === null ||
+          busy.some((d) => d === wt || d.startsWith(wt + path.sep)),
         idleHours: (Date.now() - mtime) / 3_600_000,
         published: isPublished(wt, branch),
       },
@@ -129,6 +171,9 @@ export function main(argv = process.argv.slice(2)): number {
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   process.exit(main());
 }
