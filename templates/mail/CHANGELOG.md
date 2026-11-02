@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-30
+
+### Fixed
+
+- Keep Continue disabled until a setup preference is entered.
+
 ## 2026-10-28
 
 ### Improved

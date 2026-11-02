@@ -3,6 +3,21 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-29
+
+### Added
+
+- The agent can copy a table view to another view with its own filters
+
+### Improved
+
+- Large Collection tables stay responsive while agents write to them: filter chips open six to nine times faster, and a live update redraws only the rows that changed.
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
+### Fixed
+
+- Opening and closing an unchanged row no longer attempts to save its page.
+
 ## 2026-10-28
 
 ### Improved
