@@ -299,6 +299,58 @@ describe("collab durable updates", () => {
     },
   );
 
+  it.each(["accepted", "refused"] as const)(
+    "handles an in-flight %s save across a case-only identity refresh",
+    async (outcome) => {
+      const ack = vi.fn();
+      const options = {
+        durableUpdates: true,
+        requireLiveCopyOutcome: true,
+        onUpdateAcknowledged: ack,
+      };
+      const first = await mountReady(options);
+      updateResponses = [
+        outcome === "refused"
+          ? "too_large"
+          : { ok: true, liveCopy: "unchanged" },
+      ];
+      const release = holdUpdateResponse();
+      onTestFinished(release);
+      const originalDoc = first().ydoc;
+      act(() => originalDoc?.getText("t").insert(0, "in-flight edit"));
+      const pending = first().flushUpdates();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(sentUpdates).toHaveLength(1);
+
+      const refreshed = await mountReady({
+        ...options,
+        user: { ...USER, email: " ADA@EXAMPLE.COM ", name: "Ada Updated" },
+      });
+      expect(refreshed().ydoc).toBe(originalDoc);
+      expect(refreshed().awareness?.getLocalState()?.user.name).toBe(
+        "Ada Updated",
+      );
+      await act(async () => {
+        release();
+        await pending;
+      });
+
+      expect(sentUpdates).toHaveLength(1);
+      if (outcome === "refused") {
+        await expect(pending).resolves.toBe(false);
+        expect(refreshed().updatesRefused).toBe(true);
+        expect(ack).not.toHaveBeenCalled();
+        expect(outboxKeys()).toHaveLength(1);
+      } else {
+        await expect(pending).resolves.toBe(true);
+        expect(ack).toHaveBeenCalledExactlyOnceWith({ liveCopy: "unchanged" });
+        expect(outboxKeys()).toEqual([]);
+      }
+    },
+  );
+
   const transitionRows: Array<{
     name: string;
     baseline: string;

@@ -901,7 +901,6 @@ class CollabDocConnection {
     if (
       prev &&
       prev.name === user.name &&
-      prev.email === email &&
       prev.color === user.color &&
       prev.avatarUrl === user.avatarUrl
     ) {
