@@ -304,7 +304,7 @@ describe("assistant reply toolbar", () => {
           new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
         );
       });
-      expect(document.activeElement).toBe(negative);
+      await vi.waitFor(() => expect(document.activeElement).toBe(negative));
       await press(negative);
       input = document.body.querySelector<HTMLTextAreaElement>("textarea");
       expect(input).not.toBeNull();
