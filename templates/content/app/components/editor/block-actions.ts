@@ -83,7 +83,7 @@ export function currentTurnIntoTarget(
 }
 
 // Attributes both kinds have, such as a block colour, carry over.
-function carriedAttrs(
+export function carriedAttrs(
   from: ProseMirrorNode,
   to: NodeType,
   attrs: Record<string, unknown> = {},

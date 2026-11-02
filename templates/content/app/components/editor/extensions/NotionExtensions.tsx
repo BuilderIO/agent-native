@@ -527,6 +527,16 @@ function deleteSelectionFromClosedTitle(editor: Editor): boolean {
   return true;
 }
 
+/** The other keys TipTap gives to deleting a selection, past Backspace and Delete. */
+const DELETE_SELECTION_KEYS = [
+  "Mod-Backspace",
+  "Shift-Backspace",
+  "Alt-Backspace",
+  "Ctrl-Alt-Backspace",
+  "Mod-Delete",
+  "Alt-Delete",
+];
+
 /**
  * Delete at the end of a line joins the line below to it, as in Notion, when
  * that line is a Toggle's title or the first line after the Toggle this one
@@ -806,9 +816,10 @@ export function normalizeIndentAttr(value: unknown): number {
 
 /**
  * Moves an old Toggle's title from its `summary` into the page's text, caret
- * at the end, so it can be selected, formatted and commented on. Nothing about
- * the page changes for the person, so it's no undo step. When two tabs do this
- * at once, repairStrayTitles leaves one title.
+ * at the end, once someone who can edit clicks or tabs into it, so it can be
+ * selected, formatted and commented on. Nothing about the page changes for the
+ * person, so it's no undo step. When two tabs do this at once,
+ * repairStrayTitles leaves one title.
  */
 export function moveToggleSummaryToTitle(editor: Editor, pos: number): boolean {
   const titleType = editor.schema.nodes[TOGGLE_TITLE_NODE] as
@@ -1488,6 +1499,13 @@ export const NotionToggle = Node.create<NotionToggleOptions>({
         joinBlockToToggleAbove(editor),
       Delete: ({ editor }) =>
         deleteSelectionFromClosedTitle(editor) || joinLineBelowToLine(editor),
+      ...Object.fromEntries(
+        DELETE_SELECTION_KEYS.map((key) => [
+          key,
+          ({ editor }: { editor: Editor }) =>
+            deleteSelectionFromClosedTitle(editor),
+        ]),
+      ),
       Tab: ({ editor }) => nestBlockInToggleAbove(editor),
       "Shift-Tab": ({ editor }) => outdentDirectToggleChild(editor),
     };
@@ -1683,8 +1701,10 @@ function strayTitleRepairDelay(state: EditorState): number {
 /**
  * The edit that leaves each Toggle one title, its first child, or null when
  * they all have that. A second title that only repeats the first goes, and one
- * with text of its own stays as a body line. Each tab sees the same merge, so
- * they delete the same nodes and the page settles on one title.
+ * with text of its own stays as a body line, as does a `summary` a tab on older
+ * code typed in while another moved it, since a titled Toggle never shows one.
+ * Each tab sees the same merge, so they delete the same nodes and the page
+ * settles on one title.
  */
 function repairStrayTitles(state: EditorState): Transaction | null {
   const paragraph = state.schema.nodes.paragraph as NodeType | undefined;
@@ -1716,6 +1736,16 @@ function repairStrayTitles(state: EditorState): Transaction | null {
       const at = tr.mapping.map(first.pos);
       tr.delete(at, at + first.node.nodeSize);
       tr.insert(tr.mapping.map(pos + 1), first.node);
+    }
+    const summary = String(node.attrs.summary ?? "");
+    if (summary && paragraph) {
+      tr.setNodeAttribute(pos, "summary", "");
+      if (summary !== first.node.textContent) {
+        tr.insert(
+          pos + 1 + first.node.nodeSize,
+          paragraph.create(null, state.schema.text(summary)),
+        );
+      }
     }
   }
   if (!tr.docChanged) return null;
@@ -1812,7 +1842,10 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
 
   addKeyboardShortcuts() {
     return {
-      Enter: ({ editor }) => splitToggleTitle(editor),
+      Enter: ({ editor }) => {
+        deleteSelectionFromClosedTitle(editor);
+        return splitToggleTitle(editor);
+      },
       "Mod-Enter": ({ editor }) => toggleOpenAtTitle(editor),
       Backspace: ({ editor }) => unwrapToggleAtTitleStart(editor),
       Delete: ({ editor }) => joinBlockBelowToToggleTitle(editor),
@@ -1903,6 +1936,34 @@ export const NotionToggleSummary = Node.create<NotionToggleOptions>({
               slice.openStart,
               slice.openEnd,
             );
+          },
+          // Pasting and cutting act like typing over the selection, so neither
+          // takes a closed Toggle's hidden body with it.
+          handlePaste(view, _event, slice) {
+            const overHiddenBody = slice.size
+              ? deleteFromClosedTitle(view.state)
+              : null;
+            if (overHiddenBody) view.dispatch(overHiddenBody);
+            return false;
+          },
+          handleDOMEvents: {
+            cut(view, event) {
+              const overHiddenBody = view.editable
+                ? deleteFromClosedTitle(view.state)
+                : null;
+              if (!overHiddenBody || !event.clipboardData) return false;
+              const { dom, text } = view.serializeForClipboard(
+                view.state.selection.content(),
+              );
+              event.clipboardData.clearData();
+              event.clipboardData.setData("text/html", dom.innerHTML);
+              event.clipboardData.setData("text/plain", text);
+              event.preventDefault();
+              view.dispatch(
+                overHiddenBody.scrollIntoView().setMeta("uiEvent", "cut"),
+              );
+              return true;
+            },
           },
           handleTextInput(view, from, to, text) {
             const $from = view.state.doc.resolve(from);

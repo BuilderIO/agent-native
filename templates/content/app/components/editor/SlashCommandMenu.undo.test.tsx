@@ -247,6 +247,25 @@ describe("slash command undo", () => {
   });
 });
 
+describe("/toggle on a line with text", () => {
+  it("keeps the line's text and indent", async () => {
+    const { editor, unmount } = await mountSlashMenu("Line");
+    try {
+      editor.view.dispatch(editor.state.tr.setNodeAttribute(0, "indent", 2));
+      typeAt(editor, 1, "/toggle");
+      await act(async () => Promise.resolve());
+      await pressEnter();
+
+      const toggle = editor.state.doc.firstChild;
+      expect(toggle?.type.name).toBe("notionToggle");
+      expect(toggle?.attrs.indent).toBe(2);
+      expect(toggle?.firstChild?.textContent).toBe("Line");
+    } finally {
+      await unmount();
+    }
+  });
+});
+
 describe("slash menu in a Toggle's title", () => {
   it("makes the command's block below the Toggle and leaves the title", async () => {
     const { container, editor, unmount } = await mountSlashMenu(
@@ -272,6 +291,16 @@ describe("slash menu in a Toggle's title", () => {
       expect(below.attrs.level).toBe(3);
       expect(below.textContent).toBe("");
       expect(editor.state.selection.$from.parent).toBe(below);
+
+      // The block, the query's move and the query, each its own step.
+      undo(editor);
+      undo(editor);
+      undo(editor);
+      const toggle = editor.state.doc.firstChild;
+      expect(toggle?.firstChild?.type.name).toBe("notionToggleSummary");
+      expect(toggle?.firstChild?.textContent).toBe("Plan");
+      expect(toggle?.lastChild?.textContent).toBe("Body");
+      expect(editor.state.doc.child(1).textContent).toBe("");
     } finally {
       await unmount();
     }

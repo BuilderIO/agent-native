@@ -395,6 +395,61 @@ describe("Markdown import", () => {
     expectEditorAccepts(page);
   });
 
+  it("keeps the formatting and links in a toggle's title", () => {
+    const page = importMarkdown(
+      [
+        "<details>",
+        '<summary><strong>Bold</strong>  and <a href="https://example.com">a link</a></summary>',
+        "",
+        "Inside",
+        "",
+        "</details>",
+      ].join("\n"),
+    );
+
+    const [toggle] = nodesOfType(page.doc, "notionToggle");
+    expect(toggle?.content?.[0]?.type).toBe("notionToggleSummary");
+    expect(toggle?.content?.[0]?.content).toEqual([
+      { type: "text", text: "Bold", marks: [{ type: "bold" }] },
+      { type: "text", text: " and " },
+      {
+        type: "text",
+        text: "a link",
+        marks: [
+          {
+            type: "link",
+            attrs: expect.objectContaining({ href: "https://example.com" }),
+          },
+        ],
+      },
+    ]);
+    expectEditorAccepts(page);
+  });
+
+  it("keeps a toggle title on one line and links only to safe addresses", () => {
+    const page = importMarkdown(
+      '<details><summary>One<br>two <a href="javascript:alert(1)">three</a></summary>Inside</details>',
+    );
+
+    const [toggle] = nodesOfType(page.doc, "notionToggle");
+    expect(toggle?.content?.[0]?.content).toEqual([
+      { type: "text", text: "One two three" },
+    ]);
+    expectEditorAccepts(page);
+  });
+
+  it("keeps the text of a toggle title that holds a block", () => {
+    const page = importMarkdown(
+      "<details><summary><pre>Code</pre> <strong>Title</strong></summary>Inside</details>",
+    );
+
+    const [toggle] = nodesOfType(page.doc, "notionToggle");
+    expect(toggle?.content?.[0]?.content).toEqual([
+      { type: "text", text: "Code Title" },
+    ]);
+    expectEditorAccepts(page);
+  });
+
   it("reads dollar amounts as text and math as math", () => {
     const page = importMarkdown(
       "Plans cost $5 and $10 per month; the identity is $e^{i\\pi} + 1 = 0$.",

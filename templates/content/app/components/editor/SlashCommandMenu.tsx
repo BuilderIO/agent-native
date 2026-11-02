@@ -77,6 +77,7 @@ import { useRollbackCreatedSlashDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
+import { carriedAttrs } from "./block-actions";
 import { TOGGLE_TITLE_NODE } from "./extensions/NotionExtensions";
 import { createImagePickerId } from "./image-upload";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
@@ -485,13 +486,15 @@ function insertEmptyToggle(
 function turnBlockIntoToggle(editor: Editor, headingLevel: number | null) {
   const { $from } = editor.state.selection;
   const title = $from.parent.content.toJSON() as JSONContent[] | null;
+  const toggle = editor.schema.nodes.notionToggle as NodeType | undefined;
+  if (!toggle) return;
   editor
     .chain()
     .focus()
     .deleteRange({ from: $from.start(), to: $from.end() })
     .insertContent({
       type: "notionToggle",
-      attrs: { open: true, headingLevel },
+      attrs: carriedAttrs($from.parent, toggle, { open: true, headingLevel }),
       content: [
         title
           ? { type: TOGGLE_TITLE_NODE, content: title }

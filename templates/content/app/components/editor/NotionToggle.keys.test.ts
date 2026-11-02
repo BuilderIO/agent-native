@@ -723,9 +723,16 @@ describe("deleting a selection from a closed Toggle's title to below it", () => 
     editor.commands.setTextSelection({ from: 2 + offset, to });
   }
 
-  for (const [key, label] of [
-    ["Backspace", "Backspace"],
-    ["Delete", "Delete"],
+  const mac = /Mac|iP(hone|[oa]d)/.test(navigator.platform);
+  const mod = { ctrlKey: !mac, metaKey: mac };
+  for (const [init, label] of [
+    [{ key: "Backspace" }, "Backspace"],
+    [{ key: "Delete" }, "Delete"],
+    [{ key: "Backspace", ...mod }, "Ctrl or Cmd and Backspace"],
+    [{ key: "Backspace", shiftKey: true }, "Shift and Backspace"],
+    [{ key: "Backspace", altKey: true }, "Alt and Backspace"],
+    [{ key: "Delete", ...mod }, "Ctrl or Cmd and Delete"],
+    [{ key: "Delete", altKey: true }, "Alt and Delete"],
   ] as const) {
     it(`keeps the hidden body on ${label}`, () => {
       const editor = createEditor([
@@ -733,7 +740,7 @@ describe("deleting a selection from a closed Toggle's title to below it", () => 
         paragraph("After"),
       ]);
       selectFromTitleTo(editor, 0, "After");
-      press(editor, { key });
+      press(editor, init);
 
       expect(editor.getJSON().content).toEqual([
         toggle("After", false, [paragraph("Body")]),
@@ -756,6 +763,81 @@ describe("deleting a selection from a closed Toggle's title to below it", () => 
       toggle("Tter", false, [paragraph("Body")]),
     ]);
     expect(caret(editor)).toEqual({ line: "Tter", offset: 1 });
+  });
+
+  it("pastes over the selection and keeps the hidden body", () => {
+    const editor = createEditor([
+      toggle("Title", false, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+    selectFromTitleTo(editor, 0, "After");
+    editor.view.pasteText("Pasted");
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("PastedAfter", false, [paragraph("Body")]),
+    ]);
+  });
+
+  it("cuts the selection and keeps the hidden body", () => {
+    const editor = createEditor([
+      toggle("Title", false, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+    selectFromTitleTo(editor, 0, "After");
+    const copied = new Map<string, string>();
+    const cut = new Event("cut", { bubbles: true, cancelable: true });
+    Object.defineProperty(cut, "clipboardData", {
+      value: {
+        clearData: () => copied.clear(),
+        setData: (kind: string, data: string) => copied.set(kind, data),
+      },
+    });
+    editor.view.dom.dispatchEvent(cut);
+
+    expect(editor.getJSON().content).toEqual([
+      toggle("After", false, [paragraph("Body")]),
+    ]);
+    expect(copied.get("text/plain")).toContain("Title");
+    expect(cut.defaultPrevented).toBe(true);
+  });
+
+  it("leaves a cut to the browser for someone who can't edit", () => {
+    const editor = createEditor([
+      toggle("Title", false, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+    selectFromTitleTo(editor, 0, "After");
+    editor.setEditable(false);
+    const page = editor.getJSON();
+    const cut = new Event("cut", { bubbles: true, cancelable: true });
+    Object.defineProperty(cut, "clipboardData", {
+      value: { clearData: () => {}, setData: () => {} },
+    });
+    editor.view.dom.dispatchEvent(cut);
+
+    expect(editor.getJSON()).toEqual(page);
+    expect(cut.defaultPrevented).toBe(false);
+  });
+
+  it("starts a new line from the selection and keeps the hidden body", () => {
+    const editor = createEditor([
+      toggle("Title", false, [paragraph("Body")]),
+      paragraph("After"),
+    ]);
+    editor.commands.setTextSelection(2);
+    caretIn(editor, "After", "start");
+    editor.commands.setTextSelection({
+      from: 2,
+      to: editor.state.selection.from,
+    });
+    press(editor, { key: "Enter" });
+
+    const [hiddenBodyToggle] = (editor.getJSON().content ?? []).filter(
+      (block) => JSON.stringify(block).includes("Body"),
+    );
+    expect(hiddenBodyToggle).toEqual(
+      toggle("After", false, [paragraph("Body")]),
+    );
   });
 
   it("types over the selection and keeps the hidden body", () => {
