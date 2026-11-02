@@ -900,6 +900,7 @@ const editor = {
       video: "वीडियो",
     },
     fromSource: "{{name}} से",
+    hiddenInThisView: "इस दृश्य में छिपी हुई",
     hiddenProperties: "छुपे हुए गुण",
     imageUploaded_zero: "छवियाँ अपलोड की गईं",
     imageUploaded_one: "छवि अपलोड की गई",

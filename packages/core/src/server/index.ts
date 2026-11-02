@@ -847,6 +847,8 @@ export {
 export {
   cdnSafeOriginStatus,
   createBuilderProject,
+  getBuilderWorkspaceProjectId,
+  getBuilderWorkspaceUrl,
   ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
@@ -886,6 +888,7 @@ export {
 } from "./builder-branch-files.js";
 export {
   ensureFusionContainer,
+  isFusionDevServerServing,
   sendFusionBranchMessage,
   pushFusionBranch,
   reserveFusionHostingSlug,

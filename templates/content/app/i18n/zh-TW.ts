@@ -778,6 +778,7 @@ const overrides = {
         video: "影片",
       },
       fromSource: "從 {{name}}",
+      hiddenInThisView: "在此檢視中隱藏",
       hiddenProperties: "隱藏屬性",
       imageUploaded_zero: "圖片已上傳",
       imageUploaded_one: "圖片已上傳",

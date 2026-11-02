@@ -61,6 +61,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { toast } from "sonner";
 
@@ -383,6 +384,8 @@ export interface IntegrationDetailPageProps {
   id: string;
   appName: string;
   context: SettingsPageContext;
+  /** App-owned settings for this integration, kept within its shared page. */
+  extensionContent?: ReactNode;
 }
 
 /**
@@ -395,6 +398,7 @@ export function IntegrationDetailPage({
   id,
   appName,
   context,
+  extensionContent,
 }: IntegrationDetailPageProps) {
   const catalog = useMemo(catalogWithoutBuilderPublish, []);
   const integration = catalog.find((entry) => entry.id === id);
@@ -417,6 +421,7 @@ export function IntegrationDetailPage({
       catalog={catalog}
       appName={appName}
       context={context}
+      extensionContent={extensionContent}
     />
   );
 }
@@ -426,11 +431,13 @@ function IntegrationDetail({
   catalog,
   appName,
   context,
+  extensionContent,
 }: {
   integration: DefaultMcpIntegration;
   catalog: DefaultMcpIntegration[];
   appName: string;
   context: SettingsPageContext;
+  extensionContent?: ReactNode;
 }) {
   const t = useT();
   const org = useOrg();
@@ -752,6 +759,8 @@ function IntegrationDetail({
           }
         />
       </SettingsGroup>
+
+      {extensionContent}
 
       <SettingsGroup id="information" title={t(`${CH}.information`)}>
         <SettingsRow

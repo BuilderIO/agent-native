@@ -930,6 +930,7 @@ const editor = {
       video: "ビデオ",
     },
     fromSource: "{{name}}から",
+    hiddenInThisView: "このビューで非表示",
     hiddenProperties: "隠しプロパティ",
     imageUploaded_zero: "アップロードされた画像",
     imageUploaded_one: "画像がアップロードされました",

@@ -827,6 +827,7 @@ const editorPropertiesMessages = {
     video: "Video",
   },
   fromSource: "From {{name}}",
+  hiddenInThisView: "Hidden in this view",
   hiddenProperties: "Hidden properties",
   imageUploaded_zero: "Images uploaded",
   imageUploaded_one: "Image uploaded",

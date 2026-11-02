@@ -498,16 +498,17 @@ export function BrandKitDetailRoute({
       .toLowerCase()
       .includes(normalized);
   });
-  const references = visibleAssets.filter(
-    (asset) => asset.status === "reference" && !isContentOnlyReference(asset),
+  const references = visibleAssets.filter((asset) =>
+    assetMatchesLibraryTab(asset, "references"),
   );
-  const saved = visibleAssets.filter((asset) => asset.status === "saved");
+  const saved = visibleAssets.filter((asset) =>
+    assetMatchesLibraryTab(asset, "generated"),
+  );
   const libraryBoardAssets = visibleAssets.filter(
     (asset) =>
       asset.status === "saved" ||
       (asset.status === "reference" && !isContentOnlyReference(asset)),
   );
-  const unfiledCount = libraryAssets.filter((asset) => !asset.folderId).length;
   const liveVariantsForLibrary =
     liveVariants?.libraryId === libraryId ? liveVariants : null;
   const liveCandidateSlots = useMemo(
@@ -1109,30 +1110,13 @@ export function BrandKitDetailRoute({
     <section className="space-y-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <FolderChip
-            active={activeFolderId === "all"}
-            label={t("library.allAssets")}
-            count={libraryAssets.length}
-            onClick={() => setActiveFolderId("all")}
+          <AssetFolderChips
+            assets={libraryAssets}
+            folders={folders}
+            activeFolderId={activeFolderId}
+            activeTab={surfaceTab}
+            onSelectFolder={setActiveFolderId}
           />
-          <FolderChip
-            active={activeFolderId === null}
-            label={t("library.unfiled")}
-            count={unfiledCount}
-            onClick={() => setActiveFolderId(null)}
-          />
-          {folders.map((folder) => (
-            <FolderChip
-              key={folder.id}
-              active={activeFolderId === folder.id}
-              label={folder.title}
-              count={
-                libraryAssets.filter((asset) => asset.folderId === folder.id)
-                  .length
-              }
-              onClick={() => setActiveFolderId(folder.id)}
-            />
-          ))}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative">
@@ -1900,6 +1884,23 @@ function isContentOnlyReference(asset: any): boolean {
   );
 }
 
+type LibraryCountAsset = {
+  status: string;
+  folderId?: string | null;
+  role?: string | null;
+  metadata?: { intent?: string | null } | null;
+};
+
+function assetMatchesLibraryTab(
+  asset: LibraryCountAsset,
+  tab: LibraryTab,
+): boolean {
+  if (tab === "generated") return asset.status === "saved";
+  if (tab === "references")
+    return asset.status === "reference" && !isContentOnlyReference(asset);
+  return false;
+}
+
 function assetCategoryLabel(asset: any): string | null {
   if (isContentOnlyReference(asset)) {
     return "content only";
@@ -2057,6 +2058,52 @@ function SessionCard({
         ) : null}
       </div>
     </article>
+  );
+}
+
+export function AssetFolderChips({
+  assets,
+  folders,
+  activeFolderId,
+  activeTab,
+  onSelectFolder,
+}: {
+  assets: LibraryCountAsset[];
+  folders: { id: string; title: string }[];
+  activeFolderId: string | null;
+  activeTab: LibraryTab;
+  onSelectFolder: (folderId: string | null) => void;
+}) {
+  const t = useT();
+  const tabAssets = assets.filter((asset) =>
+    assetMatchesLibraryTab(asset, activeTab),
+  );
+  return (
+    <>
+      <FolderChip
+        active={activeFolderId === "all"}
+        label={t("library.allAssets")}
+        count={tabAssets.length}
+        onClick={() => onSelectFolder("all")}
+      />
+      <FolderChip
+        active={activeFolderId === null}
+        label={t("library.unfiled")}
+        count={tabAssets.filter((asset) => !asset.folderId).length}
+        onClick={() => onSelectFolder(null)}
+      />
+      {folders.map((folder) => (
+        <FolderChip
+          key={folder.id}
+          active={activeFolderId === folder.id}
+          label={folder.title}
+          count={
+            tabAssets.filter((asset) => asset.folderId === folder.id).length
+          }
+          onClick={() => onSelectFolder(folder.id)}
+        />
+      ))}
+    </>
   );
 }
 
@@ -3437,7 +3484,7 @@ function PendingUploadPreview({
   );
 }
 
-function AssetActionsMenu({
+export function AssetActionsMenu({
   asset,
   folders,
   busy,
@@ -3527,37 +3574,44 @@ function AssetActionsMenu({
               {t("library.removeFromReferences")}
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-              {t("library.moveTo")}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuItem
-                onSelect={() =>
-                  updateAsset.mutate({
-                    id: asset.id,
-                    folderId: null,
-                  })
-                }
-              >
-                {t("library.unfiled")}
-              </DropdownMenuItem>
-              {folders.map((folder) => (
-                <DropdownMenuItem
-                  key={folder.id}
-                  onSelect={() =>
-                    updateAsset.mutate({
-                      id: asset.id,
-                      folderId: folder.id,
-                    })
-                  }
-                >
-                  {folder.title}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          {asset.folderId ||
+          folders.some((folder) => folder.id !== asset.folderId) ? (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+                {t("library.moveTo")}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {asset.folderId ? (
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      updateAsset.mutate({
+                        id: asset.id,
+                        folderId: null,
+                      })
+                    }
+                  >
+                    {t("library.unfiled")}
+                  </DropdownMenuItem>
+                ) : null}
+                {folders
+                  .filter((folder) => folder.id !== asset.folderId)
+                  .map((folder) => (
+                    <DropdownMenuItem
+                      key={folder.id}
+                      onSelect={() =>
+                        updateAsset.mutate({
+                          id: asset.id,
+                          folderId: folder.id,
+                        })
+                      }
+                    >
+                      {folder.title}
+                    </DropdownMenuItem>
+                  ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             className="text-destructive focus:bg-destructive/10 focus:text-destructive"

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server", () => ({
   createAgentChatPlugin: mocks.createAgentChatPlugin,
+  getBuilderWorkspaceUrl: () => null,
 }));
 
 vi.mock("@agent-native/core/org", () => ({

@@ -6,6 +6,10 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  executeAgentToolCall,
+  type ActionEntry,
+} from "../../../packages/core/src/agent/production-agent.js";
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "../shared/api.js";
 
 const path = join(
@@ -20,6 +24,7 @@ let configureProperty: typeof import("./configure-document-property.js").default
 let updateView: typeof import("./update-content-database-view.js").default;
 let updatePersonalView: typeof import("./update-content-database-personal-view.js").default;
 let readDatabase: typeof import("./get-content-database.js").default;
+let addItem: typeof import("./add-database-item.js").default;
 let listSpaces: typeof import("./list-content-spaces.js").default;
 let spaceId: string;
 
@@ -40,6 +45,7 @@ beforeAll(async () => {
     await import("./update-content-database-personal-view.js")
   ).default;
   readDatabase = (await import("./get-content-database.js")).default;
+  addItem = (await import("./add-database-item.js")).default;
   listSpaces = (await import("./list-content-spaces.js")).default;
   await asOwner(() =>
     import("./_content-spaces.js").then((module) =>
@@ -53,6 +59,454 @@ beforeAll(async () => {
 afterAll(() => rmSync(path, { recursive: true, force: true }));
 
 describe("ordinary property and table-view setup", () => {
+  it("copies one table's complete settings to three targets with distinct multi-select filters", async () => {
+    const created = await asOwner(() =>
+      createDatabase.run({
+        spaceId,
+        title: "Copy settings fixture",
+        idempotencyKey: "copy-settings-database",
+      }),
+    );
+    const target = {
+      spaceId,
+      databaseId: created.database.id,
+      databaseDocumentId: created.database.documentId,
+    };
+    const read = async () => {
+      const value = await asOwner(() =>
+        readDatabase.run({ databaseId: target.databaseId, limit: 0 }),
+      );
+      if (
+        !("mutationContract" in value) ||
+        !value.mutationContract ||
+        !("configurationRevision" in value)
+      )
+        throw new Error("Expected view revisions");
+      return value;
+    };
+    const initial = await read();
+    const category = await asOwner(() =>
+      configureProperty.run({
+        operation: "create",
+        target,
+        expectedSchemaRevision: initial.mutationContract.schemaRevision,
+        idempotencyKey: "copy-category",
+        definition: {
+          name: "Category",
+          type: "multi_select",
+          options: [
+            { id: "red", name: "Red", color: "red" },
+            { id: "blue", name: "Blue", color: "blue" },
+          ],
+        },
+      }),
+    );
+    const source = (await read()).database.viewConfig.views.at(0);
+    if (!source) throw new Error("Expected source view");
+    const sourceFilters = ["Ready", "Next"].map((value) => ({
+      key: "name",
+      label: "Name",
+      operator: "contains" as const,
+      value,
+    }));
+    const beforeSourceUpdate = await read();
+    await asOwner(() =>
+      updateView.run({
+        operation: "update",
+        target,
+        expectedSchemaRevision:
+          beforeSourceUpdate.mutationContract.schemaRevision,
+        expectedConfigurationRevision: beforeSourceUpdate.configurationRevision,
+        idempotencyKey: "copy-source-settings",
+        viewId: source.id,
+        patch: {
+          filters: sourceFilters,
+          filterMode: "or",
+          hiddenPropertyIds: [],
+          wrapCells: false,
+          rowDensity: "compact",
+          sorts: [{ key: "name", label: "Name", direction: "asc" }],
+          columnWidths: { name: 280 },
+          propertyOrderIds: [category.value.id],
+          tableColumnOrderIds: [category.value.id, "name"],
+          columnWrapOverrides: {},
+          frozenThroughColumnId: null,
+          openPagesIn: "full_page",
+        },
+      }),
+    );
+    const retainedFilters = sourceFilters.map((filter) => ({
+      ...filter,
+      filterGroupId: "copied-source",
+      filterGroupMode: "or" as const,
+    }));
+    const filters = [
+      [
+        ...retainedFilters,
+        {
+          key: category.value.id,
+          label: "Category",
+          operator: "contains" as const,
+          value: "red",
+        },
+      ],
+      [
+        ...retainedFilters,
+        {
+          key: category.value.id,
+          label: "Category",
+          operator: "contains" as const,
+          value: "blue",
+        },
+      ],
+      [
+        ...retainedFilters,
+        ...["red", "blue"].map((value) => ({
+          key: category.value.id,
+          label: "Category",
+          operator: "does_not_equal" as const,
+          value,
+        })),
+      ],
+    ];
+    for (const [index, row] of [
+      { title: "A Ready red", values: ["red"] },
+      { title: "B Next blue", values: ["blue"] },
+      { title: "C Ready neither", values: [] },
+      { title: "D Next both", values: ["red", "blue"] },
+      { title: "E Outside neither", values: [] },
+    ].entries()) {
+      const current = await read();
+      await asOwner(() =>
+        addItem.run({
+          target,
+          expectedSchemaRevision: current.mutationContract.schemaRevision,
+          idempotencyKey: `copy-row-${index}`,
+          title: row.title,
+          propertyEntries: [
+            {
+              propertyId: category.value.id,
+              propertyType: "multi_select",
+              value: row.values,
+            },
+          ],
+        }),
+      );
+    }
+    const ids: string[] = [];
+    for (let index = 0; index < filters.length; index++) {
+      const current = await read();
+      const made = await asOwner(() =>
+        updateView.run({
+          operation: "create",
+          target,
+          expectedSchemaRevision: current.mutationContract.schemaRevision,
+          expectedConfigurationRevision: current.configurationRevision,
+          idempotencyKey: `copy-target-${index}`,
+          view: {
+            name: `Target ${index}`,
+            type: "table",
+            config: {
+              filterMode: "or",
+              hiddenPropertyIds: created.properties.map(
+                (property) => property.definition.id,
+              ),
+              wrapCells: true,
+              rowDensity: "comfortable",
+              columnWidths: { name: 120 },
+              frozenThroughColumnId: "name",
+            },
+          },
+        }),
+      );
+      ids.push(made.value.id);
+    }
+    const sparseViewId = ids.at(2);
+    const exclusionFilters = filters.at(2);
+    if (!sparseViewId || !exclusionFilters)
+      throw new Error("Expected an exclusion view");
+    for (const filterMode of [undefined, "and"] as const) {
+      const current = await read();
+      await asOwner(() =>
+        updateView.run({
+          operation: "update",
+          target,
+          expectedSchemaRevision: current.mutationContract.schemaRevision,
+          expectedConfigurationRevision: current.configurationRevision,
+          idempotencyKey: `sparse-exclusion-${filterMode ?? "preserved"}`,
+          viewId: sparseViewId,
+          patch: {
+            filters: exclusionFilters,
+            ...(filterMode === undefined ? {} : { filterMode }),
+          },
+        }),
+      );
+      const updated = await read();
+      const view = updated.database.viewConfig.views.find(
+        (view) => view.id === sparseViewId,
+      );
+      if (!view) throw new Error("Expected the updated exclusion view");
+      expect(view.filterMode).toBe(filterMode ?? "or");
+      expect(view.filters).toEqual(exclusionFilters);
+      const filtered = await asOwner(() =>
+        readDatabase.run({
+          databaseId: target.databaseId,
+          limit: 10,
+          tableQuery: {
+            search: "",
+            filters: view.filters,
+            filterMode: view.filterMode,
+            sorts: [{ key: "name", label: "Name", direction: "asc" }],
+          },
+        }),
+      );
+      if (!("items" in filtered)) throw new Error("Expected filtered rows");
+      expect(filtered.items.map((item) => item.document.title)).toEqual(
+        filterMode === undefined
+          ? [
+              "A Ready red",
+              "B Next blue",
+              "C Ready neither",
+              "D Next both",
+              "E Outside neither",
+            ]
+          : ["C Ready neither"],
+      );
+    }
+    for (const [index, viewId] of ids.entries()) {
+      const current = await read();
+      const result = await asOwner(() =>
+        executeAgentToolCall({
+          actions: {
+            "update-content-database-view":
+              updateView as unknown as ActionEntry,
+          },
+          name: "update-content-database-view",
+          callId: `copy-${index}`,
+          input: {
+            operation: "copy-settings",
+            target,
+            expectedSchemaRevision: current.mutationContract.schemaRevision,
+            expectedConfigurationRevision: current.configurationRevision,
+            idempotencyKey: `copy-settings-${index}`,
+            sourceViewId: source.id,
+            viewId,
+            filters: filters[index],
+            filterMode: "and",
+            view: null,
+            patch: null,
+          },
+        }),
+      );
+      expect(result.status, result.output).toBe("completed");
+    }
+    const saved = await read();
+    const savedSource = saved.database.viewConfig.views.find(
+      (view) => view.id === source.id,
+    );
+    if (!savedSource) throw new Error("Expected saved source view");
+    expect(savedSource.filters).toEqual(sourceFilters);
+    expect(savedSource.filterMode).toBe("or");
+    for (const [index, viewId] of ids.entries()) {
+      const replacementFilters = filters.at(index);
+      if (!replacementFilters) throw new Error("Expected replacement filters");
+      expect(
+        saved.database.viewConfig.views.find((view) => view.id === viewId),
+      ).toEqual({
+        ...savedSource,
+        id: viewId,
+        name: `Target ${index}`,
+        filters: replacementFilters,
+        filterMode: "and",
+      });
+      const filtered = await asOwner(() =>
+        readDatabase.run({
+          databaseId: target.databaseId,
+          limit: 10,
+          tableQuery: {
+            search: "",
+            filters: replacementFilters,
+            sorts: savedSource.sorts,
+            filterMode: "and",
+          },
+        }),
+      );
+      if (!("items" in filtered)) throw new Error("Expected filtered rows");
+      expect(filtered.items.map((item) => item.document.title)).toEqual(
+        [
+          ["A Ready red", "D Next both"],
+          ["B Next blue", "D Next both"],
+          ["C Ready neither"],
+        ][index],
+      );
+      await expect(
+        asOwner(() =>
+          updateView.run({
+            operation: "copy-settings",
+            target,
+            expectedSchemaRevision: saved.mutationContract.schemaRevision,
+            expectedConfigurationRevision: saved.configurationRevision,
+            idempotencyKey: `copy-settings-${index}`,
+            sourceViewId: source.id,
+            viewId,
+            filters: replacementFilters,
+            filterMode: "or",
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
+    }
+    const afterReusedMode = await read();
+    expect(afterReusedMode.configurationRevision).toBe(
+      saved.configurationRevision,
+    );
+    expect(afterReusedMode.database.viewConfig).toEqual(
+      saved.database.viewConfig,
+    );
+  });
+
+  it("refuses ambiguous input without a partial write and persists explicit empty clears", async () => {
+    const created = await asOwner(() =>
+      createDatabase.run({
+        spaceId,
+        title: "Transport view update",
+        idempotencyKey: "transport-view-database",
+      }),
+    );
+    const initial = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id, limit: 0 }),
+    );
+    if (
+      !("mutationContract" in initial) ||
+      !initial.mutationContract ||
+      !("configurationRevision" in initial)
+    )
+      throw new Error("Expected view mutation revisions");
+    const viewId = initial.database.viewConfig.views[0]?.id;
+    if (!viewId) throw new Error("Expected an initial view");
+    const result = await asOwner(() =>
+      executeAgentToolCall({
+        actions: {
+          "update-content-database-view": updateView as unknown as ActionEntry,
+        },
+        name: "update-content-database-view",
+        callId: "mixed-view-input",
+        input: {
+          operation: "update",
+          target: {
+            spaceId,
+            databaseId: created.database.id,
+            databaseDocumentId: created.database.documentId,
+          },
+          expectedSchemaRevision: initial.mutationContract.schemaRevision,
+          expectedConfigurationRevision: initial.configurationRevision,
+          idempotencyKey: "transport-view-update",
+          view: null,
+          viewId,
+          patch: {
+            name: null,
+            hiddenPropertyIds: [],
+            wrapCells: false,
+            rowDensity: "compact",
+          },
+        },
+      }),
+    );
+    expect(initial.database.viewConfig.views[0]?.hiddenPropertyIds).not.toEqual(
+      [],
+    );
+    expect(result.status).toBe("failed");
+    expect(result.output).toContain("No action was run");
+    const unchanged = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id, limit: 0 }),
+    );
+    expect(unchanged.database.viewConfig).toEqual(initial.database.viewConfig);
+    expect(
+      "configurationRevision" in unchanged && unchanged.configurationRevision,
+    ).toBe(initial.configurationRevision);
+    const retry = await asOwner(() =>
+      executeAgentToolCall({
+        actions: {
+          "update-content-database-view": updateView as unknown as ActionEntry,
+        },
+        name: "update-content-database-view",
+        callId: "sparse-view-input",
+        input: {
+          operation: "update",
+          view: null,
+          target: {
+            spaceId,
+            databaseId: created.database.id,
+            databaseDocumentId: created.database.documentId,
+          },
+          expectedSchemaRevision: initial.mutationContract.schemaRevision,
+          expectedConfigurationRevision: initial.configurationRevision,
+          idempotencyKey: "transport-view-update",
+          viewId,
+          patch: {
+            hiddenPropertyIds: [],
+            wrapCells: false,
+            rowDensity: "compact",
+          },
+        },
+      }),
+    );
+    expect(retry.status, retry.output).toBe("completed");
+    const saved = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id, limit: 0 }),
+    );
+    expect(saved.database.viewConfig.views[0]).toMatchObject({
+      hiddenPropertyIds: [],
+      wrapCells: false,
+      rowDensity: "compact",
+    });
+    if (
+      !("mutationContract" in saved) ||
+      !saved.mutationContract ||
+      !("configurationRevision" in saved)
+    )
+      throw new Error("Expected saved view revisions");
+    for (const [index, extra] of [
+      { view: { name: "Unused branch" } },
+      { unknownSetting: null },
+    ].entries()) {
+      const invalid = await asOwner(() =>
+        executeAgentToolCall({
+          actions: {
+            "update-content-database-view":
+              updateView as unknown as ActionEntry,
+          },
+          name: "update-content-database-view",
+          callId: `invalid-view-${index}`,
+          input: {
+            operation: "update",
+            target: {
+              spaceId,
+              databaseId: created.database.id,
+              databaseDocumentId: created.database.documentId,
+            },
+            expectedSchemaRevision: saved.mutationContract.schemaRevision,
+            expectedConfigurationRevision: saved.configurationRevision,
+            idempotencyKey: `invalid-view-extra-${index}`,
+            viewId,
+            patch: { wrapCells: true },
+            ...extra,
+          },
+        }),
+      );
+      expect(invalid.status).toBe("failed");
+      const afterInvalid = await asOwner(() =>
+        readDatabase.run({ databaseId: created.database.id, limit: 0 }),
+      );
+      expect(afterInvalid.database.viewConfig).toEqual(
+        saved.database.viewConfig,
+      );
+      expect(
+        "configurationRevision" in afterInvalid &&
+          afterInvalid.configurationRevision,
+      ).toBe(saved.configurationRevision);
+    }
+  });
+
   it("hides a new collection's sole Blocks field in its default table view", async () => {
     const created = await asOwner(() =>
       createDatabase.run({
