@@ -1,3 +1,5 @@
+import { setImmediate } from "node:timers/promises";
+
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -2007,16 +2009,26 @@ describe("A2AClient", () => {
       }),
     );
 
-    await expect(
-      callAgent("https://agent.test", "hello", {
-        userEmail: "alice+qa@agent-native.test",
-        orgId: "sender-org-row",
-        orgDomain: "builder.io",
-        orgSecret: "org-a2a-secret",
-        timeoutMs: 25,
-        pollIntervalMs: 1,
-      }),
-    ).resolves.toBe("polled with fallback org secret");
+    vi.useFakeTimers();
+    const result = callAgent("https://agent.test", "hello", {
+      userEmail: "alice+qa@agent-native.test",
+      orgId: "sender-org-row",
+      orgDomain: "builder.io",
+      orgSecret: "org-a2a-secret",
+      timeoutMs: 25,
+      pollIntervalMs: 1,
+    });
+    let settled = false;
+    void result.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    // Fake time advances only while a poll sleep is pending, so real JWT signing latency under load cannot burn the 25ms deadline.
+    while (!settled) {
+      if (vi.getTimerCount() > 0) await vi.advanceTimersByTimeAsync(1);
+      else await setImmediate();
+    }
+    await expect(result).resolves.toBe("polled with fallback org secret");
 
     expect(calls.map((call) => call.method)).toEqual([
       "message/send",
