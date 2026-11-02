@@ -1558,7 +1558,7 @@ export default defineAction({
             [slide.id, hashSlideContent(String(slide.content ?? ""))] as const,
         ),
       );
-      // Ops apply in order, so a slide added earlier in this batch is a valid target.
+      // Ops apply in order: earlier adds are valid targets, earlier deletes are not.
       const existingSlideIds = new Set(
         currentSlides.map((slide: { id?: unknown }) => slide.id),
       );
@@ -1566,6 +1566,8 @@ export default defineAction({
       for (const operation of operations) {
         if (operation.op === "add-slide") {
           existingSlideIds.add(operation.slideId);
+        } else if (operation.op === "delete-slide") {
+          existingSlideIds.delete(operation.slideId);
         } else if (
           operation.op === "patch-slide" &&
           !existingSlideIds.has(operation.slideId)

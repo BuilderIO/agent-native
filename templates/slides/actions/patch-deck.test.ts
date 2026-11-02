@@ -5871,6 +5871,35 @@ describe("run() — a patch to a deleted slide is a typed 404 with no write", ()
     expect(lastUpdatedDeckData).toBeUndefined();
   });
 
+  it("rejects a patch to a slide deleted earlier in the same batch", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Two</div>" },
+            },
+            { op: "delete-slide", slideId: "slide-1" },
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { notes: "late" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_not_found",
+      details: { slideIds: ["slide-1"] },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
   it("accepts a patch to a slide added earlier in the same batch", async () => {
     await expect(
       runPatchDeckAction(
