@@ -951,6 +951,7 @@ const editor = {
       video: "Vidéo",
     },
     fromSource: "À partir de {{name}}",
+    hiddenInThisView: "Masquées dans cette vue",
     hiddenProperties: "Propriétés cachées",
     imageUploaded_zero: "Images téléchargées",
     imageUploaded_one: "Image téléchargée",

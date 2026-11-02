@@ -68,7 +68,7 @@ const SESSION = "alice@example.com";
 
 beforeEach(async () => {
   resetAppConfigForTests();
-  defineAppConfig({ app: { packageName: "slides-2" } });
+  defineAppConfig({ app: { packageName: "slides" } });
   postgres = await createTestPglite();
   await postgres.exec(`CREATE TABLE IF NOT EXISTS application_state (
     session_id TEXT NOT NULL,
@@ -147,27 +147,27 @@ describe("application-state store", () => {
   });
 
   it("lists only current-app keys without reading their values", async () => {
-    await appStatePut(SESSION, "slides-2:cleanup-1", { private: "payload" });
-    await appStatePut("bob@example.com", "slides-2:cleanup-2", {
+    await appStatePut(SESSION, "slides:cleanup-1", { private: "payload" });
+    await appStatePut("bob@example.com", "slides:cleanup-2", {
       private: "other payload",
     });
     await appStatePut("bob@example.com", "other-app:cleanup-3", {
       private: "foreign app payload",
     });
-    await appStatePut(SESSION, "slides-2Xcleanup-3", { private: "ignored" });
+    await appStatePut(SESSION, "slidesXcleanup-3", { private: "ignored" });
 
     rawClient.execute.mockClear();
     await expect(
       appStateListKeysByKeySuffixPrefix("cleanup-"),
     ).resolves.toEqual([
-      { sessionId: SESSION, key: "slides-2:cleanup-1" },
-      { sessionId: "bob@example.com", key: "slides-2:cleanup-2" },
+      { sessionId: SESSION, key: "slides:cleanup-1" },
+      { sessionId: "bob@example.com", key: "slides:cleanup-2" },
     ]);
     expect(rawClient.execute).toHaveBeenCalledWith({
       sql: expect.stringContaining(
         "SELECT session_id, key FROM application_state",
       ),
-      args: ["slides-2:cleanup-%", 100],
+      args: ["slides:cleanup-%", 100],
     });
   });
 

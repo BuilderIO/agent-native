@@ -905,6 +905,7 @@ const editor = {
       video: "فيديو",
     },
     fromSource: "من {{name}}",
+    hiddenInThisView: "مخفية في هذا العرض",
     hiddenProperties: "خصائص مخفية",
     imageUploaded_zero: "تم تحميل الصور",
     imageUploaded_one: "تم تحميل الصورة",

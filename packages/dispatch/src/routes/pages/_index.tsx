@@ -23,7 +23,7 @@ export function meta() {
 }
 
 function buildTarget(url: URL): string {
-  return appPath(`/overview${url.search}${url.hash}`);
+  return appPath(`/chat${url.search}${url.hash}`);
 }
 
 export function loader({ url }: LoaderFunctionArgs) {

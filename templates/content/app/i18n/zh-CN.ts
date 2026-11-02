@@ -877,6 +877,7 @@ const editor = {
       video: "视频",
     },
     fromSource: "从 {{name}}",
+    hiddenInThisView: "在此视图中隐藏",
     hiddenProperties: "隐藏属性",
     imageUploaded_zero: "图片已上传",
     imageUploaded_one: "图片已上传",

@@ -445,6 +445,121 @@ describe("route-state client helpers", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
+  it("waits for a command-read gate before consuming navigation", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      "navigate:tab-1": { view: "detail", _writeId: "a" },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const beforeCommandRead = vi.fn(() => gate);
+    const commands: unknown[] = [];
+    function Harness() {
+      useSemanticNavigationState({
+        state: null,
+        commandKeys: ["navigate:tab-1"],
+        commandRefetchInterval: false,
+        beforeCommandRead,
+        onCommand: (command) => commands.push(command),
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(beforeCommandRead).toHaveBeenCalledTimes(1);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        batchedKeys(url)?.includes("navigate:tab-1"),
+      ),
+    ).toBe(false);
+    expect(commands).toEqual([]);
+    await act(async () => {
+      release();
+      await flush();
+      await flush();
+    });
+    expect(commands).toEqual([{ view: "detail", _writeId: "a" }]);
+  });
+
+  it("waits again before reading a fallback command key", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const beforeCommandRead = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementation(() => gate);
+    function Harness() {
+      useSemanticNavigationState({
+        state: null,
+        commandKeys: ["navigate:tab-1", "navigate"],
+        commandRefetchInterval: false,
+        beforeCommandRead,
+        onCommand: () => {},
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+    expect(beforeCommandRead).toHaveBeenCalledTimes(2);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        batchedKeys(url)?.includes("navigate"),
+      ),
+    ).toBe(false);
+    await act(async () => {
+      release();
+      await flush();
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        batchedKeys(url)?.includes("navigate"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not start a delayed command read after its observer unmounts", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    function Harness() {
+      useSemanticNavigationState({
+        state: null,
+        commandKeys: ["navigate:tab-1"],
+        commandRefetchInterval: false,
+        beforeCommandRead: () => gate,
+        onCommand: () => {},
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    containers.push(rendered.container);
+    await act(flush);
+    act(() => rendered.root.unmount());
+    await act(async () => {
+      release();
+      await flush();
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        batchedKeys(url)?.includes("navigate:tab-1"),
+      ),
+    ).toBe(false);
+  });
+
   it("reads the first available command key and deletes the consumed command", async () => {
     const { deletes, fetchMock } = makeAppStateFetch({
       "navigate:tab-1": { view: "thread", threadId: "thread-2", _writeId: "a" },
@@ -492,6 +607,45 @@ describe("route-state client helpers", () => {
     expect(
       fetchMock.mock.calls.some(([url]) => appStateKey(url) === "navigate"),
     ).toBe(false);
+  });
+
+  it("forwards the command-read gate through the route wrapper", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      "navigate:tab-1": { path: "/detail", _writeId: "a" },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    function Harness() {
+      const location = useLocation();
+      useAgentRouteState({
+        browserTabId: "tab-1",
+        refetchInterval: false,
+        beforeCommandRead: () => gate,
+        getNavigationState: () => ({ view: "inbox" }),
+        getCommandPath: (command: { path: string }) => command.path,
+      });
+      return <div>{location.pathname}</div>;
+    }
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(rendered.container.textContent).toBe("/");
+    await act(async () => {
+      release();
+      await flush();
+      await flush();
+    });
+    expect(rendered.container.textContent).toBe("/detail");
   });
 
   it("derives route state and applies navigate commands with React Router", async () => {
