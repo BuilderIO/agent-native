@@ -20,7 +20,7 @@ const MAX_PAGE_SIZE = 100;
 export default async function resourceListScript(
   args: string[],
 ): Promise<void> {
-  const parsed = parseArgs(args);
+  const parsed: Partial<Record<string, string>> = parseArgs(args);
 
   if (parsed.help === "true") {
     console.log(`Usage: pnpm action resource-list [options]

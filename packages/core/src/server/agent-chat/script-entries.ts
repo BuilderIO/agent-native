@@ -529,7 +529,7 @@ export async function createResourceScriptEntries(): Promise<
           const { action: a, ...rest } = args;
           if (a === "list") {
             // The CLI keeps unpaged json as a bare array; the agent always pages.
-            const noPageArgs = rest.limit == null && rest.offset == null;
+            const noPageArgs = !rest.limit && !rest.offset;
             return listEntry.run(noPageArgs ? { ...rest, offset: "0" } : rest);
           }
           if (a === "read") {
