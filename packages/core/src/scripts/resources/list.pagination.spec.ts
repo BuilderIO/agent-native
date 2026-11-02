@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../../a2a/test-pglite.js";
 import { threadDataToEngineMessages } from "../../agent/thread-data-builder.js";
 import { createResourceScriptEntries } from "../../server/agent-chat/script-entries.js";
+import { captureCliOutput } from "../../server/cli-capture.js";
 import { runWithRequestContext } from "../../server/request-context.js";
+import resourceListScript from "./list.js";
 
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => sharedClient,
@@ -166,6 +168,49 @@ describe("resources list pagination (#8556)", () => {
     [{ offset: -1 }, "--offset must be a whole number, 0 or more"],
   ])("rejects %j instead of ignoring it", async (args, message) => {
     expect(await list(args)).toBe(`Error: ${message}`);
+  });
+
+  it("pages json when asked, with the page info ahead of the entries", async () => {
+    const output = await list({ format: "json", offset: 0 });
+    expect(output.indexOf('"nextOffset": 50')).toBeLessThan(
+      output.indexOf('"resources"'),
+    );
+    expect(
+      JSON.parse(output).resources.map((r: { path: string }) => r.path),
+    ).toEqual(skillPaths.slice(0, 50));
+
+    const last = JSON.parse(
+      await list({ format: "json", limit: 50, offset: 250 }),
+    );
+    expect(last.resources.map((r: { path: string }) => r.path)).toEqual(
+      skillPaths.slice(250),
+    );
+    expect(last).toMatchObject({
+      total: 300,
+      offset: 250,
+      limit: 50,
+      hasMore: false,
+      nextOffset: null,
+    });
+  });
+
+  it("keeps CLI json a bare array unless a page is requested", async () => {
+    const output = await runWithRequestContext({ userEmail: owner }, () =>
+      captureCliOutput(() =>
+        resourceListScript([
+          "--scope",
+          "personal",
+          "--prefix",
+          "skills/skill-",
+          "--format",
+          "json",
+        ]),
+      ),
+    );
+
+    expect(JSON.parse(output).map((r: { path: string }) => r.path)).toEqual(
+      skillPaths,
+    );
   });
 
   it("prints short lists as before", async () => {

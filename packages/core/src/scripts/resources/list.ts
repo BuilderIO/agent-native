@@ -31,7 +31,9 @@ Options:
                                Scope to list (default: all)
   --format json|text           Output format (default: text)
   --include-agent-scratch true Include hidden agent scratch files
-  --limit <n>                  Resources per page, 1-${MAX_PAGE_SIZE} (default: ${DEFAULT_PAGE_SIZE})
+  --limit <n>                  Resources per page, 1-${MAX_PAGE_SIZE} (default: ${DEFAULT_PAGE_SIZE}).
+                               Text output always pages; json pages only
+                               when --limit or --offset is set
   --offset <n>                 Resources to skip; pass the previous page's
                                next offset
   --help                       Show this help message`);
@@ -114,19 +116,36 @@ Options:
   }
 
   // Agents read this through tool-result caps (12,000 chars when replayed), so
-  // text always pages. Sorting the merged list keeps pages stable across calls.
+  // text always pages and json pages when asked. Sorting the merged list keeps
+  // pages stable across calls.
   resources.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-
-  if (format === "json") {
-    console.log(JSON.stringify(resources, null, 2));
-    return;
-  }
-
+  const paged =
+    format !== "json" || limitArg !== undefined || offsetArg !== undefined;
   const total = resources.length;
   const offset = Number(offsetArg ?? 0);
   const limit = Number(limitArg ?? DEFAULT_PAGE_SIZE);
-  const page = resources.slice(offset, offset + limit);
+  const page = paged ? resources.slice(offset, offset + limit) : resources;
   const nextOffset = offset + page.length < total ? offset + page.length : null;
+
+  if (format === "json") {
+    console.log(
+      JSON.stringify(
+        paged
+          ? {
+              total,
+              offset,
+              limit,
+              hasMore: nextOffset !== null,
+              nextOffset,
+              resources: page,
+            }
+          : resources,
+        null,
+        2,
+      ),
+    );
+    return;
+  }
 
   if (total === 0) {
     console.log("No resources found.");
