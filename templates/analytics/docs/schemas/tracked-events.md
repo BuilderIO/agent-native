@@ -26,14 +26,20 @@ Events tracked by application instrumentation and stored in the configured appli
   under the inviter's `userId` (their email).
 - `invite_accepted` — A pending invitation is accepted — via the
   accept-invitation route, or reconciled automatically on signup, SSO, or email
-  verification. Domain auto-join adds members directly and emits no invite
-  event. Properties: `app`, `template`, `org_id`,
+  verification. Domain auto-join emits `org_domain_joined` instead. Properties:
+  `app`, `template`, `org_id`,
   `role` (`admin` or `member`), `federated` (boolean), and `referrer_user` —
   the inviter's Better Auth user id, resolved from the invitation's
   `invited_by` email and included only when that lookup succeeds; omitted
   entirely when it can't be resolved. The invitee has no identity property of
   their own on this event — it flows only through the event's `userId` (the
   invitee's email), not through a `data` field.
+- `org_domain_joined` — A user joins an organization automatically because
+  their verified email domain matches its allowed domain, on signup, SSO, or a
+  later request. Properties: `app`, `template`, `org_id`, `role` (always
+  `member`), and `federated` (boolean). Tracked under the member's `userId`
+  (their email). Together with `invite_accepted`, it counts every way someone
+  joins a team.
 
 ### Agent Chat / AI
 

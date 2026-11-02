@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
@@ -6,10 +7,15 @@ import { setActiveOrgId } from "./active-org.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
+import { trackDomainJoined } from "./track-domain-joined.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface AutoJoinDomainResult {
   joined: Array<{ orgId: string }>;
@@ -62,6 +68,7 @@ export async function hasAutoJoinDomainMatch(
 
 export interface AutoJoinDomainOptions {
   activateJoinedOrg?: "if-missing" | "always" | "never";
+  event?: H3Event;
 }
 
 export async function autoJoinDomainMatchingOrgs(
@@ -125,6 +132,7 @@ export async function autoJoinDomainMatchingOrgs(
   }
 
   const joined: AutoJoinDomainResult["joined"] = [];
+  const telemetryPromises: Promise<void>[] = [];
   let federationSkipped = false;
   let federationUnavailable = false;
   let localJoinAttempted = false;
@@ -159,7 +167,20 @@ export async function autoJoinDomainMatchingOrgs(
       // Race with a parallel join (e.g. user accepted an invite to the
       // same org milliseconds earlier). The unique constraint keeps the
       // existing membership intact; just skip this org.
+      continue;
     }
+    telemetryPromises.push(
+      trackDomainJoined({
+        email,
+        orgId: m.orgId,
+        federated: m.federated,
+        event: options.event,
+      }),
+    );
+  }
+
+  if (telemetryPromises.length > 0) {
+    await Promise.race([Promise.all(telemetryPromises), sleep(1500)]);
   }
 
   if (federationSkipped && !localJoinAttempted && !federationUnavailable) {
