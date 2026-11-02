@@ -602,9 +602,11 @@ describe("worker GPU resource lifetime", () => {
     gpu.spareBank({ ...scene(2), pixelRatio: 3 }, "same-composition");
     expect(target.destroy).toHaveBeenCalledOnce();
     expect(bank.textures.size).toBe(0);
-    expect((gpu as unknown as { uniformArena: unknown }).uniformArena).not.toBe(
-      arena,
-    );
+    // Not `.not.toBe`: on an identity miss vitest deep-compares both arenas'
+    // 2 MB staging buffers, which takes seconds and times out on loaded CI.
+    expect(
+      (gpu as unknown as { uniformArena: unknown }).uniformArena === arena,
+    ).toBe(false);
     gpu.endLegacyFlight();
     gpu.dispose();
   });
