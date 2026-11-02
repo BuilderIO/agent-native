@@ -898,22 +898,6 @@ class CollabDocConnection {
     const email = user.email.trim().toLowerCase();
     const prev = this.lastSetUser;
     if (prev?.email !== email) this.userGeneration++;
-    if (prev && prev.email !== email) {
-      if (this.pendingUpdates.length && this.retiredUpdatesKey) {
-        retiredCollabUpdates.set(this.retiredUpdatesKey, this.pendingUpdates);
-      }
-      this.pendingUpdates = [];
-      this.updateAbortController?.abort();
-      if (this.flushTimer) clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-      this.updateErrors = 0;
-      this.updateBatchLimit = Infinity;
-      if (this.snapshot.updatesRefused) {
-        this.setSnapshot({ updatesRefused: false });
-      }
-      // Kept updates are per account.
-      this.unsentUpdatesRestored = false;
-    }
     if (
       prev &&
       prev.name === user.name &&
