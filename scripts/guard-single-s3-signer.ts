@@ -15,6 +15,8 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { GUARD_EXIT_COULD_NOT_RUN } from "./lib/changed-lines.mjs";
+
 const rootDir = path.resolve(import.meta.dirname, "..");
 const SIGNING_SCOPE_LITERAL = "aws4_request";
 const SOURCE_PATHSPECS = [
@@ -70,7 +72,14 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  const strays = findStrayS3Signers(listFilesWithSigningScope());
+  let files: string[];
+  try {
+    files = listFilesWithSigningScope();
+  } catch (error) {
+    console.error(`[guard:single-s3-signer] could not run: ${String(error)}`);
+    process.exit(GUARD_EXIT_COULD_NOT_RUN);
+  }
+  const strays = findStrayS3Signers(files);
 
   if (strays.length > 0) {
     console.error(
