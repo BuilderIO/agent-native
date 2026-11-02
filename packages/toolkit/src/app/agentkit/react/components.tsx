@@ -5710,6 +5710,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                       : { title: feedbackCapability.reason })}
                     onPress={() => {
                       toggle?.();
+                      // raw-sql-ok: This submits a UI feedback rating, not SQL.
                       void rateResponse(value);
                     }}
                   />
@@ -5718,8 +5719,8 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                   <slots.feedbackNote
                     key={value}
                     threadId={threadId}
-                    runId={runId}
-                    messageSeq={messageSeq >= 0 ? messageSeq : undefined}
+                    {...(runId ? { runId } : {})}
+                    {...(messageSeq >= 0 ? { messageSeq } : {})}
                     renderTrigger={renderFeedbackButton}
                   />
                 ) : (
