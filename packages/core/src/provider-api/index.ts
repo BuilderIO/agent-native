@@ -104,6 +104,7 @@ export const PROVIDER_API_IDS = [
   "slack",
   "stripe",
   "twitter",
+  "zoom",
 ] as const;
 
 export type ProviderApiId = (typeof PROVIDER_API_IDS)[number];
@@ -492,6 +493,7 @@ export type ProviderApiCredentialResolver = (
 
 export interface ProviderApiRuntimeOptions {
   appId: string;
+  maxResponseBytes?: number;
   providerIds?: readonly (ProviderApiId | string)[];
   providerOverrides?: readonly ProviderApiConfig[];
   localCredentialSource?: string;
@@ -627,6 +629,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const MAX_MAX_BYTES = 4 * 1024 * 1024;
+const MAX_RUNTIME_RESPONSE_BYTES = 36 * 1024 * 1024;
 const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024;
 const FETCH_ALL_PAGES_MAX = 50;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -1844,6 +1847,28 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
   },
+  zoom: {
+    id: "zoom",
+    label: "Zoom",
+    defaultBaseUrl: "https://api.zoom.us/v2",
+    auth: {
+      type: "oauth-bearer",
+      oauthProvider: "zoom",
+      tokenLabel: "Zoom OAuth token",
+      workspaceProvider: "zoom",
+    },
+    credentialKeys: ["ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET"],
+    docsUrls: ["https://developers.zoom.us/docs/api/"],
+    templateUses: ["calendar"],
+    examples: [
+      {
+        label: "Create a meeting",
+        method: "POST",
+        path: "/users/me/meetings",
+        body: { topic: "Meeting", type: 2 },
+      },
+    ],
+  },
 };
 
 export function getProviderApiConfig(
@@ -2271,7 +2296,7 @@ export async function executeProviderApiRequest(
 
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
-    : clampMaxBytes(args.maxBytes);
+    : clampMaxBytes(args.maxBytes, runtime.maxResponseBytes);
   const quotaIdentity = createProviderQuotaIdentity({
     appId: runtimeOptionsAppId(runtime),
     providerId: config.id,
@@ -2316,6 +2341,7 @@ export async function executeProviderApiRequest(
         url: pageUrl.href,
         body: pageBody,
         headers,
+        maxBytes: effectiveMaxBytes,
       });
       const resp = applyBodyEnvelopeOutcome(
         await fetchWithTimeout(pageUrl.href, {
@@ -2323,6 +2349,7 @@ export async function executeProviderApiRequest(
           headers,
           body: pageBody,
           maxBytes: effectiveMaxBytes,
+          maxResponseBytes: effectiveMaxBytes,
           timeoutMs: clampTimeout(args.timeoutMs),
           signal: args.signal,
           secretValues: auth.secretValues,
@@ -2378,6 +2405,7 @@ export async function executeProviderApiRequest(
     url: url.href,
     body,
     headers,
+    maxBytes: effectiveMaxBytes,
   });
   const response = applyBodyEnvelopeOutcome(
     await fetchWithTimeout(url.href, {
@@ -2385,6 +2413,7 @@ export async function executeProviderApiRequest(
       headers,
       body,
       maxBytes: effectiveMaxBytes,
+      maxResponseBytes: effectiveMaxBytes,
       timeoutMs: clampTimeout(args.timeoutMs),
       signal: args.signal,
       secretValues: auth.secretValues,
@@ -3302,7 +3331,7 @@ async function executeCustomProviderApiRequest(
 
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
-    : clampMaxBytes(args.maxBytes);
+    : clampMaxBytes(args.maxBytes, runtime.maxResponseBytes);
   const quotaIdentity = createProviderQuotaIdentity({
     appId: runtimeOptionsAppId(runtime),
     providerId: customConfig.id,
@@ -3344,12 +3373,14 @@ async function executeCustomProviderApiRequest(
         url: pageUrl.href,
         body: pageBody,
         headers,
+        maxBytes: effectiveMaxBytes,
       });
       const resp = await fetchWithTimeout(pageUrl.href, {
         method,
         headers,
         body: pageBody,
         maxBytes: effectiveMaxBytes,
+        maxResponseBytes: effectiveMaxBytes,
         timeoutMs: clampTimeout(args.timeoutMs),
         signal: args.signal,
         secretValues: auth.secretValues,
@@ -3406,6 +3437,7 @@ async function executeCustomProviderApiRequest(
     headers,
     body,
     maxBytes: effectiveMaxBytes,
+    maxResponseBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     signal: args.signal,
     secretValues: auth.secretValues,
@@ -3418,6 +3450,7 @@ async function executeCustomProviderApiRequest(
         url: url.href,
         body,
         headers,
+        maxBytes: effectiveMaxBytes,
       }),
     },
   });
@@ -5338,6 +5371,9 @@ async function getValidOAuthAccessToken(options: {
   if (options.oauthProvider === "sigma") {
     return refreshSigmaOAuthToken(options);
   }
+  if (options.oauthProvider === "zoom") {
+    return refreshZoomOAuthToken(options, refreshToken);
+  }
   throw new Error(
     `${options.oauthProvider} OAuth token is expired and automatic refresh is not configured for provider-api.`,
   );
@@ -5579,6 +5615,63 @@ async function refreshNotionOAuthToken(
     options.oauthProvider,
     options.accountId,
     updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+async function refreshZoomOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const [clientId, clientSecret] = await Promise.all([
+    resolveSecret("ZOOM_CLIENT_ID"),
+    resolveSecret("ZOOM_CLIENT_SECRET"),
+  ]);
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET are required to refresh Zoom OAuth tokens.",
+    );
+  }
+  const { response, data } = await fetchBoundedOAuthRefreshJson<{
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  }>(
+    "https://zoom.us/oauth/token",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    },
+    "Zoom",
+  );
+  if (!response.ok || !data.access_token) {
+    throw new Error(`Zoom OAuth refresh failed (${response.status}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    token_type: data.token_type ?? "bearer",
+    expiry_date: Date.now() + (data.expires_in ?? 3600) * 1_000,
+    refresh_token: data.refresh_token ?? refreshToken,
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated,
     options.ownerEmail,
   );
   return data.access_token;
@@ -6301,6 +6394,7 @@ async function fetchWithTimeout(
     timeoutMs?: number;
     signal?: AbortSignal;
     maxBytes?: number;
+    maxResponseBytes?: number;
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
     discardRedirectBody?: boolean;
@@ -6327,6 +6421,7 @@ async function fetchWithTimeout(
       try {
         return await fetchProviderResponse(optionsUrl, fetchOptions, {
           maxBytes: options.maxBytes,
+          maxResponseBytes: options.maxResponseBytes,
           secretValues,
           discardRedirectBody: options.discardRedirectBody,
         });
@@ -6336,6 +6431,7 @@ async function fetchWithTimeout(
           delete fallbackOptions.dispatcher;
           return await fetchProviderResponse(optionsUrl, fallbackOptions, {
             maxBytes: options.maxBytes,
+            maxResponseBytes: options.maxResponseBytes,
             secretValues,
             discardRedirectBody: options.discardRedirectBody,
           });
@@ -6462,6 +6558,7 @@ async function fetchProviderResponse(
   fetchOptions: RequestInit & { dispatcher?: unknown },
   options: {
     maxBytes?: number;
+    maxResponseBytes?: number;
     secretValues: string[];
     discardRedirectBody?: boolean;
   },
@@ -6489,7 +6586,7 @@ async function fetchProviderResponse(
   }
   const rawText = await readResponseTextWithLimit(
     res,
-    clampMaxBytes(options.maxBytes),
+    clampMaxBytes(options.maxBytes, options.maxResponseBytes),
   );
   const redactedText = redactString(rawText.text, options.secretValues);
   const parsed = tryParseJson(redactedText);
@@ -6701,9 +6798,30 @@ function clampTimeout(timeoutMs: number | undefined): number {
   return Math.max(1_000, Math.min(MAX_TIMEOUT_MS, Math.floor(timeoutMs!)));
 }
 
-function clampMaxBytes(maxBytes: number | undefined): number {
-  if (!Number.isFinite(maxBytes)) return DEFAULT_MAX_BYTES;
-  return Math.max(1_000, Math.min(MAX_MAX_BYTES, Math.floor(maxBytes!)));
+function clampMaxBytes(
+  maxBytes: number | undefined,
+  runtimeMax?: number,
+): number {
+  if (typeof maxBytes !== "number" || !Number.isFinite(maxBytes)) {
+    return DEFAULT_MAX_BYTES;
+  }
+  return Math.max(
+    1_000,
+    Math.min(runtimeMaxBytesLimit(runtimeMax), Math.floor(maxBytes)),
+  );
+}
+
+// The runtime opt-in can raise the per-request cap above the default ceiling,
+// but never past the hard maximum, and never below the existing ceiling so
+// apps that set nothing keep their current behavior.
+function runtimeMaxBytesLimit(runtimeMax: number | undefined): number {
+  if (typeof runtimeMax !== "number" || !Number.isFinite(runtimeMax)) {
+    return MAX_MAX_BYTES;
+  }
+  return Math.max(
+    MAX_MAX_BYTES,
+    Math.min(MAX_RUNTIME_RESPONSE_BYTES, Math.floor(runtimeMax)),
+  );
 }
 
 function dotGet(obj: unknown, path: string): unknown {

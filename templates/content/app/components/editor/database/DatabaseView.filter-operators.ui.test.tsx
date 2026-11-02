@@ -143,11 +143,21 @@ function ruleActionsButton(control: HTMLElement) {
 }
 
 async function chooseMenuItem(text: string) {
-  const item = [
-    ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-  ].find((candidate) => candidate.textContent?.trim() === text);
-  expect(item, `menu item "${text}"`).toBeDefined();
-  await click(item!);
+  const item = await vi.waitFor(() => {
+    const item = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((candidate) => candidate.textContent.trim() === text);
+    const operatorTrigger = [
+      ...document.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((candidate) => candidate.textContent.trim() === "is within");
+    expect(
+      item,
+      `menu item "${text}" (lang=${document.documentElement.lang || "unset"}; menu=${JSON.stringify(menuItems())}; is-within-expanded=${operatorTrigger?.getAttribute("aria-expanded") ?? "missing"})`,
+    ).toBeDefined();
+    if (!item) throw new Error(`menu item "${text}" was not found`);
+    return item;
+  });
+  await click(item);
 }
 
 describe("filter chips", () => {

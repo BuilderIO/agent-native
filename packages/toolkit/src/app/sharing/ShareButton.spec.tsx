@@ -858,6 +858,34 @@ describe("ShareButton", () => {
     expect(refetchShares.mock.calls.length).toBe(refetchesBefore + 1);
   });
 
+  it("hides cached permission details when a shares refresh fails", async () => {
+    sharesError.current = true;
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      role: "owner",
+      shares: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="plan"
+            resourceId="plan-1"
+            defaultOpen
+            shareUrl="https://plan.agent-native.com/plans/plan-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Couldn't load sharing settings.");
+    expect(container.textContent).not.toContain("People with access");
+    expect(container.textContent).not.toContain("General access");
+  });
+
   it("renders one Copy link button labeled for its link without printing the URL", async () => {
     await act(async () => {
       root.render(
@@ -1916,6 +1944,31 @@ describe("ShareButton", () => {
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
+  });
+
+  it("lets a host put general access before people", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="deck"
+              resourceId="deck-1"
+              defaultOpen
+              peopleFirst={false}
+            />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    const sections = Array.from(
+      container.querySelectorAll<HTMLElement>("section"),
+    );
+    expect(sections.map((section) => section.firstChild?.textContent)).toEqual([
+      "General access",
+      "People with access",
+    ]);
   });
 
   it("keeps quick copy separate from the popover's Copy link", async () => {

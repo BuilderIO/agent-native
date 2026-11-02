@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "846464a06a2efbf9016d4477dce7060c9be433a4",
+    "syncCommit": "3969101c825261c822cd5cfc04432e26e9eade83",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -218,7 +218,7 @@
       {
         "file": "packages/core/src/agent/production-agent.ts",
         "name": "invokeAction",
-        "sha256": "bfc83261e844b305d3be51f0fd85368f593aeb43091805e1811e12a616c9f45a"
+        "sha256": "4e89b91618e6b75922f3c8c41509df7da513fbbfe44637ca7f018ebb1faa419c"
       },
       {
         "file": "packages/core/src/jobs/background-automation-runner.ts",
@@ -229,7 +229,7 @@
         "file": "packages/core/src/agent/production-agent.ts",
         "from": "const executionFence = currentExecutionFence();",
         "to": "? await beginAgentExecutionStep(executionStepIntent)",
-        "sha256": "2523a512cffb1241265ea26195a5765c5bbe3410350558820db39acc437f3582"
+        "sha256": "722719d97a719872440fff57e363908af787bd188d86f2f236bc79e3290859f1"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",
@@ -255,7 +255,7 @@
         "file": "packages/core/src/agent/production-agent.ts",
         "from": "const registeredEntry = actions[toolCall.name];",
         "to": "? actionCallIsRetrySafe(actionEntry, preparedCallArguments(intent))",
-        "sha256": "d45778170ba2bf2402b50f9d1078b5a380c65d3e939607594fcc3e46d34fa251"
+        "sha256": "47ab5fa8d9f39cf81f13ccdccb710c6bbd29e6af2234f3f97ee1bd5025235d64"
       },
       {
         "file": "packages/core/src/agent/production-agent.ts",
