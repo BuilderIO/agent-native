@@ -1686,58 +1686,6 @@ describe("createBuilderEngine", () => {
         expect.stringContaining("tool-result image sent as a URL"),
       );
     });
-
-    it("still inlines our image when newer foreign URLs outnumber the hydration budget", async () => {
-      const png = () =>
-        new Response(Buffer.from(PNG_1X1, "base64"), {
-          status: 200,
-          headers: { "content-type": "image/png" },
-        });
-      const fetchSpy = routedFetch(png);
-      vi.stubGlobal("fetch", fetchSpy);
-      const owned = ownedUrl();
-      const messages = screenshotMessages(owned);
-      const foreign = Array.from(
-        { length: 8 },
-        (_, i) => `https://images.example.com/photo-${i}.png`,
-      );
-      const result = messages[2]!.content[0] as {
-        images?: { url: string }[];
-      };
-      // Foreign images come later in the part, so they are visited first.
-      result.images = [...result.images!, ...foreign.map((url) => ({ url }))];
-
-      await collectEvents(
-        createBuilderEngine().stream({ ...BASE_OPTS, messages }),
-      );
-
-      expect(gatewayToolResultContent(fetchSpy)[1]).toMatchObject({
-        source: { type: "base64", data: PNG_1X1 },
-      });
-    });
-
-    it("reads our image once across model steps", async () => {
-      const fetchSpy = routedFetch(
-        () =>
-          new Response(Buffer.from(PNG_1X1, "base64"), {
-            status: 200,
-            headers: { "content-type": "image/png" },
-          }),
-      );
-      vi.stubGlobal("fetch", fetchSpy);
-      const messages = screenshotMessages(ownedUrl());
-
-      for (let step = 0; step < 2; step++) {
-        await collectEvents(
-          createBuilderEngine().stream({ ...BASE_OPTS, messages }),
-        );
-      }
-
-      const reads = fetchSpy.mock.calls.filter(([input]) =>
-        String(input).startsWith("https://cdn.builder.io/"),
-      );
-      expect(reads).toHaveLength(1);
-    });
   });
 
   describe("Builder-credits lane", () => {

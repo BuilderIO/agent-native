@@ -80,11 +80,9 @@ export async function inlineOwnedToolResultImages(
   messages: EngineMessage[],
 ): Promise<EngineMessage[]> {
   const urls: string[] = [];
-  for (let m = messages.length - 1; m >= 0; m--) {
-    const content = messages[m]?.content ?? [];
-    for (let p = content.length - 1; p >= 0; p--) {
-      const part = content[p];
-      if (part?.type !== "tool-result" || part.isError || !part.images) {
+  for (const message of [...messages].reverse()) {
+    for (const part of [...message.content].reverse()) {
+      if (part.type !== "tool-result" || part.isError || !part.images) {
         continue;
       }
       for (const image of part.images) {
@@ -96,14 +94,18 @@ export async function inlineOwnedToolResultImages(
   }
   if (urls.length === 0) return messages;
 
-  const budget = createOwnedAttachmentHydrationBudget();
+  // Cache hits cost no hydration slot, so take them all before the budget can
+  // end the loop; otherwise an exhausted budget strands older cached images.
   const inlined = new Map<string, InlineImage>();
+  const uncached: string[] = [];
   for (const url of urls) {
     const cached = getCachedInlineImage(url);
-    if (cached) {
-      inlined.set(url, cached);
-      continue;
-    }
+    if (cached) inlined.set(url, cached);
+    else uncached.push(url);
+  }
+
+  const budget = createOwnedAttachmentHydrationBudget();
+  for (const url of uncached) {
     if (!claimOwnedAttachmentHydrationCandidate(budget)) break;
     const image = await readOwnedImage(url, budget);
     if (image) {
