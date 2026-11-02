@@ -213,9 +213,13 @@ export async function foldReapedRunIntoThread(
           // A reply by another turn at the tail means this turn's prompt never
           // reached the thread, and a stopped run cannot save it later. Only a
           // newer prompt still waiting for its run row can resolve by retrying.
+          const tailReplyTurnId =
+            last?.role === "assistant"
+              ? last.metadata?.custom?.turnId
+              : undefined;
           const tailIsOtherTurnReply =
-            last?.role === "assistant" &&
-            last.metadata?.custom?.turnId !== run.turnId;
+            typeof tailReplyTurnId === "string" &&
+            tailReplyTurnId !== run.turnId;
           if (!ownsPrompt && !isRefusedNewerTurn && !tailIsOtherTurnReply) {
             rejectedDisposition = "retry";
           }
