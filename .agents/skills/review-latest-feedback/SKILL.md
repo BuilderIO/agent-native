@@ -145,11 +145,9 @@ Real replies that missed, and what to send instead:
   thread's work in flight, and pushing to it lands unreviewed commits under his
   name. Never touch any other PR unless the invocation names that exact PR and
   action. That holds inside `/ship` too: its "Your PRs" means this run's PR.
-- **One run, one PR.** Every sweep PR is authored by Steve's login, so the
-  author check can't tell runs apart: an
-  open PR with a `Reports` section that this run didn't open belongs to
-  another run that may still be working on it. Don't push to, reply on, or
-  merge it; list it under "Still open from earlier runs".
+- **One run, one PR.** An open PR with a `Reports` section that this run
+  didn't open belongs to another run that may still be working on it. Don't
+  push to, reply on, or merge it; list it under "Still open from earlier runs".
 - **Goals end with the run.** If you set a Codex goal, scope it to this run:
   name its PR once you have one, and end it after step 6 ("merge PR #N,
   close its Reports, append the recap"). Never set an open-ended goal such as
@@ -204,14 +202,10 @@ no reaction and no thread yet.
 - **Open items first.** Verify Steve's 👀 on the root and workflow ownership
   from a matching run recap, proof-bearing PR, or automation memory claim.
   A bot reply, reaction, or memory entry alone is insufficient. Investigate
-  before replying, and read the thread for human updates. A root
-  listed in the `Reports` section of a sweep
-  PR that is still open and that this run didn't open belongs to the run
-  working on that PR: don't react
-  or reply there, and leave it out of your self-check; just list it under
-  "Still open from earlier runs". If that PR has had no push in 24 hours,
-  its run has stopped: its reports are yours again. Of the remaining
-  workflow roots, those without ✅ or 🎫 come first in this run. A newer
+  before replying, and read the thread for human updates. Leave roots listed
+  in another run's open PR's `Reports` out of your self-check; if that PR has
+  had no push in 24 hours, its run has stopped and its reports are yours
+  again. Of the remaining workflow roots, those without ✅ or 🎫 come first in this run. A newer
   human reply is context, not by itself a reason to respond: investigate the
   claimed report and leave conversations already handled by people alone. A
   root with 🎫 and our reply after its latest human message is already answered: you may still fix it, but post nothing there
@@ -267,10 +261,8 @@ so they appear only in the recap.
 
 Claim Fix reports in order of people affected. Unfinished claims stay in
 "Claimed reports" for the next run. Any Fix, Build, or Needs-a-person root you leave
-unclaimed gets no reaction, only one line in the recap saying why, so
-nothing is dropped silently. That covers every candidate your source helpers
-return: each one ends the run either claimed or on a recap line with its
-reason.
+unclaimed gets no reaction, only one line in the recap saying why. Every
+candidate your source helpers return ends the run claimed or on a recap line.
 
 In scheduled and manual runs, record each root (channel and ts) under "Claimed
 reports" in the feedback automation's `memory.md`, then add and verify 👀
@@ -448,7 +440,6 @@ Sources unavailable: <list or "none">
 Lesson (optional): <one line>
 ```
 
-"Fixed and merged" is this run's PR only; reports you closed out for an
-earlier run's merged PR go under "Closed out from earlier runs".
+"Fixed and merged" is this run's PR only.
 
 In an automation, append the same recap to its `memory.md`.
