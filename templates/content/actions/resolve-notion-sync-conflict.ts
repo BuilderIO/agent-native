@@ -26,6 +26,6 @@ export default defineAction({
       await assertAgentsMayEditPagesText(getDb(), [documentId], ctx);
     }
     await flushNotionDocumentEditor(documentId, owner);
-    return resolveDocumentSyncConflict(owner, documentId, args.direction);
+    return resolveDocumentSyncConflict(owner, documentId, args.direction, ctx);
   },
 });

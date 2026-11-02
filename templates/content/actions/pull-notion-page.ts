@@ -24,7 +24,9 @@ export default defineAction({
     // An agent can't pull Notion's text into a locked page. A person's pull still lands.
     await assertAgentsMayEditPagesText(getDb(), [documentId], ctx);
     await flushNotionDocumentEditor(documentId, owner);
-    const result = await pullDocumentFromNotion(owner, documentId, true);
+    const result = await pullDocumentFromNotion(owner, documentId, true, {
+      ctx,
+    });
     track(
       "notion_synced",
       {

@@ -4,7 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 
-type CallProvenance = Pick<
+export type CallProvenance = Pick<
   ActionRunContext,
   "caller" | "networkProtocol" | "automation" | "requestHeaders"
 >;
@@ -24,6 +24,17 @@ export function keepAgentCallProvenance<Ctx extends CallProvenance>(
 ): Ctx {
   if (isAgentCall(original)) relabeledAgentCalls.add(relabeled);
   return relabeled;
+}
+
+/**
+ * For a save the server runs on a caller's behalf and that has to keep the
+ * server's path: the lock still sees who started it. A person's stays
+ * context-free.
+ */
+export function serverSaveContext(original: CallProvenance | undefined) {
+  return isAgentCall(original)
+    ? keepAgentCallProvenance({} as ActionRunContext, original)
+    : undefined;
 }
 
 /**
@@ -69,6 +80,15 @@ export function assertAgentsMayEditPageText(
   throw new ActionContractError(
     "A person has locked the text of this page against agents. Comment on it, or propose the change with suggest-document-edit for a person to accept.",
     { errorCode: "AGENT_TEXT_LOCKED", statusCode: 403 },
+  );
+}
+
+export function isAgentTextLockRefusal(
+  error: unknown,
+): error is ActionContractError {
+  return (
+    error instanceof ActionContractError &&
+    error.errorCode === "AGENT_TEXT_LOCKED"
   );
 }
 

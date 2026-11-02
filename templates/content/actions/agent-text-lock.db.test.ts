@@ -6,13 +6,64 @@ import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
+import { runAsRouteCaller } from "../server/lib/agent-lock-route.js";
 import { serializeContentSourceDocument } from "../shared/content-source.js";
 import {
   isAgentCall,
   keepAgentCallProvenance,
+  serverSaveContext,
 } from "./_document-agent-lock.js";
+
+const beforeRowLock = vi.hoisted(() => ({
+  run: null as null | ((tx: unknown) => Promise<unknown>),
+}));
+
+vi.mock("../server/lib/document-body-revision.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../server/lib/document-body-revision.js")
+    >();
+  return {
+    ...actual,
+    lockLegacyBodyWrites: async (
+      ...args: Parameters<typeof actual.lockLegacyBodyWrites>
+    ) => {
+      const run = beforeRowLock.run;
+      beforeRowLock.run = null;
+      await run?.(args[0]);
+      return actual.lockLegacyBodyWrites(...args);
+    },
+  };
+});
+
+const notion = vi.hoisted(() => ({
+  getConnection: vi.fn(),
+  requireConnection: vi.fn(),
+  fetchPage: vi.fn(),
+  readPage: vi.fn(),
+  pushPage: vi.fn(),
+  owner: vi.fn(),
+}));
+
+vi.mock("../server/lib/notion.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/lib/notion.js")>()),
+  getNotionConnectionForOwner: notion.getConnection,
+  requireNotionConnectionForOwner: notion.requireConnection,
+  fetchNotionPage: notion.fetchPage,
+  readNotionPageAsDocument: notion.readPage,
+  pushDocumentToNotionPage: notion.pushPage,
+  getDocumentOwnerEmail: notion.owner,
+}));
 
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   ...(await importOriginal<
@@ -70,6 +121,10 @@ let syncManifestFolder: typeof import("./sync-manifest-local-folder-source.js").
 let resolveFolderConflict: typeof import("./resolve-local-folder-conflict.js").default;
 let pullNotion: typeof import("./pull-notion-page.js").default;
 let resolveNotionConflict: typeof import("./resolve-notion-sync-conflict.js").default;
+let linkNotion: typeof import("./link-notion-page.js").default;
+let createAndLinkNotion: typeof import("./create-and-link-notion-page.js").default;
+let refreshNotion: typeof import("./refresh-notion-sync-status.js").default;
+let pushNotion: typeof import("./push-notion-page.js").default;
 let rewriteLiveCopy: typeof import("../server/live-copy/write.js").rewriteContentLiveCopyBody;
 let liveCopyPage: typeof import("../server/test-support/live-copy-page.js");
 
@@ -127,6 +182,11 @@ beforeAll(async () => {
   pullNotion = (await import("./pull-notion-page.js")).default;
   resolveNotionConflict = (await import("./resolve-notion-sync-conflict.js"))
     .default;
+  linkNotion = (await import("./link-notion-page.js")).default;
+  createAndLinkNotion = (await import("./create-and-link-notion-page.js"))
+    .default;
+  refreshNotion = (await import("./refresh-notion-sync-status.js")).default;
+  pushNotion = (await import("./push-notion-page.js")).default;
   rewriteLiveCopy = (await import("../server/live-copy/write.js"))
     .rewriteContentLiveCopyBody;
   liveCopyPage = await import("../server/test-support/live-copy-page.js");
@@ -307,6 +367,28 @@ describe("who counts as an agent", () => {
     expect(isAgentCall(keepAgentCallProvenance(relabeled, agent))).toBe(true);
     const personal = { ...person };
     expect(isAgentCall(keepAgentCallProvenance(personal, person))).toBe(false);
+  });
+
+  it("treats a token on a plain route as an agent, unlike a cookie or an embedded session", async () => {
+    const route = (headers: Record<string, string>) =>
+      runAsRouteCaller({ headers: new Headers(headers) }, async (ctx) =>
+        isAgentCall(ctx),
+      );
+    expect(await route({ authorization: "Bearer token" })).toBe(true);
+    expect(await route({ cookie: "session=1" })).toBe(false);
+    expect(
+      await route({
+        authorization: "Bearer token",
+        "x-agent-native-embed-target": "chat",
+      }),
+    ).toBe(false);
+  });
+
+  it("marks a server save only when an agent started it", () => {
+    expect(isAgentCall(serverSaveContext(agent))).toBe(true);
+    expect(isAgentCall(serverSaveContext(ownAgent))).toBe(true);
+    expect(serverSaveContext(person)).toBeUndefined();
+    expect(serverSaveContext(undefined)).toBeUndefined();
   });
 
   it("doesn't count a person typing in a chat widget", () => {
@@ -1474,6 +1556,290 @@ describe("an agent's call that reaches a locked page another way", () => {
         expect(result.errorCode).not.toBe("AGENT_TEXT_LOCKED");
       }
       expect((await readPage(page.id)).content).toContain("Keep this");
+    });
+  });
+});
+
+describe("a lock turned on just before a write takes the page's row", () => {
+  const lockInTransaction = (id: string) => (tx: unknown) =>
+    (tx as ReturnType<typeof getDb>)
+      .update(schema.documents)
+      .set({ agentTextLocked: 1 })
+      .where(eq(schema.documents.id, id));
+
+  it("stops an agent's edit, and a person's lands", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Some text");
+      const edit = (idempotencyKey: string) => ({
+        id: page.id,
+        baseRevision: page.revision,
+        idempotencyKey,
+        find: "Some",
+        replace: "Changed",
+      });
+
+      beforeRowLock.run = lockInTransaction(page.id);
+      await expect(
+        editDocument.run(edit("raced-agent-edit"), agent),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).toBe(page.content);
+
+      beforeRowLock.run = lockInTransaction(page.id);
+      await editDocument.run(edit("raced-person-edit"), person);
+      expect((await readPage(page.id)).content).toContain("Changed text");
+    });
+  });
+});
+
+describe("a save the server runs on an agent's behalf", () => {
+  const image = "https://example.com/diagram.png";
+  const altText = (documentId: string) => ({
+    documentId,
+    imageUrl: image,
+    altText: "New",
+  });
+  const transcript = (documentId: string, ctx: typeof agent | typeof person) =>
+    applyTranscript({
+      documentId,
+      mediaUrl: "https://example.com/talk.mp4",
+      mediaType: "video",
+      placeholderText: "Transcript placeholder",
+      transcript: "The transcript",
+      ctx,
+    });
+
+  it("still lands on an unlocked page", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage(`![Old](${image})`);
+      await setImageAlt.run(altText(page.id), agent);
+      expect((await readPage(page.id)).content).toContain("![New]");
+
+      const other = await unlockedPage("Transcript placeholder");
+      await transcript(other.id, agent);
+      expect((await readPage(other.id)).content).toContain("The transcript");
+    });
+  });
+
+  it("stops alt text when the lock lands after its first check, and keeps a person's", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage(`![Old](${image})`);
+      await expect(
+        lockedAsTransactionOpens(page.id, () =>
+          setImageAlt.run(altText(page.id), agent),
+        ),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).toBe(page.content);
+
+      const other = await unlockedPage(`![Old](${image})`);
+      await lockedAsTransactionOpens(other.id, () =>
+        setImageAlt.run(altText(other.id), person),
+      );
+      expect((await readPage(other.id)).content).toContain("![New]");
+    });
+  });
+
+  it("stops a transcript when the lock lands after its first check, and keeps a person's", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Transcript placeholder");
+      await expect(
+        lockedAsTransactionOpens(page.id, () => transcript(page.id, agent)),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).toBe(page.content);
+
+      const other = await unlockedPage("Transcript placeholder");
+      await lockedAsTransactionOpens(other.id, () =>
+        transcript(other.id, person),
+      );
+      expect((await readPage(other.id)).content).toContain("The transcript");
+    });
+  });
+});
+
+describe("Notion's text reaching a locked page", () => {
+  const OLD_TIME = "2026-11-01T12:00:00.000Z";
+  const NEW_TIME = "2026-11-02T12:00:00.000Z";
+  const remoteId = (digit: string) => digit.repeat(32);
+  const remote = (content: string, title = "Notion title") => ({
+    title,
+    content,
+    icon: null,
+    lastEditedTime: NEW_TIME,
+    warnings: [],
+  });
+  const linkToNotion = (
+    page: { id: string; updatedAt: string },
+    remotePageId: string,
+  ) =>
+    getDb().insert(schema.documentSyncLinks).values({
+      documentId: page.id,
+      ownerEmail: OWNER,
+      remotePageId,
+      state: "linked",
+      lastSyncedAt: OLD_TIME,
+      lastPulledRemoteUpdatedAt: OLD_TIME,
+      lastPushedLocalUpdatedAt: page.updatedAt,
+      lastKnownRemoteUpdatedAt: OLD_TIME,
+      hasConflict: 0,
+      warningsJson: "[]",
+    });
+  const readLink = async (id: string) => {
+    const [link] = await getDb()
+      .select()
+      .from(schema.documentSyncLinks)
+      .where(eq(schema.documentSyncLinks.documentId, id));
+    return link;
+  };
+  const lockThenAnswer = (id: string, content: string) => async () => {
+    await setLock.run({ id, locked: true }, person);
+    return remote(content);
+  };
+
+  beforeEach(() => {
+    for (const mock of Object.values(notion)) mock.mockReset();
+    notion.getConnection.mockResolvedValue({ accessToken: "token" });
+    notion.requireConnection.mockResolvedValue({ accessToken: "token" });
+    notion.fetchPage.mockImplementation(async (_token: string, id: string) => ({
+      id,
+      last_edited_time: NEW_TIME,
+    }));
+    notion.readPage.mockResolvedValue(remote("Notion text"));
+    notion.owner.mockResolvedValue(OWNER);
+  });
+
+  it("stops an agent's pull when the lock lands while Notion answers, and keeps a person's", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Local text");
+      await linkToNotion(page, remoteId("a"));
+
+      notion.readPage.mockImplementationOnce(
+        lockThenAnswer(page.id, "Notion text"),
+      );
+      await expect(
+        pullNotion.run({ documentId: page.id }, agent),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).toBe(page.content);
+
+      await pullNotion.run({ documentId: page.id }, person);
+      expect((await readPage(page.id)).content).toContain("Notion text");
+    });
+  });
+
+  it("pulls an agent's parent page, and leaves a locked linked child with an error on its link", async () => {
+    await asOwner(async () => {
+      const parent = await unlockedPage("Parent text");
+      const child = await lockedPage("Child text");
+      await linkToNotion(parent, remoteId("b"));
+      await linkToNotion(child, remoteId("c"));
+      notion.readPage.mockImplementation(async (_token: string, id: string) =>
+        id === remoteId("b")
+          ? remote(
+              `Parent from Notion\n\n<page url="https://www.notion.so/${remoteId("c")}">Child</page>`,
+              "Parent",
+            )
+          : remote("Child from Notion", "Child"),
+      );
+
+      await pullNotion.run({ documentId: parent.id }, agent);
+
+      expect((await readPage(parent.id)).content).toContain(
+        "Parent from Notion",
+      );
+      expect((await readPage(child.id)).content).toBe(child.content);
+      const link = await readLink(child.id);
+      expect(link.state).toBe("error");
+      expect(link.lastError).toContain("locked");
+    });
+  });
+
+  it("refuses an agent linking a locked page before anything changes", async () => {
+    await asOwner(async () => {
+      const page = await lockedPage("Keep this");
+      await expect(
+        linkNotion.run({ documentId: page.id, pageId: remoteId("d") }, agent),
+      ).rejects.toMatchObject(locked);
+      await expect(
+        createAndLinkNotion.run({ documentId: page.id }, agent),
+      ).rejects.toMatchObject(locked);
+      expect(notion.fetchPage).not.toHaveBeenCalled();
+      expect(await readLink(page.id)).toBeUndefined();
+      expect((await readPage(page.id)).content).toBe(page.content);
+    });
+  });
+
+  it("puts back the old link when a lock lands during an agent's link", async () => {
+    await asOwner(async () => {
+      const page = await unlockedPage("Keep this");
+      await linkToNotion(page, remoteId("e"));
+      notion.readPage.mockImplementationOnce(
+        lockThenAnswer(page.id, "Notion text"),
+      );
+
+      await expect(
+        linkNotion.run({ documentId: page.id, pageId: remoteId("f") }, agent),
+      ).rejects.toMatchObject(locked);
+
+      expect((await readLink(page.id)).remotePageId).toBe(remoteId("e"));
+      expect((await readPage(page.id)).content).toBe(page.content);
+    });
+  });
+
+  it("refuses an agent's auto-sync pull into a locked page, not a person's", async () => {
+    await asOwner(async () => {
+      const page = await lockedPage("Keep this");
+      await linkToNotion(page, remoteId("1"));
+      await expect(
+        refreshNotion.run({ documentId: page.id, autoSync: true }, agent),
+      ).rejects.toMatchObject(locked);
+      expect((await readPage(page.id)).content).toBe(page.content);
+
+      const other = await lockedPage("Keep this");
+      await linkToNotion(other, remoteId("2"));
+      await refreshNotion.run({ documentId: other.id, autoSync: true }, person);
+      expect((await readPage(other.id)).content).toContain("Notion text");
+    });
+  });
+
+  it("lets an agent push a locked page, which keeps its text when Notion tidies it", async () => {
+    await asOwner(async () => {
+      const page = await lockedPage("Keep this");
+      await linkToNotion(page, remoteId("3"));
+      notion.fetchPage.mockResolvedValue({
+        id: remoteId("3"),
+        last_edited_time: OLD_TIME,
+      });
+      notion.pushPage.mockResolvedValue(remote("Notion's tidied text"));
+
+      await pushNotion.run({ documentId: page.id }, agent);
+      expect(notion.pushPage).toHaveBeenCalledTimes(1);
+      expect((await readPage(page.id)).content).toBe(page.content);
+
+      await pushNotion.run({ documentId: page.id }, person);
+      expect((await readPage(page.id)).content).toContain("tidied");
+    });
+  });
+
+  it("counts a token on a plain Notion route as an agent, and a browser's cookie as a person", async () => {
+    await asOwner(async () => {
+      const route = (
+        await import("../server/routes/api/documents/[id]/notion/pull.post.js")
+      ).default as unknown as (event: unknown) => Promise<unknown>;
+      const request = (id: string, headers: Record<string, string>) => ({
+        context: { params: { id } },
+        headers: new Headers(headers),
+      });
+      const page = await lockedPage("Keep this");
+      await linkToNotion(page, remoteId("4"));
+
+      await expect(
+        route(request(page.id, { authorization: "Bearer token" })),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        data: { errorCode: "AGENT_TEXT_LOCKED" },
+      });
+      expect((await readPage(page.id)).content).toBe(page.content);
+
+      await route(request(page.id, { cookie: "session=1" }));
+      expect((await readPage(page.id)).content).toContain("Notion text");
     });
   });
 });

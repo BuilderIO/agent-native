@@ -449,17 +449,13 @@ export async function runMigration(
           createdAt: now,
           updatedAt: now,
         });
-        await assertAgentsMayEditPagesText(
-          tx as unknown as ReturnType<typeof getDb>,
-          args.plan.rows.map((row) => row.documentId),
-          ctx,
-        );
         const rollback = await applyMigration(
           tx,
           args.plan,
           snapshot,
           receiptId,
           now,
+          ctx,
         );
         const current = await snapshotMigration(tx, args.plan.databaseId);
         const postDigest = snapshotDigest(current);
@@ -712,11 +708,6 @@ export async function runMigration(
           versionId: string;
           appliedUpdatedAt: string;
         }> = rollback.versions ?? [];
-        await assertAgentsMayEditPagesText(
-          tx as unknown as ReturnType<typeof getDb>,
-          priors.map((prior) => prior.documentId),
-          ctx,
-        );
         const versions = new Map<
           string,
           typeof schema.documentVersions.$inferSelect
@@ -741,6 +732,12 @@ export async function runMigration(
               ]),
             ),
           },
+        );
+        // Under the row locks, which a person's switch has to wait for.
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          priors.map((prior) => prior.documentId),
+          ctx,
         );
         for (const prior of priors) {
           const version = versions.get(prior.versionId)!;

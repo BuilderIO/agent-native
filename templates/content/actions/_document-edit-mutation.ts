@@ -57,7 +57,10 @@ import {
   boundedContentSaveReason,
   recordContentSaveOutcome,
 } from "./_content-save-outcomes.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
+import {
+  assertAgentsMayEditPagesText,
+  assertAgentsMayEditPageText,
+} from "./_document-agent-lock.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -628,6 +631,12 @@ async function performDocumentBodyMutation(
           routed: true,
           content: null,
         });
+        // Under the row lock, which a person's switch has to wait for.
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          [args.documentId],
+          args.ctx,
+        );
         const updated = await tx
           .update(schema.documents)
           .set({

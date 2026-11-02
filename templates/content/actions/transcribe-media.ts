@@ -21,7 +21,10 @@ import { z } from "zod";
 
 import "../server/db/index.js";
 import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
+import {
+  assertAgentsMayEditPageText,
+  serverSaveContext,
+} from "./_document-agent-lock.js";
 import {
   assertAudioHasAudibleSignal,
   prepareAudioOnlyTranscriptionMedia,
@@ -409,7 +412,10 @@ export async function applyTranscriptToDocument({
       candidate: nextContent,
     });
     if (wroteLiveCopy) return { sqlUpdated: true, collabUpdated: true };
-    await updateDocument.run({ id: documentId, content: nextContent });
+    await updateDocument.run(
+      { id: documentId, content: nextContent },
+      serverSaveContext(ctx),
+    );
     return { sqlUpdated: true, collabUpdated: false };
   }
 

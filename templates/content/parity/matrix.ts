@@ -534,7 +534,7 @@ export const parityMatrix: ParityRow[] = [
     label: "Lock a page's text against agents",
     uiEntrypoints: ["app/components/editor/DocumentToolbar.tsx"],
     durableEffect:
-      "The lock is stored on the document, and every action that writes a page's text refuses an agent's call while it is on.",
+      "The lock is stored on the document, and every action that writes a page's text refuses an agent's call while it is on. The exceptions are a GitHub folder sync and a Builder doc pull an agent starts: pages following a GitHub file are view-only in Content anyway, and neither names one page.",
     uiImplementation:
       "The Share panel's switch calls the set-document-agent-text-lock Action.",
     status: "action-backed",

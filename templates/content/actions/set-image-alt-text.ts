@@ -4,7 +4,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
-import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
+import {
+  assertAgentsMayEditPageText,
+  serverSaveContext,
+} from "./_document-agent-lock.js";
 import updateDocument from "./update-document.js";
 
 function escapeRegExp(value: string): string {
@@ -142,7 +145,10 @@ export default defineAction({
       candidate: nextContent,
     });
     if (!wroteLiveCopy) {
-      await updateDocument.run({ id: documentId, content: nextContent });
+      await updateDocument.run(
+        { id: documentId, content: nextContent },
+        serverSaveContext(ctx),
+      );
     }
 
     return {
