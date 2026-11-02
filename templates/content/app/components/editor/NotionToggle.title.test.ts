@@ -180,6 +180,21 @@ describe("a Toggle's title as page text", () => {
     expect($from.parentOffset).toBe(0);
   });
 
+  it("follows a closed heading Toggle with a paragraph on Enter", () => {
+    const heading = titled("Title", false, [paragraph("Body")]);
+    heading.attrs = { ...(heading.attrs as object), headingLevel: 1 };
+    const editor = createEditor([heading]);
+    editor.commands.setTextSelection(4);
+    press(editor, { key: "Enter" });
+
+    const shortened = titled("Ti", false, [paragraph("Body")]);
+    shortened.attrs = { ...(shortened.attrs as object), headingLevel: 1 };
+    expect(editor.getJSON().content).toEqual([shortened, paragraph("tle")]);
+    const { $from } = editor.state.selection;
+    expect($from.parent.type.name).toBe("paragraph");
+    expect($from.parentOffset).toBe(0);
+  });
+
   it("turns an empty Toggle into a paragraph on Enter", () => {
     const editor = createEditor([titled("", true)]);
     editor.commands.setTextSelection(2);

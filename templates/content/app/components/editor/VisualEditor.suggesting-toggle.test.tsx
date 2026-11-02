@@ -72,7 +72,7 @@ describe("Toggles while suggesting", () => {
     vi.unstubAllGlobals();
   });
 
-  async function mount(suggesting: boolean) {
+  async function mount(suggesting: boolean, editable = true) {
     await act(async () =>
       root.render(
         createElement(
@@ -88,7 +88,7 @@ describe("Toggles while suggesting", () => {
                 content: PAGE,
                 onChange: vi.fn(),
                 ydoc: null,
-                editable: true,
+                editable,
                 suggesting,
               }),
             ),
@@ -140,6 +140,30 @@ describe("Toggles while suggesting", () => {
     expect(bodyCollapsed()).toBe(true);
     expect(storedOpen(editor)).toBe(false);
   });
+
+  it.each([
+    { who: "someone editing", suggesting: false, editable: true, drags: true },
+    {
+      who: "someone suggesting",
+      suggesting: true,
+      editable: true,
+      drags: false,
+    },
+    {
+      who: "someone who can't edit",
+      suggesting: false,
+      editable: false,
+      drags: false,
+    },
+  ])(
+    "lets $who select a Toggle's text unless they can drag it",
+    async ({ suggesting, editable, drags }) => {
+      await mount(suggesting, editable);
+      const toggle = container.querySelector(".content-toggle");
+      expect(toggle?.getAttribute("draggable")).toBe(drags ? "true" : null);
+      expect(toggle?.hasAttribute("data-drag-handle")).toBe(drags);
+    },
+  );
 
   it("stores the open state outside suggesting", async () => {
     const editor = await mount(false);
