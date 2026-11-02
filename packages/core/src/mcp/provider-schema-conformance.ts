@@ -6,7 +6,11 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport, type Tool } from "@modelcontextprotocol/server";
 import Ajv2020 from "ajv/dist/2020.js";
 
-import type { ActionEntry } from "../agent/production-agent.js";
+import { engineToolsToAnthropic } from "../agent/engine/translate-anthropic.js";
+import {
+  actionsToEngineTools,
+  type ActionEntry,
+} from "../agent/production-agent.js";
 import {
   isJsonSchemaObject,
   walkSubschemas,
@@ -561,6 +565,38 @@ export interface TemplateMcpConformance {
   actions: Record<string, ActionEntry>;
   modes: McpCatalogMode[];
   listCatalog(mode: McpCatalogMode): Promise<Tool[]>;
+  /** The template's tools as the in-app agent sends them to the gateway. */
+  listAgentTools(): AgentToolSchema[];
+}
+
+export interface AgentToolSchema {
+  name: string;
+  inputSchema: unknown;
+}
+
+/**
+ * The providers the in-app agent's tool schemas are held to. The in-app path
+ * does not apply MCP's Gemini-only rewrites (`maxItems`, string `const`), so
+ * add `gemini` here once it does, not before.
+ */
+export const AGENT_PATH_PROVIDERS = [
+  "anthropic",
+  "openai",
+] as const satisfies readonly SchemaProvider[];
+
+/**
+ * Tool schemas as the in-app agent offers them: through `actionsToEngineTools`
+ * and the gateway's Anthropic translation, not MCP's `tools/list`. The two
+ * paths normalize differently, so a schema MCP advertises safely can still
+ * break an in-app request.
+ */
+export function listAgentToolSchemas(
+  actions: Record<string, ActionEntry>,
+): AgentToolSchema[] {
+  return engineToolsToAnthropic(actionsToEngineTools(actions)).map((tool) => ({
+    name: tool.name,
+    inputSchema: tool.input_schema,
+  }));
 }
 
 /**
@@ -588,6 +624,10 @@ export async function loadTemplateMcpConformance(
     modes: templateMcpCatalogModes(projectRoot),
     listCatalog: (mode) =>
       listMcpCatalogTools(config, mode, profile, directoryActions),
+    listAgentTools: () =>
+      listAgentToolSchemas(
+        withoutDiscoveryPredicates(filterAgentTools(directoryActions)),
+      ),
   };
 }
 
